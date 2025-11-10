@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Local Clipboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom scrollbar for text previews */
+        pre::-webkit-scrollbar { width: 6px; }
+        pre::-webkit-scrollbar-track { background: #2d3748; }
+        pre::-webkit-scrollbar-thumb { background: #718096; border-radius: 3px; }
+        pre::-webkit-scrollbar-thumb:hover { background: #a0aec0; }
+        body { font-family: 'Inter', sans-serif; }
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+</head>
+<body class="bg-gray-100 text-gray-900">
+
+<!-- Header -->
+<header class="bg-white shadow-md sticky top-0 z-10">
+    <div class="container mx-auto px-4 py-4 flex justify-between items-center">
+        <h1 class="text-2xl font-bold text-gray-800">Local Clipboard</h1>
+        <button id="delete-all-temp-btn" class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg transition-colors">
+            Delete All Temp Files
+        </button>
+    </div>
+</header>
+
+<!-- Main Content -->
+<main class="container mx-auto p-4">
+
+    <!-- Upload/Paste Zone -->
+    <div class="mb-8">
+        <div id="drop-zone" class="bg-white border-2 border-dashed border-gray-400 rounded-lg p-8 text-center cursor-pointer transition-colors hover:border-blue-500 hover:bg-blue-50">
+            <p class="text-lg text-gray-600">Drag & drop files here, paste anywhere, or</p>
+            <input type="file" id="file-input" class="hidden">
+            <button id="file-select-btn" class="mt-4 bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-6 rounded-lg transition-colors">
+                Select File
+            </button>
+        </div>
+    </div>
+
+    <!-- Gallery -->
+    <div id="gallery" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+        <!-- Clip cards will be inserted here by JavaScript -->
+    </div>
+
+</main>
+
+<!-- Toast Notification -->
+<div id="toast" class="fixed bottom-4 right-4 bg-gray-900 text-white py-3 px-5 rounded-lg shadow-xl transition-all translate-x-full opacity-0">
+    <!-- Message will be set by JS -->
+</div>
+
+<script>
+    const dropZone = document.getElementById('drop-zone');
+    const fileInput = document.getElementById('file-input');
+    const fileSelectBtn = document.getElementById('file-select-btn');
+    const gallery = document.getElementById('gallery');
+    const deleteAllTempBtn = document.getElementById('delete-all-temp-btn');
+
+    // --- Utility Functions ---
+
+    function showToast(message) {
+        const toast = document.getElementById('toast');
+        toast.textContent = message;
+        toast.classList.remove('translate-x-full', 'opacity-0');
+        toast.classList.add('translate-x-0', 'opacity-100');
+
+        setTimeout(() => {
+            toast.classList.remove('translate-x-0', 'opacity-100');
+            toast.classList.add('translate-x-full', 'opacity-0');
+        }, 3000);
+    }
+
+    function copyToClipboard(text) {
+        // Using document.execCommand as it works reliably in iFrames/sandboxed envs
+        const textArea = document.createElement("textarea");
+        textArea.value = text;
+        textArea.style.position = "fixed"; //- Remove from old document flow
+        textArea.style.left = "-9999px";
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        try {
+            document.execCommand('copy');
+            showToast('Copied to clipboard!');
+        } catch (err) {
+            console.error('Failed to copy: ', err);
+            showToast('Failed to copy.');
+        }
+        document.body.removeChild(textArea);
+    }
+
+    function escapeHTML(str) {
+        if (!str) return '';
+        return str.replace(/[&<>"']/g, function(m) {
+            return {
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#039;'
+            }[m];
+        });
+    }
+
+    // --- API Functions ---
+
+    async function loadClips() {
+        try {
+            const response = await fetch('/clips');
+            if (!response.ok) throw new Error('Failed to load clips');
+            const clips = await response.json();
+
+            gallery.innerHTML = ''; // Clear gallery
+            if (clips && clips.length > 0) {
+                clips.forEach(createClipCard);
+            } else {
+                gallery.innerHTML = '<p class="text-gray-500 col-span-full text-center">No clips yet. Paste or drop something!</p>';
+            }
+        } catch (error) {
+            console.error('Error loading clips:', error);
+            gallery.innerHTML = '<p class="text-red-500 col-span-full text-center">Error loading clips. Is the server running?</p>';
+        }
+    }
+
+    async function upload(formData) {
+        try {
+            const response = await fetch('/upload', {
+                method: 'POST',
+                body: formData
+            });
+            if (!response.ok) throw new Error('Upload failed');
+            showToast('Upload successful!');
+            loadClips(); // Refresh gallery
+        } catch (error) {
+            console.error('Error uploading:', error);
+            showToast('Upload failed.');
+        }
+    }
+
+    async function deleteClip(id) {
+        if (!confirm('Are you sure you want to delete this clip?')) return;
+        try {
+            const response = await fetch('/clip/' + id, { method: 'DELETE' });
+            if (!response.ok) throw new Error('Delete failed');
+            showToast('Clip deleted.');
+            loadClips(); // Refresh gallery
+        } catch (error) {
+            console.error('Error deleting clip:', error);
+            showToast('Failed to delete clip.');
+        }
+    }
+
+    async function saveTempFile(id) {
+        try {
+            const response = await fetch('/tempfile/' + id, { method: 'POST' });
+            if (!response.ok) throw new Error('Failed to create temp file');
+            const result = await response.json();
+            if (result.path) {
+                copyToClipboard(result.path);
+            } else {
+                throw new Error('Invalid response from server');
+            }
+        } catch (error) {
+            console.error('Error saving temp file:', error);
+            showToast('Failed to save temp file.');
+        }
+    }
+
+    function copyUrl(id) {
+        const url = window.location.origin + '/clip/' + id;
+        copyToClipboard(url);
+    }
+
+    async function deleteAllTempFiles() {
+        if (!confirm('Are you sure you want to delete ALL temporary files?')) return;
+        try {
+            const response = await fetch('/tempfiles', { method: 'DELETE' });
+            if (!response.ok) throw new Error('Failed to delete temp files');
+            showToast('All temp files deleted.');
+        } catch (error) {
+            console.error('Error deleting temp files:', error);
+            showToast('Failed to delete temp files.');
+        }
+    }
+
+
+    // --- UI & Event Handlers ---
+
+    function createClipCard(clip) {
+        const card = document.createElement('div');
+        card.className = 'bg-white rounded-lg shadow-md overflow-hidden flex flex-col';
+        card.dataset.id = clip.id;
+
+        let previewHTML = '';
+        const clipUrl = `/clip/${clip.id}`;
+
+        if (clip.content_type.startsWith('image/')) {
+            previewHTML = `<img src="${clipUrl}" alt="${clip.filename || 'Uploaded image'}" class="h-48 w-full object-cover">`;
+        } else if (clip.content_type === 'text/html') {
+            previewHTML = `<div class="h-48 w-full relative"><iframe src="${clipUrl}" class="h-full w-full border-0" sandbox></iframe><div class="absolute inset-0 bg-transparent" title="HTML Preview"></div></div>`;
+        } else if (clip.content_type.startsWith('text/') || clip.content_type === 'application/json') {
+            previewHTML = `<div class="h-48 w-full overflow-hidden"><pre class="p-2 text-xs overflow-auto h-full bg-gray-900 text-gray-100 rounded-t-none"><code>${escapeHTML(clip.preview)}</code></pre></div>`;
+        } else {
+            previewHTML = `
+                <div class="h-48 w-full flex flex-col items-center justify-center bg-gray-200 text-gray-500 p-4">
+                    <svg class="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
+                    <span class="mt-2 text-sm text-center break-all">${escapeHTML(clip.filename) || 'Binary File'}</span>
+                </div>`;
+        }
+
+        card.innerHTML = `
+                ${previewHTML}
+                <div class="p-3 border-t border-gray-200">
+                    <p class="text-xs text-gray-500 truncate" title="${clip.content_type}">${clip.content_type}</p>
+                    <p class="text-xs text-gray-500">${new Date(clip.created_at).toLocaleString()}</p>
+                </div>
+                <div class="p-2 bg-gray-50 border-t border-gray-200 mt-auto grid grid-cols-3 gap-1">
+                    <button class="action-btn" data-action="copy-url" title="Copy URL">
+                        <svg class="w-4 h-4 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m11.314 0l-1.757 1.757a4.5 4.5 0 01-6.364 6.364l-4.5-4.5a4.5 4.5 0 017.244-1.242"></path></svg>
+                    </button>
+                    <button class="action-btn" data-action="save-temp" title="Save as Temp File & Copy Path">
+                        <svg class="w-4 h-4 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7v8a2 2 0 002 2h4a2 2 0 002-2V7a2 2 0 00-2-2h-4a2 2 0 00-2 2z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v4m-4-4h8"></path></svg>
+                    </button>
+                    <button class="action-btn-danger" data-action="delete" title="Delete">
+                        <svg class="w-4 h-4 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                    </button>
+                </div>
+            `;
+
+        // Add styles to buttons (can't do this in template string easily with tailwind)
+        card.querySelectorAll('.action-btn').forEach(btn => {
+            btn.className = 'p-2 rounded text-gray-600 hover:bg-gray-200 hover:text-blue-600 transition-colors';
+        });
+        card.querySelectorAll('.action-btn-danger').forEach(btn => {
+            btn.className = 'p-2 rounded text-gray-600 hover:bg-gray-200 hover:text-red-600 transition-colors';
+        });
+
+        // Add event listeners for buttons
+        card.querySelector('[data-action="copy-url"]').addEventListener('click', () => copyUrl(clip.id));
+        card.querySelector('[data-action="save-temp"]').addEventListener('click', () => saveTempFile(clip.id));
+        card.querySelector('[data-action="delete"]').addEventListener('click', () => deleteClip(clip.id));
+
+        // Add click to preview
+        card.querySelector(previewHTML.startsWith('<img') ? 'img' : (previewHTML.startsWith('<div class="h-48 w-full relative">') ? 'div.relative' : (previewHTML.startsWith('<div class="h-48 w-full overflow-hidden">') ? 'pre' : 'div.flex-col')))
+            .addEventListener('click', () => window.open(clipUrl, '_blank'));
+
+
+        gallery.appendChild(card);
+    }
+
+    // --- Event Listeners Setup ---
+
+    // Drag and Drop
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+        dropZone.addEventListener(eventName, e => {
+            e.preventDefault();
+            e.stopPropagation();
+        }, false);
+    });
+
+    ['dragenter', 'dragover'].forEach(eventName => {
+        dropZone.addEventListener(eventName, () => {
+            dropZone.classList.add('border-blue-500', 'bg-blue-50');
+        }, false);
+    });
+
+    ['dragleave', 'drop'].forEach(eventName => {
+        dropZone.addEventListener(eventName, () => {
+            dropZone.classList.remove('border-blue-500', 'bg-blue-50');
+        }, false);
+    });
+
+    dropZone.addEventListener('drop', e => {
+        const files = e.dataTransfer.files;
+        handleFiles(files);
+    });
+
+    // File Select Button
+    fileSelectBtn.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', e => handleFiles(e.target.files));
+
+    // Paste
+    document.addEventListener('paste', e => {
+        // Check for files (e.g., screenshots)
+        if (e.clipboardData.files.length > 0) {
+            handleFiles(e.clipboardData.files);
+        } else {
+            // Check for text
+            const text = e.clipboardData.getData('text/plain');
+            if (text) {
+                handleText(text);
+            }
+        }
+    });
+
+    // Delete All Temp Files
+    deleteAllTempBtn.addEventListener('click', deleteAllTempFiles);
+
+    // --- Upload Handlers ---
+
+    function handleFiles(files) {
+        if (files.length === 0) return;
+        // Upload first file. Can be extended to handle multiple.
+        const file = files[0];
+        const formData = new FormData();
+        formData.append('data', file, file.name);
+        upload(formData);
+    }
+
+    function handleText(text) {
+        const formData = new FormData();
+        // Send as a blob with a default filename
+        formData.append('data', new Blob([text], {type: 'text/plain'}), 'pasted_text.txt');
+        upload(formData);
+    }
+
+    // --- Initial Load ---
+    window.addEventListener('load', loadClips);
+</script>
+</body>
+</html>
