@@ -262,10 +262,8 @@ func handleClip(w http.ResponseWriter, r *http.Request) {
 		}
 
 		w.Header().Set("Content-Type", contentType)
-		// Set a more permissive CSP for HTML content, if desired
 		if contentType == "text/html" {
-			// This is insecure, but as per the prompt, security is not a concern for this localhost-only app
-			w.Header().Set("Content-Security-Policy", "default-src *; script-src * 'unsafe-inline' 'unsafe-eval'; style-src * 'unsafe-inline';")
+			w.Header().Set("Content-Security-Policy", "default-src * data:; script-src * 'unsafe-inline' 'unsafe-eval'; style-src * 'unsafe-inline';")
 		}
 		w.Write(data)
 

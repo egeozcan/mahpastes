@@ -17,7 +17,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
 </head>
-<body class="bg-gray-100 text-gray-900">
+<body class="bg-gray-200 text-gray-900">
 
 <!-- Header -->
 <header class="bg-white shadow-md sticky top-0 z-10">
@@ -35,6 +35,7 @@
     <!-- Upload/Paste Zone -->
     <div class="mb-8">
         <div id="drop-zone" class="bg-white border-2 border-dashed border-gray-400 rounded-lg p-8 text-center cursor-pointer transition-colors hover:border-blue-500 hover:bg-blue-50">
+            <svg class="w-16 h-16 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M12 15l-3-3m0 0l3-3m-3 3h12"></path></svg>
             <p class="text-lg text-gray-600">Drag & drop files here, paste anywhere, or</p>
             <input type="file" id="file-input" class="hidden">
             <button id="file-select-btn" class="mt-4 bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-6 rounded-lg transition-colors">
@@ -51,7 +52,7 @@
 </main>
 
 <!-- Toast Notification -->
-<div id="toast" class="fixed bottom-4 right-4 bg-gray-900 text-white py-3 px-5 rounded-lg shadow-xl transition-all translate-x-full opacity-0">
+<div id="toast" role="status" aria-live="polite" class="fixed bottom-4 right-4 bg-gray-900 text-white py-3 px-5 rounded-lg shadow-xl transition-all translate-x-full opacity-0">
     <!-- Message will be set by JS -->
 </div>
 
@@ -194,62 +195,62 @@
 
     function createClipCard(clip) {
         const card = document.createElement('div');
-        card.className = 'bg-white rounded-lg shadow-md overflow-hidden flex flex-col';
+        card.className = 'bg-white rounded-lg shadow-md overflow-hidden flex flex-col transition-all duration-200 hover:shadow-xl hover:-translate-y-1';
         card.dataset.id = clip.id;
 
         let previewHTML = '';
         const clipUrl = `/clip/${clip.id}`;
 
+        // Added a .preview-container class to each preview element for easier and more robust event handling
         if (clip.content_type.startsWith('image/')) {
-            previewHTML = `<img src="${clipUrl}" alt="${clip.filename || 'Uploaded image'}" class="h-48 w-full object-cover">`;
+            previewHTML = `<div class="preview-container cursor-pointer"><img src="${clipUrl}" alt="${escapeHTML(clip.filename) || 'Uploaded image'}" class="h-48 w-full object-cover"></div>`;
         } else if (clip.content_type === 'text/html') {
-            previewHTML = `<div class="h-48 w-full relative"><iframe src="${clipUrl}" class="h-full w-full border-0" sandbox></iframe><div class="absolute inset-0 bg-transparent" title="HTML Preview"></div></div>`;
+            previewHTML = `<div class="preview-container h-48 w-full relative cursor-pointer"><iframe src="${clipUrl}" class="h-full w-full border-0" sandbox></iframe><div class="absolute inset-0 bg-transparent" title="HTML Preview"></div></div>`;
         } else if (clip.content_type.startsWith('text/') || clip.content_type === 'application/json') {
-            previewHTML = `<div class="h-48 w-full overflow-hidden"><pre class="p-2 text-xs overflow-auto h-full bg-gray-900 text-gray-100 rounded-t-none"><code>${escapeHTML(clip.preview)}</code></pre></div>`;
+            previewHTML = `<div class="preview-container h-48 w-full overflow-hidden cursor-pointer"><pre class="p-2 text-xs overflow-auto h-full bg-gray-900 text-gray-100 rounded-t-none"><code>${escapeHTML(clip.preview)}</code></pre></div>`;
         } else {
             previewHTML = `
-                <div class="h-48 w-full flex flex-col items-center justify-center bg-gray-200 text-gray-500 p-4">
+                <div class="preview-container h-48 w-full flex flex-col items-center justify-center bg-gray-200 text-gray-500 p-4 cursor-pointer">
                     <svg class="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
                     <span class="mt-2 text-sm text-center break-all">${escapeHTML(clip.filename) || 'Binary File'}</span>
                 </div>`;
         }
 
+        // Revamped card structure for better info display and accessible buttons with text labels
         card.innerHTML = `
                 ${previewHTML}
                 <div class="p-3 border-t border-gray-200">
-                    <p class="text-xs text-gray-500 truncate" title="${clip.content_type}">${clip.content_type}</p>
-                    <p class="text-xs text-gray-500">${new Date(clip.created_at).toLocaleString()}</p>
+                    <p class="text-sm font-medium text-gray-800 truncate" title="${escapeHTML(clip.filename) || 'Pasted Content'}">
+                        ${escapeHTML(clip.filename) || '<em class="text-gray-500 not-italic">Pasted Content</em>'}
+                    </p>
+                    <div class="flex justify-between items-center mt-1">
+                        <p class="text-xs text-gray-500 truncate" title="${clip.content_type}">${clip.content_type}</p>
+                        <p class="text-xs text-gray-500 flex-shrink-0 ml-2">${new Date(clip.created_at).toLocaleString()}</p>
+                    </div>
                 </div>
-                <div class="p-2 bg-gray-50 border-t border-gray-200 mt-auto grid grid-cols-3 gap-1">
-                    <button class="action-btn" data-action="copy-url" title="Copy URL">
-                        <svg class="w-4 h-4 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m11.314 0l-1.757 1.757a4.5 4.5 0 01-6.364 6.364l-4.5-4.5a4.5 4.5 0 017.244-1.242"></path></svg>
+                <div class="p-2 bg-gray-50 border-t border-gray-200 mt-auto grid grid-cols-1 sm:grid-cols-3 gap-1">
+                    <button class="p-2 rounded text-gray-600 hover:bg-gray-200 hover:text-blue-600 transition-colors flex items-center justify-center text-sm" data-action="copy-url" title="Copy URL to clipboard">
+                        <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m11.314 0l-1.757 1.757a4.5 4.5 0 01-6.364 6.364l-4.5-4.5a4.5 4.5 0 017.244-1.242"></path></svg>
+                        <span class="ml-2">Copy URL</span>
                     </button>
-                    <button class="action-btn" data-action="save-temp" title="Save as Temp File & Copy Path">
-                        <svg class="w-4 h-4 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7v8a2 2 0 002 2h4a2 2 0 002-2V7a2 2 0 00-2-2h-4a2 2 0 00-2 2z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v4m-4-4h8"></path></svg>
+                    <button class="p-2 rounded text-gray-600 hover:bg-gray-200 hover:text-blue-600 transition-colors flex items-center justify-center text-sm" data-action="save-temp" title="Save as a temporary file and copy its local path">
+                        <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7v8a2 2 0 002 2h4a2 2 0 002-2V7a2 2 0 00-2-2h-4a2 2 0 00-2 2z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v4m-4-4h8"></path></svg>
+                        <span class="ml-2">Save Path</span>
                     </button>
-                    <button class="action-btn-danger" data-action="delete" title="Delete">
-                        <svg class="w-4 h-4 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                    <button class="p-2 rounded text-gray-600 hover:bg-gray-200 hover:text-red-600 transition-colors flex items-center justify-center text-sm" data-action="delete" title="Delete this clip permanently">
+                        <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                        <span class="ml-2">Delete</span>
                     </button>
                 </div>
             `;
-
-        // Add styles to buttons (can't do this in template string easily with tailwind)
-        card.querySelectorAll('.action-btn').forEach(btn => {
-            btn.className = 'p-2 rounded text-gray-600 hover:bg-gray-200 hover:text-blue-600 transition-colors';
-        });
-        card.querySelectorAll('.action-btn-danger').forEach(btn => {
-            btn.className = 'p-2 rounded text-gray-600 hover:bg-gray-200 hover:text-red-600 transition-colors';
-        });
 
         // Add event listeners for buttons
         card.querySelector('[data-action="copy-url"]').addEventListener('click', () => copyUrl(clip.id));
         card.querySelector('[data-action="save-temp"]').addEventListener('click', () => saveTempFile(clip.id));
         card.querySelector('[data-action="delete"]').addEventListener('click', () => deleteClip(clip.id));
 
-        // Add click to preview
-        card.querySelector(previewHTML.startsWith('<img') ? 'img' : (previewHTML.startsWith('<div class="h-48 w-full relative">') ? 'div.relative' : (previewHTML.startsWith('<div class="h-48 w-full overflow-hidden">') ? 'pre' : 'div.flex-col')))
-            .addEventListener('click', () => window.open(clipUrl, '_blank'));
-
+        // Simplified click-to-preview event listener
+        card.querySelector('.preview-container').addEventListener('click', () => window.open(clipUrl, '_blank'));
 
         gallery.appendChild(card);
     }
