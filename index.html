@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,390 +8,551 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         /* Custom scrollbar for text previews */
-        pre::-webkit-scrollbar { width: 6px; }
-        pre::-webkit-scrollbar-track { background: #2d3748; }
-        pre::-webkit-scrollbar-thumb { background: #718096; border-radius: 3px; }
-        pre::-webkit-scrollbar-thumb:hover { background: #a0aec0; }
-        body { font-family: 'Inter', sans-serif; }
+        pre::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        pre::-webkit-scrollbar-track {
+            background: #2d3748;
+        }
+
+        pre::-webkit-scrollbar-thumb {
+            background: #718096;
+            border-radius: 3px;
+        }
+
+        pre::-webkit-scrollbar-thumb:hover {
+            background: #a0aec0;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+        }
     </style>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
 </head>
+
 <body class="bg-gray-200 text-gray-900">
 
-<!-- Header -->
-<header class="bg-white shadow-md sticky top-0 z-10">
-    <div class="container mx-auto px-4 py-4 flex justify-between items-center">
-        <h1 class="text-2xl font-bold text-gray-800">Local Clipboard</h1>
-        <div class="flex gap-4">
-            <button id="toggle-archive-view-btn" class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg transition-colors flex items-center">
-                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"></path></svg>
-                <span id="archive-btn-text">View Archive</span>
-            </button>
-            <button id="delete-all-temp-btn" class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg transition-colors">
-                Delete All Temp Files
-            </button>
+    <!-- Header -->
+    <header class="bg-white shadow-md sticky top-0 z-10">
+        <div class="container mx-auto px-4 py-4 flex justify-between items-center">
+            <h1 class="text-2xl font-bold text-gray-800">Local Clipboard</h1>
+            <div class="flex gap-4">
+                <button id="toggle-archive-view-btn"
+                    class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg transition-colors flex items-center">
+                    <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                        xmlns="http://www.w3.org/2000/svg">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4">
+                        </path>
+                    </svg>
+                    <span id="archive-btn-text">View Archive</span>
+                </button>
+                <button id="delete-all-temp-btn"
+                    class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg transition-colors">
+                    Delete All Temp Files
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="container mx-auto p-4">
+
+        <!-- Upload/Paste Zone -->
+        <div class="mb-8" id="upload-section">
+            <div id="drop-zone"
+                class="bg-white border-2 border-dashed border-gray-400 rounded-lg p-8 text-center cursor-pointer transition-colors hover:border-blue-500 hover:bg-blue-50">
+                <svg class="w-16 h-16 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                    xmlns="http://www.w3.org/2000/svg">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1"
+                        d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M12 15l-3-3m0 0l3-3m-3 3h12">
+                    </path>
+                </svg>
+                <p class="text-lg text-gray-600">Drag & drop files here, paste anywhere, or</p>
+                <input type="file" id="file-input" class="hidden" multiple>
+                <button id="file-select-btn"
+                    class="mt-4 bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-6 rounded-lg transition-colors">
+                    Select Files
+                </button>
+                <div class="mt-4 flex flex-col items-center">
+                    <label for="expiration-select" class="text-sm text-gray-500 mb-1">Delete after:</label>
+                    <select id="expiration-select"
+                        class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2.5">
+                        <option value="0" selected>Never</option>
+                        <option value="5">5 minutes</option>
+                        <option value="10">10 minutes</option>
+                        <option value="30">30 minutes</option>
+                        <option value="120">2 hours</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <!-- Gallery -->
+        <div id="gallery" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+            <!-- Clip cards will be inserted here by JavaScript -->
+        </div>
+
+    </main>
+
+    <!-- Toast Notification -->
+    <div id="toast" role="status" aria-live="polite"
+        class="fixed bottom-4 right-4 bg-gray-900 text-white py-3 px-5 rounded-lg shadow-xl transition-all translate-x-full opacity-0 z-[60]">
+        <!-- Message will be set by JS -->
+    </div>
+
+    <!-- Confirm Dialog -->
+    <div id="confirm-dialog"
+        class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm transition-opacity duration-300 opacity-0 pointer-events-none">
+        <div
+            class="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden transform transition-transform duration-300 scale-95">
+            <div class="p-6">
+                <div class="flex items-center justify-center w-12 h-12 mx-auto bg-red-100 rounded-full mb-4">
+                    <svg class="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                        xmlns="http://www.w3.org/2000/svg">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z">
+                        </path>
+                    </svg>
+                </div>
+                <h3 id="confirm-title" class="text-xl font-bold text-gray-900 text-center mb-2">Confirm Action</h3>
+                <p id="confirm-message" class="text-gray-500 text-center">Are you sure you want to proceed?</p>
+            </div>
+            <div class="bg-gray-50 px-6 py-4 flex flex-col sm:flex-row-reverse gap-3">
+                <button id="confirm-yes-btn"
+                    class="w-full sm:w-auto bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-6 rounded-xl transition-colors">
+                    Delete
+                </button>
+                <button id="confirm-no-btn"
+                    class="w-full sm:w-auto bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 font-bold py-2 px-6 rounded-xl transition-colors">
+                    Cancel
+                </button>
+            </div>
         </div>
     </div>
-</header>
 
-<!-- Main Content -->
-<main class="container mx-auto p-4">
+    <script>
+        const dropZone = document.getElementById('drop-zone');
+        const fileInput = document.getElementById('file-input');
+        const fileSelectBtn = document.getElementById('file-select-btn');
+        const gallery = document.getElementById('gallery');
+        const deleteAllTempBtn = document.getElementById('delete-all-temp-btn');
+        const toggleArchiveViewBtn = document.getElementById('toggle-archive-view-btn');
+        const archiveBtnText = document.getElementById('archive-btn-text');
+        const uploadSection = document.getElementById('upload-section');
+        const expirationSelect = document.getElementById('expiration-select');
 
-    <!-- Upload/Paste Zone -->
-    <div class="mb-8" id="upload-section">
-        <div id="drop-zone" class="bg-white border-2 border-dashed border-gray-400 rounded-lg p-8 text-center cursor-pointer transition-colors hover:border-blue-500 hover:bg-blue-50">
-            <svg class="w-16 h-16 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M12 15l-3-3m0 0l3-3m-3 3h12"></path></svg>
-            <p class="text-lg text-gray-600">Drag & drop files here, paste anywhere, or</p>
-            <input type="file" id="file-input" class="hidden" multiple>
-            <button id="file-select-btn" class="mt-4 bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-6 rounded-lg transition-colors">
-                Select Files
-            </button>
-        </div>
-    </div>
+        let isViewingArchive = false;
+        let confirmCallback = null;
 
-    <!-- Gallery -->
-    <div id="gallery" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-        <!-- Clip cards will be inserted here by JavaScript -->
-    </div>
+        // --- Utility Functions ---
 
-</main>
+        function showConfirmDialog(title, message, callback) {
+            const dialog = document.getElementById('confirm-dialog');
+            const dialogContent = dialog.querySelector('div');
+            const titleEl = document.getElementById('confirm-title');
+            const messageEl = document.getElementById('confirm-message');
 
-<!-- Toast Notification -->
-<div id="toast" role="status" aria-live="polite" class="fixed bottom-4 right-4 bg-gray-900 text-white py-3 px-5 rounded-lg shadow-xl transition-all translate-x-full opacity-0">
-    <!-- Message will be set by JS -->
-</div>
+            titleEl.textContent = title;
+            messageEl.textContent = message;
+            confirmCallback = callback;
 
-<script>
-    const dropZone = document.getElementById('drop-zone');
-    const fileInput = document.getElementById('file-input');
-    const fileSelectBtn = document.getElementById('file-select-btn');
-    const gallery = document.getElementById('gallery');
-    const deleteAllTempBtn = document.getElementById('delete-all-temp-btn');
-    const toggleArchiveViewBtn = document.getElementById('toggle-archive-view-btn');
-    const archiveBtnText = document.getElementById('archive-btn-text');
-    const uploadSection = document.getElementById('upload-section');
-
-    let isViewingArchive = false;
-
-    // --- Utility Functions ---
-
-    function showToast(message) {
-        const toast = document.getElementById('toast');
-        toast.textContent = message;
-        toast.classList.remove('translate-x-full', 'opacity-0');
-        toast.classList.add('translate-x-0', 'opacity-100');
-
-        setTimeout(() => {
-            toast.classList.remove('translate-x-0', 'opacity-100');
-            toast.classList.add('translate-x-full', 'opacity-0');
-        }, 3000);
-    }
-
-    function copyToClipboard(text) {
-        // Using document.execCommand as it works reliably in iFrames/sandboxed envs
-        const textArea = document.createElement("textarea");
-        textArea.value = text;
-        textArea.style.position = "fixed"; //- Remove from old document flow
-        textArea.style.left = "-9999px";
-        document.body.appendChild(textArea);
-        textArea.focus();
-        textArea.select();
-        try {
-            document.execCommand('copy');
-            showToast('Copied to clipboard!');
-        } catch (err) {
-            console.error('Failed to copy: ', err);
-            showToast('Failed to copy.');
+            dialog.classList.remove('opacity-0', 'pointer-events-none');
+            dialog.classList.add('opacity-100');
+            dialogContent.classList.remove('scale-95');
+            dialogContent.classList.add('scale-100');
         }
-        document.body.removeChild(textArea);
-    }
 
-    function escapeHTML(str) {
-        if (!str) return '';
-        return str.replace(/[&<>"']/g, function(m) {
-            return {
-                '&': '&amp;',
-                '<': '&lt;',
-                '>': '&gt;',
-                '"': '&quot;',
-                "'": '&#039;'
-            }[m];
-        });
-    }
+        function closeConfirmDialog() {
+            const dialog = document.getElementById('confirm-dialog');
+            const dialogContent = dialog.querySelector('div');
 
-    // --- API Functions ---
+            dialog.classList.remove('opacity-100');
+            dialog.classList.add('opacity-0', 'pointer-events-none');
+            dialogContent.classList.remove('scale-100');
+            dialogContent.classList.add('scale-95');
+            confirmCallback = null;
+        }
 
-    async function loadClips() {
-        try {
-            const url = isViewingArchive ? '/clips?archived=true' : '/clips';
-            const response = await fetch(url);
-            if (!response.ok) throw new Error('Failed to load clips');
-            const clips = await response.json();
+        function showToast(message) {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.classList.remove('translate-x-full', 'opacity-0');
+            toast.classList.add('translate-x-0', 'opacity-100');
 
-            gallery.innerHTML = ''; // Clear gallery
-            if (clips && clips.length > 0) {
-                clips.forEach(createClipCard);
-            } else {
-                const emptyMsg = isViewingArchive
-                    ? 'No archived clips.'
-                    : 'No active clips. Paste or drop something!';
-                gallery.innerHTML = `<p class="text-gray-500 col-span-full text-center">${emptyMsg}</p>`;
+            setTimeout(() => {
+                toast.classList.remove('translate-x-0', 'opacity-100');
+                toast.classList.add('translate-x-full', 'opacity-0');
+            }, 3000);
+        }
+
+        function copyToClipboard(text) {
+            // Using document.execCommand as it works reliably in iFrames/sandboxed envs
+            const textArea = document.createElement("textarea");
+            textArea.value = text;
+            textArea.style.position = "fixed"; //- Remove from old document flow
+            textArea.style.left = "-9999px";
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            try {
+                document.execCommand('copy');
+                showToast('Copied to clipboard!');
+            } catch (err) {
+                console.error('Failed to copy: ', err);
+                showToast('Failed to copy.');
             }
-        } catch (error) {
-            console.error('Error loading clips:', error);
-            gallery.innerHTML = '<p class="text-red-500 col-span-full text-center">Error loading clips. Is the server running?</p>';
+            document.body.removeChild(textArea);
         }
-    }
 
-    async function upload(formData) {
-        try {
-            const response = await fetch('/upload', {
-                method: 'POST',
-                body: formData
+        function escapeHTML(str) {
+            if (!str) return '';
+            return str.replace(/[&<>"']/g, function (m) {
+                return {
+                    '&': '&amp;',
+                    '<': '&lt;',
+                    '>': '&gt;',
+                    '"': '&quot;',
+                    "'": '&#039;'
+                }[m];
             });
-            if (!response.ok) throw new Error('Upload failed');
-            showToast('Upload successful!');
-            if (!isViewingArchive) {
-                loadClips(); // Refresh gallery only if looking at active
+        }
+
+        // --- API Functions ---
+
+        async function loadClips() {
+            try {
+                const url = isViewingArchive ? '/clips?archived=true' : '/clips';
+                const response = await fetch(url);
+                if (!response.ok) throw new Error('Failed to load clips');
+                const clips = await response.json();
+
+                gallery.innerHTML = ''; // Clear gallery
+                if (clips && clips.length > 0) {
+                    clips.forEach(createClipCard);
+                } else {
+                    const emptyMsg = isViewingArchive
+                        ? 'No archived clips.'
+                        : 'No active clips. Paste or drop something!';
+                    gallery.innerHTML = `<p class="text-gray-500 col-span-full text-center">${emptyMsg}</p>`;
+                }
+            } catch (error) {
+                console.error('Error loading clips:', error);
+                gallery.innerHTML = '<p class="text-red-500 col-span-full text-center">Error loading clips. Is the server running?</p>';
             }
-        } catch (error) {
-            console.error('Error uploading:', error);
-            showToast('Upload failed.');
         }
-    }
 
-    async function deleteClip(id) {
-        if (!confirm('Are you sure you want to delete this clip permanently?')) return;
-        try {
-            const response = await fetch('/clip/' + id, { method: 'DELETE' });
-            if (!response.ok) throw new Error('Delete failed');
-            showToast('Clip deleted.');
-            loadClips(); // Refresh gallery
-        } catch (error) {
-            console.error('Error deleting clip:', error);
-            showToast('Failed to delete clip.');
+        async function upload(formData) {
+            try {
+                const response = await fetch('/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                if (!response.ok) throw new Error('Upload failed');
+                showToast('Upload successful!');
+                if (!isViewingArchive) {
+                    loadClips(); // Refresh gallery only if looking at active
+                }
+            } catch (error) {
+                console.error('Error uploading:', error);
+                showToast('Upload failed.');
+            }
         }
-    }
 
-    async function toggleArchiveClip(id) {
-        try {
-            const response = await fetch('/archive/' + id, { method: 'POST' });
-            if (!response.ok) throw new Error('Failed to toggle archive status');
-            showToast(isViewingArchive ? 'Clip restored.' : 'Clip archived.');
-            loadClips(); // Refresh gallery to remove/add the item
-        } catch (error) {
-            console.error('Error toggling archive:', error);
-            showToast('Failed to change archive status.');
+        async function deleteClip(id) {
+            showConfirmDialog('Delete Clip', 'Are you sure you want to delete this clip permanently?', async () => {
+                try {
+                    const response = await fetch('/clip/' + id, { method: 'DELETE' });
+                    if (!response.ok) throw new Error('Delete failed');
+                    showToast('Clip deleted.');
+                    loadClips(); // Refresh gallery
+                } catch (error) {
+                    console.error('Error deleting clip:', error);
+                    showToast('Failed to delete clip.');
+                }
+            });
         }
-    }
 
-    async function saveTempFile(id) {
-        try {
-            const response = await fetch('/tempfile/' + id, { method: 'POST' });
-            if (!response.ok) throw new Error('Failed to create temp file');
-            const result = await response.json();
-            if (result.path) {
-                copyToClipboard(result.path);
+        async function toggleArchiveClip(id) {
+            try {
+                const response = await fetch('/archive/' + id, { method: 'POST' });
+                if (!response.ok) throw new Error('Failed to toggle archive status');
+                showToast(isViewingArchive ? 'Clip restored.' : 'Clip archived.');
+                loadClips(); // Refresh gallery to remove/add the item
+            } catch (error) {
+                console.error('Error toggling archive:', error);
+                showToast('Failed to change archive status.');
+            }
+        }
+
+        async function cancelExpiration(id) {
+            try {
+                const response = await fetch('/cancel-expiration/' + id, { method: 'POST' });
+                if (!response.ok) throw new Error('Failed to cancel expiration');
+                showToast('Clip is now permanent.');
+                loadClips(); // Refresh gallery
+            } catch (error) {
+                console.error('Error cancelling expiration:', error);
+                showToast('Failed to cancel expiration.');
+            }
+        }
+
+        async function saveTempFile(id) {
+            try {
+                const response = await fetch('/tempfile/' + id, { method: 'POST' });
+                if (!response.ok) throw new Error('Failed to create temp file');
+                const result = await response.json();
+                if (result.path) {
+                    copyToClipboard(result.path);
+                } else {
+                    throw new Error('Invalid response from server');
+                }
+            } catch (error) {
+                console.error('Error saving temp file:', error);
+                showToast('Failed to save temp file.');
+            }
+        }
+
+        function copyUrl(id) {
+            const url = window.location.origin + '/clip/' + id;
+            copyToClipboard(url);
+        }
+
+        async function deleteAllTempFiles() {
+            showConfirmDialog('Delete All Temp Files', 'Are you sure you want to delete ALL temporary files?', async () => {
+                try {
+                    const response = await fetch('/tempfiles', { method: 'DELETE' });
+                    if (!response.ok) throw new Error('Failed to delete temp files');
+                    showToast('All temp files deleted.');
+                } catch (error) {
+                    console.error('Error deleting temp files:', error);
+                    showToast('Failed to delete temp files.');
+                }
+            });
+        }
+
+
+        // --- UI & Event Handlers ---
+
+        function createClipCard(clip) {
+            const card = document.createElement('div');
+            card.className = 'bg-white rounded-lg shadow-md overflow-hidden flex flex-col transition-all duration-200 hover:shadow-xl hover:-translate-y-1';
+            card.dataset.id = clip.id;
+
+            let previewHTML = '';
+            const clipUrl = `/clip/${clip.id}`;
+
+            // Added a .preview-container class to each preview element for easier and more robust event handling
+            if (clip.content_type.startsWith('image/')) {
+                previewHTML = `<div class="preview-container cursor-pointer"><img src="${clipUrl}" alt="${escapeHTML(clip.filename) || 'Uploaded image'}" class="h-48 w-full object-cover"></div>`;
+            } else if (clip.content_type === 'text/html') {
+                previewHTML = `<div class="preview-container h-48 w-full relative cursor-pointer"><iframe src="${clipUrl}" class="h-full w-full border-0" sandbox></iframe><div class="absolute inset-0 bg-transparent" title="HTML Preview"></div></div>`;
+            } else if (clip.content_type.startsWith('text/') || clip.content_type === 'application/json') {
+                previewHTML = `<div class="preview-container h-48 w-full overflow-hidden cursor-pointer"><pre class="p-2 text-xs overflow-auto h-full bg-gray-900 text-gray-100 rounded-t-none"><code>${escapeHTML(clip.preview)}</code></pre></div>`;
             } else {
-                throw new Error('Invalid response from server');
-            }
-        } catch (error) {
-            console.error('Error saving temp file:', error);
-            showToast('Failed to save temp file.');
-        }
-    }
-
-    function copyUrl(id) {
-        const url = window.location.origin + '/clip/' + id;
-        copyToClipboard(url);
-    }
-
-    async function deleteAllTempFiles() {
-        if (!confirm('Are you sure you want to delete ALL temporary files?')) return;
-        try {
-            const response = await fetch('/tempfiles', { method: 'DELETE' });
-            if (!response.ok) throw new Error('Failed to delete temp files');
-            showToast('All temp files deleted.');
-        } catch (error) {
-            console.error('Error deleting temp files:', error);
-            showToast('Failed to delete temp files.');
-        }
-    }
-
-
-    // --- UI & Event Handlers ---
-
-    function createClipCard(clip) {
-        const card = document.createElement('div');
-        card.className = 'bg-white rounded-lg shadow-md overflow-hidden flex flex-col transition-all duration-200 hover:shadow-xl hover:-translate-y-1';
-        card.dataset.id = clip.id;
-
-        let previewHTML = '';
-        const clipUrl = `/clip/${clip.id}`;
-
-        // Added a .preview-container class to each preview element for easier and more robust event handling
-        if (clip.content_type.startsWith('image/')) {
-            previewHTML = `<div class="preview-container cursor-pointer"><img src="${clipUrl}" alt="${escapeHTML(clip.filename) || 'Uploaded image'}" class="h-48 w-full object-cover"></div>`;
-        } else if (clip.content_type === 'text/html') {
-            previewHTML = `<div class="preview-container h-48 w-full relative cursor-pointer"><iframe src="${clipUrl}" class="h-full w-full border-0" sandbox></iframe><div class="absolute inset-0 bg-transparent" title="HTML Preview"></div></div>`;
-        } else if (clip.content_type.startsWith('text/') || clip.content_type === 'application/json') {
-            previewHTML = `<div class="preview-container h-48 w-full overflow-hidden cursor-pointer"><pre class="p-2 text-xs overflow-auto h-full bg-gray-900 text-gray-100 rounded-t-none"><code>${escapeHTML(clip.preview)}</code></pre></div>`;
-        } else {
-            previewHTML = `
+                previewHTML = `
                 <div class="preview-container h-48 w-full flex flex-col items-center justify-center bg-gray-200 text-gray-500 p-4 cursor-pointer">
                     <svg class="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
                     <span class="mt-2 text-sm text-center break-all">${escapeHTML(clip.filename) || 'Binary File'}</span>
                 </div>`;
-        }
+            }
 
-        const archiveIcon = isViewingArchive
-            ? '<svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"></path></svg><span class="ml-2">Restore</span>'
-            : '<svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"></path></svg><span class="ml-2">Archive</span>';
+            const archiveIcon = isViewingArchive
+                ? '<svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"></path></svg><span class="ml-2">Restore</span>'
+                : '<svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"></path></svg><span class="ml-2">Archive</span>';
 
-        const archiveTitle = isViewingArchive ? "Restore this clip" : "Archive (hide) this clip";
+            const archiveTitle = isViewingArchive ? "Restore this clip" : "Archive (hide) this clip";
 
-        // Revamped card structure for better info display and accessible buttons with text labels
-        card.innerHTML = `
-                ${previewHTML}
-                <div class="p-3 border-t border-gray-200">
-                    <p class="text-sm font-medium text-gray-800 truncate" title="${escapeHTML(clip.filename) || 'Pasted Content'}">
-                        ${escapeHTML(clip.filename) || '<em class="text-gray-500 not-italic">Pasted Content</em>'}
-                    </p>
-                    <div class="flex justify-between items-center mt-1">
-                        <p class="text-xs text-gray-500 truncate" title="${clip.content_type}">${clip.content_type}</p>
-                        <p class="text-xs text-gray-500 flex-shrink-0 ml-2">${new Date(clip.created_at).toLocaleString()}</p>
+            let expirationBadge = '';
+            let cancelExpirationBtn = '';
+            if (clip.expires_at) {
+                const expiresDate = new Date(clip.expires_at);
+                expirationBadge = `<div class="absolute top-2 left-2 bg-orange-500 text-white text-[10px] font-bold px-2 py-1 rounded-full shadow-md z-20 flex items-center">
+                    <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                    TEMPORARY
+                </div>`;
+                cancelExpirationBtn = `
+                    <button class="bg-white/95 hover:bg-white text-green-600 w-10 h-10 rounded-full shadow-lg transition-all hover:scale-110 flex items-center justify-center" data-action="cancel-expiration" title="Make Permanent">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                    </button>`;
+            }
+
+            // Revamped card structure: actions now appear as an overlay on hover
+            card.innerHTML = `
+                <div class="relative group">
+                    ${expirationBadge}
+                    ${previewHTML}
+                    
+                    <!-- Hover Action Overlay -->
+                    <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex flex-col items-center justify-center gap-4">
+                        <div class="flex gap-3">
+                            <button class="bg-white/95 hover:bg-white text-gray-800 w-10 h-10 rounded-full shadow-lg transition-all hover:scale-110 flex items-center justify-center" data-action="copy-url" title="Copy URL">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path></svg>
+                            </button>
+                            ${cancelExpirationBtn}
+                            <button class="bg-white/95 hover:bg-white text-gray-800 w-10 h-10 rounded-full shadow-lg transition-all hover:scale-110 flex items-center justify-center" data-action="save-temp" title="Copy Local Path">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"></path></svg>
+                            </button>
+                        </div>
+                        <div class="flex gap-3">
+                            <button class="bg-white/95 hover:bg-white text-orange-600 w-10 h-10 rounded-full shadow-lg transition-all hover:scale-110 flex items-center justify-center" data-action="archive" title="${isViewingArchive ? 'Restore' : 'Archive'}">
+                                ${isViewingArchive
+                    ? '<svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"></path></svg>'
+                    : '<svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"></path></svg>'
+                }
+                            </button>
+                            <button class="bg-white/95 hover:bg-white text-red-600 w-10 h-10 rounded-full shadow-lg transition-all hover:scale-110 flex items-center justify-center" data-action="delete" title="Delete Permanently">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                            </button>
+                        </div>
                     </div>
                 </div>
-                <div class="p-2 bg-gray-50 border-t border-gray-200 mt-auto grid grid-cols-2 sm:grid-cols-4 gap-1">
-                    <button class="p-2 rounded text-gray-600 hover:bg-gray-200 hover:text-blue-600 transition-colors flex items-center justify-center text-sm" data-action="copy-url" title="Copy URL to clipboard">
-                        <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m11.314 0l-1.757 1.757a4.5 4.5 0 01-6.364 6.364l-4.5-4.5a4.5 4.5 0 017.244-1.242"></path></svg>
-                        <span class="ml-2 hidden lg:inline">URL</span>
-                    </button>
-                    <button class="p-2 rounded text-gray-600 hover:bg-gray-200 hover:text-blue-600 transition-colors flex items-center justify-center text-sm" data-action="save-temp" title="Save as a temporary file and copy its local path">
-                        <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7v8a2 2 0 002 2h4a2 2 0 002-2V7a2 2 0 00-2-2h-4a2 2 0 00-2 2z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v4m-4-4h8"></path></svg>
-                        <span class="ml-2 hidden lg:inline">Path</span>
-                    </button>
-                    <button class="p-2 rounded text-gray-600 hover:bg-gray-200 hover:text-orange-600 transition-colors flex items-center justify-center text-sm" data-action="archive" title="${archiveTitle}">
-                        ${archiveIcon}
-                    </button>
-                    <button class="p-2 rounded text-gray-600 hover:bg-gray-200 hover:text-red-600 transition-colors flex items-center justify-center text-sm" data-action="delete" title="Delete this clip permanently">
-                        <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
-                        <span class="ml-2 hidden lg:inline">Del</span>
-                    </button>
+
+                <div class="p-3 bg-white">
+                    <p class="text-sm font-semibold text-gray-800 truncate" title="${escapeHTML(clip.filename) || 'Pasted Content'}">
+                        <a href="${clipUrl}" target="_blank" rel="noopener noreferrer" class="hover:text-blue-600 transition-colors cursor-pointer block w-full outline-none">
+                            ${escapeHTML(clip.filename) || '<em class="text-gray-400 not-italic font-normal">Pasted Content</em>'}
+                        </a>
+                    </p>
+                    <div class="flex justify-between items-center mt-1">
+                        <p class="text-xs text-gray-400 font-medium truncate" title="${clip.content_type}">${clip.content_type.split('/')[1].toUpperCase()}</p>
+                        <p class="text-[10px] text-gray-400 font-medium uppercase tracking-wider">${new Date(clip.created_at).toLocaleDateString([], { month: 'short', day: 'numeric' })}</p>
+                    </div>
                 </div>
             `;
 
-        // Add event listeners for buttons
-        card.querySelector('[data-action="copy-url"]').addEventListener('click', () => copyUrl(clip.id));
-        card.querySelector('[data-action="save-temp"]').addEventListener('click', () => saveTempFile(clip.id));
-        card.querySelector('[data-action="archive"]').addEventListener('click', () => toggleArchiveClip(clip.id));
-        card.querySelector('[data-action="delete"]').addEventListener('click', () => deleteClip(clip.id));
-
-        // Simplified click-to-preview event listener
-        card.querySelector('.preview-container').addEventListener('click', () => window.open(clipUrl, '_blank'));
-
-        gallery.appendChild(card);
-    }
-
-    function toggleViewMode() {
-        isViewingArchive = !isViewingArchive;
-        if (isViewingArchive) {
-            archiveBtnText.textContent = "View Active";
-            toggleArchiveViewBtn.classList.replace('bg-gray-500', 'bg-blue-600');
-            toggleArchiveViewBtn.classList.replace('hover:bg-gray-600', 'hover:bg-blue-700');
-            uploadSection.classList.add('opacity-50', 'pointer-events-none'); // Disable upload in archive view
-        } else {
-            archiveBtnText.textContent = "View Archive";
-            toggleArchiveViewBtn.classList.replace('bg-blue-600', 'bg-gray-500');
-            toggleArchiveViewBtn.classList.replace('hover:bg-blue-700', 'hover:bg-gray-600');
-            uploadSection.classList.remove('opacity-50', 'pointer-events-none');
-        }
-        loadClips();
-    }
-
-    // --- Event Listeners Setup ---
-
-    // Drag and Drop
-    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-        dropZone.addEventListener(eventName, e => {
-            e.preventDefault();
-            e.stopPropagation();
-        }, false);
-    });
-
-    ['dragenter', 'dragover'].forEach(eventName => {
-        dropZone.addEventListener(eventName, () => {
-            dropZone.classList.add('border-blue-500', 'bg-blue-50');
-        }, false);
-    });
-
-    ['dragleave', 'drop'].forEach(eventName => {
-        dropZone.addEventListener(eventName, () => {
-            dropZone.classList.remove('border-blue-500', 'bg-blue-50');
-        }, false);
-    });
-
-    dropZone.addEventListener('drop', e => {
-        const files = e.dataTransfer.files;
-        handleFiles(files);
-    });
-
-    // File Select Button
-    fileSelectBtn.addEventListener('click', () => fileInput.click());
-    fileInput.addEventListener('change', e => handleFiles(e.target.files));
-
-    // Paste
-    document.addEventListener('paste', e => {
-        // Check for files (e.g., screenshots)
-        if (e.clipboardData.files.length > 0) {
-            handleFiles(e.clipboardData.files);
-        } else {
-            // Check for text
-            const text = e.clipboardData.getData('text/plain');
-            if (text) {
-                handleText(text);
+            // Add event listeners for buttons
+            card.querySelector('[data-action="copy-url"]').addEventListener('click', () => copyUrl(clip.id));
+            card.querySelector('[data-action="save-temp"]').addEventListener('click', () => saveTempFile(clip.id));
+            card.querySelector('[data-action="archive"]').addEventListener('click', () => toggleArchiveClip(clip.id));
+            card.querySelector('[data-action="delete"]').addEventListener('click', () => deleteClip(clip.id));
+            if (clip.expires_at) {
+                card.querySelector('[data-action="cancel-expiration"]').addEventListener('click', () => cancelExpiration(clip.id));
             }
+
+            // Simplified click-to-preview event listener
+            card.querySelector('.preview-container').addEventListener('click', () => window.open(clipUrl, '_blank'));
+
+            gallery.appendChild(card);
         }
-    });
 
-    // Toggle Archive View
-    toggleArchiveViewBtn.addEventListener('click', toggleViewMode);
-
-    // Delete All Temp Files
-    deleteAllTempBtn.addEventListener('click', deleteAllTempFiles);
-
-    // --- Upload Handlers ---
-
-    function handleFiles(files) {
-        if (isViewingArchive) {
-            showToast('Switch to Active view to upload.');
-            return;
+        function toggleViewMode() {
+            isViewingArchive = !isViewingArchive;
+            if (isViewingArchive) {
+                archiveBtnText.textContent = "View Active";
+                toggleArchiveViewBtn.classList.replace('bg-gray-500', 'bg-blue-600');
+                toggleArchiveViewBtn.classList.replace('hover:bg-gray-600', 'hover:bg-blue-700');
+                uploadSection.classList.add('opacity-50', 'pointer-events-none'); // Disable upload in archive view
+            } else {
+                archiveBtnText.textContent = "View Archive";
+                toggleArchiveViewBtn.classList.replace('bg-blue-600', 'bg-gray-500');
+                toggleArchiveViewBtn.classList.replace('hover:bg-blue-700', 'hover:bg-gray-600');
+                uploadSection.classList.remove('opacity-50', 'pointer-events-none');
+            }
+            loadClips();
         }
-        if (files.length === 0) return;
 
-        const formData = new FormData();
-        // Append all files
-        for (let i = 0; i < files.length; i++) {
-            formData.append('data', files[i], files[i].name);
+        // --- Event Listeners Setup ---
+
+        // Drag and Drop
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, e => {
+                e.preventDefault();
+                e.stopPropagation();
+            }, false);
+        });
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropZone.addEventListener(eventName, () => {
+                dropZone.classList.add('border-blue-500', 'bg-blue-50');
+            }, false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, () => {
+                dropZone.classList.remove('border-blue-500', 'bg-blue-50');
+            }, false);
+        });
+
+        dropZone.addEventListener('drop', e => {
+            const files = e.dataTransfer.files;
+            handleFiles(files);
+        });
+
+        // File Select Button
+        fileSelectBtn.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', e => handleFiles(e.target.files));
+
+        // Paste
+        document.addEventListener('paste', e => {
+            // Check for files (e.g., screenshots)
+            if (e.clipboardData.files.length > 0) {
+                handleFiles(e.clipboardData.files);
+            } else {
+                // Check for text
+                const text = e.clipboardData.getData('text/plain');
+                if (text) {
+                    handleText(text);
+                }
+            }
+        });
+
+        // Toggle Archive View
+        toggleArchiveViewBtn.addEventListener('click', toggleViewMode);
+
+        // Confirm Dialog Listeners
+        document.getElementById('confirm-yes-btn').addEventListener('click', () => {
+            if (confirmCallback) confirmCallback();
+            closeConfirmDialog();
+        });
+
+        document.getElementById('confirm-no-btn').addEventListener('click', closeConfirmDialog);
+
+        // Close on backdrop click
+        document.getElementById('confirm-dialog').addEventListener('click', (e) => {
+            if (e.target.id === 'confirm-dialog') closeConfirmDialog();
+        });
+
+        // Delete All Temp Files
+        deleteAllTempBtn.addEventListener('click', deleteAllTempFiles);
+
+        // --- Upload Handlers ---
+
+        function handleFiles(files) {
+            if (isViewingArchive) {
+                showToast('Switch to Active view to upload.');
+                return;
+            }
+            if (files.length === 0) return;
+
+            const formData = new FormData();
+            // Append all files
+            for (let i = 0; i < files.length; i++) {
+                formData.append('data', files[i], files[i].name);
+            }
+            formData.append('expiration', expirationSelect.value);
+            upload(formData);
         }
-        upload(formData);
-    }
 
-    function handleText(text) {
-        if (isViewingArchive) {
-            showToast('Switch to Active view to upload.');
-            return;
+        function handleText(text) {
+            if (isViewingArchive) {
+                showToast('Switch to Active view to upload.');
+                return;
+            }
+            const formData = new FormData();
+            // Send as a blob with a default filename
+            formData.append('data', new Blob([text], { type: 'text/plain' }), 'pasted_text.txt');
+            formData.append('expiration', expirationSelect.value);
+            upload(formData);
         }
-        const formData = new FormData();
-        // Send as a blob with a default filename
-        formData.append('data', new Blob([text], {type: 'text/plain'}), 'pasted_text.txt');
-        upload(formData);
-    }
 
-    // --- Initial Load ---
-    window.addEventListener('load', loadClips);
-</script>
+        // --- Initial Load ---
+        window.addEventListener('load', loadClips);
+    </script>
 </body>
+
 </html>

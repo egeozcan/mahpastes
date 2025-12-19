@@ -55,6 +55,7 @@ func main() {
 	mux.HandleFunc("/archive/", handleToggleArchive)
 	mux.HandleFunc("/tempfile/", handleTempFile)
 	mux.HandleFunc("/tempfiles", handleDeleteAllTempFiles)
+	mux.HandleFunc("/cancel-expiration/", handleCancelExpiration)
 
 	// Setup CORS
 	c := cors.New(cors.Options{
@@ -94,8 +95,29 @@ func initDB() error {
 
 	// Migrate: Add is_archived column if it doesn't exist
 	_, _ = db.Exec("ALTER TABLE clips ADD COLUMN is_archived INTEGER DEFAULT 0")
+	// Migrate: Add expires_at column if it doesn't exist
+	_, _ = db.Exec("ALTER TABLE clips ADD COLUMN expires_at DATETIME")
+
+	// Start background cleanup job
+	go startCleanupJob()
 
 	return nil
+}
+
+// startCleanupJob deletes expired clips every minute
+func startCleanupJob() {
+	ticker := time.NewTicker(1 * time.Minute)
+	for range ticker.C {
+		result, err := db.Exec("DELETE FROM clips WHERE expires_at IS NOT NULL AND expires_at <= CURRENT_TIMESTAMP")
+		if err != nil {
+			log.Printf("Failed to delete expired clips: %v\n", err)
+		} else {
+			rows, _ := result.RowsAffected()
+			if rows > 0 {
+				log.Printf("Cleaned up %d expired clips\n", rows)
+			}
+		}
+	}
 }
 
 // initTempDir creates the directory for storing temporary files
@@ -141,6 +163,18 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get expiration duration if provided
+	expirationMinutes := 0
+	if expStr := r.MultipartForm.Value["expiration"]; len(expStr) > 0 {
+		expirationMinutes, _ = strconv.Atoi(expStr[0])
+	}
+
+	var expiresAt *time.Time
+	if expirationMinutes > 0 {
+		t := time.Now().Add(time.Duration(expirationMinutes) * time.Minute)
+		expiresAt = &t
+	}
+
 	for _, handler := range files {
 		file, err := handler.Open()
 		if err != nil {
@@ -173,8 +207,8 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Insert into database (is_archived defaults to 0)
-		_, err = db.Exec("INSERT INTO clips (content_type, data, filename) VALUES (?, ?, ?)",
-			contentType, fileBytes, filename)
+		_, err = db.Exec("INSERT INTO clips (content_type, data, filename, expires_at) VALUES (?, ?, ?, ?)",
+			contentType, fileBytes, filename, expiresAt)
 		if err != nil {
 			log.Printf("Failed to insert into db: %v\n", err)
 			// We don't return here so other files can still be processed
@@ -194,12 +228,13 @@ func isJSON(s string) bool {
 
 // ClipPreview is the struct for JSON responses in the gallery
 type ClipPreview struct {
-	ID          int64     `json:"id"`
-	ContentType string    `json:"content_type"`
-	Filename    string    `json:"filename"`
-	CreatedAt   time.Time `json:"created_at"`
-	Preview     string    `json:"preview"`
-	IsArchived  bool      `json:"is_archived"`
+	ID          int64      `json:"id"`
+	ContentType string     `json:"content_type"`
+	Filename    string     `json:"filename"`
+	CreatedAt   time.Time  `json:"created_at"`
+	ExpiresAt   *time.Time `json:"expires_at"`
+	Preview     string     `json:"preview"`
+	IsArchived  bool       `json:"is_archived"`
 }
 
 // handleGetClips retrieves a list of all clips for the gallery
@@ -217,9 +252,9 @@ func handleGetClips(w http.ResponseWriter, r *http.Request) {
 
 	// Get a preview (first 200 bytes) for text-based content
 	query := `
-    SELECT id, content_type, filename, created_at, SUBSTR(data, 1, 500), is_archived
+    SELECT id, content_type, filename, created_at, expires_at, SUBSTR(data, 1, 500), is_archived
     FROM clips 
-    WHERE is_archived = ?
+    WHERE is_archived = ? AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
     ORDER BY created_at DESC 
     LIMIT 50`
 
@@ -235,14 +270,18 @@ func handleGetClips(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var clip ClipPreview
 		var filename sql.NullString
+		var expiresAt sql.NullTime
 		var previewData []byte
 		var isArchivedInt int
-		if err := rows.Scan(&clip.ID, &clip.ContentType, &filename, &clip.CreatedAt, &previewData, &isArchivedInt); err != nil {
+		if err := rows.Scan(&clip.ID, &clip.ContentType, &filename, &clip.CreatedAt, &expiresAt, &previewData, &isArchivedInt); err != nil {
 			log.Printf("Failed to scan clip row: %v\n", err)
 			continue
 		}
 		clip.Filename = filename.String
 		clip.IsArchived = isArchivedInt == 1
+		if expiresAt.Valid {
+			clip.ExpiresAt = &expiresAt.Time
+		}
 
 		// Only set string preview for text-based types
 		if strings.HasPrefix(clip.ContentType, "text/") || clip.ContentType == "application/json" {
@@ -425,4 +464,29 @@ func handleDeleteAllTempFiles(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprintln(w, "All temporary files deleted")
+}
+
+// handleCancelExpiration removes the expiration for a clip
+func handleCancelExpiration(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Only POST method is allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	idStr := strings.TrimPrefix(r.URL.Path, "/cancel-expiration/")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid clip ID", http.StatusBadRequest)
+		return
+	}
+
+	_, err = db.Exec("UPDATE clips SET expires_at = NULL WHERE id = ?", id)
+	if err != nil {
+		log.Printf("Failed to cancel expiration: %v\n", err)
+		http.Error(w, "Failed to update clip", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprintln(w, "Expiration cancelled")
 }
