@@ -23,9 +23,15 @@
 <header class="bg-white shadow-md sticky top-0 z-10">
     <div class="container mx-auto px-4 py-4 flex justify-between items-center">
         <h1 class="text-2xl font-bold text-gray-800">Local Clipboard</h1>
-        <button id="delete-all-temp-btn" class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg transition-colors">
-            Delete All Temp Files
-        </button>
+        <div class="flex gap-4">
+            <button id="toggle-archive-view-btn" class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg transition-colors flex items-center">
+                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"></path></svg>
+                <span id="archive-btn-text">View Archive</span>
+            </button>
+            <button id="delete-all-temp-btn" class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg transition-colors">
+                Delete All Temp Files
+            </button>
+        </div>
     </div>
 </header>
 
@@ -33,13 +39,13 @@
 <main class="container mx-auto p-4">
 
     <!-- Upload/Paste Zone -->
-    <div class="mb-8">
+    <div class="mb-8" id="upload-section">
         <div id="drop-zone" class="bg-white border-2 border-dashed border-gray-400 rounded-lg p-8 text-center cursor-pointer transition-colors hover:border-blue-500 hover:bg-blue-50">
             <svg class="w-16 h-16 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M12 15l-3-3m0 0l3-3m-3 3h12"></path></svg>
             <p class="text-lg text-gray-600">Drag & drop files here, paste anywhere, or</p>
-            <input type="file" id="file-input" class="hidden">
+            <input type="file" id="file-input" class="hidden" multiple>
             <button id="file-select-btn" class="mt-4 bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-6 rounded-lg transition-colors">
-                Select File
+                Select Files
             </button>
         </div>
     </div>
@@ -62,6 +68,11 @@
     const fileSelectBtn = document.getElementById('file-select-btn');
     const gallery = document.getElementById('gallery');
     const deleteAllTempBtn = document.getElementById('delete-all-temp-btn');
+    const toggleArchiveViewBtn = document.getElementById('toggle-archive-view-btn');
+    const archiveBtnText = document.getElementById('archive-btn-text');
+    const uploadSection = document.getElementById('upload-section');
+
+    let isViewingArchive = false;
 
     // --- Utility Functions ---
 
@@ -113,7 +124,8 @@
 
     async function loadClips() {
         try {
-            const response = await fetch('/clips');
+            const url = isViewingArchive ? '/clips?archived=true' : '/clips';
+            const response = await fetch(url);
             if (!response.ok) throw new Error('Failed to load clips');
             const clips = await response.json();
 
@@ -121,7 +133,10 @@
             if (clips && clips.length > 0) {
                 clips.forEach(createClipCard);
             } else {
-                gallery.innerHTML = '<p class="text-gray-500 col-span-full text-center">No clips yet. Paste or drop something!</p>';
+                const emptyMsg = isViewingArchive
+                    ? 'No archived clips.'
+                    : 'No active clips. Paste or drop something!';
+                gallery.innerHTML = `<p class="text-gray-500 col-span-full text-center">${emptyMsg}</p>`;
             }
         } catch (error) {
             console.error('Error loading clips:', error);
@@ -137,7 +152,9 @@
             });
             if (!response.ok) throw new Error('Upload failed');
             showToast('Upload successful!');
-            loadClips(); // Refresh gallery
+            if (!isViewingArchive) {
+                loadClips(); // Refresh gallery only if looking at active
+            }
         } catch (error) {
             console.error('Error uploading:', error);
             showToast('Upload failed.');
@@ -145,7 +162,7 @@
     }
 
     async function deleteClip(id) {
-        if (!confirm('Are you sure you want to delete this clip?')) return;
+        if (!confirm('Are you sure you want to delete this clip permanently?')) return;
         try {
             const response = await fetch('/clip/' + id, { method: 'DELETE' });
             if (!response.ok) throw new Error('Delete failed');
@@ -154,6 +171,18 @@
         } catch (error) {
             console.error('Error deleting clip:', error);
             showToast('Failed to delete clip.');
+        }
+    }
+
+    async function toggleArchiveClip(id) {
+        try {
+            const response = await fetch('/archive/' + id, { method: 'POST' });
+            if (!response.ok) throw new Error('Failed to toggle archive status');
+            showToast(isViewingArchive ? 'Clip restored.' : 'Clip archived.');
+            loadClips(); // Refresh gallery to remove/add the item
+        } catch (error) {
+            console.error('Error toggling archive:', error);
+            showToast('Failed to change archive status.');
         }
     }
 
@@ -216,6 +245,12 @@
                 </div>`;
         }
 
+        const archiveIcon = isViewingArchive
+            ? '<svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"></path></svg><span class="ml-2">Restore</span>'
+            : '<svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"></path></svg><span class="ml-2">Archive</span>';
+
+        const archiveTitle = isViewingArchive ? "Restore this clip" : "Archive (hide) this clip";
+
         // Revamped card structure for better info display and accessible buttons with text labels
         card.innerHTML = `
                 ${previewHTML}
@@ -228,18 +263,21 @@
                         <p class="text-xs text-gray-500 flex-shrink-0 ml-2">${new Date(clip.created_at).toLocaleString()}</p>
                     </div>
                 </div>
-                <div class="p-2 bg-gray-50 border-t border-gray-200 mt-auto grid grid-cols-1 sm:grid-cols-3 gap-1">
+                <div class="p-2 bg-gray-50 border-t border-gray-200 mt-auto grid grid-cols-2 sm:grid-cols-4 gap-1">
                     <button class="p-2 rounded text-gray-600 hover:bg-gray-200 hover:text-blue-600 transition-colors flex items-center justify-center text-sm" data-action="copy-url" title="Copy URL to clipboard">
                         <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m11.314 0l-1.757 1.757a4.5 4.5 0 01-6.364 6.364l-4.5-4.5a4.5 4.5 0 017.244-1.242"></path></svg>
-                        <span class="ml-2">Copy URL</span>
+                        <span class="ml-2 hidden lg:inline">URL</span>
                     </button>
                     <button class="p-2 rounded text-gray-600 hover:bg-gray-200 hover:text-blue-600 transition-colors flex items-center justify-center text-sm" data-action="save-temp" title="Save as a temporary file and copy its local path">
                         <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7v8a2 2 0 002 2h4a2 2 0 002-2V7a2 2 0 00-2-2h-4a2 2 0 00-2 2z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v4m-4-4h8"></path></svg>
-                        <span class="ml-2">Save Path</span>
+                        <span class="ml-2 hidden lg:inline">Path</span>
+                    </button>
+                    <button class="p-2 rounded text-gray-600 hover:bg-gray-200 hover:text-orange-600 transition-colors flex items-center justify-center text-sm" data-action="archive" title="${archiveTitle}">
+                        ${archiveIcon}
                     </button>
                     <button class="p-2 rounded text-gray-600 hover:bg-gray-200 hover:text-red-600 transition-colors flex items-center justify-center text-sm" data-action="delete" title="Delete this clip permanently">
                         <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
-                        <span class="ml-2">Delete</span>
+                        <span class="ml-2 hidden lg:inline">Del</span>
                     </button>
                 </div>
             `;
@@ -247,12 +285,29 @@
         // Add event listeners for buttons
         card.querySelector('[data-action="copy-url"]').addEventListener('click', () => copyUrl(clip.id));
         card.querySelector('[data-action="save-temp"]').addEventListener('click', () => saveTempFile(clip.id));
+        card.querySelector('[data-action="archive"]').addEventListener('click', () => toggleArchiveClip(clip.id));
         card.querySelector('[data-action="delete"]').addEventListener('click', () => deleteClip(clip.id));
 
         // Simplified click-to-preview event listener
         card.querySelector('.preview-container').addEventListener('click', () => window.open(clipUrl, '_blank'));
 
         gallery.appendChild(card);
+    }
+
+    function toggleViewMode() {
+        isViewingArchive = !isViewingArchive;
+        if (isViewingArchive) {
+            archiveBtnText.textContent = "View Active";
+            toggleArchiveViewBtn.classList.replace('bg-gray-500', 'bg-blue-600');
+            toggleArchiveViewBtn.classList.replace('hover:bg-gray-600', 'hover:bg-blue-700');
+            uploadSection.classList.add('opacity-50', 'pointer-events-none'); // Disable upload in archive view
+        } else {
+            archiveBtnText.textContent = "View Archive";
+            toggleArchiveViewBtn.classList.replace('bg-blue-600', 'bg-gray-500');
+            toggleArchiveViewBtn.classList.replace('hover:bg-blue-700', 'hover:bg-gray-600');
+            uploadSection.classList.remove('opacity-50', 'pointer-events-none');
+        }
+        loadClips();
     }
 
     // --- Event Listeners Setup ---
@@ -300,21 +355,34 @@
         }
     });
 
+    // Toggle Archive View
+    toggleArchiveViewBtn.addEventListener('click', toggleViewMode);
+
     // Delete All Temp Files
     deleteAllTempBtn.addEventListener('click', deleteAllTempFiles);
 
     // --- Upload Handlers ---
 
     function handleFiles(files) {
+        if (isViewingArchive) {
+            showToast('Switch to Active view to upload.');
+            return;
+        }
         if (files.length === 0) return;
-        // Upload first file. Can be extended to handle multiple.
-        const file = files[0];
+
         const formData = new FormData();
-        formData.append('data', file, file.name);
+        // Append all files
+        for (let i = 0; i < files.length; i++) {
+            formData.append('data', files[i], files[i].name);
+        }
         upload(formData);
     }
 
     function handleText(text) {
+        if (isViewingArchive) {
+            showToast('Switch to Active view to upload.');
+            return;
+        }
         const formData = new FormData();
         // Send as a blob with a default filename
         formData.append('data', new Blob([text], {type: 'text/plain'}), 'pasted_text.txt');

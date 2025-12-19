@@ -52,6 +52,7 @@ func main() {
 	mux.HandleFunc("/upload", handleUpload)
 	mux.HandleFunc("/clips", handleGetClips)
 	mux.HandleFunc("/clip/", handleClip)
+	mux.HandleFunc("/archive/", handleToggleArchive)
 	mux.HandleFunc("/tempfile/", handleTempFile)
 	mux.HandleFunc("/tempfiles", handleDeleteAllTempFiles)
 
@@ -91,6 +92,9 @@ func initDB() error {
 		return fmt.Errorf("failed to create table: %w", err)
 	}
 
+	// Migrate: Add is_archived column if it doesn't exist
+	_, _ = db.Exec("ALTER TABLE clips ADD COLUMN is_archived INTEGER DEFAULT 0")
+
 	return nil
 }
 
@@ -124,53 +128,62 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 32 MB max upload size
+	// 32 MB max memory for form parsing
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
 		http.Error(w, "Failed to parse multipart form", http.StatusBadRequest)
 		return
 	}
 
-	file, handler, err := r.FormFile("data")
-	if err != nil {
-		http.Error(w, "Failed to get 'data' from form", http.StatusBadRequest)
-		return
-	}
-	defer file.Close()
-
-	fileBytes, err := io.ReadAll(file)
-	if err != nil {
-		http.Error(w, "Failed to read file bytes", http.StatusInternalServerError)
+	// Get files from the "data" field
+	files := r.MultipartForm.File["data"]
+	if len(files) == 0 {
+		http.Error(w, "No files found in 'data'", http.StatusBadRequest)
 		return
 	}
 
-	contentType := handler.Header.Get("Content-Type")
-	filename := handler.Filename
+	for _, handler := range files {
+		file, err := handler.Open()
+		if err != nil {
+			log.Printf("Failed to open uploaded file: %v", err)
+			continue
+		}
 
-	// Special handling for pasted text
-	if contentType == "text/plain" || contentType == "" {
-		textData := string(fileBytes)
-		trimmedText := strings.TrimSpace(textData)
+		fileBytes, err := io.ReadAll(file)
+		file.Close() // Close immediately after reading
+		if err != nil {
+			log.Printf("Failed to read bytes from file %s: %v", handler.Filename, err)
+			continue
+		}
 
-		if strings.HasPrefix(trimmedText, "<!DOCTYPE html") {
-			contentType = "text/html"
-		} else if isJSON(trimmedText) {
-			contentType = "application/json"
-		} else {
-			contentType = "text/plain" // Ensure it's set
+		contentType := handler.Header.Get("Content-Type")
+		filename := handler.Filename
+
+		// Special handling for pasted text
+		if contentType == "text/plain" || contentType == "" {
+			textData := string(fileBytes)
+			trimmedText := strings.TrimSpace(textData)
+
+			if strings.HasPrefix(trimmedText, "<!DOCTYPE html") {
+				contentType = "text/html"
+			} else if isJSON(trimmedText) {
+				contentType = "application/json"
+			} else {
+				contentType = "text/plain" // Ensure it's set
+			}
+		}
+
+		// Insert into database (is_archived defaults to 0)
+		_, err = db.Exec("INSERT INTO clips (content_type, data, filename) VALUES (?, ?, ?)",
+			contentType, fileBytes, filename)
+		if err != nil {
+			log.Printf("Failed to insert into db: %v\n", err)
+			// We don't return here so other files can still be processed
+			continue
 		}
 	}
 
-	// Insert into database
-	_, err = db.Exec("INSERT INTO clips (content_type, data, filename) VALUES (?, ?, ?)",
-		contentType, fileBytes, filename)
-	if err != nil {
-		log.Printf("Failed to insert into db: %v\n", err)
-		http.Error(w, "Failed to save to database", http.StatusInternalServerError)
-		return
-	}
-
 	w.WriteHeader(http.StatusCreated)
-	fmt.Fprintln(w, "Upload successful")
+	fmt.Fprintln(w, "Upload(s) successful")
 }
 
 // isJSON checks if a string is valid JSON
@@ -186,6 +199,7 @@ type ClipPreview struct {
 	Filename    string    `json:"filename"`
 	CreatedAt   time.Time `json:"created_at"`
 	Preview     string    `json:"preview"`
+	IsArchived  bool      `json:"is_archived"`
 }
 
 // handleGetClips retrieves a list of all clips for the gallery
@@ -195,14 +209,21 @@ func handleGetClips(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check for archived filter
+	archived := 0
+	if r.URL.Query().Get("archived") == "true" {
+		archived = 1
+	}
+
 	// Get a preview (first 200 bytes) for text-based content
 	query := `
-    SELECT id, content_type, filename, created_at, SUBSTR(data, 1, 500)
+    SELECT id, content_type, filename, created_at, SUBSTR(data, 1, 500), is_archived
     FROM clips 
+    WHERE is_archived = ?
     ORDER BY created_at DESC 
     LIMIT 50`
 
-	rows, err := db.Query(query)
+	rows, err := db.Query(query, archived)
 	if err != nil {
 		log.Printf("Failed to query clips: %v\n", err)
 		http.Error(w, "Failed to query database", http.StatusInternalServerError)
@@ -215,11 +236,13 @@ func handleGetClips(w http.ResponseWriter, r *http.Request) {
 		var clip ClipPreview
 		var filename sql.NullString
 		var previewData []byte
-		if err := rows.Scan(&clip.ID, &clip.ContentType, &filename, &clip.CreatedAt, &previewData); err != nil {
+		var isArchivedInt int
+		if err := rows.Scan(&clip.ID, &clip.ContentType, &filename, &clip.CreatedAt, &previewData, &isArchivedInt); err != nil {
 			log.Printf("Failed to scan clip row: %v\n", err)
 			continue
 		}
 		clip.Filename = filename.String
+		clip.IsArchived = isArchivedInt == 1
 
 		// Only set string preview for text-based types
 		if strings.HasPrefix(clip.ContentType, "text/") || clip.ContentType == "application/json" {
@@ -280,6 +303,32 @@ func handleClip(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "Invalid method", http.StatusMethodNotAllowed)
 	}
+}
+
+// handleToggleArchive toggles the archived status of a clip
+func handleToggleArchive(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Only POST method is allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	idStr := strings.TrimPrefix(r.URL.Path, "/archive/")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid clip ID", http.StatusBadRequest)
+		return
+	}
+
+	// Toggle the is_archived bit
+	_, err = db.Exec("UPDATE clips SET is_archived = NOT is_archived WHERE id = ?", id)
+	if err != nil {
+		log.Printf("Failed to toggle archive status: %v\n", err)
+		http.Error(w, "Failed to update clip", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprintln(w, "Archive status toggled")
 }
 
 // handleTempFile creates a temporary file from a clip and returns its path
