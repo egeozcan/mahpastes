@@ -1,6 +1,7 @@
 package main
 
 import (
+	"archive/zip"
 	"database/sql"
 	_ "embed" // Import the embed package
 	"encoding/json"
@@ -56,6 +57,9 @@ func main() {
 	mux.HandleFunc("/tempfile/", handleTempFile)
 	mux.HandleFunc("/tempfiles", handleDeleteAllTempFiles)
 	mux.HandleFunc("/cancel-expiration/", handleCancelExpiration)
+	mux.HandleFunc("/bulk-delete", handleBulkDelete)
+	mux.HandleFunc("/bulk-archive", handleBulkArchive)
+	mux.HandleFunc("/bulk-download", handleBulkDownload)
 
 	// Setup CORS
 	c := cors.New(cors.Options{
@@ -489,4 +493,168 @@ func handleCancelExpiration(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprintln(w, "Expiration cancelled")
+}
+
+// BulkIDs is the struct for receiving multiple IDs in JSON
+type BulkIDs struct {
+	IDs []int64 `json:"ids"`
+}
+
+// handleBulkDelete deletes multiple clips at once
+func handleBulkDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Only POST method is allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req BulkIDs
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if len(req.IDs) == 0 {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	// Create placeholders for the IN clause
+	placeholders := make([]string, len(req.IDs))
+	args := make([]interface{}, len(req.IDs))
+	for i, id := range req.IDs {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+
+	query := fmt.Sprintf("DELETE FROM clips WHERE id IN (%s)", strings.Join(placeholders, ","))
+	if _, err := db.Exec(query, args...); err != nil {
+		log.Printf("Failed to bulk delete clips: %v\n", err)
+		http.Error(w, "Failed to delete clips", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprintf(w, "Deleted %d clips\n", len(req.IDs))
+}
+
+// handleBulkArchive toggles the archived status of multiple clips
+func handleBulkArchive(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Only POST method is allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req BulkIDs
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if len(req.IDs) == 0 {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	// Create placeholders for the IN clause
+	placeholders := make([]string, len(req.IDs))
+	args := make([]interface{}, len(req.IDs))
+	for i, id := range req.IDs {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+
+	query := fmt.Sprintf("UPDATE clips SET is_archived = NOT is_archived WHERE id IN (%s)", strings.Join(placeholders, ","))
+	if _, err := db.Exec(query, args...); err != nil {
+		log.Printf("Failed to bulk archive clips: %v\n", err)
+		http.Error(w, "Failed to update clips", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprintf(w, "Updated %d clips\n", len(req.IDs))
+}
+
+// handleBulkDownload creates a ZIP archive of multiple clips and serves it
+func handleBulkDownload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		http.Error(w, "Only GET method is allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	idsStr := r.URL.Query().Get("ids")
+	if idsStr == "" {
+		http.Error(w, "No IDs provided", http.StatusBadRequest)
+		return
+	}
+
+	var ids []int64
+	for _, s := range strings.Split(idsStr, ",") {
+		id, err := strconv.ParseInt(s, 10, 64)
+		if err == nil {
+			ids = append(ids, id)
+		}
+	}
+
+	if len(ids) == 0 {
+		http.Error(w, "No valid IDs provided", http.StatusBadRequest)
+		return
+	}
+
+	// Create placeholders for the IN clause
+	placeholders := make([]string, len(ids))
+	args := make([]interface{}, len(ids))
+	for i, id := range ids {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+
+	query := fmt.Sprintf("SELECT id, content_type, filename, data FROM clips WHERE id IN (%s)", strings.Join(placeholders, ","))
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		log.Printf("Failed to query clips for download: %v\n", err)
+		http.Error(w, "Failed to retrieve clips", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"clips_%s.zip\"", time.Now().Format("20060102150405")))
+
+	zw := zip.NewWriter(w)
+	defer zw.Close()
+
+	for rows.Next() {
+		var id int64
+		var contentType string
+		var filename sql.NullString
+		var data []byte
+		if err := rows.Scan(&id, &contentType, &filename, &data); err != nil {
+			log.Printf("Failed to scan clip for download: %v\n", err)
+			continue
+		}
+
+		// Determine a filename for the zip entry
+		name := filename.String
+		if name == "" {
+			name = fmt.Sprintf("clip_%d", id)
+			exts, _ := mime.ExtensionsByType(contentType)
+			if len(exts) > 0 {
+				name += exts[0]
+			}
+		} else {
+			// Prepend ID to avoid conflicts if multiple files have the same name
+			name = fmt.Sprintf("%d_%s", id, name)
+		}
+
+		f, err := zw.Create(name)
+		if err != nil {
+			log.Printf("Failed to create zip entry for %s: %v\n", name, err)
+			continue
+		}
+
+		if _, err := f.Write(data); err != nil {
+			log.Printf("Failed to write data to zip entry for %s: %v\n", name, err)
+			continue
+		}
+	}
 }
