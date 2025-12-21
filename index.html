@@ -28,21 +28,151 @@
         body {
             font-family: 'Inter', sans-serif;
         }
+
+        /* Lightbox Styles */
+        .lightbox-backdrop {
+            position: fixed;
+            inset: 0;
+            background-color: rgba(0, 0, 0, 0.9);
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+            backdrop-filter: blur(4px);
+        }
+
+        .lightbox-backdrop.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .lightbox-content {
+            position: relative;
+            max-width: 90vw;
+            max-height: 90vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            transform: scale(0.95);
+            transition: transform 0.3s ease;
+        }
+
+        .lightbox-backdrop.active .lightbox-content {
+            transform: scale(1);
+        }
+
+        .lightbox-image {
+            max-width: 100%;
+            max-height: 80vh;
+            object-fit: contain;
+            border-radius: 0.5rem;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        }
+
+        .lightbox-caption {
+            color: white;
+            margin-top: 1rem;
+            font-size: 1rem;
+            font-weight: 500;
+            text-align: center;
+        }
+
+        .lightbox-close {
+            position: absolute;
+            top: -3rem;
+            right: 0;
+            color: white;
+            background: rgba(255, 255, 255, 0.1);
+            border: none;
+            padding: 0.5rem;
+            border-radius: 50%;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .lightbox-close:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .lightbox-nav {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            border: none;
+            padding: 1rem;
+            border-radius: 50%;
+            cursor: pointer;
+            transition: background 0.2s, transform 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .lightbox-nav:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: translateY(-50%) scale(1.1);
+        }
+
+        .lightbox-nav-prev {
+            left: -5rem;
+        }
+
+        .lightbox-nav-next {
+            right: -5rem;
+        }
+
+        @media (max-width: 768px) {
+            .lightbox-nav-prev {
+                left: 0.5rem;
+                background: rgba(0, 0, 0, 0.5);
+            }
+
+            .lightbox-nav-next {
+                right: 0.5rem;
+                background: rgba(0, 0, 0, 0.5);
+            }
+
+            .lightbox-close {
+                top: 0.5rem;
+                right: 0.5rem;
+                background: rgba(0, 0, 0, 0.5);
+                z-index: 101;
+            }
+        }
     </style>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
 </head>
 
-<body class="bg-gray-200 text-gray-900">
+<body class="bg-[#f8fafc] text-gray-900">
 
     <!-- Header -->
-    <header class="bg-white shadow-md sticky top-0 z-10">
-        <div class="container mx-auto px-4 py-4 flex justify-between items-center">
-            <h1 class="text-2xl font-bold text-gray-800">Local Clipboard</h1>
-            <nav class="flex gap-4" aria-label="Global Actions">
+    <header class="bg-white border-b border-gray-200 sticky top-0 z-50">
+        <div class="container mx-auto px-6 py-4 flex flex-col md:flex-row justify-between items-center gap-4">
+            <h1 class="text-2xl font-extrabold text-[#0f172a] tracking-tight">Clipboard</h1>
+
+            <div class="flex-1 max-w-xl w-full relative group">
+                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <svg class="h-5 w-5 text-gray-400 group-focus-within:text-blue-500 transition-colors" fill="none"
+                        stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                </div>
+                <input type="text" id="search-input"
+                    class="block w-full pl-10 pr-3 py-2 border border-[#cbd5e1] rounded-xl leading-5 bg-[#f1f5f9] placeholder-gray-500 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-100 focus:border-blue-400 sm:text-sm transition-all shadow-sm"
+                    placeholder="Search items...">
+            </div>
+
+            <nav class="flex gap-3" aria-label="Global Actions">
                 <button id="toggle-archive-view-btn"
-                    class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg transition-colors flex items-center"
+                    class="bg-[#e2e8f0] hover:bg-[#cbd5e1] text-[#334155] font-semibold py-2 px-4 rounded-xl transition-all flex items-center shadow-sm"
                     aria-pressed="false">
                     <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"
                         xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -53,8 +183,12 @@
                     <span id="archive-btn-text">View Archive</span>
                 </button>
                 <button id="delete-all-temp-btn"
-                    class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg transition-colors">
-                    Delete All Temp Files
+                    class="bg-[#ef4444] hover:bg-[#dc2626] text-white font-semibold py-2 px-4 rounded-xl transition-all flex items-center shadow-sm">
+                    <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                    Delete All
                 </button>
             </nav>
         </div>
@@ -64,56 +198,73 @@
     <main class="container mx-auto p-4">
 
         <!-- Upload/Paste Zone -->
-        <section class="mb-8" id="upload-section" aria-labelledby="upload-heading">
+        <section class="mb-12" id="upload-section" aria-labelledby="upload-heading">
             <h2 id="upload-heading" class="sr-only">Upload or Paste Clips</h2>
             <div id="drop-zone" tabindex="0" role="button"
                 aria-label="Upload files by dragging and dropping here, or click to select files"
-                class="bg-white border-2 border-dashed border-gray-400 rounded-lg p-8 text-center cursor-pointer transition-colors hover:border-blue-500 hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-500">
-                <svg class="w-16 h-16 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"
-                    xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1"
-                        d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M12 15l-3-3m0 0l3-3m-3 3h12">
-                    </path>
-                </svg>
-                <p class="text-lg text-gray-600">Drag & drop files here, paste anywhere, or</p>
+                class="bg-white border-2 border-dashed border-[#cbd5e1] rounded-2xl p-12 text-center cursor-pointer transition-all hover:border-blue-400 hover:bg-blue-50/50 focus:outline-none focus:ring-2 focus:ring-blue-500/20 group">
+
+                <div class="mb-6 flex justify-center">
+                    <div
+                        class="w-20 h-20 bg-[#eff6ff] rounded-full flex items-center justify-center text-[#3b82f6] group-hover:scale-110 transition-transform">
+                        <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                        </svg>
+                    </div>
+                </div>
+
+                <p class="text-xl font-medium text-[#475569] mb-6">Drag & drop files here, paste anywhere, or</p>
+
                 <input type="file" id="file-input" class="hidden" multiple aria-hidden="true">
+
                 <button id="file-select-btn" tabindex="-1"
-                    class="mt-4 bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-6 rounded-lg transition-colors">
+                    class="bg-[#3b82f6] hover:bg-[#2563eb] text-white font-bold py-3 px-8 rounded-xl transition-all shadow-lg shadow-blue-500/20 active:scale-95">
                     Select Files
                 </button>
-                <div class="mt-4 flex flex-col items-center">
-                    <label for="expiration-select" class="text-sm text-gray-500 mb-1">Delete after:</label>
-                    <select id="expiration-select"
-                        class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2.5">
-                        <option value="0" selected>Never</option>
-                        <option value="5">5 minutes</option>
-                        <option value="10">10 minutes</option>
-                        <option value="30">30 minutes</option>
-                        <option value="120">2 hours</option>
-                    </select>
+
+                <div class="mt-8 flex flex-col items-center">
+                    <label for="expiration-select"
+                        class="text-sm font-semibold text-[#64748b] mb-2 uppercase tracking-tight">Delete after:</label>
+                    <div class="relative">
+                        <select id="expiration-select"
+                            class="appearance-none bg-[#f8fafc] border border-[#e2e8f0] text-[#1e293b] font-medium text-sm rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 block w-40 p-3 pl-4 pr-10 cursor-pointer shadow-sm">
+                            <option value="0" selected>Never</option>
+                            <option value="5">5 minutes</option>
+                            <option value="10">10 minutes</option>
+                            <option value="30">30 minutes</option>
+                            <option value="120">2 hours</option>
+                        </select>
+                        <div
+                            class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-gray-400">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M19 9l-7 7-7-7" />
+                            </svg>
+                        </div>
+                    </div>
                 </div>
             </div>
         </section>
 
-        <!-- Bulk Actions Toolbar (Initially Hidden) -->
         <div id="bulk-toolbar" role="toolbar" aria-label="Bulk actions for selected clips"
-            class="mb-4 bg-white shadow-lg rounded-xl p-4 flex flex-wrap items-center justify-between gap-4 sticky top-[80px] z-10 hidden border border-blue-100 transition-all duration-300">
-            <div class="flex items-center gap-4">
+            class="fixed bottom-6 left-1/2 -translate-x-1/2 w-[90%] max-w-5xl bg-white/90 backdrop-blur-md shadow-2xl rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4 z-50 pointer-events-none opacity-0 border border-gray-100 transition-all duration-300 translate-y-full">
+            <div class="flex items-center gap-6">
                 <label class="flex items-center cursor-pointer group">
                     <input type="checkbox" id="select-all-checkbox"
                         class="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 transition-all">
-                    <span class="ml-2 font-semibold text-gray-700 group-hover:text-blue-600 transition-colors">Select
+                    <span class="ml-3 font-bold text-gray-700 group-hover:text-blue-600 transition-colors">Select
                         All</span>
                 </label>
-                <div class="h-6 w-px bg-gray-200" aria-hidden="true"></div>
+                <div class="h-8 w-px bg-gray-200" aria-hidden="true"></div>
                 <span id="selected-count" role="status" aria-live="polite"
-                    class="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-sm font-bold">0
+                    class="bg-blue-50 text-blue-600 px-4 py-1.5 rounded-xl text-sm font-bold border border-blue-100">0
                     selected</span>
             </div>
 
             <div class="flex items-center gap-3">
                 <button id="bulk-download-btn"
-                    class="flex items-center gap-2 bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg font-bold transition-all hover:scale-105 active:scale-95 shadow-md">
+                    class="flex items-center gap-2 bg-[#f1f5f9] hover:bg-[#e2e8f0] text-[#475569] px-5 py-2.5 rounded-xl font-bold transition-all active:scale-95">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
@@ -121,7 +272,7 @@
                     Download Zip
                 </button>
                 <button id="bulk-archive-btn"
-                    class="flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg font-bold transition-all hover:scale-105 active:scale-95 shadow-md">
+                    class="flex items-center gap-2 bg-[#3b82f6] hover:bg-[#2563eb] text-white px-5 py-2.5 rounded-xl font-bold transition-all active:scale-95 shadow-lg shadow-blue-500/20">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4">
@@ -130,7 +281,7 @@
                     <span id="bulk-archive-text">Archive</span>
                 </button>
                 <button id="bulk-delete-btn"
-                    class="flex items-center gap-2 bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg font-bold transition-all hover:scale-105 active:scale-95 shadow-md">
+                    class="flex items-center gap-2 bg-[#f1f5f9] hover:bg-[#fee2e2] text-[#475569] hover:text-red-600 px-5 py-2.5 rounded-xl font-bold transition-all active:scale-95">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16">
@@ -139,7 +290,7 @@
                     Delete
                 </button>
                 <button id="cancel-selection-btn"
-                    class="text-gray-500 hover:text-gray-700 font-semibold px-2 transition-colors">Cancel</button>
+                    class="text-gray-500 hover:text-gray-900 font-bold px-4 py-2.5 transition-colors">Cancel</button>
             </div>
         </div>
 
@@ -155,7 +306,7 @@
 
     <!-- Toast Notification -->
     <div id="toast" role="status" aria-live="polite"
-        class="fixed bottom-4 right-4 bg-gray-900 text-white py-3 px-5 rounded-lg shadow-xl transition-all translate-x-full opacity-0 z-[60]">
+        class="fixed bottom-4 right-4 bg-gray-900 text-white py-3 px-5 rounded-lg shadow-xl transition-all translate-x-full opacity-0 z-[260]">
         <!-- Message will be set by JS -->
     </div>
 
@@ -190,6 +341,36 @@
         </div>
     </div>
 
+    <!-- Lightbox -->
+    <div id="lightbox" class="lightbox-backdrop" role="dialog" aria-modal="true" aria-label="Image Lightbox"
+        tabindex="-1">
+        <button id="lightbox-close" class="lightbox-close" aria-label="Close lightbox">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+            </svg>
+        </button>
+
+        <button id="lightbox-prev" class="lightbox-nav lightbox-nav-prev" aria-label="Previous image">
+            <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
+            </svg>
+        </button>
+
+        <div class="lightbox-content">
+            <img id="lightbox-img" src="" alt="" class="lightbox-image">
+            <p id="lightbox-caption" class="lightbox-caption"></p>
+        </div>
+
+        <button id="lightbox-next" class="lightbox-nav lightbox-nav-next" aria-label="Next image">
+            <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+            </svg>
+        </button>
+    </div>
+
     <script>
         const dropZone = document.getElementById('drop-zone');
         const fileInput = document.getElementById('file-input');
@@ -209,9 +390,20 @@
         const bulkDeleteBtn = document.getElementById('bulk-delete-btn');
         const cancelSelectionBtn = document.getElementById('cancel-selection-btn');
 
+        // Lightbox Elements
+        const lightbox = document.getElementById('lightbox');
+        const lightboxImg = document.getElementById('lightbox-img');
+        const lightboxCaption = document.getElementById('lightbox-caption');
+        const lightboxClose = document.getElementById('lightbox-close');
+        const lightboxPrev = document.getElementById('lightbox-prev');
+        const lightboxNext = document.getElementById('lightbox-next');
+
         let isViewingArchive = false;
         let confirmCallback = null;
         let selectedIds = new Set();
+        let imageClips = []; // Store image clips for lightbox navigation
+        let currentLightboxIndex = -1;
+        let lastFocusedElementBeforeLightbox = null;
 
         // --- Utility Functions ---
 
@@ -248,7 +440,11 @@
             toast.classList.remove('translate-x-full', 'opacity-0');
             toast.classList.add('translate-x-0', 'opacity-100');
 
-            setTimeout(() => {
+            if (window.toastTimeout) {
+                clearTimeout(window.toastTimeout);
+            }
+
+            window.toastTimeout = setTimeout(() => {
                 toast.classList.remove('translate-x-0', 'opacity-100');
                 toast.classList.add('translate-x-full', 'opacity-0');
             }, 3000);
@@ -297,6 +493,7 @@
 
                 gallery.innerHTML = ''; // Clear gallery
                 selectedIds.clear();
+                imageClips = []; // Clear image clips
                 updateBulkToolbar();
                 if (clips && clips.length > 0) {
                     clips.forEach(createClipCard);
@@ -402,143 +599,222 @@
         }
 
 
-        // --- UI & Event Handlers ---
+        const searchInput = document.getElementById('search-input');
+
+        // Search logic
+        searchInput.addEventListener('input', (e) => {
+            const query = e.target.value.toLowerCase();
+            const cards = gallery.querySelectorAll('li');
+            cards.forEach(card => {
+                const filename = card.dataset.filename || '';
+                const type = card.dataset.type || '';
+                if (filename.includes(query) || type.includes(query)) {
+                    card.style.display = '';
+                } else {
+                    card.style.display = 'none';
+                }
+            });
+        });
 
         function createClipCard(clip) {
             const card = document.createElement('li');
-            card.className = 'bg-white rounded-lg shadow-md overflow-hidden flex flex-col transition-all duration-200 hover:shadow-xl hover:-translate-y-1 relative group focus-within:ring-2 focus-within:ring-blue-500 outline-none';
+            card.className = 'bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden flex flex-col transition-all duration-300 hover:shadow-xl hover:-translate-y-1 relative group';
             card.dataset.id = clip.id;
+            card.dataset.filename = (clip.filename || '').toLowerCase();
+            card.dataset.type = (clip.content_type || '').toLowerCase();
             card.setAttribute('aria-label', `Clip: ${clip.filename || 'Pasted Content'}`);
 
-            // Checkbox for bulk actions
             const checkboxHTML = `
-                <div class="absolute top-2 right-2 z-30 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-200">
-                    <input type="checkbox" data-id="${clip.id}" 
-                        aria-label="Select clip ${clip.filename || 'Pasted Content'}"
-                        class="clip-checkbox w-6 h-6 rounded-md border-gray-300 text-blue-600 focus:ring-blue-500 shadow-sm transition-all cursor-pointer bg-white/80 backdrop-blur-sm" ${selectedIds.has(clip.id) ? 'checked' : ''}>
+                <div class="absolute top-3 right-3 z-30 opacity-0 group-hover:opacity-100 focus-within:opacity-100 group-[.has-checked]:opacity-100 transition-opacity duration-200">
+                    <div class="relative">
+                        <input type="checkbox" data-id="${clip.id}" 
+                            aria-label="Select clip ${clip.filename || 'Pasted Content'}"
+                            class="clip-checkbox appearance-none w-6 h-6 rounded-lg border-2 border-white bg-black/10 backdrop-blur-sm checked:bg-blue-500 checked:border-blue-500 transition-all cursor-pointer shadow-md peer" ${selectedIds.has(clip.id) ? 'checked' : ''}>
+                        <svg class="absolute inset-0 w-6 h-6 text-white pointer-events-none opacity-0 peer-checked:opacity-100 transition-opacity p-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
+                        </svg>
+                    </div>
                 </div>
             `;
 
             let previewHTML = '';
             const clipUrl = `/clip/${clip.id}`;
 
-            // Added a .preview-container class to each preview element for easier and more robust event handling
             if (clip.content_type.startsWith('image/')) {
-                previewHTML = `<div class="preview-container cursor-pointer"><img src="${clipUrl}" alt="${escapeHTML(clip.filename) || 'Uploaded image'}" class="h-48 w-full object-cover"></div>`;
+                previewHTML = `<div class="preview-container overflow-hidden h-56 w-full"><img src="${clipUrl}" alt="${escapeHTML(clip.filename) || 'Uploaded image'}" class="h-full w-full object-cover group-hover:scale-105 transition-transform duration-500"></div>`;
             } else if (clip.content_type === 'text/html') {
-                previewHTML = `<div class="preview-container h-48 w-full relative cursor-pointer"><iframe src="${clipUrl}" class="h-full w-full border-0" sandbox></iframe><div class="absolute inset-0 bg-transparent" title="HTML Preview"></div></div>`;
+                previewHTML = `<div class="preview-container h-56 w-full relative"><iframe src="${clipUrl}" class="h-full w-full border-0" sandbox></iframe><div class="absolute inset-0 bg-transparent" title="HTML Preview"></div></div>`;
             } else if (clip.content_type.startsWith('text/') || clip.content_type === 'application/json') {
-                previewHTML = `<div class="preview-container h-48 w-full overflow-hidden cursor-pointer"><pre class="p-2 text-xs overflow-auto h-full bg-gray-900 text-gray-100 rounded-t-none"><code>${escapeHTML(clip.preview)}</code></pre></div>`;
+                previewHTML = `<div class="preview-container h-56 w-full overflow-hidden bg-gray-900"><pre class="p-4 text-[10px] leading-relaxed overflow-auto h-full text-gray-300"><code>${escapeHTML(clip.preview)}</code></pre></div>`;
             } else {
                 previewHTML = `
-                <div class="preview-container h-48 w-full flex flex-col items-center justify-center bg-gray-200 text-gray-500 p-4 cursor-pointer">
-                    <svg class="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
-                    <span class="mt-2 text-sm text-center break-all">${escapeHTML(clip.filename) || 'Binary File'}</span>
+                <div class="preview-container h-56 w-full flex flex-col items-center justify-center bg-[#f1f5f9] text-[#94a3b8]">
+                    <svg class="w-16 h-16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
+                    <span class="mt-4 text-xs font-bold uppercase tracking-widest">${clip.content_type.split('/')[1] || 'FILE'}</span>
                 </div>`;
             }
-
-            const archiveIcon = isViewingArchive
-                ? '<svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"></path></svg><span class="ml-2">Restore</span>'
-                : '<svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"></path></svg><span class="ml-2">Archive</span>';
-
-            const archiveTitle = isViewingArchive ? "Restore this clip" : "Archive (hide) this clip";
 
             let expirationBadge = '';
-            let cancelExpirationBtn = '';
             if (clip.expires_at) {
-                const expiresDate = new Date(clip.expires_at);
-                expirationBadge = `<div class="absolute top-2 left-2 bg-orange-500 text-white text-[10px] font-bold px-2 py-1 rounded-full shadow-md z-20 flex items-center">
-                    <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                    TEMPORARY
+                expirationBadge = `<div class="absolute top-3 left-3 bg-amber-500 text-white text-[10px] font-black px-2.5 py-1 rounded-lg shadow-lg z-20 flex items-center border border-amber-400">
+                    TEMP
                 </div>`;
-                cancelExpirationBtn = `
-                    <button class="bg-white/95 hover:bg-white text-green-600 w-10 h-10 rounded-full shadow-lg transition-all hover:scale-110 flex items-center justify-center" 
-                        data-action="cancel-expiration" 
-                        aria-label="Make ${clip.filename || 'this clip'} permanent">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                    </button>`;
             }
 
-            // Revamped card structure
             card.innerHTML = `
                 ${checkboxHTML}
-                <div class="relative group-preview">
+                <div class="relative cursor-pointer" data-action="open-lightbox">
                     ${expirationBadge}
                     ${previewHTML}
-                    
-                    <!-- Hover Action Overlay -->
-                    <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-200 flex flex-col items-center justify-center gap-4">
-                        <div class="flex gap-3">
-                            <button class="bg-white/95 hover:bg-white text-gray-800 w-10 h-10 rounded-full shadow-lg transition-all hover:scale-110 flex items-center justify-center focus:ring-2 focus:ring-white" 
-                                data-action="copy-url" 
-                                aria-label="Copy URL of ${clip.filename || 'this clip'}">
-                                <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path></svg>
-                            </button>
-                            ${cancelExpirationBtn ? cancelExpirationBtn.replace('class="', 'class="focus:ring-2 focus:ring-white ') : ''}
-                            <button class="bg-white/95 hover:bg-white text-gray-800 w-10 h-10 rounded-full shadow-lg transition-all hover:scale-110 flex items-center justify-center focus:ring-2 focus:ring-white" 
-                                data-action="save-temp" 
-                                aria-label="Copy local path of ${clip.filename || 'this clip'}">
-                                <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"></path></svg>
-                            </button>
-                        </div>
-                        <div class="flex gap-3">
-                            <button class="bg-white/95 hover:bg-white text-orange-600 w-10 h-10 rounded-full shadow-lg transition-all hover:scale-110 flex items-center justify-center focus:ring-2 focus:ring-white" 
-                                data-action="archive" 
-                                aria-label="${isViewingArchive ? 'Restore' : 'Archive'} ${clip.filename || 'this clip'}">
-                                ${isViewingArchive
-                    ? '<svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"></path></svg>'
-                    : '<svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"></path></svg>'
-                }
-                            </button>
-                            <button class="bg-white/95 hover:bg-white text-red-600 w-10 h-10 rounded-full shadow-lg transition-all hover:scale-110 flex items-center justify-center focus:ring-2 focus:ring-white" 
-                                data-action="delete" 
-                                aria-label="Delete ${clip.filename || 'this clip'} permanently">
-                                <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
-                            </button>
-                        </div>
-                    </div>
+                    <div class="absolute inset-0 bg-black/0 group-hover:bg-black/5 transition-colors"></div>
                 </div>
 
-                <div class="p-3 bg-white">
-                    <p class="text-sm font-semibold text-gray-800 truncate" title="${escapeHTML(clip.filename) || 'Pasted Content'}">
-                        <a href="${clipUrl}" target="_blank" rel="noopener noreferrer" class="hover:text-blue-600 transition-colors cursor-pointer block w-full outline-none">
-                            ${escapeHTML(clip.filename) || '<em class="text-gray-400 not-italic font-normal">Pasted Content</em>'}
-                        </a>
+                <!-- Action Toolbar (Icons + Labels) -->
+                <div class="px-2 py-3 border-b border-gray-100 flex items-center justify-between bg-[#f8fafc]">
+                    <button class="flex flex-col items-center gap-1 group/btn p-1.5 flex-1" data-action="copy-url" title="Copy URL">
+                        <svg class="w-4 h-4 text-gray-400 group-hover/btn:text-blue-500 transition-colors" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path></svg>
+                        <span class="text-[9px] font-bold text-gray-500 group-hover/btn:text-blue-600 uppercase tracking-tighter transition-colors">Copy URL</span>
+                    </button>
+                    <button class="flex flex-col items-center gap-1 group/btn p-1.5 flex-1" data-action="save-temp" title="Copy path">
+                        <svg class="w-4 h-4 text-gray-400 group-hover/btn:text-blue-500 transition-colors" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"></path></svg>
+                        <span class="text-[9px] font-bold text-gray-500 group-hover/btn:text-blue-600 uppercase tracking-tighter transition-colors">Copy path</span>
+                    </button>
+                    <button class="flex flex-col items-center gap-1 group/btn p-1.5 flex-1" data-action="archive" title="${isViewingArchive ? 'Restore' : 'Archive'}">
+                        <svg class="w-4 h-4 text-gray-400 group-hover/btn:text-orange-500 transition-colors" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                            ${isViewingArchive
+                    ? '<path stroke-linecap="round" stroke-linejoin="round" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"></path>'
+                    : '<path stroke-linecap="round" stroke-linejoin="round" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"></path>'
+                }
+                        </svg>
+                        <span class="text-[9px] font-bold text-gray-500 group-hover/btn:text-orange-600 uppercase tracking-tighter transition-colors">${isViewingArchive ? 'Restore' : 'Archive'}</span>
+                    </button>
+                    <button class="flex flex-col items-center gap-1 group/btn p-1.5 flex-1" data-action="delete" title="Delete">
+                        <svg class="w-4 h-4 text-gray-400 group-hover/btn:text-red-500 transition-colors" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                        <span class="text-[9px] font-bold text-gray-500 group-hover/btn:text-red-600 uppercase tracking-tighter transition-colors">Delete</span>
+                    </button>
+                </div>
+
+                <div class="p-4 flex flex-col justify-between flex-1">
+                    <p class="text-[15px] font-bold text-[#1e293b] truncate mb-1" title="${escapeHTML(clip.filename) || 'Pasted Content'}">
+                        ${escapeHTML(clip.filename) || '<em class="text-gray-400 not-italic font-normal">Pasted Content</em>'}
                     </p>
-                    <div class="flex justify-between items-center mt-1">
-                        <p class="text-xs text-gray-400 font-medium truncate" title="${clip.content_type}">${clip.content_type.split('/')[1].toUpperCase()}</p>
-                        <p class="text-[10px] text-gray-400 font-medium uppercase tracking-wider">${new Date(clip.created_at).toLocaleDateString([], { month: 'short', day: 'numeric' })}</p>
+                    <div class="flex justify-between items-center text-[11px] font-bold uppercase tracking-widest">
+                        <span class="text-[#94a3b8]">${clip.content_type.split('/')[1]?.toUpperCase() || 'FILE'}</span>
+                        <span class="text-[#cbd5e1]">${new Date(clip.created_at).toLocaleDateString([], { month: 'short', day: 'numeric' })}</span>
                     </div>
                 </div>
             `;
 
-            // Add event listeners for buttons
-            card.querySelector('[data-action="copy-url"]').addEventListener('click', () => copyUrl(clip.id));
-            card.querySelector('[data-action="save-temp"]').addEventListener('click', () => saveTempFile(clip.id));
-            card.querySelector('[data-action="archive"]').addEventListener('click', () => toggleArchiveClip(clip.id));
-            card.querySelector('[data-action="delete"]').addEventListener('click', () => deleteClip(clip.id));
-            if (clip.expires_at) {
-                card.querySelector('[data-action="cancel-expiration"]').addEventListener('click', () => cancelExpiration(clip.id));
-            }
+            card.querySelector('[data-action="copy-url"]').addEventListener('click', (e) => { e.stopPropagation(); copyUrl(clip.id); });
+            card.querySelector('[data-action="save-temp"]').addEventListener('click', (e) => { e.stopPropagation(); saveTempFile(clip.id); });
+            card.querySelector('[data-action="archive"]').addEventListener('click', (e) => { e.stopPropagation(); toggleArchiveClip(clip.id); });
+            card.querySelector('[data-action="delete"]').addEventListener('click', (e) => { e.stopPropagation(); deleteClip(clip.id); });
 
             // Checkbox logic
             const checkbox = card.querySelector('.clip-checkbox');
             checkbox.addEventListener('change', (e) => {
+                const id = Number(clip.id);
                 if (e.target.checked) {
-                    selectedIds.add(clip.id);
+                    selectedIds.add(id);
+                    card.classList.add('has-checked');
                 } else {
-                    selectedIds.delete(clip.id);
+                    selectedIds.delete(id);
+                    card.classList.remove('has-checked');
                 }
+
+                // Sync Select All checkbox
+                const allCheckboxes = Array.from(gallery.querySelectorAll('.clip-checkbox'));
+                selectAllCheckbox.checked = allCheckboxes.length > 0 && allCheckboxes.every(cb => cb.checked);
+
                 updateBulkToolbar();
             });
 
-            // Prevent card hover actions if clicking checkbox
+            // Prevent lightbox trigger if clicking checkbox
             checkbox.addEventListener('click', (e) => e.stopPropagation());
 
-            // Simplified click-to-preview event listener
-            card.querySelector('.preview-container').addEventListener('click', () => window.open(clipUrl, '_blank'));
+            // Lightbox trigger logic
+            if (clip.content_type.startsWith('image/')) {
+                const imageIndex = imageClips.length;
+                imageClips.push(clip);
+                card.querySelector('[data-action="open-lightbox"]').addEventListener('click', () => openLightbox(imageIndex));
+            } else {
+                card.querySelector('[data-action="open-lightbox"]').addEventListener('click', () => window.open(clipUrl, '_blank'));
+            }
 
             gallery.appendChild(card);
+        }
+
+        // --- Lightbox Functions ---
+
+        function openLightbox(index) {
+            if (index < 0 || index >= imageClips.length) return;
+            currentLightboxIndex = index;
+            const clip = imageClips[index];
+
+            lastFocusedElementBeforeLightbox = document.activeElement;
+            lightboxImg.src = `/clip/${clip.id}`;
+            lightboxImg.alt = escapeHTML(clip.filename) || 'Image preview';
+            lightboxCaption.textContent = clip.filename || 'Pasted Image';
+
+            lightbox.classList.add('active');
+            updateLightboxNav();
+            lightbox.focus();
+
+            // Screen reader announcement
+            const announcement = `Image ${index + 1} of ${imageClips.length}: ${clip.filename || 'Pasted Image'} `;
+            showToast(announcement); // Reuse toast for announcement if needed, or use a dedicated aria-live region
+        }
+
+        function closeLightbox() {
+            lightbox.classList.remove('active');
+            setTimeout(() => {
+                lightboxImg.src = '';
+                if (lastFocusedElementBeforeLightbox) {
+                    lastFocusedElementBeforeLightbox.focus();
+                }
+            }, 300);
+        }
+
+        function showNextImage() {
+            if (currentLightboxIndex < imageClips.length - 1) {
+                openLightbox(currentLightboxIndex + 1);
+            }
+        }
+
+        function showPrevImage() {
+            if (currentLightboxIndex > 0) {
+                openLightbox(currentLightboxIndex - 1);
+            }
+        }
+
+        function updateLightboxNav() {
+            lightboxPrev.style.visibility = currentLightboxIndex > 0 ? 'visible' : 'hidden';
+            lightboxNext.style.visibility = currentLightboxIndex < imageClips.length - 1 ? 'visible' : 'hidden';
+        }
+
+        function handleLightboxKeydown(e) {
+            if (!lightbox.classList.contains('active')) return;
+
+            if (e.key === 'Escape') {
+                closeLightbox();
+            } else if (e.key === 'ArrowRight') {
+                showNextImage();
+            } else if (e.key === 'ArrowLeft') {
+                showPrevImage();
+            } else if (e.key === 'Tab') {
+                // Focus trap logic
+                const focusableElements = lightbox.querySelectorAll('button');
+                const first = focusableElements[0];
+                const last = focusableElements[focusableElements.length - 1];
+
+                if (e.shiftKey && document.activeElement === first) {
+                    last.focus();
+                    e.preventDefault();
+                } else if (!e.shiftKey && document.activeElement === last) {
+                    first.focus();
+                    e.preventDefault();
+                }
+            }
         }
 
         function toggleViewMode() {
@@ -563,11 +839,13 @@
         function updateBulkToolbar() {
             const count = selectedIds.size;
             if (count > 0) {
-                bulkToolbar.classList.remove('hidden');
+                bulkToolbar.classList.remove('hidden', 'translate-y-full', 'opacity-0', 'pointer-events-none');
+                bulkToolbar.classList.add('translate-y-0', 'opacity-100', 'pointer-events-auto');
                 selectedCountEl.textContent = `${count} item${count > 1 ? 's' : ''} selected`;
                 bulkArchiveText.textContent = isViewingArchive ? 'Restore' : 'Archive';
             } else {
-                bulkToolbar.classList.add('hidden');
+                bulkToolbar.classList.remove('translate-y-0', 'opacity-100', 'pointer-events-auto');
+                bulkToolbar.classList.add('translate-y-full', 'opacity-0', 'pointer-events-none');
                 selectAllCheckbox.checked = false;
             }
         }
@@ -577,12 +855,15 @@
             const shouldSelectAll = selectAllCheckbox.checked;
 
             checkboxes.forEach(cb => {
-                const id = parseInt(cb.dataset.id);
+                const id = Number(cb.dataset.id);
                 cb.checked = shouldSelectAll;
+                const card = cb.closest('li');
                 if (shouldSelectAll) {
                     selectedIds.add(id);
+                    if (card) card.classList.add('has-checked');
                 } else {
                     selectedIds.delete(id);
+                    if (card) card.classList.remove('has-checked');
                 }
             });
             updateBulkToolbar();
@@ -591,14 +872,18 @@
         function cancelSelection() {
             selectedIds.clear();
             const checkboxes = gallery.querySelectorAll('.clip-checkbox');
-            checkboxes.forEach(cb => cb.checked = false);
+            checkboxes.forEach(cb => {
+                cb.checked = false;
+                const card = cb.closest('li');
+                if (card) card.classList.remove('has-checked');
+            });
             selectAllCheckbox.checked = false;
             updateBulkToolbar();
         }
 
         async function bulkDelete() {
             if (selectedIds.size === 0) return;
-            showConfirmDialog('Bulk Delete', `Are you sure you want to delete ${selectedIds.size} clips permanently?`, async () => {
+            showConfirmDialog('Bulk Delete', `Are you sure you want to delete ${selectedIds.size} clips permanently ? `, async () => {
                 try {
                     const response = await fetch('/bulk-delete', {
                         method: 'POST',
@@ -711,6 +996,15 @@
         bulkDeleteBtn.addEventListener('click', bulkDelete);
         bulkArchiveBtn.addEventListener('click', bulkArchive);
         bulkDownloadBtn.addEventListener('click', bulkDownload);
+
+        // Lightbox Listeners
+        lightboxClose.addEventListener('click', closeLightbox);
+        lightboxPrev.addEventListener('click', (e) => { e.stopPropagation(); showPrevImage(); });
+        lightboxNext.addEventListener('click', (e) => { e.stopPropagation(); showNextImage(); });
+        lightbox.addEventListener('click', (e) => {
+            if (e.target === lightbox) closeLightbox();
+        });
+        document.addEventListener('keydown', handleLightboxKeydown);
 
         // Keyboard Handlers for Drop Zone
         dropZone.addEventListener('keydown', e => {
