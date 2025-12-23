@@ -231,4 +231,7 @@ function handleText(text) {
 }
 
 // --- Initial Load ---
-window.addEventListener('load', loadClips);
+window.addEventListener('load', () => {
+    loadClips();
+    setupEditorListeners();
+});

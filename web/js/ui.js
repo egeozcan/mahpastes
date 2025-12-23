@@ -61,6 +61,12 @@ function createClipCard(clip) {
                 <svg class="w-4 h-4 text-gray-400 group-hover/btn:text-blue-500 transition-colors" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"></path></svg>
                 <span class="text-[9px] font-bold text-gray-500 group-hover/btn:text-blue-600 uppercase tracking-tighter transition-colors">Copy path</span>
             </button>
+            ${isEditableType(clip.content_type) ? `
+            <button class="flex flex-col items-center gap-1 group/btn p-1.5 flex-1" data-action="edit" title="Edit">
+                <svg class="w-4 h-4 text-gray-400 group-hover/btn:text-green-500 transition-colors" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
+                <span class="text-[9px] font-bold text-gray-500 group-hover/btn:text-green-600 uppercase tracking-tighter transition-colors">Edit</span>
+            </button>
+            ` : ''}
             <button class="flex flex-col items-center gap-1 group/btn p-1.5 flex-1" data-action="archive" title="${isViewingArchive ? 'Restore' : 'Archive'}">
                 <svg class="w-4 h-4 text-gray-400 group-hover/btn:text-orange-500 transition-colors" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                     ${isViewingArchive
@@ -89,6 +95,10 @@ function createClipCard(clip) {
 
     card.querySelector('[data-action="copy-url"]').addEventListener('click', (e) => { e.stopPropagation(); copyUrl(clip.id); });
     card.querySelector('[data-action="save-temp"]').addEventListener('click', (e) => { e.stopPropagation(); saveTempFile(clip.id); });
+    const editBtn = card.querySelector('[data-action="edit"]');
+    if (editBtn) {
+        editBtn.addEventListener('click', (e) => { e.stopPropagation(); openEditor(clip.id); });
+    }
     card.querySelector('[data-action="archive"]').addEventListener('click', (e) => { e.stopPropagation(); toggleArchiveClip(clip.id); });
     card.querySelector('[data-action="delete"]').addEventListener('click', (e) => { e.stopPropagation(); deleteClip(clip.id); });
 

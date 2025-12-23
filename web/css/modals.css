@@ -250,3 +250,112 @@ input[type="range"].comparison-range::-webkit-slider-thumb {
     border: 2px solid white;
     box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
 }
+
+/* Editor Modal Styles */
+.editor-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.95);
+    backdrop-filter: blur(8px);
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+}
+
+.editor-backdrop.active {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.editor-container {
+    width: 95vw;
+    height: 95vh;
+    max-width: 1600px;
+    background: white;
+    border-radius: 1rem;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    transform: scale(0.95);
+    transition: transform 0.3s ease;
+}
+
+.editor-backdrop.active .editor-container {
+    transform: scale(1);
+}
+
+.editor-header {
+    padding: 1rem 1.5rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+    color: white;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.editor-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.editor-toolbar {
+    padding: 0.75rem 1rem;
+    background: #f8fafc;
+    border-bottom: 1px solid #e2e8f0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    align-items: center;
+}
+
+.editor-tool-btn {
+    padding: 0.5rem;
+    border-radius: 0.5rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    border: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.editor-tool-btn:hover {
+    transform: scale(1.05);
+}
+
+.editor-tool-btn.active {
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.5);
+}
+
+.editor-canvas-container {
+    flex: 1;
+    background: #1e293b;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: auto;
+    position: relative;
+    padding: 2rem;
+}
+
+#editor-canvas {
+    max-width: 100%;
+    max-height: 100%;
+    background: white;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    cursor: crosshair;
+}
+
+#canvas-text-input {
+    position: fixed;
+    z-index: 250;
+    font-size: 16px;
+}

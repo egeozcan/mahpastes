@@ -334,11 +334,145 @@
         </div>
     </div>
 
+    <!-- Editor Modal -->
+    <div id="editor-modal" class="editor-backdrop" role="dialog" aria-modal="true" aria-label="File Editor">
+        <div class="editor-container">
+            <!-- Header -->
+            <div class="editor-header">
+                <h3 class="text-lg font-bold">Edit File</h3>
+                <div class="flex items-center gap-4">
+                    <input type="text" id="editor-filename"
+                        class="px-3 py-1.5 bg-white/10 border border-white/20 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                        placeholder="filename.ext">
+                    <button id="editor-save"
+                        class="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition-colors flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4">
+                            </path>
+                        </svg>
+                        Save As
+                    </button>
+                    <button id="editor-close" class="p-2 hover:bg-white/10 rounded-full transition-colors"
+                        aria-label="Close editor">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Text Editor View -->
+            <div id="text-editor-view" class="editor-content hidden">
+                <textarea id="text-editor-textarea"
+                    class="w-full h-full bg-gray-900 text-gray-100 font-mono text-sm p-4 resize-none focus:outline-none"
+                    spellcheck="false"></textarea>
+            </div>
+
+            <!-- Image Editor View -->
+            <div id="image-editor-view" class="editor-content hidden">
+                <!-- Toolbar -->
+                <div class="editor-toolbar">
+                    <div class="flex items-center gap-2">
+                        <button class="editor-tool-btn bg-blue-600 text-white" data-tool="brush" title="Brush (B)">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z">
+                                </path>
+                            </svg>
+                        </button>
+                        <button class="editor-tool-btn bg-gray-100 text-gray-700" data-tool="line"
+                            title="Line (L) - Hold Shift for 45°">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 20L20 4">
+                                </path>
+                            </svg>
+                        </button>
+                        <button class="editor-tool-btn bg-gray-100 text-gray-700" data-tool="rectangle"
+                            title="Rectangle (R)">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M4 6a2 2 0 012-2h12a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V6z"></path>
+                            </svg>
+                        </button>
+                        <button class="editor-tool-btn bg-gray-100 text-gray-700" data-tool="circle" title="Circle (C)">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <circle cx="12" cy="12" r="9" stroke-width="2" fill="none"></circle>
+                            </svg>
+                        </button>
+                        <button class="editor-tool-btn bg-gray-100 text-gray-700" data-tool="text" title="Text (T)">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M4 6h16M12 6v14M8 6v2m8-2v2"></path>
+                            </svg>
+                        </button>
+                        <button class="editor-tool-btn bg-gray-100 text-gray-700" data-tool="eraser" title="Eraser (E)">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16">
+                                </path>
+                            </svg>
+                        </button>
+                    </div>
+
+                    <div class="h-8 w-px bg-gray-300"></div>
+
+                    <div class="flex items-center gap-4">
+                        <div class="flex items-center gap-2">
+                            <label class="text-xs font-bold text-gray-500 uppercase">Color</label>
+                            <input type="color" id="editor-color" value="#3b82f6"
+                                class="w-8 h-8 rounded cursor-pointer border-0">
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <label class="text-xs font-bold text-gray-500 uppercase">Opacity</label>
+                            <input type="range" id="editor-opacity" min="0" max="100" value="100" class="w-20">
+                            <span id="editor-opacity-value" class="text-xs font-bold text-gray-600 w-10">100%</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <label class="text-xs font-bold text-gray-500 uppercase">Size</label>
+                            <input type="range" id="editor-brush-size" min="1" max="50" value="8" class="w-20">
+                            <span id="editor-brush-size-value" class="text-xs font-bold text-gray-600 w-10">8px</span>
+                        </div>
+                    </div>
+
+                    <div class="h-8 w-px bg-gray-300"></div>
+
+                    <div class="flex items-center gap-2">
+                        <button id="editor-undo" class="p-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                            title="Undo (Ctrl+Z)">
+                            <svg class="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"></path>
+                            </svg>
+                        </button>
+                        <button id="editor-redo" class="p-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                            title="Redo (Ctrl+Y)">
+                            <svg class="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M21 10h-10a8 8 0 00-8 8v2M21 10l-6 6m6-6l-6-6"></path>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Canvas Container -->
+                <div class="editor-canvas-container">
+                    <canvas id="editor-canvas"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+    <input type="text" id="canvas-text-input"
+        class="fixed bg-transparent border-2 border-blue-500 text-blue-600 font-sans px-1 focus:outline-none z-[250]"
+        style="display: none; min-width: 100px;">
+
     <!-- Scripts split for better organization -->
     <script src="js/utils.js"></script>
     <script src="js/api.js"></script>
     <script src="js/ui.js"></script>
     <script src="js/modals.js"></script>
+    <script src="js/editor.js"></script>
     <script src="js/app.js"></script>
 </body>
 
