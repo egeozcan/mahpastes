@@ -1,0 +1,21 @@
+/* Custom scrollbar for text previews */
+pre::-webkit-scrollbar {
+    width: 6px;
+}
+
+pre::-webkit-scrollbar-track {
+    background: #2d3748;
+}
+
+pre::-webkit-scrollbar-thumb {
+    background: #718096;
+    border-radius: 3px;
+}
+
+pre::-webkit-scrollbar-thumb:hover {
+    background: #a0aec0;
+}
+
+body {
+    font-family: 'Inter', sans-serif;
+}

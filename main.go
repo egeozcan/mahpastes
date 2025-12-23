@@ -3,7 +3,7 @@ package main
 import (
 	"archive/zip"
 	"database/sql"
-	_ "embed" // Import the embed package
+	"embed" // Import the embed package
 	"encoding/json"
 	"fmt"
 	"io"
@@ -30,8 +30,8 @@ var tempDir string
 // tempFileMutex protects access to the tempDir
 var tempFileMutex sync.Mutex
 
-//go:embed index.html
-var indexHTML []byte // Embed the index.html file into a byte slice
+//go:embed web/*
+var webFiles embed.FS // Embed the web directory into an embed.FS
 
 // main is the entry point of the application
 func main() {
@@ -137,14 +137,36 @@ func initTempDir() error {
 	return nil
 }
 
-// handleIndex serves the main HTML page
+// handleIndex serves the main HTML page or static files from the embedded FS
 func handleIndex(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" {
+	if r.URL.Path == "/" {
+		data, err := webFiles.ReadFile("web/index.html")
+		if err != nil {
+			log.Printf("Failed to read index.html: %v", err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html")
+		w.Write(data)
+		return
+	}
+
+	// Serve static files from the 'web' directory in the embedded FS
+	// For example, /css/main.css -> web/css/main.css
+	path := "web" + r.URL.Path
+	data, err := webFiles.ReadFile(path)
+	if err != nil {
 		http.NotFound(w, r)
 		return
 	}
-	w.Header().Set("Content-Type", "text/html")
-	w.Write(indexHTML) // Write the embedded byte slice
+
+	// Determine content type based on file extension
+	contentType := mime.TypeByExtension(filepath.Ext(path))
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Write(data)
 }
 
 // handleUpload handles file/text uploads
