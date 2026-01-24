@@ -22,7 +22,7 @@ A local clipboard manager for macOS, Windows, and Linux. Store, organize, and qu
 
 ### Download Release
 
-Download the latest release from the [Releases](https://github.com/yourusername/mahpastes/releases) page.
+Download the latest release from the [Releases](https://github.com/egeozcan/mahpastes/releases) page.
 
 ### Build from Source
 
@@ -41,7 +41,7 @@ go install github.com/wailsapp/wails/v2/cmd/wails@latest
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/mahpastes.git
+git clone https://github.com/egeozcan/mahpastes.git
 cd mahpastes
 
 # Build for your platform
