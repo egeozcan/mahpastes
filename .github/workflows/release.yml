@@ -1,0 +1,105 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - platform: macos-latest
+            build_target: darwin/universal
+            artifact_name: mahpastes-macos-universal
+          - platform: windows-latest
+            build_target: windows/amd64
+            artifact_name: mahpastes-windows-amd64
+          - platform: ubuntu-latest
+            build_target: linux/amd64
+            artifact_name: mahpastes-linux-amd64
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # Linux dependencies
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev
+
+      # Install Wails
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+      # Build
+      - name: Build
+        run: wails build -platform ${{ matrix.build_target }}
+
+      # Package macOS
+      - name: Package macOS
+        if: matrix.platform == 'macos-latest'
+        run: |
+          cd build/bin
+          zip -r ../../${{ matrix.artifact_name }}.zip mahpastes.app
+
+      # Package Windows
+      - name: Package Windows
+        if: matrix.platform == 'windows-latest'
+        run: |
+          Compress-Archive -Path build/bin/mahpastes.exe -DestinationPath ${{ matrix.artifact_name }}.zip
+
+      # Package Linux
+      - name: Package Linux
+        if: matrix.platform == 'ubuntu-latest'
+        run: |
+          cd build/bin
+          tar -czvf ../../${{ matrix.artifact_name }}.tar.gz mahpastes
+
+      # Upload artifact
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: |
+            ${{ matrix.artifact_name }}.zip
+            ${{ matrix.artifact_name }}.tar.gz
+          if-no-files-found: ignore
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            artifacts/**/*.zip
+            artifacts/**/*.tar.gz
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

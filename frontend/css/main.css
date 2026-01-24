@@ -1,21 +1,118 @@
-/* Custom scrollbar for text previews */
-pre::-webkit-scrollbar {
+/* Typography */
+body {
+    font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* Minimal scrollbar */
+::-webkit-scrollbar {
     width: 6px;
+    height: 6px;
 }
 
-pre::-webkit-scrollbar-track {
-    background: #2d3748;
+::-webkit-scrollbar-track {
+    background: transparent;
 }
 
-pre::-webkit-scrollbar-thumb {
-    background: #718096;
+::-webkit-scrollbar-thumb {
+    background: #d6d3d1;
     border-radius: 3px;
 }
 
-pre::-webkit-scrollbar-thumb:hover {
-    background: #a0aec0;
+::-webkit-scrollbar-thumb:hover {
+    background: #a8a29e;
 }
 
-body {
-    font-family: 'Inter', sans-serif;
+/* Code blocks */
+pre::-webkit-scrollbar {
+    width: 4px;
+}
+
+pre::-webkit-scrollbar-track {
+    background: #1c1917;
+}
+
+pre::-webkit-scrollbar-thumb {
+    background: #44403c;
+    border-radius: 2px;
+}
+
+pre::-webkit-scrollbar-thumb:hover {
+    background: #57534e;
+}
+
+/* Focus states */
+*:focus-visible {
+    outline: 1px solid #78716c;
+    outline-offset: 2px;
+}
+
+/* Selection */
+::selection {
+    background: #d6d3d1;
+    color: #1c1917;
+}
+
+/* Smooth transitions globally */
+* {
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Checkbox styling */
+input[type="checkbox"] {
+    accent-color: #44403c;
+}
+
+/* Range input styling */
+input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+    cursor: pointer;
+    height: 4px;
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+    background: #e7e5e4;
+    height: 4px;
+    border-radius: 2px;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 12px;
+    height: 12px;
+    background: #44403c;
+    border-radius: 50%;
+    margin-top: -4px;
+    border: 2px solid white;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+    background: #292524;
+}
+
+/* Select styling */
+select {
+    background-image: none;
+}
+
+/* Color input */
+input[type="color"] {
+    -webkit-appearance: none;
+    appearance: none;
+    padding: 0;
+    cursor: pointer;
+}
+
+input[type="color"]::-webkit-color-swatch-wrapper {
+    padding: 2px;
+}
+
+input[type="color"]::-webkit-color-swatch {
+    border: none;
+    border-radius: 3px;
 }
