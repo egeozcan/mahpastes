@@ -69,7 +69,7 @@ jobs:
 
       # Package Linux
       - name: Package Linux
-        if: matrix.platform == 'ubuntu-latest'
+        if: matrix.platform == 'ubuntu-22.04'
         run: |
           cd build/bin
           tar -czvf ../../${{ matrix.artifact_name }}.tar.gz mahpastes
