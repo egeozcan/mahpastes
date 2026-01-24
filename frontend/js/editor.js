@@ -43,20 +43,14 @@ function isImageType(contentType) {
 
 async function openEditor(clipId) {
     try {
-        // Fetch the clip data
-        const response = await fetch(`/clip/${clipId}`);
-        if (!response.ok) throw new Error('Failed to load clip');
+        // Fetch the clip data via Wails binding
+        const clipData = await getClipData(clipId);
+        if (!clipData) throw new Error('Failed to load clip');
 
-        const contentType = response.headers.get('Content-Type') || '';
-
-        // Get clip metadata for filename
-        const clipsResponse = await fetch('/clips');
-        const clips = await clipsResponse.json();
-        const clip = clips.find(c => c.id === clipId) || { filename: '' };
-
+        const contentType = clipData.content_type || '';
         editorClipId = clipId;
         editorContentType = contentType;
-        editorFilename = clip.filename || `clip_${clipId}`;
+        editorFilename = clipData.filename || `clip_${clipId}`;
 
         const editorModal = document.getElementById('editor-modal');
         const textEditorView = document.getElementById('text-editor-view');
@@ -72,7 +66,13 @@ async function openEditor(clipId) {
             textEditorView.classList.add('hidden');
             imageEditorView.classList.remove('hidden');
 
-            const blob = await response.blob();
+            // Convert base64 to blob
+            const binaryData = atob(clipData.data);
+            const bytes = new Uint8Array(binaryData.length);
+            for (let i = 0; i < binaryData.length; i++) {
+                bytes[i] = binaryData.charCodeAt(i);
+            }
+            const blob = new Blob([bytes], { type: contentType });
             await initCanvasEditor(blob);
         } else {
             // Text editor
@@ -80,8 +80,8 @@ async function openEditor(clipId) {
             imageEditorView.classList.add('hidden');
             textEditorView.classList.remove('hidden');
 
-            const text = await response.text();
-            document.getElementById('text-editor-textarea').value = text;
+            // For text, data is already a string
+            document.getElementById('text-editor-textarea').value = clipData.data;
         }
 
         editorModal.classList.add('active');
@@ -583,32 +583,29 @@ async function saveEditorContent() {
         return;
     }
 
-    let blob;
+    let base64Data;
     let contentType = editorContentType;
 
     if (isTextEditor) {
         const text = document.getElementById('text-editor-textarea').value;
-        blob = new Blob([text], { type: contentType });
+        // Convert text to base64
+        base64Data = btoa(unescape(encodeURIComponent(text)));
     } else {
-        // Get canvas as blob
-        blob = await new Promise(resolve => {
-            canvas.toBlob(resolve, 'image/png');
-        });
+        // Get canvas as base64
+        const dataUrl = canvas.toDataURL('image/png');
+        base64Data = dataUrl.split(',')[1];
         contentType = 'image/png';
     }
 
-    // Upload as new file
-    const formData = new FormData();
-    formData.append('data', blob, filename);
-    formData.append('expiration', '0'); // Never expire
+    // Create FileData for upload
+    const fileData = {
+        name: filename,
+        content_type: contentType,
+        data: base64Data
+    };
 
     try {
-        const response = await fetch('/upload', {
-            method: 'POST',
-            body: formData
-        });
-
-        if (!response.ok) throw new Error('Upload failed');
+        await upload([fileData], 0); // Never expire
 
         showToast('Saved as new clip!');
         closeEditor();

@@ -1,0 +1,12 @@
+{
+  "name": "mahpastes-frontend",
+  "version": "1.0.0",
+  "description": "Frontend for mahpastes clipboard manager",
+  "scripts": {
+    "build": "tailwindcss -i ./src/main.css -o ./dist/output.css --minify",
+    "dev": "tailwindcss -i ./src/main.css -o ./dist/output.css --watch"
+  },
+  "devDependencies": {
+    "tailwindcss": "^3.4.0"
+  }
+}

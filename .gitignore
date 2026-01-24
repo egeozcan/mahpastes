@@ -1,2 +1,21 @@
-/clip_temp_files/*
+# Database and temp files
 *.db
+*.db-shm
+*.db-wal
+/clip_temp_files/
+
+# Build output
+/build/bin/
+
+# Frontend dependencies
+/frontend/node_modules/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

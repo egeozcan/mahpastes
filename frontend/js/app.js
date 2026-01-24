@@ -204,30 +204,39 @@ setupConfirmDialogFocusTrap();
 
 // --- Upload Handlers ---
 
-function handleFiles(files) {
+async function handleFiles(files) {
     if (isViewingArchive) {
         showToast('Switch to Active view to upload.');
         return;
     }
     if (files.length === 0) return;
 
-    const formData = new FormData();
+    const fileDataArray = [];
     for (let i = 0; i < files.length; i++) {
-        formData.append('data', files[i], files[i].name);
+        const fileData = await fileToFileData(files[i]);
+        fileDataArray.push(fileData);
     }
-    formData.append('expiration', expirationSelect.value);
-    upload(formData);
+
+    const expiration = parseInt(expirationSelect.value) || 0;
+    upload(fileDataArray, expiration);
 }
 
-function handleText(text) {
+async function handleText(text) {
     if (isViewingArchive) {
         showToast('Switch to Active view to upload.');
         return;
     }
-    const formData = new FormData();
-    formData.append('data', new Blob([text], { type: 'text/plain' }), 'pasted_text.txt');
-    formData.append('expiration', expirationSelect.value);
-    upload(formData);
+
+    // Convert text to base64
+    const base64 = btoa(unescape(encodeURIComponent(text)));
+    const fileData = {
+        name: 'pasted_text.txt',
+        content_type: 'text/plain',
+        data: base64
+    };
+
+    const expiration = parseInt(expirationSelect.value) || 0;
+    upload([fileData], expiration);
 }
 
 // --- Initial Load ---

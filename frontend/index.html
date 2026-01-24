@@ -4,8 +4,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Local Clipboard</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <title>Clipboard</title>
+    <link rel="stylesheet" href="dist/output.css">
     <link rel="stylesheet" href="css/main.css">
     <link rel="stylesheet" href="css/modals.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -16,11 +16,11 @@
 <body class="bg-[#f8fafc] text-gray-900">
 
     <!-- Header -->
-    <header class="bg-white border-b border-gray-200 sticky top-0 z-50">
+    <header class="bg-white border-b border-gray-200 sticky top-0 z-50" style="--wails-draggable: drag">
         <div class="container mx-auto px-6 py-4 flex flex-col md:flex-row justify-between items-center gap-4">
-            <h1 class="text-2xl font-extrabold text-[#0f172a] tracking-tight">Clipboard</h1>
+            <h1 class="text-2xl font-extrabold text-[#0f172a] tracking-tight pl-16">Clipboard</h1>
 
-            <div class="flex-1 max-w-xl w-full relative group">
+            <div class="flex-1 max-w-xl w-full relative group" style="--wails-draggable: no-drag">
                 <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                     <svg class="h-5 w-5 text-gray-400 group-focus-within:text-blue-500 transition-colors" fill="none"
                         stroke="currentColor" viewBox="0 0 24 24">
@@ -33,7 +33,7 @@
                     placeholder="Search items...">
             </div>
 
-            <nav class="flex gap-3" aria-label="Global Actions">
+            <nav class="flex gap-3" aria-label="Global Actions" style="--wails-draggable: no-drag">
                 <button id="toggle-archive-view-btn"
                     class="bg-[#e2e8f0] hover:bg-[#cbd5e1] text-[#334155] font-semibold py-2 px-4 rounded-xl transition-all flex items-center shadow-sm"
                     aria-pressed="false">
@@ -469,7 +469,7 @@
 
     <!-- Scripts split for better organization -->
     <script src="js/utils.js"></script>
-    <script src="js/api.js"></script>
+    <script src="js/wails-api.js"></script>
     <script src="js/ui.js"></script>
     <script src="js/modals.js"></script>
     <script src="js/editor.js"></script>

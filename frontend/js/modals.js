@@ -1,12 +1,21 @@
 // --- Lightbox Functions ---
 
-function openLightbox(index) {
+async function openLightbox(index) {
     if (index < 0 || index >= imageClips.length) return;
     currentLightboxIndex = index;
     const clip = imageClips[index];
 
     lastFocusedElementBeforeLightbox = document.activeElement;
-    lightboxImg.src = `/clip/${clip.id}`;
+
+    // Load image data as base64
+    try {
+        const dataUrl = await getImageDataUrl(clip.id);
+        lightboxImg.src = dataUrl;
+    } catch (error) {
+        console.error('Failed to load image for lightbox:', error);
+        lightboxImg.src = '';
+    }
+
     lightboxImg.alt = escapeHTML(clip.filename) || 'Image preview';
     lightboxCaption.textContent = clip.filename || 'Pasted Image';
 
@@ -73,13 +82,24 @@ function handleLightboxKeydown(e) {
 
 // --- Comparison Functions ---
 
-function openComparisonModal() {
+async function openComparisonModal() {
     const selectedArray = Array.from(selectedIds);
     if (selectedArray.length !== 2) return;
 
     lastFocusedElementBeforeComparison = document.activeElement;
-    comparisonImgBottom.src = `/clip/${selectedArray[0]}`;
-    comparisonImgTop.src = `/clip/${selectedArray[1]}`;
+
+    // Load both images as base64
+    try {
+        const [dataUrl1, dataUrl2] = await Promise.all([
+            getImageDataUrl(selectedArray[0]),
+            getImageDataUrl(selectedArray[1])
+        ]);
+        comparisonImgBottom.src = dataUrl1;
+        comparisonImgTop.src = dataUrl2;
+    } catch (error) {
+        console.error('Failed to load images for comparison:', error);
+        return;
+    }
 
     // Reset state
     comparisonMode = 'fade';
