@@ -13,7 +13,16 @@ import (
 )
 
 // getDataDir returns the OS-appropriate data directory for the app
+// If MAHPASTES_DATA_DIR is set, it overrides the default location (useful for testing)
 func getDataDir() (string, error) {
+	// Check for test/custom override
+	if customDir := os.Getenv("MAHPASTES_DATA_DIR"); customDir != "" {
+		if err := os.MkdirAll(customDir, 0755); err != nil {
+			return "", fmt.Errorf("failed to create custom data directory: %w", err)
+		}
+		return customDir, nil
+	}
+
 	var baseDir string
 
 	switch runtime.GOOS {

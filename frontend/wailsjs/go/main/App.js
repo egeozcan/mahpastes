@@ -62,6 +62,10 @@ export function GetWatchStatus() {
   return window['go']['main']['App']['GetWatchStatus']();
 }
 
+export function GetWatchedFolderByID(arg1) {
+  return window['go']['main']['App']['GetWatchedFolderByID'](arg1);
+}
+
 export function GetWatchedFolders() {
   return window['go']['main']['App']['GetWatchedFolders']();
 }

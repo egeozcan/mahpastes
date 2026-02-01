@@ -1,0 +1,15 @@
+# Dependencies
+node_modules/
+
+# Test output
+test-results/
+playwright-report/
+.test-state.json
+
+# Build output
+dist/
+
+# IDE
+.idea/
+*.swp
+*.swo
