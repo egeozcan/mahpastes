@@ -21,3 +21,8 @@
 # OS
 .DS_Store
 Thumbs.db
+
+# Documentation build
+/docs/build/
+/docs/.docusaurus/
+/docs/node_modules/
