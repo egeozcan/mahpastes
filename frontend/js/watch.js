@@ -1,6 +1,7 @@
 // --- Watch View State ---
 let isViewingWatch = false;
 let watchFolders = [];
+let editingFolderId = null; // null = adding new, number = editing existing
 
 // --- Elements ---
 const toggleWatchViewBtn = document.getElementById('toggle-watch-view-btn');
@@ -112,7 +113,7 @@ function renderWatchFolderList() {
 // --- Create Folder Card ---
 function createWatchFolderCard(folder) {
     const li = document.createElement('li');
-    li.className = 'bg-white border border-stone-200 rounded-lg p-4 flex items-center justify-between gap-4';
+    li.className = 'bg-white border border-stone-200 rounded-lg p-4 flex items-center justify-between gap-4 cursor-pointer hover:border-stone-300 transition-colors';
     li.dataset.id = folder.id;
 
     // Filter description
@@ -160,8 +161,17 @@ function createWatchFolderCard(folder) {
     `;
 
     // Event listeners
-    li.querySelector('[data-action="toggle-pause"]').addEventListener('click', () => toggleFolderPause(folder.id, !folder.is_paused));
-    li.querySelector('[data-action="remove"]').addEventListener('click', () => removeWatchFolder(folder.id));
+    li.querySelector('[data-action="toggle-pause"]').addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleFolderPause(folder.id, !folder.is_paused);
+    });
+    li.querySelector('[data-action="remove"]').addEventListener('click', (e) => {
+        e.stopPropagation();
+        removeWatchFolder(folder.id);
+    });
+
+    // Click card to edit
+    li.addEventListener('click', () => openFolderModalForEdit(folder));
 
     return li;
 }
@@ -221,13 +231,14 @@ async function openAddFolderDialog() {
 }
 
 function openFolderModal(path) {
+    editingFolderId = null; // Adding new folder
     folderModalTitle.textContent = 'Add Watched Folder';
     folderModalPath.textContent = path;
     folderModalPath.dataset.path = path;
     folderModalSave.textContent = 'Add Folder';
 
-    // Reset form
-    filterAll.checked = true;
+    // Reset form - no filter selected by default
+    filterAll.checked = false;
     filterImages.checked = false;
     filterDocuments.checked = false;
     filterVideos.checked = false;
@@ -235,9 +246,37 @@ function openFolderModal(path) {
     processExisting.checked = false;
     autoArchive.checked = false;
 
-    updateFilterState();
+    // Show process existing option for new folders
+    processExisting.closest('label').classList.remove('hidden');
 
-    // Show modal
+    updateFilterState();
+    showModal();
+}
+
+function openFolderModalForEdit(folder) {
+    editingFolderId = folder.id;
+    folderModalTitle.textContent = 'Edit Watched Folder';
+    folderModalPath.textContent = folder.path;
+    folderModalPath.dataset.path = folder.path;
+    folderModalSave.textContent = 'Save Changes';
+
+    // Populate form with existing values
+    filterAll.checked = folder.filter_mode === 'all';
+    filterImages.checked = folder.filter_presets?.includes('images') || false;
+    filterDocuments.checked = folder.filter_presets?.includes('documents') || false;
+    filterVideos.checked = folder.filter_presets?.includes('videos') || false;
+    filterRegex.value = folder.filter_regex || '';
+    processExisting.checked = false; // Always unchecked for edit
+    autoArchive.checked = folder.auto_archive || false;
+
+    // Hide process existing option when editing
+    processExisting.closest('label').classList.add('hidden');
+
+    updateFilterState();
+    showModal();
+}
+
+function showModal() {
     folderModal.classList.remove('opacity-0', 'pointer-events-none');
     folderModal.classList.add('opacity-100');
     const innerDiv = folderModal.querySelector('div');
@@ -267,6 +306,17 @@ function updateFilterState() {
         filterImages.checked = false;
         filterDocuments.checked = false;
         filterVideos.checked = false;
+    }
+
+    // Enable save button only if at least one filter is selected
+    const hasFilter = filterAll.checked || filterImages.checked ||
+                      filterDocuments.checked || filterVideos.checked ||
+                      filterRegex.value.trim() !== '';
+    folderModalSave.disabled = !hasFilter;
+    if (hasFilter) {
+        folderModalSave.classList.remove('opacity-50', 'cursor-not-allowed');
+    } else {
+        folderModalSave.classList.add('opacity-50', 'cursor-not-allowed');
     }
 }
 
@@ -298,20 +348,30 @@ async function saveFolderConfig() {
     };
 
     try {
-        const folder = await window.go.main.App.AddWatchedFolder(config);
-        await window.go.main.App.RefreshWatches();
+        if (editingFolderId !== null) {
+            // Update existing folder
+            await window.go.main.App.UpdateWatchedFolder(editingFolderId, config);
+            await window.go.main.App.RefreshWatches();
+            closeFolderModal();
+            loadWatchFolders();
+            showToast('Folder updated');
+        } else {
+            // Add new folder
+            const folder = await window.go.main.App.AddWatchedFolder(config);
+            await window.go.main.App.RefreshWatches();
 
-        // Process existing if requested
-        if (config.process_existing && folder) {
-            await window.go.main.App.ProcessExistingFilesInFolder(folder.id);
+            // Process existing if requested
+            if (config.process_existing && folder) {
+                await window.go.main.App.ProcessExistingFilesInFolder(folder.id);
+            }
+
+            closeFolderModal();
+            loadWatchFolders();
+            showToast('Folder added');
         }
-
-        closeFolderModal();
-        loadWatchFolders();
-        showToast('Folder added');
     } catch (error) {
-        console.error('Failed to add folder:', error);
-        showToast('Failed to add folder: ' + error.message);
+        console.error('Failed to save folder:', error);
+        showToast('Failed to save folder: ' + error.message);
     }
 }
 
@@ -325,9 +385,10 @@ addFolderZone.addEventListener('click', (e) => {
 
 // Filter checkbox logic
 filterAll.addEventListener('change', updateFilterState);
-filterImages.addEventListener('change', () => { if (filterImages.checked) filterAll.checked = false; });
-filterDocuments.addEventListener('change', () => { if (filterDocuments.checked) filterAll.checked = false; });
-filterVideos.addEventListener('change', () => { if (filterVideos.checked) filterAll.checked = false; });
+filterImages.addEventListener('change', () => { if (filterImages.checked) filterAll.checked = false; updateFilterState(); });
+filterDocuments.addEventListener('change', () => { if (filterDocuments.checked) filterAll.checked = false; updateFilterState(); });
+filterVideos.addEventListener('change', () => { if (filterVideos.checked) filterAll.checked = false; updateFilterState(); });
+filterRegex.addEventListener('input', updateFilterState);
 
 // Modal buttons
 folderModalCancel.addEventListener('click', closeFolderModal);
