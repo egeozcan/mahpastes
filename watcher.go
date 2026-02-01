@@ -291,13 +291,16 @@ func (w *WatcherManager) importFile(filePath string, folder *WatchedFolder) (int
 		return 0, err
 	}
 
-	// Emit import event for UI refresh
-	w.app.emitWatchImport(fileData.Name)
-
-	// Auto-archive if configured - use the specific clip ID
+	// Auto-archive if configured - must happen BEFORE emitting event
+	// so frontend sees the clip in its final archived state
 	if folder.AutoArchive {
-		w.app.ToggleArchive(clipID)
+		if err := w.app.ToggleArchive(clipID); err != nil {
+			log.Printf("Failed to auto-archive clip %d: %v", clipID, err)
+		}
 	}
+
+	// Emit import event for UI refresh (after archiving is complete)
+	w.app.emitWatchImport(fileData.Name)
 
 	return clipID, nil
 }

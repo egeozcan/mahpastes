@@ -32,6 +32,8 @@ export function GetGlobalWatchPaused():Promise<boolean>;
 
 export function GetWatchStatus():Promise<main.WatchStatus>;
 
+export function GetWatchedFolderByID(arg1:number):Promise<main.WatchedFolder>;
+
 export function GetWatchedFolders():Promise<Array<main.WatchedFolder>>;
 
 export function IsDirectory(arg1:string):Promise<boolean>;
