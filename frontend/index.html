@@ -16,7 +16,7 @@
 <body class="bg-stone-50 text-stone-800">
 
     <!-- Header -->
-    <header class="bg-stone-50 border-b border-stone-200/60 sticky top-0 z-50">
+    <header class="bg-stone-50 border-b border-stone-200/60 sticky top-0 z-50" style="padding-top: 0.8rem">
         <div class="max-w-7xl mx-auto px-5 py-3 flex flex-col md:flex-row justify-between items-center gap-3">
             <h1 class="text-sm font-semibold text-stone-500 tracking-wide uppercase">mahpastes</h1>
 
@@ -33,6 +33,19 @@
             </div>
 
             <nav class="flex gap-2" aria-label="Global Actions">
+                <button id="toggle-watch-view-btn"
+                    class="relative border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-xs font-medium py-2 px-3 rounded-md transition-colors flex items-center"
+                    aria-pressed="false">
+                    <svg class="w-4 h-4 mr-1.5 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                        xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                            d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                            d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+                    </svg>
+                    <span id="watch-btn-text">Watch</span>
+                    <span id="watch-indicator" class="hidden absolute -top-1 -right-1 w-2.5 h-2.5 bg-emerald-500 rounded-full border-2 border-stone-50"></span>
+                </button>
                 <button id="toggle-archive-view-btn"
                     class="border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-xs font-medium py-2 px-3 rounded-md transition-colors flex items-center"
                     aria-pressed="false">
@@ -102,6 +115,41 @@
                         </div>
                     </div>
                 </div>
+            </div>
+        </section>
+
+        <!-- Watch View (hidden by default) -->
+        <section id="watch-view" class="hidden mb-10" aria-labelledby="watch-heading">
+            <h2 id="watch-heading" class="sr-only">Watched Folders</h2>
+
+            <!-- Global controls -->
+            <div class="flex items-center justify-between mb-6 pb-4 border-b border-stone-200">
+                <div class="flex items-center gap-3">
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" id="global-watch-toggle" class="sr-only peer">
+                        <div class="w-9 h-5 bg-stone-300 peer-focus:ring-2 peer-focus:ring-stone-400/30 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500"></div>
+                    </label>
+                    <span id="global-watch-label" class="text-sm font-medium text-stone-600">Watching paused</span>
+                </div>
+                <span id="watch-folder-count" class="text-xs text-stone-400">0 folders</span>
+            </div>
+
+            <!-- Folder list -->
+            <ul id="watch-folder-list" class="space-y-3 mb-6">
+                <!-- Folder cards inserted by JS -->
+            </ul>
+
+            <!-- Add folder zone -->
+            <div id="add-folder-zone" tabindex="0" role="button"
+                aria-label="Add folder to watch by dragging or clicking"
+                style="--wails-drop-target: drop"
+                class="border border-dashed border-stone-300 rounded-lg p-8 text-center cursor-pointer transition-all hover:border-stone-400 hover:bg-stone-50/50 focus:outline-none focus:ring-2 focus:ring-stone-400/30">
+                <p class="text-sm text-stone-500 mb-3">Drop a folder here or</p>
+                <button id="add-folder-btn"
+                    class="bg-stone-800 hover:bg-stone-700 text-white text-xs font-medium py-2 px-4 rounded-md transition-colors">
+                    + Add Folder
+                </button>
+                <p class="text-[10px] text-stone-400 mt-3">Files in subfolders are not watched</p>
             </div>
         </section>
 
@@ -456,12 +504,94 @@
         class="fixed bg-transparent border border-stone-400 text-stone-700 font-sans text-sm px-1 focus:outline-none z-[250]"
         style="display: none; min-width: 100px;">
 
+    <!-- Add/Edit Folder Modal -->
+    <div id="folder-modal" role="dialog" aria-modal="true" aria-labelledby="folder-modal-title"
+        class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm transition-opacity duration-200 opacity-0 pointer-events-none">
+        <div class="bg-white rounded-lg shadow-xl max-w-md w-full overflow-hidden transform transition-transform duration-200 scale-95">
+            <div class="p-5 border-b border-stone-100">
+                <h2 id="folder-modal-title" class="text-sm font-semibold text-stone-800">Add Watched Folder</h2>
+            </div>
+
+            <div class="p-5 space-y-5">
+                <!-- Folder path -->
+                <div>
+                    <label class="block text-[10px] font-medium text-stone-500 uppercase tracking-wider mb-1.5">Folder</label>
+                    <p id="folder-modal-path" class="text-sm text-stone-700 font-mono bg-stone-50 px-3 py-2 rounded-md truncate"></p>
+                </div>
+
+                <!-- Filter type -->
+                <div>
+                    <label class="block text-[10px] font-medium text-stone-500 uppercase tracking-wider mb-2">File Types</label>
+                    <div class="space-y-2">
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" id="filter-all" class="w-4 h-4 rounded border-stone-300 text-stone-700 focus:ring-stone-500">
+                            <span class="text-sm text-stone-600">All files</span>
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" id="filter-images" class="w-4 h-4 rounded border-stone-300 text-stone-700 focus:ring-stone-500">
+                            <span class="text-sm text-stone-600">Images</span>
+                            <span class="text-[10px] text-stone-400">(jpg, png, gif, webp...)</span>
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" id="filter-documents" class="w-4 h-4 rounded border-stone-300 text-stone-700 focus:ring-stone-500">
+                            <span class="text-sm text-stone-600">Documents</span>
+                            <span class="text-[10px] text-stone-400">(pdf, doc, txt, md...)</span>
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" id="filter-videos" class="w-4 h-4 rounded border-stone-300 text-stone-700 focus:ring-stone-500">
+                            <span class="text-sm text-stone-600">Videos</span>
+                            <span class="text-[10px] text-stone-400">(mp4, mov, avi, mkv...)</span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Custom regex -->
+                <div id="custom-regex-section">
+                    <label class="block text-[10px] font-medium text-stone-500 uppercase tracking-wider mb-1.5">Custom Filter (regex)</label>
+                    <input type="text" id="filter-regex"
+                        class="w-full px-3 py-2 border border-stone-200 rounded-md text-sm focus:outline-none focus:border-stone-400 focus:ring-1 focus:ring-stone-400/20"
+                        placeholder="e.g., .*\\.png$">
+                </div>
+
+                <!-- Options -->
+                <div class="space-y-3 pt-2 border-t border-stone-100">
+                    <label class="flex items-center gap-3 cursor-pointer">
+                        <input type="checkbox" id="process-existing" class="w-4 h-4 rounded border-stone-300 text-stone-700 focus:ring-stone-500">
+                        <div>
+                            <span class="text-sm text-stone-600">Process existing files now</span>
+                            <p class="text-[10px] text-stone-400">Import files already in this folder</p>
+                        </div>
+                    </label>
+                    <label class="flex items-center gap-3 cursor-pointer">
+                        <input type="checkbox" id="auto-archive" class="w-4 h-4 rounded border-stone-300 text-stone-700 focus:ring-stone-500">
+                        <div>
+                            <span class="text-sm text-stone-600">Auto-archive imported files</span>
+                            <p class="text-[10px] text-stone-400">Move imports directly to archive</p>
+                        </div>
+                    </label>
+                </div>
+            </div>
+
+            <div class="bg-stone-50 px-5 py-3 flex gap-2 justify-end border-t border-stone-100">
+                <button id="folder-modal-cancel"
+                    class="bg-white border border-stone-200 hover:bg-stone-50 text-stone-600 text-xs font-medium py-2 px-4 rounded-md transition-colors">
+                    Cancel
+                </button>
+                <button id="folder-modal-save"
+                    class="bg-stone-800 hover:bg-stone-700 text-white text-xs font-medium py-2 px-4 rounded-md transition-colors">
+                    Add Folder
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Scripts split for better organization -->
     <script src="js/utils.js"></script>
     <script src="js/wails-api.js"></script>
     <script src="js/ui.js"></script>
     <script src="js/modals.js"></script>
     <script src="js/editor.js"></script>
+    <script src="js/watch.js"></script>
     <script src="js/app.js"></script>
 </body>
 

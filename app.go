@@ -22,15 +22,37 @@ import (
 
 // App struct holds the application state
 type App struct {
-	ctx     context.Context
-	db      *sql.DB
-	tempDir string
-	mu      sync.Mutex
+	ctx            context.Context
+	db             *sql.DB
+	tempDir        string
+	mu             sync.Mutex
+	watcherManager *WatcherManager
 }
 
 // NewApp creates a new App instance
 func NewApp() *App {
 	return &App{}
+}
+
+// emitWatchError sends an error event to the frontend
+func (a *App) emitWatchError(filePath string, errMsg string) {
+	runtime.EventsEmit(a.ctx, "watch:error", map[string]string{
+		"file":  filepath.Base(filePath),
+		"error": errMsg,
+	})
+}
+
+// emitWatchImport sends an import event to the frontend
+func (a *App) emitWatchImport(filename string) {
+	runtime.EventsEmit(a.ctx, "watch:import", filename)
+}
+
+// RefreshWatches reloads the watcher configuration
+func (a *App) RefreshWatches() error {
+	if a.watcherManager != nil {
+		return a.watcherManager.refreshWatches()
+	}
+	return nil
 }
 
 // startup is called when the app starts
@@ -56,10 +78,26 @@ func (a *App) startup(ctx context.Context) {
 	if err := clipboard.Init(); err != nil {
 		log.Printf("Warning: Failed to initialize clipboard: %v", err)
 	}
+
+	// Initialize watcher manager
+	wm, err := NewWatcherManager(a)
+	if err != nil {
+		log.Printf("Warning: Failed to initialize watcher manager: %v", err)
+	} else {
+		a.watcherManager = wm
+		if err := wm.Start(); err != nil {
+			log.Printf("Warning: Failed to start watcher: %v", err)
+		}
+	}
 }
 
 // shutdown is called when the app is closing
 func (a *App) shutdown(ctx context.Context) {
+	// Stop watcher
+	if a.watcherManager != nil {
+		a.watcherManager.Stop()
+	}
+
 	if a.db != nil {
 		a.db.Close()
 	}
@@ -109,6 +147,30 @@ type FileData struct {
 	Name        string `json:"name"`
 	ContentType string `json:"content_type"`
 	Data        string `json:"data"` // base64 encoded
+}
+
+// WatchedFolder represents a folder being watched for new files
+type WatchedFolder struct {
+	ID              int64     `json:"id"`
+	Path            string    `json:"path"`
+	FilterMode      string    `json:"filter_mode"`      // "all", "presets", "custom"
+	FilterPresets   []string  `json:"filter_presets"`   // ["images", "videos", "documents"]
+	FilterRegex     string    `json:"filter_regex"`     // regex pattern for custom mode
+	ProcessExisting bool      `json:"process_existing"` // import existing files when added
+	AutoArchive     bool      `json:"auto_archive"`     // archive imports immediately
+	IsPaused        bool      `json:"is_paused"`        // per-folder pause
+	CreatedAt       time.Time `json:"created_at"`
+	Exists          bool      `json:"exists"` // whether folder path exists on disk
+}
+
+// WatchedFolderConfig for creating/updating watched folders
+type WatchedFolderConfig struct {
+	Path            string   `json:"path"`
+	FilterMode      string   `json:"filter_mode"`
+	FilterPresets   []string `json:"filter_presets"`
+	FilterRegex     string   `json:"filter_regex"`
+	ProcessExisting bool     `json:"process_existing"`
+	AutoArchive     bool     `json:"auto_archive"`
 }
 
 // GetClips retrieves a list of clips for the gallery
@@ -193,6 +255,44 @@ func (a *App) GetClipData(id int64) (*ClipData, error) {
 	}
 
 	return clip, nil
+}
+
+// UploadFileAndGetID uploads a single file and returns the clip ID
+func (a *App) UploadFileAndGetID(file FileData) (int64, error) {
+	// Decode base64 data
+	data, err := base64.StdEncoding.DecodeString(file.Data)
+	if err != nil {
+		return 0, fmt.Errorf("failed to decode base64 data: %w", err)
+	}
+
+	contentType := file.ContentType
+
+	// Special handling for text
+	if contentType == "text/plain" || contentType == "" {
+		textData := string(data)
+		trimmedText := strings.TrimSpace(textData)
+
+		if strings.HasPrefix(trimmedText, "<!DOCTYPE html") {
+			contentType = "text/html"
+		} else if isJSON(trimmedText) {
+			contentType = "application/json"
+		} else {
+			contentType = "text/plain"
+		}
+	}
+
+	result, err := a.db.Exec("INSERT INTO clips (content_type, data, filename) VALUES (?, ?, ?)",
+		contentType, data, file.Name)
+	if err != nil {
+		return 0, fmt.Errorf("failed to insert into db: %w", err)
+	}
+
+	id, err := result.LastInsertId()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get inserted ID: %w", err)
+	}
+
+	return id, nil
 }
 
 // UploadFiles handles file uploads
@@ -551,4 +651,260 @@ func (a *App) SaveClipToFile(id int64) error {
 func isJSON(s string) bool {
 	var js json.RawMessage
 	return json.Unmarshal([]byte(s), &js) == nil
+}
+
+// GetWatchedFolders retrieves all watched folders
+func (a *App) GetWatchedFolders() ([]WatchedFolder, error) {
+	rows, err := a.db.Query(`
+		SELECT id, path, filter_mode, filter_presets, filter_regex,
+		       process_existing, auto_archive, is_paused, created_at
+		FROM watched_folders
+		ORDER BY created_at DESC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query watched folders: %w", err)
+	}
+	defer rows.Close()
+
+	var folders []WatchedFolder
+	for rows.Next() {
+		var f WatchedFolder
+		var filterPresets sql.NullString
+		var filterRegex sql.NullString
+		var processExisting, autoArchive, isPaused int
+
+		if err := rows.Scan(&f.ID, &f.Path, &f.FilterMode, &filterPresets, &filterRegex,
+			&processExisting, &autoArchive, &isPaused, &f.CreatedAt); err != nil {
+			log.Printf("Failed to scan watched folder: %v", err)
+			continue
+		}
+
+		f.ProcessExisting = processExisting == 1
+		f.AutoArchive = autoArchive == 1
+		f.IsPaused = isPaused == 1
+		f.FilterRegex = filterRegex.String
+
+		// Parse filter presets JSON
+		if filterPresets.Valid && filterPresets.String != "" {
+			_ = json.Unmarshal([]byte(filterPresets.String), &f.FilterPresets)
+		}
+		if f.FilterPresets == nil {
+			f.FilterPresets = []string{}
+		}
+
+		// Check if folder exists
+		if _, err := os.Stat(f.Path); err == nil {
+			f.Exists = true
+		}
+
+		folders = append(folders, f)
+	}
+
+	if folders == nil {
+		folders = []WatchedFolder{}
+	}
+	return folders, nil
+}
+
+// GetWatchedFolderByID retrieves a single watched folder by ID
+func (a *App) GetWatchedFolderByID(id int64) (*WatchedFolder, error) {
+	var f WatchedFolder
+	var filterPresets sql.NullString
+	var filterRegex sql.NullString
+	var processExisting, autoArchive, isPaused int
+
+	err := a.db.QueryRow(`
+		SELECT id, path, filter_mode, filter_presets, filter_regex,
+		       process_existing, auto_archive, is_paused, created_at
+		FROM watched_folders
+		WHERE id = ?
+	`, id).Scan(&f.ID, &f.Path, &f.FilterMode, &filterPresets, &filterRegex,
+		&processExisting, &autoArchive, &isPaused, &f.CreatedAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to query watched folder: %w", err)
+	}
+
+	f.ProcessExisting = processExisting == 1
+	f.AutoArchive = autoArchive == 1
+	f.IsPaused = isPaused == 1
+	f.FilterRegex = filterRegex.String
+
+	if filterPresets.Valid && filterPresets.String != "" {
+		_ = json.Unmarshal([]byte(filterPresets.String), &f.FilterPresets)
+	}
+	if f.FilterPresets == nil {
+		f.FilterPresets = []string{}
+	}
+
+	if _, err := os.Stat(f.Path); err == nil {
+		f.Exists = true
+	}
+
+	return &f, nil
+}
+
+// AddWatchedFolder adds a new folder to watch
+func (a *App) AddWatchedFolder(config WatchedFolderConfig) (*WatchedFolder, error) {
+	// Validate path exists
+	if _, err := os.Stat(config.Path); os.IsNotExist(err) {
+		return nil, fmt.Errorf("folder does not exist: %s", config.Path)
+	}
+
+	// Default filter mode
+	if config.FilterMode == "" {
+		config.FilterMode = "all"
+	}
+
+	// Serialize presets to JSON
+	var presetsJSON []byte
+	if len(config.FilterPresets) > 0 {
+		presetsJSON, _ = json.Marshal(config.FilterPresets)
+	}
+
+	result, err := a.db.Exec(`
+		INSERT INTO watched_folders (path, filter_mode, filter_presets, filter_regex, process_existing, auto_archive)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`, config.Path, config.FilterMode, string(presetsJSON), config.FilterRegex,
+		boolToInt(config.ProcessExisting), boolToInt(config.AutoArchive))
+	if err != nil {
+		return nil, fmt.Errorf("failed to add watched folder: %w", err)
+	}
+
+	id, _ := result.LastInsertId()
+
+	return &WatchedFolder{
+		ID:              id,
+		Path:            config.Path,
+		FilterMode:      config.FilterMode,
+		FilterPresets:   config.FilterPresets,
+		FilterRegex:     config.FilterRegex,
+		ProcessExisting: config.ProcessExisting,
+		AutoArchive:     config.AutoArchive,
+		IsPaused:        false,
+		Exists:          true,
+	}, nil
+}
+
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+// UpdateWatchedFolder updates an existing watched folder config
+func (a *App) UpdateWatchedFolder(id int64, config WatchedFolderConfig) error {
+	var presetsJSON []byte
+	if len(config.FilterPresets) > 0 {
+		presetsJSON, _ = json.Marshal(config.FilterPresets)
+	}
+
+	_, err := a.db.Exec(`
+		UPDATE watched_folders
+		SET filter_mode = ?, filter_presets = ?, filter_regex = ?, auto_archive = ?
+		WHERE id = ?
+	`, config.FilterMode, string(presetsJSON), config.FilterRegex,
+		boolToInt(config.AutoArchive), id)
+	if err != nil {
+		return fmt.Errorf("failed to update watched folder: %w", err)
+	}
+	return nil
+}
+
+// RemoveWatchedFolder removes a watched folder
+func (a *App) RemoveWatchedFolder(id int64) error {
+	_, err := a.db.Exec("DELETE FROM watched_folders WHERE id = ?", id)
+	if err != nil {
+		return fmt.Errorf("failed to remove watched folder: %w", err)
+	}
+	return nil
+}
+
+// GetGlobalWatchPaused returns whether global watching is paused
+func (a *App) GetGlobalWatchPaused() bool {
+	var value string
+	err := a.db.QueryRow("SELECT value FROM settings WHERE key = 'global_watch_paused'").Scan(&value)
+	if err != nil {
+		return false
+	}
+	return value == "true"
+}
+
+// SetGlobalWatchPaused sets the global watch pause state
+func (a *App) SetGlobalWatchPaused(paused bool) error {
+	value := "false"
+	if paused {
+		value = "true"
+	}
+	_, err := a.db.Exec("UPDATE settings SET value = ? WHERE key = 'global_watch_paused'", value)
+	return err
+}
+
+// SetFolderPaused sets the pause state for a specific folder
+func (a *App) SetFolderPaused(id int64, paused bool) error {
+	_, err := a.db.Exec("UPDATE watched_folders SET is_paused = ? WHERE id = ?", boolToInt(paused), id)
+	return err
+}
+
+// SelectFolder opens a native folder picker dialog
+func (a *App) SelectFolder() (string, error) {
+	path, err := runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "Select Folder to Watch",
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to open folder dialog: %w", err)
+	}
+	return path, nil
+}
+
+// IsDirectory checks if a path is a directory
+func (a *App) IsDirectory(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return info.IsDir()
+}
+
+// ProcessExistingFilesInFolder processes existing files in a watched folder
+func (a *App) ProcessExistingFilesInFolder(folderID int64) error {
+	if a.watcherManager != nil {
+		return a.watcherManager.ProcessExistingFiles(folderID)
+	}
+	return nil
+}
+
+// WatchStatus represents the current watching state
+type WatchStatus struct {
+	GlobalPaused bool `json:"global_paused"`
+	ActiveCount  int  `json:"active_count"`
+	TotalCount   int  `json:"total_count"`
+	IsWatching   bool `json:"is_watching"` // true if any folder is actively being watched
+}
+
+// GetWatchStatus returns the current watch status
+func (a *App) GetWatchStatus() WatchStatus {
+	globalPaused := a.GetGlobalWatchPaused()
+	folders, err := a.GetWatchedFolders()
+	if err != nil {
+		log.Printf("Warning: Failed to get watched folders for status: %v", err)
+		return WatchStatus{GlobalPaused: globalPaused}
+	}
+
+	activeCount := 0
+	for _, f := range folders {
+		if !f.IsPaused && f.Exists {
+			activeCount++
+		}
+	}
+
+	return WatchStatus{
+		GlobalPaused: globalPaused,
+		ActiveCount:  activeCount,
+		TotalCount:   len(folders),
+		IsWatching:   !globalPaused && activeCount > 0,
+	}
 }

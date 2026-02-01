@@ -79,6 +79,34 @@ func initDB() (*sql.DB, error) {
 	// Migrate: Add expires_at column if it doesn't exist
 	_, _ = db.Exec("ALTER TABLE clips ADD COLUMN expires_at DATETIME")
 
+	// Create settings table
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS settings (
+		key TEXT PRIMARY KEY,
+		value TEXT NOT NULL
+	)`); err != nil {
+		log.Printf("Warning: Failed to create settings table: %v", err)
+	}
+
+	// Create watched_folders table
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS watched_folders (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		path TEXT NOT NULL UNIQUE,
+		filter_mode TEXT NOT NULL DEFAULT 'all',
+		filter_presets TEXT,
+		filter_regex TEXT,
+		process_existing INTEGER DEFAULT 0,
+		auto_archive INTEGER DEFAULT 0,
+		is_paused INTEGER DEFAULT 0,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	)`); err != nil {
+		log.Printf("Warning: Failed to create watched_folders table: %v", err)
+	}
+
+	// Initialize global watch pause setting if not exists
+	if _, err := db.Exec(`INSERT OR IGNORE INTO settings (key, value) VALUES ('global_watch_paused', 'false')`); err != nil {
+		log.Printf("Warning: Failed to initialize global_watch_paused setting: %v", err)
+	}
+
 	return db, nil
 }
 

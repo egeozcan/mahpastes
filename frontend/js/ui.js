@@ -257,6 +257,17 @@ function cancelSelection() {
 
 function toggleViewMode() {
     isViewingArchive = !isViewingArchive;
+
+    // Hide watch view if open
+    if (isViewingWatch) {
+        isViewingWatch = false;
+        watchBtnText.textContent = 'Watch';
+        toggleWatchViewBtn.classList.remove('bg-stone-800', 'text-white', 'border-stone-800');
+        toggleWatchViewBtn.classList.add('border-stone-200', 'text-stone-600');
+        toggleWatchViewBtn.setAttribute('aria-pressed', 'false');
+        watchView.classList.add('hidden');
+    }
+
     toggleArchiveViewBtn.setAttribute('aria-pressed', isViewingArchive);
     if (isViewingArchive) {
         archiveBtnText.textContent = "Active";
@@ -271,6 +282,10 @@ function toggleViewMode() {
         uploadSection.classList.remove('opacity-50', 'pointer-events-none');
         uploadSection.removeAttribute('aria-hidden');
     }
+
+    // Ensure main view is visible
+    gallery.parentElement.classList.remove('hidden');
+
     // Clear image cache when switching views
     imageCache.clear();
     loadClips();
