@@ -706,6 +706,46 @@ func (a *App) GetWatchedFolders() ([]WatchedFolder, error) {
 	return folders, nil
 }
 
+// GetWatchedFolderByID retrieves a single watched folder by ID
+func (a *App) GetWatchedFolderByID(id int64) (*WatchedFolder, error) {
+	var f WatchedFolder
+	var filterPresets sql.NullString
+	var filterRegex sql.NullString
+	var processExisting, autoArchive, isPaused int
+
+	err := a.db.QueryRow(`
+		SELECT id, path, filter_mode, filter_presets, filter_regex,
+		       process_existing, auto_archive, is_paused, created_at
+		FROM watched_folders
+		WHERE id = ?
+	`, id).Scan(&f.ID, &f.Path, &f.FilterMode, &filterPresets, &filterRegex,
+		&processExisting, &autoArchive, &isPaused, &f.CreatedAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to query watched folder: %w", err)
+	}
+
+	f.ProcessExisting = processExisting == 1
+	f.AutoArchive = autoArchive == 1
+	f.IsPaused = isPaused == 1
+	f.FilterRegex = filterRegex.String
+
+	if filterPresets.Valid && filterPresets.String != "" {
+		_ = json.Unmarshal([]byte(filterPresets.String), &f.FilterPresets)
+	}
+	if f.FilterPresets == nil {
+		f.FilterPresets = []string{}
+	}
+
+	if _, err := os.Stat(f.Path); err == nil {
+		f.Exists = true
+	}
+
+	return &f, nil
+}
+
 // AddWatchedFolder adds a new folder to watch
 func (a *App) AddWatchedFolder(config WatchedFolderConfig) (*WatchedFolder, error) {
 	// Validate path exists

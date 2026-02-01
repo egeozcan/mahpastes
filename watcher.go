@@ -24,9 +24,8 @@ var presetExtensions = map[string][]string{
 type WatcherManager struct {
 	watcher       *fsnotify.Watcher
 	app           *App
-	activeWatches map[int64]string        // folderID -> path
-	folderCache   map[int64]*WatchedFolder // cached folder configs
-	debounceMap   map[string]*time.Timer  // path -> debounce timer
+	activeWatches map[int64]string       // folderID -> path
+	debounceMap   map[string]*time.Timer // path -> debounce timer
 	mu            sync.RWMutex
 	running       bool
 }
@@ -42,7 +41,6 @@ func NewWatcherManager(app *App) (*WatcherManager, error) {
 		watcher:       watcher,
 		app:           app,
 		activeWatches: make(map[int64]string),
-		folderCache:   make(map[int64]*WatchedFolder),
 		debounceMap:   make(map[string]*time.Timer),
 	}, nil
 }
@@ -95,13 +93,6 @@ func (w *WatcherManager) refreshWatches() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	// Update folder cache
-	w.folderCache = make(map[int64]*WatchedFolder)
-	for i := range folders {
-		f := folders[i]
-		w.folderCache[f.ID] = &f
-	}
-
 	// Build set of folders that should be watched
 	shouldWatch := make(map[int64]string)
 	for _, f := range folders {
@@ -115,7 +106,6 @@ func (w *WatcherManager) refreshWatches() error {
 		if _, ok := shouldWatch[id]; !ok {
 			w.watcher.Remove(path)
 			delete(w.activeWatches, id)
-			delete(w.folderCache, id)
 			log.Printf("Stopped watching: %s", path)
 		}
 	}
@@ -196,20 +186,29 @@ func (w *WatcherManager) debounceFile(path string) {
 func (w *WatcherManager) processFile(filePath string) {
 	dir := filepath.Dir(filePath)
 
-	// Find which folder config this belongs to (use cached config)
+	// Find which folder ID this belongs to
 	w.mu.RLock()
 	var folderID int64
-	var folder *WatchedFolder
 	for id, path := range w.activeWatches {
 		if path == dir {
 			folderID = id
-			folder = w.folderCache[id]
 			break
 		}
 	}
 	w.mu.RUnlock()
 
-	if folderID == 0 || folder == nil {
+	if folderID == 0 {
+		return
+	}
+
+	// Fetch fresh config from DB to avoid stale cache issues
+	folder, err := w.app.GetWatchedFolderByID(folderID)
+	if err != nil {
+		log.Printf("Failed to get folder config for %s: %v", filePath, err)
+		return
+	}
+	if folder == nil {
+		log.Printf("Folder %d no longer exists, skipping %s", folderID, filePath)
 		return
 	}
 
