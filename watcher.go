@@ -289,6 +289,9 @@ func (w *WatcherManager) importFile(filePath string, folder *WatchedFolder) erro
 		return err
 	}
 
+	// Emit import event for UI refresh
+	w.app.emitWatchImport(fileData.Name)
+
 	// Auto-archive if configured
 	if folder.AutoArchive {
 		// Get the most recently added clip and archive it
