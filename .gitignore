@@ -6,6 +6,7 @@
 
 # Build output
 /build/bin/
+/build/darwin/
 
 # Frontend dependencies
 /frontend/node_modules/
