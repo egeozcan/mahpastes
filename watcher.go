@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -298,6 +299,60 @@ func (w *WatcherManager) importFile(filePath string, folder *WatchedFolder) erro
 		clips, err := w.app.GetClips(false)
 		if err == nil && len(clips) > 0 {
 			w.app.ToggleArchive(clips[0].ID)
+		}
+	}
+
+	return nil
+}
+
+// ProcessExistingFiles imports all existing files in a watched folder
+func (w *WatcherManager) ProcessExistingFiles(folderID int64) error {
+	folders, err := w.app.GetWatchedFolders()
+	if err != nil {
+		return err
+	}
+
+	var folder *WatchedFolder
+	for _, f := range folders {
+		if f.ID == folderID {
+			folder = &f
+			break
+		}
+	}
+
+	if folder == nil {
+		return fmt.Errorf("folder not found")
+	}
+
+	entries, err := os.ReadDir(folder.Path)
+	if err != nil {
+		return err
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		name := entry.Name()
+		if strings.HasPrefix(name, ".") {
+			continue
+		}
+
+		filePath := filepath.Join(folder.Path, name)
+
+		if !w.matchesFilter(filePath, folder) {
+			continue
+		}
+
+		if err := w.importFile(filePath, folder); err != nil {
+			log.Printf("Failed to import existing file %s: %v", filePath, err)
+			w.app.emitWatchError(filePath, err.Error())
+			continue
+		}
+
+		if err := os.Remove(filePath); err != nil {
+			log.Printf("Failed to delete file %s: %v", filePath, err)
 		}
 	}
 

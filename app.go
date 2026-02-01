@@ -781,3 +781,11 @@ func (a *App) SelectFolder() (string, error) {
 	}
 	return path, nil
 }
+
+// ProcessExistingFilesInFolder processes existing files in a watched folder
+func (a *App) ProcessExistingFilesInFolder(folderID int64) error {
+	if a.watcherManager != nil {
+		return a.watcherManager.ProcessExistingFiles(folderID)
+	}
+	return nil
+}
