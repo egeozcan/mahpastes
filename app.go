@@ -22,15 +22,37 @@ import (
 
 // App struct holds the application state
 type App struct {
-	ctx     context.Context
-	db      *sql.DB
-	tempDir string
-	mu      sync.Mutex
+	ctx            context.Context
+	db             *sql.DB
+	tempDir        string
+	mu             sync.Mutex
+	watcherManager *WatcherManager
 }
 
 // NewApp creates a new App instance
 func NewApp() *App {
 	return &App{}
+}
+
+// emitWatchError sends an error event to the frontend
+func (a *App) emitWatchError(filePath string, errMsg string) {
+	runtime.EventsEmit(a.ctx, "watch:error", map[string]string{
+		"file":  filepath.Base(filePath),
+		"error": errMsg,
+	})
+}
+
+// emitWatchImport sends an import event to the frontend
+func (a *App) emitWatchImport(filename string) {
+	runtime.EventsEmit(a.ctx, "watch:import", filename)
+}
+
+// RefreshWatches reloads the watcher configuration
+func (a *App) RefreshWatches() error {
+	if a.watcherManager != nil {
+		return a.watcherManager.refreshWatches()
+	}
+	return nil
 }
 
 // startup is called when the app starts
@@ -56,10 +78,26 @@ func (a *App) startup(ctx context.Context) {
 	if err := clipboard.Init(); err != nil {
 		log.Printf("Warning: Failed to initialize clipboard: %v", err)
 	}
+
+	// Initialize watcher manager
+	wm, err := NewWatcherManager(a)
+	if err != nil {
+		log.Printf("Warning: Failed to initialize watcher manager: %v", err)
+	} else {
+		a.watcherManager = wm
+		if err := wm.Start(); err != nil {
+			log.Printf("Warning: Failed to start watcher: %v", err)
+		}
+	}
 }
 
 // shutdown is called when the app is closing
 func (a *App) shutdown(ctx context.Context) {
+	// Stop watcher
+	if a.watcherManager != nil {
+		a.watcherManager.Stop()
+	}
+
 	if a.db != nil {
 		a.db.Close()
 	}
