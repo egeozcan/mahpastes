@@ -79,6 +79,28 @@ func initDB() (*sql.DB, error) {
 	// Migrate: Add expires_at column if it doesn't exist
 	_, _ = db.Exec("ALTER TABLE clips ADD COLUMN expires_at DATETIME")
 
+	// Create settings table
+	_, _ = db.Exec(`CREATE TABLE IF NOT EXISTS settings (
+		key TEXT PRIMARY KEY,
+		value TEXT NOT NULL
+	)`)
+
+	// Create watched_folders table
+	_, _ = db.Exec(`CREATE TABLE IF NOT EXISTS watched_folders (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		path TEXT NOT NULL UNIQUE,
+		filter_mode TEXT NOT NULL DEFAULT 'all',
+		filter_presets TEXT,
+		filter_regex TEXT,
+		process_existing INTEGER DEFAULT 0,
+		auto_archive INTEGER DEFAULT 0,
+		is_paused INTEGER DEFAULT 0,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	)`)
+
+	// Initialize global watch pause setting if not exists
+	_, _ = db.Exec(`INSERT OR IGNORE INTO settings (key, value) VALUES ('global_watch_paused', 'false')`)
+
 	return db, nil
 }
 
