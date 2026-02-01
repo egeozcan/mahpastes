@@ -7,6 +7,7 @@
 # Build output
 /build/bin/
 /build/darwin/
+/go-clipboard
 
 # Frontend dependencies
 /frontend/node_modules/
