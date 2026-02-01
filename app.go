@@ -789,3 +789,31 @@ func (a *App) ProcessExistingFilesInFolder(folderID int64) error {
 	}
 	return nil
 }
+
+// WatchStatus represents the current watching state
+type WatchStatus struct {
+	GlobalPaused bool `json:"global_paused"`
+	ActiveCount  int  `json:"active_count"`
+	TotalCount   int  `json:"total_count"`
+	IsWatching   bool `json:"is_watching"` // true if any folder is actively being watched
+}
+
+// GetWatchStatus returns the current watch status
+func (a *App) GetWatchStatus() WatchStatus {
+	globalPaused := a.GetGlobalWatchPaused()
+	folders, _ := a.GetWatchedFolders()
+
+	activeCount := 0
+	for _, f := range folders {
+		if !f.IsPaused && f.Exists {
+			activeCount++
+		}
+	}
+
+	return WatchStatus{
+		GlobalPaused: globalPaused,
+		ActiveCount:  activeCount,
+		TotalCount:   len(folders),
+		IsWatching:   !globalPaused && activeCount > 0,
+	}
+}
