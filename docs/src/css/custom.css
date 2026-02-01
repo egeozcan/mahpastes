@@ -1,0 +1,199 @@
+/**
+ * mahpastes Documentation - Custom Styles
+ * Branded to match the app's stone/slate aesthetic
+ */
+
+@import '@fontsource/ibm-plex-mono/400.css';
+@import '@fontsource/ibm-plex-mono/500.css';
+@import '@fontsource/ibm-plex-mono/600.css';
+
+:root {
+  /* Primary colors - slate palette */
+  --ifm-color-primary: #475569;
+  --ifm-color-primary-dark: #3d4a5c;
+  --ifm-color-primary-darker: #384556;
+  --ifm-color-primary-darkest: #2d3847;
+  --ifm-color-primary-light: #526276;
+  --ifm-color-primary-lighter: #576781;
+  --ifm-color-primary-lightest: #64748b;
+
+  /* Accent color - sky blue for highlights */
+  --ifm-color-info: #0ea5e9;
+  --ifm-color-info-dark: #0284c7;
+  --ifm-color-info-light: #38bdf8;
+
+  /* Background */
+  --ifm-background-color: #f8fafc;
+  --ifm-background-surface-color: #ffffff;
+
+  /* Typography */
+  --ifm-font-family-base: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --ifm-font-family-monospace: 'IBM Plex Mono', SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --ifm-heading-font-family: 'IBM Plex Mono', monospace;
+  --ifm-heading-font-weight: 600;
+
+  /* Code blocks */
+  --ifm-code-font-size: 90%;
+  --docusaurus-highlighted-code-line-bg: rgba(71, 85, 105, 0.1);
+
+  /* Borders */
+  --ifm-global-border-width: 1px;
+  --ifm-global-radius: 0.375rem;
+}
+
+/* Dark mode */
+[data-theme='dark'] {
+  --ifm-color-primary: #94a3b8;
+  --ifm-color-primary-dark: #7d8fa3;
+  --ifm-color-primary-darker: #728499;
+  --ifm-color-primary-darkest: #5a6e85;
+  --ifm-color-primary-light: #a8b5c5;
+  --ifm-color-primary-lighter: #b3bfcd;
+  --ifm-color-primary-lightest: #cbd5e1;
+
+  --ifm-background-color: #1e293b;
+  --ifm-background-surface-color: #0f172a;
+
+  --docusaurus-highlighted-code-line-bg: rgba(148, 163, 184, 0.1);
+}
+
+/* Headings with IBM Plex Mono */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--ifm-heading-font-family);
+  letter-spacing: -0.02em;
+}
+
+/* Hero section on homepage */
+.hero {
+  background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
+}
+
+[data-theme='dark'] .hero {
+  background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+}
+
+.hero__title {
+  font-family: 'IBM Plex Mono', monospace;
+  font-weight: 600;
+}
+
+/* Keyboard shortcut badges */
+.keyboard-key {
+  display: inline-block;
+  padding: 0.15rem 0.4rem;
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.85em;
+  font-weight: 500;
+  color: #374151;
+  background: linear-gradient(180deg, #ffffff 0%, #f3f4f6 100%);
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  box-shadow: 0 2px 0 #d1d5db;
+  margin: 0 0.1rem;
+}
+
+[data-theme='dark'] .keyboard-key {
+  color: #e5e7eb;
+  background: linear-gradient(180deg, #374151 0%, #1f2937 100%);
+  border-color: #4b5563;
+  box-shadow: 0 2px 0 #4b5563;
+}
+
+/* Code blocks */
+pre {
+  border: 1px solid var(--ifm-color-emphasis-300);
+}
+
+/* Tables */
+table {
+  display: table;
+  width: 100%;
+}
+
+th {
+  font-family: var(--ifm-heading-font-family);
+  font-weight: 500;
+  background: var(--ifm-color-emphasis-100);
+}
+
+/* Admonitions/callouts */
+.admonition {
+  border-radius: var(--ifm-global-radius);
+  border-left-width: 4px;
+}
+
+/* Sidebar */
+.menu__link {
+  font-size: 0.9rem;
+}
+
+.menu__link--sublist-caret::after {
+  background-size: 1.25rem 1.25rem;
+}
+
+/* Navbar */
+.navbar__title {
+  font-family: 'IBM Plex Mono', monospace;
+  font-weight: 600;
+}
+
+/* Feature cards for homepage */
+.feature-card {
+  padding: 1.5rem;
+  border-radius: 0.5rem;
+  background: var(--ifm-background-surface-color);
+  border: 1px solid var(--ifm-color-emphasis-200);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.feature-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+[data-theme='dark'] .feature-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.feature-card h3 {
+  margin-top: 0;
+  font-size: 1.1rem;
+}
+
+/* Footer */
+.footer {
+  background: #1e293b;
+}
+
+.footer__title {
+  font-family: 'IBM Plex Mono', monospace;
+}
+
+/* Responsive adjustments */
+@media (max-width: 996px) {
+  .hero__title {
+    font-size: 2rem;
+  }
+}
+
+/* Smooth scrolling */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Better focus styles */
+:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: 2px;
+}
+
+/* Image styling */
+img {
+  border-radius: var(--ifm-global-radius);
+}
+
+/* Blockquotes */
+blockquote {
+  border-left-color: var(--ifm-color-primary);
+  font-style: normal;
+}
