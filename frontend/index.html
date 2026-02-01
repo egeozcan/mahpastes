@@ -503,6 +503,87 @@
         class="fixed bg-transparent border border-stone-400 text-stone-700 font-sans text-sm px-1 focus:outline-none z-[250]"
         style="display: none; min-width: 100px;">
 
+    <!-- Add/Edit Folder Modal -->
+    <div id="folder-modal" role="dialog" aria-modal="true" aria-labelledby="folder-modal-title"
+        class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm transition-opacity duration-200 opacity-0 pointer-events-none">
+        <div class="bg-white rounded-lg shadow-xl max-w-md w-full overflow-hidden transform transition-transform duration-200 scale-95">
+            <div class="p-5 border-b border-stone-100">
+                <h2 id="folder-modal-title" class="text-sm font-semibold text-stone-800">Add Watched Folder</h2>
+            </div>
+
+            <div class="p-5 space-y-5">
+                <!-- Folder path -->
+                <div>
+                    <label class="block text-[10px] font-medium text-stone-500 uppercase tracking-wider mb-1.5">Folder</label>
+                    <p id="folder-modal-path" class="text-sm text-stone-700 font-mono bg-stone-50 px-3 py-2 rounded-md truncate"></p>
+                </div>
+
+                <!-- Filter type -->
+                <div>
+                    <label class="block text-[10px] font-medium text-stone-500 uppercase tracking-wider mb-2">File Types</label>
+                    <div class="space-y-2">
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" id="filter-all" class="w-4 h-4 rounded border-stone-300 text-stone-700 focus:ring-stone-500">
+                            <span class="text-sm text-stone-600">All files</span>
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" id="filter-images" class="w-4 h-4 rounded border-stone-300 text-stone-700 focus:ring-stone-500">
+                            <span class="text-sm text-stone-600">Images</span>
+                            <span class="text-[10px] text-stone-400">(jpg, png, gif, webp...)</span>
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" id="filter-documents" class="w-4 h-4 rounded border-stone-300 text-stone-700 focus:ring-stone-500">
+                            <span class="text-sm text-stone-600">Documents</span>
+                            <span class="text-[10px] text-stone-400">(pdf, doc, txt, md...)</span>
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" id="filter-videos" class="w-4 h-4 rounded border-stone-300 text-stone-700 focus:ring-stone-500">
+                            <span class="text-sm text-stone-600">Videos</span>
+                            <span class="text-[10px] text-stone-400">(mp4, mov, avi, mkv...)</span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Custom regex -->
+                <div id="custom-regex-section">
+                    <label class="block text-[10px] font-medium text-stone-500 uppercase tracking-wider mb-1.5">Custom Filter (regex)</label>
+                    <input type="text" id="filter-regex"
+                        class="w-full px-3 py-2 border border-stone-200 rounded-md text-sm focus:outline-none focus:border-stone-400 focus:ring-1 focus:ring-stone-400/20"
+                        placeholder="e.g., .*\\.png$">
+                </div>
+
+                <!-- Options -->
+                <div class="space-y-3 pt-2 border-t border-stone-100">
+                    <label class="flex items-center gap-3 cursor-pointer">
+                        <input type="checkbox" id="process-existing" class="w-4 h-4 rounded border-stone-300 text-stone-700 focus:ring-stone-500">
+                        <div>
+                            <span class="text-sm text-stone-600">Process existing files now</span>
+                            <p class="text-[10px] text-stone-400">Import files already in this folder</p>
+                        </div>
+                    </label>
+                    <label class="flex items-center gap-3 cursor-pointer">
+                        <input type="checkbox" id="auto-archive" class="w-4 h-4 rounded border-stone-300 text-stone-700 focus:ring-stone-500">
+                        <div>
+                            <span class="text-sm text-stone-600">Auto-archive imported files</span>
+                            <p class="text-[10px] text-stone-400">Move imports directly to archive</p>
+                        </div>
+                    </label>
+                </div>
+            </div>
+
+            <div class="bg-stone-50 px-5 py-3 flex gap-2 justify-end border-t border-stone-100">
+                <button id="folder-modal-cancel"
+                    class="bg-white border border-stone-200 hover:bg-stone-50 text-stone-600 text-xs font-medium py-2 px-4 rounded-md transition-colors">
+                    Cancel
+                </button>
+                <button id="folder-modal-save"
+                    class="bg-stone-800 hover:bg-stone-700 text-white text-xs font-medium py-2 px-4 rounded-md transition-colors">
+                    Add Folder
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Scripts split for better organization -->
     <script src="js/utils.js"></script>
     <script src="js/wails-api.js"></script>
