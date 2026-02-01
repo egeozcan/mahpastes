@@ -117,11 +117,16 @@
 /* Comparison Modal Styles */
 .comparison-backdrop {
     position: fixed;
-    inset: 0;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    height: 100%;
     background: rgba(28, 25, 23, 0.95);
     z-index: 100;
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
     opacity: 0;
     pointer-events: none;
     transition: opacity 0.2s ease;
@@ -143,13 +148,15 @@
 }
 
 .comparison-viewport {
-    flex: 1;
+    min-height: 0;
+    min-width: 0;
     position: relative;
     overflow: hidden;
     display: flex;
     align-items: center;
     justify-content: center;
     padding: 1.5rem;
+    box-sizing: border-box;
 }
 
 .comparison-container {
@@ -272,8 +279,8 @@ input[type="range"].comparison-range::-webkit-slider-thumb {
     max-width: 1400px;
     background: #fafaf9;
     border-radius: 6px;
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-rows: auto 1fr;
     overflow: hidden;
     transform: scale(0.98);
     transition: transform 0.2s ease;
@@ -294,10 +301,16 @@ input[type="range"].comparison-range::-webkit-slider-thumb {
 }
 
 .editor-content {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
+    min-height: 0;
+    min-width: 0;
+    height: 100%;
+    display: grid;
+    grid-template-rows: auto 1fr;
     overflow: hidden;
+}
+
+.editor-content.hidden {
+    display: none;
 }
 
 .editor-toolbar {
@@ -335,7 +348,8 @@ input[type="range"].comparison-range::-webkit-slider-thumb {
 }
 
 .editor-canvas-container {
-    flex: 1;
+    min-height: 0;
+    min-width: 0;
     background: #292524;
     display: flex;
     align-items: center;

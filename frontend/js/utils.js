@@ -83,3 +83,69 @@ function escapeHTML(str) {
         }[m];
     });
 }
+
+function getFriendlyFileType(contentType, filename) {
+    // Map of MIME types to friendly names
+    const mimeMap = {
+        'application/pdf': 'PDF',
+        'application/zip': 'ZIP',
+        'application/x-zip-compressed': 'ZIP',
+        'application/json': 'JSON',
+        'application/javascript': 'JS',
+        'application/xml': 'XML',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'DOCX',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'XLSX',
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'PPTX',
+        'application/msword': 'DOC',
+        'application/vnd.ms-excel': 'XLS',
+        'application/vnd.ms-powerpoint': 'PPT',
+        'application/rtf': 'RTF',
+        'application/x-tar': 'TAR',
+        'application/gzip': 'GZ',
+        'application/x-rar-compressed': 'RAR',
+        'application/x-7z-compressed': '7Z',
+        'text/plain': 'TXT',
+        'text/html': 'HTML',
+        'text/css': 'CSS',
+        'text/csv': 'CSV',
+        'text/markdown': 'MD',
+        'image/jpeg': 'JPG',
+        'image/png': 'PNG',
+        'image/gif': 'GIF',
+        'image/webp': 'WEBP',
+        'image/svg+xml': 'SVG',
+        'image/bmp': 'BMP',
+        'image/tiff': 'TIFF',
+        'audio/mpeg': 'MP3',
+        'audio/wav': 'WAV',
+        'audio/ogg': 'OGG',
+        'video/mp4': 'MP4',
+        'video/webm': 'WEBM',
+        'video/quicktime': 'MOV',
+    };
+
+    // Check if we have a direct mapping
+    if (mimeMap[contentType]) {
+        return mimeMap[contentType];
+    }
+
+    // Try to get extension from filename
+    if (filename) {
+        const ext = filename.split('.').pop();
+        if (ext && ext.length <= 5) {
+            return ext.toUpperCase();
+        }
+    }
+
+    // Fallback: use the subtype but truncate if too long
+    const subtype = contentType.split('/')[1] || 'FILE';
+    if (subtype.length > 8) {
+        // For long subtypes, try to extract a meaningful part
+        if (subtype.includes('.')) {
+            const parts = subtype.split('.');
+            return parts[parts.length - 1].toUpperCase().substring(0, 8);
+        }
+        return subtype.substring(0, 6).toUpperCase() + '…';
+    }
+    return subtype.toUpperCase();
+}

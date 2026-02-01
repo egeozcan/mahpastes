@@ -21,7 +21,7 @@ func main() {
 
 	// Create application with options
 	err := wails.Run(&options.App{
-		Title:     "Clipboard",
+		Title:     "mahpastes",
 		Width:     1280,
 		Height:    800,
 		MinWidth:  800,
@@ -40,15 +40,9 @@ func main() {
 			app,
 		},
 		Mac: &mac.Options{
-			TitleBar: &mac.TitleBar{
-				TitlebarAppearsTransparent: true,
-				HideTitle:                  false,
-				HideTitleBar:               false,
-				FullSizeContent:            true,
-				UseToolbar:                 false,
-			},
+			TitleBar:             mac.TitleBarDefault(),
 			About: &mac.AboutInfo{
-				Title:   "Clipboard",
+				Title:   "mahpastes",
 				Message: "A local clipboard manager",
 			},
 		},

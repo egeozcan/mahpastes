@@ -48,7 +48,7 @@ async function createClipCard(clip) {
         previewHTML = `
         <div class="preview-container aspect-square w-full flex flex-col items-center justify-center bg-stone-50 text-stone-400">
             <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
-            <span class="mt-2 text-[9px] font-medium uppercase tracking-wider">${clip.content_type.split('/')[1] || 'FILE'}</span>
+            <span class="mt-2 text-[9px] font-medium uppercase tracking-wider">${getFriendlyFileType(clip.content_type, clip.filename)}</span>
         </div>`;
     }
 
@@ -72,7 +72,7 @@ async function createClipCard(clip) {
                 ${escapeHTML(clip.filename) || '<span class="text-stone-400 font-normal">Pasted</span>'}
             </p>
             <div class="flex justify-between items-center">
-                <span class="text-[9px] font-medium text-stone-400 uppercase tracking-wide">${clip.content_type.split('/')[1]?.toUpperCase() || 'FILE'}</span>
+                <span class="text-[9px] font-medium text-stone-400 uppercase tracking-wide">${getFriendlyFileType(clip.content_type, clip.filename)}</span>
                 <div class="flex gap-0.5">
                     <button class="p-1 text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded transition-colors" data-action="copy-path" title="Copy Path">
                         <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"></path></svg>
