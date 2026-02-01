@@ -118,6 +118,40 @@
             </div>
         </section>
 
+        <!-- Watch View (hidden by default) -->
+        <section id="watch-view" class="hidden mb-10" aria-labelledby="watch-heading">
+            <h2 id="watch-heading" class="sr-only">Watched Folders</h2>
+
+            <!-- Global controls -->
+            <div class="flex items-center justify-between mb-6 pb-4 border-b border-stone-200">
+                <div class="flex items-center gap-3">
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" id="global-watch-toggle" class="sr-only peer">
+                        <div class="w-9 h-5 bg-stone-300 peer-focus:ring-2 peer-focus:ring-stone-400/30 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500"></div>
+                    </label>
+                    <span id="global-watch-label" class="text-sm font-medium text-stone-600">Watching paused</span>
+                </div>
+                <span id="watch-folder-count" class="text-xs text-stone-400">0 folders</span>
+            </div>
+
+            <!-- Folder list -->
+            <ul id="watch-folder-list" class="space-y-3 mb-6">
+                <!-- Folder cards inserted by JS -->
+            </ul>
+
+            <!-- Add folder zone -->
+            <div id="add-folder-zone" tabindex="0" role="button"
+                aria-label="Add folder to watch by dragging or clicking"
+                class="border border-dashed border-stone-300 rounded-lg p-8 text-center cursor-pointer transition-all hover:border-stone-400 hover:bg-stone-50/50 focus:outline-none focus:ring-2 focus:ring-stone-400/30">
+                <p class="text-sm text-stone-500 mb-3">Drop a folder here or</p>
+                <button id="add-folder-btn"
+                    class="bg-stone-800 hover:bg-stone-700 text-white text-xs font-medium py-2 px-4 rounded-md transition-colors">
+                    + Add Folder
+                </button>
+                <p class="text-[10px] text-stone-400 mt-3">Files in subfolders are not watched</p>
+            </div>
+        </section>
+
         <div id="bulk-toolbar" role="toolbar" aria-label="Bulk actions for selected clips"
             class="fixed bottom-5 left-1/2 -translate-x-1/2 w-[90%] max-w-3xl bg-white/95 backdrop-blur-sm shadow-lg shadow-stone-200/50 rounded-lg p-3 flex flex-wrap items-center justify-between gap-3 z-50 pointer-events-none opacity-0 border border-stone-200 transition-all duration-200 translate-y-4">
             <div class="flex items-center gap-4">
