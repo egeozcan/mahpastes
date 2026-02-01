@@ -732,3 +732,14 @@ func (a *App) SetFolderPaused(id int64, paused bool) error {
 	_, err := a.db.Exec("UPDATE watched_folders SET is_paused = ? WHERE id = ?", boolToInt(paused), id)
 	return err
 }
+
+// SelectFolder opens a native folder picker dialog
+func (a *App) SelectFolder() (string, error) {
+	path, err := runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "Select Folder to Watch",
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to open folder dialog: %w", err)
+	}
+	return path, nil
+}
