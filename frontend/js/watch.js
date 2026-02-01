@@ -1,7 +1,6 @@
 // --- Watch View State ---
 let isViewingWatch = false;
 let watchFolders = [];
-let editingFolderId = null;
 
 // --- Elements ---
 const toggleWatchViewBtn = document.getElementById('toggle-watch-view-btn');
@@ -35,10 +34,10 @@ function toggleWatchView() {
     toggleWatchViewBtn.setAttribute('aria-pressed', isViewingWatch);
 
     if (isViewingWatch) {
-        // Switch to watch view
+        // Switch to watch view - use dark button style
         watchBtnText.textContent = 'Clips';
-        toggleWatchViewBtn.classList.add('bg-stone-800', 'text-white', 'border-stone-800');
-        toggleWatchViewBtn.classList.remove('border-stone-200', 'text-stone-600');
+        toggleWatchViewBtn.classList.add('bg-stone-800', 'text-white', 'border-stone-800', 'hover:bg-stone-700', 'hover:border-stone-700');
+        toggleWatchViewBtn.classList.remove('border-stone-200', 'text-stone-600', 'hover:bg-stone-100', 'hover:border-stone-300');
 
         uploadSection.classList.add('hidden');
         gallery.parentElement.classList.add('hidden');
@@ -46,10 +45,10 @@ function toggleWatchView() {
 
         loadWatchFolders();
     } else {
-        // Switch back to clips view
+        // Switch back to clips view - restore light button style
         watchBtnText.textContent = 'Watch';
-        toggleWatchViewBtn.classList.remove('bg-stone-800', 'text-white', 'border-stone-800');
-        toggleWatchViewBtn.classList.add('border-stone-200', 'text-stone-600');
+        toggleWatchViewBtn.classList.remove('bg-stone-800', 'text-white', 'border-stone-800', 'hover:bg-stone-700', 'hover:border-stone-700');
+        toggleWatchViewBtn.classList.add('border-stone-200', 'text-stone-600', 'hover:bg-stone-100', 'hover:border-stone-300');
 
         uploadSection.classList.remove('hidden');
         gallery.parentElement.classList.remove('hidden');
@@ -222,7 +221,6 @@ async function openAddFolderDialog() {
 }
 
 function openFolderModal(path) {
-    editingFolderId = null;
     folderModalTitle.textContent = 'Add Watched Folder';
     folderModalPath.textContent = path;
     folderModalPath.dataset.path = path;
@@ -338,28 +336,23 @@ folderModal.addEventListener('click', (e) => {
     if (e.target === folderModal) closeFolderModal();
 });
 
-// Drag and drop for folders
-addFolderZone.addEventListener('dragover', (e) => {
-    e.preventDefault();
-    addFolderZone.classList.add('border-stone-400', 'bg-stone-50');
-});
+// Wails native file drop handler - provides actual file paths
+// Visual feedback is handled by Wails via --wails-drop-target CSS variable
+// and the .wails-drop-target-active class (see main.css)
+window.runtime.OnFileDrop(async (x, y, paths) => {
+    // Only process if we're in the watch view
+    if (!isViewingWatch) return;
 
-addFolderZone.addEventListener('dragleave', () => {
-    addFolderZone.classList.remove('border-stone-400', 'bg-stone-50');
-});
-
-addFolderZone.addEventListener('drop', async (e) => {
-    e.preventDefault();
-    addFolderZone.classList.remove('border-stone-400', 'bg-stone-50');
-
-    // Check if it's a folder (Wails should provide path via drop)
-    const items = e.dataTransfer.items;
-    if (items && items.length > 0) {
-        // In Wails, dropped folders come through as file paths
-        // We need to handle this via Wails events
-        showToast('Use the Add Folder button to select folders');
+    if (paths && paths.length > 0) {
+        const path = paths[0]; // Take first dropped item
+        const isDir = await window.go.main.App.IsDirectory(path);
+        if (isDir) {
+            openFolderModal(path);
+        } else {
+            showToast('Please drop a folder, not a file');
+        }
     }
-});
+}, true); // true = only trigger on elements with --wails-drop-target CSS
 
 // Wails events for watch notifications
 window.runtime.EventsOn('watch:error', (data) => {

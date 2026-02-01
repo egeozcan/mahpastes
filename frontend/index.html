@@ -16,7 +16,7 @@
 <body class="bg-stone-50 text-stone-800">
 
     <!-- Header -->
-    <header class="bg-stone-50 border-b border-stone-200/60 sticky top-0 z-50">
+    <header class="bg-stone-50 border-b border-stone-200/60 sticky top-0 z-50" style="padding-top: 0.8rem">
         <div class="max-w-7xl mx-auto px-5 py-3 flex flex-col md:flex-row justify-between items-center gap-3">
             <h1 class="text-sm font-semibold text-stone-500 tracking-wide uppercase">mahpastes</h1>
 
@@ -142,6 +142,7 @@
             <!-- Add folder zone -->
             <div id="add-folder-zone" tabindex="0" role="button"
                 aria-label="Add folder to watch by dragging or clicking"
+                style="--wails-drop-target: drop"
                 class="border border-dashed border-stone-300 rounded-lg p-8 text-center cursor-pointer transition-all hover:border-stone-400 hover:bg-stone-50/50 focus:outline-none focus:ring-2 focus:ring-stone-400/30">
                 <p class="text-sm text-stone-500 mb-3">Drop a folder here or</p>
                 <button id="add-folder-btn"

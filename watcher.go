@@ -25,6 +25,7 @@ type WatcherManager struct {
 	watcher       *fsnotify.Watcher
 	app           *App
 	activeWatches map[int64]string        // folderID -> path
+	folderCache   map[int64]*WatchedFolder // cached folder configs
 	debounceMap   map[string]*time.Timer  // path -> debounce timer
 	mu            sync.RWMutex
 	running       bool
@@ -41,6 +42,7 @@ func NewWatcherManager(app *App) (*WatcherManager, error) {
 		watcher:       watcher,
 		app:           app,
 		activeWatches: make(map[int64]string),
+		folderCache:   make(map[int64]*WatchedFolder),
 		debounceMap:   make(map[string]*time.Timer),
 	}, nil
 }
@@ -93,6 +95,13 @@ func (w *WatcherManager) refreshWatches() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
+	// Update folder cache
+	w.folderCache = make(map[int64]*WatchedFolder)
+	for i := range folders {
+		f := folders[i]
+		w.folderCache[f.ID] = &f
+	}
+
 	// Build set of folders that should be watched
 	shouldWatch := make(map[int64]string)
 	for _, f := range folders {
@@ -106,6 +115,7 @@ func (w *WatcherManager) refreshWatches() error {
 		if _, ok := shouldWatch[id]; !ok {
 			w.watcher.Remove(path)
 			delete(w.activeWatches, id)
+			delete(w.folderCache, id)
 			log.Printf("Stopped watching: %s", path)
 		}
 	}
@@ -186,37 +196,20 @@ func (w *WatcherManager) debounceFile(path string) {
 func (w *WatcherManager) processFile(filePath string) {
 	dir := filepath.Dir(filePath)
 
-	// Find which folder config this belongs to
+	// Find which folder config this belongs to (use cached config)
 	w.mu.RLock()
 	var folderID int64
+	var folder *WatchedFolder
 	for id, path := range w.activeWatches {
 		if path == dir {
 			folderID = id
+			folder = w.folderCache[id]
 			break
 		}
 	}
 	w.mu.RUnlock()
 
-	if folderID == 0 {
-		return
-	}
-
-	// Get folder config
-	folders, err := w.app.GetWatchedFolders()
-	if err != nil {
-		log.Printf("Failed to get folder config: %v", err)
-		return
-	}
-
-	var folder *WatchedFolder
-	for _, f := range folders {
-		if f.ID == folderID {
-			folder = &f
-			break
-		}
-	}
-
-	if folder == nil {
+	if folderID == 0 || folder == nil {
 		return
 	}
 
@@ -226,20 +219,28 @@ func (w *WatcherManager) processFile(filePath string) {
 		return
 	}
 
-	// Import the file
-	if err := w.importFile(filePath, folder); err != nil {
+	// Import the file and get the clip ID
+	clipID, err := w.importFile(filePath, folder)
+	if err != nil {
 		log.Printf("Failed to import file %s: %v", filePath, err)
 		// Emit event to frontend for toast notification
 		w.app.emitWatchError(filePath, err.Error())
 		return
 	}
 
-	// Delete original file
+	// Verify the clip was actually saved before deleting
+	if clipID == 0 {
+		log.Printf("Import returned no clip ID for %s, not deleting original", filePath)
+		w.app.emitWatchError(filePath, "import failed to return clip ID")
+		return
+	}
+
+	// Delete original file only after confirmed DB commit
 	if err := os.Remove(filePath); err != nil {
 		log.Printf("Failed to delete original file %s: %v", filePath, err)
 	}
 
-	log.Printf("Successfully imported and removed: %s", filePath)
+	log.Printf("Successfully imported (clip ID %d) and removed: %s", clipID, filePath)
 }
 
 // matchesFilter checks if a file matches the folder's filter settings
@@ -278,31 +279,28 @@ func (w *WatcherManager) matchesFilter(filePath string, folder *WatchedFolder) b
 	}
 }
 
-// importFile reads a file and imports it as a clip
-func (w *WatcherManager) importFile(filePath string, folder *WatchedFolder) error {
+// importFile reads a file and imports it as a clip, returns the clip ID
+func (w *WatcherManager) importFile(filePath string, folder *WatchedFolder) (int64, error) {
 	fileData, err := w.app.ReadFileFromPath(filePath)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
-	// Upload with no expiration
-	if err := w.app.UploadFiles([]FileData{*fileData}, 0); err != nil {
-		return err
+	// Upload and get the clip ID
+	clipID, err := w.app.UploadFileAndGetID(*fileData)
+	if err != nil {
+		return 0, err
 	}
 
 	// Emit import event for UI refresh
 	w.app.emitWatchImport(fileData.Name)
 
-	// Auto-archive if configured
+	// Auto-archive if configured - use the specific clip ID
 	if folder.AutoArchive {
-		// Get the most recently added clip and archive it
-		clips, err := w.app.GetClips(false)
-		if err == nil && len(clips) > 0 {
-			w.app.ToggleArchive(clips[0].ID)
-		}
+		w.app.ToggleArchive(clipID)
 	}
 
-	return nil
+	return clipID, nil
 }
 
 // ProcessExistingFiles imports all existing files in a watched folder
@@ -345,9 +343,16 @@ func (w *WatcherManager) ProcessExistingFiles(folderID int64) error {
 			continue
 		}
 
-		if err := w.importFile(filePath, folder); err != nil {
+		clipID, err := w.importFile(filePath, folder)
+		if err != nil {
 			log.Printf("Failed to import existing file %s: %v", filePath, err)
 			w.app.emitWatchError(filePath, err.Error())
+			continue
+		}
+
+		// Only delete after confirmed DB commit
+		if clipID == 0 {
+			log.Printf("Import returned no clip ID for %s, not deleting", filePath)
 			continue
 		}
 

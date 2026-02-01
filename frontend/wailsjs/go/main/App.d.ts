@@ -34,6 +34,8 @@ export function GetWatchStatus():Promise<main.WatchStatus>;
 
 export function GetWatchedFolders():Promise<Array<main.WatchedFolder>>;
 
+export function IsDirectory(arg1:string):Promise<boolean>;
+
 export function ProcessExistingFilesInFolder(arg1:number):Promise<void>;
 
 export function ReadFileFromPath(arg1:string):Promise<main.FileData>;
@@ -53,5 +55,7 @@ export function SetGlobalWatchPaused(arg1:boolean):Promise<void>;
 export function ToggleArchive(arg1:number):Promise<void>;
 
 export function UpdateWatchedFolder(arg1:number,arg2:main.WatchedFolderConfig):Promise<void>;
+
+export function UploadFileAndGetID(arg1:main.FileData):Promise<number>;
 
 export function UploadFiles(arg1:Array<main.FileData>,arg2:number):Promise<void>;

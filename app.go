@@ -257,6 +257,44 @@ func (a *App) GetClipData(id int64) (*ClipData, error) {
 	return clip, nil
 }
 
+// UploadFileAndGetID uploads a single file and returns the clip ID
+func (a *App) UploadFileAndGetID(file FileData) (int64, error) {
+	// Decode base64 data
+	data, err := base64.StdEncoding.DecodeString(file.Data)
+	if err != nil {
+		return 0, fmt.Errorf("failed to decode base64 data: %w", err)
+	}
+
+	contentType := file.ContentType
+
+	// Special handling for text
+	if contentType == "text/plain" || contentType == "" {
+		textData := string(data)
+		trimmedText := strings.TrimSpace(textData)
+
+		if strings.HasPrefix(trimmedText, "<!DOCTYPE html") {
+			contentType = "text/html"
+		} else if isJSON(trimmedText) {
+			contentType = "application/json"
+		} else {
+			contentType = "text/plain"
+		}
+	}
+
+	result, err := a.db.Exec("INSERT INTO clips (content_type, data, filename) VALUES (?, ?, ?)",
+		contentType, data, file.Name)
+	if err != nil {
+		return 0, fmt.Errorf("failed to insert into db: %w", err)
+	}
+
+	id, err := result.LastInsertId()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get inserted ID: %w", err)
+	}
+
+	return id, nil
+}
+
 // UploadFiles handles file uploads
 func (a *App) UploadFiles(files []FileData, expirationMinutes int) error {
 	var expiresAt *time.Time
@@ -782,6 +820,15 @@ func (a *App) SelectFolder() (string, error) {
 	return path, nil
 }
 
+// IsDirectory checks if a path is a directory
+func (a *App) IsDirectory(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return info.IsDir()
+}
+
 // ProcessExistingFilesInFolder processes existing files in a watched folder
 func (a *App) ProcessExistingFilesInFolder(folderID int64) error {
 	if a.watcherManager != nil {
@@ -801,7 +848,11 @@ type WatchStatus struct {
 // GetWatchStatus returns the current watch status
 func (a *App) GetWatchStatus() WatchStatus {
 	globalPaused := a.GetGlobalWatchPaused()
-	folders, _ := a.GetWatchedFolders()
+	folders, err := a.GetWatchedFolders()
+	if err != nil {
+		log.Printf("Warning: Failed to get watched folders for status: %v", err)
+		return WatchStatus{GlobalPaused: globalPaused}
+	}
 
 	activeCount := 0
 	for _, f := range folders {

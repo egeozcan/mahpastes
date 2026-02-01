@@ -66,6 +66,10 @@ export function GetWatchedFolders() {
   return window['go']['main']['App']['GetWatchedFolders']();
 }
 
+export function IsDirectory(arg1) {
+  return window['go']['main']['App']['IsDirectory'](arg1);
+}
+
 export function ProcessExistingFilesInFolder(arg1) {
   return window['go']['main']['App']['ProcessExistingFilesInFolder'](arg1);
 }
@@ -104,6 +108,10 @@ export function ToggleArchive(arg1) {
 
 export function UpdateWatchedFolder(arg1, arg2) {
   return window['go']['main']['App']['UpdateWatchedFolder'](arg1, arg2);
+}
+
+export function UploadFileAndGetID(arg1) {
+  return window['go']['main']['App']['UploadFileAndGetID'](arg1);
 }
 
 export function UploadFiles(arg1, arg2) {
