@@ -20,6 +20,9 @@ interface TestState {
   startedAt: string;
 }
 
+// Delay between spawning instances (configurable via WAILS_SPAWN_DELAY env var)
+const DEFAULT_SPAWN_DELAY = 2000;
+
 async function globalSetup(config: FullConfig): Promise<void> {
   console.log('\n🚀 Starting Wails instances for parallel testing...\n');
 
@@ -29,6 +32,11 @@ async function globalSetup(config: FullConfig): Promise<void> {
   // Determine number of workers from config
   const workerCount = config.workers || 4;
   const instances: TestState['instances'] = [];
+
+  // Get spawn delay from environment or use default
+  const spawnDelay = process.env.WAILS_SPAWN_DELAY
+    ? parseInt(process.env.WAILS_SPAWN_DELAY, 10)
+    : DEFAULT_SPAWN_DELAY;
 
   // Spawn instances SEQUENTIALLY to avoid resource contention
   // Each wails dev instance compiles the app, so parallel spawning causes conflicts
@@ -42,9 +50,9 @@ async function globalSetup(config: FullConfig): Promise<void> {
         dataDir: instance.dataDir,
         baseURL: instance.baseURL,
       });
-      // Small delay between spawns to let the previous instance finish initial setup
+      // Delay between spawns to let the previous instance finish initial setup
       if (i < workerCount - 1) {
-        await new Promise((r) => setTimeout(r, 2000));
+        await new Promise((r) => setTimeout(r, spawnDelay));
       }
     } catch (err: any) {
       console.error(`  ❌ Worker ${i}: Failed to start - ${err.message}`);

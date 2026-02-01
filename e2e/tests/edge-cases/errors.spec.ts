@@ -5,6 +5,7 @@ import {
   generateTestText,
   createTempDir,
 } from '../../helpers/test-data';
+import { selectors } from '../../helpers/selectors';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
@@ -18,9 +19,14 @@ test.describe('Error Handling', () => {
       await app.uploadFile(file);
 
       // Should either succeed or show error, not crash
-      // Check for clip or error toast
+      // The app should remain functional regardless of outcome
       const count = await app.getClipCount();
-      // Count could be 0 (rejected) or 1 (accepted)
+      // Count should be 0 (rejected due to size) or 1 (accepted)
+      expect(count).toBeGreaterThanOrEqual(0);
+      expect(count).toBeLessThanOrEqual(1);
+
+      // Verify app is still responsive by checking we can interact with it
+      await app.page.locator(selectors.header.searchInput).isVisible();
     });
 
     test('should handle empty filename gracefully', async ({ app }) => {

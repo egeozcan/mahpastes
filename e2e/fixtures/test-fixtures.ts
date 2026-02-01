@@ -38,8 +38,11 @@ export class AppHelper {
     // Wait for the app to be fully loaded
     await this.page.waitForSelector(selectors.header.root);
     await this.page.waitForSelector(selectors.upload.dropZone);
-    // Small delay to ensure JS is initialized
-    await this.page.waitForTimeout(500);
+    // Wait for Wails runtime to be available (indicates JS is fully initialized)
+    await this.page.waitForFunction(() => {
+      // @ts-ignore - Wails runtime
+      return typeof window.go?.main?.App?.GetClips === 'function';
+    }, { timeout: 10000 });
   }
 
   // ==================== Clip Operations ====================

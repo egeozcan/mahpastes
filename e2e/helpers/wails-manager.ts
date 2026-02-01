@@ -31,10 +31,16 @@ async function isPortAvailable(port: number): Promise<boolean> {
   });
 }
 
-async function waitForServer(url: string, timeoutMs = 120000): Promise<void> {
+// Default timeout for server startup (configurable via WAILS_STARTUP_TIMEOUT env var)
+const DEFAULT_STARTUP_TIMEOUT = 120000;
+
+async function waitForServer(url: string, timeoutMs?: number): Promise<void> {
+  const timeout = timeoutMs ?? (process.env.WAILS_STARTUP_TIMEOUT
+    ? parseInt(process.env.WAILS_STARTUP_TIMEOUT, 10)
+    : DEFAULT_STARTUP_TIMEOUT);
   const startTime = Date.now();
   let lastError = '';
-  while (Date.now() - startTime < timeoutMs) {
+  while (Date.now() - startTime < timeout) {
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 5000);
@@ -53,7 +59,7 @@ async function waitForServer(url: string, timeoutMs = 120000): Promise<void> {
     }
     await new Promise((r) => setTimeout(r, 1000));
   }
-  throw new Error(`Server at ${url} did not start within ${timeoutMs}ms. Last error: ${lastError}`);
+  throw new Error(`Server at ${url} did not start within ${timeout}ms. Last error: ${lastError}`);
 }
 
 export async function spawnWailsInstance(workerIndex: number): Promise<WailsInstance> {
