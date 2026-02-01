@@ -111,6 +111,30 @@ type FileData struct {
 	Data        string `json:"data"` // base64 encoded
 }
 
+// WatchedFolder represents a folder being watched for new files
+type WatchedFolder struct {
+	ID              int64     `json:"id"`
+	Path            string    `json:"path"`
+	FilterMode      string    `json:"filter_mode"`      // "all", "presets", "custom"
+	FilterPresets   []string  `json:"filter_presets"`   // ["images", "videos", "documents"]
+	FilterRegex     string    `json:"filter_regex"`     // regex pattern for custom mode
+	ProcessExisting bool      `json:"process_existing"` // import existing files when added
+	AutoArchive     bool      `json:"auto_archive"`     // archive imports immediately
+	IsPaused        bool      `json:"is_paused"`        // per-folder pause
+	CreatedAt       time.Time `json:"created_at"`
+	Exists          bool      `json:"exists"` // whether folder path exists on disk
+}
+
+// WatchedFolderConfig for creating/updating watched folders
+type WatchedFolderConfig struct {
+	Path            string   `json:"path"`
+	FilterMode      string   `json:"filter_mode"`
+	FilterPresets   []string `json:"filter_presets"`
+	FilterRegex     string   `json:"filter_regex"`
+	ProcessExisting bool     `json:"process_existing"`
+	AutoArchive     bool     `json:"auto_archive"`
+}
+
 // GetClips retrieves a list of clips for the gallery
 func (a *App) GetClips(archived bool) ([]ClipPreview, error) {
 	archivedInt := 0
@@ -551,4 +575,160 @@ func (a *App) SaveClipToFile(id int64) error {
 func isJSON(s string) bool {
 	var js json.RawMessage
 	return json.Unmarshal([]byte(s), &js) == nil
+}
+
+// GetWatchedFolders retrieves all watched folders
+func (a *App) GetWatchedFolders() ([]WatchedFolder, error) {
+	rows, err := a.db.Query(`
+		SELECT id, path, filter_mode, filter_presets, filter_regex,
+		       process_existing, auto_archive, is_paused, created_at
+		FROM watched_folders
+		ORDER BY created_at DESC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query watched folders: %w", err)
+	}
+	defer rows.Close()
+
+	var folders []WatchedFolder
+	for rows.Next() {
+		var f WatchedFolder
+		var filterPresets sql.NullString
+		var filterRegex sql.NullString
+		var processExisting, autoArchive, isPaused int
+
+		if err := rows.Scan(&f.ID, &f.Path, &f.FilterMode, &filterPresets, &filterRegex,
+			&processExisting, &autoArchive, &isPaused, &f.CreatedAt); err != nil {
+			log.Printf("Failed to scan watched folder: %v", err)
+			continue
+		}
+
+		f.ProcessExisting = processExisting == 1
+		f.AutoArchive = autoArchive == 1
+		f.IsPaused = isPaused == 1
+		f.FilterRegex = filterRegex.String
+
+		// Parse filter presets JSON
+		if filterPresets.Valid && filterPresets.String != "" {
+			_ = json.Unmarshal([]byte(filterPresets.String), &f.FilterPresets)
+		}
+		if f.FilterPresets == nil {
+			f.FilterPresets = []string{}
+		}
+
+		// Check if folder exists
+		if _, err := os.Stat(f.Path); err == nil {
+			f.Exists = true
+		}
+
+		folders = append(folders, f)
+	}
+
+	if folders == nil {
+		folders = []WatchedFolder{}
+	}
+	return folders, nil
+}
+
+// AddWatchedFolder adds a new folder to watch
+func (a *App) AddWatchedFolder(config WatchedFolderConfig) (*WatchedFolder, error) {
+	// Validate path exists
+	if _, err := os.Stat(config.Path); os.IsNotExist(err) {
+		return nil, fmt.Errorf("folder does not exist: %s", config.Path)
+	}
+
+	// Default filter mode
+	if config.FilterMode == "" {
+		config.FilterMode = "all"
+	}
+
+	// Serialize presets to JSON
+	var presetsJSON []byte
+	if len(config.FilterPresets) > 0 {
+		presetsJSON, _ = json.Marshal(config.FilterPresets)
+	}
+
+	result, err := a.db.Exec(`
+		INSERT INTO watched_folders (path, filter_mode, filter_presets, filter_regex, process_existing, auto_archive)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`, config.Path, config.FilterMode, string(presetsJSON), config.FilterRegex,
+		boolToInt(config.ProcessExisting), boolToInt(config.AutoArchive))
+	if err != nil {
+		return nil, fmt.Errorf("failed to add watched folder: %w", err)
+	}
+
+	id, _ := result.LastInsertId()
+
+	return &WatchedFolder{
+		ID:              id,
+		Path:            config.Path,
+		FilterMode:      config.FilterMode,
+		FilterPresets:   config.FilterPresets,
+		FilterRegex:     config.FilterRegex,
+		ProcessExisting: config.ProcessExisting,
+		AutoArchive:     config.AutoArchive,
+		IsPaused:        false,
+		Exists:          true,
+	}, nil
+}
+
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+// UpdateWatchedFolder updates an existing watched folder config
+func (a *App) UpdateWatchedFolder(id int64, config WatchedFolderConfig) error {
+	var presetsJSON []byte
+	if len(config.FilterPresets) > 0 {
+		presetsJSON, _ = json.Marshal(config.FilterPresets)
+	}
+
+	_, err := a.db.Exec(`
+		UPDATE watched_folders
+		SET filter_mode = ?, filter_presets = ?, filter_regex = ?, auto_archive = ?
+		WHERE id = ?
+	`, config.FilterMode, string(presetsJSON), config.FilterRegex,
+		boolToInt(config.AutoArchive), id)
+	if err != nil {
+		return fmt.Errorf("failed to update watched folder: %w", err)
+	}
+	return nil
+}
+
+// RemoveWatchedFolder removes a watched folder
+func (a *App) RemoveWatchedFolder(id int64) error {
+	_, err := a.db.Exec("DELETE FROM watched_folders WHERE id = ?", id)
+	if err != nil {
+		return fmt.Errorf("failed to remove watched folder: %w", err)
+	}
+	return nil
+}
+
+// GetGlobalWatchPaused returns whether global watching is paused
+func (a *App) GetGlobalWatchPaused() bool {
+	var value string
+	err := a.db.QueryRow("SELECT value FROM settings WHERE key = 'global_watch_paused'").Scan(&value)
+	if err != nil {
+		return false
+	}
+	return value == "true"
+}
+
+// SetGlobalWatchPaused sets the global watch pause state
+func (a *App) SetGlobalWatchPaused(paused bool) error {
+	value := "false"
+	if paused {
+		value = "true"
+	}
+	_, err := a.db.Exec("UPDATE settings SET value = ? WHERE key = 'global_watch_paused'", value)
+	return err
+}
+
+// SetFolderPaused sets the pause state for a specific folder
+func (a *App) SetFolderPaused(id int64, paused bool) error {
+	_, err := a.db.Exec("UPDATE watched_folders SET is_paused = ? WHERE id = ?", boolToInt(paused), id)
+	return err
 }
