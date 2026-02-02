@@ -70,6 +70,14 @@ export function DeleteTag(arg1) {
   return window['go']['main']['App']['DeleteTag'](arg1);
 }
 
+export function DisablePlugin(arg1) {
+  return window['go']['main']['App']['DisablePlugin'](arg1);
+}
+
+export function EnablePlugin(arg1) {
+  return window['go']['main']['App']['EnablePlugin'](arg1);
+}
+
 export function GetAvailableFalModels() {
   return window['go']['main']['App']['GetAvailableFalModels']();
 }
@@ -96,6 +104,14 @@ export function GetClips(arg1, arg2) {
 
 export function GetGlobalWatchPaused() {
   return window['go']['main']['App']['GetGlobalWatchPaused']();
+}
+
+export function GetPluginPermissions(arg1) {
+  return window['go']['main']['App']['GetPluginPermissions'](arg1);
+}
+
+export function GetPlugins() {
+  return window['go']['main']['App']['GetPlugins']();
 }
 
 export function GetSetting(arg1) {
@@ -126,6 +142,10 @@ export function HasFalApiKey() {
   return window['go']['main']['App']['HasFalApiKey']();
 }
 
+export function ImportPlugin() {
+  return window['go']['main']['App']['ImportPlugin']();
+}
+
 export function IsDirectory(arg1) {
   return window['go']['main']['App']['IsDirectory'](arg1);
 }
@@ -146,12 +166,20 @@ export function RefreshWatches() {
   return window['go']['main']['App']['RefreshWatches']();
 }
 
+export function RemovePlugin(arg1) {
+  return window['go']['main']['App']['RemovePlugin'](arg1);
+}
+
 export function RemoveTagFromClip(arg1, arg2) {
   return window['go']['main']['App']['RemoveTagFromClip'](arg1, arg2);
 }
 
 export function RemoveWatchedFolder(arg1) {
   return window['go']['main']['App']['RemoveWatchedFolder'](arg1);
+}
+
+export function RevokePluginPermission(arg1, arg2, arg3) {
+  return window['go']['main']['App']['RevokePluginPermission'](arg1, arg2, arg3);
 }
 
 export function SaveClipToFile(arg1) {
