@@ -16,6 +16,8 @@ import (
 	"sync"
 	"time"
 
+	"go-clipboard/plugin"
+
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 	"golang.design/x/clipboard"
 )
@@ -28,6 +30,7 @@ type App struct {
 	mu             sync.Mutex
 	watcherManager *WatcherManager
 	taskManager    *TaskManager
+	pluginManager  *plugin.Manager
 }
 
 // NewApp creates a new App instance
@@ -93,10 +96,46 @@ func (a *App) startup(ctx context.Context) {
 
 	// Initialize task manager
 	a.taskManager = NewTaskManager(a)
+
+	// Initialize plugin manager
+	dataDir, _ := getDataDir()
+	pluginsDir := filepath.Join(dataDir, "plugins")
+	pm, err := plugin.NewManager(ctx, a.db, pluginsDir)
+	if err != nil {
+		log.Printf("Warning: Failed to initialize plugin manager: %v", err)
+	} else {
+		a.pluginManager = pm
+		// Set up permission callback for filesystem access
+		pm.SetPermissionCallback(func(pluginName, permType, requestedPath string) string {
+			// Use Wails runtime dialog for folder selection
+			path, err := runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
+				Title:                fmt.Sprintf("Plugin '%s' requests %s access", pluginName, permType),
+				DefaultDirectory:     filepath.Dir(requestedPath),
+				CanCreateDirectories: permType == "fs_write",
+			})
+			if err != nil || path == "" {
+				return ""
+			}
+			return path
+		})
+
+		// Load plugins
+		if err := pm.LoadPlugins(); err != nil {
+			log.Printf("Warning: Failed to load plugins: %v", err)
+		}
+
+		// Emit startup event
+		pm.EmitEvent("app:startup", nil)
+	}
 }
 
 // shutdown is called when the app is closing
 func (a *App) shutdown(ctx context.Context) {
+	// Shutdown plugins first
+	if a.pluginManager != nil {
+		a.pluginManager.Shutdown()
+	}
+
 	// Stop watcher
 	if a.watcherManager != nil {
 		a.watcherManager.Stop()
