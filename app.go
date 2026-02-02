@@ -484,11 +484,21 @@ func (a *App) UploadFiles(files []FileData, expirationMinutes int) error {
 			}
 		}
 
-		_, err = a.db.Exec("INSERT INTO clips (content_type, data, filename, expires_at) VALUES (?, ?, ?, ?)",
+		result, err := a.db.Exec("INSERT INTO clips (content_type, data, filename, expires_at) VALUES (?, ?, ?, ?)",
 			contentType, data, file.Name, expiresAt)
 		if err != nil {
 			log.Printf("Failed to insert into db: %v\n", err)
 			continue
+		}
+
+		// Emit plugin event
+		if a.pluginManager != nil {
+			clipID, _ := result.LastInsertId()
+			a.pluginManager.EmitEvent("clip:created", map[string]interface{}{
+				"id":           clipID,
+				"content_type": contentType,
+				"filename":     file.Name,
+			})
 		}
 	}
 
@@ -527,6 +537,11 @@ func (a *App) DeleteClip(id int64) error {
 	for _, tagID := range tagIDs {
 		a.deleteTagIfOrphaned(tagID)
 	}
+
+	// Emit plugin event
+	if a.pluginManager != nil {
+		a.pluginManager.EmitEvent("clip:deleted", id)
+	}
 	return nil
 }
 
@@ -536,6 +551,18 @@ func (a *App) ToggleArchive(id int64) error {
 	if err != nil {
 		return fmt.Errorf("failed to toggle archive: %w", err)
 	}
+
+	// Emit plugin event
+	if a.pluginManager != nil {
+		// Get current archived state
+		var isArchived int
+		a.db.QueryRow("SELECT is_archived FROM clips WHERE id = ?", id).Scan(&isArchived)
+		a.pluginManager.EmitEvent("clip:archived", map[string]interface{}{
+			"id":          id,
+			"is_archived": isArchived == 1,
+		})
+	}
+
 	return nil
 }
 
