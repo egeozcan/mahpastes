@@ -313,6 +313,21 @@ input[type="range"].comparison-range::-webkit-slider-thumb {
     display: none;
 }
 
+/* Text editor has no toolbar, so use simple flex layout */
+#text-editor-view {
+    display: flex;
+    flex-direction: column;
+}
+
+#text-editor-view:not(.hidden) {
+    display: flex;
+}
+
+#text-editor-textarea {
+    flex: 1;
+    min-height: 0;
+}
+
 .editor-toolbar {
     padding: 0.625rem 1rem;
     background: #fafaf9;

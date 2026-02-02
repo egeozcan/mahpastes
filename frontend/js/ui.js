@@ -222,6 +222,11 @@ function updateBulkToolbar() {
         selectAllCheckbox.checked = false;
         bulkCompareBtn.classList.add('hidden');
     }
+
+    // Update AI actions visibility
+    if (typeof updateAIActionsVisibility === 'function') {
+        updateAIActionsVisibility();
+    }
 }
 
 function toggleSelectAll() {
