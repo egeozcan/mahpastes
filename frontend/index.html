@@ -323,25 +323,8 @@
         </button>
 
         <div class="lightbox-content">
-            <img id="lightbox-img" src="" alt="" class="lightbox-image">
+            <img id="lightbox-img" src="" alt="" class="lightbox-image" draggable="false">
             <p id="lightbox-caption" class="lightbox-caption"></p>
-            <div id="lightbox-ai-actions" class="hidden mt-4 flex gap-2 justify-center flex-wrap">
-                <button class="lightbox-ai-btn px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white text-xs font-medium rounded-md transition-colors" data-action="colorize">
-                    Colorize
-                </button>
-                <button class="lightbox-ai-btn px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white text-xs font-medium rounded-md transition-colors" data-action="upscale">
-                    Upscale
-                </button>
-                <button class="lightbox-ai-btn px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white text-xs font-medium rounded-md transition-colors" data-action="restore">
-                    Restore
-                </button>
-                <button class="lightbox-ai-btn px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white text-xs font-medium rounded-md transition-colors" data-action="edit">
-                    AI Edit
-                </button>
-                <button id="lightbox-vectorize-btn" class="lightbox-ai-btn px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white text-xs font-medium rounded-md transition-colors" data-action="vectorize">
-                    Vectorize
-                </button>
-            </div>
         </div>
 
         <button id="lightbox-next" class="lightbox-nav lightbox-nav-next" aria-label="Next image">
@@ -350,6 +333,21 @@
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5l7 7-7 7"></path>
             </svg>
         </button>
+
+        <div class="lightbox-bar">
+            <div id="lightbox-ai-actions" class="lightbox-ai-actions hidden">
+                <button class="lightbox-ai-btn" data-action="colorize">Colorize</button>
+                <button class="lightbox-ai-btn" data-action="upscale">Upscale</button>
+                <button class="lightbox-ai-btn" data-action="restore">Restore</button>
+                <button class="lightbox-ai-btn" data-action="edit">AI Edit</button>
+                <button id="lightbox-vectorize-btn" class="lightbox-ai-btn" data-action="vectorize">Vectorize</button>
+            </div>
+            <div id="lightbox-image-info" class="lightbox-image-info"></div>
+            <div class="lightbox-zoom-control">
+                <input type="range" id="lightbox-zoom-slider" class="lightbox-range" min="100" max="400" value="100">
+                <span id="lightbox-zoom-info" class="lightbox-zoom-info">100%</span>
+            </div>
+        </div>
     </div>
     <div id="comparison-modal" class="comparison-backdrop" role="dialog" aria-modal="true"
         aria-label="Image Comparison">

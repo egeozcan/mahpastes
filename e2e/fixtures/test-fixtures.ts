@@ -448,11 +448,11 @@ export class AppHelper {
       // @ts-ignore - Wails runtime
       await window.go.main.App.AddWatchedFolder({
         path,
-        filterMode: opts.filterMode || 'all',
-        filterPresets: opts.filterPresets || [],
-        filterRegex: opts.filterRegex || '',
-        processExisting: opts.processExisting || false,
-        autoArchive: opts.autoArchive || false,
+        filter_mode: opts.filterMode || 'all',
+        filter_presets: opts.filterPresets || [],
+        filter_regex: opts.filterRegex || '',
+        process_existing: opts.processExisting || false,
+        auto_archive: opts.autoArchive || false,
       });
       // @ts-ignore - Wails runtime
       await window.go.main.App.RefreshWatches();

@@ -130,3 +130,12 @@ input[type="color"]::-webkit-color-swatch {
     -webkit-box-orient: vertical;
     overflow: hidden;
 }
+
+/* Prevent SVG content from capturing clicks in preview cards */
+.preview-container img {
+    pointer-events: none;
+}
+
+.preview-container {
+    cursor: pointer;
+}

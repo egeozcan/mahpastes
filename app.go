@@ -1132,6 +1132,10 @@ func generateProcessedFilename(original string, clipID int64, task FalTaskType) 
 	if ext == "" {
 		ext = ".png"
 	}
+	// Vectorize task always produces SVG output
+	if task == FalTaskVectorize {
+		ext = ".svg"
+	}
 	return fmt.Sprintf("%s_%s%s", name, task, ext)
 }
 

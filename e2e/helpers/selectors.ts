@@ -64,6 +64,10 @@ export const selectors = {
     prevButton: '#lightbox-prev',
     nextButton: '#lightbox-next',
     closeButton: '#lightbox-close',
+    bar: '.lightbox-bar',
+    zoomSlider: '#lightbox-zoom-slider',
+    zoomInfo: '#lightbox-zoom-info',
+    aiActions: '#lightbox-ai-actions',
   },
 
   // Image editor

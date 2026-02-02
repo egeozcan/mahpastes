@@ -35,9 +35,13 @@ test.describe('Watch Folder Filters', () => {
           process_existing: false,
           auto_archive: false,
         });
+        // @ts-ignore - Refresh watches to update UI
+        await window.go.main.App.RefreshWatches();
       }, tempDir);
 
-      await app.page.waitForTimeout(500);
+      // Toggle view to refresh UI
+      await app.closeWatchView();
+      await app.openWatchView();
 
       const count = await app.getWatchFolderCount();
       expect(count).toBeGreaterThanOrEqual(1);
@@ -56,9 +60,13 @@ test.describe('Watch Folder Filters', () => {
           process_existing: false,
           auto_archive: false,
         });
+        // @ts-ignore - Refresh watches to update UI
+        await window.go.main.App.RefreshWatches();
       }, tempDir);
 
-      await app.page.waitForTimeout(500);
+      // Toggle view to refresh UI
+      await app.closeWatchView();
+      await app.openWatchView();
 
       const count = await app.getWatchFolderCount();
       expect(count).toBeGreaterThanOrEqual(1);
@@ -77,9 +85,13 @@ test.describe('Watch Folder Filters', () => {
           process_existing: false,
           auto_archive: false,
         });
+        // @ts-ignore - Refresh watches to update UI
+        await window.go.main.App.RefreshWatches();
       }, tempDir);
 
-      await app.page.waitForTimeout(500);
+      // Toggle view to refresh UI
+      await app.closeWatchView();
+      await app.openWatchView();
 
       const count = await app.getWatchFolderCount();
       expect(count).toBeGreaterThanOrEqual(1);
@@ -100,9 +112,13 @@ test.describe('Watch Folder Filters', () => {
           process_existing: false,
           auto_archive: false,
         });
+        // @ts-ignore - Refresh watches to update UI
+        await window.go.main.App.RefreshWatches();
       }, tempDir);
 
-      await app.page.waitForTimeout(500);
+      // Toggle view to refresh UI
+      await app.closeWatchView();
+      await app.openWatchView();
 
       const count = await app.getWatchFolderCount();
       expect(count).toBeGreaterThanOrEqual(1);
@@ -121,9 +137,13 @@ test.describe('Watch Folder Filters', () => {
           process_existing: false,
           auto_archive: false,
         });
+        // @ts-ignore - Refresh watches to update UI
+        await window.go.main.App.RefreshWatches();
       }, tempDir);
 
-      await app.page.waitForTimeout(500);
+      // Toggle view to refresh UI
+      await app.closeWatchView();
+      await app.openWatchView();
 
       const count = await app.getWatchFolderCount();
       expect(count).toBeGreaterThanOrEqual(1);
@@ -144,9 +164,13 @@ test.describe('Watch Folder Filters', () => {
           process_existing: true,
           auto_archive: false,
         });
+        // @ts-ignore - Refresh watches to update UI
+        await window.go.main.App.RefreshWatches();
       }, tempDir);
 
-      await app.page.waitForTimeout(500);
+      // Toggle view to refresh UI
+      await app.closeWatchView();
+      await app.openWatchView();
 
       const count = await app.getWatchFolderCount();
       expect(count).toBeGreaterThanOrEqual(1);
@@ -165,9 +189,13 @@ test.describe('Watch Folder Filters', () => {
           process_existing: false,
           auto_archive: true,
         });
+        // @ts-ignore - Refresh watches to update UI
+        await window.go.main.App.RefreshWatches();
       }, tempDir);
 
-      await app.page.waitForTimeout(500);
+      // Toggle view to refresh UI
+      await app.closeWatchView();
+      await app.openWatchView();
 
       const count = await app.getWatchFolderCount();
       expect(count).toBeGreaterThanOrEqual(1);
@@ -186,9 +214,13 @@ test.describe('Watch Folder Filters', () => {
           process_existing: true,
           auto_archive: true,
         });
+        // @ts-ignore - Refresh watches to update UI
+        await window.go.main.App.RefreshWatches();
       }, tempDir);
 
-      await app.page.waitForTimeout(500);
+      // Toggle view to refresh UI
+      await app.closeWatchView();
+      await app.openWatchView();
 
       const count = await app.getWatchFolderCount();
       expect(count).toBeGreaterThanOrEqual(1);

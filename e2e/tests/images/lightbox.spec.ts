@@ -184,4 +184,37 @@ test.describe('Image Lightbox', () => {
       await expect(lightboxImage).toBeVisible();
     });
   });
+
+  test.describe('Zoom Info Display', () => {
+    test('should display zoom percentage in lightbox', async ({ app }) => {
+      const imagePath = await createTempFile(generateTestImage(200, 200), 'png');
+      const filename = path.basename(imagePath);
+
+      await app.uploadFile(imagePath);
+      await app.openLightbox(filename);
+
+      const zoomInfo = app.page.locator(selectors.lightbox.zoomInfo);
+      await expect(zoomInfo).toBeVisible();
+      // Should show a percentage (e.g., "100%" or "50%")
+      await expect(zoomInfo).toHaveText(/^\d+%$/);
+    });
+
+    test('should show zoom relative to native dimensions', async ({ app }) => {
+      // Upload a large image that will be scaled down to fit
+      const imagePath = await createTempFile(generateTestImage(2000, 2000), 'png');
+      const filename = path.basename(imagePath);
+
+      await app.uploadFile(imagePath);
+      await app.openLightbox(filename);
+
+      const zoomInfo = app.page.locator(selectors.lightbox.zoomInfo);
+      await expect(zoomInfo).toBeVisible();
+      // Wait for zoom percentage to update after image loads (initial value is 100%)
+      // Large image should show less than 100% since it's scaled to fit
+      await expect.poll(async () => {
+        const text = await zoomInfo.textContent();
+        return parseInt(text || '100', 10);
+      }, { timeout: 5000 }).toBeLessThan(100);
+    });
+  });
 });
