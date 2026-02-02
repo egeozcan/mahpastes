@@ -92,6 +92,12 @@ fileInput.addEventListener('change', e => handleFiles(e.target.files));
 
 // Paste
 document.addEventListener('paste', e => {
+    // Don't capture paste events when user is typing in an input field
+    const target = e.target;
+    if (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT' || target.isContentEditable) {
+        return; // Let native paste work in form fields
+    }
+
     if (e.clipboardData.files.length > 0) {
         handleFiles(e.clipboardData.files);
     } else {

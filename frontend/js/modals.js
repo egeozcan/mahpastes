@@ -23,6 +23,25 @@ async function openLightbox(index) {
     updateLightboxNav();
     lightbox.focus();
 
+    // Show AI actions if API key configured
+    const lightboxAIActions = document.getElementById('lightbox-ai-actions');
+    if (lightboxAIActions) {
+        if (typeof falApiKeyConfigured !== 'undefined' && falApiKeyConfigured) {
+            lightboxAIActions.classList.remove('hidden');
+            // Hide vectorize button for SVGs (can't vectorize vectors)
+            const vectorizeBtn = document.getElementById('lightbox-vectorize-btn');
+            if (vectorizeBtn) {
+                if (clip.content_type === 'image/svg+xml') {
+                    vectorizeBtn.classList.add('hidden');
+                } else {
+                    vectorizeBtn.classList.remove('hidden');
+                }
+            }
+        } else {
+            lightboxAIActions.classList.add('hidden');
+        }
+    }
+
     // Screen reader announcement
     const announcement = `Image ${index + 1} of ${imageClips.length}: ${clip.filename || 'Pasted Image'} `;
     showToast(announcement);

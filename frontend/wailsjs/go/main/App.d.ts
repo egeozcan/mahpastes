@@ -10,7 +10,13 @@ export function BulkDelete(arg1:Array<number>):Promise<void>;
 
 export function BulkDownloadToFile(arg1:Array<number>):Promise<void>;
 
+export function BulkProcessImagesWithFal(arg1:Array<number>,arg2:main.FalTaskOptions):Promise<Array<main.FalProcessingResult>>;
+
 export function CancelExpiration(arg1:number):Promise<void>;
+
+export function CancelTask(arg1:string):Promise<void>;
+
+export function ClearCompletedTasks():Promise<void>;
 
 export function CopyToClipboard(arg1:string):Promise<void>;
 
@@ -19,6 +25,8 @@ export function CreateTempFile(arg1:number):Promise<string>;
 export function DeleteAllTempFiles():Promise<void>;
 
 export function DeleteClip(arg1:number):Promise<void>;
+
+export function GetAvailableFalModels():Promise<Record<string, Array<main.FalModelInfo>>>;
 
 export function GetClipData(arg1:number):Promise<main.ClipData>;
 
@@ -30,15 +38,23 @@ export function GetClips(arg1:boolean):Promise<Array<main.ClipPreview>>;
 
 export function GetGlobalWatchPaused():Promise<boolean>;
 
+export function GetSetting(arg1:string):Promise<string>;
+
+export function GetTasks():Promise<Array<main.AITask>>;
+
 export function GetWatchStatus():Promise<main.WatchStatus>;
 
 export function GetWatchedFolderByID(arg1:number):Promise<main.WatchedFolder>;
 
 export function GetWatchedFolders():Promise<Array<main.WatchedFolder>>;
 
+export function HasFalApiKey():Promise<boolean>;
+
 export function IsDirectory(arg1:string):Promise<boolean>;
 
 export function ProcessExistingFilesInFolder(arg1:number):Promise<void>;
+
+export function ProcessImageWithFal(arg1:number,arg2:main.FalTaskOptions):Promise<main.FalProcessingResult>;
 
 export function ReadFileFromPath(arg1:string):Promise<main.FileData>;
 
@@ -53,6 +69,10 @@ export function SelectFolder():Promise<string>;
 export function SetFolderPaused(arg1:number,arg2:boolean):Promise<void>;
 
 export function SetGlobalWatchPaused(arg1:boolean):Promise<void>;
+
+export function SetSetting(arg1:string,arg2:string):Promise<void>;
+
+export function StartAITask(arg1:Array<number>,arg2:main.FalTaskOptions,arg3:string):Promise<string>;
 
 export function ToggleArchive(arg1:number):Promise<void>;
 
