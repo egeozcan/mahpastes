@@ -19,7 +19,7 @@ const cancelSelectionBtn = document.getElementById('cancel-selection-btn');
 
 // Lightbox Elements
 const lightbox = document.getElementById('lightbox');
-const lightboxImg = document.getElementById('lightbox-img');
+// Note: lightboxImg is managed by modals.js via getLightboxImg()
 const lightboxCaption = document.getElementById('lightbox-caption');
 const lightboxClose = document.getElementById('lightbox-close');
 const lightboxPrev = document.getElementById('lightbox-prev');
@@ -172,6 +172,10 @@ lightbox.addEventListener('click', (e) => {
     if (e.target === lightbox) closeLightbox();
 });
 document.addEventListener('keydown', handleLightboxKeydown);
+
+// Initialize lightbox gestures (touch, wheel, drag, zoom slider)
+// All gesture listeners are centralized in modals.js for better cohesion
+initLightboxGestures();
 
 // Keyboard Handlers for Drop Zone
 dropZone.addEventListener('keydown', e => {
