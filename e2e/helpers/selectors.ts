@@ -196,6 +196,18 @@ export const selectors = {
     pluginCard: (id: number) => `[data-testid="plugin-card-${id}"]`,
     pluginToggle: (id: number) => `[data-testid="plugin-toggle-${id}"]`,
     pluginRemove: (id: number) => `[data-testid="remove-plugin-${id}"]`,
+    expandToggle: '[data-action="toggle-expand"]',
+  },
+
+  // Plugin settings
+  pluginSettings: {
+    section: '[data-settings-section]',
+    settingField: (key: string) => `[data-setting-key="${key}"]`,
+    textInput: '[data-setting-type="text"]',
+    passwordInput: '[data-setting-type="password"]',
+    checkbox: '[data-setting-type="checkbox"]',
+    select: '[data-setting-type="select"]',
+    passwordToggle: '[data-action="toggle-password"]',
   },
 } as const;
 

@@ -1,4 +1,5 @@
 import { test, expect } from '../../fixtures/test-fixtures.js';
+import { selectors } from '../../helpers/selectors.js';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -31,19 +32,19 @@ test.describe('Plugin Settings', () => {
 
     // Open plugins modal and expand plugin card
     await app.openPluginsModal();
-    const card = app.page.locator(`[data-testid="plugin-card-${plugin!.id}"]`);
-    await card.locator('[data-action="toggle-expand"]').click();
+    const card = app.page.locator(selectors.plugins.pluginCard(plugin!.id));
+    await card.locator(selectors.plugins.expandToggle).click();
     await app.page.waitForTimeout(500);
 
     // Check settings section exists
-    const settingsSection = card.locator('[data-settings-section]');
+    const settingsSection = card.locator(selectors.pluginSettings.section);
     await expect(settingsSection).toBeVisible();
 
     // Check all 4 settings fields are present
-    await expect(card.locator('[data-setting-key="api_key"]')).toBeVisible();
-    await expect(card.locator('[data-setting-key="endpoint"]')).toBeVisible();
-    await expect(card.locator('[data-setting-key="enabled"]')).toBeVisible();
-    await expect(card.locator('[data-setting-key="mode"]')).toBeVisible();
+    await expect(card.locator(selectors.pluginSettings.settingField('api_key'))).toBeVisible();
+    await expect(card.locator(selectors.pluginSettings.settingField('endpoint'))).toBeVisible();
+    await expect(card.locator(selectors.pluginSettings.settingField('enabled'))).toBeVisible();
+    await expect(card.locator(selectors.pluginSettings.settingField('mode'))).toBeVisible();
   });
 
   test('text input saves value to storage', async ({ app }) => {
@@ -52,12 +53,12 @@ test.describe('Plugin Settings', () => {
     settingsPluginId = plugin?.id ?? null;
 
     await app.openPluginsModal();
-    const card = app.page.locator(`[data-testid="plugin-card-${plugin!.id}"]`);
-    await card.locator('[data-action="toggle-expand"]').click();
+    const card = app.page.locator(selectors.plugins.pluginCard(plugin!.id));
+    await card.locator(selectors.plugins.expandToggle).click();
     await app.page.waitForTimeout(500);
 
     // Fill in text input
-    const endpointInput = card.locator('[data-setting-key="endpoint"]');
+    const endpointInput = card.locator(selectors.pluginSettings.settingField('endpoint'));
     await endpointInput.fill('https://custom.api.com');
     await app.page.waitForTimeout(500); // Wait for debounce
 
@@ -72,12 +73,12 @@ test.describe('Plugin Settings', () => {
     settingsPluginId = plugin?.id ?? null;
 
     await app.openPluginsModal();
-    const card = app.page.locator(`[data-testid="plugin-card-${plugin!.id}"]`);
-    await card.locator('[data-action="toggle-expand"]').click();
+    const card = app.page.locator(selectors.plugins.pluginCard(plugin!.id));
+    await card.locator(selectors.plugins.expandToggle).click();
     await app.page.waitForTimeout(500);
 
     // Uncheck the checkbox (default is true)
-    const checkbox = card.locator('[data-setting-key="enabled"]');
+    const checkbox = card.locator(selectors.pluginSettings.settingField('enabled'));
     await checkbox.uncheck();
     await app.page.waitForTimeout(300);
 
@@ -92,12 +93,12 @@ test.describe('Plugin Settings', () => {
     settingsPluginId = plugin?.id ?? null;
 
     await app.openPluginsModal();
-    const card = app.page.locator(`[data-testid="plugin-card-${plugin!.id}"]`);
-    await card.locator('[data-action="toggle-expand"]').click();
+    const card = app.page.locator(selectors.plugins.pluginCard(plugin!.id));
+    await card.locator(selectors.plugins.expandToggle).click();
     await app.page.waitForTimeout(500);
 
     // Change select value
-    const select = card.locator('[data-setting-key="mode"]');
+    const select = card.locator(selectors.pluginSettings.settingField('mode'));
     await select.selectOption('thorough');
     await app.page.waitForTimeout(300);
 
@@ -112,12 +113,12 @@ test.describe('Plugin Settings', () => {
     settingsPluginId = plugin?.id ?? null;
 
     await app.openPluginsModal();
-    const card = app.page.locator(`[data-testid="plugin-card-${plugin!.id}"]`);
-    await card.locator('[data-action="toggle-expand"]').click();
+    const card = app.page.locator(selectors.plugins.pluginCard(plugin!.id));
+    await card.locator(selectors.plugins.expandToggle).click();
     await app.page.waitForTimeout(500);
 
     // Fill in password input
-    const apiKeyInput = card.locator('[data-setting-key="api_key"]');
+    const apiKeyInput = card.locator(selectors.pluginSettings.settingField('api_key'));
     await apiKeyInput.fill('secret-api-key-123');
     await app.page.waitForTimeout(500); // Wait for debounce
 
@@ -133,11 +134,11 @@ test.describe('Plugin Settings', () => {
 
     // Open modal and set a value
     await app.openPluginsModal();
-    let card = app.page.locator(`[data-testid="plugin-card-${plugin!.id}"]`);
-    await card.locator('[data-action="toggle-expand"]').click();
+    let card = app.page.locator(selectors.plugins.pluginCard(plugin!.id));
+    await card.locator(selectors.plugins.expandToggle).click();
     await app.page.waitForTimeout(500);
 
-    const endpointInput = card.locator('[data-setting-key="endpoint"]');
+    const endpointInput = card.locator(selectors.pluginSettings.settingField('endpoint'));
     await endpointInput.fill('https://persistent.api.com');
     await app.page.waitForTimeout(500);
 
@@ -147,12 +148,12 @@ test.describe('Plugin Settings', () => {
     await app.openPluginsModal();
 
     // Expand plugin card again
-    card = app.page.locator(`[data-testid="plugin-card-${plugin!.id}"]`);
-    await card.locator('[data-action="toggle-expand"]').click();
+    card = app.page.locator(selectors.plugins.pluginCard(plugin!.id));
+    await card.locator(selectors.plugins.expandToggle).click();
     await app.page.waitForTimeout(500);
 
     // Verify the value persisted
-    const newEndpointInput = card.locator('[data-setting-key="endpoint"]');
+    const newEndpointInput = card.locator(selectors.pluginSettings.settingField('endpoint'));
     await expect(newEndpointInput).toHaveValue('https://persistent.api.com');
   });
 
@@ -163,12 +164,12 @@ test.describe('Plugin Settings', () => {
     settingsPluginId = plugin?.id ?? null;
 
     await app.openPluginsModal();
-    const card = app.page.locator(`[data-testid="plugin-card-${plugin!.id}"]`);
-    await card.locator('[data-action="toggle-expand"]').click();
+    const card = app.page.locator(selectors.plugins.pluginCard(plugin!.id));
+    await card.locator(selectors.plugins.expandToggle).click();
     await app.page.waitForTimeout(500);
 
     // Settings section should not exist
-    const settingsSection = card.locator('[data-settings-section]');
+    const settingsSection = card.locator(selectors.pluginSettings.section);
     await expect(settingsSection).not.toBeVisible();
   });
 });
