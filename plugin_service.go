@@ -194,5 +194,24 @@ func pluginToInfo(p *plugin.Plugin) *PluginInfo {
 	return info
 }
 
+// GetPluginStorage retrieves a value from a plugin's storage
+func (s *PluginService) GetPluginStorage(pluginID int64, key string) (string, error) {
+	if s.app.db == nil {
+		return "", fmt.Errorf("database not initialized")
+	}
+
+	var value string
+	err := s.app.db.QueryRow(`
+		SELECT value FROM plugin_storage WHERE plugin_id = ? AND key = ?
+	`, pluginID, key).Scan(&value)
+	if err == sql.ErrNoRows {
+		return "", nil // Key not found, return empty string
+	}
+	if err != nil {
+		return "", err
+	}
+	return value, nil
+}
+
 // Ensure sql.DB is used (to avoid import error if db operations are simplified)
 var _ *sql.DB

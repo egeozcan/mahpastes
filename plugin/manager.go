@@ -128,6 +128,9 @@ func (m *Manager) loadPlugin(p *Plugin) error {
 	utilsAPI := NewUtilsAPI(manifest.Name)
 	utilsAPI.Register(sandbox.GetState())
 
+	tagsAPI := NewTagsAPI(m.db)
+	tagsAPI.Register(sandbox.GetState())
+
 	// Load the plugin source
 	if err := sandbox.LoadSource(string(source)); err != nil {
 		sandbox.Close()
@@ -249,7 +252,10 @@ func (m *Manager) incrementErrorCount(pluginID int64) {
 
 	// Check if we need to disable the plugin
 	var errorCount int
-	m.db.QueryRow("SELECT error_count FROM plugins WHERE id = ?", pluginID).Scan(&errorCount)
+	if err := m.db.QueryRow("SELECT error_count FROM plugins WHERE id = ?", pluginID).Scan(&errorCount); err != nil {
+		log.Printf("Failed to get error count for plugin %d: %v", pluginID, err)
+		return
+	}
 
 	if errorCount >= MaxConsecutiveErrors {
 		m.db.Exec("UPDATE plugins SET status = 'error' WHERE id = ?", pluginID)
@@ -261,7 +267,9 @@ func (m *Manager) incrementErrorCount(pluginID int64) {
 }
 
 func (m *Manager) resetErrorCount(pluginID int64) {
-	m.db.Exec("UPDATE plugins SET error_count = 0 WHERE id = ?", pluginID)
+	if _, err := m.db.Exec("UPDATE plugins SET error_count = 0 WHERE id = ?", pluginID); err != nil {
+		log.Printf("Failed to reset error count for plugin %d: %v", pluginID, err)
+	}
 }
 
 // ImportPlugin imports a plugin from a file path

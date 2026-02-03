@@ -13,6 +13,8 @@ import (
 
 const (
 	FSOperationsPerMinute = 50
+	// MaxReadFileSize limits file reads to prevent memory exhaustion (50MB)
+	MaxReadFileSize = 50 * 1024 * 1024
 )
 
 // PermissionCallback is called when a plugin needs filesystem access
@@ -189,6 +191,19 @@ func (f *FilesystemAPI) read(L *lua.LState) int {
 	if err != nil {
 		L.Push(lua.LNil)
 		L.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	// Check file size before reading to prevent memory exhaustion
+	info, err := os.Stat(approvedPath)
+	if err != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(err.Error()))
+		return 2
+	}
+	if info.Size() > MaxReadFileSize {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(fmt.Sprintf("file too large: %d bytes (max %d bytes)", info.Size(), MaxReadFileSize)))
 		return 2
 	}
 

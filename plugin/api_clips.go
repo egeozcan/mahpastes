@@ -51,7 +51,7 @@ func (c *ClipsAPI) list(L *lua.LState) int {
 	args := []interface{}{}
 
 	if contentTypeFilter != "" {
-		query += " AND content_type LIKE ?"
+		query += " AND content_type = ?"
 		args = append(args, contentTypeFilter)
 	}
 	query += " ORDER BY created_at DESC LIMIT 100"

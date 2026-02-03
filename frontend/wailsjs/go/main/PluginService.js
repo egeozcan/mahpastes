@@ -14,6 +14,10 @@ export function GetPluginPermissions(arg1) {
   return window['go']['main']['PluginService']['GetPluginPermissions'](arg1);
 }
 
+export function GetPluginStorage(arg1, arg2) {
+  return window['go']['main']['PluginService']['GetPluginStorage'](arg1, arg2);
+}
+
 export function GetPlugins() {
   return window['go']['main']['PluginService']['GetPlugins']();
 }

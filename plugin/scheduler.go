@@ -105,6 +105,13 @@ func (t *ScheduledTask) run() {
 }
 
 func (t *ScheduledTask) execute() {
+	// Recover from panics to prevent goroutine termination
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("Scheduled task %s panicked: %v", t.name, r)
+		}
+	}()
+
 	t.mu.Lock()
 	if !t.running {
 		t.mu.Unlock()

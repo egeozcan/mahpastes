@@ -63,14 +63,8 @@ func (h *HTTPAPI) checkDomainPermission(urlStr, method string) error {
 		return fmt.Errorf("invalid URL: %w", err)
 	}
 
-	domain := parsed.Host
-	// Strip port if present for domain matching
-	if colonIdx := strings.LastIndex(domain, ":"); colonIdx != -1 {
-		// Check if it's not an IPv6 address
-		if !strings.Contains(domain, "]") || colonIdx > strings.Index(domain, "]") {
-			domain = domain[:colonIdx]
-		}
-	}
+	// Use url.Hostname() to correctly handle IPv6 addresses and ports
+	domain := parsed.Hostname()
 
 	allowedMethods, ok := h.allowedDomains[domain]
 	if !ok {

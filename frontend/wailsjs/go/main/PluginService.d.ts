@@ -8,6 +8,8 @@ export function EnablePlugin(arg1:number):Promise<void>;
 
 export function GetPluginPermissions(arg1:number):Promise<Array<Record<string, string>>>;
 
+export function GetPluginStorage(arg1:number,arg2:string):Promise<string>;
+
 export function GetPlugins():Promise<Array<main.PluginInfo>>;
 
 export function ImportPlugin():Promise<main.PluginInfo>;
