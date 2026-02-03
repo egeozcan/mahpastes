@@ -1,5 +1,8 @@
 // --- Tag UI Management ---
 
+// Constants
+const MAX_TAG_NAME_LENGTH = 50;
+
 // Tag filter dropdown element references
 const tagFilterBtn = document.getElementById('tag-filter-btn');
 const tagFilterDropdown = document.getElementById('tag-filter-dropdown');
@@ -17,9 +20,15 @@ const tagPopoverList = document.getElementById('tag-popover-list');
 const createTagInput = document.getElementById('create-tag-input');
 const createTagBtn = document.getElementById('create-tag-btn');
 
-// Current clip being tagged (for single-clip popover)
+// Tag state (scoped to this module)
+const tagState = {
+    currentTaggingClipId: null,
+    tagPopoverMode: 'single' // 'single' or 'bulk'
+};
+
+// Legacy accessors for compatibility
 let currentTaggingClipId = null;
-let tagPopoverMode = 'single'; // 'single' or 'bulk'
+let tagPopoverMode = 'single';
 
 // --- Tag Filter Dropdown ---
 
@@ -319,11 +328,24 @@ async function handleBulkTagToggle(tagId, add) {
     closeTagPopover();
 }
 
+// Validate tag name and show error if invalid
+function validateTagName(name) {
+    if (!name || name.trim() === '') {
+        showToast('Tag name cannot be empty.');
+        return false;
+    }
+    if (name.length > MAX_TAG_NAME_LENGTH) {
+        showToast(`Tag name too long (max ${MAX_TAG_NAME_LENGTH} characters).`);
+        return false;
+    }
+    return true;
+}
+
 // Create new tag from popover
 if (createTagBtn) {
     createTagBtn.addEventListener('click', async () => {
         const name = createTagInput.value.trim();
-        if (!name) return;
+        if (!validateTagName(name)) return;
 
         const tag = await createTag(name);
         if (tag) {

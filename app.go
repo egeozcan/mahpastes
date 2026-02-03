@@ -188,6 +188,12 @@ type Tag struct {
 	Count int    `json:"count"` // Number of clips using this tag
 }
 
+// Constants for tag operations
+const (
+	maxTagNameLength = 50
+	defaultClipLimit = 50
+)
+
 // tagColors is the palette of colors auto-assigned to new tags
 var tagColors = []string{
 	"#78716C", // stone
@@ -229,15 +235,15 @@ func (a *App) GetClips(archived bool, tagIDs []int64) ([]ClipPreview, error) {
 		GROUP BY c.id
 		HAVING COUNT(DISTINCT ct.tag_id) = ?
 		ORDER BY c.created_at DESC
-		LIMIT 50`, strings.Join(placeholders, ","))
+		LIMIT %d`, strings.Join(placeholders, ","), defaultClipLimit)
 	} else {
 		args = append(args, archivedInt)
-		query = `
+		query = fmt.Sprintf(`
 		SELECT id, content_type, filename, created_at, expires_at, SUBSTR(data, 1, 500), is_archived
 		FROM clips
 		WHERE is_archived = ? AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
 		ORDER BY created_at DESC
-		LIMIT 50`
+		LIMIT %d`, defaultClipLimit)
 	}
 
 	rows, err := a.db.Query(query, args...)
@@ -247,6 +253,7 @@ func (a *App) GetClips(archived bool, tagIDs []int64) ([]ClipPreview, error) {
 	defer rows.Close()
 
 	var clips []ClipPreview
+	var clipIDs []int64
 	for rows.Next() {
 		var clip ClipPreview
 		var filename sql.NullString
@@ -272,16 +279,70 @@ func (a *App) GetClips(archived bool, tagIDs []int64) ([]ClipPreview, error) {
 			clip.Preview = ""
 		}
 
-		// Load tags for this clip
-		clip.Tags, _ = a.GetClipTags(clip.ID)
-
+		clip.Tags = []Tag{} // Initialize empty, will be filled by batch query
 		clips = append(clips, clip)
+		clipIDs = append(clipIDs, clip.ID)
+	}
+
+	// Batch load tags for all clips (fixes N+1 query problem)
+	if len(clipIDs) > 0 {
+		tagsByClipID, err := a.getTagsForClips(clipIDs)
+		if err != nil {
+			log.Printf("Warning: failed to batch load clip tags: %v", err)
+		} else {
+			for i := range clips {
+				if tags, ok := tagsByClipID[clips[i].ID]; ok {
+					clips[i].Tags = tags
+				}
+			}
+		}
 	}
 
 	if clips == nil {
 		clips = []ClipPreview{}
 	}
 	return clips, nil
+}
+
+// getTagsForClips batch loads tags for multiple clips in a single query
+func (a *App) getTagsForClips(clipIDs []int64) (map[int64][]Tag, error) {
+	if len(clipIDs) == 0 {
+		return map[int64][]Tag{}, nil
+	}
+
+	placeholders := make([]string, len(clipIDs))
+	args := make([]interface{}, len(clipIDs))
+	for i, id := range clipIDs {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+
+	query := fmt.Sprintf(`
+		SELECT ct.clip_id, t.id, t.name, t.color
+		FROM clip_tags ct
+		INNER JOIN tags t ON ct.tag_id = t.id
+		WHERE ct.clip_id IN (%s)
+		ORDER BY ct.clip_id, t.name
+	`, strings.Join(placeholders, ","))
+
+	rows, err := a.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to batch query clip tags: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[int64][]Tag)
+	for rows.Next() {
+		var clipID int64
+		var tag Tag
+		if err := rows.Scan(&clipID, &tag.ID, &tag.Name, &tag.Color); err != nil {
+			log.Printf("Failed to scan batch clip tag: %v", err)
+			continue
+		}
+		result[clipID] = append(result[clipID], tag)
+	}
+
+	return result, nil
 }
 
 // GetClipData retrieves full clip data by ID
@@ -456,13 +517,25 @@ func (a *App) CreateTag(name string) (*Tag, error) {
 	if name == "" {
 		return nil, fmt.Errorf("tag name cannot be empty")
 	}
+	if len(name) > maxTagNameLength {
+		return nil, fmt.Errorf("tag name too long (max %d characters)", maxTagNameLength)
+	}
 
-	// Get count of existing tags to determine color
+	// Use transaction to prevent race condition in color assignment
+	tx, err := a.db.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Get count of existing tags to determine color (within transaction)
 	var count int
-	a.db.QueryRow("SELECT COUNT(*) FROM tags").Scan(&count)
+	if err := tx.QueryRow("SELECT COUNT(*) FROM tags").Scan(&count); err != nil {
+		return nil, fmt.Errorf("failed to count tags: %w", err)
+	}
 	color := tagColors[count%len(tagColors)]
 
-	result, err := a.db.Exec("INSERT INTO tags (name, color) VALUES (?, ?)", name, color)
+	result, err := tx.Exec("INSERT INTO tags (name, color) VALUES (?, ?)", name, color)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			return nil, fmt.Errorf("tag already exists: %s", name)
@@ -470,7 +543,15 @@ func (a *App) CreateTag(name string) (*Tag, error) {
 		return nil, fmt.Errorf("failed to create tag: %w", err)
 	}
 
-	id, _ := result.LastInsertId()
+	id, err := result.LastInsertId()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get tag ID: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
 	return &Tag{
 		ID:    id,
 		Name:  name,
@@ -484,6 +565,9 @@ func (a *App) UpdateTag(id int64, name, color string) error {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return fmt.Errorf("tag name cannot be empty")
+	}
+	if len(name) > maxTagNameLength {
+		return fmt.Errorf("tag name too long (max %d characters)", maxTagNameLength)
 	}
 
 	_, err := a.db.Exec("UPDATE tags SET name = ?, color = ? WHERE id = ?", name, color, id)
