@@ -246,3 +246,30 @@ func (s *PluginService) SetPluginStorage(pluginID int64, key, value string) erro
 	`, pluginID, key, value, value)
 	return err
 }
+
+// GetAllPluginStorage retrieves all storage key-value pairs for a plugin
+func (s *PluginService) GetAllPluginStorage(pluginID int64) (map[string]string, error) {
+	if s.app.db == nil {
+		return map[string]string{}, nil
+	}
+
+	rows, err := s.app.db.Query(`
+		SELECT key, value FROM plugin_storage WHERE plugin_id = ?
+	`, pluginID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[string]string)
+	for rows.Next() {
+		var key string
+		var value []byte
+		if err := rows.Scan(&key, &value); err != nil {
+			continue
+		}
+		result[key] = string(value)
+	}
+
+	return result, nil
+}

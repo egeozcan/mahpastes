@@ -10,6 +10,10 @@ export function EnablePlugin(arg1) {
   return window['go']['main']['PluginService']['EnablePlugin'](arg1);
 }
 
+export function GetAllPluginStorage(arg1) {
+  return window['go']['main']['PluginService']['GetAllPluginStorage'](arg1);
+}
+
 export function GetPluginPermissions(arg1) {
   return window['go']['main']['PluginService']['GetPluginPermissions'](arg1);
 }

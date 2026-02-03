@@ -6,6 +6,8 @@ export function DisablePlugin(arg1:number):Promise<void>;
 
 export function EnablePlugin(arg1:number):Promise<void>;
 
+export function GetAllPluginStorage(arg1:number):Promise<Record<string, string>>;
+
 export function GetPluginPermissions(arg1:number):Promise<Array<Record<string, string>>>;
 
 export function GetPluginStorage(arg1:number,arg2:string):Promise<string>;
