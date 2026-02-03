@@ -108,4 +108,30 @@ test.describe('Plugin Toast API', () => {
     // Cleanup
     await app.removePlugin(plugin!.id);
   });
+
+  test('should rate limit toast notifications to 5 per minute', async ({ app }) => {
+    // Clean up any existing plugins
+    await app.deleteAllPlugins();
+
+    // Import the spam plugin that sends 10 toasts rapidly
+    const pluginPath = path.join(TEST_PLUGINS_DIR, 'toast-spam.lua');
+    const plugin = await app.importPluginFromPath(pluginPath);
+    expect(plugin).not.toBeNull();
+
+    // Create a test file and upload it to trigger clip:created event
+    const { createTempFile, generateTestImage } = await import('../../helpers/test-data.js');
+    const imagePath = await createTempFile(generateTestImage(), 'png');
+    await app.uploadFile(imagePath);
+
+    // Wait for the plugin to process (storage should be updated after toast spam)
+    const hasResult = await app.waitForPluginStorageContains(plugin!.id, 'toast_success_count', '', 5000);
+    expect(hasResult).toBe(true);
+
+    // Check that only 5 toasts succeeded (rate limit is 5 per minute)
+    const successCount = await app.getPluginStorage(plugin!.id, 'toast_success_count');
+    expect(successCount).toBe('5');
+
+    // Cleanup
+    await app.removePlugin(plugin!.id);
+  });
 });
