@@ -200,4 +200,4 @@ mahpastes/
 4. Add UI in appropriate JS file
 5. Add CSS if needed (prefer Tailwind utilities)
 6. Add e2e tests for the feature
-7. Run all tests and fix any failures
+7. Run all tests and fix any failures, regardless of what caused them
