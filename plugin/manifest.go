@@ -411,6 +411,7 @@ func ValidEvents() []string {
 		"clip:created",
 		"clip:deleted",
 		"clip:archived",
+		"clip:unarchived",
 		"watch:file_detected",
 		"watch:import_complete",
 		"tag:created",

@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"log"
+	"time"
 
 	lua "github.com/yuin/gopher-lua"
 )
@@ -23,6 +24,11 @@ func (u *UtilsAPI) Register(L *lua.LState) {
 	// log function
 	L.SetGlobal("log", L.NewFunction(u.logFn))
 
+	// utils module (for time and other utilities)
+	utilsMod := L.NewTable()
+	utilsMod.RawSetString("time", L.NewFunction(u.timeFn))
+	L.SetGlobal("utils", utilsMod)
+
 	// json module
 	jsonMod := L.NewTable()
 	jsonMod.RawSetString("encode", L.NewFunction(u.jsonEncode))
@@ -40,6 +46,12 @@ func (u *UtilsAPI) logFn(L *lua.LState) int {
 	msg := L.CheckString(1)
 	log.Printf("[plugin:%s] %s", u.pluginName, msg)
 	return 0
+}
+
+// timeFn returns the current Unix timestamp (seconds since epoch)
+func (u *UtilsAPI) timeFn(L *lua.LState) int {
+	L.Push(lua.LNumber(time.Now().Unix()))
+	return 1
 }
 
 func (u *UtilsAPI) jsonEncode(L *lua.LState) int {
@@ -90,7 +102,11 @@ func (u *UtilsAPI) base64Decode(L *lua.LState) int {
 	return 1
 }
 
-// luaToGo converts a Lua value to a Go value
+// luaToGo converts a Lua value to a Go value.
+// For tables, it uses a heuristic to determine if the table is an array or map:
+// - If all keys are consecutive integers starting from 1, it's treated as an array
+// - Otherwise, it's treated as a map with string keys
+// Note: Sparse arrays, 0-indexed tables, or mixed key types may produce unexpected results.
 func luaToGo(val lua.LValue) interface{} {
 	switch v := val.(type) {
 	case lua.LBool:

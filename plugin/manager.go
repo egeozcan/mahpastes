@@ -251,7 +251,7 @@ func eventToHandler(event string) string {
 }
 
 func (m *Manager) incrementErrorCount(pluginID int64) {
-	result, err := m.db.Exec(
+	_, err := m.db.Exec(
 		"UPDATE plugins SET error_count = error_count + 1 WHERE id = ?",
 		pluginID,
 	)
@@ -271,8 +271,6 @@ func (m *Manager) incrementErrorCount(pluginID int64) {
 		m.UnloadPlugin(pluginID)
 		log.Printf("Plugin %d disabled after %d consecutive errors", pluginID, errorCount)
 	}
-
-	_ = result // silence unused warning
 }
 
 func (m *Manager) resetErrorCount(pluginID int64) {

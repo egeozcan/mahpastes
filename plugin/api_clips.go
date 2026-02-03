@@ -42,12 +42,34 @@ func (c *ClipsAPI) Register(L *lua.LState) {
 }
 
 func (c *ClipsAPI) list(L *lua.LState) int {
-	// Optional filter table
+	// Optional filter table with content_type, limit, and offset
 	var contentTypeFilter string
+	limit := 100 // default limit
+	offset := 0  // default offset
+
 	if L.GetTop() >= 1 {
 		if filter, ok := L.Get(1).(*lua.LTable); ok {
 			if ct := filter.RawGetString("content_type"); ct != lua.LNil {
 				contentTypeFilter = ct.String()
+			}
+			if lim := filter.RawGetString("limit"); lim != lua.LNil {
+				if limNum, ok := lim.(lua.LNumber); ok {
+					limit = int(limNum)
+					if limit > 1000 {
+						limit = 1000 // cap at 1000 to prevent abuse
+					}
+					if limit < 1 {
+						limit = 1
+					}
+				}
+			}
+			if off := filter.RawGetString("offset"); off != lua.LNil {
+				if offNum, ok := off.(lua.LNumber); ok {
+					offset = int(offNum)
+					if offset < 0 {
+						offset = 0
+					}
+				}
 			}
 		}
 	}
@@ -60,7 +82,8 @@ func (c *ClipsAPI) list(L *lua.LState) int {
 		query += " AND content_type = ?"
 		args = append(args, contentTypeFilter)
 	}
-	query += " ORDER BY created_at DESC LIMIT 100"
+	query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+	args = append(args, limit, offset)
 
 	rows, err := c.db.Query(query, args...)
 	if err != nil {

@@ -212,6 +212,3 @@ func (s *PluginService) GetPluginStorage(pluginID int64, key string) (string, er
 	}
 	return value, nil
 }
-
-// Ensure sql.DB is used (to avoid import error if db operations are simplified)
-var _ *sql.DB

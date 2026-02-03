@@ -220,8 +220,9 @@ Events are emitted via `pluginManager.EmitEvent(eventName, data)`. Plugins subsc
 
 **Current events** (defined in `plugin/manifest.go:ValidEvents()`):
 - `app:startup`, `app:shutdown` - App lifecycle
-- `clip:created`, `clip:deleted`, `clip:archived` - Clip operations
+- `clip:created`, `clip:deleted`, `clip:archived`, `clip:unarchived` - Clip operations
 - `watch:file_detected`, `watch:import_complete` - Watch folder events
+- `tag:created`, `tag:updated`, `tag:deleted`, `tag:added_to_clip`, `tag:removed_from_clip` - Tag operations
 
 **To add a new event**:
 1. Add to `ValidEvents()` in `plugin/manifest.go`
@@ -235,10 +236,14 @@ APIs are registered in `plugin/manager.go` when loading plugins. Each API module
 | Module | File | Functions |
 |--------|------|-----------|
 | `clips` | `api_clips.go` | list, get, create, update, delete, delete_many, archive, unarchive |
+| `tags` | `api_tags.go` | list, get, create, update, delete, add_to_clip, remove_from_clip, get_for_clip |
 | `storage` | `api_storage.go` | get, set, delete, list (plugin-scoped key-value storage) |
-| `http` | `api_http.go` | get, post (network requests with domain restrictions) |
+| `http` | `api_http.go` | get, post, put, patch, delete (network requests with domain restrictions) |
 | `fs` | `api_fs.go` | read, write, list, exists (filesystem with permission prompts) |
-| `utils` | `api_utils.go` | log, json_encode, json_decode, base64_encode, base64_decode |
+| `utils` | `api_utils.go` | time (current Unix timestamp) |
+| `log` | `api_utils.go` | Global function for logging (not a module) |
+| `json` | `api_utils.go` | encode, decode |
+| `base64` | `api_utils.go` | encode, decode |
 
 **To add a new API module**:
 1. Create `plugin/api_<name>.go` with struct and `Register(L *lua.LState)` method

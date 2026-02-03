@@ -554,13 +554,18 @@ func (a *App) ToggleArchive(id int64) error {
 
 	// Emit plugin event
 	if a.pluginManager != nil {
-		// Get current archived state
+		// Get current archived state after toggle
 		var isArchived int
 		a.db.QueryRow("SELECT is_archived FROM clips WHERE id = ?", id).Scan(&isArchived)
-		a.pluginManager.EmitEvent("clip:archived", map[string]interface{}{
-			"id":          id,
-			"is_archived": isArchived == 1,
-		})
+		if isArchived == 1 {
+			a.pluginManager.EmitEvent("clip:archived", map[string]interface{}{
+				"id": id,
+			})
+		} else {
+			a.pluginManager.EmitEvent("clip:unarchived", map[string]interface{}{
+				"id": id,
+			})
+		}
 	}
 
 	return nil

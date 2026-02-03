@@ -30,7 +30,7 @@ function on_startup()
 end
 
 function archive_old_clips()
-    local now = os.time()
+    local now = utils.time()
     local threshold = now - (HOURS_THRESHOLD * 60 * 60)
 
     local all_clips = clips.list()
