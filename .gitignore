@@ -28,6 +28,9 @@
 .DS_Store
 Thumbs.db
 
+# Worktrees
+.worktrees/
+
 # Documentation build
 /docs/build/
 /docs/.docusaurus/
