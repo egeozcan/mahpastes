@@ -160,6 +160,30 @@ export const selectors = {
     saveButton: '#text-editor-save',
     cancelButton: '#text-editor-cancel',
   },
+
+  // Tags
+  tags: {
+    filterButton: '[data-testid="tag-filter-button"]',
+    filterDropdown: '[data-testid="tag-filter-dropdown"]',
+    filterList: '#tag-filter-list',
+    filterBadge: '#tag-filter-badge',
+    clearFiltersButton: '#clear-tag-filters',
+    activeTagsContainer: '#active-tags-container',
+    tagCheckbox: (name: string) => `[data-testid="tag-checkbox-${name}"]`,
+    tagPill: (name: string) => `[data-testid="tag-pill-${name}"]`,
+    popover: '[data-testid="tag-popover"]',
+    popoverList: '#tag-popover-list',
+    createTagInput: '[data-testid="create-tag-input"]',
+    createTagButton: '#create-tag-btn',
+    bulkTagButton: '#bulk-tag-btn',
+    clipTagsContainer: '.clip-tags',
+    cardTagButton: '[data-action="tags"]',
+  },
+
+  // Watch folder auto-tag
+  watchAutoTag: {
+    select: '[data-testid="watch-folder-auto-tag"]',
+  },
 } as const;
 
 export type Selectors = typeof selectors;

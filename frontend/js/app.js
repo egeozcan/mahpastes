@@ -59,6 +59,34 @@ let isStretched = false;
 let lastFocusedElementBeforeComparison = null;
 let lastFocusedElement = null; // For confirm dialog
 
+// Tag state
+let allTags = [];
+let activeTagFilters = [];
+
+// App ready flag for testing
+window.__appReady = false;
+
+// Expose state and functions for testing
+window.__testHelpers = {
+  setAllTags: (tags) => {
+    // Modify in place to preserve references
+    allTags.length = 0;
+    allTags.push(...tags);
+  },
+  getAllTags: () => allTags,
+  setActiveTagFilters: (filters) => {
+    activeTagFilters.length = 0;
+    activeTagFilters.push(...filters);
+  },
+  getActiveTagFilters: () => activeTagFilters,
+  // Expose loadClips function (defined in wails-api.js, but called here)
+  loadClips: () => {
+    if (typeof loadClips === 'function') {
+      loadClips();
+    }
+  },
+};
+
 // --- Event Listeners ---
 
 // Drag and Drop
@@ -250,7 +278,28 @@ async function handleText(text) {
 }
 
 // --- Initial Load ---
-window.addEventListener('load', () => {
-    loadClips();
-    setupEditorListeners();
+window.addEventListener('load', async () => {
+    window.__appReady = false;
+    try {
+        await loadTags();
+        await loadClips();
+        setupEditorListeners();
+    } catch (error) {
+        console.error('Error during app initialization:', error);
+    }
+    window.__appReady = true;
 });
+
+// Also handle DOMContentLoaded for faster initialization
+document.addEventListener('DOMContentLoaded', () => {
+    // Set initial state so tests know the event listener is attached
+    if (window.__appReady === undefined) {
+        window.__appReady = false;
+    }
+});
+
+// Load all tags and update UI
+async function loadTags() {
+    allTags = await getAllTags();
+    renderTagFilterDropdown();
+}

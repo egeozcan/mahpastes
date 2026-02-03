@@ -107,6 +107,24 @@ export namespace main {
 	        this.filename = source["filename"];
 	    }
 	}
+	export class Tag {
+	    id: number;
+	    name: string;
+	    color: string;
+	    count: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new Tag(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.color = source["color"];
+	        this.count = source["count"];
+	    }
+	}
 	export class ClipPreview {
 	    id: number;
 	    content_type: string;
@@ -117,6 +135,7 @@ export namespace main {
 	    expires_at?: any;
 	    preview: string;
 	    is_archived: boolean;
+	    tags: Tag[];
 	
 	    static createFrom(source: any = {}) {
 	        return new ClipPreview(source);
@@ -131,6 +150,7 @@ export namespace main {
 	        this.expires_at = this.convertValues(source["expires_at"], null);
 	        this.preview = source["preview"];
 	        this.is_archived = source["is_archived"];
+	        this.tags = this.convertValues(source["tags"], Tag);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -169,6 +189,7 @@ export namespace main {
 	        this.data = source["data"];
 	    }
 	}
+	
 	export class WatchStatus {
 	    global_paused: boolean;
 	    active_count: number;
@@ -195,6 +216,7 @@ export namespace main {
 	    filter_regex: string;
 	    process_existing: boolean;
 	    auto_archive: boolean;
+	    auto_tag_id?: number;
 	    is_paused: boolean;
 	    // Go type: time
 	    created_at: any;
@@ -213,6 +235,7 @@ export namespace main {
 	        this.filter_regex = source["filter_regex"];
 	        this.process_existing = source["process_existing"];
 	        this.auto_archive = source["auto_archive"];
+	        this.auto_tag_id = source["auto_tag_id"];
 	        this.is_paused = source["is_paused"];
 	        this.created_at = this.convertValues(source["created_at"], null);
 	        this.exists = source["exists"];
@@ -243,6 +266,7 @@ export namespace main {
 	    filter_regex: string;
 	    process_existing: boolean;
 	    auto_archive: boolean;
+	    auto_tag_id?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new WatchedFolderConfig(source);
@@ -256,6 +280,7 @@ export namespace main {
 	        this.filter_regex = source["filter_regex"];
 	        this.process_existing = source["process_existing"];
 	        this.auto_archive = source["auto_archive"];
+	        this.auto_tag_id = source["auto_tag_id"];
 	    }
 	}
 

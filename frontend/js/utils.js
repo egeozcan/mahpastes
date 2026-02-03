@@ -84,6 +84,9 @@ function escapeHTML(str) {
     });
 }
 
+// Alias for compatibility
+const escapeHtml = escapeHTML;
+
 function getFriendlyFileType(contentType, filename) {
     // Map of MIME types to friendly names
     const mimeMap = {

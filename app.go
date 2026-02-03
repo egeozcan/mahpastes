@@ -136,6 +136,7 @@ type ClipPreview struct {
 	ExpiresAt   *time.Time `json:"expires_at"`
 	Preview     string     `json:"preview"`
 	IsArchived  bool       `json:"is_archived"`
+	Tags        []Tag      `json:"tags"`
 }
 
 // ClipData for full clip retrieval
@@ -162,6 +163,7 @@ type WatchedFolder struct {
 	FilterRegex     string    `json:"filter_regex"`     // regex pattern for custom mode
 	ProcessExisting bool      `json:"process_existing"` // import existing files when added
 	AutoArchive     bool      `json:"auto_archive"`     // archive imports immediately
+	AutoTagID       *int64    `json:"auto_tag_id"`      // tag to auto-apply on import
 	IsPaused        bool      `json:"is_paused"`        // per-folder pause
 	CreatedAt       time.Time `json:"created_at"`
 	Exists          bool      `json:"exists"` // whether folder path exists on disk
@@ -175,23 +177,70 @@ type WatchedFolderConfig struct {
 	FilterRegex     string   `json:"filter_regex"`
 	ProcessExisting bool     `json:"process_existing"`
 	AutoArchive     bool     `json:"auto_archive"`
+	AutoTagID       *int64   `json:"auto_tag_id"`
 }
 
-// GetClips retrieves a list of clips for the gallery
-func (a *App) GetClips(archived bool) ([]ClipPreview, error) {
+// Tag represents a clip tag with color
+type Tag struct {
+	ID    int64  `json:"id"`
+	Name  string `json:"name"`
+	Color string `json:"color"`
+	Count int    `json:"count"` // Number of clips using this tag
+}
+
+// tagColors is the palette of colors auto-assigned to new tags
+var tagColors = []string{
+	"#78716C", // stone
+	"#EF4444", // red
+	"#F59E0B", // amber
+	"#22C55E", // green
+	"#3B82F6", // blue
+	"#8B5CF6", // violet
+	"#EC4899", // pink
+	"#06B6D4", // cyan
+}
+
+// GetClips retrieves a list of clips for the gallery, optionally filtered by tags
+func (a *App) GetClips(archived bool, tagIDs []int64) ([]ClipPreview, error) {
 	archivedInt := 0
 	if archived {
 		archivedInt = 1
 	}
 
-	query := `
-    SELECT id, content_type, filename, created_at, expires_at, SUBSTR(data, 1, 500), is_archived
-    FROM clips
-    WHERE is_archived = ? AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
-    ORDER BY created_at DESC
-    LIMIT 50`
+	var query string
+	var args []interface{}
 
-	rows, err := a.db.Query(query, archivedInt)
+	if len(tagIDs) > 0 {
+		// Filter by tags (AND logic - clip must have ALL selected tags)
+		placeholders := make([]string, len(tagIDs))
+		for i, tagID := range tagIDs {
+			placeholders[i] = "?"
+			args = append(args, tagID)
+		}
+		args = append(args, archivedInt, len(tagIDs))
+
+		query = fmt.Sprintf(`
+		SELECT c.id, c.content_type, c.filename, c.created_at, c.expires_at, SUBSTR(c.data, 1, 500), c.is_archived
+		FROM clips c
+		INNER JOIN clip_tags ct ON c.id = ct.clip_id
+		WHERE ct.tag_id IN (%s)
+		  AND c.is_archived = ?
+		  AND (c.expires_at IS NULL OR c.expires_at > CURRENT_TIMESTAMP)
+		GROUP BY c.id
+		HAVING COUNT(DISTINCT ct.tag_id) = ?
+		ORDER BY c.created_at DESC
+		LIMIT 50`, strings.Join(placeholders, ","))
+	} else {
+		args = append(args, archivedInt)
+		query = `
+		SELECT id, content_type, filename, created_at, expires_at, SUBSTR(data, 1, 500), is_archived
+		FROM clips
+		WHERE is_archived = ? AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+		ORDER BY created_at DESC
+		LIMIT 50`
+	}
+
+	rows, err := a.db.Query(query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query clips: %w", err)
 	}
@@ -222,6 +271,10 @@ func (a *App) GetClips(archived bool) ([]ClipPreview, error) {
 		} else {
 			clip.Preview = ""
 		}
+
+		// Load tags for this clip
+		clip.Tags, _ = a.GetClipTags(clip.ID)
+
 		clips = append(clips, clip)
 	}
 
@@ -344,9 +397,35 @@ func (a *App) UploadFiles(files []FileData, expirationMinutes int) error {
 
 // DeleteClip deletes a clip by ID
 func (a *App) DeleteClip(id int64) error {
-	_, err := a.db.Exec("DELETE FROM clips WHERE id = ?", id)
+	// Get tag IDs before deleting (to clean up orphaned tags)
+	rows, err := a.db.Query("SELECT tag_id FROM clip_tags WHERE clip_id = ?", id)
+	if err != nil {
+		return fmt.Errorf("failed to query clip tags: %w", err)
+	}
+	var tagIDs []int64
+	for rows.Next() {
+		var tagID int64
+		if err := rows.Scan(&tagID); err == nil {
+			tagIDs = append(tagIDs, tagID)
+		}
+	}
+	rows.Close()
+
+	// Explicitly delete clip_tags (don't rely on CASCADE)
+	_, err = a.db.Exec("DELETE FROM clip_tags WHERE clip_id = ?", id)
+	if err != nil {
+		return fmt.Errorf("failed to delete clip tags: %w", err)
+	}
+
+	// Delete the clip
+	_, err = a.db.Exec("DELETE FROM clips WHERE id = ?", id)
 	if err != nil {
 		return fmt.Errorf("failed to delete clip: %w", err)
+	}
+
+	// Clean up orphaned tags
+	for _, tagID := range tagIDs {
+		a.deleteTagIfOrphaned(tagID)
 	}
 	return nil
 }
@@ -369,6 +448,209 @@ func (a *App) CancelExpiration(id int64) error {
 	return nil
 }
 
+// --- Tag Methods ---
+
+// CreateTag creates a new tag with auto-assigned color
+func (a *App) CreateTag(name string) (*Tag, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, fmt.Errorf("tag name cannot be empty")
+	}
+
+	// Get count of existing tags to determine color
+	var count int
+	a.db.QueryRow("SELECT COUNT(*) FROM tags").Scan(&count)
+	color := tagColors[count%len(tagColors)]
+
+	result, err := a.db.Exec("INSERT INTO tags (name, color) VALUES (?, ?)", name, color)
+	if err != nil {
+		if strings.Contains(err.Error(), "UNIQUE") {
+			return nil, fmt.Errorf("tag already exists: %s", name)
+		}
+		return nil, fmt.Errorf("failed to create tag: %w", err)
+	}
+
+	id, _ := result.LastInsertId()
+	return &Tag{
+		ID:    id,
+		Name:  name,
+		Color: color,
+		Count: 0,
+	}, nil
+}
+
+// UpdateTag updates a tag's name and/or color
+func (a *App) UpdateTag(id int64, name, color string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return fmt.Errorf("tag name cannot be empty")
+	}
+
+	_, err := a.db.Exec("UPDATE tags SET name = ?, color = ? WHERE id = ?", name, color, id)
+	if err != nil {
+		if strings.Contains(err.Error(), "UNIQUE") {
+			return fmt.Errorf("tag name already exists: %s", name)
+		}
+		return fmt.Errorf("failed to update tag: %w", err)
+	}
+	return nil
+}
+
+// DeleteTag deletes a tag (clip_tags cascade delete handles associations)
+func (a *App) DeleteTag(id int64) error {
+	_, err := a.db.Exec("DELETE FROM tags WHERE id = ?", id)
+	if err != nil {
+		return fmt.Errorf("failed to delete tag: %w", err)
+	}
+	return nil
+}
+
+// GetTags retrieves all tags with usage counts
+func (a *App) GetTags() ([]Tag, error) {
+	rows, err := a.db.Query(`
+		SELECT t.id, t.name, t.color, COUNT(ct.clip_id) as count
+		FROM tags t
+		LEFT JOIN clip_tags ct ON t.id = ct.tag_id
+		GROUP BY t.id
+		ORDER BY t.name
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query tags: %w", err)
+	}
+	defer rows.Close()
+
+	var tags []Tag
+	for rows.Next() {
+		var tag Tag
+		if err := rows.Scan(&tag.ID, &tag.Name, &tag.Color, &tag.Count); err != nil {
+			log.Printf("Failed to scan tag: %v", err)
+			continue
+		}
+		tags = append(tags, tag)
+	}
+
+	if tags == nil {
+		tags = []Tag{}
+	}
+	return tags, nil
+}
+
+// AddTagToClip adds a tag to a clip
+func (a *App) AddTagToClip(clipID, tagID int64) error {
+	_, err := a.db.Exec("INSERT OR IGNORE INTO clip_tags (clip_id, tag_id) VALUES (?, ?)", clipID, tagID)
+	if err != nil {
+		return fmt.Errorf("failed to add tag to clip: %w", err)
+	}
+	return nil
+}
+
+// RemoveTagFromClip removes a tag from a clip
+func (a *App) RemoveTagFromClip(clipID, tagID int64) error {
+	_, err := a.db.Exec("DELETE FROM clip_tags WHERE clip_id = ? AND tag_id = ?", clipID, tagID)
+	if err != nil {
+		return fmt.Errorf("failed to remove tag from clip: %w", err)
+	}
+	// Clean up orphaned tag
+	a.deleteTagIfOrphaned(tagID)
+	return nil
+}
+
+// deleteTagIfOrphaned deletes a tag if it has no associated clips
+func (a *App) deleteTagIfOrphaned(tagID int64) {
+	var count int
+	err := a.db.QueryRow("SELECT COUNT(*) FROM clip_tags WHERE tag_id = ?", tagID).Scan(&count)
+	if err != nil {
+		return
+	}
+	if count == 0 {
+		a.db.Exec("DELETE FROM tags WHERE id = ?", tagID)
+	}
+}
+
+// BulkAddTag adds a tag to multiple clips
+func (a *App) BulkAddTag(clipIDs []int64, tagID int64) error {
+	if len(clipIDs) == 0 {
+		return nil
+	}
+
+	tx, err := a.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.Prepare("INSERT OR IGNORE INTO clip_tags (clip_id, tag_id) VALUES (?, ?)")
+	if err != nil {
+		return fmt.Errorf("failed to prepare statement: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, clipID := range clipIDs {
+		if _, err := stmt.Exec(clipID, tagID); err != nil {
+			return fmt.Errorf("failed to add tag to clip %d: %w", clipID, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+	return nil
+}
+
+// BulkRemoveTag removes a tag from multiple clips
+func (a *App) BulkRemoveTag(clipIDs []int64, tagID int64) error {
+	if len(clipIDs) == 0 {
+		return nil
+	}
+
+	placeholders := make([]string, len(clipIDs))
+	args := make([]interface{}, len(clipIDs)+1)
+	args[0] = tagID
+	for i, id := range clipIDs {
+		placeholders[i] = "?"
+		args[i+1] = id
+	}
+
+	query := fmt.Sprintf("DELETE FROM clip_tags WHERE tag_id = ? AND clip_id IN (%s)", strings.Join(placeholders, ","))
+	_, err := a.db.Exec(query, args...)
+	if err != nil {
+		return fmt.Errorf("failed to bulk remove tag: %w", err)
+	}
+	// Clean up orphaned tag
+	a.deleteTagIfOrphaned(tagID)
+	return nil
+}
+
+// GetClipTags returns tags for a specific clip
+func (a *App) GetClipTags(clipID int64) ([]Tag, error) {
+	rows, err := a.db.Query(`
+		SELECT t.id, t.name, t.color
+		FROM tags t
+		INNER JOIN clip_tags ct ON t.id = ct.tag_id
+		WHERE ct.clip_id = ?
+		ORDER BY t.name
+	`, clipID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query clip tags: %w", err)
+	}
+	defer rows.Close()
+
+	var tags []Tag
+	for rows.Next() {
+		var tag Tag
+		if err := rows.Scan(&tag.ID, &tag.Name, &tag.Color); err != nil {
+			log.Printf("Failed to scan clip tag: %v", err)
+			continue
+		}
+		tags = append(tags, tag)
+	}
+
+	if tags == nil {
+		tags = []Tag{}
+	}
+	return tags, nil
+}
+
 // BulkDelete deletes multiple clips at once
 func (a *App) BulkDelete(ids []int64) error {
 	if len(ids) == 0 {
@@ -382,10 +664,38 @@ func (a *App) BulkDelete(ids []int64) error {
 		args[i] = id
 	}
 
+	// Get all tag IDs associated with these clips before deleting
+	tagQuery := fmt.Sprintf("SELECT DISTINCT tag_id FROM clip_tags WHERE clip_id IN (%s)", strings.Join(placeholders, ","))
+	rows, err := a.db.Query(tagQuery, args...)
+	if err != nil {
+		return fmt.Errorf("failed to query clip tags: %w", err)
+	}
+	var tagIDs []int64
+	for rows.Next() {
+		var tagID int64
+		if err := rows.Scan(&tagID); err == nil {
+			tagIDs = append(tagIDs, tagID)
+		}
+	}
+	rows.Close()
+
+	// Explicitly delete clip_tags (don't rely on CASCADE)
+	clipTagsQuery := fmt.Sprintf("DELETE FROM clip_tags WHERE clip_id IN (%s)", strings.Join(placeholders, ","))
+	_, err = a.db.Exec(clipTagsQuery, args...)
+	if err != nil {
+		return fmt.Errorf("failed to delete clip tags: %w", err)
+	}
+
+	// Delete the clips
 	query := fmt.Sprintf("DELETE FROM clips WHERE id IN (%s)", strings.Join(placeholders, ","))
-	_, err := a.db.Exec(query, args...)
+	_, err = a.db.Exec(query, args...)
 	if err != nil {
 		return fmt.Errorf("failed to bulk delete: %w", err)
+	}
+
+	// Clean up orphaned tags
+	for _, tagID := range tagIDs {
+		a.deleteTagIfOrphaned(tagID)
 	}
 	return nil
 }
@@ -661,7 +971,7 @@ func isJSON(s string) bool {
 func (a *App) GetWatchedFolders() ([]WatchedFolder, error) {
 	rows, err := a.db.Query(`
 		SELECT id, path, filter_mode, filter_presets, filter_regex,
-		       process_existing, auto_archive, is_paused, created_at
+		       process_existing, auto_archive, auto_tag_id, is_paused, created_at
 		FROM watched_folders
 		ORDER BY created_at DESC
 	`)
@@ -675,10 +985,11 @@ func (a *App) GetWatchedFolders() ([]WatchedFolder, error) {
 		var f WatchedFolder
 		var filterPresets sql.NullString
 		var filterRegex sql.NullString
+		var autoTagID sql.NullInt64
 		var processExisting, autoArchive, isPaused int
 
 		if err := rows.Scan(&f.ID, &f.Path, &f.FilterMode, &filterPresets, &filterRegex,
-			&processExisting, &autoArchive, &isPaused, &f.CreatedAt); err != nil {
+			&processExisting, &autoArchive, &autoTagID, &isPaused, &f.CreatedAt); err != nil {
 			log.Printf("Failed to scan watched folder: %v", err)
 			continue
 		}
@@ -687,6 +998,9 @@ func (a *App) GetWatchedFolders() ([]WatchedFolder, error) {
 		f.AutoArchive = autoArchive == 1
 		f.IsPaused = isPaused == 1
 		f.FilterRegex = filterRegex.String
+		if autoTagID.Valid {
+			f.AutoTagID = &autoTagID.Int64
+		}
 
 		// Parse filter presets JSON
 		if filterPresets.Valid && filterPresets.String != "" {
@@ -715,15 +1029,16 @@ func (a *App) GetWatchedFolderByID(id int64) (*WatchedFolder, error) {
 	var f WatchedFolder
 	var filterPresets sql.NullString
 	var filterRegex sql.NullString
+	var autoTagID sql.NullInt64
 	var processExisting, autoArchive, isPaused int
 
 	err := a.db.QueryRow(`
 		SELECT id, path, filter_mode, filter_presets, filter_regex,
-		       process_existing, auto_archive, is_paused, created_at
+		       process_existing, auto_archive, auto_tag_id, is_paused, created_at
 		FROM watched_folders
 		WHERE id = ?
 	`, id).Scan(&f.ID, &f.Path, &f.FilterMode, &filterPresets, &filterRegex,
-		&processExisting, &autoArchive, &isPaused, &f.CreatedAt)
+		&processExisting, &autoArchive, &autoTagID, &isPaused, &f.CreatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -735,6 +1050,9 @@ func (a *App) GetWatchedFolderByID(id int64) (*WatchedFolder, error) {
 	f.AutoArchive = autoArchive == 1
 	f.IsPaused = isPaused == 1
 	f.FilterRegex = filterRegex.String
+	if autoTagID.Valid {
+		f.AutoTagID = &autoTagID.Int64
+	}
 
 	if filterPresets.Valid && filterPresets.String != "" {
 		_ = json.Unmarshal([]byte(filterPresets.String), &f.FilterPresets)
@@ -769,10 +1087,10 @@ func (a *App) AddWatchedFolder(config WatchedFolderConfig) (*WatchedFolder, erro
 	}
 
 	result, err := a.db.Exec(`
-		INSERT INTO watched_folders (path, filter_mode, filter_presets, filter_regex, process_existing, auto_archive)
-		VALUES (?, ?, ?, ?, ?, ?)
+		INSERT INTO watched_folders (path, filter_mode, filter_presets, filter_regex, process_existing, auto_archive, auto_tag_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
 	`, config.Path, config.FilterMode, string(presetsJSON), config.FilterRegex,
-		boolToInt(config.ProcessExisting), boolToInt(config.AutoArchive))
+		boolToInt(config.ProcessExisting), boolToInt(config.AutoArchive), config.AutoTagID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to add watched folder: %w", err)
 	}
@@ -787,6 +1105,7 @@ func (a *App) AddWatchedFolder(config WatchedFolderConfig) (*WatchedFolder, erro
 		FilterRegex:     config.FilterRegex,
 		ProcessExisting: config.ProcessExisting,
 		AutoArchive:     config.AutoArchive,
+		AutoTagID:       config.AutoTagID,
 		IsPaused:        false,
 		Exists:          true,
 	}, nil
@@ -808,10 +1127,10 @@ func (a *App) UpdateWatchedFolder(id int64, config WatchedFolderConfig) error {
 
 	_, err := a.db.Exec(`
 		UPDATE watched_folders
-		SET filter_mode = ?, filter_presets = ?, filter_regex = ?, auto_archive = ?
+		SET filter_mode = ?, filter_presets = ?, filter_regex = ?, auto_archive = ?, auto_tag_id = ?
 		WHERE id = ?
 	`, config.FilterMode, string(presetsJSON), config.FilterRegex,
-		boolToInt(config.AutoArchive), id)
+		boolToInt(config.AutoArchive), config.AutoTagID, id)
 	if err != nil {
 		return fmt.Errorf("failed to update watched folder: %w", err)
 	}

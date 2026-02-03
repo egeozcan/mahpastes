@@ -55,7 +55,7 @@ test.describe('Expiration Timer', () => {
       await app.page.evaluate(async (fname) => {
         // Get clip ID by finding it
         // @ts-ignore
-        const clips = await window.go.main.App.GetClips(false);
+        const clips = await window.go.main.App.GetClips(false, []);
         const clip = clips.find((c: any) => c.filename?.includes(fname.replace('.png', '')));
         if (clip) {
           // @ts-ignore

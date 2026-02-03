@@ -70,6 +70,11 @@ func initDB() (*sql.DB, error) {
 		log.Printf("Warning: Failed to enable WAL mode: %v", err)
 	}
 
+	// Enable foreign keys for CASCADE to work
+	if _, err := db.Exec("PRAGMA foreign_keys = ON"); err != nil {
+		log.Printf("Warning: Failed to enable foreign keys: %v", err)
+	}
+
 	createTableSQL := `
     CREATE TABLE IF NOT EXISTS clips (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -115,6 +120,29 @@ func initDB() (*sql.DB, error) {
 	if _, err := db.Exec(`INSERT OR IGNORE INTO settings (key, value) VALUES ('global_watch_paused', 'false')`); err != nil {
 		log.Printf("Warning: Failed to initialize global_watch_paused setting: %v", err)
 	}
+
+	// Create tags table
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS tags (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		name TEXT NOT NULL UNIQUE,
+		color TEXT NOT NULL
+	)`); err != nil {
+		log.Printf("Warning: Failed to create tags table: %v", err)
+	}
+
+	// Create clip_tags join table
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS clip_tags (
+		clip_id INTEGER NOT NULL,
+		tag_id INTEGER NOT NULL,
+		PRIMARY KEY (clip_id, tag_id),
+		FOREIGN KEY (clip_id) REFERENCES clips(id) ON DELETE CASCADE,
+		FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+	)`); err != nil {
+		log.Printf("Warning: Failed to create clip_tags table: %v", err)
+	}
+
+	// Migrate: Add auto_tag_id column to watched_folders if it doesn't exist
+	_, _ = db.Exec("ALTER TABLE watched_folders ADD COLUMN auto_tag_id INTEGER")
 
 	return db, nil
 }

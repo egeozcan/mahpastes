@@ -26,6 +26,7 @@ const filterVideos = document.getElementById('filter-videos');
 const filterRegex = document.getElementById('filter-regex');
 const processExisting = document.getElementById('process-existing');
 const autoArchive = document.getElementById('auto-archive');
+const autoTagSelect = document.getElementById('auto-tag-select');
 const folderModalCancel = document.getElementById('folder-modal-cancel');
 const folderModalSave = document.getElementById('folder-modal-save');
 
@@ -129,6 +130,15 @@ function createWatchFolderCard(folder) {
         ? '<span class="text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">Folder not found</span>'
         : '';
 
+    // Get auto-tag name if set
+    let autoTagHtml = '';
+    if (folder.auto_tag_id && typeof allTags !== 'undefined') {
+        const tag = allTags.find(t => t.id === folder.auto_tag_id);
+        if (tag) {
+            autoTagHtml = ` • <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium text-white" style="background-color: ${tag.color}">${escapeHTML(tag.name)}</span>`;
+        }
+    }
+
     li.innerHTML = `
         <div class="flex-1 min-w-0 ${pausedClass}">
             <div class="flex items-center gap-2 mb-1">
@@ -138,6 +148,7 @@ function createWatchFolderCard(folder) {
             <p class="text-[11px] text-stone-400">
                 ${filterDesc}
                 ${folder.auto_archive ? ' • Auto-archive' : ''}
+                ${autoTagHtml}
                 ${folder.is_paused ? ' • <span class="text-amber-500">Paused</span>' : ''}
             </p>
         </div>
@@ -230,6 +241,24 @@ async function openAddFolderDialog() {
     }
 }
 
+function populateAutoTagDropdown(selectedTagId = null) {
+    // Clear and rebuild dropdown
+    autoTagSelect.innerHTML = '<option value="">None</option>';
+
+    if (typeof allTags !== 'undefined' && allTags.length > 0) {
+        allTags.forEach(tag => {
+            const option = document.createElement('option');
+            option.value = tag.id;
+            option.textContent = tag.name;
+            option.style.backgroundColor = tag.color;
+            if (selectedTagId && selectedTagId === tag.id) {
+                option.selected = true;
+            }
+            autoTagSelect.appendChild(option);
+        });
+    }
+}
+
 function openFolderModal(path) {
     editingFolderId = null; // Adding new folder
     folderModalTitle.textContent = 'Add Watched Folder';
@@ -245,6 +274,9 @@ function openFolderModal(path) {
     filterRegex.value = '';
     processExisting.checked = false;
     autoArchive.checked = false;
+
+    // Populate and reset auto-tag dropdown
+    populateAutoTagDropdown(null);
 
     // Show process existing option for new folders
     processExisting.closest('label').classList.remove('hidden');
@@ -268,6 +300,9 @@ function openFolderModalForEdit(folder) {
     filterRegex.value = folder.filter_regex || '';
     processExisting.checked = false; // Always unchecked for edit
     autoArchive.checked = folder.auto_archive || false;
+
+    // Populate auto-tag dropdown with current selection
+    populateAutoTagDropdown(folder.auto_tag_id);
 
     // Hide process existing option when editing
     processExisting.closest('label').classList.add('hidden');
@@ -338,13 +373,17 @@ async function saveFolderConfig() {
         }
     }
 
+    // Get selected auto-tag ID (null if none selected)
+    const selectedTagId = autoTagSelect.value ? parseInt(autoTagSelect.value, 10) : null;
+
     const config = {
         path: path,
         filter_mode: filterMode,
         filter_presets: filterPresets,
         filter_regex: filterRegex.value.trim(),
         process_existing: processExisting.checked,
-        auto_archive: autoArchive.checked
+        auto_archive: autoArchive.checked,
+        auto_tag_id: selectedTagId
     };
 
     try {

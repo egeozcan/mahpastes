@@ -299,6 +299,13 @@ func (w *WatcherManager) importFile(filePath string, folder *WatchedFolder) (int
 		}
 	}
 
+	// Auto-tag if configured
+	if folder.AutoTagID != nil {
+		if err := w.app.AddTagToClip(clipID, *folder.AutoTagID); err != nil {
+			log.Printf("Failed to auto-tag clip %d with tag %d: %v", clipID, *folder.AutoTagID, err)
+		}
+	}
+
 	// Emit import event for UI refresh (after archiving is complete)
 	w.app.emitWatchImport(fileData.Name)
 

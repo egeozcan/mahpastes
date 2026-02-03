@@ -85,6 +85,11 @@ async function createClipCard(clip) {
                         <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
                     </button>
                     ` : ''}
+                    <button class="p-1 text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded transition-colors" data-action="tags" data-tag-btn title="Tags">
+                        <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+                        </svg>
+                    </button>
                     <button class="p-1 text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded transition-colors" data-action="archive" title="${isViewingArchive ? 'Restore' : 'Archive'}">
                         <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
                             ${isViewingArchive
@@ -108,8 +113,17 @@ async function createClipCard(clip) {
     if (editBtn) {
         editBtn.addEventListener('click', (e) => { e.stopPropagation(); openEditor(clip.id); });
     }
+    card.querySelector('[data-action="tags"]').addEventListener('click', (e) => {
+        e.stopPropagation();
+        openTagPopover(clip.id, e.currentTarget);
+    });
     card.querySelector('[data-action="archive"]').addEventListener('click', (e) => { e.stopPropagation(); toggleArchiveClip(clip.id); });
     card.querySelector('[data-action="delete"]').addEventListener('click', (e) => { e.stopPropagation(); deleteClip(clip.id); });
+
+    // Render tags on the card
+    if (typeof renderCardTags === 'function') {
+        renderCardTags(card, clip.tags);
+    }
 
     // Checkbox logic
     const checkbox = card.querySelector('.clip-checkbox');

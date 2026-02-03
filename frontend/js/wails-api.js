@@ -3,7 +3,7 @@
 
 async function loadClips() {
     try {
-        const clips = await window.go.main.App.GetClips(isViewingArchive);
+        const clips = await window.go.main.App.GetClips(isViewingArchive, activeTagFilters);
 
         gallery.innerHTML = ''; // Clear gallery
         selectedIds.clear();
@@ -15,9 +15,14 @@ async function loadClips() {
                 await createClipCard(clip);
             }
         } else {
-            const emptyMsg = isViewingArchive
-                ? 'No archived clips.'
-                : 'No active clips. Paste or drop something!';
+            let emptyMsg;
+            if (activeTagFilters.length > 0) {
+                emptyMsg = 'No clips match the selected tags.';
+            } else if (isViewingArchive) {
+                emptyMsg = 'No archived clips.';
+            } else {
+                emptyMsg = 'No active clips. Paste or drop something!';
+            }
             gallery.innerHTML = `<p class="text-gray-500 col-span-full text-center">${emptyMsg}</p>`;
         }
     } catch (error) {
@@ -179,5 +184,88 @@ async function saveClipToFile(id) {
         if (!error.message.includes('cancelled')) {
             showToast('Failed to save file.');
         }
+    }
+}
+
+// --- Tag API functions ---
+
+async function getAllTags() {
+    try {
+        return await window.go.main.App.GetTags();
+    } catch (error) {
+        console.error('Error getting tags:', error);
+        return [];
+    }
+}
+
+async function createTag(name) {
+    try {
+        const tag = await window.go.main.App.CreateTag(name);
+        showToast(`Tag "${name}" created.`);
+        return tag;
+    } catch (error) {
+        console.error('Error creating tag:', error);
+        showToast(error.message || 'Failed to create tag.');
+        return null;
+    }
+}
+
+async function updateTag(id, name, color) {
+    try {
+        await window.go.main.App.UpdateTag(id, name, color);
+        showToast('Tag updated.');
+    } catch (error) {
+        console.error('Error updating tag:', error);
+        showToast(error.message || 'Failed to update tag.');
+    }
+}
+
+async function deleteTag(id) {
+    try {
+        await window.go.main.App.DeleteTag(id);
+        showToast('Tag deleted.');
+    } catch (error) {
+        console.error('Error deleting tag:', error);
+        showToast('Failed to delete tag.');
+    }
+}
+
+async function addTagToClip(clipId, tagId) {
+    try {
+        await window.go.main.App.AddTagToClip(clipId, tagId);
+    } catch (error) {
+        console.error('Error adding tag to clip:', error);
+        showToast('Failed to add tag.');
+    }
+}
+
+async function removeTagFromClip(clipId, tagId) {
+    try {
+        await window.go.main.App.RemoveTagFromClip(clipId, tagId);
+    } catch (error) {
+        console.error('Error removing tag from clip:', error);
+        showToast('Failed to remove tag.');
+    }
+}
+
+async function bulkAddTag(clipIds, tagId) {
+    try {
+        await window.go.main.App.BulkAddTag(clipIds, tagId);
+        showToast(`Tag added to ${clipIds.length} clips.`);
+        loadClips();
+    } catch (error) {
+        console.error('Error in bulk add tag:', error);
+        showToast('Failed to add tag to clips.');
+    }
+}
+
+async function bulkRemoveTag(clipIds, tagId) {
+    try {
+        await window.go.main.App.BulkRemoveTag(clipIds, tagId);
+        showToast(`Tag removed from ${clipIds.length} clips.`);
+        loadClips();
+    } catch (error) {
+        console.error('Error in bulk remove tag:', error);
+        showToast('Failed to remove tag from clips.');
     }
 }

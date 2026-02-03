@@ -43,6 +43,30 @@ export class AppHelper {
       // @ts-ignore - Wails runtime
       return typeof window.go?.main?.App?.GetClips === 'function';
     }, { timeout: 10000 });
+    // Wait for app to be fully initialized (loadTags and loadClips complete)
+    // Increase timeout to handle slow startup when multiple workers are active
+    await this.page.waitForFunction(() => {
+      // @ts-ignore
+      return window.__appReady === true;
+    }, { timeout: 30000 });
+    // Workaround: Wails dev mode has a timing issue where the first API calls
+    // during page load may return empty. Re-fetch tags and clips to ensure state is fresh.
+    await this.page.evaluate(async () => {
+      // @ts-ignore
+      const tags = await window.go.main.App.GetTags();
+      // @ts-ignore
+      if (window.__testHelpers) {
+        // @ts-ignore
+        window.__testHelpers.setAllTags(tags);
+      }
+      // Re-render tag filter dropdown with fresh data
+      // @ts-ignore
+      if (typeof renderTagFilterDropdown === 'function') {
+        renderTagFilterDropdown();
+      }
+    });
+    // Small delay to let UI update
+    await this.page.waitForTimeout(100);
   }
 
   // ==================== Clip Operations ====================
@@ -103,7 +127,7 @@ export class AppHelper {
     // Query the database directly via Wails API to get accurate count
     return this.page.evaluate(async (isArchived) => {
       // @ts-ignore - Wails runtime
-      const clips = await window.go.main.App.GetClips(isArchived);
+      const clips = await window.go.main.App.GetClips(isArchived, []);
       return clips?.length || 0;
     }, archived);
   }
@@ -161,9 +185,9 @@ export class AppHelper {
   async deleteAllClips(): Promise<void> {
     await this.page.evaluate(async () => {
       // @ts-ignore - Wails runtime
-      const clips = await window.go.main.App.GetClips(false);
+      const clips = await window.go.main.App.GetClips(false, []);
       // @ts-ignore
-      const archivedClips = await window.go.main.App.GetClips(true);
+      const archivedClips = await window.go.main.App.GetClips(true, []);
       const allClips = [...clips, ...archivedClips];
 
       for (const clip of allClips) {
@@ -388,13 +412,25 @@ export class AppHelper {
   // ==================== Watch Folders ====================
 
   async openWatchView(): Promise<void> {
-    await this.page.locator(selectors.header.watchButton).click();
-    await this.page.waitForSelector(selectors.watch.view, { state: 'visible' });
+    // Check if already open
+    const isOpen = await this.page.locator(selectors.watch.view).isVisible();
+    if (!isOpen) {
+      await this.page.locator(selectors.header.watchButton).click();
+      await this.page.waitForSelector(`${selectors.watch.view}:not(.hidden)`, { timeout: 5000 });
+    }
   }
 
   async closeWatchView(): Promise<void> {
-    await this.page.locator(selectors.header.watchButton).click();
-    await this.page.waitForSelector(selectors.watch.view, { state: 'hidden' });
+    // Check if already closed
+    const isOpen = await this.page.locator(selectors.watch.view).isVisible();
+    if (isOpen) {
+      await this.page.locator(selectors.header.watchButton).click();
+      // Wait for the view to have the hidden class
+      await this.page.waitForFunction((selector) => {
+        const el = document.querySelector(selector);
+        return el?.classList.contains('hidden');
+      }, selectors.watch.view, { timeout: 5000 });
+    }
   }
 
   async isWatchViewOpen(): Promise<boolean> {
@@ -471,6 +507,37 @@ export class AppHelper {
   async pauseWatchFolder(folderPath: string): Promise<void> {
     const folderCard = this.page.locator(selectors.watch.folderCard).filter({ hasText: folderPath });
     await folderCard.locator(selectors.watchFolder.pauseToggle).click();
+  }
+
+  async deleteAllWatchFolders(): Promise<void> {
+    await this.page.evaluate(async () => {
+      // @ts-ignore - Wails runtime
+      const folders = await window.go.main.App.GetWatchedFolders();
+      for (const folder of folders) {
+        try {
+          // @ts-ignore
+          await window.go.main.App.RemoveWatchedFolder(folder.id);
+        } catch {
+          // Ignore individual delete errors
+        }
+      }
+    });
+    await this.page.waitForTimeout(300);
+  }
+
+  async enableGlobalWatch(): Promise<void> {
+    await this.toggleGlobalWatch(true);
+  }
+
+  async disableGlobalWatch(): Promise<void> {
+    await this.toggleGlobalWatch(false);
+  }
+
+  async openAddFolderModal(): Promise<void> {
+    // Click the add folder button
+    await this.page.locator(selectors.watch.addFolderButton).click();
+    // Wait for the modal to open
+    await this.page.waitForSelector(selectors.watchEdit.modal, { state: 'visible' });
   }
 
   // ==================== Search & Filter ====================
@@ -565,6 +632,323 @@ export class AppHelper {
   async expectEmptyState(): Promise<void> {
     const emptyState = this.page.locator(selectors.gallery.emptyState);
     await expect(emptyState).toBeVisible();
+  }
+
+  // ==================== Tags ====================
+
+  async createTag(name: string): Promise<void> {
+    // Create tag via API and update frontend state
+    await this.page.evaluate(async (tagName) => {
+      // @ts-ignore - Wails runtime
+      await window.go.main.App.CreateTag(tagName);
+
+      // Fetch updated tags from backend
+      // @ts-ignore - Wails runtime
+      const tags = await window.go.main.App.GetTags();
+
+      // Update frontend state via test helper
+      // @ts-ignore
+      if (window.__testHelpers) {
+        // @ts-ignore
+        window.__testHelpers.setAllTags(tags);
+      }
+    }, name);
+
+    await this.page.waitForTimeout(300);
+  }
+
+  async deleteTag(name: string): Promise<void> {
+    // Delete tag via API
+    await this.page.evaluate(async (tagName) => {
+      // @ts-ignore - Wails runtime
+      const tags = await window.go.main.App.GetTags();
+      const tag = tags.find((t: any) => t.name === tagName);
+      if (tag) {
+        // @ts-ignore
+        await window.go.main.App.DeleteTag(tag.id);
+      }
+    }, name);
+    await this.page.waitForTimeout(300);
+  }
+
+  async getAllTags(): Promise<Array<{ id: number; name: string; color: string }>> {
+    return this.page.evaluate(async () => {
+      // @ts-ignore - Wails runtime
+      return await window.go.main.App.GetTags();
+    });
+  }
+
+  async addTagToClip(clipFilename: string, tagName: string): Promise<void> {
+    // Add tag via API directly
+    await this.page.evaluate(async ({ filename, tag }) => {
+      // Get clip ID by filename
+      // @ts-ignore
+      const clips = await window.go.main.App.GetClips(false, []);
+      const clip = clips.find((c: any) =>
+        c.filename?.toLowerCase().includes(filename.replace('.png', '').toLowerCase())
+      );
+      if (!clip) {
+        throw new Error(`Clip not found: ${filename}`);
+      }
+
+      // Get tag ID by name
+      // @ts-ignore
+      const tags = await window.go.main.App.GetTags();
+      const tagObj = tags.find((t: any) => t.name === tag);
+      if (!tagObj) {
+        throw new Error(`Tag not found: ${tag}`);
+      }
+
+      // Add tag to clip
+      // @ts-ignore
+      await window.go.main.App.AddTagToClip(clip.id, tagObj.id);
+
+      // Refresh clips via test helper
+      // @ts-ignore
+      if (window.__testHelpers && window.__testHelpers.loadClips) {
+        window.__testHelpers.loadClips();
+      }
+    }, { filename: clipFilename, tag: tagName });
+
+    await this.page.waitForTimeout(500);
+  }
+
+  async removeTagFromClip(clipFilename: string, tagName: string): Promise<void> {
+    // Remove tag via API directly
+    await this.page.evaluate(async ({ filename, tag }) => {
+      // Get clip ID by filename
+      // @ts-ignore
+      const clips = await window.go.main.App.GetClips(false, []);
+      const clip = clips.find((c: any) =>
+        c.filename?.toLowerCase().includes(filename.replace('.png', '').toLowerCase())
+      );
+      if (!clip) {
+        throw new Error(`Clip not found: ${filename}`);
+      }
+
+      // Get tag ID by name
+      // @ts-ignore
+      const tags = await window.go.main.App.GetTags();
+      const tagObj = tags.find((t: any) => t.name === tag);
+      if (!tagObj) {
+        throw new Error(`Tag not found: ${tag}`);
+      }
+
+      // Remove tag from clip
+      // @ts-ignore
+      await window.go.main.App.RemoveTagFromClip(clip.id, tagObj.id);
+
+      // Refresh clips via test helper
+      // @ts-ignore
+      if (window.__testHelpers && window.__testHelpers.loadClips) {
+        window.__testHelpers.loadClips();
+      }
+    }, { filename: clipFilename, tag: tagName });
+
+    await this.page.waitForTimeout(500);
+  }
+
+  async openTagFilterDropdown(): Promise<void> {
+    const dropdown = this.page.locator(selectors.tags.filterDropdown);
+    const isVisible = await dropdown.evaluate(el => !el.classList.contains('hidden'));
+    if (!isVisible) {
+      await this.page.locator(selectors.tags.filterButton).click();
+      await this.page.waitForSelector(`${selectors.tags.filterDropdown}:not(.hidden)`);
+    }
+  }
+
+  async closeTagFilterDropdown(): Promise<void> {
+    const dropdown = this.page.locator(selectors.tags.filterDropdown);
+    const isVisible = await dropdown.evaluate(el => !el.classList.contains('hidden'));
+    if (isVisible) {
+      await this.page.locator('body').click({ position: { x: 10, y: 10 } });
+      // Wait for the dropdown to have the hidden class
+      await this.page.waitForFunction((selector) => {
+        const el = document.querySelector(selector);
+        return el?.classList.contains('hidden');
+      }, selectors.tags.filterDropdown, { timeout: 5000 });
+    }
+  }
+
+  async filterByTag(tagName: string): Promise<void> {
+    // Get tag ID and set filter via API
+    await this.page.evaluate(async (tag) => {
+      // Get tag ID by name
+      // @ts-ignore
+      const tags = await window.go.main.App.GetTags();
+      const tagObj = tags.find((t: any) => t.name === tag);
+      if (!tagObj) {
+        throw new Error(`Tag not found: ${tag}`);
+      }
+
+      // Update active tag filters
+      // @ts-ignore
+      if (window.__testHelpers) {
+        // @ts-ignore
+        const currentFilters = window.__testHelpers.getActiveTagFilters();
+        if (!currentFilters.includes(tagObj.id)) {
+          currentFilters.push(tagObj.id);
+        }
+        // @ts-ignore
+        window.__testHelpers.loadClips();
+      }
+    }, tagName);
+
+    await this.page.waitForTimeout(500);
+  }
+
+  async filterByTags(tagNames: string[]): Promise<void> {
+    // Get tag IDs and set filters via API
+    await this.page.evaluate(async (tags) => {
+      // Get all tags
+      // @ts-ignore
+      const allTags = await window.go.main.App.GetTags();
+
+      const tagIds: number[] = [];
+      for (const tagName of tags) {
+        const tagObj = allTags.find((t: any) => t.name === tagName);
+        if (!tagObj) {
+          throw new Error(`Tag not found: ${tagName}`);
+        }
+        tagIds.push(tagObj.id);
+      }
+
+      // Update active tag filters
+      // @ts-ignore
+      if (window.__testHelpers) {
+        // @ts-ignore
+        window.__testHelpers.setActiveTagFilters(tagIds);
+        // @ts-ignore
+        window.__testHelpers.loadClips();
+      }
+    }, tagNames);
+
+    await this.page.waitForTimeout(500);
+  }
+
+  async clearTagFilters(): Promise<void> {
+    // Clear filters via API
+    await this.page.evaluate(() => {
+      // @ts-ignore
+      if (window.__testHelpers) {
+        // @ts-ignore
+        window.__testHelpers.setActiveTagFilters([]);
+        // @ts-ignore
+        window.__testHelpers.loadClips();
+      }
+    });
+
+    await this.page.waitForTimeout(500);
+  }
+
+  async expectClipHasTag(clipFilename: string, tagName: string): Promise<void> {
+    const clip = await this.getClipByFilename(clipFilename);
+    const tagPill = clip.locator(selectors.tags.tagPill(tagName));
+    await expect(tagPill).toBeVisible();
+  }
+
+  async expectClipDoesNotHaveTag(clipFilename: string, tagName: string): Promise<void> {
+    const clip = await this.getClipByFilename(clipFilename);
+    const tagPill = clip.locator(selectors.tags.tagPill(tagName));
+    await expect(tagPill).not.toBeVisible();
+  }
+
+  async expectTagCount(count: number): Promise<void> {
+    const tags = await this.getAllTags();
+    expect(tags.length).toBe(count);
+  }
+
+  async expectTagFilterActive(tagName: string): Promise<void> {
+    // Check if the tag is in active filters (visible as pill in active-tags-container)
+    const activeContainer = this.page.locator(selectors.tags.activeTagsContainer);
+    const tagPill = activeContainer.locator(`text="${tagName}"`);
+    await expect(tagPill).toBeVisible();
+  }
+
+  async bulkAddTag(tagName: string): Promise<void> {
+    // Get selected clip IDs
+    const selectedClipIds = await this.page.evaluate(() => {
+      // @ts-ignore
+      return Array.from(selectedIds || []);
+    });
+
+    if (selectedClipIds.length === 0) {
+      throw new Error('No clips selected for bulk tag operation');
+    }
+
+    // Add tag to all selected clips via API
+    await this.page.evaluate(async ({ clipIds, tag }) => {
+      // Get tag ID by name
+      // @ts-ignore
+      const tags = await window.go.main.App.GetTags();
+      const tagObj = tags.find((t: any) => t.name === tag);
+      if (!tagObj) {
+        throw new Error(`Tag not found: ${tag}`);
+      }
+
+      // Bulk add tag
+      // @ts-ignore
+      await window.go.main.App.BulkAddTag(clipIds, tagObj.id);
+
+      // Refresh clips via test helper
+      // @ts-ignore
+      if (window.__testHelpers && window.__testHelpers.loadClips) {
+        window.__testHelpers.loadClips();
+      }
+    }, { clipIds: selectedClipIds, tag: tagName });
+
+    await this.page.waitForTimeout(500);
+  }
+
+  async bulkRemoveTag(tagName: string): Promise<void> {
+    // Get selected clip IDs
+    const selectedClipIds = await this.page.evaluate(() => {
+      // @ts-ignore
+      return Array.from(selectedIds || []);
+    });
+
+    if (selectedClipIds.length === 0) {
+      throw new Error('No clips selected for bulk tag operation');
+    }
+
+    // Remove tag from all selected clips via API
+    await this.page.evaluate(async ({ clipIds, tag }) => {
+      // Get tag ID by name
+      // @ts-ignore
+      const tags = await window.go.main.App.GetTags();
+      const tagObj = tags.find((t: any) => t.name === tag);
+      if (!tagObj) {
+        throw new Error(`Tag not found: ${tag}`);
+      }
+
+      // Bulk remove tag
+      // @ts-ignore
+      await window.go.main.App.BulkRemoveTag(clipIds, tagObj.id);
+
+      // Refresh clips via test helper
+      // @ts-ignore
+      if (window.__testHelpers && window.__testHelpers.loadClips) {
+        window.__testHelpers.loadClips();
+      }
+    }, { clipIds: selectedClipIds, tag: tagName });
+
+    await this.page.waitForTimeout(500);
+  }
+
+  async deleteAllTags(): Promise<void> {
+    await this.page.evaluate(async () => {
+      // @ts-ignore - Wails runtime
+      const tags = await window.go.main.App.GetTags();
+      for (const tag of tags) {
+        try {
+          // @ts-ignore
+          await window.go.main.App.DeleteTag(tag.id);
+        } catch {
+          // Ignore individual delete errors
+        }
+      }
+    });
+    await this.page.waitForTimeout(300);
   }
 }
 
