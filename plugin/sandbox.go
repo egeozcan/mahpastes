@@ -43,6 +43,8 @@ func NewSandbox(manifest *Manifest, pluginID int64) *Sandbox {
 	L.SetGlobal("rawequal", lua.LNil)
 	L.SetGlobal("rawget", lua.LNil)
 	L.SetGlobal("rawset", lua.LNil)
+	L.SetGlobal("getmetatable", lua.LNil)
+	L.SetGlobal("setmetatable", lua.LNil)
 	L.SetGlobal("collectgarbage", lua.LNil)
 
 	return &Sandbox{

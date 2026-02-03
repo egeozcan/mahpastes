@@ -284,9 +284,33 @@ func (f *FilesystemAPI) list(L *lua.LState) int {
 func (f *FilesystemAPI) exists(L *lua.LState) int {
 	path := L.CheckString(1)
 
-	// exists() doesn't require permission - just returns bool
+	// Normalize path
 	absPath, err := filepath.Abs(path)
 	if err != nil {
+		L.Push(lua.LFalse)
+		return 1
+	}
+
+	// Check if plugin declared read permission
+	if !f.wantsRead {
+		L.Push(lua.LFalse)
+		return 1
+	}
+
+	// Check if path is under an already-approved directory
+	approved := false
+	for key := range f.approvedPaths {
+		if len(key) > 8 && key[:8] == "fs_read:" {
+			approvedPath := key[8:]
+			if isSubPath(approvedPath, absPath) {
+				approved = true
+				break
+			}
+		}
+	}
+
+	// If not under approved path, return false (don't leak existence info)
+	if !approved {
 		L.Push(lua.LFalse)
 		return 1
 	}

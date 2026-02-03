@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"fmt"
 	"log"
 	"sync"
 	"time"
@@ -78,11 +79,11 @@ func (s *Scheduler) StopAll() {
 }
 
 func taskKey(pluginID int64, taskName string) string {
-	return string(rune(pluginID)) + ":" + taskName
+	return fmt.Sprintf("%d:%s", pluginID, taskName)
 }
 
 func taskKeyPrefix(pluginID int64) string {
-	return string(rune(pluginID)) + ":"
+	return fmt.Sprintf("%d:", pluginID)
 }
 
 func (t *ScheduledTask) run() {

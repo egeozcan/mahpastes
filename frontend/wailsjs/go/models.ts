@@ -198,11 +198,11 @@ export namespace main {
 	    enabled: boolean;
 	    status: string;
 	    events: string[];
-
+	
 	    static createFrom(source: any = {}) {
 	        return new PluginInfo(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -215,6 +215,7 @@ export namespace main {
 	        this.events = source["events"];
 	    }
 	}
+	
 	export class WatchStatus {
 	    global_paused: boolean;
 	    active_count: number;

@@ -17,6 +17,8 @@ const (
 	HTTPRequestsPerMinute = 100
 	// HTTPTimeout is the timeout for HTTP requests
 	HTTPTimeout = 30 * time.Second
+	// HTTPMaxResponseSize is the maximum response body size (10MB)
+	HTTPMaxResponseSize = 10 * 1024 * 1024
 )
 
 // HTTPAPI provides restricted HTTP access to plugins
@@ -180,8 +182,9 @@ func (h *HTTPAPI) makeRequest(method string) lua.LGFunction {
 		}
 		defer resp.Body.Close()
 
-		// Read response body
-		respBody, err := io.ReadAll(resp.Body)
+		// Read response body with size limit
+		limitedReader := io.LimitReader(resp.Body, HTTPMaxResponseSize)
+		respBody, err := io.ReadAll(limitedReader)
 		if err != nil {
 			L.Push(lua.LNil)
 			L.Push(lua.LString(err.Error()))

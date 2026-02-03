@@ -260,7 +260,8 @@ func (c *ClipsAPI) archive(L *lua.LState) int {
 	_, err := c.db.Exec("UPDATE clips SET is_archived = 1 WHERE id = ?", id)
 	if err != nil {
 		L.Push(lua.LFalse)
-		return 1
+		L.Push(lua.LString(err.Error()))
+		return 2
 	}
 
 	L.Push(lua.LTrue)
@@ -273,7 +274,8 @@ func (c *ClipsAPI) unarchive(L *lua.LState) int {
 	_, err := c.db.Exec("UPDATE clips SET is_archived = 0 WHERE id = ?", id)
 	if err != nil {
 		L.Push(lua.LFalse)
-		return 1
+		L.Push(lua.LString(err.Error()))
+		return 2
 	}
 
 	L.Push(lua.LTrue)

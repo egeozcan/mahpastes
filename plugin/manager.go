@@ -140,8 +140,11 @@ func (m *Manager) loadPlugin(p *Plugin) error {
 	m.mu.Lock()
 	m.plugins[p.ID] = p
 
-	// Subscribe to events
+	// Subscribe to events (validate and warn for unknown events)
 	for _, event := range manifest.Events {
+		if !IsValidEvent(event) {
+			log.Printf("Warning: Plugin %s subscribes to unknown event '%s'", manifest.Name, event)
+		}
 		m.eventSubscribers[event] = append(m.eventSubscribers[event], p.ID)
 	}
 	m.mu.Unlock()
