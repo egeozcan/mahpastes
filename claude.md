@@ -9,6 +9,12 @@ A Wails desktop clipboard manager for macOS with image editing, comparison, and 
 - **Database**: SQLite (via Wails)
 - **Testing**: Playwright e2e tests
 
+## Development Setup
+
+- **Wails CLI**: `~/go/bin/wails`
+- Run `~/go/bin/wails dev` to start development server
+- Run `~/go/bin/wails generate module` to regenerate frontend bindings after Go changes
+
 ## E2E Testing Requirements
 
 **CRITICAL: All changes MUST pass e2e tests. Run tests before and after any modification.**
