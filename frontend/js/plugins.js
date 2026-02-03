@@ -117,6 +117,9 @@ function createPluginCard(plugin) {
                 </div>
                 ` : ''}
 
+                <!-- Settings Section (loaded dynamically) -->
+                <div data-settings-placeholder data-plugin-id="${plugin.id}"></div>
+
                 <!-- Events Section -->
                 ${plugin.events && plugin.events.length > 0 ? `
                 <div>
@@ -168,12 +171,121 @@ function createPluginCard(plugin) {
         removePlugin(plugin.id, plugin.name);
     });
 
-    // Load permissions if expanded
+    // Load permissions and settings if expanded
     if (isExpanded) {
         loadPluginPermissions(plugin.id, li);
+        loadPluginSettings(plugin.id, li);
     }
 
     return li;
+}
+
+// --- Render Settings Section ---
+function renderSettingsSection(settings, pluginId, storageValues) {
+    if (!settings || settings.length === 0) {
+        return '';
+    }
+
+    const fields = settings.map(field => {
+        const currentValue = storageValues[field.key];
+        const displayValue = currentValue !== undefined ? currentValue : (field.default || '');
+
+        return renderSettingField(field, displayValue, pluginId);
+    }).join('');
+
+    return `
+        <div data-settings-section data-plugin-id="${pluginId}">
+            <h4 class="text-[10px] font-semibold text-stone-500 uppercase tracking-wider mb-2">Settings</h4>
+            <div class="space-y-3">
+                ${fields}
+            </div>
+        </div>
+    `;
+}
+
+function renderSettingField(field, currentValue, pluginId) {
+    const description = field.description
+        ? `<p class="text-[10px] text-stone-400 mt-1">${escapeHTML(field.description)}</p>`
+        : '';
+
+    switch (field.type) {
+        case 'text':
+            return `
+                <div class="setting-field" data-key="${escapeHTML(field.key)}">
+                    <label class="block text-[11px] font-medium text-stone-600 mb-1">${escapeHTML(field.label)}</label>
+                    <input type="text"
+                           class="block w-full border border-stone-200 rounded-md text-xs bg-white px-2 py-1.5 placeholder-stone-400 focus:outline-none focus:border-stone-400 focus:ring-1 focus:ring-stone-400/20 transition-colors"
+                           value="${escapeHTML(currentValue || '')}"
+                           placeholder="${escapeHTML(field.default || '')}"
+                           data-plugin-id="${pluginId}"
+                           data-setting-key="${escapeHTML(field.key)}"
+                           data-setting-type="text">
+                    ${description}
+                </div>
+            `;
+
+        case 'password':
+            return `
+                <div class="setting-field" data-key="${escapeHTML(field.key)}">
+                    <label class="block text-[11px] font-medium text-stone-600 mb-1">${escapeHTML(field.label)}</label>
+                    <div class="relative">
+                        <input type="password"
+                               class="block w-full border border-stone-200 rounded-md text-xs bg-white px-2 py-1.5 pr-8 placeholder-stone-400 focus:outline-none focus:border-stone-400 focus:ring-1 focus:ring-stone-400/20 transition-colors"
+                               value="${escapeHTML(currentValue || '')}"
+                               data-plugin-id="${pluginId}"
+                               data-setting-key="${escapeHTML(field.key)}"
+                               data-setting-type="password">
+                        <button type="button"
+                                class="absolute right-2 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600"
+                                data-action="toggle-password">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                            </svg>
+                        </button>
+                    </div>
+                    ${description}
+                </div>
+            `;
+
+        case 'checkbox':
+            const isChecked = currentValue === 'true' || currentValue === true || (currentValue === '' && field.default === true);
+            return `
+                <div class="setting-field" data-key="${escapeHTML(field.key)}">
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox"
+                               class="w-4 h-4 rounded border-stone-300 text-stone-800 focus:ring-stone-400/20"
+                               ${isChecked ? 'checked' : ''}
+                               data-plugin-id="${pluginId}"
+                               data-setting-key="${escapeHTML(field.key)}"
+                               data-setting-type="checkbox">
+                        <span class="text-[11px] font-medium text-stone-600">${escapeHTML(field.label)}</span>
+                    </label>
+                    ${description}
+                </div>
+            `;
+
+        case 'select':
+            const options = (field.options || []).map(opt => {
+                const selected = currentValue === opt || (currentValue === '' && field.default === opt);
+                return `<option value="${escapeHTML(opt)}" ${selected ? 'selected' : ''}>${escapeHTML(opt)}</option>`;
+            }).join('');
+            return `
+                <div class="setting-field" data-key="${escapeHTML(field.key)}">
+                    <label class="block text-[11px] font-medium text-stone-600 mb-1">${escapeHTML(field.label)}</label>
+                    <select class="block w-full border border-stone-200 rounded-md text-xs bg-white px-2 py-1.5 focus:outline-none focus:border-stone-400 focus:ring-1 focus:ring-stone-400/20 transition-colors"
+                            data-plugin-id="${pluginId}"
+                            data-setting-key="${escapeHTML(field.key)}"
+                            data-setting-type="select">
+                        ${options}
+                    </select>
+                    ${description}
+                </div>
+            `;
+
+        default:
+            return '';
+    }
 }
 
 // --- Toggle Plugin Expand ---
@@ -187,11 +299,12 @@ async function togglePluginExpand(pluginId) {
     // Re-render to update expanded state
     renderPluginsList();
 
-    // Load permissions for newly expanded plugin
+    // Load permissions and settings for newly expanded plugin
     if (expandedPluginId) {
         const card = pluginsList.querySelector(`li[data-id="${expandedPluginId}"]`);
         if (card) {
             await loadPluginPermissions(expandedPluginId, card);
+            await loadPluginSettings(expandedPluginId, card);
         }
     }
 }
@@ -243,6 +356,95 @@ async function loadPluginPermissions(pluginId, cardElement) {
     } catch (error) {
         console.error('Failed to load permissions:', error);
         container.innerHTML = '<span class="text-red-500">Failed to load permissions</span>';
+    }
+}
+
+// --- Load Plugin Settings ---
+async function loadPluginSettings(pluginId, cardElement) {
+    const placeholder = cardElement.querySelector('[data-settings-placeholder]');
+    if (!placeholder) return;
+
+    // Find the plugin in cache
+    const plugin = pluginsCache.find(p => p.id === pluginId);
+    if (!plugin || !plugin.settings || plugin.settings.length === 0) {
+        placeholder.innerHTML = '';
+        return;
+    }
+
+    try {
+        // Load current storage values
+        const storageValues = await window.go.main.PluginService.GetAllPluginStorage(pluginId);
+
+        // Render settings section
+        placeholder.innerHTML = renderSettingsSection(plugin.settings, pluginId, storageValues || {});
+
+        // Add event listeners for setting changes
+        setupSettingListeners(cardElement, pluginId);
+    } catch (error) {
+        console.error('Failed to load plugin settings:', error);
+        placeholder.innerHTML = '<span class="text-red-500 text-[11px]">Failed to load settings</span>';
+    }
+}
+
+// --- Setup Setting Event Listeners ---
+let settingDebounceTimers = {};
+
+function setupSettingListeners(cardElement, pluginId) {
+    // Text and password inputs
+    cardElement.querySelectorAll('input[data-setting-type="text"], input[data-setting-type="password"]').forEach(input => {
+        input.addEventListener('input', (e) => {
+            const key = e.target.dataset.settingKey;
+            const value = e.target.value;
+            debounceSaveSetting(pluginId, key, value);
+        });
+    });
+
+    // Checkboxes
+    cardElement.querySelectorAll('input[data-setting-type="checkbox"]').forEach(input => {
+        input.addEventListener('change', (e) => {
+            const key = e.target.dataset.settingKey;
+            const value = e.target.checked ? 'true' : 'false';
+            saveSetting(pluginId, key, value);
+        });
+    });
+
+    // Selects
+    cardElement.querySelectorAll('select[data-setting-type="select"]').forEach(select => {
+        select.addEventListener('change', (e) => {
+            const key = e.target.dataset.settingKey;
+            const value = e.target.value;
+            saveSetting(pluginId, key, value);
+        });
+    });
+
+    // Password toggle buttons
+    cardElement.querySelectorAll('[data-action="toggle-password"]').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const input = e.target.closest('.relative').querySelector('input');
+            if (input) {
+                input.type = input.type === 'password' ? 'text' : 'password';
+            }
+        });
+    });
+}
+
+function debounceSaveSetting(pluginId, key, value) {
+    const timerId = `${pluginId}-${key}`;
+    if (settingDebounceTimers[timerId]) {
+        clearTimeout(settingDebounceTimers[timerId]);
+    }
+    settingDebounceTimers[timerId] = setTimeout(() => {
+        saveSetting(pluginId, key, value);
+        delete settingDebounceTimers[timerId];
+    }, 300);
+}
+
+async function saveSetting(pluginId, key, value) {
+    try {
+        await window.go.main.PluginService.SetPluginStorage(pluginId, key, value);
+    } catch (error) {
+        console.error('Failed to save setting:', error);
+        showToast('Failed to save setting', 'error');
     }
 }
 
