@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	lua "github.com/yuin/gopher-lua"
@@ -229,7 +230,15 @@ func (m *Manager) EmitEvent(event string, data interface{}) {
 
 func eventToHandler(event string) string {
 	// "clip:created" -> "on_clip_created"
-	// "app:startup" -> "on_startup"
+	// "app:startup" -> "on_startup" (app: prefix stripped for cleaner API)
+	// "tag:created" -> "on_tag_created"
+
+	// Special case: strip "app:" prefix for cleaner handler names
+	if strings.HasPrefix(event, "app:") {
+		return "on_" + strings.TrimPrefix(event, "app:")
+	}
+
+	// For other events, replace : with _
 	result := "on_"
 	for _, c := range event {
 		if c == ':' {
@@ -342,6 +351,15 @@ func (m *Manager) GetPlugins() []*Plugin {
 
 // EnablePlugin enables a plugin
 func (m *Manager) EnablePlugin(pluginID int64) error {
+	// Check if plugin is already loaded
+	m.mu.RLock()
+	_, alreadyLoaded := m.plugins[pluginID]
+	m.mu.RUnlock()
+
+	if alreadyLoaded {
+		return nil // Already enabled and loaded
+	}
+
 	_, err := m.db.Exec(
 		"UPDATE plugins SET enabled = 1, status = 'enabled', error_count = 0 WHERE id = ?",
 		pluginID,
@@ -350,7 +368,7 @@ func (m *Manager) EnablePlugin(pluginID int64) error {
 		return err
 	}
 
-	// Reload the plugin
+	// Load the plugin
 	var p Plugin
 	err = m.db.QueryRow(`
 		SELECT id, filename, name, version, enabled, status

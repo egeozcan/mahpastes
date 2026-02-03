@@ -86,9 +86,47 @@ func extractPluginTable(source string) (string, error) {
 	inString := false
 	stringChar := byte(0)
 	escaped := false
+	inMultiLineString := false
+	multiLineLevel := 0 // For [=[ style strings with = counts
 
 	for i := start; i < len(source); i++ {
 		c := source[i]
+
+		// Handle multi-line string [[...]] or [=[...]=]
+		if !inString && !inMultiLineString {
+			if c == '[' && i+1 < len(source) {
+				// Check for [[ or [=[
+				level := 0
+				j := i + 1
+				for j < len(source) && source[j] == '=' {
+					level++
+					j++
+				}
+				if j < len(source) && source[j] == '[' {
+					inMultiLineString = true
+					multiLineLevel = level
+					i = j // Skip to after [[
+					continue
+				}
+			}
+		}
+
+		if inMultiLineString {
+			// Look for closing ]] or ]=]
+			if c == ']' {
+				level := 0
+				j := i + 1
+				for j < len(source) && source[j] == '=' {
+					level++
+					j++
+				}
+				if j < len(source) && source[j] == ']' && level == multiLineLevel {
+					inMultiLineString = false
+					i = j // Skip to after ]]
+				}
+			}
+			continue
+		}
 
 		if escaped {
 			escaped = false

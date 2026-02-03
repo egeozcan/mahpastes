@@ -261,6 +261,22 @@ func (t *TagsAPI) addToClip(L *lua.LState) int {
 	tagID := L.CheckInt64(1)
 	clipID := L.CheckInt64(2)
 
+	// Validate tag exists
+	var tagExists int
+	if err := t.db.QueryRow("SELECT 1 FROM tags WHERE id = ?", tagID).Scan(&tagExists); err == sql.ErrNoRows {
+		L.Push(lua.LFalse)
+		L.Push(lua.LString("tag not found"))
+		return 2
+	}
+
+	// Validate clip exists
+	var clipExists int
+	if err := t.db.QueryRow("SELECT 1 FROM clips WHERE id = ?", clipID).Scan(&clipExists); err == sql.ErrNoRows {
+		L.Push(lua.LFalse)
+		L.Push(lua.LString("clip not found"))
+		return 2
+	}
+
 	_, err := t.db.Exec("INSERT OR IGNORE INTO clip_tags (clip_id, tag_id) VALUES (?, ?)", clipID, tagID)
 	if err != nil {
 		L.Push(lua.LFalse)
@@ -276,6 +292,22 @@ func (t *TagsAPI) addToClip(L *lua.LState) int {
 func (t *TagsAPI) removeFromClip(L *lua.LState) int {
 	tagID := L.CheckInt64(1)
 	clipID := L.CheckInt64(2)
+
+	// Validate tag exists
+	var tagExists int
+	if err := t.db.QueryRow("SELECT 1 FROM tags WHERE id = ?", tagID).Scan(&tagExists); err == sql.ErrNoRows {
+		L.Push(lua.LFalse)
+		L.Push(lua.LString("tag not found"))
+		return 2
+	}
+
+	// Validate clip exists
+	var clipExists int
+	if err := t.db.QueryRow("SELECT 1 FROM clips WHERE id = ?", clipID).Scan(&clipExists); err == sql.ErrNoRows {
+		L.Push(lua.LFalse)
+		L.Push(lua.LString("clip not found"))
+		return 2
+	}
 
 	_, err := t.db.Exec("DELETE FROM clip_tags WHERE clip_id = ? AND tag_id = ?", clipID, tagID)
 	if err != nil {

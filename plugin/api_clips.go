@@ -3,10 +3,16 @@ package plugin
 import (
 	"database/sql"
 	"encoding/base64"
+	"fmt"
 	"strings"
 	"time"
 
 	lua "github.com/yuin/gopher-lua"
+)
+
+const (
+	// MaxClipDataSize is the maximum size of data a plugin can create (10MB)
+	MaxClipDataSize = 10 * 1024 * 1024
 )
 
 // ClipsAPI provides clip CRUD operations to plugins
@@ -144,6 +150,13 @@ func (c *ClipsAPI) create(L *lua.LState) int {
 	}
 	dataStr := dataVal.String()
 
+	// Check size before processing
+	if len(dataStr) > MaxClipDataSize {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(fmt.Sprintf("data too large: %d bytes (max %d)", len(dataStr), MaxClipDataSize)))
+		return 2
+	}
+
 	contentType := "application/octet-stream"
 	if ct := opts.RawGetString("content_type"); ct != lua.LNil {
 		contentType = ct.String()
@@ -162,6 +175,12 @@ func (c *ClipsAPI) create(L *lua.LState) int {
 		if err != nil {
 			L.Push(lua.LNil)
 			L.Push(lua.LString("invalid base64 data"))
+			return 2
+		}
+		// Check decoded size as well
+		if len(data) > MaxClipDataSize {
+			L.Push(lua.LNil)
+			L.Push(lua.LString(fmt.Sprintf("decoded data too large: %d bytes (max %d)", len(data), MaxClipDataSize)))
 			return 2
 		}
 	} else {

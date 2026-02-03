@@ -34,13 +34,29 @@ type HTTPAPI struct {
 
 // NewHTTPAPI creates a new HTTP API instance with the given allowed domains
 func NewHTTPAPI(allowedDomains map[string][]string) *HTTPAPI {
-	return &HTTPAPI{
+	api := &HTTPAPI{
 		allowedDomains: allowedDomains,
-		client: &http.Client{
-			Timeout: HTTPTimeout,
-		},
-		windowStart: time.Now(),
+		windowStart:    time.Now(),
 	}
+
+	// Create client with redirect validation to prevent domain bypass
+	api.client = &http.Client{
+		Timeout: HTTPTimeout,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			// Validate redirect URL against allowlist
+			domain := req.URL.Hostname()
+			if _, ok := api.allowedDomains[domain]; !ok {
+				return fmt.Errorf("redirect to unauthorized domain: %s", domain)
+			}
+			// Limit redirects to 10
+			if len(via) >= 10 {
+				return fmt.Errorf("too many redirects")
+			}
+			return nil
+		},
+	}
+
+	return api
 }
 
 // Register adds the http module to the Lua state

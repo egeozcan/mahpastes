@@ -65,12 +65,29 @@ func (s *Sandbox) Close() {
 	s.L.Close()
 }
 
-// LoadSource loads and executes the plugin source
+// LoadSource loads and executes the plugin source with timeout protection
 func (s *Sandbox) LoadSource(source string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	return s.L.DoString(source)
+	// Create context with timeout to prevent infinite loops during load
+	ctx, cancel := context.WithTimeout(context.Background(), MaxExecutionTime)
+	s.cancel = cancel
+	defer func() {
+		cancel()
+		s.cancel = nil
+	}()
+
+	s.L.SetContext(ctx)
+
+	err := s.L.DoString(source)
+	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return fmt.Errorf("plugin load timed out after %v", MaxExecutionTime)
+		}
+		return err
+	}
+	return nil
 }
 
 // CallHandler calls a handler function with timeout

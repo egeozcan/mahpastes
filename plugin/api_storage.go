@@ -27,6 +27,7 @@ func (s *StorageAPI) Register(L *lua.LState) {
 	storageMod.RawSetString("get", L.NewFunction(s.get))
 	storageMod.RawSetString("set", L.NewFunction(s.set))
 	storageMod.RawSetString("delete", L.NewFunction(s.delete))
+	storageMod.RawSetString("list", L.NewFunction(s.list))
 
 	L.SetGlobal("storage", storageMod)
 }
@@ -87,5 +88,30 @@ func (s *StorageAPI) delete(L *lua.LState) int {
 	}
 
 	L.Push(lua.LTrue)
+	return 1
+}
+
+func (s *StorageAPI) list(L *lua.LState) int {
+	rows, err := s.db.Query(
+		"SELECT key FROM plugin_storage WHERE plugin_id = ? ORDER BY key",
+		s.pluginID,
+	)
+	if err != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(err.Error()))
+		return 2
+	}
+	defer rows.Close()
+
+	result := L.NewTable()
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			continue
+		}
+		result.Append(lua.LString(key))
+	}
+
+	L.Push(result)
 	return 1
 }

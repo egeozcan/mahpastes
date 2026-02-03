@@ -14,6 +14,7 @@ type ScheduledTask struct {
 	sandbox  *Sandbox
 	stopCh   chan struct{}
 	running  bool
+	stopped  bool // Prevents double-close of stopCh
 	mu       sync.Mutex
 }
 
@@ -130,8 +131,9 @@ func (t *ScheduledTask) Stop() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	if t.running {
+	if t.running && !t.stopped {
 		t.running = false
+		t.stopped = true
 		close(t.stopCh)
 	}
 }
