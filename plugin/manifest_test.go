@@ -221,3 +221,112 @@ Plugin = {
 		t.Errorf("Expected name 'Innocent Plugin', got '%s'", manifest.Name)
 	}
 }
+
+func TestParseManifestWithSettings(t *testing.T) {
+	source := `
+Plugin = {
+  name = "Test Plugin",
+  version = "1.0.0",
+  settings = {
+    {key = "api_key", type = "password", label = "API Key", description = "Your API key"},
+    {key = "endpoint", type = "text", label = "Endpoint", default = "https://api.example.com"},
+    {key = "enabled", type = "checkbox", label = "Enable feature", default = true},
+    {key = "mode", type = "select", label = "Mode", options = {"fast", "slow"}, default = "fast"}
+  }
+}
+`
+	manifest, err := ParseManifest(source)
+	if err != nil {
+		t.Fatalf("ParseManifest failed: %v", err)
+	}
+
+	if len(manifest.Settings) != 4 {
+		t.Errorf("Expected 4 settings, got %d", len(manifest.Settings))
+	}
+
+	// Check first setting
+	if manifest.Settings[0].Key != "api_key" {
+		t.Errorf("Expected key 'api_key', got '%s'", manifest.Settings[0].Key)
+	}
+	if manifest.Settings[0].Type != "password" {
+		t.Errorf("Expected type 'password', got '%s'", manifest.Settings[0].Type)
+	}
+
+	// Check default values
+	if manifest.Settings[1].Default != "https://api.example.com" {
+		t.Errorf("Expected default 'https://api.example.com', got '%v'", manifest.Settings[1].Default)
+	}
+	if manifest.Settings[2].Default != true {
+		t.Errorf("Expected default true, got '%v'", manifest.Settings[2].Default)
+	}
+
+	// Check select options
+	if len(manifest.Settings[3].Options) != 2 {
+		t.Errorf("Expected 2 options, got %d", len(manifest.Settings[3].Options))
+	}
+}
+
+func TestParseManifestWithSettings_InvalidType(t *testing.T) {
+	source := `
+Plugin = {
+  name = "Test Plugin",
+  version = "1.0.0",
+  settings = {
+    {key = "invalid", type = "unknown", label = "Invalid Type"}
+  }
+}
+`
+	manifest, err := ParseManifest(source)
+	if err != nil {
+		t.Fatalf("ParseManifest failed: %v", err)
+	}
+
+	// Invalid type should be skipped
+	if len(manifest.Settings) != 0 {
+		t.Errorf("Expected 0 settings (invalid type skipped), got %d", len(manifest.Settings))
+	}
+}
+
+func TestParseManifestWithSettings_SelectWithoutOptions(t *testing.T) {
+	source := `
+Plugin = {
+  name = "Test Plugin",
+  version = "1.0.0",
+  settings = {
+    {key = "mode", type = "select", label = "Mode"}
+  }
+}
+`
+	manifest, err := ParseManifest(source)
+	if err != nil {
+		t.Fatalf("ParseManifest failed: %v", err)
+	}
+
+	// Select without options should be skipped
+	if len(manifest.Settings) != 0 {
+		t.Errorf("Expected 0 settings (select without options skipped), got %d", len(manifest.Settings))
+	}
+}
+
+func TestParseManifestWithSettings_MissingRequiredFields(t *testing.T) {
+	source := `
+Plugin = {
+  name = "Test Plugin",
+  version = "1.0.0",
+  settings = {
+    {key = "missing_type", label = "Missing Type"},
+    {type = "text", label = "Missing Key"},
+    {key = "missing_label", type = "text"}
+  }
+}
+`
+	manifest, err := ParseManifest(source)
+	if err != nil {
+		t.Fatalf("ParseManifest failed: %v", err)
+	}
+
+	// All three should be skipped due to missing required fields
+	if len(manifest.Settings) != 0 {
+		t.Errorf("Expected 0 settings (missing required fields), got %d", len(manifest.Settings))
+	}
+}

@@ -17,6 +17,7 @@ type Manifest struct {
 	Filesystem  FilesystemPerms
 	Events      []string
 	Schedules   []Schedule
+	Settings    []SettingField
 }
 
 // FilesystemPerms represents filesystem permission requests
@@ -29,6 +30,16 @@ type FilesystemPerms struct {
 type Schedule struct {
 	Name     string
 	Interval int // seconds
+}
+
+// SettingField represents a plugin setting declaration
+type SettingField struct {
+	Key         string   `json:"key"`
+	Type        string   `json:"type"`
+	Label       string   `json:"label"`
+	Description string   `json:"description,omitempty"`
+	Default     any      `json:"default,omitempty"`
+	Options     []string `json:"options,omitempty"`
 }
 
 // ParseManifest extracts the Plugin table from Lua source using text parsing.
@@ -67,6 +78,9 @@ func ParseManifest(source string) (*Manifest, error) {
 
 	// Parse schedules
 	manifest.Schedules = extractSchedules(pluginBlock)
+
+	// Parse settings
+	manifest.Settings = extractSettings(pluginBlock)
 
 	return manifest, nil
 }
@@ -343,6 +357,107 @@ func parseScheduleEntry(entry string) Schedule {
 	}
 
 	return schedule
+}
+
+// extractSettings extracts settings declarations from the manifest
+// Format: settings = { {key = "api_key", type = "password", label = "API Key"}, ... }
+func extractSettings(block string) []SettingField {
+	var result []SettingField
+
+	// Find the settings block
+	settingsPattern := regexp.MustCompile(`settings\s*=\s*\{`)
+	loc := settingsPattern.FindStringIndex(block)
+	if loc == nil {
+		return result
+	}
+
+	// Extract the settings block content
+	start := loc[1] - 1
+	settingsBlock := extractNestedBrace(block[start:])
+	if settingsBlock == "" {
+		return result
+	}
+
+	// Find each setting entry: {key = "...", type = "...", ...}
+	depth := 0
+	entryStart := -1
+
+	for i := 1; i < len(settingsBlock)-1; i++ {
+		c := settingsBlock[i]
+		if c == '{' {
+			if depth == 0 {
+				entryStart = i
+			}
+			depth++
+		} else if c == '}' {
+			depth--
+			if depth == 0 && entryStart >= 0 {
+				entry := settingsBlock[entryStart : i+1]
+				setting := parseSettingEntry(entry)
+				if setting.Key != "" && setting.Type != "" && setting.Label != "" {
+					// Validate type
+					validTypes := map[string]bool{
+						"text": true, "password": true, "checkbox": true, "select": true,
+					}
+					if validTypes[setting.Type] {
+						// Validate select has options
+						if setting.Type == "select" && len(setting.Options) == 0 {
+							// Skip invalid select without options
+							entryStart = -1
+							continue
+						}
+						result = append(result, setting)
+					}
+				}
+				entryStart = -1
+			}
+		}
+	}
+
+	return result
+}
+
+// parseSettingEntry parses a single setting entry
+func parseSettingEntry(entry string) SettingField {
+	var setting SettingField
+
+	// Extract key
+	setting.Key = extractStringField(entry, "key")
+
+	// Extract type
+	setting.Type = extractStringField(entry, "type")
+
+	// Extract label
+	setting.Label = extractStringField(entry, "label")
+
+	// Extract description (optional)
+	setting.Description = extractStringField(entry, "description")
+
+	// Extract default (can be string, bool, or number)
+	setting.Default = extractDefaultValue(entry)
+
+	// Extract options for select type
+	setting.Options = extractStringArray(entry, "options")
+
+	return setting
+}
+
+// extractDefaultValue extracts the default value which can be string, bool, or absent
+func extractDefaultValue(entry string) any {
+	// Try string first
+	strDefault := extractStringField(entry, "default")
+	if strDefault != "" {
+		return strDefault
+	}
+
+	// Try boolean
+	boolPattern := regexp.MustCompile(`default\s*=\s*(true|false)`)
+	boolMatches := boolPattern.FindStringSubmatch(entry)
+	if len(boolMatches) >= 2 {
+		return boolMatches[1] == "true"
+	}
+
+	return nil
 }
 
 // extractNestedBrace extracts content within balanced braces starting at position 0
