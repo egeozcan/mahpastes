@@ -288,6 +288,15 @@ window.addEventListener('load', async () => {
         console.error('Error during app initialization:', error);
     }
     window.__appReady = true;
+
+    // Listen for plugin toast events
+    if (window.runtime && window.runtime.EventsOn) {
+        window.runtime.EventsOn("plugin:toast", (data) => {
+            if (data && data.message) {
+                showToast(data.message, data.type || 'info');
+            }
+        });
+    }
 });
 
 // Also handle DOMContentLoaded for faster initialization
