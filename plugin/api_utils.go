@@ -162,6 +162,10 @@ func goToLua(L *lua.LState, val interface{}) lua.LValue {
 		return lua.LNil
 	case bool:
 		return lua.LBool(v)
+	case int:
+		return lua.LNumber(v)
+	case int64:
+		return lua.LNumber(v)
 	case float64:
 		return lua.LNumber(v)
 	case string:

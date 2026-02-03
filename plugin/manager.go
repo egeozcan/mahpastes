@@ -302,7 +302,7 @@ func (m *Manager) ImportPlugin(sourcePath string) (*Plugin, error) {
 	}
 
 	// Insert into database
-	result, err := m.db.Exec(`
+	_, err = m.db.Exec(`
 		INSERT INTO plugins (filename, name, version, enabled, status)
 		VALUES (?, ?, ?, 1, 'enabled')
 		ON CONFLICT(filename) DO UPDATE SET
@@ -316,7 +316,12 @@ func (m *Manager) ImportPlugin(sourcePath string) (*Plugin, error) {
 		return nil, fmt.Errorf("failed to register plugin: %w", err)
 	}
 
-	id, _ := result.LastInsertId()
+	// Query for the ID (LastInsertId returns 0 on upsert update)
+	var id int64
+	err = m.db.QueryRow("SELECT id FROM plugins WHERE filename = ?", filename).Scan(&id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get plugin ID: %w", err)
+	}
 
 	// Load the plugin
 	p := &Plugin{

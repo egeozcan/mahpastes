@@ -7,7 +7,8 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-// Tag color palette (same as app.go)
+// Tag color palette - MUST stay in sync with app.go:tagColors
+// Both copies exist because they're in different packages and this is a simple slice
 var tagColors = []string{
 	"#78716C", // stone
 	"#EF4444", // red

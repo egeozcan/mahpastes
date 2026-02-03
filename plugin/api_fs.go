@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -313,10 +314,11 @@ func (f *FilesystemAPI) exists(L *lua.LState) int {
 	}
 
 	// Check if path is under an already-approved directory
+	const fsReadPrefix = "fs_read:"
 	approved := false
 	for key := range f.approvedPaths {
-		if len(key) > 8 && key[:8] == "fs_read:" {
-			approvedPath := key[8:]
+		if strings.HasPrefix(key, fsReadPrefix) {
+			approvedPath := strings.TrimPrefix(key, fsReadPrefix)
 			if isSubPath(approvedPath, absPath) {
 				approved = true
 				break

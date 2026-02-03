@@ -26,6 +26,10 @@ export function ImportPlugin() {
   return window['go']['main']['PluginService']['ImportPlugin']();
 }
 
+export function ImportPluginFromPath(arg1) {
+  return window['go']['main']['PluginService']['ImportPluginFromPath'](arg1);
+}
+
 export function RemovePlugin(arg1) {
   return window['go']['main']['PluginService']['RemovePlugin'](arg1);
 }

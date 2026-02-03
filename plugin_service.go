@@ -212,3 +212,17 @@ func (s *PluginService) GetPluginStorage(pluginID int64, key string) (string, er
 	}
 	return value, nil
 }
+
+// ImportPluginFromPath imports a plugin from a file path (for testing/CLI use)
+func (s *PluginService) ImportPluginFromPath(path string) (*PluginInfo, error) {
+	if s.app.pluginManager == nil {
+		return nil, fmt.Errorf("plugin manager not initialized")
+	}
+
+	p, err := s.app.pluginManager.ImportPlugin(path)
+	if err != nil {
+		return nil, err
+	}
+
+	return pluginToInfo(p), nil
+}

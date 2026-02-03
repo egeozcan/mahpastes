@@ -1007,6 +1007,64 @@ export class AppHelper {
     return result;
   }
 
+  async importPluginFromPath(pluginPath: string): Promise<{ id: number; name: string; version: string; enabled: boolean } | null> {
+    // Import a plugin directly from a file path using the new API
+    return this.page.evaluate(async (path) => {
+      // @ts-ignore - Wails runtime
+      if (typeof window.go?.main?.PluginService?.ImportPluginFromPath !== 'function') {
+        console.error('ImportPluginFromPath not available');
+        return null;
+      }
+      try {
+        // @ts-ignore
+        const result = await window.go.main.PluginService.ImportPluginFromPath(path);
+        return result;
+      } catch (e) {
+        console.error('Failed to import plugin:', e);
+        return null;
+      }
+    }, pluginPath);
+  }
+
+  async getPluginStorage(pluginId: number, key: string): Promise<string> {
+    return this.page.evaluate(async ({ id, k }) => {
+      // @ts-ignore - Wails runtime
+      if (typeof window.go?.main?.PluginService?.GetPluginStorage !== 'function') {
+        return '';
+      }
+      try {
+        // @ts-ignore
+        return await window.go.main.PluginService.GetPluginStorage(id, k) || '';
+      } catch {
+        return '';
+      }
+    }, { id: pluginId, k: key });
+  }
+
+  async waitForPluginStorage(pluginId: number, key: string, expectedValue: string, timeout = 5000): Promise<boolean> {
+    const startTime = Date.now();
+    while (Date.now() - startTime < timeout) {
+      const value = await this.getPluginStorage(pluginId, key);
+      if (value === expectedValue) {
+        return true;
+      }
+      await this.page.waitForTimeout(100);
+    }
+    return false;
+  }
+
+  async waitForPluginStorageContains(pluginId: number, key: string, substring: string, timeout = 5000): Promise<boolean> {
+    const startTime = Date.now();
+    while (Date.now() - startTime < timeout) {
+      const value = await this.getPluginStorage(pluginId, key);
+      if (value.includes(substring)) {
+        return true;
+      }
+      await this.page.waitForTimeout(100);
+    }
+    return false;
+  }
+
   async enablePlugin(pluginId: number): Promise<void> {
     await this.page.evaluate(async (id) => {
       // @ts-ignore - Wails runtime
