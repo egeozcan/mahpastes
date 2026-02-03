@@ -96,20 +96,6 @@ test.describe('Plugin Filesystem API', () => {
 
     await app.page.waitForTimeout(500);
 
-    // Check if SetPluginStorage API is available (requires app rebuild)
-    const hasSetStorageApi = await app.page.evaluate(() => {
-      // @ts-ignore
-      return typeof window.go?.main?.PluginService?.SetPluginStorage === 'function';
-    });
-
-    // If API not available, just verify the plugin loaded (test will pass)
-    // Full functionality test requires app rebuild with new API
-    if (!hasSetStorageApi) {
-      const initialized = await app.getPluginStorage(plugin!.id, 'fs_test_initialized');
-      expect(initialized).toBe('true');
-      return;
-    }
-
     // Set a test read path (without granting permission)
     await app.page.evaluate(async ({ pluginId, testPath }) => {
       // @ts-ignore
