@@ -36,10 +36,6 @@ export function DeleteClip(arg1:number):Promise<void>;
 
 export function DeleteTag(arg1:number):Promise<void>;
 
-export function DisablePlugin(arg1:number):Promise<void>;
-
-export function EnablePlugin(arg1:number):Promise<void>;
-
 export function GetAvailableFalModels():Promise<Record<string, Array<main.FalModelInfo>>>;
 
 export function GetClipData(arg1:number):Promise<main.ClipData>;
@@ -53,10 +49,6 @@ export function GetClipboardText():Promise<string>;
 export function GetClips(arg1:boolean,arg2:Array<number>):Promise<Array<main.ClipPreview>>;
 
 export function GetGlobalWatchPaused():Promise<boolean>;
-
-export function GetPluginPermissions(arg1:number):Promise<Array<Record<string, string>>>;
-
-export function GetPlugins():Promise<Array<main.PluginInfo>>;
 
 export function GetSetting(arg1:string):Promise<string>;
 
@@ -72,8 +64,6 @@ export function GetWatchedFolders():Promise<Array<main.WatchedFolder>>;
 
 export function HasFalApiKey():Promise<boolean>;
 
-export function ImportPlugin():Promise<main.PluginInfo>;
-
 export function IsDirectory(arg1:string):Promise<boolean>;
 
 export function ProcessExistingFilesInFolder(arg1:number):Promise<void>;
@@ -84,13 +74,9 @@ export function ReadFileFromPath(arg1:string):Promise<main.FileData>;
 
 export function RefreshWatches():Promise<void>;
 
-export function RemovePlugin(arg1:number):Promise<void>;
-
 export function RemoveTagFromClip(arg1:number,arg2:number):Promise<void>;
 
 export function RemoveWatchedFolder(arg1:number):Promise<void>;
-
-export function RevokePluginPermission(arg1:number,arg2:string,arg3:string):Promise<void>;
 
 export function SaveClipToFile(arg1:number):Promise<void>;
 
