@@ -114,14 +114,16 @@ func (t *ScheduledTask) execute() {
 	}()
 
 	t.mu.Lock()
-	if !t.running {
+	if !t.running || t.sandbox == nil {
 		t.mu.Unlock()
 		return
 	}
+	// Capture sandbox reference while holding lock to prevent nil after unlock
+	sandbox := t.sandbox
 	t.mu.Unlock()
 
 	// Call the handler function named after the task
-	if err := t.sandbox.CallHandler(t.name); err != nil {
+	if err := sandbox.CallHandler(t.name); err != nil {
 		log.Printf("Scheduled task %s failed: %v", t.name, err)
 	}
 }

@@ -9,8 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-
-	lua "github.com/yuin/gopher-lua"
 )
 
 const (
@@ -198,8 +196,13 @@ func (m *Manager) UnloadPlugin(pluginID int64) {
 // EmitEvent sends an event to all subscribed plugins
 func (m *Manager) EmitEvent(event string, data interface{}) {
 	m.mu.RLock()
-	subscribers := m.eventSubscribers[event]
+	// Copy subscriber list to prevent race conditions during iteration
+	subscribers := make([]int64, len(m.eventSubscribers[event]))
+	copy(subscribers, m.eventSubscribers[event])
 	m.mu.RUnlock()
+
+	// Convert event name to handler name: "clip:created" -> "on_clip_created"
+	handlerName := eventToHandler(event)
 
 	for _, pluginID := range subscribers {
 		m.mu.RLock()
@@ -210,16 +213,8 @@ func (m *Manager) EmitEvent(event string, data interface{}) {
 			continue
 		}
 
-		// Convert event name to handler name: "clip:created" -> "on_clip_created"
-		handlerName := eventToHandler(event)
-
-		// Convert data to Lua value
-		var args []lua.LValue
-		if data != nil {
-			args = append(args, goToLua(p.Sandbox.GetState(), data))
-		}
-
-		if err := p.Sandbox.CallHandler(handlerName, args...); err != nil {
+		// Call handler with data conversion happening inside the sandbox's mutex
+		if err := p.Sandbox.CallHandlerWithData(handlerName, data); err != nil {
 			log.Printf("Plugin %s handler %s failed: %v", p.Name, handlerName, err)
 			m.incrementErrorCount(pluginID)
 		} else {

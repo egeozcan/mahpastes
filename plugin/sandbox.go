@@ -133,6 +133,53 @@ func (s *Sandbox) CallHandler(name string, args ...lua.LValue) error {
 	return nil
 }
 
+// CallHandlerWithData calls a handler function with Go data that will be converted to Lua inside the mutex
+func (s *Sandbox) CallHandlerWithData(name string, data interface{}) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	fn := s.L.GetGlobal(name)
+	if fn == lua.LNil {
+		return nil // Handler not defined, skip silently
+	}
+
+	if _, ok := fn.(*lua.LFunction); !ok {
+		return fmt.Errorf("%s is not a function", name)
+	}
+
+	// Create context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), MaxExecutionTime)
+	s.cancel = cancel
+	defer func() {
+		cancel()
+		s.cancel = nil
+	}()
+
+	// Set up cancellation check
+	s.L.SetContext(ctx)
+
+	// Push function
+	s.L.Push(fn)
+
+	// Convert and push data argument (done inside mutex for thread safety)
+	argCount := 0
+	if data != nil {
+		s.L.Push(goToLua(s.L, data))
+		argCount = 1
+	}
+
+	// Call with error handling
+	err := s.L.PCall(argCount, 0, nil)
+	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return fmt.Errorf("handler %s timed out after %v", name, MaxExecutionTime)
+		}
+		return fmt.Errorf("handler %s failed: %w", name, err)
+	}
+
+	return nil
+}
+
 // SetGlobalTable sets a table as a global
 func (s *Sandbox) SetGlobalTable(name string, tbl *lua.LTable) {
 	s.mu.Lock()

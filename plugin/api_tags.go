@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"database/sql"
+	"log"
 	"strings"
 
 	lua "github.com/yuin/gopher-lua"
@@ -71,6 +72,7 @@ func (t *TagsAPI) list(L *lua.LState) int {
 		var count int
 
 		if err := rows.Scan(&id, &name, &color, &count); err != nil {
+			log.Printf("tags.list: failed to scan row: %v", err)
 			continue
 		}
 
@@ -345,6 +347,7 @@ func (t *TagsAPI) getForClip(L *lua.LState) int {
 		var name, color string
 
 		if err := rows.Scan(&id, &name, &color); err != nil {
+			log.Printf("tags.get_for_clip: failed to scan row: %v", err)
 			continue
 		}
 

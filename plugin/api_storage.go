@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"database/sql"
+	"log"
 
 	lua "github.com/yuin/gopher-lua"
 )
@@ -46,6 +47,7 @@ func (s *StorageAPI) get(L *lua.LState) int {
 		return 1
 	}
 	if err != nil {
+		log.Printf("storage.get: failed to query key: %v", err)
 		L.Push(lua.LNil)
 		return 1
 	}
@@ -107,6 +109,7 @@ func (s *StorageAPI) list(L *lua.LState) int {
 	for rows.Next() {
 		var key string
 		if err := rows.Scan(&key); err != nil {
+			log.Printf("storage.list: failed to scan row: %v", err)
 			continue
 		}
 		result.Append(lua.LString(key))

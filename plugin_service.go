@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"fmt"
+	"log"
 
 	"go-clipboard/plugin"
 
@@ -52,6 +53,7 @@ func (s *PluginService) GetPlugins() ([]PluginInfo, error) {
 		var p PluginInfo
 		var enabled int
 		if err := rows.Scan(&p.ID, &p.Name, &p.Version, &enabled, &p.Status); err != nil {
+			log.Printf("GetPlugins: failed to scan row: %v", err)
 			continue
 		}
 		p.Enabled = enabled == 1
@@ -149,6 +151,7 @@ func (s *PluginService) GetPluginPermissions(id int64) ([]map[string]string, err
 		var permType, path string
 		var grantedAt string
 		if err := rows.Scan(&permType, &path, &grantedAt); err != nil {
+			log.Printf("GetPluginPermissions: failed to scan row: %v", err)
 			continue
 		}
 		perms = append(perms, map[string]string{

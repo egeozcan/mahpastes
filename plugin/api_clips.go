@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -102,6 +103,7 @@ func (c *ClipsAPI) list(L *lua.LState) int {
 		var isArchived int
 
 		if err := rows.Scan(&id, &contentType, &filename, &createdAt, &isArchived); err != nil {
+			log.Printf("clips.list: failed to scan row: %v", err)
 			continue
 		}
 

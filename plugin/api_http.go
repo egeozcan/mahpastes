@@ -48,6 +48,10 @@ func NewHTTPAPI(allowedDomains map[string][]string) *HTTPAPI {
 			if _, ok := api.allowedDomains[domain]; !ok {
 				return fmt.Errorf("redirect to unauthorized domain: %s", domain)
 			}
+			// Prevent downgrade to non-HTTPS
+			if req.URL.Scheme != "https" {
+				return fmt.Errorf("redirect to non-HTTPS URL not allowed: %s", req.URL.String())
+			}
 			// Limit redirects to 10
 			if len(via) >= 10 {
 				return fmt.Errorf("too many redirects")
