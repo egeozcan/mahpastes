@@ -130,6 +130,9 @@ func (m *Manager) loadPlugin(p *Plugin) error {
 	tagsAPI := NewTagsAPI(m.db)
 	tagsAPI.Register(sandbox.GetState())
 
+	toastAPI := NewToastAPI(m.ctx, p.ID)
+	toastAPI.Register(sandbox.GetState())
+
 	// Load the plugin source
 	if err := sandbox.LoadSource(string(source)); err != nil {
 		sandbox.Close()
