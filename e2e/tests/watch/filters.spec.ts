@@ -171,6 +171,8 @@ test.describe('Watch Folder Filters', () => {
       // Toggle view to refresh UI
       await app.closeWatchView();
       await app.openWatchView();
+      // Wait for UI to update
+      await app.page.waitForTimeout(300);
 
       const count = await app.getWatchFolderCount();
       expect(count).toBeGreaterThanOrEqual(1);

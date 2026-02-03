@@ -189,6 +189,32 @@ export namespace main {
 	        this.data = source["data"];
 	    }
 	}
+	export class PluginInfo {
+	    id: number;
+	    name: string;
+	    version: string;
+	    description: string;
+	    author: string;
+	    enabled: boolean;
+	    status: string;
+	    events: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new PluginInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.version = source["version"];
+	        this.description = source["description"];
+	        this.author = source["author"];
+	        this.enabled = source["enabled"];
+	        this.status = source["status"];
+	        this.events = source["events"];
+	    }
+	}
 	
 	export class WatchStatus {
 	    global_paused: boolean;

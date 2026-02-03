@@ -19,6 +19,9 @@ func main() {
 	// Create an instance of the app structure
 	app := NewApp()
 
+	// Create plugin service (separate struct to work around Wails method limit)
+	pluginService := NewPluginService(app)
+
 	// Create application with options
 	err := wails.Run(&options.App{
 		Title:     "mahpastes",
@@ -38,6 +41,7 @@ func main() {
 		},
 		Bind: []interface{}{
 			app,
+			pluginService,
 		},
 		Mac: &mac.Options{
 			TitleBar: &mac.TitleBar{

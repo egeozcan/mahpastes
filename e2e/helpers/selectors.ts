@@ -184,6 +184,19 @@ export const selectors = {
   watchAutoTag: {
     select: '[data-testid="watch-folder-auto-tag"]',
   },
+
+  // Plugins
+  plugins: {
+    modalButton: '#open-plugins-btn',
+    modal: '[data-testid="plugins-modal"]',
+    closeButton: '#plugins-close',
+    importButton: '[data-testid="import-plugin-btn"]',
+    list: '[data-testid="plugins-list"]',
+    emptyState: '#plugins-empty-state',
+    pluginCard: (id: number) => `[data-testid="plugin-card-${id}"]`,
+    pluginToggle: (id: number) => `[data-testid="plugin-toggle-${id}"]`,
+    pluginRemove: (id: number) => `[data-testid="remove-plugin-${id}"]`,
+  },
 } as const;
 
 export type Selectors = typeof selectors;

@@ -144,6 +144,43 @@ func initDB() (*sql.DB, error) {
 	// Migrate: Add auto_tag_id column to watched_folders if it doesn't exist
 	_, _ = db.Exec("ALTER TABLE watched_folders ADD COLUMN auto_tag_id INTEGER")
 
+	// Create plugins table
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS plugins (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		filename TEXT UNIQUE NOT NULL,
+		name TEXT NOT NULL,
+		version TEXT,
+		enabled INTEGER DEFAULT 1,
+		status TEXT DEFAULT 'enabled',
+		error_count INTEGER DEFAULT 0,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	)`); err != nil {
+		log.Printf("Warning: Failed to create plugins table: %v", err)
+	}
+
+	// Create plugin_permissions table
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS plugin_permissions (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		plugin_id INTEGER NOT NULL,
+		permission_type TEXT NOT NULL,
+		path TEXT NOT NULL,
+		granted_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (plugin_id) REFERENCES plugins(id) ON DELETE CASCADE
+	)`); err != nil {
+		log.Printf("Warning: Failed to create plugin_permissions table: %v", err)
+	}
+
+	// Create plugin_storage table
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS plugin_storage (
+		plugin_id INTEGER NOT NULL,
+		key TEXT NOT NULL,
+		value BLOB,
+		PRIMARY KEY (plugin_id, key),
+		FOREIGN KEY (plugin_id) REFERENCES plugins(id) ON DELETE CASCADE
+	)`); err != nil {
+		log.Printf("Warning: Failed to create plugin_storage table: %v", err)
+	}
+
 	return db, nil
 }
 

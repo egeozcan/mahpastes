@@ -16,6 +16,8 @@ import (
 	"sync"
 	"time"
 
+	"go-clipboard/plugin"
+
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 	"golang.design/x/clipboard"
 )
@@ -28,6 +30,7 @@ type App struct {
 	mu             sync.Mutex
 	watcherManager *WatcherManager
 	taskManager    *TaskManager
+	pluginManager  *plugin.Manager
 }
 
 // NewApp creates a new App instance
@@ -93,10 +96,46 @@ func (a *App) startup(ctx context.Context) {
 
 	// Initialize task manager
 	a.taskManager = NewTaskManager(a)
+
+	// Initialize plugin manager
+	dataDir, _ := getDataDir()
+	pluginsDir := filepath.Join(dataDir, "plugins")
+	pm, err := plugin.NewManager(ctx, a.db, pluginsDir)
+	if err != nil {
+		log.Printf("Warning: Failed to initialize plugin manager: %v", err)
+	} else {
+		a.pluginManager = pm
+		// Set up permission callback for filesystem access
+		pm.SetPermissionCallback(func(pluginName, permType, requestedPath string) string {
+			// Use Wails runtime dialog for folder selection
+			path, err := runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
+				Title:                fmt.Sprintf("Plugin '%s' requests %s access", pluginName, permType),
+				DefaultDirectory:     filepath.Dir(requestedPath),
+				CanCreateDirectories: permType == "fs_write",
+			})
+			if err != nil || path == "" {
+				return ""
+			}
+			return path
+		})
+
+		// Load plugins
+		if err := pm.LoadPlugins(); err != nil {
+			log.Printf("Warning: Failed to load plugins: %v", err)
+		}
+
+		// Emit startup event
+		pm.EmitEvent("app:startup", nil)
+	}
 }
 
 // shutdown is called when the app is closing
 func (a *App) shutdown(ctx context.Context) {
+	// Shutdown plugins first
+	if a.pluginManager != nil {
+		a.pluginManager.Shutdown()
+	}
+
 	// Stop watcher
 	if a.watcherManager != nil {
 		a.watcherManager.Stop()
@@ -445,11 +484,21 @@ func (a *App) UploadFiles(files []FileData, expirationMinutes int) error {
 			}
 		}
 
-		_, err = a.db.Exec("INSERT INTO clips (content_type, data, filename, expires_at) VALUES (?, ?, ?, ?)",
+		result, err := a.db.Exec("INSERT INTO clips (content_type, data, filename, expires_at) VALUES (?, ?, ?, ?)",
 			contentType, data, file.Name, expiresAt)
 		if err != nil {
 			log.Printf("Failed to insert into db: %v\n", err)
 			continue
+		}
+
+		// Emit plugin event
+		if a.pluginManager != nil {
+			clipID, _ := result.LastInsertId()
+			a.pluginManager.EmitEvent("clip:created", map[string]interface{}{
+				"id":           clipID,
+				"content_type": contentType,
+				"filename":     file.Name,
+			})
 		}
 	}
 
@@ -488,6 +537,11 @@ func (a *App) DeleteClip(id int64) error {
 	for _, tagID := range tagIDs {
 		a.deleteTagIfOrphaned(tagID)
 	}
+
+	// Emit plugin event
+	if a.pluginManager != nil {
+		a.pluginManager.EmitEvent("clip:deleted", id)
+	}
 	return nil
 }
 
@@ -497,6 +551,23 @@ func (a *App) ToggleArchive(id int64) error {
 	if err != nil {
 		return fmt.Errorf("failed to toggle archive: %w", err)
 	}
+
+	// Emit plugin event
+	if a.pluginManager != nil {
+		// Get current archived state after toggle
+		var isArchived int
+		a.db.QueryRow("SELECT is_archived FROM clips WHERE id = ?", id).Scan(&isArchived)
+		if isArchived == 1 {
+			a.pluginManager.EmitEvent("clip:archived", map[string]interface{}{
+				"id": id,
+			})
+		} else {
+			a.pluginManager.EmitEvent("clip:unarchived", map[string]interface{}{
+				"id": id,
+			})
+		}
+	}
+
 	return nil
 }
 
@@ -552,6 +623,15 @@ func (a *App) CreateTag(name string) (*Tag, error) {
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
+	// Emit plugin event
+	if a.pluginManager != nil {
+		a.pluginManager.EmitEvent("tag:created", map[string]interface{}{
+			"id":    id,
+			"name":  name,
+			"color": color,
+		})
+	}
+
 	return &Tag{
 		ID:    id,
 		Name:  name,
@@ -577,6 +657,16 @@ func (a *App) UpdateTag(id int64, name, color string) error {
 		}
 		return fmt.Errorf("failed to update tag: %w", err)
 	}
+
+	// Emit plugin event
+	if a.pluginManager != nil {
+		a.pluginManager.EmitEvent("tag:updated", map[string]interface{}{
+			"id":    id,
+			"name":  name,
+			"color": color,
+		})
+	}
+
 	return nil
 }
 
@@ -586,6 +676,12 @@ func (a *App) DeleteTag(id int64) error {
 	if err != nil {
 		return fmt.Errorf("failed to delete tag: %w", err)
 	}
+
+	// Emit plugin event
+	if a.pluginManager != nil {
+		a.pluginManager.EmitEvent("tag:deleted", id)
+	}
+
 	return nil
 }
 
@@ -625,6 +721,15 @@ func (a *App) AddTagToClip(clipID, tagID int64) error {
 	if err != nil {
 		return fmt.Errorf("failed to add tag to clip: %w", err)
 	}
+
+	// Emit plugin event
+	if a.pluginManager != nil {
+		a.pluginManager.EmitEvent("tag:added_to_clip", map[string]interface{}{
+			"tag_id":  tagID,
+			"clip_id": clipID,
+		})
+	}
+
 	return nil
 }
 
@@ -634,6 +739,15 @@ func (a *App) RemoveTagFromClip(clipID, tagID int64) error {
 	if err != nil {
 		return fmt.Errorf("failed to remove tag from clip: %w", err)
 	}
+
+	// Emit plugin event
+	if a.pluginManager != nil {
+		a.pluginManager.EmitEvent("tag:removed_from_clip", map[string]interface{}{
+			"tag_id":  tagID,
+			"clip_id": clipID,
+		})
+	}
+
 	// Clean up orphaned tag
 	a.deleteTagIfOrphaned(tagID)
 	return nil
@@ -647,7 +761,10 @@ func (a *App) deleteTagIfOrphaned(tagID int64) {
 		return
 	}
 	if count == 0 {
-		a.db.Exec("DELETE FROM tags WHERE id = ?", tagID)
+		_, err := a.db.Exec("DELETE FROM tags WHERE id = ?", tagID)
+		if err == nil && a.pluginManager != nil {
+			a.pluginManager.EmitEvent("tag:deleted", tagID)
+		}
 	}
 }
 
@@ -678,6 +795,17 @@ func (a *App) BulkAddTag(clipIDs []int64, tagID int64) error {
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
+
+	// Emit plugin events for each clip
+	if a.pluginManager != nil {
+		for _, clipID := range clipIDs {
+			a.pluginManager.EmitEvent("tag:added_to_clip", map[string]interface{}{
+				"tag_id":  tagID,
+				"clip_id": clipID,
+			})
+		}
+	}
+
 	return nil
 }
 
@@ -700,6 +828,17 @@ func (a *App) BulkRemoveTag(clipIDs []int64, tagID int64) error {
 	if err != nil {
 		return fmt.Errorf("failed to bulk remove tag: %w", err)
 	}
+
+	// Emit plugin events for each clip
+	if a.pluginManager != nil {
+		for _, clipID := range clipIDs {
+			a.pluginManager.EmitEvent("tag:removed_from_clip", map[string]interface{}{
+				"tag_id":  tagID,
+				"clip_id": clipID,
+			})
+		}
+	}
+
 	// Clean up orphaned tag
 	a.deleteTagIfOrphaned(tagID)
 	return nil
