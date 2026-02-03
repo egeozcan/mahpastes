@@ -198,6 +198,7 @@ export namespace main {
 	    enabled: boolean;
 	    status: string;
 	    events: string[];
+	    settings: plugin.SettingField[];
 	
 	    static createFrom(source: any = {}) {
 	        return new PluginInfo(source);
@@ -213,7 +214,26 @@ export namespace main {
 	        this.enabled = source["enabled"];
 	        this.status = source["status"];
 	        this.events = source["events"];
+	        this.settings = this.convertValues(source["settings"], plugin.SettingField);
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	
 	export class WatchStatus {
@@ -307,6 +327,33 @@ export namespace main {
 	        this.process_existing = source["process_existing"];
 	        this.auto_archive = source["auto_archive"];
 	        this.auto_tag_id = source["auto_tag_id"];
+	    }
+	}
+
+}
+
+export namespace plugin {
+	
+	export class SettingField {
+	    key: string;
+	    type: string;
+	    label: string;
+	    description?: string;
+	    default?: any;
+	    options?: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new SettingField(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.key = source["key"];
+	        this.type = source["type"];
+	        this.label = source["label"];
+	        this.description = source["description"];
+	        this.default = source["default"];
+	        this.options = source["options"];
 	    }
 	}
 

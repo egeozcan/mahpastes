@@ -23,14 +23,15 @@ func NewPluginService(app *App) *PluginService {
 
 // PluginInfo represents a plugin for the frontend
 type PluginInfo struct {
-	ID          int64    `json:"id"`
-	Name        string   `json:"name"`
-	Version     string   `json:"version"`
-	Description string   `json:"description"`
-	Author      string   `json:"author"`
-	Enabled     bool     `json:"enabled"`
-	Status      string   `json:"status"`
-	Events      []string `json:"events"`
+	ID          int64                 `json:"id"`
+	Name        string                `json:"name"`
+	Version     string                `json:"version"`
+	Description string                `json:"description"`
+	Author      string                `json:"author"`
+	Enabled     bool                  `json:"enabled"`
+	Status      string                `json:"status"`
+	Events      []string              `json:"events"`
+	Settings    []plugin.SettingField `json:"settings"`
 }
 
 // GetPlugins returns all plugins
@@ -65,6 +66,7 @@ func (s *PluginService) GetPlugins() ([]PluginInfo, error) {
 					p.Description = loaded.Manifest.Description
 					p.Author = loaded.Manifest.Author
 					p.Events = loaded.Manifest.Events
+					p.Settings = loaded.Manifest.Settings
 					break
 				}
 			}
@@ -193,6 +195,7 @@ func pluginToInfo(p *plugin.Plugin) *PluginInfo {
 		info.Description = p.Manifest.Description
 		info.Author = p.Manifest.Author
 		info.Events = p.Manifest.Events
+		info.Settings = p.Manifest.Settings
 	}
 	return info
 }
