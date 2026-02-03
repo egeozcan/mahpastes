@@ -36,8 +36,23 @@ function closeConfirmDialog() {
     }
 }
 
-function showToast(message) {
+function showToast(message, type = 'info') {
     const toast = document.getElementById('toast');
+
+    // Color mapping
+    const colors = {
+        info: 'bg-stone-800',
+        success: 'bg-emerald-600',
+        error: 'bg-red-600'
+    };
+
+    // Remove any existing color classes
+    toast.classList.remove('bg-stone-800', 'bg-emerald-600', 'bg-red-600');
+
+    // Add the appropriate color class
+    const colorClass = colors[type] || colors.info;
+    toast.classList.add(colorClass);
+
     toast.textContent = message;
     toast.classList.remove('translate-x-full', 'opacity-0');
     toast.classList.add('translate-x-0', 'opacity-100');
