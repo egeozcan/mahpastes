@@ -106,6 +106,14 @@
                     </svg>
                     Settings
                 </button>
+                <button id="open-plugins-btn"
+                    class="border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-500 text-xs font-medium py-2 px-3 rounded-md transition-colors flex items-center">
+                    <svg class="w-4 h-4 mr-1.5 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                            d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z" />
+                    </svg>
+                    Plugins
+                </button>
             </nav>
         </div>
 
@@ -324,7 +332,7 @@
     <!-- Confirm Dialog -->
     <div id="confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title"
         aria-describedby="confirm-message"
-        class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm transition-opacity duration-200 opacity-0 pointer-events-none">
+        class="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm transition-opacity duration-200 opacity-0 pointer-events-none">
         <div class="bg-white rounded-lg shadow-xl max-w-sm w-full overflow-hidden transform transition-transform duration-200 scale-95">
             <div class="p-5">
                 <div class="flex items-center justify-center w-10 h-10 mx-auto bg-red-50 rounded-full mb-3">
@@ -793,6 +801,56 @@
         </div>
     </div>
 
+    <!-- Plugins Modal -->
+    <div id="plugins-modal" role="dialog" aria-modal="true" aria-labelledby="plugins-modal-title"
+        data-testid="plugins-modal"
+        class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm transition-opacity duration-200 opacity-0 pointer-events-none">
+        <div class="bg-white rounded-lg shadow-xl max-w-lg w-full max-h-[80vh] flex flex-col overflow-hidden transform transition-transform duration-200 scale-95">
+            <div class="p-5 border-b border-stone-100 flex justify-between items-center">
+                <h2 id="plugins-modal-title" class="text-sm font-semibold text-stone-800">Plugins</h2>
+                <div class="flex items-center gap-2">
+                    <button id="import-plugin-btn" data-testid="import-plugin-btn"
+                        class="bg-stone-800 hover:bg-stone-700 text-white text-xs font-medium py-2 px-4 rounded-md transition-colors flex items-center gap-1.5">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 4v16m8-8H4" />
+                        </svg>
+                        Import
+                    </button>
+                    <button id="plugins-close" class="p-1 hover:bg-stone-100 rounded-md transition-colors">
+                        <svg class="w-5 h-5 text-stone-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            <div id="plugins-list-container" class="flex-1 overflow-y-auto p-5">
+                <!-- Empty state -->
+                <div id="plugins-empty-state" class="hidden text-center py-8">
+                    <div class="w-12 h-12 mx-auto mb-4 rounded-full bg-stone-100 flex items-center justify-center">
+                        <svg class="w-6 h-6 text-stone-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                                d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z" />
+                        </svg>
+                    </div>
+                    <p class="text-sm text-stone-500 mb-2">No plugins installed</p>
+                    <p class="text-[11px] text-stone-400">Click "Import" to add a Lua plugin</p>
+                </div>
+
+                <!-- Plugin list -->
+                <ul id="plugins-list" data-testid="plugins-list" class="space-y-3">
+                    <!-- Plugin cards inserted by JS -->
+                </ul>
+            </div>
+
+            <div class="bg-stone-50 px-5 py-3 border-t border-stone-100">
+                <p class="text-[10px] text-stone-400">
+                    Plugins extend functionality with custom Lua scripts.
+                </p>
+            </div>
+        </div>
+    </div>
+
     <!-- AI Processing Modal -->
     <div id="ai-processing-modal" role="dialog" aria-modal="true"
         class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm transition-opacity duration-200 opacity-0 pointer-events-none">
@@ -956,6 +1014,7 @@
     <script src="js/editor.js"></script>
     <script src="js/watch.js"></script>
     <script src="js/settings.js"></script>
+    <script src="js/plugins.js"></script>
     <script src="js/task-queue.js"></script>
     <script src="js/ai-processing.js"></script>
     <script src="js/tags.js"></script>

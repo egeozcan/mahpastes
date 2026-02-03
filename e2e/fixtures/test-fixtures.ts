@@ -1149,6 +1149,63 @@ export class AppHelper {
     expect(plugin).toBeDefined();
     expect(plugin?.enabled).toBe(false);
   }
+
+  // ==================== Plugins UI ====================
+
+  async openPluginsModal(): Promise<void> {
+    await this.page.locator(selectors.plugins.modalButton).click();
+    await this.page.waitForSelector(`${selectors.plugins.modal}.opacity-100`, { timeout: 5000 });
+    // Wait for plugin list to load
+    await this.page.waitForTimeout(500);
+  }
+
+  async closePluginsModal(): Promise<void> {
+    await this.page.locator(selectors.plugins.closeButton).click();
+    await this.page.waitForSelector(`${selectors.plugins.modal}.opacity-0`, { timeout: 5000 });
+  }
+
+  async isPluginsModalOpen(): Promise<boolean> {
+    return this.page.evaluate((selector) => {
+      const el = document.querySelector(selector);
+      return el ? el.classList.contains('opacity-100') : false;
+    }, selectors.plugins.modal);
+  }
+
+  async importPluginViaUI(): Promise<void> {
+    // Note: This triggers native file dialog, may need special handling
+    await this.page.locator(selectors.plugins.importButton).click();
+  }
+
+  async togglePluginViaUI(pluginId: number, enable: boolean): Promise<void> {
+    // The toggle is a hidden checkbox with a styled div - click the parent label
+    const toggleLabel = this.page.locator(`[data-testid="plugin-card-${pluginId}"] [data-action="toggle-enable"]`);
+    await toggleLabel.click();
+    await this.page.waitForTimeout(500);
+  }
+
+  async removePluginViaUI(pluginId: number): Promise<void> {
+    // First expand the plugin card to reveal the remove button
+    const card = this.page.locator(`[data-testid="plugin-card-${pluginId}"]`);
+    await card.locator('[data-action="toggle-expand"]').click();
+    await this.page.waitForTimeout(200);
+    await this.page.locator(selectors.plugins.pluginRemove(pluginId)).click();
+    await this.confirmDialog();
+  }
+
+  async getPluginCardCount(): Promise<number> {
+    const cards = this.page.locator(`${selectors.plugins.list} > li`);
+    return cards.count();
+  }
+
+  async expectPluginsEmptyState(): Promise<void> {
+    const emptyState = this.page.locator(selectors.plugins.emptyState);
+    await expect(emptyState).toBeVisible();
+  }
+
+  async expectPluginInList(pluginName: string): Promise<void> {
+    const list = this.page.locator(selectors.plugins.list);
+    await expect(list.locator(`text=${pluginName}`)).toBeVisible();
+  }
 }
 
 // Custom test fixtures
