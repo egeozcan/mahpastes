@@ -229,3 +229,17 @@ func (s *PluginService) ImportPluginFromPath(path string) (*PluginInfo, error) {
 
 	return pluginToInfo(p), nil
 }
+
+// SetPluginStorage sets a value in a plugin's storage (for testing)
+func (s *PluginService) SetPluginStorage(pluginID int64, key, value string) error {
+	if s.app.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+
+	_, err := s.app.db.Exec(`
+		INSERT INTO plugin_storage (plugin_id, key, value)
+		VALUES (?, ?, ?)
+		ON CONFLICT (plugin_id, key) DO UPDATE SET value = ?
+	`, pluginID, key, value, value)
+	return err
+}

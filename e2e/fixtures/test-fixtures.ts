@@ -418,6 +418,8 @@ export class AppHelper {
       await this.page.locator(selectors.header.watchButton).click();
       await this.page.waitForSelector(`${selectors.watch.view}:not(.hidden)`, { timeout: 5000 });
     }
+    // Wait for view to fully render with data
+    await this.page.waitForTimeout(100);
   }
 
   async closeWatchView(): Promise<void> {
@@ -496,6 +498,8 @@ export class AppHelper {
     // Refresh UI by toggling watch view
     await this.closeWatchView();
     await this.openWatchView();
+    // Wait for UI to update with new folder data
+    await this.page.waitForTimeout(300);
   }
 
   async removeWatchFolder(folderPath: string): Promise<void> {
