@@ -196,6 +196,67 @@ mahpastes/
 - Custom CSS only when utilities insufficient
 - CSS custom properties for dynamic values (e.g., modals)
 
+## Plugin System Architecture
+
+The app has a Lua-based plugin system that allows extending functionality.
+
+### Key Files
+
+- `plugin/manager.go` - Plugin lifecycle management, event dispatch
+- `plugin/sandbox.go` - Sandboxed Lua execution environment
+- `plugin/manifest.go` - Plugin manifest parsing, event validation
+- `plugin/api_*.go` - Lua APIs exposed to plugins (clips, storage, http, fs, utils)
+- `plugin_service.go` - Frontend API for plugin management (separate from App due to Wails method limit)
+
+### Wails Method Binding Limit
+
+**CRITICAL**: Wails has a ~49 method limit per bound struct. Plugin APIs are in `PluginService` (not `App`) to work around this. When adding new methods:
+- Add to `PluginService` in `plugin_service.go` for plugin-related APIs
+- Frontend accesses via `window.go.main.PluginService.*`
+
+### Event System
+
+Events are emitted via `pluginManager.EmitEvent(eventName, data)`. Plugins subscribe to events in their manifest and implement handlers like `on_clip_created(data)`.
+
+**Current events** (defined in `plugin/manifest.go:ValidEvents()`):
+- `app:startup`, `app:shutdown` - App lifecycle
+- `clip:created`, `clip:deleted`, `clip:archived` - Clip operations
+- `watch:file_detected`, `watch:import_complete` - Watch folder events
+
+**To add a new event**:
+1. Add to `ValidEvents()` in `plugin/manifest.go`
+2. Call `pluginManager.EmitEvent("event:name", data)` where the event occurs
+3. Handler name convention: `clip:created` → `on_clip_created`
+
+### Lua APIs
+
+APIs are registered in `plugin/manager.go` when loading plugins. Each API module is a global table:
+
+| Module | File | Functions |
+|--------|------|-----------|
+| `clips` | `api_clips.go` | list, get, create, update, delete, delete_many, archive, unarchive |
+| `storage` | `api_storage.go` | get, set, delete, list (plugin-scoped key-value storage) |
+| `http` | `api_http.go` | get, post (network requests with domain restrictions) |
+| `fs` | `api_fs.go` | read, write, list, exists (filesystem with permission prompts) |
+| `utils` | `api_utils.go` | log, json_encode, json_decode, base64_encode, base64_decode |
+
+**To add a new API module**:
+1. Create `plugin/api_<name>.go` with struct and `Register(L *lua.LState)` method
+2. Register in `plugin/manager.go` in the plugin loading section
+3. Document the API in example plugins
+
+### Tag Functions (in app.go)
+
+Tag operations that could be exposed to plugins:
+- `CreateTag(name)` → `*Tag, error`
+- `DeleteTag(id)` → `error`
+- `GetTags()` → `[]Tag, error`
+- `AddTagToClip(clipID, tagID)` → `error`
+- `RemoveTagFromClip(clipID, tagID)` → `error`
+- `BulkAddTag(clipIDs, tagID)` → `error`
+- `BulkRemoveTag(clipIDs, tagID)` → `error`
+- `GetClipTags(clipID)` → `[]Tag, error`
+
 ## Common Tasks
 
 ### Adding a new feature
