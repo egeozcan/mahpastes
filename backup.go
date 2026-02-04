@@ -3,7 +3,6 @@ package main
 import (
 	"archive/zip"
 	"database/sql"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -128,11 +127,8 @@ func formatSQLValue(v interface{}) string {
 
 	switch val := v.(type) {
 	case []byte:
-		// Encode binary data as base64 with X'' hex literal wrapper
-		// SQLite can handle this via a custom function, but for portability
-		// we'll use a special marker that import can recognize
-		encoded := base64.StdEncoding.EncodeToString(val)
-		return fmt.Sprintf("X'%s'", encoded) // Will be decoded during import
+		// Encode binary data as hex for SQLite X'...' literal
+		return fmt.Sprintf("X'%X'", val)
 	case string:
 		// Escape single quotes
 		escaped := strings.ReplaceAll(val, "'", "''")
@@ -519,9 +515,6 @@ func (a *App) RestoreBackup(backupPath string) error {
 			continue
 		}
 
-		// Handle base64-encoded binary data (X'...' marker)
-		stmt = convertBase64Blobs(stmt)
-
 		if _, err := tx.Exec(stmt); err != nil {
 			// Log warning but continue (for forward compatibility)
 			fmt.Printf("Warning: failed to execute SQL: %v\nStatement: %s\n", err, stmt[:min(100, len(stmt))])
@@ -576,20 +569,6 @@ func (a *App) RestoreBackup(backupPath string) error {
 	}
 
 	return nil
-}
-
-// convertBase64Blobs converts X'base64...' markers back to actual blob data
-func convertBase64Blobs(stmt string) string {
-	// This is a simple implementation - in production you might use regex
-	// For now, we'll handle this during import by detecting X'...' patterns
-	// that contain base64 data and converting them
-
-	// Actually, SQLite X'...' expects hex, not base64
-	// We need a different approach: use a placeholder and bind parameters
-	// For simplicity, let's use a different marker: B64'...'
-
-	// For now, return as-is - we'll improve the export to use proper hex encoding
-	return stmt
 }
 
 // extractZipFile extracts a single file from a ZIP archive to destPath.
