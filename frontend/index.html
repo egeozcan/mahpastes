@@ -359,6 +359,39 @@
         </div>
     </div>
 
+    <!-- Restore Backup Confirm Dialog -->
+    <div id="restore-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="restore-confirm-title"
+        class="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm transition-opacity duration-200 opacity-0 pointer-events-none">
+        <div class="bg-white rounded-lg shadow-xl max-w-md w-full overflow-hidden transform transition-transform duration-200 scale-95">
+            <div class="p-5">
+                <div class="flex items-center justify-center w-12 h-12 mx-auto bg-amber-50 rounded-full mb-4">
+                    <svg class="w-6 h-6 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                            d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                    </svg>
+                </div>
+                <h2 id="restore-confirm-title" class="text-sm font-semibold text-stone-800 text-center mb-3">Restore from Backup</h2>
+                <div class="bg-red-50 border border-red-200 rounded-md p-3 mb-4">
+                    <p class="text-xs text-red-700 font-medium text-center">This will replace ALL current data</p>
+                </div>
+                <div id="restore-backup-info" class="text-xs text-stone-600 space-y-2 mb-4">
+                    <!-- Backup info will be inserted by JS -->
+                </div>
+                <p class="text-[11px] text-stone-500 text-center">Your current data will be permanently deleted. This action cannot be undone.</p>
+            </div>
+            <div class="bg-stone-50 px-5 py-3 flex gap-2 justify-end border-t border-stone-100">
+                <button id="restore-confirm-cancel"
+                    class="bg-white border border-stone-200 hover:bg-stone-50 text-stone-600 text-xs font-medium py-2 px-4 rounded-md transition-colors">
+                    Cancel
+                </button>
+                <button id="restore-confirm-yes"
+                    class="bg-red-500 hover:bg-red-600 text-white text-xs font-medium py-2 px-4 rounded-md transition-colors">
+                    Delete & Restore
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Tag Popover -->
     <div id="tag-popover" data-testid="tag-popover"
         class="hidden fixed bg-white rounded-lg shadow-xl border border-stone-200 w-56 z-[100]">
