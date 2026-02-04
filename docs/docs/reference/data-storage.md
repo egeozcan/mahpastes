@@ -61,7 +61,7 @@ mahpastes has a built-in backup feature that creates portable, version-independe
 2. Click **Create Backup**
 3. Choose a location for the ZIP file
 
-This backs up clips, tags, plugins, watch folders, and settings. See [Backup & Restore](/docs/features/backup-restore) for full details.
+This backs up clips, tags, plugins, watch folders, and settings. See [Backup & Restore](../features/backup-restore.md) for full details.
 
 ### Manual Backup (Advanced)
 
