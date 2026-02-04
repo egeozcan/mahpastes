@@ -390,3 +390,40 @@ func createZipFromDir(srcDir, destPath string) error {
 func getPlatform() string {
 	return runtime.GOOS
 }
+
+// ValidateBackup opens a backup file and returns its manifest
+func ValidateBackup(backupPath string) (*BackupManifest, error) {
+	// Open ZIP file
+	r, err := zip.OpenReader(backupPath)
+	if err != nil {
+		return nil, fmt.Errorf("invalid backup file: %w", err)
+	}
+	defer r.Close()
+
+	// Find manifest.json
+	var manifestFile *zip.File
+	for _, f := range r.File {
+		if f.Name == "manifest.json" {
+			manifestFile = f
+			break
+		}
+	}
+
+	if manifestFile == nil {
+		return nil, fmt.Errorf("this doesn't appear to be a mahpastes backup (missing manifest)")
+	}
+
+	// Read manifest
+	rc, err := manifestFile.Open()
+	if err != nil {
+		return nil, fmt.Errorf("failed to read manifest: %w", err)
+	}
+	defer rc.Close()
+
+	var manifest BackupManifest
+	if err := json.NewDecoder(rc).Decode(&manifest); err != nil {
+		return nil, fmt.Errorf("failed to parse manifest: %w", err)
+	}
+
+	return &manifest, nil
+}
