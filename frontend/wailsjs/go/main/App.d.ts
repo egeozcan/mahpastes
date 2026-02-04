@@ -24,7 +24,11 @@ export function CancelTask(arg1:string):Promise<void>;
 
 export function ClearCompletedTasks():Promise<void>;
 
+export function ConfirmRestoreBackup(arg1:string):Promise<void>;
+
 export function CopyToClipboard(arg1:string):Promise<void>;
+
+export function CreateBackup(arg1:string):Promise<void>;
 
 export function CreateTag(arg1:string):Promise<main.Tag>;
 
@@ -78,6 +82,8 @@ export function RemoveTagFromClip(arg1:number,arg2:number):Promise<void>;
 
 export function RemoveWatchedFolder(arg1:number):Promise<void>;
 
+export function RestoreBackup(arg1:string):Promise<void>;
+
 export function SaveClipToFile(arg1:number):Promise<void>;
 
 export function SelectFolder():Promise<string>;
@@ -87,6 +93,10 @@ export function SetFolderPaused(arg1:number,arg2:boolean):Promise<void>;
 export function SetGlobalWatchPaused(arg1:boolean):Promise<void>;
 
 export function SetSetting(arg1:string,arg2:string):Promise<void>;
+
+export function ShowCreateBackupDialog():Promise<string>;
+
+export function ShowRestoreBackupDialog():Promise<main.BackupManifest>;
 
 export function StartAITask(arg1:Array<number>,arg2:main.FalTaskOptions,arg3:string):Promise<string>;
 

@@ -89,6 +89,66 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class BackupSummary {
+	    clips: number;
+	    tags: number;
+	    plugins: number;
+	    watch_folders: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new BackupSummary(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.clips = source["clips"];
+	        this.tags = source["tags"];
+	        this.plugins = source["plugins"];
+	        this.watch_folders = source["watch_folders"];
+	    }
+	}
+	export class BackupManifest {
+	    format_version: number;
+	    app_version: string;
+	    // Go type: time
+	    created_at: any;
+	    platform: string;
+	    summary: BackupSummary;
+	    excluded: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new BackupManifest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.format_version = source["format_version"];
+	        this.app_version = source["app_version"];
+	        this.created_at = this.convertValues(source["created_at"], null);
+	        this.platform = source["platform"];
+	        this.summary = this.convertValues(source["summary"], BackupSummary);
+	        this.excluded = source["excluded"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
 	export class ClipData {
 	    id: number;
 	    content_type: string;

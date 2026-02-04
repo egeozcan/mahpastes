@@ -46,8 +46,16 @@ export function ClearCompletedTasks() {
   return window['go']['main']['App']['ClearCompletedTasks']();
 }
 
+export function ConfirmRestoreBackup(arg1) {
+  return window['go']['main']['App']['ConfirmRestoreBackup'](arg1);
+}
+
 export function CopyToClipboard(arg1) {
   return window['go']['main']['App']['CopyToClipboard'](arg1);
+}
+
+export function CreateBackup(arg1) {
+  return window['go']['main']['App']['CreateBackup'](arg1);
 }
 
 export function CreateTag(arg1) {
@@ -154,6 +162,10 @@ export function RemoveWatchedFolder(arg1) {
   return window['go']['main']['App']['RemoveWatchedFolder'](arg1);
 }
 
+export function RestoreBackup(arg1) {
+  return window['go']['main']['App']['RestoreBackup'](arg1);
+}
+
 export function SaveClipToFile(arg1) {
   return window['go']['main']['App']['SaveClipToFile'](arg1);
 }
@@ -172,6 +184,14 @@ export function SetGlobalWatchPaused(arg1) {
 
 export function SetSetting(arg1, arg2) {
   return window['go']['main']['App']['SetSetting'](arg1, arg2);
+}
+
+export function ShowCreateBackupDialog() {
+  return window['go']['main']['App']['ShowCreateBackupDialog']();
+}
+
+export function ShowRestoreBackupDialog() {
+  return window['go']['main']['App']['ShowRestoreBackupDialog']();
 }
 
 export function StartAITask(arg1, arg2, arg3) {
