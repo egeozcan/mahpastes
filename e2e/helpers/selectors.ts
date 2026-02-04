@@ -11,6 +11,7 @@ export const selectors = {
     watchIndicator: '#watch-indicator',
     archiveButton: '#toggle-archive-view-btn',
     clearAllButton: '#delete-all-temp-btn',
+    settingsButton: '#open-settings-btn',
   },
 
   // Upload zone
@@ -208,6 +209,22 @@ export const selectors = {
     checkbox: '[data-setting-type="checkbox"]',
     select: '[data-setting-type="select"]',
     passwordToggle: '[data-action="toggle-password"]',
+  },
+
+  // Settings modal
+  settings: {
+    modal: '#settings-modal',
+    closeButton: '#settings-close',
+  },
+
+  // Backup
+  backup: {
+    createButton: '[data-testid="create-backup-btn"]',
+    restoreButton: '[data-testid="restore-backup-btn"]',
+    restoreConfirmDialog: '#restore-confirm-dialog',
+    restoreConfirmCancel: '#restore-confirm-cancel',
+    restoreConfirmYes: '#restore-confirm-yes',
+    restoreBackupInfo: '#restore-backup-info',
   },
 } as const;
 
