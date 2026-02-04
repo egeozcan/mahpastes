@@ -64,7 +64,9 @@ test.describe('Plugin Toast API', () => {
     // by directly emitting an event from the page context
     await app.page.evaluate(() => {
       // Simulate what the backend would do - emit a plugin:toast event
+      // @ts-ignore - Wails runtime
       if (window.runtime && window.runtime.EventsEmit) {
+        // @ts-ignore
         window.runtime.EventsEmit('plugin:toast', {
           message: 'Test toast from event',
           type: 'success'

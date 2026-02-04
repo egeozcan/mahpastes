@@ -62,6 +62,7 @@ export class AppHelper {
       // Re-render tag filter dropdown with fresh data
       // @ts-ignore
       if (typeof renderTagFilterDropdown === 'function') {
+        // @ts-ignore
         renderTagFilterDropdown();
       }
     });
@@ -203,6 +204,231 @@ export class AppHelper {
     // Refresh the page to update the UI
     await this.page.reload();
     await this.waitForReady();
+  }
+
+  // ==================== Test Isolation ====================
+
+  /**
+   * Reset all app state to ensure test isolation.
+   * Called both before and after each test.
+   */
+  async resetAppState(): Promise<void> {
+    // 1. Close any open modals (prevents interaction issues)
+    await this.closeAllModalsSafe();
+
+    // 2. Reset data state (order: plugins -> watch folders -> clips -> tags)
+    await this.deleteAllPluginsSafe();
+    await this.deleteAllWatchFoldersSafe();
+    await this.deleteAllClipsSafe();
+    await this.deleteAllTagsSafe();
+
+    // 3. Reset UI state
+    await this.resetUIState();
+  }
+
+  private async closeAllModalsSafe(): Promise<void> {
+    // Check and close each modal type
+    // Lightbox uses .active class
+    try {
+      if (await this.isLightboxOpen()) {
+        await this.closeLightbox();
+        await this.page.waitForTimeout(100);
+      }
+    } catch {
+      // Ignore - modal may not exist or already closed
+    }
+
+    // Editor uses .active class
+    try {
+      if (await this.isEditorOpen()) {
+        await this.closeImageEditor();
+        await this.page.waitForTimeout(100);
+      }
+    } catch {
+      // Ignore
+    }
+
+    // Comparison uses .active class
+    try {
+      const comparisonOpen = await this.page.evaluate((selector) => {
+        const el = document.querySelector(selector);
+        return el ? el.classList.contains('active') : false;
+      }, selectors.comparison.modal);
+      if (comparisonOpen) {
+        await this.closeComparison();
+        await this.page.waitForTimeout(100);
+      }
+    } catch {
+      // Ignore
+    }
+
+    // Watch view uses hidden class (visible when NOT hidden)
+    try {
+      if (await this.isWatchViewOpen()) {
+        await this.closeWatchView();
+        await this.page.waitForTimeout(100);
+      }
+    } catch {
+      // Ignore
+    }
+
+    // Plugins modal uses opacity classes
+    try {
+      if (await this.isPluginsModalOpen()) {
+        await this.closePluginsModal();
+        await this.page.waitForTimeout(100);
+      }
+    } catch {
+      // Ignore
+    }
+
+    // Text editor modal
+    try {
+      const textEditorVisible = await this.page.locator(selectors.textEditor.modal).isVisible();
+      if (textEditorVisible) {
+        await this.page.locator(selectors.textEditor.cancelButton).click();
+        await this.page.waitForTimeout(100);
+      }
+    } catch {
+      // Ignore
+    }
+  }
+
+  private async deleteAllPluginsSafe(): Promise<void> {
+    try {
+      await this.page.evaluate(async () => {
+        // @ts-ignore - Wails runtime
+        if (typeof window.go?.main?.PluginService?.GetPlugins !== 'function') {
+          return; // Plugin API not available
+        }
+        // @ts-ignore
+        const plugins = await window.go.main.PluginService.GetPlugins();
+        for (const plugin of plugins) {
+          try {
+            // @ts-ignore
+            await window.go.main.PluginService.RemovePlugin(plugin.id);
+          } catch {
+            // Ignore individual delete errors
+          }
+        }
+      });
+    } catch {
+      // Plugin API may not be available
+    }
+  }
+
+  private async deleteAllWatchFoldersSafe(): Promise<void> {
+    try {
+      await this.page.evaluate(async () => {
+        // @ts-ignore - Wails runtime
+        const folders = await window.go.main.App.GetWatchedFolders();
+        for (const folder of folders) {
+          try {
+            // @ts-ignore
+            await window.go.main.App.RemoveWatchedFolder(folder.id);
+          } catch {
+            // Ignore individual delete errors
+          }
+        }
+      });
+    } catch {
+      // Ignore errors
+    }
+  }
+
+  private async deleteAllClipsSafe(): Promise<void> {
+    try {
+      // Inline version without page reload (faster for cleanup)
+      await this.page.evaluate(async () => {
+        // @ts-ignore
+        const clips = await window.go.main.App.GetClips(false, []);
+        // @ts-ignore
+        const archivedClips = await window.go.main.App.GetClips(true, []);
+        for (const clip of [...clips, ...archivedClips]) {
+          try {
+            // @ts-ignore
+            await window.go.main.App.DeleteClip(clip.id);
+          } catch {
+            // Ignore
+          }
+        }
+      });
+    } catch {
+      // Ignore errors
+    }
+  }
+
+  private async deleteAllTagsSafe(): Promise<void> {
+    try {
+      await this.page.evaluate(async () => {
+        // @ts-ignore - Wails runtime
+        const tags = await window.go.main.App.GetTags();
+        for (const tag of tags) {
+          try {
+            // @ts-ignore
+            await window.go.main.App.DeleteTag(tag.id);
+          } catch {
+            // Ignore individual delete errors
+          }
+        }
+      });
+    } catch {
+      // Ignore errors
+    }
+  }
+
+  private async resetUIState(): Promise<void> {
+    // Clear search
+    try {
+      const searchInput = this.page.locator(selectors.header.searchInput);
+      const searchValue = await searchInput.inputValue();
+      if (searchValue) {
+        await searchInput.clear();
+        await this.page.waitForTimeout(100);
+      }
+    } catch {
+      // Ignore
+    }
+
+    // Clear tag filters
+    try {
+      await this.page.evaluate(() => {
+        // @ts-ignore
+        if (window.__testHelpers) {
+          // @ts-ignore
+          window.__testHelpers.setActiveTagFilters([]);
+        }
+      });
+    } catch {
+      // Ignore
+    }
+
+    // Switch to active view if in archive
+    try {
+      if (await this.isArchiveViewActive()) {
+        await this.toggleArchiveView();
+      }
+    } catch {
+      // Ignore
+    }
+
+    // Clear selected clips via frontend state
+    try {
+      await this.page.evaluate(() => {
+        // @ts-ignore - Global state
+        if (typeof window.selectedIds !== 'undefined' && window.selectedIds.size > 0) {
+          // @ts-ignore
+          window.selectedIds.clear();
+          // @ts-ignore
+          if (typeof window.renderGallery === 'function') {
+            // @ts-ignore
+            window.renderGallery();
+          }
+        }
+      });
+    } catch {
+      // Ignore
+    }
   }
 
   // ==================== Bulk Operations ====================
@@ -710,6 +936,7 @@ export class AppHelper {
       // Refresh clips via test helper
       // @ts-ignore
       if (window.__testHelpers && window.__testHelpers.loadClips) {
+        // @ts-ignore
         window.__testHelpers.loadClips();
       }
     }, { filename: clipFilename, tag: tagName });
@@ -745,6 +972,7 @@ export class AppHelper {
       // Refresh clips via test helper
       // @ts-ignore
       if (window.__testHelpers && window.__testHelpers.loadClips) {
+        // @ts-ignore
         window.__testHelpers.loadClips();
       }
     }, { filename: clipFilename, tag: tagName });
@@ -897,6 +1125,7 @@ export class AppHelper {
       // Refresh clips via test helper
       // @ts-ignore
       if (window.__testHelpers && window.__testHelpers.loadClips) {
+        // @ts-ignore
         window.__testHelpers.loadClips();
       }
     }, { clipIds: selectedClipIds, tag: tagName });
@@ -932,6 +1161,7 @@ export class AppHelper {
       // Refresh clips via test helper
       // @ts-ignore
       if (window.__testHelpers && window.__testHelpers.loadClips) {
+        // @ts-ignore
         window.__testHelpers.loadClips();
       }
     }, { clipIds: selectedClipIds, tag: tagName });
@@ -963,6 +1193,7 @@ export class AppHelper {
       if (typeof window.go?.main?.PluginService?.GetPlugins !== 'function') {
         return []; // API not available (app needs rebuild)
       }
+      // @ts-ignore
       return await window.go.main.PluginService.GetPlugins();
     });
   }
@@ -1000,6 +1231,7 @@ export class AppHelper {
 
       // @ts-ignore - Test helper for plugin import
       if (window.__testPluginImport) {
+        // @ts-ignore
         return await window.__testPluginImport(source, fname);
       }
 
@@ -1075,6 +1307,7 @@ export class AppHelper {
       if (typeof window.go?.main?.PluginService?.EnablePlugin !== 'function') {
         return; // API not available
       }
+      // @ts-ignore
       await window.go.main.PluginService.EnablePlugin(id);
     }, pluginId);
     await this.page.waitForTimeout(300);
@@ -1086,6 +1319,7 @@ export class AppHelper {
       if (typeof window.go?.main?.PluginService?.DisablePlugin !== 'function') {
         return; // API not available
       }
+      // @ts-ignore
       await window.go.main.PluginService.DisablePlugin(id);
     }, pluginId);
     await this.page.waitForTimeout(300);
@@ -1097,6 +1331,7 @@ export class AppHelper {
       if (typeof window.go?.main?.PluginService?.RemovePlugin !== 'function') {
         return; // API not available
       }
+      // @ts-ignore
       await window.go.main.PluginService.RemovePlugin(id);
     }, pluginId);
     await this.page.waitForTimeout(300);
@@ -1108,6 +1343,7 @@ export class AppHelper {
       if (typeof window.go?.main?.PluginService?.GetPluginPermissions !== 'function') {
         return []; // API not available
       }
+      // @ts-ignore
       return await window.go.main.PluginService.GetPluginPermissions(id);
     }, pluginId);
   }
@@ -1118,6 +1354,7 @@ export class AppHelper {
       if (typeof window.go?.main?.PluginService?.GetPlugins !== 'function') {
         return; // API not available
       }
+      // @ts-ignore
       const plugins = await window.go.main.PluginService.GetPlugins();
       for (const plugin of plugins) {
         try {
@@ -1230,13 +1467,20 @@ export const test = base.extend<TestFixtures>({
     await app.goto();
     await app.waitForReady();
 
+    // SETUP: Ensure clean state before test (catches leaked state from crashed tests)
+    try {
+      await app.resetAppState();
+    } catch {
+      // Ignore setup cleanup errors
+    }
+
     await use(app);
 
-    // Cleanup: delete all clips created during test
+    // TEARDOWN: Clean up after test
     try {
-      await app.deleteAllClips();
+      await app.resetAppState();
     } catch {
-      // Ignore cleanup errors
+      // Ignore teardown cleanup errors
     }
   },
 

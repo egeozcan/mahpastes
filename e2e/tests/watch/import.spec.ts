@@ -211,8 +211,9 @@ test.describe('Watch Folder Import', () => {
         });
         // @ts-ignore - Refresh to start watching
         await window.go.main.App.RefreshWatches();
-        // @ts-ignore - Try to process existing files
+        // Try to process existing files
         try {
+          // @ts-ignore
           await window.go.main.App.ProcessExistingFilesInFolder(folder.id);
         } catch (e) {
           console.log('ProcessExistingFilesInFolder error:', e);

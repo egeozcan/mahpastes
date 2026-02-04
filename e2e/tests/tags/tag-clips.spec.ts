@@ -90,8 +90,8 @@ test.describe('Tag Clips', () => {
     });
 
     test('should not delete tag when other clips still use it', async ({ app }) => {
-      const imagePath1 = await createTempFile(generateTestImage(100, 100, 'red'), 'png');
-      const imagePath2 = await createTempFile(generateTestImage(100, 100, 'blue'), 'png');
+      const imagePath1 = await createTempFile(generateTestImage(100, 100, [255, 0, 0]), 'png');
+      const imagePath2 = await createTempFile(generateTestImage(100, 100, [0, 0, 255]), 'png');
       const filename1 = path.basename(imagePath1);
       const filename2 = path.basename(imagePath2);
 
@@ -135,8 +135,8 @@ test.describe('Tag Clips', () => {
     });
 
     test('should auto-delete tag when last clip using it is bulk deleted', async ({ app }) => {
-      const imagePath1 = await createTempFile(generateTestImage(100, 100, 'red'), 'png');
-      const imagePath2 = await createTempFile(generateTestImage(100, 100, 'blue'), 'png');
+      const imagePath1 = await createTempFile(generateTestImage(100, 100, [255, 0, 0]), 'png');
+      const imagePath2 = await createTempFile(generateTestImage(100, 100, [0, 0, 255]), 'png');
       const filename1 = path.basename(imagePath1);
       const filename2 = path.basename(imagePath2);
 
@@ -160,8 +160,8 @@ test.describe('Tag Clips', () => {
     });
 
     test('should not delete tag when only some clips using it are deleted', async ({ app }) => {
-      const imagePath1 = await createTempFile(generateTestImage(100, 100, 'red'), 'png');
-      const imagePath2 = await createTempFile(generateTestImage(100, 100, 'blue'), 'png');
+      const imagePath1 = await createTempFile(generateTestImage(100, 100, [255, 0, 0]), 'png');
+      const imagePath2 = await createTempFile(generateTestImage(100, 100, [0, 0, 255]), 'png');
       const filename1 = path.basename(imagePath1);
       const filename2 = path.basename(imagePath2);
 

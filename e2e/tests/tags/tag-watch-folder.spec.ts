@@ -51,6 +51,7 @@ test.describe('Watch Folder Auto-Tagging', () => {
       await app.page.evaluate((testPath) => {
         // @ts-ignore - call the modal open function directly
         if (typeof openFolderModal === 'function') {
+          // @ts-ignore
           openFolderModal(testPath);
         }
       }, watchDir);
