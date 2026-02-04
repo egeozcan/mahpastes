@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -112,16 +113,12 @@ func exportTableToSQL(db *sql.DB, tableName string, w io.Writer, excludeCallback
 		count++
 	}
 
+	if err := rows.Err(); err != nil {
+		return count, fmt.Errorf("error iterating rows in %s: %w", tableName, err)
+	}
+
 	return count, nil
 }
-
-// Suppress unused import warnings - these will be used in later tasks
-var (
-	_ = zip.Store
-	_ = json.Marshal
-	_ = os.Create
-	_ = filepath.Join
-)
 
 // formatSQLValue formats a value for SQL INSERT statement
 func formatSQLValue(v interface{}) string {
@@ -155,4 +152,241 @@ func formatSQLValue(v interface{}) string {
 		// Try to convert to string
 		return fmt.Sprintf("'%v'", val)
 	}
+}
+
+// CreateBackup creates a backup ZIP file at the specified path
+func (a *App) CreateBackup(destPath string) error {
+	// Create temp directory for staging
+	tempDir, err := os.MkdirTemp("", "mahpastes-backup-*")
+	if err != nil {
+		return fmt.Errorf("failed to create temp directory: %w", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	// Export database to SQL file
+	sqlPath := filepath.Join(tempDir, "database.sql")
+	summary, excluded, err := a.exportDatabaseToSQL(sqlPath)
+	if err != nil {
+		return fmt.Errorf("failed to export database: %w", err)
+	}
+
+	// Copy plugin files
+	dataDir, err := getDataDir()
+	if err != nil {
+		return fmt.Errorf("failed to get data directory: %w", err)
+	}
+	pluginsDir := filepath.Join(dataDir, "plugins")
+	tempPluginsDir := filepath.Join(tempDir, "plugins")
+
+	if err := os.MkdirAll(tempPluginsDir, 0755); err != nil {
+		return fmt.Errorf("failed to create plugins directory: %w", err)
+	}
+
+	// Copy .lua files
+	if entries, err := os.ReadDir(pluginsDir); err == nil {
+		for _, entry := range entries {
+			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".lua") {
+				src := filepath.Join(pluginsDir, entry.Name())
+				dst := filepath.Join(tempPluginsDir, entry.Name())
+				if err := copyFile(src, dst); err != nil {
+					// Log warning but continue
+					fmt.Printf("Warning: failed to copy plugin %s: %v\n", entry.Name(), err)
+				}
+			}
+		}
+	}
+
+	// Create manifest
+	manifest := BackupManifest{
+		FormatVersion: BackupFormatVersion,
+		AppVersion:    AppVersion,
+		CreatedAt:     time.Now(),
+		Platform:      getPlatform(),
+		Summary:       summary,
+		Excluded:      excluded,
+	}
+
+	manifestPath := filepath.Join(tempDir, "manifest.json")
+	manifestData, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal manifest: %w", err)
+	}
+	if err := os.WriteFile(manifestPath, manifestData, 0644); err != nil {
+		return fmt.Errorf("failed to write manifest: %w", err)
+	}
+
+	// Create ZIP file
+	if err := createZipFromDir(tempDir, destPath); err != nil {
+		return fmt.Errorf("failed to create ZIP: %w", err)
+	}
+
+	return nil
+}
+
+// exportDatabaseToSQL exports all database tables to a SQL file
+func (a *App) exportDatabaseToSQL(destPath string) (BackupSummary, []string, error) {
+	f, err := os.Create(destPath)
+	if err != nil {
+		return BackupSummary{}, nil, err
+	}
+	defer f.Close()
+
+	var summary BackupSummary
+	var excluded []string
+
+	// Write header
+	f.WriteString("-- mahpastes backup\n")
+	f.WriteString(fmt.Sprintf("-- Created: %s\n", time.Now().Format(time.RFC3339)))
+	f.WriteString(fmt.Sprintf("-- Format version: %d\n\n", BackupFormatVersion))
+
+	// Export clips
+	f.WriteString("-- Table: clips\n")
+	count, err := exportTableToSQL(a.db, "clips", f, nil)
+	if err != nil {
+		return summary, excluded, fmt.Errorf("failed to export clips: %w", err)
+	}
+	summary.Clips = count
+	f.WriteString("\n")
+
+	// Export tags
+	f.WriteString("-- Table: tags\n")
+	count, err = exportTableToSQL(a.db, "tags", f, nil)
+	if err != nil {
+		return summary, excluded, fmt.Errorf("failed to export tags: %w", err)
+	}
+	summary.Tags = count
+	f.WriteString("\n")
+
+	// Export clip_tags
+	f.WriteString("-- Table: clip_tags\n")
+	_, err = exportTableToSQL(a.db, "clip_tags", f, nil)
+	if err != nil {
+		return summary, excluded, fmt.Errorf("failed to export clip_tags: %w", err)
+	}
+	f.WriteString("\n")
+
+	// Export settings (excluding sensitive ones)
+	f.WriteString("-- Table: settings\n")
+	_, err = exportTableToSQL(a.db, "settings", f, func(row map[string]interface{}) bool {
+		if key, ok := row["key"].(string); ok {
+			if isSensitiveSetting(key) {
+				excluded = append(excluded, key)
+				return true
+			}
+		}
+		return false
+	})
+	if err != nil {
+		return summary, excluded, fmt.Errorf("failed to export settings: %w", err)
+	}
+	f.WriteString("\n")
+
+	// Export watched_folders
+	f.WriteString("-- Table: watched_folders\n")
+	count, err = exportTableToSQL(a.db, "watched_folders", f, nil)
+	if err != nil {
+		return summary, excluded, fmt.Errorf("failed to export watched_folders: %w", err)
+	}
+	summary.WatchFolders = count
+	f.WriteString("\n")
+
+	// Export plugins
+	f.WriteString("-- Table: plugins\n")
+	count, err = exportTableToSQL(a.db, "plugins", f, nil)
+	if err != nil {
+		return summary, excluded, fmt.Errorf("failed to export plugins: %w", err)
+	}
+	summary.Plugins = count
+	f.WriteString("\n")
+
+	// Export plugin_storage
+	f.WriteString("-- Table: plugin_storage\n")
+	_, err = exportTableToSQL(a.db, "plugin_storage", f, nil)
+	if err != nil {
+		return summary, excluded, fmt.Errorf("failed to export plugin_storage: %w", err)
+	}
+	f.WriteString("\n")
+
+	// Export plugin_permissions (will be marked as pending_reconfirm on import)
+	f.WriteString("-- Table: plugin_permissions\n")
+	_, err = exportTableToSQL(a.db, "plugin_permissions", f, nil)
+	if err != nil {
+		return summary, excluded, fmt.Errorf("failed to export plugin_permissions: %w", err)
+	}
+
+	return summary, excluded, nil
+}
+
+// copyFile copies a file from src to dst
+func copyFile(src, dst string) error {
+	sourceFile, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer sourceFile.Close()
+
+	destFile, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer destFile.Close()
+
+	_, err = io.Copy(destFile, sourceFile)
+	return err
+}
+
+// createZipFromDir creates a ZIP file from a directory
+func createZipFromDir(srcDir, destPath string) error {
+	zipFile, err := os.Create(destPath)
+	if err != nil {
+		return err
+	}
+	defer zipFile.Close()
+
+	w := zip.NewWriter(zipFile)
+	defer w.Close()
+
+	return filepath.Walk(srcDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Get relative path
+		relPath, err := filepath.Rel(srcDir, path)
+		if err != nil {
+			return err
+		}
+
+		// Skip the root directory
+		if relPath == "." {
+			return nil
+		}
+
+		// Create ZIP entry
+		if info.IsDir() {
+			_, err := w.Create(relPath + "/")
+			return err
+		}
+
+		// Create file entry
+		writer, err := w.Create(relPath)
+		if err != nil {
+			return err
+		}
+
+		// Copy file contents
+		file, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+
+		_, err = io.Copy(writer, file)
+		return err
+	})
+}
+
+// getPlatform returns the current platform identifier
+func getPlatform() string {
+	return runtime.GOOS
 }
