@@ -53,9 +53,19 @@ Temporary files are cleaned up when mahpastes exits.
 
 ## Backup
 
-### Manual Backup
+### Built-in Backup (Recommended)
 
-Copy the database file:
+mahpastes has a built-in backup feature that creates portable, version-independent backups:
+
+1. Go to **Settings** > **Backup & Restore**
+2. Click **Create Backup**
+3. Choose a location for the ZIP file
+
+This backs up clips, tags, plugins, watch folders, and settings. See [Backup & Restore](/docs/features/backup-restore) for full details.
+
+### Manual Backup (Advanced)
+
+For direct database backup, copy the database file:
 
 ```bash
 # macOS
@@ -68,7 +78,11 @@ copy "%APPDATA%\mahpastes\clips.db" "%USERPROFILE%\backup\clips.db"
 cp ~/.config/mahpastes/clips.db ~/backup/clips.db
 ```
 
-### Restore from Backup
+### Restore
+
+**From built-in backup**: Go to **Settings** > **Backup & Restore** > **Restore from Backup**.
+
+**From manual backup**:
 
 1. Quit mahpastes
 2. Copy backup file to the data directory

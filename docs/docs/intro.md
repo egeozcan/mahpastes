@@ -55,6 +55,7 @@ sidebar_position: 1
 | **Bulk Actions** | Select multiple clips to archive, download, or delete |
 | **Tags** | Color-coded labels to organize and filter clips |
 | **Plugins** | Extend functionality with Lua scripts |
+| **Backup & Restore** | Export all data to portable ZIP, restore anywhere |
 
 ## How It Works
 

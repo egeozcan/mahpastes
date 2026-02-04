@@ -26,6 +26,7 @@ const sidebars = {
         'features/archive',
         'features/watch-folders',
         'features/bulk-actions',
+        'features/backup-restore',
       ],
     },
     {
