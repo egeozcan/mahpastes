@@ -511,9 +511,24 @@ func (a *App) RestoreBackup(backupPath string) error {
 	statements := strings.Split(string(sqlBytes), ";\n")
 	for _, stmt := range statements {
 		stmt = strings.TrimSpace(stmt)
-		if stmt == "" || strings.HasPrefix(stmt, "--") {
+		if stmt == "" {
 			continue
 		}
+
+		// Skip comment-only blocks
+		// A statement might have leading comments, so filter them out
+		lines := strings.Split(stmt, "\n")
+		var sqlLines []string
+		for _, line := range lines {
+			trimmedLine := strings.TrimSpace(line)
+			if trimmedLine != "" && !strings.HasPrefix(trimmedLine, "--") {
+				sqlLines = append(sqlLines, line)
+			}
+		}
+		if len(sqlLines) == 0 {
+			continue
+		}
+		stmt = strings.Join(sqlLines, "\n")
 
 		if _, err := tx.Exec(stmt); err != nil {
 			// Log warning but continue (for forward compatibility)
