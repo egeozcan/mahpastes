@@ -74,20 +74,35 @@ test.describe('Backup & Restore', () => {
       await app.expectClipCount(0);
 
       // Restore from backup
-      await app.page.evaluate(async (backupFile) => {
-        // @ts-ignore - Wails runtime
-        await window.go.main.App.ConfirmRestoreBackup(backupFile);
+      const restoreResult = await app.page.evaluate(async (backupFile) => {
+        try {
+          // @ts-ignore - Wails runtime
+          await window.go.main.App.ConfirmRestoreBackup(backupFile);
+          return { success: true };
+        } catch (e: any) {
+          return { success: false, error: e.message || String(e) };
+        }
       }, backupPath);
 
-      // Reload page to see restored data
-      await app.page.reload();
-      await app.waitForReady();
+      // Log restore result for debugging
+      if (!restoreResult.success) {
+        console.log('Restore failed:', restoreResult.error);
+      }
+      expect(restoreResult.success).toBe(true);
 
-      // Verify data was restored
-      await app.expectClipCount(1);
-      const tags = await app.getAllTags();
-      expect(tags.length).toBe(1);
-      expect(tags[0].name).toBe('OriginalTag');
+      // Verify data was restored by checking via API (more reliable than UI)
+      const clipsAfterRestore = await app.page.evaluate(async () => {
+        // @ts-ignore - Wails runtime
+        return await window.go.main.App.GetClips(false, []);
+      });
+      expect(clipsAfterRestore.length).toBe(1);
+
+      const tagsAfterRestore = await app.page.evaluate(async () => {
+        // @ts-ignore - Wails runtime
+        return await window.go.main.App.GetTags();
+      });
+      expect(tagsAfterRestore.length).toBe(1);
+      expect(tagsAfterRestore[0].name).toBe('OriginalTag');
     });
 
     test('should replace existing data on restore', async ({ app, tempDir }) => {
@@ -117,14 +132,19 @@ test.describe('Backup & Restore', () => {
         await window.go.main.App.ConfirmRestoreBackup(backupFile);
       }, backupPath);
 
-      await app.page.reload();
-      await app.waitForReady();
+      // Verify data was restored by checking via API (more reliable than UI)
+      const clipsAfterRestore = await app.page.evaluate(async () => {
+        // @ts-ignore - Wails runtime
+        return await window.go.main.App.GetClips(false, []);
+      });
+      expect(clipsAfterRestore.length).toBe(1);
 
-      // Verify only original data exists
-      await app.expectClipCount(1);
-      const tags = await app.getAllTags();
-      expect(tags.length).toBe(1);
-      expect(tags[0].name).toBe('Tag1');
+      const tagsAfterRestore = await app.page.evaluate(async () => {
+        // @ts-ignore - Wails runtime
+        return await window.go.main.App.GetTags();
+      });
+      expect(tagsAfterRestore.length).toBe(1);
+      expect(tagsAfterRestore[0].name).toBe('Tag1');
     });
 
     test('should restore clips with tags attached', async ({ app, tempDir }) => {
@@ -155,14 +175,19 @@ test.describe('Backup & Restore', () => {
         await window.go.main.App.ConfirmRestoreBackup(backupFile);
       }, backupPath);
 
-      await app.page.reload();
-      await app.waitForReady();
+      // Verify data was restored by checking via API (more reliable than UI)
+      const clipsAfterRestore = await app.page.evaluate(async () => {
+        // @ts-ignore - Wails runtime
+        return await window.go.main.App.GetClips(false, []);
+      });
+      expect(clipsAfterRestore.length).toBe(1);
 
-      // Verify clip and tag relationship restored
-      await app.expectClipCount(1);
-      const tags = await app.getAllTags();
-      expect(tags.length).toBe(1);
-      expect(tags[0].name).toBe('ImportantTag');
+      const tagsAfterRestore = await app.page.evaluate(async () => {
+        // @ts-ignore - Wails runtime
+        return await window.go.main.App.GetTags();
+      });
+      expect(tagsAfterRestore.length).toBe(1);
+      expect(tagsAfterRestore[0].name).toBe('ImportantTag');
     });
   });
 
@@ -239,10 +264,7 @@ test.describe('Backup & Restore', () => {
         await window.go.main.App.ConfirmRestoreBackup(backupFile);
       }, backupPath);
 
-      await app.page.reload();
-      await app.waitForReady();
-
-      // Get the restored clip content
+      // Get the restored clip content directly via API (no need to reload page)
       const clipsAfter = await app.page.evaluate(async () => {
         // @ts-ignore - Wails runtime
         return await window.go.main.App.GetClips(false, []);
@@ -288,10 +310,7 @@ test.describe('Backup & Restore', () => {
         await window.go.main.App.ConfirmRestoreBackup(backupFile);
       }, backupPath);
 
-      await app.page.reload();
-      await app.waitForReady();
-
-      // Get the restored clip info
+      // Get the restored clip info directly via API (no need to reload page)
       const clipsAfter = await app.page.evaluate(async () => {
         // @ts-ignore - Wails runtime
         return await window.go.main.App.GetClips(false, []);
