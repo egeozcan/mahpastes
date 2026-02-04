@@ -1184,6 +1184,61 @@ func (a *App) SaveClipToFile(id int64) error {
 	return nil
 }
 
+// ShowCreateBackupDialog opens a save dialog and creates a backup
+func (a *App) ShowCreateBackupDialog() (string, error) {
+	defaultFilename := fmt.Sprintf("mahpastes-backup-%s.zip", time.Now().Format("2006-01-02"))
+
+	savePath, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+		DefaultFilename: defaultFilename,
+		Title:           "Create Backup",
+		Filters: []runtime.FileFilter{
+			{DisplayName: "ZIP Archives", Pattern: "*.zip"},
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to show save dialog: %w", err)
+	}
+
+	if savePath == "" {
+		return "", nil // User cancelled
+	}
+
+	if err := a.CreateBackup(savePath); err != nil {
+		return "", err
+	}
+
+	return savePath, nil
+}
+
+// ShowRestoreBackupDialog opens a file picker and validates the selected backup
+func (a *App) ShowRestoreBackupDialog() (*BackupManifest, string, error) {
+	openPath, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "Select Backup to Restore",
+		Filters: []runtime.FileFilter{
+			{DisplayName: "ZIP Archives", Pattern: "*.zip"},
+		},
+	})
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to show open dialog: %w", err)
+	}
+
+	if openPath == "" {
+		return nil, "", nil // User cancelled
+	}
+
+	manifest, err := ValidateBackup(openPath)
+	if err != nil {
+		return nil, "", err
+	}
+
+	return manifest, openPath, nil
+}
+
+// ConfirmRestoreBackup performs the actual restore after user confirmation
+func (a *App) ConfirmRestoreBackup(backupPath string) error {
+	return a.RestoreBackup(backupPath)
+}
+
 // isJSON checks if a string is valid JSON
 func isJSON(s string) bool {
 	var js json.RawMessage
