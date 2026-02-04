@@ -21,10 +21,33 @@ const sidebars = {
         'features/image-editor',
         'features/image-comparison',
         'features/text-editor',
+        'features/tags',
         'features/auto-delete',
         'features/archive',
         'features/watch-folders',
         'features/bulk-actions',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'Plugins',
+      collapsed: false,
+      items: [
+        'plugins/overview',
+        'plugins/installing-plugins',
+        {
+          type: 'category',
+          label: 'Writing Plugins',
+          collapsed: true,
+          items: [
+            'plugins/writing/getting-started',
+            'plugins/writing/plugin-manifest',
+            'plugins/writing/event-handling',
+            'plugins/writing/settings-storage',
+          ],
+        },
+        'plugins/api-reference',
+        'plugins/example-plugins',
       ],
     },
     {

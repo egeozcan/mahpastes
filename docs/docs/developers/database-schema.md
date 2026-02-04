@@ -93,6 +93,122 @@ CREATE TABLE settings (
 |-----|--------|-------------|
 | `global_watch_paused` | "true" / "false" | Global watching pause state |
 
+### tags
+
+Stores tag definitions for organizing clips.
+
+```sql
+CREATE TABLE tags (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    color TEXT NOT NULL DEFAULT '#6b7280'
+);
+```
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | INTEGER | Auto-incrementing primary key |
+| `name` | TEXT | Tag name (unique) |
+| `color` | TEXT | Hex color code for display |
+
+### clip_tags
+
+Junction table linking clips to tags (many-to-many).
+
+```sql
+CREATE TABLE clip_tags (
+    clip_id INTEGER NOT NULL,
+    tag_id INTEGER NOT NULL,
+    PRIMARY KEY (clip_id, tag_id),
+    FOREIGN KEY (clip_id) REFERENCES clips(id) ON DELETE CASCADE,
+    FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+);
+```
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `clip_id` | INTEGER | Foreign key to clips table |
+| `tag_id` | INTEGER | Foreign key to tags table |
+
+**Constraints:**
+- Composite primary key on (clip_id, tag_id)
+- Cascading deletes when clip or tag is removed
+
+### plugins
+
+Stores installed plugin metadata and state.
+
+```sql
+CREATE TABLE plugins (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    filename TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    version TEXT NOT NULL,
+    enabled INTEGER DEFAULT 1,
+    status TEXT DEFAULT 'loaded',
+    error_count INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | INTEGER | Auto-incrementing primary key |
+| `filename` | TEXT | Plugin filename (unique) |
+| `name` | TEXT | Human-readable plugin name |
+| `version` | TEXT | Plugin version string |
+| `enabled` | INTEGER | 0 = disabled, 1 = enabled |
+| `status` | TEXT | Current status (loaded, error, disabled) |
+| `error_count` | INTEGER | Number of runtime errors |
+| `created_at` | DATETIME | When plugin was installed |
+
+### plugin_permissions
+
+Stores granted permissions for plugins.
+
+```sql
+CREATE TABLE plugin_permissions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    plugin_id INTEGER NOT NULL,
+    permission_type TEXT NOT NULL,
+    path TEXT,
+    granted_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (plugin_id) REFERENCES plugins(id) ON DELETE CASCADE
+);
+```
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | INTEGER | Auto-incrementing primary key |
+| `plugin_id` | INTEGER | Foreign key to plugins table |
+| `permission_type` | TEXT | Permission type (http, fs, etc.) |
+| `path` | TEXT | Specific path/domain granted (nullable) |
+| `granted_at` | DATETIME | When permission was granted |
+
+### plugin_storage
+
+Key-value storage scoped to individual plugins.
+
+```sql
+CREATE TABLE plugin_storage (
+    plugin_id INTEGER NOT NULL,
+    key TEXT NOT NULL,
+    value TEXT,
+    PRIMARY KEY (plugin_id, key),
+    FOREIGN KEY (plugin_id) REFERENCES plugins(id) ON DELETE CASCADE
+);
+```
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `plugin_id` | INTEGER | Foreign key to plugins table |
+| `key` | TEXT | Storage key |
+| `value` | TEXT | Stored value (JSON-encoded) |
+
+**Constraints:**
+- Composite primary key on (plugin_id, key)
+- Cascading delete when plugin is removed
+
 ## Schema Migrations
 
 Migrations are handled inline in `initDB()`:

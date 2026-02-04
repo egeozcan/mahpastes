@@ -448,6 +448,159 @@ type WatchStatus struct {
 
 ---
 
+## Tag Operations
+
+### CreateTag
+
+Create a new tag.
+
+```go
+func (a *App) CreateTag(name string) (*Tag, error)
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `name` | string | Tag name (must be unique) |
+
+**Returns:**
+| Type | Description |
+|------|-------------|
+| `*Tag` | The created tag |
+| `error` | Error if name already exists |
+
+**Tag structure:**
+```go
+type Tag struct {
+    ID    int64  `json:"id"`
+    Name  string `json:"name"`
+    Color string `json:"color"`
+}
+```
+
+---
+
+### DeleteTag
+
+Delete a tag by ID.
+
+```go
+func (a *App) DeleteTag(id int64) error
+```
+
+Removes the tag and all clip associations.
+
+---
+
+### GetTags
+
+Get all tags with usage counts.
+
+```go
+func (a *App) GetTags() ([]TagWithCount, error)
+```
+
+**Returns:**
+| Type | Description |
+|------|-------------|
+| `[]TagWithCount` | Array of tags with clip counts |
+| `error` | Error if query fails |
+
+**TagWithCount structure:**
+```go
+type TagWithCount struct {
+    Tag
+    ClipCount int `json:"clip_count"`
+}
+```
+
+---
+
+### UpdateTag
+
+Update a tag's name and color.
+
+```go
+func (a *App) UpdateTag(id int64, name string, color string) error
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `id` | int64 | Tag ID |
+| `name` | string | New tag name |
+| `color` | string | Hex color code (e.g., "#ef4444") |
+
+---
+
+### AddTagToClip
+
+Add a tag to a clip.
+
+```go
+func (a *App) AddTagToClip(clipID int64, tagID int64) error
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `clipID` | int64 | Clip ID |
+| `tagID` | int64 | Tag ID to add |
+
+---
+
+### RemoveTagFromClip
+
+Remove a tag from a clip.
+
+```go
+func (a *App) RemoveTagFromClip(clipID int64, tagID int64) error
+```
+
+---
+
+### GetClipTags
+
+Get all tags for a specific clip.
+
+```go
+func (a *App) GetClipTags(clipID int64) ([]Tag, error)
+```
+
+**Returns:**
+| Type | Description |
+|------|-------------|
+| `[]Tag` | Array of tags assigned to the clip |
+| `error` | Error if query fails |
+
+---
+
+### BulkAddTag
+
+Add a tag to multiple clips at once.
+
+```go
+func (a *App) BulkAddTag(clipIDs []int64, tagID int64) error
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `clipIDs` | []int64 | Array of clip IDs |
+| `tagID` | int64 | Tag ID to add |
+
+---
+
+### BulkRemoveTag
+
+Remove a tag from multiple clips at once.
+
+```go
+func (a *App) BulkRemoveTag(clipIDs []int64, tagID int64) error
+```
+
+---
+
 ## Events
 
 Events emitted from Go to JavaScript:

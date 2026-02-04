@@ -53,6 +53,8 @@ sidebar_position: 1
 | **Image Comparison** | Compare two images with fade or slider modes |
 | **Watch Folders** | Automatically import files from folders |
 | **Bulk Actions** | Select multiple clips to archive, download, or delete |
+| **Tags** | Color-coded labels to organize and filter clips |
+| **Plugins** | Extend functionality with Lua scripts |
 
 ## How It Works
 
