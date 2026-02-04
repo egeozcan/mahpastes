@@ -170,6 +170,9 @@ func initDB() (*sql.DB, error) {
 		log.Printf("Warning: Failed to create plugin_permissions table: %v", err)
 	}
 
+	// Migrate: Add pending_reconfirm column to plugin_permissions if it doesn't exist
+	_, _ = db.Exec("ALTER TABLE plugin_permissions ADD COLUMN pending_reconfirm INTEGER DEFAULT 0")
+
 	// Create plugin_storage table
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS plugin_storage (
 		plugin_id INTEGER NOT NULL,
