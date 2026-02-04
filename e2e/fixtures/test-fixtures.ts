@@ -1443,6 +1443,54 @@ export class AppHelper {
     const list = this.page.locator(selectors.plugins.list);
     await expect(list.locator(`text=${pluginName}`)).toBeVisible();
   }
+
+  // ==================== Backup & Restore ====================
+
+  async openSettingsModal(): Promise<void> {
+    await this.page.locator(selectors.header.settingsButton).click();
+    await this.page.waitForSelector(`${selectors.settings.modal}.opacity-100`, { timeout: 5000 });
+  }
+
+  async closeSettingsModal(): Promise<void> {
+    await this.page.locator(selectors.settings.closeButton).click();
+    await this.page.waitForSelector(`${selectors.settings.modal}.opacity-0`, { timeout: 5000 });
+  }
+
+  async createBackupViaAPI(): Promise<string> {
+    // Create backup programmatically and return the path
+    const tempDir = await this.page.evaluate(() => {
+      // @ts-ignore
+      return window.__testTempDir || '/tmp';
+    });
+
+    const backupPath = `${tempDir}/test-backup-${Date.now()}.zip`;
+
+    await this.page.evaluate(async (path) => {
+      // @ts-ignore
+      await window.go.main.App.CreateBackup(path);
+    }, backupPath);
+
+    return backupPath;
+  }
+
+  async restoreBackupViaAPI(backupPath: string): Promise<void> {
+    await this.page.evaluate(async (path) => {
+      // @ts-ignore
+      await window.go.main.App.ConfirmRestoreBackup(path);
+    }, backupPath);
+
+    // Wait for restore to complete and refresh
+    await this.page.waitForTimeout(1000);
+    await this.page.reload();
+    await this.waitForReady();
+  }
+
+  async getBackupManifest(backupPath: string): Promise<any> {
+    return this.page.evaluate(async (path) => {
+      // @ts-ignore
+      return await window.go.main.ValidateBackup(path);
+    }, backupPath);
+  }
 }
 
 // Custom test fixtures
