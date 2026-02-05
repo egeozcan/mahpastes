@@ -32,6 +32,7 @@ func (c *ClipsAPI) Register(L *lua.LState) {
 
 	clipsMod.RawSetString("list", L.NewFunction(c.list))
 	clipsMod.RawSetString("get", L.NewFunction(c.get))
+	clipsMod.RawSetString("get_data", L.NewFunction(c.getData))
 	clipsMod.RawSetString("create", L.NewFunction(c.create))
 	clipsMod.RawSetString("update", L.NewFunction(c.update))
 	clipsMod.RawSetString("delete", L.NewFunction(c.deleteClip))
@@ -162,6 +163,39 @@ func (c *ClipsAPI) get(L *lua.LState) int {
 
 	L.Push(clip)
 	return 1
+}
+
+// getData returns raw clip data (base64 for binary, plain for text)
+// Returns: data, mime_type or nil, error
+func (c *ClipsAPI) getData(L *lua.LState) int {
+	id := L.CheckInt64(1)
+
+	var contentType string
+	var data []byte
+
+	err := c.db.QueryRow(`
+		SELECT content_type, data FROM clips WHERE id = ?
+	`, id).Scan(&contentType, &data)
+
+	if err == sql.ErrNoRows {
+		L.Push(lua.LNil)
+		L.Push(lua.LString("clip not found"))
+		return 2
+	}
+	if err != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	// For text content, return as-is; for binary, base64 encode
+	if strings.HasPrefix(contentType, "text/") || contentType == "application/json" {
+		L.Push(lua.LString(string(data)))
+	} else {
+		L.Push(lua.LString(base64.StdEncoding.EncodeToString(data)))
+	}
+	L.Push(lua.LString(contentType))
+	return 2
 }
 
 func (c *ClipsAPI) create(L *lua.LState) int {
