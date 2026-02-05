@@ -6,11 +6,15 @@ export function DisablePlugin(arg1:number):Promise<void>;
 
 export function EnablePlugin(arg1:number):Promise<void>;
 
+export function ExecutePluginAction(arg1:number,arg2:string,arg3:Array<number>,arg4:Record<string, any>):Promise<main.ActionResult>;
+
 export function GetAllPluginStorage(arg1:number):Promise<Record<string, string>>;
 
 export function GetPluginPermissions(arg1:number):Promise<Array<Record<string, string>>>;
 
 export function GetPluginStorage(arg1:number,arg2:string):Promise<string>;
+
+export function GetPluginUIActions():Promise<main.UIActionsResponse>;
 
 export function GetPlugins():Promise<Array<main.PluginInfo>>;
 
