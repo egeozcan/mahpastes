@@ -78,6 +78,8 @@ export const selectors = {
     zoomSlider: '#lightbox-zoom-slider',
     zoomInfo: '#lightbox-zoom-info',
     aiActions: '#lightbox-ai-actions',
+    pluginActions: '#lightbox-plugin-actions',
+    pluginButton: '.lightbox-plugin-btn',
   },
 
   // Image editor
@@ -218,6 +220,15 @@ export const selectors = {
     checkbox: '[data-setting-type="checkbox"]',
     select: '[data-setting-type="select"]',
     passwordToggle: '[data-action="toggle-password"]',
+  },
+
+  // Plugin options dialog (for action parameters)
+  pluginOptions: {
+    modal: '#plugin-options-modal',
+    form: '#plugin-options-form',
+    cancelButton: '#plugin-options-cancel',
+    submitButton: '#plugin-options-form button[type="submit"]',
+    formField: (id: string) => `#plugin-options-form [name="${id}"]`,
   },
 
   // Settings modal

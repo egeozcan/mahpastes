@@ -317,6 +317,16 @@ export class AppHelper {
     } catch {
       // Ignore
     }
+
+    // Plugin options modal uses .active class
+    try {
+      if (await this.isPluginOptionsModalOpen()) {
+        await this.cancelPluginOptionsForm();
+        await this.page.waitForTimeout(100);
+      }
+    } catch {
+      // Ignore
+    }
   }
 
   private async deleteAllPluginsSafe(): Promise<void> {
@@ -1467,6 +1477,138 @@ export class AppHelper {
   async expectPluginInList(pluginName: string): Promise<void> {
     const list = this.page.locator(selectors.plugins.list);
     await expect(list.locator(`text=${pluginName}`)).toBeVisible();
+  }
+
+  // ==================== Plugin UI Extensions ====================
+
+  async getPluginUIActions(): Promise<{ lightbox_buttons: any[]; card_actions: any[] }> {
+    return this.page.evaluate(async () => {
+      // @ts-ignore - Wails runtime
+      if (typeof window.go?.main?.PluginService?.GetPluginUIActions !== 'function') {
+        return { lightbox_buttons: [], card_actions: [] };
+      }
+      try {
+        // @ts-ignore
+        const result = await window.go.main.PluginService.GetPluginUIActions();
+        return result || { lightbox_buttons: [], card_actions: [] };
+      } catch {
+        return { lightbox_buttons: [], card_actions: [] };
+      }
+    });
+  }
+
+  async executePluginActionViaAPI(
+    pluginId: number,
+    actionId: string,
+    clipIds: number[],
+    options: Record<string, any> = {}
+  ): Promise<{ success: boolean; error?: string; result_clip_id?: number }> {
+    return this.page.evaluate(async ({ pid, aid, cids, opts }) => {
+      // @ts-ignore - Wails runtime
+      if (typeof window.go?.main?.PluginService?.ExecutePluginAction !== 'function') {
+        return { success: false, error: 'API not available' };
+      }
+      try {
+        // @ts-ignore
+        const result = await window.go.main.PluginService.ExecutePluginAction(pid, aid, cids, opts);
+        return result || { success: false, error: 'No result returned' };
+      } catch (e: any) {
+        return { success: false, error: e.message || String(e) };
+      }
+    }, { pid: pluginId, aid: actionId, cids: clipIds, opts: options });
+  }
+
+  async openCardMenu(filename: string): Promise<void> {
+    const clip = await this.getClipByFilename(filename);
+    await clip.hover();
+    await clip.locator(selectors.clipActions.menuTrigger).click();
+    await this.page.waitForSelector(selectors.cardMenu.dropdown);
+  }
+
+  async closeCardMenu(): Promise<void> {
+    // Click away to close menu
+    await this.page.locator('body').click({ position: { x: 10, y: 10 } });
+    await this.page.waitForTimeout(100);
+  }
+
+  async clickCardMenuPluginAction(pluginId: number, actionId: string): Promise<void> {
+    const actionBtn = this.page.locator(
+      `${selectors.cardMenu.dropdown} [data-action="plugin"][data-plugin-id="${pluginId}"][data-action-id="${actionId}"]`
+    );
+    await actionBtn.click();
+  }
+
+  async expectCardMenuPluginActionsVisible(): Promise<void> {
+    const pluginActions = this.page.locator(selectors.cardMenu.pluginAction);
+    await expect(pluginActions.first()).toBeVisible();
+  }
+
+  async expectCardMenuPluginActionsCount(count: number): Promise<void> {
+    const pluginActions = this.page.locator(selectors.cardMenu.pluginAction);
+    await expect(pluginActions).toHaveCount(count);
+  }
+
+  async openLightboxPluginActions(): Promise<void> {
+    const container = this.page.locator(selectors.lightbox.pluginActions);
+    await expect(container).toBeVisible();
+  }
+
+  async clickLightboxPluginAction(pluginId: number, actionId: string): Promise<void> {
+    const btn = this.page.locator(
+      `${selectors.lightbox.pluginButton}[data-plugin-id="${pluginId}"][data-action-id="${actionId}"]`
+    );
+    await btn.click();
+  }
+
+  async expectLightboxPluginButtonsVisible(): Promise<void> {
+    const buttons = this.page.locator(selectors.lightbox.pluginButton);
+    await expect(buttons.first()).toBeVisible();
+  }
+
+  async expectLightboxPluginButtonsCount(count: number): Promise<void> {
+    const buttons = this.page.locator(selectors.lightbox.pluginButton);
+    await expect(buttons).toHaveCount(count);
+  }
+
+  async isPluginOptionsModalOpen(): Promise<boolean> {
+    return this.page.evaluate((selector) => {
+      const el = document.querySelector(selector);
+      return el ? el.classList.contains('active') : false;
+    }, selectors.pluginOptions.modal);
+  }
+
+  async fillPluginOptionsForm(values: Record<string, any>): Promise<void> {
+    for (const [name, value] of Object.entries(values)) {
+      const field = this.page.locator(`#plugin-options-form [name="${name}"]`);
+      const fieldType = await field.getAttribute('type');
+
+      if (fieldType === 'checkbox') {
+        if (value) {
+          await field.check();
+        } else {
+          await field.uncheck();
+        }
+      } else {
+        await field.fill(String(value));
+      }
+    }
+  }
+
+  async submitPluginOptionsForm(): Promise<void> {
+    await this.page.locator(selectors.pluginOptions.submitButton).click();
+    // Wait for modal to close
+    await this.page.waitForFunction((selector) => {
+      const el = document.querySelector(selector);
+      return !el || !el.classList.contains('active');
+    }, selectors.pluginOptions.modal, { timeout: 5000 });
+  }
+
+  async cancelPluginOptionsForm(): Promise<void> {
+    await this.page.locator(selectors.pluginOptions.cancelButton).click();
+    await this.page.waitForFunction((selector) => {
+      const el = document.querySelector(selector);
+      return !el || !el.classList.contains('active');
+    }, selectors.pluginOptions.modal, { timeout: 5000 });
   }
 
   // ==================== Backup & Restore ====================

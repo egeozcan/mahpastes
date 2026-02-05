@@ -73,9 +73,9 @@ test.describe('Clip View', () => {
       const clip = await app.getClipByFilename(filename);
       await clip.hover();
 
-      // Actions should be visible on hover
-      const deleteBtn = clip.locator(selectors.clipActions.delete);
-      await expect(deleteBtn).toBeVisible();
+      // Menu trigger should be visible on hover
+      const menuTrigger = clip.locator(selectors.clipActions.menuTrigger);
+      await expect(menuTrigger).toBeVisible();
     });
 
     test('should copy clip path to clipboard', async ({ app }) => {
