@@ -9,11 +9,20 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	lua "github.com/yuin/gopher-lua"
 )
 
 const (
 	MaxConsecutiveErrors = 3
 )
+
+// ActionResult represents the result of a plugin action execution
+type ActionResult struct {
+	Success      bool   `json:"success"`
+	Error        string `json:"error,omitempty"`
+	ResultClipID int64  `json:"result_clip_id,omitempty"`
+}
 
 // Plugin represents a loaded plugin
 type Plugin struct {
@@ -441,4 +450,76 @@ func (m *Manager) Shutdown() {
 
 	m.plugins = make(map[int64]*Plugin)
 	m.eventSubscribers = make(map[string][]int64)
+}
+
+// ExecuteUIAction calls a plugin's on_ui_action handler
+func (m *Manager) ExecuteUIAction(pluginID int64, actionID string, clipIDs []int64, options map[string]interface{}) (*ActionResult, error) {
+	m.mu.RLock()
+	p, ok := m.plugins[pluginID]
+	m.mu.RUnlock()
+
+	if !ok {
+		return nil, fmt.Errorf("plugin not found: %d", pluginID)
+	}
+
+	if !p.Enabled {
+		return nil, fmt.Errorf("plugin is disabled: %s", p.Name)
+	}
+
+	if p.Sandbox == nil {
+		return nil, fmt.Errorf("plugin sandbox not initialized: %s", p.Name)
+	}
+
+	// Call on_ui_action(action_id, clip_ids, options)
+	L := p.Sandbox.L
+
+	fn := L.GetGlobal("on_ui_action")
+	if fn == lua.LNil {
+		return nil, fmt.Errorf("plugin does not implement on_ui_action: %s", p.Name)
+	}
+
+	// Convert clip_ids to Lua table
+	clipIDsTable := L.NewTable()
+	for _, id := range clipIDs {
+		clipIDsTable.Append(lua.LNumber(id))
+	}
+
+	// Convert options to Lua table
+	optionsTable := L.NewTable()
+	for k, v := range options {
+		switch val := v.(type) {
+		case string:
+			optionsTable.RawSetString(k, lua.LString(val))
+		case float64:
+			optionsTable.RawSetString(k, lua.LNumber(val))
+		case bool:
+			optionsTable.RawSetString(k, lua.LBool(val))
+		case int:
+			optionsTable.RawSetString(k, lua.LNumber(val))
+		}
+	}
+
+	// Call the function
+	if err := L.CallByParam(lua.P{
+		Fn:      fn,
+		NRet:    1,
+		Protect: true,
+	}, lua.LString(actionID), clipIDsTable, optionsTable); err != nil {
+		return nil, fmt.Errorf("plugin action failed: %w", err)
+	}
+
+	// Get return value
+	result := &ActionResult{Success: true}
+	ret := L.Get(-1)
+	L.Pop(1)
+
+	if tbl, ok := ret.(*lua.LTable); ok {
+		if clipID := tbl.RawGetString("result_clip_id"); clipID != lua.LNil {
+			if num, ok := clipID.(lua.LNumber); ok {
+				result.ResultClipID = int64(num)
+			}
+		}
+	}
+
+	return result, nil
 }

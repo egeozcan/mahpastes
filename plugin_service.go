@@ -50,6 +50,13 @@ type UIActionsResponse struct {
 	CardActions     []PluginUIAction `json:"card_actions"`
 }
 
+// ActionResult represents the result of a plugin action execution
+type ActionResult struct {
+	Success      bool   `json:"success"`
+	Error        string `json:"error,omitempty"`
+	ResultClipID int64  `json:"result_clip_id,omitempty"`
+}
+
 // GetPlugins returns all plugins
 func (s *PluginService) GetPlugins() ([]PluginInfo, error) {
 	if s.app.db == nil {
@@ -336,4 +343,23 @@ func (s *PluginService) GetPluginUIActions() (*UIActionsResponse, error) {
 	}
 
 	return response, nil
+}
+
+// ExecutePluginAction calls a plugin's on_ui_action handler
+func (s *PluginService) ExecutePluginAction(pluginID int64, actionID string, clipIDs []int64, options map[string]interface{}) (*ActionResult, error) {
+	if s.app.pluginManager == nil {
+		return &ActionResult{Success: false, Error: "plugin manager not initialized"}, nil
+	}
+
+	result, err := s.app.pluginManager.ExecuteUIAction(pluginID, actionID, clipIDs, options)
+	if err != nil {
+		return &ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	// Convert plugin.ActionResult to ActionResult
+	return &ActionResult{
+		Success:      result.Success,
+		Error:        result.Error,
+		ResultClipID: result.ResultClipID,
+	}, nil
 }
