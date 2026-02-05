@@ -4,7 +4,10 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
+	"path"
 	"strings"
 	"time"
 
@@ -34,6 +37,7 @@ func (c *ClipsAPI) Register(L *lua.LState) {
 	clipsMod.RawSetString("get", L.NewFunction(c.get))
 	clipsMod.RawSetString("get_data", L.NewFunction(c.getData))
 	clipsMod.RawSetString("create", L.NewFunction(c.create))
+	clipsMod.RawSetString("create_from_url", L.NewFunction(c.createFromURL))
 	clipsMod.RawSetString("update", L.NewFunction(c.update))
 	clipsMod.RawSetString("delete", L.NewFunction(c.deleteClip))
 	clipsMod.RawSetString("delete_many", L.NewFunction(c.deleteMany))
@@ -274,6 +278,103 @@ func (c *ClipsAPI) create(L *lua.LState) int {
 	id, _ := result.LastInsertId()
 
 	// Return a table with clip info (matching design spec)
+	clip := L.NewTable()
+	clip.RawSetString("id", lua.LNumber(id))
+	L.Push(clip)
+	return 1
+}
+
+// createFromURL downloads content from a URL and creates a clip
+func (c *ClipsAPI) createFromURL(L *lua.LState) int {
+	url := L.CheckString(1)
+
+	var opts *lua.LTable
+	if L.GetTop() >= 2 {
+		opts = L.OptTable(2, nil)
+	}
+
+	// Create HTTP client with timeout
+	client := &http.Client{Timeout: 60 * time.Second}
+
+	resp, err := client.Get(url)
+	if err != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString("failed to fetch URL: " + err.Error()))
+		return 2
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(fmt.Sprintf("HTTP error: %d %s", resp.StatusCode, resp.Status)))
+		return 2
+	}
+
+	// Read body with size limit
+	limitedReader := io.LimitReader(resp.Body, MaxClipDataSize+1)
+	data, err := io.ReadAll(limitedReader)
+	if err != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString("failed to read response: " + err.Error()))
+		return 2
+	}
+
+	if len(data) > MaxClipDataSize {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(fmt.Sprintf("response too large: exceeds %d bytes", MaxClipDataSize)))
+		return 2
+	}
+
+	// Determine content type
+	contentType := resp.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	// Strip charset if present
+	if idx := strings.Index(contentType, ";"); idx > 0 {
+		contentType = strings.TrimSpace(contentType[:idx])
+	}
+
+	// Override with options if provided
+	if opts != nil {
+		if mt := opts.RawGetString("mime_type"); mt != lua.LNil {
+			contentType = mt.String()
+		} else if ct := opts.RawGetString("content_type"); ct != lua.LNil {
+			contentType = ct.String()
+		}
+	}
+
+	// Determine filename
+	filename := ""
+	if opts != nil {
+		if nm := opts.RawGetString("name"); nm != lua.LNil {
+			filename = nm.String()
+		} else if fn := opts.RawGetString("filename"); fn != lua.LNil {
+			filename = fn.String()
+		}
+	}
+	// Fallback to URL path
+	if filename == "" {
+		filename = path.Base(url)
+		if filename == "." || filename == "/" {
+			filename = "downloaded"
+		}
+	}
+
+	// Insert into database
+	result, err := c.db.Exec(
+		"INSERT INTO clips (content_type, data, filename) VALUES (?, ?, ?)",
+		contentType, data, filename,
+	)
+	if err != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	id, _ := result.LastInsertId()
+
+	// Return a table with clip info
 	clip := L.NewTable()
 	clip.RawSetString("id", lua.LNumber(id))
 	L.Push(clip)
