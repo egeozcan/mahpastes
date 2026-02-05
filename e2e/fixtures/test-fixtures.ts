@@ -333,6 +333,17 @@ export class AppHelper {
     } catch {
       // Ignore
     }
+
+    // Folder modal (watch folder add/edit)
+    try {
+      const folderModalVisible = await this.page.locator('#folder-modal').isVisible();
+      if (folderModalVisible) {
+        await this.page.locator('#folder-modal-cancel').click();
+        await this.page.waitForTimeout(100);
+      }
+    } catch {
+      // Ignore
+    }
   }
 
   private async deleteAllPluginsSafe(): Promise<void> {
@@ -895,9 +906,18 @@ export class AppHelper {
     await expect(clip).not.toBeVisible();
   }
 
-  async expectClipCount(count: number): Promise<void> {
+  async expectClipCount(count: number, options?: { timeout?: number }): Promise<void> {
     const clips = this.page.locator(selectors.gallery.clipCard);
-    await expect(clips).toHaveCount(count);
+    await expect(clips).toHaveCount(count, { timeout: options?.timeout });
+  }
+
+  /**
+   * Wait for clip count with a longer timeout - useful for watch folder imports
+   * which can be slower under load.
+   */
+  async waitForClipCount(count: number, timeout: number = 30000): Promise<void> {
+    const clips = this.page.locator(selectors.gallery.clipCard);
+    await expect(clips).toHaveCount(count, { timeout });
   }
 
   async expectEmptyState(): Promise<void> {

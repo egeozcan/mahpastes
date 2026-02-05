@@ -7,6 +7,9 @@ import {
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
+// Run watch folder tests serially to avoid resource contention
+test.describe.configure({ mode: 'serial' });
+
 test.describe('Watch Folder Import', () => {
   test.describe('Auto-Import on File Creation', () => {
     test('should auto-import image file created in watched folder', async ({ app, tempDir }) => {
@@ -15,16 +18,16 @@ test.describe('Watch Folder Import', () => {
       await app.toggleGlobalWatch(true);
       await app.closeWatchView();
 
+      // Wait for watcher to fully initialize before creating file
+      await app.page.waitForTimeout(1000);
+
       // Create a file in the watched folder
       const filename = `auto-import-${Date.now()}.png`;
       const filePath = path.join(tempDir, filename);
       await fs.writeFile(filePath, generateTestImage());
 
-      // Wait for import (debounce is 250ms + processing time)
-      await app.page.waitForTimeout(2000);
-
-      // Clip should appear
-      await app.expectClipCount(1);
+      // Wait for import with longer timeout (debounce + processing can be slow under load)
+      await app.waitForClipCount(1, 30000);
     });
 
     test('should auto-import text file created in watched folder', async ({ app, tempDir }) => {
@@ -37,9 +40,8 @@ test.describe('Watch Folder Import', () => {
       const filePath = path.join(tempDir, filename);
       await fs.writeFile(filePath, generateTestText('auto-import'));
 
-      await app.page.waitForTimeout(2000);
-
-      await app.expectClipCount(1);
+      // Wait for import with longer timeout
+      await app.waitForClipCount(1, 30000);
     });
 
     test('should auto-import multiple files', async ({ app, tempDir }) => {
@@ -64,11 +66,8 @@ test.describe('Watch Folder Import', () => {
         await app.page.waitForTimeout(100); // Small delay between files
       }
 
-      await app.page.waitForTimeout(3000);
-
-      // All files should be imported
-      const count = await app.getClipCount();
-      expect(count).toBeGreaterThanOrEqual(3);
+      // Wait for all files to be imported (use polling instead of fixed timeout)
+      await app.waitForClipCount(3, 30000);
     });
   });
 
@@ -101,12 +100,8 @@ test.describe('Watch Folder Import', () => {
       const imageFile = path.join(tempDir, `filter-test-${Date.now()}.png`);
       await fs.writeFile(imageFile, generateTestImage());
 
-      // Wait for file system events to be processed
-      await app.page.waitForTimeout(2500);
-
-      // Image should be imported (filter allows .png)
-      const count = await app.getClipCount();
-      expect(count).toBeGreaterThanOrEqual(1);
+      // Wait for import with longer timeout
+      await app.waitForClipCount(1, 30000);
     });
 
     test('should import file matching custom regex filter', async ({ app, tempDir }) => {
@@ -137,12 +132,8 @@ test.describe('Watch Folder Import', () => {
       const logFile = path.join(tempDir, `app-${Date.now()}.log`);
       await fs.writeFile(logFile, 'log content');
 
-      // Wait for file system events to be processed
-      await app.page.waitForTimeout(2500);
-
-      // Log file should be imported (matches regex)
-      const count = await app.getClipCount();
-      expect(count).toBeGreaterThanOrEqual(1);
+      // Wait for import with longer timeout
+      await app.waitForClipCount(1, 30000);
     });
   });
 
@@ -176,17 +167,15 @@ test.describe('Watch Folder Import', () => {
       const filePath = path.join(tempDir, filename);
       await fs.writeFile(filePath, generateTestText('auto-archive'));
 
-      // Wait for file system events to be processed
-      await app.page.waitForTimeout(2500);
+      // Poll for archived clip count (auto-archive means it goes directly to archive)
+      await expect.poll(
+        async () => app.getClipCountFromDB(true),
+        { timeout: 30000, message: 'Expected 1 archived clip' }
+      ).toBe(1);
 
-      // Query database directly to verify auto-archive worked
-      // Clip should NOT be in active clips (archived=false)
+      // Verify it's not in active clips
       const activeCount = await app.getClipCountFromDB(false);
       expect(activeCount).toBe(0);
-
-      // Clip SHOULD be in archived clips (archived=true)
-      const archivedCount = await app.getClipCountFromDB(true);
-      expect(archivedCount).toBe(1);
     });
   });
 

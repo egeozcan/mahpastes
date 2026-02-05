@@ -3,6 +3,9 @@ import { createTempFile, generateTestImage, createTempDir, cleanup } from '../..
 import * as path from 'path';
 import * as fs from 'fs/promises';
 
+// Run watch folder tests serially to avoid resource contention
+test.describe.configure({ mode: 'serial' });
+
 test.describe('Watch Folder Auto-Tagging', () => {
   let watchDir: string;
 
@@ -20,17 +23,26 @@ test.describe('Watch Folder Auto-Tagging', () => {
 
   test.describe('Auto-Tag Configuration', () => {
     test('should show auto-tag dropdown in watch folder modal', async ({ app }) => {
-      // Open watch view and add folder modal
+      // Open watch view
       const watchBtn = app.page.locator('#toggle-watch-view-btn');
       await watchBtn.click();
       await app.page.waitForSelector('#watch-view:not(.hidden)');
 
-      const addFolderBtn = app.page.locator('#add-folder-btn');
-      await addFolderBtn.click();
+      // Open folder modal directly (bypassing native dialog)
+      await app.page.evaluate((testPath) => {
+        // @ts-ignore - call the modal open function directly
+        if (typeof openFolderModal === 'function') {
+          // @ts-ignore
+          openFolderModal(testPath);
+        }
+      }, watchDir);
       await app.page.waitForSelector('#folder-modal', { state: 'visible' });
 
       const autoTagSelect = app.page.locator('[data-testid="watch-folder-auto-tag"]');
       await expect(autoTagSelect).toBeVisible();
+
+      // Close the modal
+      await app.page.locator('#folder-modal-cancel').click();
     });
 
     test('should list available tags in auto-tag dropdown', async ({ app }) => {
@@ -66,21 +78,33 @@ test.describe('Watch Folder Auto-Tagging', () => {
 
       // Should have "None" + 2 tags
       expect(optionCount).toBeGreaterThanOrEqual(3);
+
+      // Close the modal
+      await app.page.locator('#folder-modal-cancel').click();
     });
 
     test('should have None option as default', async ({ app }) => {
-      // Open watch view and add folder modal
+      // Open watch view
       const watchBtn = app.page.locator('#toggle-watch-view-btn');
       await watchBtn.click();
       await app.page.waitForSelector('#watch-view:not(.hidden)');
 
-      const addFolderBtn = app.page.locator('#add-folder-btn');
-      await addFolderBtn.click();
+      // Open folder modal directly (bypassing native dialog)
+      await app.page.evaluate((testPath) => {
+        // @ts-ignore - call the modal open function directly
+        if (typeof openFolderModal === 'function') {
+          // @ts-ignore
+          openFolderModal(testPath);
+        }
+      }, watchDir);
       await app.page.waitForSelector('#folder-modal', { state: 'visible' });
 
       const autoTagSelect = app.page.locator('[data-testid="watch-folder-auto-tag"]');
       const noneOption = autoTagSelect.locator('option[value=""]');
       await expect(noneOption).toHaveText('None');
+
+      // Close the modal
+      await app.page.locator('#folder-modal-cancel').click();
     });
   });
 
@@ -125,8 +149,8 @@ test.describe('Watch Folder Auto-Tagging', () => {
       const testFilePath = path.join(watchDir, 'auto-tagged-image.png');
       await fs.writeFile(testFilePath, imageContent);
 
-      // Wait for the file to be imported
-      await app.page.waitForTimeout(3000);
+      // Wait for the file to be imported with longer timeout
+      await app.waitForClipCount(1, 30000);
 
       // Refresh clips via API
       await app.page.evaluate(async () => {
@@ -134,9 +158,6 @@ test.describe('Watch Folder Auto-Tagging', () => {
         if (window.__testHelpers) window.__testHelpers.loadClips();
       });
       await app.page.waitForTimeout(500);
-
-      // Verify clip was imported with the tag
-      await app.expectClipCount(1);
       await app.expectClipHasTag('auto-tagged-image.png', 'watched');
     });
 
@@ -174,8 +195,8 @@ test.describe('Watch Folder Auto-Tagging', () => {
       const testFilePath = path.join(watchDir, 'no-tag-image.png');
       await fs.writeFile(testFilePath, imageContent);
 
-      // Wait for import
-      await app.page.waitForTimeout(3000);
+      // Wait for import with longer timeout
+      await app.waitForClipCount(1, 30000);
 
       // Refresh clips via API
       await app.page.evaluate(async () => {
@@ -183,9 +204,6 @@ test.describe('Watch Folder Auto-Tagging', () => {
         if (window.__testHelpers) window.__testHelpers.loadClips();
       });
       await app.page.waitForTimeout(500);
-
-      // Verify clip exists but has no tags
-      await app.expectClipCount(1);
       await app.expectClipDoesNotHaveTag('no-tag-image.png', 'unused');
     });
   });
@@ -248,7 +266,8 @@ test.describe('Watch Folder Auto-Tagging', () => {
       const testFilePath = path.join(watchDir, 'updated-tag-image.png');
       await fs.writeFile(testFilePath, imageContent);
 
-      await app.page.waitForTimeout(3000);
+      // Wait for import with longer timeout
+      await app.waitForClipCount(1, 30000);
 
       // Refresh clips via API
       await app.page.evaluate(async () => {
@@ -256,9 +275,6 @@ test.describe('Watch Folder Auto-Tagging', () => {
         if (window.__testHelpers) window.__testHelpers.loadClips();
       });
       await app.page.waitForTimeout(500);
-
-      // Should have the updated tag
-      await app.expectClipCount(1);
       await app.expectClipHasTag('updated-tag-image.png', 'updated');
     });
   });
