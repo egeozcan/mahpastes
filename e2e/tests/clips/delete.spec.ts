@@ -47,10 +47,8 @@ test.describe('Clip Delete', () => {
 
       await app.uploadFile(imagePath);
 
-      // Start delete but check for dialog
-      const clip = await app.getClipByFilename(filename);
-      await clip.hover();
-      await clip.locator('[data-action="delete"]').click();
+      // Open card menu and click delete (via dropdown menu)
+      await app.clickDeleteInCardMenu(filename);
 
       // Dialog should be visible (confirmDialog will handle it)
       await app.confirmDialog();
@@ -64,10 +62,8 @@ test.describe('Clip Delete', () => {
 
       await app.uploadFile(imagePath);
 
-      // Start delete
-      const clip = await app.getClipByFilename(filename);
-      await clip.hover();
-      await clip.locator('[data-action="delete"]').click();
+      // Open card menu and click delete (via dropdown menu)
+      await app.clickDeleteInCardMenu(filename);
 
       // Cancel the dialog
       await app.cancelDialog();

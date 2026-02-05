@@ -146,6 +146,13 @@ export class AppHelper {
   }
 
   async deleteClip(filename: string): Promise<void> {
+    await this.clickDeleteInCardMenu(filename);
+    await this.confirmDialog();
+  }
+
+  // Open the card menu and click delete, but don't confirm the dialog
+  // This is useful for tests that need to check the dialog behavior
+  async clickDeleteInCardMenu(filename: string): Promise<void> {
     const clip = await this.getClipByFilename(filename);
     await clip.hover();
     // Open the card menu
@@ -154,7 +161,6 @@ export class AppHelper {
     await this.page.waitForSelector(selectors.cardMenu.dropdown);
     // Click delete
     await this.page.locator(selectors.cardMenu.delete).click();
-    await this.confirmDialog();
   }
 
   async archiveClip(filename: string): Promise<void> {
@@ -1573,7 +1579,8 @@ export class AppHelper {
   async isPluginOptionsModalOpen(): Promise<boolean> {
     return this.page.evaluate((selector) => {
       const el = document.querySelector(selector);
-      return el ? el.classList.contains('active') : false;
+      // Modal is open when it has opacity-100 class (not opacity-0)
+      return el ? el.classList.contains('opacity-100') : false;
     }, selectors.pluginOptions.modal);
   }
 

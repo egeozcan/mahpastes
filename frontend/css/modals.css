@@ -549,7 +549,7 @@ input[type="range"].comparison-range::-webkit-slider-thumb {
     inset: 0;
     background-color: rgba(28, 25, 23, 0.4);
     backdrop-filter: blur(4px);
-    z-index: 60;
+    z-index: 150; /* Above lightbox (100) */
     display: flex;
     align-items: center;
     justify-content: center;

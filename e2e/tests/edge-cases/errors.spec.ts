@@ -101,10 +101,13 @@ test.describe('Error Handling', () => {
 
       await app.uploadFile(imagePath);
 
-      // Double-click delete (rapid clicks)
+      // Open card menu, then double-click delete (rapid clicks)
       const clip = await app.getClipByFilename(filename);
       await clip.hover();
-      const deleteBtn = clip.locator('[data-action="delete"]');
+      await clip.locator(selectors.clipActions.menuTrigger).click();
+      await app.page.waitForSelector(selectors.cardMenu.dropdown);
+
+      const deleteBtn = app.page.locator(selectors.cardMenu.delete);
       await deleteBtn.dblclick();
 
       // Wait a bit for any dialog that might appear
