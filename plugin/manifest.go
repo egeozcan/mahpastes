@@ -116,6 +116,9 @@ func ParseManifest(source string) (*Manifest, error) {
 	// Parse settings
 	manifest.Settings = extractSettings(pluginBlock)
 
+	// Parse UI declarations
+	manifest.UI = extractUI(pluginBlock)
+
 	return manifest, nil
 }
 
@@ -474,6 +477,223 @@ func parseSettingEntry(entry string) SettingField {
 	setting.Options = extractStringArray(entry, "options")
 
 	return setting
+}
+
+// extractUI extracts UI declarations from the manifest
+// Format: ui = { lightbox_buttons = {...}, card_actions = {...} }
+func extractUI(block string) *UIManifest {
+	// Find the ui block
+	uiPattern := regexp.MustCompile(`ui\s*=\s*\{`)
+	loc := uiPattern.FindStringIndex(block)
+	if loc == nil {
+		return nil
+	}
+
+	start := loc[1] - 1
+	uiBlock := extractNestedBrace(block[start:])
+	if uiBlock == "" {
+		return nil
+	}
+
+	ui := &UIManifest{}
+	ui.LightboxButtons = extractUIActions(uiBlock, "lightbox_buttons")
+	ui.CardActions = extractUIActions(uiBlock, "card_actions")
+
+	// Return nil if no actions defined
+	if len(ui.LightboxButtons) == 0 && len(ui.CardActions) == 0 {
+		return nil
+	}
+
+	return ui
+}
+
+// extractUIActions extracts an array of UI actions
+func extractUIActions(block, field string) []UIAction {
+	var result []UIAction
+
+	// Find the field block
+	fieldPattern := regexp.MustCompile(regexp.QuoteMeta(field) + `\s*=\s*\{`)
+	loc := fieldPattern.FindStringIndex(block)
+	if loc == nil {
+		return result
+	}
+
+	start := loc[1] - 1
+	actionsBlock := extractNestedBrace(block[start:])
+	if actionsBlock == "" {
+		return result
+	}
+
+	// Find each action entry: {id = "...", label = "...", ...}
+	depth := 0
+	entryStart := -1
+
+	for i := 1; i < len(actionsBlock)-1; i++ {
+		c := actionsBlock[i]
+		if c == '{' {
+			if depth == 0 {
+				entryStart = i
+			}
+			depth++
+		} else if c == '}' {
+			depth--
+			if depth == 0 && entryStart >= 0 {
+				entry := actionsBlock[entryStart : i+1]
+				action := parseUIAction(entry)
+				if action.ID != "" && action.Label != "" {
+					result = append(result, action)
+				}
+				entryStart = -1
+			}
+		}
+	}
+
+	return result
+}
+
+// parseUIAction parses a single UI action entry
+func parseUIAction(entry string) UIAction {
+	var action UIAction
+
+	action.ID = extractStringField(entry, "id")
+	action.Label = extractStringField(entry, "label")
+	action.Icon = extractStringField(entry, "icon")
+
+	// Parse options if present
+	action.Options = extractFormFields(entry)
+
+	return action
+}
+
+// extractFormFields extracts form field definitions from an action
+func extractFormFields(block string) []FormField {
+	var result []FormField
+
+	// Find the options block
+	optionsPattern := regexp.MustCompile(`options\s*=\s*\{`)
+	loc := optionsPattern.FindStringIndex(block)
+	if loc == nil {
+		return result
+	}
+
+	start := loc[1] - 1
+	optionsBlock := extractNestedBrace(block[start:])
+	if optionsBlock == "" {
+		return result
+	}
+
+	// Find each field entry
+	depth := 0
+	entryStart := -1
+
+	for i := 1; i < len(optionsBlock)-1; i++ {
+		c := optionsBlock[i]
+		if c == '{' {
+			if depth == 0 {
+				entryStart = i
+			}
+			depth++
+		} else if c == '}' {
+			depth--
+			if depth == 0 && entryStart >= 0 {
+				entry := optionsBlock[entryStart : i+1]
+				field := parseFormField(entry)
+				if field.ID != "" && field.Type != "" && field.Label != "" {
+					result = append(result, field)
+				}
+				entryStart = -1
+			}
+		}
+	}
+
+	return result
+}
+
+// parseFormField parses a single form field entry
+func parseFormField(entry string) FormField {
+	var field FormField
+
+	field.ID = extractStringField(entry, "id")
+	field.Type = extractStringField(entry, "type")
+	field.Label = extractStringField(entry, "label")
+
+	// Parse required
+	requiredPattern := regexp.MustCompile(`required\s*=\s*(true|false)`)
+	if matches := requiredPattern.FindStringSubmatch(entry); len(matches) >= 2 {
+		field.Required = matches[1] == "true"
+	}
+
+	// Parse default value
+	field.Default = extractDefaultValue(entry)
+
+	// Parse choices for select type
+	field.Choices = extractChoices(entry)
+
+	// Parse range options
+	field.Min = extractFloatField(entry, "min")
+	field.Max = extractFloatField(entry, "max")
+	field.Step = extractFloatField(entry, "step")
+
+	return field
+}
+
+// extractChoices extracts choices array for select fields
+func extractChoices(block string) []Choice {
+	var result []Choice
+
+	// Find choices block
+	choicesPattern := regexp.MustCompile(`choices\s*=\s*\{`)
+	loc := choicesPattern.FindStringIndex(block)
+	if loc == nil {
+		return result
+	}
+
+	start := loc[1] - 1
+	choicesBlock := extractNestedBrace(block[start:])
+	if choicesBlock == "" {
+		return result
+	}
+
+	// Find each choice entry
+	depth := 0
+	entryStart := -1
+
+	for i := 1; i < len(choicesBlock)-1; i++ {
+		c := choicesBlock[i]
+		if c == '{' {
+			if depth == 0 {
+				entryStart = i
+			}
+			depth++
+		} else if c == '}' {
+			depth--
+			if depth == 0 && entryStart >= 0 {
+				entry := choicesBlock[entryStart : i+1]
+				value := extractStringField(entry, "value")
+				label := extractStringField(entry, "label")
+				if value != "" && label != "" {
+					result = append(result, Choice{Value: value, Label: label})
+				}
+				entryStart = -1
+			}
+		}
+	}
+
+	return result
+}
+
+// extractFloatField extracts a float64 field value
+func extractFloatField(block, field string) float64 {
+	pattern := fmt.Sprintf(`%s\s*=\s*([0-9.]+)`, regexp.QuoteMeta(field))
+	re := regexp.MustCompile(pattern)
+	matches := re.FindStringSubmatch(block)
+	if len(matches) >= 2 {
+		val, err := strconv.ParseFloat(matches[1], 64)
+		if err == nil {
+			return val
+		}
+	}
+	return 0
 }
 
 // extractDefaultValue extracts the default value which can be string, bool, or absent
