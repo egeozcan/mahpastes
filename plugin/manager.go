@@ -133,6 +133,9 @@ func (m *Manager) loadPlugin(p *Plugin) error {
 	toastAPI := NewToastAPI(m.ctx, p.ID)
 	toastAPI.Register(sandbox.GetState())
 
+	taskAPI := NewTaskAPI(m.ctx, p.ID)
+	taskAPI.Register(sandbox.GetState())
+
 	// Load the plugin source
 	if err := sandbox.LoadSource(string(source)); err != nil {
 		sandbox.Close()
