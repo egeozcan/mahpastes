@@ -1065,6 +1065,27 @@
         </div>
     </div>
 
+    <!-- Plugin Options Dialog -->
+    <div id="plugin-options-modal" class="modal-backdrop opacity-0 pointer-events-none" role="dialog" aria-modal="true">
+        <div class="modal-content max-w-md">
+            <div class="modal-header">
+                <h3 id="plugin-options-title" class="text-sm font-semibold text-stone-800">Action Options</h3>
+                <button id="plugin-options-close" class="p-1 hover:bg-stone-100 rounded transition-colors" aria-label="Close">
+                    <svg class="w-4 h-4 text-stone-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+            <form id="plugin-options-form" class="modal-body">
+                <!-- Form fields rendered by JS -->
+            </form>
+            <div class="modal-footer">
+                <button type="button" id="plugin-options-cancel" class="btn-secondary">Cancel</button>
+                <button type="submit" form="plugin-options-form" class="btn-primary">Process</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Scripts split for better organization -->
     <script src="js/utils.js"></script>
     <script src="js/wails-api.js"></script>

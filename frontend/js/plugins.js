@@ -556,13 +556,165 @@ async function executePluginAction(pluginId, actionId, clipIds, options) {
     }
 }
 
-// --- Open Plugin Options Dialog ---
+// --- Plugin Options Dialog ---
+// Dialog state
+let currentPluginAction = null;
+let currentActionClipIds = [];
+
 // This function is called when a plugin action has options that need user input
 // action: the full action object with plugin_id, id, label, options, etc.
 // clipIds: array of clip IDs to apply the action to
 function openPluginOptionsDialog(action, clipIds) {
-    // TODO: Implement options dialog in Task 15
-    // For now, execute directly without options
-    console.warn('Options dialog not yet implemented, executing without options');
-    executePluginAction(action.plugin_id, action.id, clipIds, {});
+    currentPluginAction = action;
+    currentActionClipIds = clipIds;
+
+    const modal = document.getElementById('plugin-options-modal');
+    const title = document.getElementById('plugin-options-title');
+    const form = document.getElementById('plugin-options-form');
+
+    // Set title
+    const clipCount = clipIds.length;
+    title.textContent = `${action.label} - ${clipCount} ${clipCount === 1 ? 'clip' : 'clips'}`;
+
+    // Render form fields
+    form.innerHTML = '';
+    action.options.forEach(field => {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'form-field';
+
+        const label = document.createElement('label');
+        label.className = 'form-label';
+        label.textContent = field.label;
+        if (field.required) {
+            label.innerHTML += '<span class="text-red-500 ml-1">*</span>';
+        }
+        label.setAttribute('for', `plugin-opt-${field.id}`);
+
+        let input;
+        switch (field.type) {
+            case 'checkbox':
+                input = document.createElement('input');
+                input.type = 'checkbox';
+                input.className = 'form-checkbox';
+                input.checked = field.default === true;
+                break;
+
+            case 'select':
+                input = document.createElement('select');
+                input.className = 'form-select';
+                field.choices?.forEach(choice => {
+                    const opt = document.createElement('option');
+                    opt.value = choice.value;
+                    opt.textContent = choice.label;
+                    if (choice.value === field.default) opt.selected = true;
+                    input.appendChild(opt);
+                });
+                break;
+
+            case 'range':
+                input = document.createElement('input');
+                input.type = 'range';
+                input.className = 'form-range';
+                input.min = field.min || 0;
+                input.max = field.max || 1;
+                input.step = field.step || 0.1;
+                input.value = field.default || field.min || 0;
+
+                const valueDisplay = document.createElement('span');
+                valueDisplay.className = 'form-range-value';
+                valueDisplay.textContent = input.value;
+                input.addEventListener('input', () => valueDisplay.textContent = input.value);
+
+                wrapper.appendChild(label);
+                const rangeWrapper = document.createElement('div');
+                rangeWrapper.className = 'form-range-wrapper';
+                rangeWrapper.appendChild(input);
+                rangeWrapper.appendChild(valueDisplay);
+                wrapper.appendChild(rangeWrapper);
+                input.id = `plugin-opt-${field.id}`;
+                input.name = field.id;
+                form.appendChild(wrapper);
+                return;
+
+            default: // text, password
+                input = document.createElement('input');
+                input.type = field.type === 'password' ? 'password' : 'text';
+                input.className = 'form-input';
+                input.value = field.default || '';
+                input.placeholder = field.label;
+        }
+
+        input.id = `plugin-opt-${field.id}`;
+        input.name = field.id;
+        if (field.required) input.required = true;
+
+        wrapper.appendChild(label);
+        if (field.type === 'checkbox') {
+            const checkWrapper = document.createElement('div');
+            checkWrapper.className = 'form-checkbox-wrapper';
+            checkWrapper.appendChild(input);
+            wrapper.appendChild(checkWrapper);
+        } else {
+            wrapper.appendChild(input);
+        }
+        form.appendChild(wrapper);
+    });
+
+    // Show modal
+    modal.classList.remove('opacity-0', 'pointer-events-none');
+    modal.classList.add('opacity-100');
 }
+
+function closePluginOptionsDialog() {
+    const modal = document.getElementById('plugin-options-modal');
+    modal.classList.remove('opacity-100');
+    modal.classList.add('opacity-0', 'pointer-events-none');
+    currentPluginAction = null;
+    currentActionClipIds = [];
+}
+
+// --- Plugin Options Dialog Event Listeners ---
+document.getElementById('plugin-options-close')?.addEventListener('click', closePluginOptionsDialog);
+document.getElementById('plugin-options-cancel')?.addEventListener('click', closePluginOptionsDialog);
+
+document.getElementById('plugin-options-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    if (!currentPluginAction) return;
+
+    // Gather form values
+    const formData = new FormData(e.target);
+    const options = {};
+
+    currentPluginAction.options.forEach(field => {
+        const value = formData.get(field.id);
+        switch (field.type) {
+            case 'checkbox':
+                options[field.id] = document.getElementById(`plugin-opt-${field.id}`).checked;
+                break;
+            case 'range':
+                options[field.id] = parseFloat(value);
+                break;
+            default:
+                options[field.id] = value;
+        }
+    });
+
+    closePluginOptionsDialog();
+    await executePluginAction(currentPluginAction.plugin_id, currentPluginAction.id, currentActionClipIds, options);
+});
+
+// Close on backdrop click
+document.getElementById('plugin-options-modal')?.addEventListener('click', (e) => {
+    if (e.target.id === 'plugin-options-modal') closePluginOptionsDialog();
+});
+
+// Close on escape (this supplements the existing escape handler for the plugins modal)
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        const optionsModal = document.getElementById('plugin-options-modal');
+        if (optionsModal && !optionsModal.classList.contains('opacity-0')) {
+            closePluginOptionsDialog();
+        }
+    }
+});
