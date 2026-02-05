@@ -332,8 +332,15 @@ document.addEventListener('click', (e) => {
         closeCardMenu();
 
         if (hasOptions && typeof openPluginOptionsDialog === 'function') {
-            // Open options dialog for this action
-            openPluginOptionsDialog(pluginId, actionId, [Number(clipId)]);
+            // Find the full action object from pluginUIActions
+            const pluginAction = pluginUIActions?.card_actions?.find(
+                a => a.plugin_id === pluginId && a.id === actionId
+            );
+            if (pluginAction) {
+                openPluginOptionsDialog(pluginAction, [Number(clipId)]);
+            } else {
+                console.error('Could not find plugin action:', pluginId, actionId);
+            }
         } else if (typeof executePluginAction === 'function') {
             // Execute directly
             executePluginAction(pluginId, actionId, [Number(clipId)], {});

@@ -558,9 +558,11 @@ async function executePluginAction(pluginId, actionId, clipIds, options) {
 
 // --- Open Plugin Options Dialog ---
 // This function is called when a plugin action has options that need user input
-function openPluginOptionsDialog(pluginId, actionId, clipIds) {
+// action: the full action object with plugin_id, id, label, options, etc.
+// clipIds: array of clip IDs to apply the action to
+function openPluginOptionsDialog(action, clipIds) {
     // TODO: Implement options dialog in Task 15
     // For now, execute directly without options
     console.warn('Options dialog not yet implemented, executing without options');
-    executePluginAction(pluginId, actionId, clipIds, {});
+    executePluginAction(action.plugin_id, action.id, clipIds, {});
 }

@@ -463,6 +463,9 @@ async function openLightbox(index) {
 
     // Update image info in bottom bar
     updateLightboxImageInfo();
+
+    // Render plugin buttons
+    renderLightboxPluginButtons();
 }
 
 function closeLightbox() {
@@ -516,6 +519,50 @@ function handleLightboxKeydown(e) {
             first.focus();
             e.preventDefault();
         }
+    }
+}
+
+// --- Plugin Buttons in Lightbox ---
+
+// Render plugin buttons in lightbox
+async function renderLightboxPluginButtons() {
+    const container = document.getElementById('lightbox-plugin-actions');
+    if (!container) return;
+
+    container.innerHTML = '';
+
+    if (!pluginUIActions || pluginUIActions.lightbox_buttons.length === 0) {
+        container.classList.add('hidden');
+        return;
+    }
+
+    pluginUIActions.lightbox_buttons.forEach(action => {
+        const btn = document.createElement('button');
+        btn.className = 'lightbox-plugin-btn';
+        btn.dataset.pluginId = action.plugin_id;
+        btn.dataset.actionId = action.id;
+        btn.dataset.hasOptions = action.options && action.options.length > 0 ? 'true' : 'false';
+
+        const icon = action.icon ? getPluginIcon(action.icon) : '';
+        btn.innerHTML = `${icon}<span>${escapeHTML(action.label)}</span>`;
+
+        btn.addEventListener('click', () => handleLightboxPluginAction(action));
+        container.appendChild(btn);
+    });
+
+    container.classList.remove('hidden');
+}
+
+async function handleLightboxPluginAction(action) {
+    const clip = imageClips[currentLightboxIndex];
+    if (!clip) return;
+
+    if (action.options && action.options.length > 0) {
+        // Show options dialog
+        openPluginOptionsDialog(action, [clip.id]);
+    } else {
+        // Execute directly
+        await executePluginAction(action.plugin_id, action.id, [clip.id]);
     }
 }
 
