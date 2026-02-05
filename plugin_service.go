@@ -34,6 +34,22 @@ type PluginInfo struct {
 	Settings    []plugin.SettingField `json:"settings"`
 }
 
+// PluginUIAction represents a UI action with plugin context
+type PluginUIAction struct {
+	PluginID   int64              `json:"plugin_id"`
+	PluginName string             `json:"plugin_name"`
+	ID         string             `json:"id"`
+	Label      string             `json:"label"`
+	Icon       string             `json:"icon,omitempty"`
+	Options    []plugin.FormField `json:"options,omitempty"`
+}
+
+// UIActionsResponse contains all plugin UI actions
+type UIActionsResponse struct {
+	LightboxButtons []PluginUIAction `json:"lightbox_buttons"`
+	CardActions     []PluginUIAction `json:"card_actions"`
+}
+
 // GetPlugins returns all plugins
 func (s *PluginService) GetPlugins() ([]PluginInfo, error) {
 	if s.app.db == nil {
@@ -272,4 +288,52 @@ func (s *PluginService) GetAllPluginStorage(pluginID int64) (map[string]string, 
 	}
 
 	return result, nil
+}
+
+// GetPluginUIActions returns all UI actions from enabled plugins
+func (s *PluginService) GetPluginUIActions() (*UIActionsResponse, error) {
+	if s.app.pluginManager == nil {
+		return &UIActionsResponse{
+			LightboxButtons: []PluginUIAction{},
+			CardActions:     []PluginUIAction{},
+		}, nil
+	}
+
+	response := &UIActionsResponse{
+		LightboxButtons: []PluginUIAction{},
+		CardActions:     []PluginUIAction{},
+	}
+
+	plugins := s.app.pluginManager.GetPlugins()
+	for _, p := range plugins {
+		if !p.Enabled || p.Manifest == nil || p.Manifest.UI == nil {
+			continue
+		}
+
+		// Add lightbox buttons
+		for _, btn := range p.Manifest.UI.LightboxButtons {
+			response.LightboxButtons = append(response.LightboxButtons, PluginUIAction{
+				PluginID:   p.ID,
+				PluginName: p.Name,
+				ID:         btn.ID,
+				Label:      btn.Label,
+				Icon:       btn.Icon,
+				Options:    btn.Options,
+			})
+		}
+
+		// Add card actions
+		for _, action := range p.Manifest.UI.CardActions {
+			response.CardActions = append(response.CardActions, PluginUIAction{
+				PluginID:   p.ID,
+				PluginName: p.Name,
+				ID:         action.ID,
+				Label:      action.Label,
+				Icon:       action.Icon,
+				Options:    action.Options,
+			})
+		}
+	}
+
+	return response, nil
 }
