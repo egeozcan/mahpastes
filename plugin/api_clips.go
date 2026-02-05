@@ -216,24 +216,39 @@ func (c *ClipsAPI) create(L *lua.LState) int {
 		return 2
 	}
 
+	// Support both content_type and mime_type for flexibility
 	contentType := "application/octet-stream"
 	if ct := opts.RawGetString("content_type"); ct != lua.LNil {
 		contentType = ct.String()
+	} else if mt := opts.RawGetString("mime_type"); mt != lua.LNil {
+		contentType = mt.String()
 	}
 
+	// Support both filename and name for flexibility
 	var filename string
 	if fn := opts.RawGetString("filename"); fn != lua.LNil {
 		filename = fn.String()
+	} else if nm := opts.RawGetString("name"); nm != lua.LNil {
+		filename = nm.String()
 	}
 
-	// Decode if base64 encoded
-	var data []byte
+	// Determine if data is base64 encoded
+	// Check explicit encoding flag or auto-detect for binary content types
+	isBase64 := false
 	if enc := opts.RawGetString("data_encoding"); enc != lua.LNil && enc.String() == "base64" {
+		isBase64 = true
+	} else if !strings.HasPrefix(contentType, "text/") && contentType != "application/json" {
+		// For binary content types, assume base64 if not explicitly text
+		isBase64 = true
+	}
+
+	var data []byte
+	if isBase64 {
 		var err error
 		data, err = base64.StdEncoding.DecodeString(dataStr)
 		if err != nil {
 			L.Push(lua.LNil)
-			L.Push(lua.LString("invalid base64 data"))
+			L.Push(lua.LString("invalid base64 data: " + err.Error()))
 			return 2
 		}
 		// Check decoded size as well
@@ -257,7 +272,11 @@ func (c *ClipsAPI) create(L *lua.LState) int {
 	}
 
 	id, _ := result.LastInsertId()
-	L.Push(lua.LNumber(id))
+
+	// Return a table with clip info (matching design spec)
+	clip := L.NewTable()
+	clip.RawSetString("id", lua.LNumber(id))
+	L.Push(clip)
 	return 1
 }
 
