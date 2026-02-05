@@ -18,6 +18,7 @@ type Manifest struct {
 	Events      []string
 	Schedules   []Schedule
 	Settings    []SettingField
+	UI          *UIManifest
 }
 
 // FilesystemPerms represents filesystem permission requests
@@ -40,6 +41,39 @@ type SettingField struct {
 	Description string   `json:"description,omitempty"`
 	Default     any      `json:"default,omitempty"`
 	Options     []string `json:"options,omitempty"`
+}
+
+// UIManifest represents plugin UI declarations
+type UIManifest struct {
+	LightboxButtons []UIAction `json:"lightbox_buttons,omitempty"`
+	CardActions     []UIAction `json:"card_actions,omitempty"`
+}
+
+// UIAction represents a plugin-defined action button
+type UIAction struct {
+	ID      string      `json:"id"`
+	Label   string      `json:"label"`
+	Icon    string      `json:"icon,omitempty"`
+	Options []FormField `json:"options,omitempty"`
+}
+
+// FormField represents a form field in an options dialog
+type FormField struct {
+	ID       string   `json:"id"`
+	Type     string   `json:"type"` // text, password, checkbox, select, range
+	Label    string   `json:"label"`
+	Required bool     `json:"required,omitempty"`
+	Default  any      `json:"default,omitempty"`
+	Choices  []Choice `json:"choices,omitempty"` // for select
+	Min      float64  `json:"min,omitempty"`     // for range
+	Max      float64  `json:"max,omitempty"`     // for range
+	Step     float64  `json:"step,omitempty"`    // for range
+}
+
+// Choice represents a select option
+type Choice struct {
+	Value string `json:"value"`
+	Label string `json:"label"`
 }
 
 // ParseManifest extracts the Plugin table from Lua source using text parsing.
