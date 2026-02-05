@@ -148,20 +148,35 @@ export class AppHelper {
   async deleteClip(filename: string): Promise<void> {
     const clip = await this.getClipByFilename(filename);
     await clip.hover();
-    await clip.locator(selectors.clipActions.delete).click();
+    // Open the card menu
+    await clip.locator(selectors.clipActions.menuTrigger).click();
+    // Wait for menu to appear
+    await this.page.waitForSelector(selectors.cardMenu.dropdown);
+    // Click delete
+    await this.page.locator(selectors.cardMenu.delete).click();
     await this.confirmDialog();
   }
 
   async archiveClip(filename: string): Promise<void> {
     const clip = await this.getClipByFilename(filename);
     await clip.hover();
-    await clip.locator(selectors.clipActions.archive).click();
+    // Open the card menu
+    await clip.locator(selectors.clipActions.menuTrigger).click();
+    // Wait for menu to appear
+    await this.page.waitForSelector(selectors.cardMenu.dropdown);
+    // Click archive
+    await this.page.locator(selectors.cardMenu.archive).click();
   }
 
   async editClip(filename: string): Promise<void> {
     const clip = await this.getClipByFilename(filename);
     await clip.hover();
-    await clip.locator(selectors.clipActions.edit).click();
+    // Open the card menu
+    await clip.locator(selectors.clipActions.menuTrigger).click();
+    // Wait for menu to appear
+    await this.page.waitForSelector(selectors.cardMenu.dropdown);
+    // Click edit
+    await this.page.locator(selectors.cardMenu.edit).click();
   }
 
   async viewClip(filename: string): Promise<void> {
@@ -173,13 +188,23 @@ export class AppHelper {
   async copyClipPath(filename: string): Promise<void> {
     const clip = await this.getClipByFilename(filename);
     await clip.hover();
-    await clip.locator(selectors.clipActions.copyPath).click();
+    // Open the card menu
+    await clip.locator(selectors.clipActions.menuTrigger).click();
+    // Wait for menu to appear
+    await this.page.waitForSelector(selectors.cardMenu.dropdown);
+    // Click copy path
+    await this.page.locator(selectors.cardMenu.copyPath).click();
   }
 
   async saveClipToFile(filename: string): Promise<void> {
     const clip = await this.getClipByFilename(filename);
     await clip.hover();
-    await clip.locator(selectors.clipActions.save).click();
+    // Open the card menu
+    await clip.locator(selectors.clipActions.menuTrigger).click();
+    // Wait for menu to appear
+    await this.page.waitForSelector(selectors.cardMenu.dropdown);
+    // Click save
+    await this.page.locator(selectors.cardMenu.save).click();
   }
 
   // Delete all clips (for cleanup) - uses API directly for reliability

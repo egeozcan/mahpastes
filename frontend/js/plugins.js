@@ -531,3 +531,36 @@ document.addEventListener('keydown', (e) => {
         closePlugins();
     }
 });
+
+// --- Execute Plugin Action ---
+// This function is called when a plugin action is triggered from card menu or lightbox
+async function executePluginAction(pluginId, actionId, clipIds, options) {
+    try {
+        const result = await window.go.main.PluginService.ExecutePluginAction(pluginId, actionId, clipIds, options || {});
+        if (result && result.success) {
+            showToast('Action completed');
+            // Reload clips to show any new clips created
+            if (typeof loadClips === 'function') {
+                loadClips();
+            }
+            // If there's a result clip, we could show a "View" link in the toast
+            // For now, just refresh
+        } else if (result && result.error) {
+            showToast(result.error, 'error');
+        }
+        return result;
+    } catch (error) {
+        console.error('Failed to execute plugin action:', error);
+        showToast('Action failed: ' + (error.message || 'Unknown error'), 'error');
+        return { success: false, error: error.message };
+    }
+}
+
+// --- Open Plugin Options Dialog ---
+// This function is called when a plugin action has options that need user input
+function openPluginOptionsDialog(pluginId, actionId, clipIds) {
+    // TODO: Implement options dialog in Task 15
+    // For now, execute directly without options
+    console.warn('Options dialog not yet implemented, executing without options');
+    executePluginAction(pluginId, actionId, clipIds, {});
+}

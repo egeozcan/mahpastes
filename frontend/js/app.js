@@ -281,6 +281,7 @@ async function handleText(text) {
 window.addEventListener('load', async () => {
     window.__appReady = false;
     try {
+        await loadPluginUIActions();
         await loadTags();
         await loadClips();
         setupEditorListeners();
@@ -296,6 +297,53 @@ window.addEventListener('load', async () => {
                 showToast(data.message, data.type || 'info');
             }
         });
+    }
+});
+
+// Close card menu when clicking outside
+document.addEventListener('click', (e) => {
+    const menu = document.querySelector('.card-menu-dropdown');
+    if (!menu) return;
+
+    // Check if click is on menu or menu trigger
+    const isMenuClick = e.target.closest('.card-menu-dropdown');
+    const isTriggerClick = e.target.closest('[data-action="menu"]');
+
+    if (!isMenuClick && !isTriggerClick) {
+        closeCardMenu();
+    }
+});
+
+// Handle menu item clicks via event delegation
+document.addEventListener('click', (e) => {
+    const menuItem = e.target.closest('.card-menu-item');
+    if (!menuItem) return;
+
+    e.stopPropagation();
+    const action = menuItem.dataset.action;
+    const clipId = menuItem.dataset.clipId;
+
+    if (action === 'plugin') {
+        // Handle plugin action
+        const pluginId = Number(menuItem.dataset.pluginId);
+        const actionId = menuItem.dataset.actionId;
+        const hasOptions = menuItem.dataset.hasOptions === 'true';
+
+        closeCardMenu();
+
+        if (hasOptions && typeof openPluginOptionsDialog === 'function') {
+            // Open options dialog for this action
+            openPluginOptionsDialog(pluginId, actionId, [Number(clipId)]);
+        } else if (typeof executePluginAction === 'function') {
+            // Execute directly
+            executePluginAction(pluginId, actionId, [Number(clipId)], {});
+        } else {
+            console.error('Plugin action handler not available');
+        }
+    } else {
+        // Handle built-in action
+        const triggerBtn = document.querySelector(`[data-action="menu"][data-id="${clipId}"]`);
+        handleCardAction(action, clipId, triggerBtn);
     }
 });
 
