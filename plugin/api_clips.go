@@ -290,6 +290,13 @@ func (c *ClipsAPI) create(L *lua.LState) int {
 func (c *ClipsAPI) createFromURL(L *lua.LState) int {
 	url := L.CheckString(1)
 
+	// Validate URL scheme - only allow http and https
+	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
+		L.Push(lua.LNil)
+		L.Push(lua.LString("only http:// and https:// URLs are allowed"))
+		return 2
+	}
+
 	var opts *lua.LTable
 	if L.GetTop() >= 2 {
 		opts = L.OptTable(2, nil)

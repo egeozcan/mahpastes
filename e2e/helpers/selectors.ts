@@ -227,7 +227,7 @@ export const selectors = {
     modal: '#plugin-options-modal',
     form: '#plugin-options-form',
     cancelButton: '#plugin-options-cancel',
-    submitButton: '#plugin-options-form button[type="submit"]',
+    submitButton: 'button[type="submit"][form="plugin-options-form"]',
     formField: (id: string) => `#plugin-options-form [name="${id}"]`,
   },
 

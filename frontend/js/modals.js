@@ -531,7 +531,7 @@ async function renderLightboxPluginButtons() {
 
     container.innerHTML = '';
 
-    if (!pluginUIActions || pluginUIActions.lightbox_buttons.length === 0) {
+    if (!pluginUIActions || !pluginUIActions.lightbox_buttons || pluginUIActions.lightbox_buttons.length === 0) {
         container.classList.add('hidden');
         return;
     }
