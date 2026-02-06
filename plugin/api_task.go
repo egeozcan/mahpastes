@@ -4,9 +4,15 @@ import (
 	"context"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	lua "github.com/yuin/gopher-lua"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
+)
+
+const (
+	// TaskCleanupDelay is how long to wait before cleaning up completed/failed tasks
+	TaskCleanupDelay = 5 * time.Minute
 )
 
 // TaskAPI provides task queue integration for plugins
@@ -138,6 +144,9 @@ func (t *TaskAPI) complete(L *lua.LState) int {
 		})
 	}
 
+	// Schedule cleanup after delay to prevent memory leaks
+	t.scheduleCleanup(taskID)
+
 	L.Push(lua.LTrue)
 	return 1
 }
@@ -170,8 +179,21 @@ func (t *TaskAPI) fail(L *lua.LState) int {
 		})
 	}
 
+	// Schedule cleanup after delay to prevent memory leaks
+	t.scheduleCleanup(taskID)
+
 	L.Push(lua.LTrue)
 	return 1
+}
+
+// scheduleCleanup removes the task from memory after a delay
+func (t *TaskAPI) scheduleCleanup(taskID int64) {
+	go func() {
+		time.Sleep(TaskCleanupDelay)
+		t.taskMu.Lock()
+		delete(t.tasks, taskID)
+		t.taskMu.Unlock()
+	}()
 }
 
 // GetTask returns a task by ID (for testing)

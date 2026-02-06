@@ -17,6 +17,8 @@ import (
 const (
 	// MaxClipDataSize is the maximum size of data a plugin can create (10MB)
 	MaxClipDataSize = 10 * 1024 * 1024
+	// URLFetchTimeout is the timeout for downloading content from URLs
+	URLFetchTimeout = 60 * time.Second
 )
 
 // ClipsAPI provides clip CRUD operations to plugins
@@ -294,7 +296,7 @@ func (c *ClipsAPI) createFromURL(L *lua.LState) int {
 	}
 
 	// Create HTTP client with timeout
-	client := &http.Client{Timeout: 60 * time.Second}
+	client := &http.Client{Timeout: URLFetchTimeout}
 
 	resp, err := client.Get(url)
 	if err != nil {

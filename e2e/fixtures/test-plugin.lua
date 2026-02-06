@@ -28,7 +28,19 @@ Plugin = {
   },
 }
 
+-- Valid action IDs for this plugin
+local VALID_ACTIONS = {
+  test_simple = true,
+  test_options = true,
+  test_bulk = true,
+}
+
 function on_ui_action(action_id, clip_ids, options)
+  -- Validate action ID
+  if not VALID_ACTIONS[action_id] then
+    return { success = false, error = "Unknown action: " .. tostring(action_id) }
+  end
+
   local settings_json = storage.get("settings") or "{}"
   local settings = json.decode(settings_json) or {}
   local prefix = settings.prefix or "processed"

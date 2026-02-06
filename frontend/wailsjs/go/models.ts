@@ -89,22 +89,6 @@ export namespace main {
 		    return a;
 		}
 	}
-	export class ActionResult {
-	    success: boolean;
-	    error?: string;
-	    result_clip_id?: number;
-	
-	    static createFrom(source: any = {}) {
-	        return new ActionResult(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.success = source["success"];
-	        this.error = source["error"];
-	        this.result_clip_id = source["result_clip_id"];
-	    }
-	}
 	export class BackupSummary {
 	    clips: number;
 	    tags: number;
@@ -482,6 +466,22 @@ export namespace main {
 
 export namespace plugin {
 	
+	export class ActionResult {
+	    success: boolean;
+	    error?: string;
+	    result_clip_id?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ActionResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.success = source["success"];
+	        this.error = source["error"];
+	        this.result_clip_id = source["result_clip_id"];
+	    }
+	}
 	export class Choice {
 	    value: string;
 	    label: string;

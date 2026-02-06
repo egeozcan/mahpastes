@@ -7,8 +7,8 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Path to the test plugin
-const TEST_PLUGIN_PATH = path.resolve(__dirname, '../../../plugins/test-plugin.lua');
+// Path to the test plugin (in e2e/fixtures to avoid users accidentally enabling it)
+const TEST_PLUGIN_PATH = path.resolve(__dirname, '../../fixtures/test-plugin.lua');
 
 test.describe('Plugin UI Extensions', () => {
   test.describe('Plugin UI Actions API', () => {

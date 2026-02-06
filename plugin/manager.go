@@ -476,6 +476,22 @@ func (m *Manager) ExecuteUIAction(pluginID int64, actionID string, clipIDs []int
 
 	// Convert Lua result to ActionResult
 	result := &ActionResult{Success: true}
+
+	// Check if the plugin explicitly set success to false
+	if success, ok := luaResult["success"]; ok {
+		if successBool, ok := success.(bool); ok {
+			result.Success = successBool
+		}
+	}
+
+	// Extract error message if present
+	if errMsg, ok := luaResult["error"]; ok {
+		if errStr, ok := errMsg.(string); ok {
+			result.Error = errStr
+		}
+	}
+
+	// Extract result_clip_id if present
 	if clipID, ok := luaResult["result_clip_id"]; ok {
 		if id, ok := clipID.(int64); ok {
 			result.ResultClipID = id

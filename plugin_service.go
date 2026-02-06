@@ -50,12 +50,8 @@ type UIActionsResponse struct {
 	CardActions     []PluginUIAction `json:"card_actions"`
 }
 
-// ActionResult represents the result of a plugin action execution
-type ActionResult struct {
-	Success      bool   `json:"success"`
-	Error        string `json:"error,omitempty"`
-	ResultClipID int64  `json:"result_clip_id,omitempty"`
-}
+// ActionResult is an alias for plugin.ActionResult to avoid duplication
+type ActionResult = plugin.ActionResult
 
 // GetPlugins returns all plugins
 func (s *PluginService) GetPlugins() ([]PluginInfo, error) {
@@ -356,10 +352,5 @@ func (s *PluginService) ExecutePluginAction(pluginID int64, actionID string, cli
 		return &ActionResult{Success: false, Error: err.Error()}, nil
 	}
 
-	// Convert plugin.ActionResult to ActionResult
-	return &ActionResult{
-		Success:      result.Success,
-		Error:        result.Error,
-		ResultClipID: result.ResultClipID,
-	}, nil
+	return result, nil
 }

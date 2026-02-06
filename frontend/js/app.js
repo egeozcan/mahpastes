@@ -331,21 +331,36 @@ document.addEventListener('click', (e) => {
 
         closeCardMenu();
 
+        // Verify plugin UI actions are loaded
+        if (!pluginUIActions || !pluginUIActions.card_actions) {
+            console.error('Plugin UI actions not loaded');
+            if (typeof showToast === 'function') {
+                showToast('Plugin actions not available. Try refreshing the page.', 'error');
+            }
+            return;
+        }
+
         if (hasOptions && typeof openPluginOptionsDialog === 'function') {
             // Find the full action object from pluginUIActions
-            const pluginAction = pluginUIActions?.card_actions?.find(
+            const pluginAction = pluginUIActions.card_actions.find(
                 a => a.plugin_id === pluginId && a.id === actionId
             );
             if (pluginAction) {
                 openPluginOptionsDialog(pluginAction, [Number(clipId)]);
             } else {
                 console.error('Could not find plugin action:', pluginId, actionId);
+                if (typeof showToast === 'function') {
+                    showToast('Plugin action not found', 'error');
+                }
             }
         } else if (typeof executePluginAction === 'function') {
             // Execute directly
             executePluginAction(pluginId, actionId, [Number(clipId)], {});
         } else {
             console.error('Plugin action handler not available');
+            if (typeof showToast === 'function') {
+                showToast('Plugin system not initialized', 'error');
+            }
         }
     } else {
         // Handle built-in action
