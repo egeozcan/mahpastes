@@ -119,7 +119,7 @@ func (m *Manager) loadPlugin(p *Plugin) error {
 	sandbox := NewSandbox(manifest, p.ID)
 
 	// Register APIs
-	clipsAPI := NewClipsAPI(m.db)
+	clipsAPI := NewClipsAPI(m.db, manifest.Network)
 	clipsAPI.Register(sandbox.GetState())
 
 	storageAPI := NewStorageAPI(m.db, p.ID)
@@ -468,6 +468,11 @@ func (m *Manager) ExecuteUIAction(pluginID int64, actionID string, clipIDs []int
 		return nil, fmt.Errorf("plugin sandbox not initialized: %s", p.Name)
 	}
 
+	// Validate that actionID is a declared UI action in the manifest
+	if !isValidUIAction(p.Manifest, actionID) {
+		return nil, fmt.Errorf("unknown action ID: %s", actionID)
+	}
+
 	// Use sandbox's CallUIAction method which handles context and locking properly
 	luaResult, err := p.Sandbox.CallUIAction(actionID, clipIDs, options)
 	if err != nil {
@@ -499,4 +504,22 @@ func (m *Manager) ExecuteUIAction(pluginID int64, actionID string, clipIDs []int
 	}
 
 	return result, nil
+}
+
+// isValidUIAction checks if an action ID is declared in the plugin's manifest UI section
+func isValidUIAction(manifest *Manifest, actionID string) bool {
+	if manifest == nil || manifest.UI == nil {
+		return false
+	}
+	for _, action := range manifest.UI.LightboxButtons {
+		if action.ID == actionID {
+			return true
+		}
+	}
+	for _, action := range manifest.UI.CardActions {
+		if action.ID == actionID {
+			return true
+		}
+	}
+	return false
 }

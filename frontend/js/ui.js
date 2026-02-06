@@ -86,12 +86,12 @@ function renderCardMenu(clipId, button, clip) {
             item.dataset.clipId = clipId;
             item.dataset.hasOptions = action.options && action.options.length > 0 ? 'true' : 'false';
 
-            const iconHtml = action.icon && typeof getPluginIcon === 'function'
-                ? getPluginIcon(action.icon) || ''
-                : '';
-            const iconClass = iconHtml ? '' : 'card-menu-icon'; // Fallback empty space
+            let iconHtml = '';
+            if (typeof getPluginIcon === 'function') {
+                iconHtml = getPluginIcon(action.icon) || getPluginIcon('bolt') || '';
+            }
 
-            item.innerHTML = `${iconHtml || `<span class="${iconClass}"></span>`}<span>${escapeHTML(action.label)}</span>`;
+            item.innerHTML = `${iconHtml}<span>${escapeHTML(action.label)}</span>`;
             menu.appendChild(item);
         });
     }

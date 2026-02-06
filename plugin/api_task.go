@@ -15,13 +15,15 @@ const (
 	TaskCleanupDelay = 5 * time.Minute
 )
 
+// globalTaskID is a package-level counter for globally unique task IDs across all plugins
+var globalTaskID int64
+
 // TaskAPI provides task queue integration for plugins
 type TaskAPI struct {
-	ctx       context.Context
-	tasks     map[int64]*pluginTask
-	taskMu    sync.RWMutex
-	nextID    int64
-	pluginID  int64
+	ctx      context.Context
+	tasks    map[int64]*pluginTask
+	taskMu   sync.RWMutex
+	pluginID int64
 }
 
 type pluginTask struct {
@@ -58,7 +60,7 @@ func (t *TaskAPI) start(L *lua.LState) int {
 	name := L.CheckString(1)
 	total := L.OptInt(2, 1)
 
-	taskID := atomic.AddInt64(&t.nextID, 1)
+	taskID := atomic.AddInt64(&globalTaskID, 1)
 
 	task := &pluginTask{
 		ID:      taskID,

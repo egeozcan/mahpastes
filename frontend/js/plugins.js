@@ -525,9 +525,18 @@ pluginsModal.addEventListener('click', (e) => {
     if (e.target === pluginsModal) closePlugins();
 });
 
-// Close on escape
+// Close on escape - single handler for both plugin modals with correct priority
 document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !pluginsModal.classList.contains('opacity-0')) {
+    if (e.key !== 'Escape') return;
+
+    // Options dialog takes priority over plugins modal
+    const optionsModal = document.getElementById('plugin-options-modal');
+    if (optionsModal && !optionsModal.classList.contains('opacity-0')) {
+        closePluginOptionsDialog();
+        return;
+    }
+
+    if (!pluginsModal.classList.contains('opacity-0')) {
         closePlugins();
     }
 });
@@ -709,12 +718,3 @@ document.getElementById('plugin-options-modal')?.addEventListener('click', (e) =
     if (e.target.id === 'plugin-options-modal') closePluginOptionsDialog();
 });
 
-// Close on escape (this supplements the existing escape handler for the plugins modal)
-document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-        const optionsModal = document.getElementById('plugin-options-modal');
-        if (optionsModal && !optionsModal.classList.contains('opacity-0')) {
-            closePluginOptionsDialog();
-        }
-    }
-});

@@ -7,12 +7,20 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"path"
+	"regexp"
 	"strings"
 	"time"
 
 	lua "github.com/yuin/gopher-lua"
 )
+
+// maxContentTypeLength is the maximum length for a MIME content type string
+const maxContentTypeLength = 256
+
+// validMIMEType matches standard MIME type format (e.g. "application/json", "image/png")
+var validMIMEType = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9!#$&\-^_.+]*\/[a-zA-Z0-9][a-zA-Z0-9!#$&\-^_.+]*$`)
 
 const (
 	// MaxClipDataSize is the maximum size of data a plugin can create (10MB)
@@ -23,12 +31,13 @@ const (
 
 // ClipsAPI provides clip CRUD operations to plugins
 type ClipsAPI struct {
-	db *sql.DB
+	db             *sql.DB
+	allowedDomains map[string][]string // domain -> allowed methods (from manifest)
 }
 
 // NewClipsAPI creates a new clips API instance
-func NewClipsAPI(db *sql.DB) *ClipsAPI {
-	return &ClipsAPI{db: db}
+func NewClipsAPI(db *sql.DB, allowedDomains map[string][]string) *ClipsAPI {
+	return &ClipsAPI{db: db, allowedDomains: allowedDomains}
 }
 
 // Register adds the clips module to the Lua state
@@ -230,6 +239,9 @@ func (c *ClipsAPI) create(L *lua.LState) int {
 		contentType = mt.String()
 	}
 
+	// Validate content type format
+	contentType = validateContentType(contentType)
+
 	// Support both filename and name for flexibility
 	var filename string
 	if fn := opts.RawGetString("filename"); fn != lua.LNil {
@@ -286,14 +298,65 @@ func (c *ClipsAPI) create(L *lua.LState) int {
 	return 1
 }
 
+// validateContentType checks that a content type string is a valid MIME type
+func validateContentType(ct string) string {
+	if len(ct) > maxContentTypeLength {
+		return "application/octet-stream"
+	}
+	if !validMIMEType.MatchString(ct) {
+		return "application/octet-stream"
+	}
+	return ct
+}
+
+// checkURLDomain validates the URL domain against the plugin's network permissions
+func (c *ClipsAPI) checkURLDomain(urlStr string) error {
+	parsed, err := url.Parse(urlStr)
+	if err != nil {
+		return fmt.Errorf("invalid URL: %w", err)
+	}
+
+	domain := parsed.Hostname()
+
+	if len(c.allowedDomains) == 0 {
+		return fmt.Errorf("no network permissions: plugin must declare network permissions to fetch URLs (domain: %s)", domain)
+	}
+
+	allowedMethods, ok := c.allowedDomains[domain]
+	if !ok {
+		return fmt.Errorf("domain not in allowlist: %s", domain)
+	}
+
+	// Check if GET is allowed for this domain
+	getAllowed := false
+	for _, m := range allowedMethods {
+		if strings.EqualFold(m, "GET") {
+			getAllowed = true
+			break
+		}
+	}
+	if !getAllowed {
+		return fmt.Errorf("GET not allowed for domain %s (allowed: [%s])", domain, strings.Join(allowedMethods, ", "))
+	}
+
+	return nil
+}
+
 // createFromURL downloads content from a URL and creates a clip
 func (c *ClipsAPI) createFromURL(L *lua.LState) int {
-	url := L.CheckString(1)
+	rawURL := L.CheckString(1)
 
 	// Validate URL scheme - only allow http and https
-	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
+	if !strings.HasPrefix(rawURL, "http://") && !strings.HasPrefix(rawURL, "https://") {
 		L.Push(lua.LNil)
 		L.Push(lua.LString("only http:// and https:// URLs are allowed"))
+		return 2
+	}
+
+	// Validate domain against plugin's network permissions
+	if err := c.checkURLDomain(rawURL); err != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(err.Error()))
 		return 2
 	}
 
@@ -302,10 +365,24 @@ func (c *ClipsAPI) createFromURL(L *lua.LState) int {
 		opts = L.OptTable(2, nil)
 	}
 
-	// Create HTTP client with timeout
-	client := &http.Client{Timeout: URLFetchTimeout}
+	// Create HTTP client with timeout and redirect limits
+	allowedDomains := c.allowedDomains
+	client := &http.Client{
+		Timeout: URLFetchTimeout,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 5 {
+				return fmt.Errorf("too many redirects")
+			}
+			// Validate redirect domain against allowlist
+			domain := req.URL.Hostname()
+			if _, ok := allowedDomains[domain]; !ok {
+				return fmt.Errorf("redirect to unauthorized domain: %s", domain)
+			}
+			return nil
+		},
+	}
 
-	resp, err := client.Get(url)
+	resp, err := client.Get(rawURL)
 	if err != nil {
 		L.Push(lua.LNil)
 		L.Push(lua.LString("failed to fetch URL: " + err.Error()))
@@ -353,6 +430,9 @@ func (c *ClipsAPI) createFromURL(L *lua.LState) int {
 		}
 	}
 
+	// Validate content type format
+	contentType = validateContentType(contentType)
+
 	// Determine filename
 	filename := ""
 	if opts != nil {
@@ -364,7 +444,7 @@ func (c *ClipsAPI) createFromURL(L *lua.LState) int {
 	}
 	// Fallback to URL path
 	if filename == "" {
-		filename = path.Base(url)
+		filename = path.Base(rawURL)
 		if filename == "." || filename == "/" {
 			filename = "downloaded"
 		}

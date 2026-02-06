@@ -7,6 +7,24 @@ import (
 	"strings"
 )
 
+// Pre-compiled regexes for manifest parsing (only static patterns)
+var (
+	rePluginTable     = regexp.MustCompile(`(?m)^Plugin\s*=\s*\{`)
+	reQuotedStrings   = regexp.MustCompile(`["']([^"']+)["']`)
+	reNetworkBlock    = regexp.MustCompile(`network\s*=\s*\{`)
+	reBracketDomain   = regexp.MustCompile(`\["([^"]+)"\]\s*=\s*\{([^}]*)\}`)
+	reSimpleDomain    = regexp.MustCompile(`(\w+)\s*=\s*\{([^}]*)\}`)
+	reSchedulesBlock  = regexp.MustCompile(`schedules\s*=\s*\{`)
+	reNameField       = regexp.MustCompile(`name\s*=\s*["']([^"']+)["']`)
+	reIntervalField   = regexp.MustCompile(`interval\s*=\s*(\d+)`)
+	reSettingsBlock   = regexp.MustCompile(`settings\s*=\s*\{`)
+	reUIBlock         = regexp.MustCompile(`ui\s*=\s*\{`)
+	reOptionsBlock    = regexp.MustCompile(`options\s*=\s*\{`)
+	reRequiredField   = regexp.MustCompile(`required\s*=\s*(true|false)`)
+	reChoicesBlock    = regexp.MustCompile(`choices\s*=\s*\{`)
+	reDefaultBool     = regexp.MustCompile(`default\s*=\s*(true|false)`)
+)
+
 // Manifest represents a parsed plugin manifest
 type Manifest struct {
 	Name        string
@@ -125,8 +143,7 @@ func ParseManifest(source string) (*Manifest, error) {
 // extractPluginTable finds and extracts the Plugin = { ... } block
 func extractPluginTable(source string) (string, error) {
 	// Match Plugin = { with possible whitespace variations
-	re := regexp.MustCompile(`(?m)^Plugin\s*=\s*\{`)
-	loc := re.FindStringIndex(source)
+	loc := rePluginTable.FindStringIndex(source)
 	if loc == nil {
 		return "", fmt.Errorf("plugin must define a Plugin table")
 	}
@@ -266,8 +283,7 @@ func extractStringArray(block, field string) []string {
 	arrayContent := matches[1]
 
 	// Extract all quoted strings
-	stringRe := regexp.MustCompile(`["']([^"']+)["']`)
-	stringMatches := stringRe.FindAllStringSubmatch(arrayContent, -1)
+	stringMatches := reQuotedStrings.FindAllStringSubmatch(arrayContent, -1)
 
 	var result []string
 	for _, m := range stringMatches {
@@ -285,8 +301,7 @@ func extractNetworkPerms(block string) map[string][]string {
 	result := make(map[string][]string)
 
 	// Find the network block
-	networkPattern := regexp.MustCompile(`network\s*=\s*\{`)
-	loc := networkPattern.FindStringIndex(block)
+	loc := reNetworkBlock.FindStringIndex(block)
 	if loc == nil {
 		return result
 	}
@@ -300,8 +315,7 @@ func extractNetworkPerms(block string) map[string][]string {
 
 	// Match domain entries: ["domain.com"] = {"GET", "POST"} or domain = {"GET"}
 	// Pattern for bracket notation: ["domain.com"] = {...}
-	bracketPattern := regexp.MustCompile(`\["([^"]+)"\]\s*=\s*\{([^}]*)\}`)
-	bracketMatches := bracketPattern.FindAllStringSubmatch(networkBlock, -1)
+	bracketMatches := reBracketDomain.FindAllStringSubmatch(networkBlock, -1)
 	for _, m := range bracketMatches {
 		if len(m) >= 3 {
 			domain := m[1]
@@ -311,8 +325,7 @@ func extractNetworkPerms(block string) map[string][]string {
 	}
 
 	// Pattern for simple notation: domain = {...}
-	simplePattern := regexp.MustCompile(`(\w+)\s*=\s*\{([^}]*)\}`)
-	simpleMatches := simplePattern.FindAllStringSubmatch(networkBlock, -1)
+	simpleMatches := reSimpleDomain.FindAllStringSubmatch(networkBlock, -1)
 	for _, m := range simpleMatches {
 		if len(m) >= 3 {
 			domain := m[1]
@@ -334,8 +347,7 @@ func extractSchedules(block string) []Schedule {
 	var result []Schedule
 
 	// Find the schedules block
-	schedulesPattern := regexp.MustCompile(`schedules\s*=\s*\{`)
-	loc := schedulesPattern.FindStringIndex(block)
+	loc := reSchedulesBlock.FindStringIndex(block)
 	if loc == nil {
 		return result
 	}
@@ -380,15 +392,13 @@ func parseScheduleEntry(entry string) Schedule {
 	var schedule Schedule
 
 	// Extract name
-	namePattern := regexp.MustCompile(`name\s*=\s*["']([^"']+)["']`)
-	nameMatches := namePattern.FindStringSubmatch(entry)
+	nameMatches := reNameField.FindStringSubmatch(entry)
 	if len(nameMatches) >= 2 {
 		schedule.Name = nameMatches[1]
 	}
 
 	// Extract interval
-	intervalPattern := regexp.MustCompile(`interval\s*=\s*(\d+)`)
-	intervalMatches := intervalPattern.FindStringSubmatch(entry)
+	intervalMatches := reIntervalField.FindStringSubmatch(entry)
 	if len(intervalMatches) >= 2 {
 		schedule.Interval, _ = strconv.Atoi(intervalMatches[1])
 	}
@@ -402,8 +412,7 @@ func extractSettings(block string) []SettingField {
 	var result []SettingField
 
 	// Find the settings block
-	settingsPattern := regexp.MustCompile(`settings\s*=\s*\{`)
-	loc := settingsPattern.FindStringIndex(block)
+	loc := reSettingsBlock.FindStringIndex(block)
 	if loc == nil {
 		return result
 	}
@@ -483,8 +492,7 @@ func parseSettingEntry(entry string) SettingField {
 // Format: ui = { lightbox_buttons = {...}, card_actions = {...} }
 func extractUI(block string) *UIManifest {
 	// Find the ui block
-	uiPattern := regexp.MustCompile(`ui\s*=\s*\{`)
-	loc := uiPattern.FindStringIndex(block)
+	loc := reUIBlock.FindStringIndex(block)
 	if loc == nil {
 		return nil
 	}
@@ -570,8 +578,7 @@ func extractFormFields(block string) []FormField {
 	var result []FormField
 
 	// Find the options block
-	optionsPattern := regexp.MustCompile(`options\s*=\s*\{`)
-	loc := optionsPattern.FindStringIndex(block)
+	loc := reOptionsBlock.FindStringIndex(block)
 	if loc == nil {
 		return result
 	}
@@ -580,6 +587,11 @@ func extractFormFields(block string) []FormField {
 	optionsBlock := extractNestedBrace(block[start:])
 	if optionsBlock == "" {
 		return result
+	}
+
+	// Valid form field types
+	validFormFieldTypes := map[string]bool{
+		"text": true, "password": true, "checkbox": true, "select": true, "range": true,
 	}
 
 	// Find each field entry
@@ -598,7 +610,12 @@ func extractFormFields(block string) []FormField {
 			if depth == 0 && entryStart >= 0 {
 				entry := optionsBlock[entryStart : i+1]
 				field := parseFormField(entry)
-				if field.ID != "" && field.Type != "" && field.Label != "" {
+				if field.ID != "" && field.Type != "" && field.Label != "" && validFormFieldTypes[field.Type] {
+					// Validate select has choices
+					if field.Type == "select" && len(field.Choices) == 0 {
+						entryStart = -1
+						continue
+					}
 					result = append(result, field)
 				}
 				entryStart = -1
@@ -618,8 +635,7 @@ func parseFormField(entry string) FormField {
 	field.Label = extractStringField(entry, "label")
 
 	// Parse required
-	requiredPattern := regexp.MustCompile(`required\s*=\s*(true|false)`)
-	if matches := requiredPattern.FindStringSubmatch(entry); len(matches) >= 2 {
+	if matches := reRequiredField.FindStringSubmatch(entry); len(matches) >= 2 {
 		field.Required = matches[1] == "true"
 	}
 
@@ -642,8 +658,7 @@ func extractChoices(block string) []Choice {
 	var result []Choice
 
 	// Find choices block
-	choicesPattern := regexp.MustCompile(`choices\s*=\s*\{`)
-	loc := choicesPattern.FindStringIndex(block)
+	loc := reChoicesBlock.FindStringIndex(block)
 	if loc == nil {
 		return result
 	}
@@ -705,8 +720,7 @@ func extractDefaultValue(entry string) any {
 	}
 
 	// Try boolean
-	boolPattern := regexp.MustCompile(`default\s*=\s*(true|false)`)
-	boolMatches := boolPattern.FindStringSubmatch(entry)
+	boolMatches := reDefaultBool.FindStringSubmatch(entry)
 	if len(boolMatches) >= 2 {
 		return boolMatches[1] == "true"
 	}
@@ -751,8 +765,7 @@ func extractNestedBrace(s string) string {
 
 // extractQuotedStrings extracts all quoted strings from a string
 func extractQuotedStrings(s string) []string {
-	re := regexp.MustCompile(`["']([^"']+)["']`)
-	matches := re.FindAllStringSubmatch(s, -1)
+	matches := reQuotedStrings.FindAllStringSubmatch(s, -1)
 
 	var result []string
 	for _, m := range matches {
