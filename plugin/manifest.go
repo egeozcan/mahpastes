@@ -72,6 +72,7 @@ type UIAction struct {
 	ID      string      `json:"id"`
 	Label   string      `json:"label"`
 	Icon    string      `json:"icon,omitempty"`
+	Async   bool        `json:"async,omitempty"`
 	Options []FormField `json:"options,omitempty"`
 }
 
@@ -566,6 +567,12 @@ func parseUIAction(entry string) UIAction {
 	action.ID = extractStringField(entry, "id")
 	action.Label = extractStringField(entry, "label")
 	action.Icon = extractStringField(entry, "icon")
+
+	// Parse async flag
+	asyncPattern := regexp.MustCompile(`async\s*=\s*(true|false)`)
+	if m := asyncPattern.FindStringSubmatch(entry); len(m) >= 2 {
+		action.Async = m[1] == "true"
+	}
 
 	// Parse options if present
 	action.Options = extractFormFields(entry)

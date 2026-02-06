@@ -77,7 +77,6 @@ export const selectors = {
     bar: '.lightbox-bar',
     zoomSlider: '#lightbox-zoom-slider',
     zoomInfo: '#lightbox-zoom-info',
-    aiActions: '#lightbox-ai-actions',
     pluginActions: '#lightbox-plugin-actions',
     pluginButton: '.lightbox-plugin-btn',
   },

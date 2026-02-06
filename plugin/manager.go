@@ -450,7 +450,9 @@ func (m *Manager) Shutdown() {
 	m.eventSubscribers = make(map[string][]int64)
 }
 
-// ExecuteUIAction calls a plugin's on_ui_action handler
+// ExecuteUIAction calls a plugin's on_ui_action handler.
+// If the action has async=true in the manifest, it runs in a background goroutine
+// and returns immediately. The plugin should use task.start/progress/complete for feedback.
 func (m *Manager) ExecuteUIAction(pluginID int64, actionID string, clipIDs []int64, options map[string]interface{}) (*ActionResult, error) {
 	m.mu.RLock()
 	p, ok := m.plugins[pluginID]
@@ -468,58 +470,75 @@ func (m *Manager) ExecuteUIAction(pluginID int64, actionID string, clipIDs []int
 		return nil, fmt.Errorf("plugin sandbox not initialized: %s", p.Name)
 	}
 
-	// Validate that actionID is a declared UI action in the manifest
-	if !isValidUIAction(p.Manifest, actionID) {
+	// Find the action in the manifest
+	action := findUIAction(p.Manifest, actionID)
+	if action == nil {
 		return nil, fmt.Errorf("unknown action ID: %s", actionID)
 	}
 
-	// Use sandbox's CallUIAction method which handles context and locking properly
-	luaResult, err := p.Sandbox.CallUIAction(actionID, clipIDs, options)
+	// Async actions run in a background goroutine with extended timeout
+	if action.Async {
+		go func() {
+			luaResult, err := p.Sandbox.CallUIAction(actionID, clipIDs, options, MaxUIActionTime)
+			if err != nil {
+				log.Printf("Plugin %s async action %s failed: %v", p.Name, actionID, err)
+				m.incrementErrorCount(pluginID)
+				return
+			}
+			m.resetErrorCount(pluginID)
+			_ = luaResult // Plugin communicates results via task events and toasts
+		}()
+		return &ActionResult{Success: true}, nil
+	}
+
+	// Synchronous actions block and return the result
+	luaResult, err := p.Sandbox.CallUIAction(actionID, clipIDs, options, MaxExecutionTime)
 	if err != nil {
 		return nil, fmt.Errorf("plugin action failed: %w", err)
 	}
 
-	// Convert Lua result to ActionResult
+	return luaResultToActionResult(luaResult), nil
+}
+
+// luaResultToActionResult converts a Lua return table to an ActionResult
+func luaResultToActionResult(luaResult map[string]interface{}) *ActionResult {
 	result := &ActionResult{Success: true}
 
-	// Check if the plugin explicitly set success to false
 	if success, ok := luaResult["success"]; ok {
 		if successBool, ok := success.(bool); ok {
 			result.Success = successBool
 		}
 	}
 
-	// Extract error message if present
 	if errMsg, ok := luaResult["error"]; ok {
 		if errStr, ok := errMsg.(string); ok {
 			result.Error = errStr
 		}
 	}
 
-	// Extract result_clip_id if present
 	if clipID, ok := luaResult["result_clip_id"]; ok {
 		if id, ok := clipID.(int64); ok {
 			result.ResultClipID = id
 		}
 	}
 
-	return result, nil
+	return result
 }
 
-// isValidUIAction checks if an action ID is declared in the plugin's manifest UI section
-func isValidUIAction(manifest *Manifest, actionID string) bool {
+// findUIAction finds a UI action by ID in the manifest, returning nil if not found
+func findUIAction(manifest *Manifest, actionID string) *UIAction {
 	if manifest == nil || manifest.UI == nil {
-		return false
+		return nil
 	}
-	for _, action := range manifest.UI.LightboxButtons {
-		if action.ID == actionID {
-			return true
+	for i := range manifest.UI.LightboxButtons {
+		if manifest.UI.LightboxButtons[i].ID == actionID {
+			return &manifest.UI.LightboxButtons[i]
 		}
 	}
-	for _, action := range manifest.UI.CardActions {
-		if action.ID == actionID {
-			return true
+	for i := range manifest.UI.CardActions {
+		if manifest.UI.CardActions[i].ID == actionID {
+			return &manifest.UI.CardActions[i]
 		}
 	}
-	return false
+	return nil
 }

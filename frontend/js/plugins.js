@@ -461,6 +461,8 @@ async function togglePluginEnabled(pluginId, enabled) {
             showToast('Plugin disabled');
         }
         await loadPlugins();
+        await loadPluginUIActions();
+        loadClips(); // re-render cards with updated plugin actions
     } catch (error) {
         console.error('Failed to toggle plugin:', error);
         showToast('Failed to update plugin');
@@ -475,6 +477,8 @@ async function importPlugin() {
         if (result) {
             showToast(`Imported: ${result.name}`);
             await loadPlugins();
+            await loadPluginUIActions();
+            loadClips();
         }
         // null means user cancelled, no error
     } catch (error) {
@@ -493,6 +497,8 @@ function removePlugin(pluginId, pluginName) {
                 expandedPluginId = null;
             }
             await loadPlugins();
+            await loadPluginUIActions();
+            loadClips();
         } catch (error) {
             console.error('Failed to remove plugin:', error);
             showToast('Failed to remove plugin');
@@ -542,18 +548,20 @@ document.addEventListener('keydown', (e) => {
 });
 
 // --- Execute Plugin Action ---
-// This function is called when a plugin action is triggered from card menu or lightbox
-async function executePluginAction(pluginId, actionId, clipIds, options) {
+// This function is called when a plugin action is triggered from card menu or lightbox.
+// If isAsync is true, the backend runs the action in a background goroutine and returns immediately.
+async function executePluginAction(pluginId, actionId, clipIds, options, isAsync) {
     try {
         const result = await window.go.main.PluginService.ExecutePluginAction(pluginId, actionId, clipIds, options || {});
         if (result && result.success) {
-            showToast('Action completed');
-            // Reload clips to show any new clips created
-            if (typeof loadClips === 'function') {
-                loadClips();
+            if (isAsync) {
+                showToast('Processing started...');
+            } else {
+                showToast('Action completed');
+                if (typeof loadClips === 'function') {
+                    loadClips();
+                }
             }
-            // If there's a result clip, we could show a "View" link in the toast
-            // For now, just refresh
         } else if (result && result.error) {
             showToast(result.error, 'error');
         }
@@ -710,7 +718,7 @@ document.getElementById('plugin-options-form')?.addEventListener('submit', async
     });
 
     closePluginOptionsDialog();
-    await executePluginAction(currentPluginAction.plugin_id, currentPluginAction.id, currentActionClipIds, options);
+    await executePluginAction(currentPluginAction.plugin_id, currentPluginAction.id, currentActionClipIds, options, currentPluginAction.async);
 });
 
 // Close on backdrop click

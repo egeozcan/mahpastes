@@ -41,6 +41,7 @@ type PluginUIAction struct {
 	ID         string             `json:"id"`
 	Label      string             `json:"label"`
 	Icon       string             `json:"icon,omitempty"`
+	Async      bool               `json:"async,omitempty"`
 	Options    []plugin.FormField `json:"options,omitempty"`
 }
 
@@ -321,6 +322,7 @@ func (s *PluginService) GetPluginUIActions() (*UIActionsResponse, error) {
 				ID:         btn.ID,
 				Label:      btn.Label,
 				Icon:       btn.Icon,
+				Async:      btn.Async,
 				Options:    btn.Options,
 			})
 		}
@@ -333,6 +335,7 @@ func (s *PluginService) GetPluginUIActions() (*UIActionsResponse, error) {
 				ID:         action.ID,
 				Label:      action.Label,
 				Icon:       action.Icon,
+				Async:      action.Async,
 				Options:    action.Options,
 			})
 		}

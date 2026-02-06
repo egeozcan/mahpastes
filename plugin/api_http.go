@@ -15,8 +15,8 @@ import (
 const (
 	// HTTPRequestsPerMinute is the rate limit for HTTP requests
 	HTTPRequestsPerMinute = 100
-	// HTTPTimeout is the timeout for HTTP requests
-	HTTPTimeout = 30 * time.Second
+	// HTTPTimeout is the timeout for HTTP requests (5 min for long-running AI APIs)
+	HTTPTimeout = 5 * time.Minute
 	// HTTPMaxResponseSize is the maximum response body size (10MB)
 	HTTPMaxResponseSize = 10 * 1024 * 1024
 )

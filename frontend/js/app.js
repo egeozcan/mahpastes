@@ -354,8 +354,11 @@ document.addEventListener('click', (e) => {
                 }
             }
         } else if (typeof executePluginAction === 'function') {
-            // Execute directly
-            executePluginAction(pluginId, actionId, [Number(clipId)], {});
+            // Execute directly - look up action to check async flag
+            const pluginAction = pluginUIActions.card_actions.find(
+                a => a.plugin_id === pluginId && a.id === actionId
+            );
+            executePluginAction(pluginId, actionId, [Number(clipId)], {}, pluginAction && pluginAction.async);
         } else {
             console.error('Plugin action handler not available');
             if (typeof showToast === 'function') {

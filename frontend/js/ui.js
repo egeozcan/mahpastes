@@ -416,10 +416,6 @@ function updateBulkToolbar() {
         bulkCompareBtn.classList.add('hidden');
     }
 
-    // Update AI actions visibility
-    if (typeof updateAIActionsVisibility === 'function') {
-        updateAIActionsVisibility();
-    }
 }
 
 function toggleSelectAll() {

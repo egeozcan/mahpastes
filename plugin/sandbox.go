@@ -11,6 +11,7 @@ import (
 
 const (
 	MaxExecutionTime = 30 * time.Second
+	MaxUIActionTime  = 5 * time.Minute // for long-running UI actions (e.g. AI processing)
 	MaxMemoryMB      = 50
 )
 
@@ -209,8 +210,9 @@ func (s *Sandbox) GetPluginID() int64 {
 	return s.pluginID
 }
 
-// CallUIAction calls the on_ui_action handler with proper context and returns the result
-func (s *Sandbox) CallUIAction(actionID string, clipIDs []int64, options map[string]interface{}) (map[string]interface{}, error) {
+// CallUIAction calls the on_ui_action handler with proper context and returns the result.
+// The timeout parameter controls how long the action is allowed to run.
+func (s *Sandbox) CallUIAction(actionID string, clipIDs []int64, options map[string]interface{}, timeout time.Duration) (map[string]interface{}, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -224,7 +226,7 @@ func (s *Sandbox) CallUIAction(actionID string, clipIDs []int64, options map[str
 	}
 
 	// Create context with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), MaxExecutionTime)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	s.cancel = cancel
 	defer func() {
 		cancel()
@@ -265,7 +267,7 @@ func (s *Sandbox) CallUIAction(actionID string, clipIDs []int64, options map[str
 	err := s.L.PCall(3, 1, nil)
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			return nil, fmt.Errorf("on_ui_action timed out after %v", MaxExecutionTime)
+			return nil, fmt.Errorf("on_ui_action timed out after %v", timeout)
 		}
 		return nil, fmt.Errorf("on_ui_action failed: %w", err)
 	}
