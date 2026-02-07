@@ -136,7 +136,7 @@ export class AppHelper {
     // Query the database directly via Wails API to get accurate count
     return this.page.evaluate(async (isArchived) => {
       // @ts-ignore - Wails runtime
-      const clips = await window.go.main.App.GetClips(isArchived, []);
+      const clips = await window.go.main.App.GetClips(isArchived, [], []);
       return clips?.length || 0;
     }, archived);
   }
@@ -259,9 +259,9 @@ export class AppHelper {
   async deleteAllClips(): Promise<void> {
     await this.page.evaluate(async () => {
       // @ts-ignore - Wails runtime
-      const clips = await window.go.main.App.GetClips(false, []);
+      const clips = await window.go.main.App.GetClips(false, [], []);
       // @ts-ignore
-      const archivedClips = await window.go.main.App.GetClips(true, []);
+      const archivedClips = await window.go.main.App.GetClips(true, [], []);
       const allClips = [...clips, ...archivedClips];
 
       for (const clip of allClips) {
@@ -426,9 +426,9 @@ export class AppHelper {
       // Inline version without page reload (faster for cleanup)
       await this.page.evaluate(async () => {
         // @ts-ignore
-        const clips = await window.go.main.App.GetClips(false, []);
+        const clips = await window.go.main.App.GetClips(false, [], []);
         // @ts-ignore
-        const archivedClips = await window.go.main.App.GetClips(true, []);
+        const archivedClips = await window.go.main.App.GetClips(true, [], []);
         for (const clip of [...clips, ...archivedClips]) {
           try {
             // @ts-ignore
@@ -546,8 +546,8 @@ export class AppHelper {
       try {
         if (App?.GetClips) {
           const [clips, archived] = await Promise.all([
-            App.GetClips(false, []),
-            App.GetClips(true, []),
+            App.GetClips(false, [], []),
+            App.GetClips(true, [], []),
           ]);
           const all = [...(clips || []), ...(archived || [])];
           await Promise.all(all.map((c: any) => App.DeleteClip(c.id).catch(() => {})));
@@ -558,6 +558,13 @@ export class AppHelper {
         if (App?.GetTags) {
           const tags = await App.GetTags();
           await Promise.all(tags.map((t: any) => App.DeleteTag(t.id).catch(() => {})));
+        }
+      } catch {}
+
+      // Clear hidden tags setting
+      try {
+        if (App?.SetHiddenTags) {
+          await App.SetHiddenTags([]);
         }
       } catch {}
 
@@ -609,6 +616,7 @@ export class AppHelper {
       const helpers = window.__testHelpers;
       if (helpers) {
         helpers.setActiveTagFilters([]);
+        if (helpers.setHiddenTags) helpers.setHiddenTags([]);
         if (helpers.setViewingArchive) helpers.setViewingArchive(false);
         if (helpers.setViewingWatch) helpers.setViewingWatch(false);
       }
@@ -1164,7 +1172,7 @@ export class AppHelper {
     await this.page.evaluate(async ({ filename, tag }) => {
       // Get clip ID by filename
       // @ts-ignore
-      const clips = await window.go.main.App.GetClips(false, []);
+      const clips = await window.go.main.App.GetClips(false, [], []);
       const clip = clips.find((c: any) =>
         c.filename?.toLowerCase().includes(filename.replace('.png', '').toLowerCase())
       );
@@ -1200,7 +1208,7 @@ export class AppHelper {
     await this.page.evaluate(async ({ filename, tag }) => {
       // Get clip ID by filename
       // @ts-ignore
-      const clips = await window.go.main.App.GetClips(false, []);
+      const clips = await window.go.main.App.GetClips(false, [], []);
       const clip = clips.find((c: any) =>
         c.filename?.toLowerCase().includes(filename.replace('.png', '').toLowerCase())
       );
@@ -1433,6 +1441,45 @@ export class AppHelper {
         }
       }
     });
+  }
+
+  // ==================== Hidden Tags ====================
+
+  async setHiddenTags(tagNames: string[]): Promise<void> {
+    await this.page.evaluate(async (names) => {
+      // @ts-ignore - Wails runtime
+      const allTags = await window.go.main.App.GetTags();
+      const ids: number[] = [];
+      for (const name of names) {
+        const tag = allTags.find((t: any) => t.name === name);
+        if (tag) ids.push(tag.id);
+      }
+      // @ts-ignore
+      await window.go.main.App.SetHiddenTags(ids);
+      // Update frontend state
+      // @ts-ignore
+      if (window.__testHelpers?.setHiddenTags) {
+        // @ts-ignore
+        window.__testHelpers.setHiddenTags(ids);
+      }
+    }, tagNames);
+  }
+
+  async getHiddenTagNames(): Promise<string[]> {
+    return this.page.evaluate(async () => {
+      // @ts-ignore - Wails runtime
+      const hiddenIds = await window.go.main.App.GetHiddenTags();
+      // @ts-ignore
+      const allTags = await window.go.main.App.GetTags();
+      return hiddenIds
+        .map((id: number) => allTags.find((t: any) => t.id === id)?.name)
+        .filter(Boolean);
+    });
+  }
+
+  async toggleHiddenTagInSettings(tagName: string): Promise<void> {
+    const toggle = this.page.locator(`[data-testid="hidden-tag-toggle-${tagName}"]`);
+    await toggle.click({ force: true });
   }
 
   // ==================== Plugins ====================

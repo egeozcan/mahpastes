@@ -236,6 +236,9 @@ export const selectors = {
   settings: {
     modal: '#settings-modal',
     closeButton: '#settings-close',
+    hiddenTagsList: '[data-testid="hidden-tags-list"]',
+    hiddenTagRow: (name: string) => `[data-testid="hidden-tag-row-${name}"]`,
+    hiddenTagToggle: (name: string) => `[data-testid="hidden-tag-toggle-${name}"]`,
   },
 
   // Backup
