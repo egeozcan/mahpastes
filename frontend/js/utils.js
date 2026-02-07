@@ -1,3 +1,6 @@
+// Initialize test helpers early so all scripts can register their helpers
+window.__testHelpers = {};
+
 let confirmCallback = null;
 
 function showConfirmDialog(title, message, callback) {

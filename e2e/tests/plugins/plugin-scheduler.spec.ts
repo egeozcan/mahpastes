@@ -36,28 +36,25 @@ test.describe('Plugin Scheduler', () => {
     expect(plugin?.name).toBe('Scheduler Test');
     schedulerPluginId = plugin?.id ?? null;
 
-    // Wait for plugin to initialize
-    await app.page.waitForTimeout(500);
+    // Check initial state (poll until plugin initializes)
+    await expect.poll(
+      async () => app.getPluginStorage(plugin!.id, 'tick_count'),
+      { timeout: 5000, intervals: [100, 200, 500] }
+    ).toBe('0');
 
-    // Check initial state
-    const initialCount = await app.getPluginStorage(plugin!.id, 'tick_count');
-    expect(initialCount).toBe('0');
+    // Wait for first tick
+    await expect.poll(
+      async () => parseInt(await app.getPluginStorage(plugin!.id, 'tick_count') || '0'),
+      { timeout: 5000, intervals: [200, 500, 1000], message: 'Waiting for first tick' }
+    ).toBeGreaterThanOrEqual(1);
 
-    // Wait for first tick (2 second interval + buffer)
-    await app.page.waitForTimeout(2500);
-
-    // Check tick count increased
-    const countAfterFirstTick = await app.getPluginStorage(plugin!.id, 'tick_count');
-    const count1 = parseInt(countAfterFirstTick);
-    expect(count1).toBeGreaterThanOrEqual(1);
+    const count1 = parseInt(await app.getPluginStorage(plugin!.id, 'tick_count'));
 
     // Wait for another tick
-    await app.page.waitForTimeout(2500);
-
-    // Check tick count increased again
-    const countAfterSecondTick = await app.getPluginStorage(plugin!.id, 'tick_count');
-    const count2 = parseInt(countAfterSecondTick);
-    expect(count2).toBeGreaterThan(count1);
+    await expect.poll(
+      async () => parseInt(await app.getPluginStorage(plugin!.id, 'tick_count') || '0'),
+      { timeout: 5000, intervals: [200, 500, 1000], message: 'Waiting for second tick' }
+    ).toBeGreaterThan(count1);
   });
 
   test('should record last tick timestamp', async ({ app }) => {
@@ -68,12 +65,10 @@ test.describe('Plugin Scheduler', () => {
     schedulerPluginId = plugin?.id ?? null;
 
     // Wait for a tick
-    await app.page.waitForTimeout(2500);
-
-    // Check last_tick was set
-    const lastTick = await app.getPluginStorage(plugin!.id, 'last_tick');
-    expect(lastTick).not.toBe('0');
-    expect(parseInt(lastTick)).toBeGreaterThan(0);
+    await expect.poll(
+      async () => parseInt(await app.getPluginStorage(plugin!.id, 'last_tick') || '0'),
+      { timeout: 5000, intervals: [200, 500, 1000], message: 'Waiting for last_tick' }
+    ).toBeGreaterThan(0);
   });
 
   test('should stop scheduled tasks when plugin is disabled', async ({ app }) => {
@@ -84,16 +79,16 @@ test.describe('Plugin Scheduler', () => {
     schedulerPluginId = plugin?.id ?? null;
 
     // Wait for some ticks
-    await app.page.waitForTimeout(3000);
+    await expect.poll(
+      async () => parseInt(await app.getPluginStorage(plugin!.id, 'tick_count') || '0'),
+      { timeout: 5000, intervals: [200, 500, 1000] }
+    ).toBeGreaterThanOrEqual(1);
 
-    // Get current tick count
     const countBeforeDisable = await app.getPluginStorage(plugin!.id, 'tick_count');
     const ticksBefore = parseInt(countBeforeDisable);
-    expect(ticksBefore).toBeGreaterThanOrEqual(1);
 
     // Disable plugin
     await app.disablePlugin(plugin!.id);
-    await app.page.waitForTimeout(500);
 
     // Wait for what would be another tick cycle
     await app.page.waitForTimeout(3000);
@@ -115,22 +110,18 @@ test.describe('Plugin Scheduler', () => {
 
     // Disable immediately
     await app.disablePlugin(plugin!.id);
-    await app.page.waitForTimeout(500);
 
     // Get count while disabled
     const countWhileDisabled = await app.getPluginStorage(plugin!.id, 'tick_count');
+    const disabledTicks = parseInt(countWhileDisabled);
 
     // Re-enable
     await app.enablePlugin(plugin!.id);
 
     // Wait for ticks to resume
-    await app.page.waitForTimeout(3000);
-
-    // Count should have increased
-    const countAfterReEnable = await app.getPluginStorage(plugin!.id, 'tick_count');
-    const afterTicks = parseInt(countAfterReEnable);
-    const disabledTicks = parseInt(countWhileDisabled);
-
-    expect(afterTicks).toBeGreaterThan(disabledTicks);
+    await expect.poll(
+      async () => parseInt(await app.getPluginStorage(plugin!.id, 'tick_count') || '0'),
+      { timeout: 5000, intervals: [200, 500, 1000], message: 'Waiting for ticks to resume' }
+    ).toBeGreaterThan(disabledTicks);
   });
 });

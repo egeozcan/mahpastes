@@ -52,7 +52,7 @@ test.describe('Plugin Filesystem API', () => {
     expect(plugin?.name).toBe('FS Test');
     fsPluginId = plugin?.id ?? null;
 
-    await app.page.waitForTimeout(500);
+    await app.waitForPluginStorage(plugin!.id, 'fs_test_initialized', 'true');
 
     // Check initialization
     const initialized = await app.getPluginStorage(plugin!.id, 'fs_test_initialized');
@@ -66,7 +66,7 @@ test.describe('Plugin Filesystem API', () => {
     expect(plugin).not.toBeNull();
     fsPluginId = plugin?.id ?? null;
 
-    await app.page.waitForTimeout(500);
+    await app.waitForPluginStorage(plugin!.id, 'fs_test_initialized', 'true');
 
     // Initial read attempts should be 0
     const initialAttempts = await app.getPluginStorage(plugin!.id, 'read_attempts');
@@ -80,7 +80,7 @@ test.describe('Plugin Filesystem API', () => {
     expect(plugin).not.toBeNull();
     fsPluginId = plugin?.id ?? null;
 
-    await app.page.waitForTimeout(500);
+    await app.waitForPluginStorage(plugin!.id, 'fs_test_initialized', 'true');
 
     // Initial write attempts should be 0
     const initialAttempts = await app.getPluginStorage(plugin!.id, 'write_attempts');
@@ -94,7 +94,7 @@ test.describe('Plugin Filesystem API', () => {
     expect(plugin).not.toBeNull();
     fsPluginId = plugin?.id ?? null;
 
-    await app.page.waitForTimeout(500);
+    await app.waitForPluginStorage(plugin!.id, 'fs_test_initialized', 'true');
 
     // Set a test read path (without granting permission)
     await app.page.evaluate(async ({ pluginId, testPath }) => {
@@ -106,7 +106,12 @@ test.describe('Plugin Filesystem API', () => {
     const imagePath = await createTempFile(generateTestImage(50, 50), 'png');
     await app.uploadFile(imagePath);
     await app.expectClipCount(1);
-    await app.page.waitForTimeout(500);
+
+    // Wait for plugin event handler to process and record error
+    await expect.poll(
+      async () => (await app.getPluginStorage(plugin!.id, 'last_error')).length,
+      { timeout: 5000, intervals: [100, 200, 500] }
+    ).toBeGreaterThan(0);
 
     // Check that there was an error (permission denied)
     const lastError = await app.getPluginStorage(plugin!.id, 'last_error');
@@ -121,7 +126,7 @@ test.describe('Plugin Filesystem API', () => {
     expect(plugin).not.toBeNull();
     fsPluginId = plugin?.id ?? null;
 
-    await app.page.waitForTimeout(500);
+    await app.waitForPluginStorage(plugin!.id, 'fs_test_initialized', 'true');
 
     // Get plugin permissions (should start empty or with only manually approved paths)
     const permissions = await app.getPluginPermissions(plugin!.id);
@@ -136,7 +141,7 @@ test.describe('Plugin Filesystem API', () => {
     expect(plugin).not.toBeNull();
     fsPluginId = plugin?.id ?? null;
 
-    await app.page.waitForTimeout(500);
+    await app.waitForPluginStorage(plugin!.id, 'fs_test_initialized', 'true');
 
     // fs.exists should return false for paths without read permission
     // This tests that the API doesn't leak file existence info

@@ -70,9 +70,6 @@ test.describe('Bulk Selection', () => {
       await app.selectClip(filename);
       await app.deselectClip(filename);
 
-      // Allow time for UI update
-      await app.page.waitForTimeout(300);
-
       const count = await app.getSelectedCount();
       expect(count).toBe(0);
     });

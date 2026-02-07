@@ -23,9 +23,12 @@ export default defineConfig({
   globalTeardown: path.resolve(__dirname, 'global-teardown.ts'),
 
   use: {
-    trace: 'on-first-retry',
-    screenshot: 'only-on-failure',
-    video: 'retain-on-failure',
+    headless: true,
+    // Worker-scoped page: trace/video/screenshot are handled manually in the fixture
+    // (per-test contexts are not used, so Playwright's built-in capture won't work)
+    trace: 'off',
+    screenshot: 'off',
+    video: 'off',
     actionTimeout: 10000,
     navigationTimeout: 30000,
   },

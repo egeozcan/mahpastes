@@ -10,9 +10,6 @@ test.describe('Watch Folder Filters', () => {
       // Add folder via API (default is 'all')
       await app.addWatchFolder(tempDir);
 
-      // Wait for UI to update
-      await app.page.waitForTimeout(500);
-
       // Folder should be added - check for folder card in list
       const folderCards = app.page.locator(selectors.watch.folderCard);
       const cardCount = await folderCards.count();
@@ -39,12 +36,10 @@ test.describe('Watch Folder Filters', () => {
         await window.go.main.App.RefreshWatches();
       }, tempDir);
 
-      // Toggle view to refresh UI
+      // Toggle view to refresh UI and wait for folder list to render
       await app.closeWatchView();
       await app.openWatchView();
-
-      const count = await app.getWatchFolderCount();
-      expect(count).toBeGreaterThanOrEqual(1);
+      await expect(app.page.locator('#watch-folder-list > li').first()).toBeVisible({ timeout: 5000 });
     });
 
     test('should add folder with documents preset', async ({ app, tempDir }) => {
@@ -64,12 +59,10 @@ test.describe('Watch Folder Filters', () => {
         await window.go.main.App.RefreshWatches();
       }, tempDir);
 
-      // Toggle view to refresh UI
+      // Toggle view to refresh UI and wait for folder list to render
       await app.closeWatchView();
       await app.openWatchView();
-
-      const count = await app.getWatchFolderCount();
-      expect(count).toBeGreaterThanOrEqual(1);
+      await expect(app.page.locator('#watch-folder-list > li').first()).toBeVisible({ timeout: 5000 });
     });
 
     test('should add folder with multiple presets', async ({ app, tempDir }) => {
@@ -89,12 +82,10 @@ test.describe('Watch Folder Filters', () => {
         await window.go.main.App.RefreshWatches();
       }, tempDir);
 
-      // Toggle view to refresh UI
+      // Toggle view to refresh UI and wait for folder list to render
       await app.closeWatchView();
       await app.openWatchView();
-
-      const count = await app.getWatchFolderCount();
-      expect(count).toBeGreaterThanOrEqual(1);
+      await expect(app.page.locator('#watch-folder-list > li').first()).toBeVisible({ timeout: 5000 });
     });
   });
 
@@ -116,12 +107,10 @@ test.describe('Watch Folder Filters', () => {
         await window.go.main.App.RefreshWatches();
       }, tempDir);
 
-      // Toggle view to refresh UI
+      // Toggle view to refresh UI and wait for folder list to render
       await app.closeWatchView();
       await app.openWatchView();
-
-      const count = await app.getWatchFolderCount();
-      expect(count).toBeGreaterThanOrEqual(1);
+      await expect(app.page.locator('#watch-folder-list > li').first()).toBeVisible({ timeout: 5000 });
     });
 
     test('should add folder with complex regex pattern', async ({ app, tempDir }) => {
@@ -141,12 +130,10 @@ test.describe('Watch Folder Filters', () => {
         await window.go.main.App.RefreshWatches();
       }, tempDir);
 
-      // Toggle view to refresh UI
+      // Toggle view to refresh UI and wait for folder list to render
       await app.closeWatchView();
       await app.openWatchView();
-
-      const count = await app.getWatchFolderCount();
-      expect(count).toBeGreaterThanOrEqual(1);
+      await expect(app.page.locator('#watch-folder-list > li').first()).toBeVisible({ timeout: 5000 });
     });
   });
 
@@ -168,14 +155,10 @@ test.describe('Watch Folder Filters', () => {
         await window.go.main.App.RefreshWatches();
       }, tempDir);
 
-      // Toggle view to refresh UI
+      // Toggle view to refresh UI and wait for folder list to render
       await app.closeWatchView();
       await app.openWatchView();
-      // Wait for UI to update
-      await app.page.waitForTimeout(300);
-
-      const count = await app.getWatchFolderCount();
-      expect(count).toBeGreaterThanOrEqual(1);
+      await expect(app.page.locator('#watch-folder-list > li').first()).toBeVisible({ timeout: 5000 });
     });
 
     test('should add folder with auto-archive option', async ({ app, tempDir }) => {
@@ -195,12 +178,10 @@ test.describe('Watch Folder Filters', () => {
         await window.go.main.App.RefreshWatches();
       }, tempDir);
 
-      // Toggle view to refresh UI
+      // Toggle view to refresh UI and wait for folder list to render
       await app.closeWatchView();
       await app.openWatchView();
-
-      const count = await app.getWatchFolderCount();
-      expect(count).toBeGreaterThanOrEqual(1);
+      await expect(app.page.locator('#watch-folder-list > li').first()).toBeVisible({ timeout: 5000 });
     });
 
     test('should add folder with both options enabled', async ({ app, tempDir }) => {
@@ -220,12 +201,10 @@ test.describe('Watch Folder Filters', () => {
         await window.go.main.App.RefreshWatches();
       }, tempDir);
 
-      // Toggle view to refresh UI
+      // Toggle view to refresh UI and wait for folder list to render
       await app.closeWatchView();
       await app.openWatchView();
-
-      const count = await app.getWatchFolderCount();
-      expect(count).toBeGreaterThanOrEqual(1);
+      await expect(app.page.locator('#watch-folder-list > li').first()).toBeVisible({ timeout: 5000 });
     });
   });
 
@@ -257,12 +236,13 @@ test.describe('Watch Folder Filters', () => {
           });
         }, { id: folderId, folderPath: tempDir });
 
-        await app.page.waitForTimeout(500);
+        // Wait for update to propagate
+        await app.closeWatchView();
+        await app.openWatchView();
       }
 
       // Verify folder still exists
-      const count = await app.getWatchFolderCount();
-      expect(count).toBeGreaterThanOrEqual(1);
+      await expect(app.page.locator('#watch-folder-list > li').first()).toBeVisible({ timeout: 5000 });
     });
   });
 });

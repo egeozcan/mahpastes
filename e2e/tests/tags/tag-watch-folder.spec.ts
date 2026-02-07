@@ -3,9 +3,6 @@ import { createTempFile, generateTestImage, createTempDir, cleanup } from '../..
 import * as path from 'path';
 import * as fs from 'fs/promises';
 
-// Run watch folder tests serially to avoid resource contention
-test.describe.configure({ mode: 'serial' });
-
 test.describe('Watch Folder Auto-Tagging', () => {
   let watchDir: string;
 
@@ -133,8 +130,6 @@ test.describe('Watch Folder Auto-Tagging', () => {
         await window.go.main.App.RefreshWatches();
       }, { folderPath: watchDir, tagId: watchedTag!.id });
 
-      await app.page.waitForTimeout(500);
-
       // Enable global watch via API
       await app.page.evaluate(async () => {
         // @ts-ignore
@@ -142,22 +137,17 @@ test.describe('Watch Folder Auto-Tagging', () => {
         // @ts-ignore
         await window.go.main.App.RefreshWatches();
       });
-      await app.page.waitForTimeout(1000);
 
       // Drop a file into the watched folder
       const imageContent = generateTestImage(100, 100, [255, 128, 0]);
       const testFilePath = path.join(watchDir, 'auto-tagged-image.png');
       await fs.writeFile(testFilePath, imageContent);
 
-      // Wait for the file to be imported with longer timeout
-      await app.waitForClipCount(1, 30000);
+      // Wait for import (polls DB, falls back to forced scan if fsnotify misses)
+      await app.waitForWatchImport(1);
+      await app.refreshClips();
+      await app.expectClipCount(1);
 
-      // Refresh clips via API
-      await app.page.evaluate(async () => {
-        // @ts-ignore
-        if (window.__testHelpers) window.__testHelpers.loadClips();
-      });
-      await app.page.waitForTimeout(500);
       await app.expectClipHasTag('auto-tagged-image.png', 'watched');
     });
 
@@ -188,22 +178,17 @@ test.describe('Watch Folder Auto-Tagging', () => {
         // @ts-ignore
         await window.go.main.App.RefreshWatches();
       });
-      await app.page.waitForTimeout(1000);
 
       // Drop a file
       const imageContent = generateTestImage(100, 100, [0, 255, 128]);
       const testFilePath = path.join(watchDir, 'no-tag-image.png');
       await fs.writeFile(testFilePath, imageContent);
 
-      // Wait for import with longer timeout
-      await app.waitForClipCount(1, 30000);
+      // Wait for import (polls DB, falls back to forced scan if fsnotify misses)
+      await app.waitForWatchImport(1);
+      await app.refreshClips();
+      await app.expectClipCount(1);
 
-      // Refresh clips via API
-      await app.page.evaluate(async () => {
-        // @ts-ignore
-        if (window.__testHelpers) window.__testHelpers.loadClips();
-      });
-      await app.page.waitForTimeout(500);
       await app.expectClipDoesNotHaveTag('no-tag-image.png', 'unused');
     });
   });
@@ -260,21 +245,16 @@ test.describe('Watch Folder Auto-Tagging', () => {
         // @ts-ignore
         await window.go.main.App.RefreshWatches();
       });
-      await app.page.waitForTimeout(1000);
 
       const imageContent = generateTestImage(100, 100, [128, 0, 255]);
       const testFilePath = path.join(watchDir, 'updated-tag-image.png');
       await fs.writeFile(testFilePath, imageContent);
 
-      // Wait for import with longer timeout
-      await app.waitForClipCount(1, 30000);
+      // Wait for import (polls DB, falls back to forced scan if fsnotify misses)
+      await app.waitForWatchImport(1);
+      await app.refreshClips();
+      await app.expectClipCount(1);
 
-      // Refresh clips via API
-      await app.page.evaluate(async () => {
-        // @ts-ignore
-        if (window.__testHelpers) window.__testHelpers.loadClips();
-      });
-      await app.page.waitForTimeout(500);
       await app.expectClipHasTag('updated-tag-image.png', 'updated');
     });
   });

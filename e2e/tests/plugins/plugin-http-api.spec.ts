@@ -40,7 +40,7 @@ test.describe('Plugin HTTP API', () => {
     expect(plugin?.name).toBe('HTTP Test');
     httpPluginId = plugin?.id ?? null;
 
-    await app.page.waitForTimeout(500);
+    await app.waitForPluginStorage(plugin!.id, 'http_test_initialized', 'true');
 
     // Check HTTP API availability was recorded at load time
     const httpGetAvailable = await app.getPluginStorage(plugin!.id, 'http_get_available');
@@ -57,13 +57,14 @@ test.describe('Plugin HTTP API', () => {
     expect(plugin).not.toBeNull();
     httpPluginId = plugin?.id ?? null;
 
-    await app.page.waitForTimeout(500);
+    await app.waitForPluginStorage(plugin!.id, 'http_test_initialized', 'true');
 
     // Upload a clip to trigger the HTTP test
     const imagePath = await createTempFile(generateTestImage(50, 50), 'png');
     await app.uploadFile(imagePath);
     await app.expectClipCount(1);
-    await app.page.waitForTimeout(500);
+
+    await app.waitForPluginStorageContains(plugin!.id, 'unauthorized_domain_error', 'domain not in allowlist');
 
     // Check that unauthorized domain error was recorded
     const domainError = await app.getPluginStorage(plugin!.id, 'unauthorized_domain_error');
@@ -92,7 +93,7 @@ test.describe('Plugin HTTP API', () => {
     expect(plugin).not.toBeNull();
     httpPluginId = plugin?.id ?? null;
 
-    await app.page.waitForTimeout(500);
+    await app.waitForPluginStorage(plugin!.id, 'http_test_initialized', 'true');
 
     // Verify initialization flag was set
     const initialized = await app.getPluginStorage(plugin!.id, 'http_test_initialized');

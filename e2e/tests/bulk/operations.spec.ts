@@ -203,8 +203,8 @@ test.describe('Bulk Operations', () => {
       await app.selectClip(filenames[0]);
       await app.bulkArchive();
 
-      // Wait for archive operation to complete and UI to update
-      await app.page.waitForTimeout(500);
+      // Wait for the archived clip to be removed from the main view
+      await app.expectClipCount(1);
 
       // The archived clip is moved, so it should no longer be in the selection
       // Verify the toolbar is hidden (no visible selections) or count shows 0

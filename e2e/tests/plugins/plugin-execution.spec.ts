@@ -64,11 +64,10 @@ test.describe('Plugin Execution', () => {
       eventTrackerPluginId = plugin?.id ?? null;
 
       // Wait for plugin to initialize
-      await app.page.waitForTimeout(500);
-
-      // Check that plugin initialized its storage at load time
-      const loaded = await app.getPluginStorage(plugin!.id, 'loaded');
-      expect(loaded).toBe('true');
+      await expect.poll(
+        async () => app.getPluginStorage(plugin!.id, 'loaded'),
+        { timeout: 5000, intervals: [100, 200, 500] }
+      ).toBe('true');
 
       const loadTime = await app.getPluginStorage(plugin!.id, 'load_time');
       expect(loadTime).not.toBe('');
@@ -102,7 +101,10 @@ test.describe('Plugin Execution', () => {
       eventTrackerPluginId = plugin?.id ?? null;
 
       // Wait for plugin to initialize
-      await app.page.waitForTimeout(500);
+      await expect.poll(
+        async () => app.getPluginStorage(plugin!.id, 'loaded'),
+        { timeout: 5000, intervals: [100, 200, 500] }
+      ).toBe('true');
 
       // Upload a clip
       const imagePath = await createTempFile(generateTestImage(100, 100, [255, 0, 0]), 'png');
@@ -110,11 +112,10 @@ test.describe('Plugin Execution', () => {
       await app.expectClipCount(1);
 
       // Wait for event to be processed
-      await app.page.waitForTimeout(500);
-
-      // Check that plugin received the event
-      const clipCreatedCount = await app.getPluginStorage(plugin!.id, 'count_clip_created');
-      expect(clipCreatedCount).toBe('1');
+      await expect.poll(
+        async () => app.getPluginStorage(plugin!.id, 'count_clip_created'),
+        { timeout: 5000, intervals: [100, 200, 500] }
+      ).toBe('1');
 
       // Check event log contains clip:created
       const eventLog = await app.getPluginStorage(plugin!.id, 'event_log');
@@ -129,7 +130,10 @@ test.describe('Plugin Execution', () => {
       expect(plugin).not.toBeNull();
       eventTrackerPluginId = plugin?.id ?? null;
 
-      await app.page.waitForTimeout(500);
+      await expect.poll(
+        async () => app.getPluginStorage(plugin!.id, 'loaded'),
+        { timeout: 5000, intervals: [100, 200, 500] }
+      ).toBe('true');
 
       // Upload and then delete a clip
       const imagePath = await createTempFile(generateTestImage(100, 100, [0, 255, 0]), 'png');
@@ -141,11 +145,10 @@ test.describe('Plugin Execution', () => {
       await app.expectClipCount(0);
 
       // Wait for event to be processed
-      await app.page.waitForTimeout(500);
-
-      // Check that plugin received the delete event
-      const clipDeletedCount = await app.getPluginStorage(plugin!.id, 'count_clip_deleted');
-      expect(clipDeletedCount).toBe('1');
+      await expect.poll(
+        async () => app.getPluginStorage(plugin!.id, 'count_clip_deleted'),
+        { timeout: 5000, intervals: [100, 200, 500] }
+      ).toBe('1');
     });
 
     test('should receive clip:archived and clip:unarchived events', async ({ app }) => {
@@ -156,7 +159,10 @@ test.describe('Plugin Execution', () => {
       expect(plugin).not.toBeNull();
       eventTrackerPluginId = plugin?.id ?? null;
 
-      await app.page.waitForTimeout(500);
+      await expect.poll(
+        async () => app.getPluginStorage(plugin!.id, 'loaded'),
+        { timeout: 5000, intervals: [100, 200, 500] }
+      ).toBe('true');
 
       // Upload a clip
       const imagePath = await createTempFile(generateTestImage(100, 100, [0, 0, 255]), 'png');
@@ -166,20 +172,18 @@ test.describe('Plugin Execution', () => {
 
       // Archive the clip
       await app.archiveClip(filename);
-      await app.page.waitForTimeout(500);
-
-      // Check archived event
-      const archivedCount = await app.getPluginStorage(plugin!.id, 'count_clip_archived');
-      expect(archivedCount).toBe('1');
+      await expect.poll(
+        async () => app.getPluginStorage(plugin!.id, 'count_clip_archived'),
+        { timeout: 5000, intervals: [100, 200, 500] }
+      ).toBe('1');
 
       // Switch to archive view and unarchive
       await app.toggleArchiveView();
       await app.archiveClip(filename); // Toggle unarchive
-      await app.page.waitForTimeout(500);
-
-      // Check unarchived event
-      const unarchivedCount = await app.getPluginStorage(plugin!.id, 'count_clip_unarchived');
-      expect(unarchivedCount).toBe('1');
+      await expect.poll(
+        async () => app.getPluginStorage(plugin!.id, 'count_clip_unarchived'),
+        { timeout: 5000, intervals: [100, 200, 500] }
+      ).toBe('1');
     });
 
     test('should receive multiple clip:created events for multiple uploads', async ({ app }) => {
@@ -190,7 +194,10 @@ test.describe('Plugin Execution', () => {
       expect(plugin).not.toBeNull();
       eventTrackerPluginId = plugin?.id ?? null;
 
-      await app.page.waitForTimeout(500);
+      await expect.poll(
+        async () => app.getPluginStorage(plugin!.id, 'loaded'),
+        { timeout: 5000, intervals: [100, 200, 500] }
+      ).toBe('true');
 
       // Upload multiple clips
       const file1 = await createTempFile(generateTestImage(50, 50, [255, 0, 0]), 'png');
@@ -201,11 +208,10 @@ test.describe('Plugin Execution', () => {
       await app.expectClipCount(3);
 
       // Wait for events
-      await app.page.waitForTimeout(500);
-
-      // Check count
-      const clipCreatedCount = await app.getPluginStorage(plugin!.id, 'count_clip_created');
-      expect(clipCreatedCount).toBe('3');
+      await expect.poll(
+        async () => app.getPluginStorage(plugin!.id, 'count_clip_created'),
+        { timeout: 5000, intervals: [100, 200, 500] }
+      ).toBe('3');
     });
   });
 
@@ -218,15 +224,17 @@ test.describe('Plugin Execution', () => {
       expect(plugin).not.toBeNull();
       eventTrackerPluginId = plugin?.id ?? null;
 
-      await app.page.waitForTimeout(500);
+      await expect.poll(
+        async () => app.getPluginStorage(plugin!.id, 'loaded'),
+        { timeout: 5000, intervals: [100, 200, 500] }
+      ).toBe('true');
 
       // Create a tag
       await app.createTag('TestTag');
-      await app.page.waitForTimeout(500);
-
-      // Check tag created event
-      const tagCreatedCount = await app.getPluginStorage(plugin!.id, 'count_tag_created');
-      expect(tagCreatedCount).toBe('1');
+      await expect.poll(
+        async () => app.getPluginStorage(plugin!.id, 'count_tag_created'),
+        { timeout: 5000, intervals: [100, 200, 500] }
+      ).toBe('1');
     });
 
     test('should receive tag:deleted event when tag is deleted', async ({ app }) => {
@@ -237,17 +245,18 @@ test.describe('Plugin Execution', () => {
       expect(plugin).not.toBeNull();
       eventTrackerPluginId = plugin?.id ?? null;
 
-      await app.page.waitForTimeout(500);
+      await expect.poll(
+        async () => app.getPluginStorage(plugin!.id, 'loaded'),
+        { timeout: 5000, intervals: [100, 200, 500] }
+      ).toBe('true');
 
       // Create and delete a tag
       await app.createTag('DeleteMe');
-      await app.page.waitForTimeout(300);
       await app.deleteTag('DeleteMe');
-      await app.page.waitForTimeout(500);
-
-      // Check tag deleted event
-      const tagDeletedCount = await app.getPluginStorage(plugin!.id, 'count_tag_deleted');
-      expect(tagDeletedCount).toBe('1');
+      await expect.poll(
+        async () => app.getPluginStorage(plugin!.id, 'count_tag_deleted'),
+        { timeout: 5000, intervals: [100, 200, 500] }
+      ).toBe('1');
     });
 
     test('should receive tag:added_to_clip and tag:removed_from_clip events', async ({ app }) => {
@@ -258,7 +267,10 @@ test.describe('Plugin Execution', () => {
       expect(plugin).not.toBeNull();
       eventTrackerPluginId = plugin?.id ?? null;
 
-      await app.page.waitForTimeout(500);
+      await expect.poll(
+        async () => app.getPluginStorage(plugin!.id, 'loaded'),
+        { timeout: 5000, intervals: [100, 200, 500] }
+      ).toBe('true');
 
       // Upload a clip
       const imagePath = await createTempFile(generateTestImage(100, 100, [128, 128, 128]), 'png');
@@ -268,23 +280,20 @@ test.describe('Plugin Execution', () => {
 
       // Create a tag
       await app.createTag('MyTag');
-      await app.page.waitForTimeout(300);
 
       // Add tag to clip
       await app.addTagToClip(filename, 'MyTag');
-      await app.page.waitForTimeout(500);
-
-      // Check tag added event
-      const tagAddedCount = await app.getPluginStorage(plugin!.id, 'count_tag_added_to_clip');
-      expect(tagAddedCount).toBe('1');
+      await expect.poll(
+        async () => app.getPluginStorage(plugin!.id, 'count_tag_added_to_clip'),
+        { timeout: 5000, intervals: [100, 200, 500] }
+      ).toBe('1');
 
       // Remove tag from clip
       await app.removeTagFromClip(filename, 'MyTag');
-      await app.page.waitForTimeout(500);
-
-      // Check tag removed event
-      const tagRemovedCount = await app.getPluginStorage(plugin!.id, 'count_tag_removed_from_clip');
-      expect(tagRemovedCount).toBe('1');
+      await expect.poll(
+        async () => app.getPluginStorage(plugin!.id, 'count_tag_removed_from_clip'),
+        { timeout: 5000, intervals: [100, 200, 500] }
+      ).toBe('1');
     });
   });
 
@@ -297,17 +306,25 @@ test.describe('Plugin Execution', () => {
       expect(plugin).not.toBeNull();
       eventTrackerPluginId = plugin?.id ?? null;
 
-      await app.page.waitForTimeout(500);
+      await expect.poll(
+        async () => app.getPluginStorage(plugin!.id, 'loaded'),
+        { timeout: 5000, intervals: [100, 200, 500] }
+      ).toBe('true');
 
       // Upload multiple clips to generate multiple events
       for (let i = 0; i < 3; i++) {
         const imagePath = await createTempFile(generateTestImage(50 + i * 10, 50 + i * 10), 'png');
         await app.uploadFile(imagePath);
-        await app.page.waitForTimeout(300);
       }
 
       await app.expectClipCount(3);
-      await app.page.waitForTimeout(500);
+      await expect.poll(
+        async () => {
+          const log = await app.getPluginStorage(plugin!.id, 'event_log');
+          try { return JSON.parse(log).filter((e: any) => e.event === 'clip:created').length; } catch { return 0; }
+        },
+        { timeout: 5000, intervals: [100, 200, 500] }
+      ).toBe(3);
 
       // Check event log has all events
       const eventLog = await app.getPluginStorage(plugin!.id, 'event_log');
@@ -334,7 +351,10 @@ test.describe('Plugin Execution', () => {
       expect(plugin).not.toBeNull();
       eventTrackerPluginId = plugin?.id ?? null;
 
-      await app.page.waitForTimeout(500);
+      await expect.poll(
+        async () => app.getPluginStorage(plugin!.id, 'loaded'),
+        { timeout: 5000, intervals: [100, 200, 500] }
+      ).toBe('true');
 
       // Create many clips rapidly
       const files: string[] = [];
@@ -344,7 +364,10 @@ test.describe('Plugin Execution', () => {
 
       await app.uploadFiles(files);
       await app.expectClipCount(5);
-      await app.page.waitForTimeout(1000);
+      await expect.poll(
+        async () => app.getPluginStorage(plugin!.id, 'count_clip_created'),
+        { timeout: 5000, intervals: [100, 200, 500] }
+      ).toBe('5');
 
       // Delete all clips
       for (const file of files) {
@@ -355,8 +378,6 @@ test.describe('Plugin Execution', () => {
           // Might already be deleted or view switched
         }
       }
-
-      await app.page.waitForTimeout(500);
 
       // Plugin should still be enabled and working
       const plugins = await app.getPlugins();

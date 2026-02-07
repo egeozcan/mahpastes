@@ -136,8 +136,6 @@ test.describe('Tag Plugin API', () => {
         await window.go.main.App.UpdateTag(tagId, 'updated-name', '#FF0000');
       }, tag!.id);
 
-      await app.page.waitForTimeout(300);
-
       const updatedTags = await app.getAllTags();
       const updatedTag = updatedTags.find(t => t.name === 'updated-name');
       expect(updatedTag).toBeDefined();

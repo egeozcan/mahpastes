@@ -24,7 +24,6 @@ test.describe('Plugin UI Extensions', () => {
       expect(plugin).not.toBeNull();
 
       await app.enablePlugin(plugin!.id);
-      await app.page.waitForTimeout(500);
 
       const actions = await app.getPluginUIActions();
       expect(actions.lightbox_buttons.length).toBeGreaterThan(0);
@@ -44,7 +43,6 @@ test.describe('Plugin UI Extensions', () => {
 
       // Disable the plugin explicitly (plugins start enabled by default)
       await app.disablePlugin(plugin!.id);
-      await app.page.waitForTimeout(300);
 
       const actions = await app.getPluginUIActions();
       expect(actions.lightbox_buttons).toHaveLength(0);
@@ -79,7 +77,6 @@ test.describe('Plugin UI Extensions', () => {
 
       // Click away
       await app.closeCardMenu();
-      await app.page.waitForTimeout(200);
 
       // Menu should be closed
       await expect(menu).not.toBeVisible();
@@ -292,13 +289,13 @@ test.describe('Plugin UI Extensions', () => {
       // Open plugin menu and click the action with options (test_options)
       const pluginTrigger = app.page.locator(selectors.lightbox.pluginTrigger);
       await pluginTrigger.click();
-      await app.page.waitForTimeout(200);
+      await app.page.locator(selectors.lightbox.pluginMenu).waitFor({ state: 'visible' });
 
       const optionsItem = app.page.locator(
         `${selectors.lightbox.pluginMenuItem}[data-action-id="test_options"]`
       );
       await optionsItem.click();
-      await app.page.waitForTimeout(300);
+      await expect.poll(() => app.isPluginOptionsModalOpen(), { timeout: 5000 }).toBe(true);
 
       // Options modal should be visible
       const isOpen = await app.isPluginOptionsModalOpen();
@@ -325,13 +322,13 @@ test.describe('Plugin UI Extensions', () => {
       // Open plugin menu and click the action with options
       const pluginTrigger = app.page.locator(selectors.lightbox.pluginTrigger);
       await pluginTrigger.click();
-      await app.page.waitForTimeout(200);
+      await app.page.locator(selectors.lightbox.pluginMenu).waitFor({ state: 'visible' });
 
       const optionsItem = app.page.locator(
         `${selectors.lightbox.pluginMenuItem}[data-action-id="test_options"]`
       );
       await optionsItem.click();
-      await app.page.waitForTimeout(300);
+      await expect.poll(() => app.isPluginOptionsModalOpen(), { timeout: 5000 }).toBe(true);
 
       // Cancel
       await app.cancelPluginOptionsForm();

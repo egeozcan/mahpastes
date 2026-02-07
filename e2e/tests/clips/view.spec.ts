@@ -123,7 +123,6 @@ test.describe('Clip View', () => {
     test('should order clips by creation time (newest first)', async ({ app }) => {
       const file1 = await createTempFile(generateTestText('first'), 'txt');
       await app.uploadFile(file1);
-      await app.page.waitForTimeout(100);
 
       const file2 = await createTempFile(generateTestText('second'), 'txt');
       await app.uploadFile(file2);

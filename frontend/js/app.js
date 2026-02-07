@@ -66,8 +66,8 @@ let activeTagFilters = [];
 // App ready flag for testing
 window.__appReady = false;
 
-// Expose state and functions for testing
-window.__testHelpers = {
+// Expose state and functions for testing (extend, don't overwrite - other scripts add helpers too)
+Object.assign(window.__testHelpers, {
   setAllTags: (tags) => {
     // Modify in place to preserve references
     allTags.length = 0;
@@ -79,13 +79,14 @@ window.__testHelpers = {
     activeTagFilters.push(...filters);
   },
   getActiveTagFilters: () => activeTagFilters,
+  setViewingArchive: (val) => { isViewingArchive = val; },
   // Expose loadClips function (defined in wails-api.js, but called here)
   loadClips: () => {
     if (typeof loadClips === 'function') {
       loadClips();
     }
   },
-};
+});
 
 // --- Event Listeners ---
 

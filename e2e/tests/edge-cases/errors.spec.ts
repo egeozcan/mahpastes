@@ -89,7 +89,8 @@ test.describe('Error Handling', () => {
 
       // Press Escape to close
       await app.page.keyboard.press('Escape');
-      await app.page.waitForTimeout(500);
+      // Wait for editor modal to close
+      await app.page.waitForSelector(`${selectors.editor.modal}:not(.active)`);
 
       // App should be in usable state
       await app.expectClipCount(1);
@@ -109,9 +110,6 @@ test.describe('Error Handling', () => {
 
       const deleteBtn = app.page.locator(selectors.cardMenu.delete);
       await deleteBtn.dblclick();
-
-      // Wait a bit for any dialog that might appear
-      await app.page.waitForTimeout(500);
 
       // Check if dialog is visible - double-click may or may not trigger it
       const dialogVisible = await app.page.evaluate((selector) => {
@@ -179,8 +177,8 @@ test.describe('Error Handling', () => {
       await app.addWatchFolder(watchDir);
       await app.toggleGlobalWatch(true);
 
-      // Wait for watcher to start
-      await app.page.waitForTimeout(500);
+      // Wait for fsnotify watcher to initialize
+      await app.page.waitForTimeout(300);
 
       // Remove the watch folder BEFORE deleting the directory
       // This prevents the app from crashing due to watching a deleted folder
@@ -269,12 +267,8 @@ test.describe('Error Handling', () => {
         await app.uploadFiles(batch);
       }
 
-      // Should handle all clips
-      const count = await app.getClipCount();
-      expect(count).toBe(clipCount);
-
-      // Clean up
-      await app.deleteAllClips();
+      // Should handle all clips (use polling to wait for gallery to render all)
+      await app.expectClipCount(clipCount, { timeout: 15000 });
     });
   });
 });
