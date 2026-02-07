@@ -78,7 +78,9 @@ export const selectors = {
     zoomSlider: '#lightbox-zoom-slider',
     zoomInfo: '#lightbox-zoom-info',
     pluginActions: '#lightbox-plugin-actions',
-    pluginButton: '.lightbox-plugin-btn',
+    pluginTrigger: '#lightbox-plugin-menu-trigger',
+    pluginMenu: '#lightbox-plugin-menu',
+    pluginMenuItem: '.lightbox-plugin-menu-item',
   },
 
   // Image editor

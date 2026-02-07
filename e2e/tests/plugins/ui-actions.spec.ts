@@ -143,12 +143,12 @@ test.describe('Plugin UI Extensions', () => {
       await app.uploadFile(imagePath);
       await app.openLightbox(path.basename(imagePath));
 
-      // Verify plugin buttons appear
+      // Verify plugin trigger button appears
       const pluginContainer = app.page.locator(selectors.lightbox.pluginActions);
       await expect(pluginContainer).toBeVisible();
 
-      const pluginButtons = app.page.locator(selectors.lightbox.pluginButton);
-      await expect(pluginButtons.first()).toBeVisible();
+      const pluginTrigger = app.page.locator(selectors.lightbox.pluginTrigger);
+      await expect(pluginTrigger).toBeVisible();
     });
 
     test('should hide plugin actions container when no plugins enabled', async ({ app }) => {
@@ -289,13 +289,15 @@ test.describe('Plugin UI Extensions', () => {
       // Open lightbox
       await app.openLightbox(path.basename(imagePath));
 
-      // Find the action with options (test_options)
-      const optionsBtn = app.page.locator(
-        `${selectors.lightbox.pluginButton}[data-action-id="test_options"]`
-      );
+      // Open plugin menu and click the action with options (test_options)
+      const pluginTrigger = app.page.locator(selectors.lightbox.pluginTrigger);
+      await pluginTrigger.click();
+      await app.page.waitForTimeout(200);
 
-      // Click should open options dialog
-      await optionsBtn.click();
+      const optionsItem = app.page.locator(
+        `${selectors.lightbox.pluginMenuItem}[data-action-id="test_options"]`
+      );
+      await optionsItem.click();
       await app.page.waitForTimeout(300);
 
       // Options modal should be visible
@@ -320,11 +322,15 @@ test.describe('Plugin UI Extensions', () => {
       // Open lightbox
       await app.openLightbox(path.basename(imagePath));
 
-      // Open options dialog
-      const optionsBtn = app.page.locator(
-        `${selectors.lightbox.pluginButton}[data-action-id="test_options"]`
+      // Open plugin menu and click the action with options
+      const pluginTrigger = app.page.locator(selectors.lightbox.pluginTrigger);
+      await pluginTrigger.click();
+      await app.page.waitForTimeout(200);
+
+      const optionsItem = app.page.locator(
+        `${selectors.lightbox.pluginMenuItem}[data-action-id="test_options"]`
       );
-      await optionsBtn.click();
+      await optionsItem.click();
       await app.page.waitForTimeout(300);
 
       // Cancel

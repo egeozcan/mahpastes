@@ -1580,20 +1580,34 @@ export class AppHelper {
   }
 
   async clickLightboxPluginAction(pluginId: number, actionId: string): Promise<void> {
-    const btn = this.page.locator(
-      `${selectors.lightbox.pluginButton}[data-plugin-id="${pluginId}"][data-action-id="${actionId}"]`
+    // Open the plugin menu first
+    const trigger = this.page.locator(selectors.lightbox.pluginTrigger);
+    await trigger.click();
+    await this.page.waitForTimeout(200);
+
+    // Click the menu item
+    const item = this.page.locator(
+      `${selectors.lightbox.pluginMenuItem}[data-plugin-id="${pluginId}"][data-action-id="${actionId}"]`
     );
-    await btn.click();
+    await item.click();
   }
 
-  async expectLightboxPluginButtonsVisible(): Promise<void> {
-    const buttons = this.page.locator(selectors.lightbox.pluginButton);
-    await expect(buttons.first()).toBeVisible();
+  async expectLightboxPluginTriggerVisible(): Promise<void> {
+    const trigger = this.page.locator(selectors.lightbox.pluginTrigger);
+    await expect(trigger).toBeVisible();
   }
 
-  async expectLightboxPluginButtonsCount(count: number): Promise<void> {
-    const buttons = this.page.locator(selectors.lightbox.pluginButton);
-    await expect(buttons).toHaveCount(count);
+  async expectLightboxPluginMenuItemsCount(count: number): Promise<void> {
+    // Open the plugin menu to count items
+    const trigger = this.page.locator(selectors.lightbox.pluginTrigger);
+    await trigger.click();
+    await this.page.waitForTimeout(200);
+
+    const items = this.page.locator(selectors.lightbox.pluginMenuItem);
+    await expect(items).toHaveCount(count);
+
+    // Close menu
+    await this.page.keyboard.press('Escape');
   }
 
   async isPluginOptionsModalOpen(): Promise<boolean> {

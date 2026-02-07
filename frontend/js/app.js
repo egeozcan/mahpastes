@@ -314,6 +314,19 @@ document.addEventListener('click', (e) => {
     }
 });
 
+// Close lightbox plugin menu when clicking outside
+document.addEventListener('click', (e) => {
+    const menu = document.getElementById('lightbox-plugin-menu');
+    if (!menu) return;
+
+    const isMenuClick = e.target.closest('#lightbox-plugin-menu');
+    const isTriggerClick = e.target.closest('#lightbox-plugin-menu-trigger');
+
+    if (!isMenuClick && !isTriggerClick) {
+        closeLightboxPluginMenu();
+    }
+});
+
 // Handle menu item clicks via event delegation
 document.addEventListener('click', (e) => {
     const menuItem = e.target.closest('.card-menu-item');

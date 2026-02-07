@@ -10,8 +10,7 @@ Plugin = {
     network = {
         ["fal.ai"] = {"GET", "POST"},
         ["fal.run"] = {"GET", "POST"},
-        ["fal.media"] = {"GET"},
-        ["v3.fal.media"] = {"GET"},
+        ["*.fal.media"] = {"GET"},
     },
 
     settings = {
@@ -186,7 +185,7 @@ end
 function on_ui_action(action_id, clip_ids, options)
     local api_key = storage.get("api_key")
     if not api_key or api_key == "" then
-        toast.error("FAL.AI API key not configured. Please set it in plugin settings.")
+        toast.show("FAL.AI API key not configured. Please set it in plugin settings.", "error")
         return {success = false, error = "API key not configured"}
     end
 
@@ -204,6 +203,7 @@ function on_ui_action(action_id, clip_ids, options)
 
     local last_clip_id = nil
     local errors = 0
+    local last_error = nil
 
     for i, clip_id in ipairs(clip_ids) do
         local ok, err = pcall(function()
@@ -211,6 +211,19 @@ function on_ui_action(action_id, clip_ids, options)
             local data, mime_type = clips.get_data(clip_id)
             if not data then
                 error("Failed to get clip data")
+            end
+
+            -- Validate raster image format (fal.ai endpoints reject SVG and other non-raster formats)
+            local supported_types = {
+                ["image/png"] = true,
+                ["image/jpeg"] = true,
+                ["image/webp"] = true,
+                ["image/gif"] = true,
+                ["image/tiff"] = true,
+                ["image/bmp"] = true,
+            }
+            if not supported_types[mime_type] then
+                error("Unsupported image format: " .. mime_type .. ". Only raster images (PNG, JPEG, WebP) are supported.")
             end
 
             -- Build data URI for the API
@@ -268,14 +281,17 @@ function on_ui_action(action_id, clip_ids, options)
 
         if not ok then
             errors = errors + 1
-            log("FAL.AI error processing clip " .. clip_id .. ": " .. tostring(err))
+            last_error = tostring(err)
+            log("FAL.AI error processing clip " .. clip_id .. ": " .. last_error)
         end
 
         task.progress(task_id, i)
     end
 
     if errors == clip_count then
-        task.fail(task_id, "All images failed to process")
+        local msg = "All images failed to process"
+        if last_error then msg = msg .. ": " .. last_error end
+        task.fail(task_id, msg)
     else
         task.complete(task_id)
     end

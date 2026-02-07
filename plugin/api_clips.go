@@ -322,7 +322,7 @@ func (c *ClipsAPI) checkURLDomain(urlStr string) error {
 		return fmt.Errorf("no network permissions: plugin must declare network permissions to fetch URLs (domain: %s)", domain)
 	}
 
-	allowedMethods, ok := c.allowedDomains[domain]
+	allowedMethods, ok := FindAllowedMethods(c.allowedDomains, domain)
 	if !ok {
 		return fmt.Errorf("domain not in allowlist: %s", domain)
 	}
@@ -375,7 +375,7 @@ func (c *ClipsAPI) createFromURL(L *lua.LState) int {
 			}
 			// Validate redirect domain against allowlist
 			domain := req.URL.Hostname()
-			if _, ok := allowedDomains[domain]; !ok {
+			if _, ok := FindAllowedMethods(allowedDomains, domain); !ok {
 				return fmt.Errorf("redirect to unauthorized domain: %s", domain)
 			}
 			return nil

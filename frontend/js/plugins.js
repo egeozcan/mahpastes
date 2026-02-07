@@ -717,8 +717,10 @@ document.getElementById('plugin-options-form')?.addEventListener('submit', async
         }
     });
 
+    const action = currentPluginAction;
+    const clipIds = currentActionClipIds;
     closePluginOptionsDialog();
-    await executePluginAction(currentPluginAction.plugin_id, currentPluginAction.id, currentActionClipIds, options, currentPluginAction.async);
+    await executePluginAction(action.plugin_id, action.id, clipIds, options, action.async);
 });
 
 // Close on backdrop click
