@@ -31,6 +31,10 @@ install: build ## Build and install to /Applications (kills running instance)
 	cp -R $(APP_BUNDLE) $(INSTALL_DIR)/$(APP_NAME).app
 	xattr -cr $(INSTALL_DIR)/$(APP_NAME).app
 	@echo "Installed to $(INSTALL_DIR)/$(APP_NAME).app"
+	@# Update bundled plugins
+	@mkdir -p "$(HOME)/Library/Application Support/mahpastes/plugins"
+	@cp plugins/*.lua "$(HOME)/Library/Application Support/mahpastes/plugins/"
+	@echo "Updated bundled plugins"
 	open $(INSTALL_DIR)/$(APP_NAME).app
 
 uninstall: ## Remove from /Applications
