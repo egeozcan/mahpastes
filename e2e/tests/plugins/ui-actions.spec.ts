@@ -175,7 +175,7 @@ test.describe('Plugin UI Extensions', () => {
       // Get clip ID
       const clips = await app.page.evaluate(async () => {
         // @ts-ignore
-        return await window.go.main.App.GetClips(false, []);
+        return await window.go.main.App.GetClips(false, [], []);
       });
       const clipId = clips[0].id;
 
@@ -204,7 +204,7 @@ test.describe('Plugin UI Extensions', () => {
       // Get clip ID
       const clips = await app.page.evaluate(async () => {
         // @ts-ignore
-        return await window.go.main.App.GetClips(false, []);
+        return await window.go.main.App.GetClips(false, [], []);
       });
       const clipId = clips[0].id;
 
@@ -236,7 +236,7 @@ test.describe('Plugin UI Extensions', () => {
       // Get clip IDs
       const clips = await app.page.evaluate(async () => {
         // @ts-ignore
-        return await window.go.main.App.GetClips(false, []);
+        return await window.go.main.App.GetClips(false, [], []);
       });
       const clipIds = clips.map((c: any) => c.id);
 

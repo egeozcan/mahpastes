@@ -1478,8 +1478,9 @@ export class AppHelper {
   }
 
   async toggleHiddenTagInSettings(tagName: string): Promise<void> {
-    const toggle = this.page.locator(`[data-testid="hidden-tag-toggle-${tagName}"]`);
-    await toggle.click({ force: true });
+    // The checkbox is sr-only, so click the parent label row instead
+    const row = this.page.locator(`[data-testid="hidden-tag-row-${tagName}"]`);
+    await row.click();
   }
 
   // ==================== Plugins ====================
