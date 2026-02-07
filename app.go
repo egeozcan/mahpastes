@@ -265,27 +265,32 @@ func (a *App) GetClips(archived bool, tagIDs []int64, hiddenTagIDs []int64) ([]C
 
 	if len(tagIDs) > 0 {
 		// Filter by tags (AND logic - clip must have ALL selected tags)
-		placeholders := make([]string, len(tagIDs))
-		for i := range tagIDs {
-			placeholders[i] = "?"
-		}
 
+		// 1. Hidden tags anti-join (LEFT JOIN ON clause)
 		hiddenJoin := ""
 		hiddenWhere := ""
+		var hiddenArgs []interface{}
 		if len(effectiveHidden) > 0 {
 			hiddenPlaceholders := make([]string, len(effectiveHidden))
 			for i, id := range effectiveHidden {
 				hiddenPlaceholders[i] = "?"
-				args = append(args, id) // Hidden IDs first (LEFT JOIN ON comes first in SQL)
+				hiddenArgs = append(hiddenArgs, id)
 			}
 			hiddenJoin = fmt.Sprintf("\n\t\tLEFT JOIN clip_tags ht ON c.id = ht.clip_id AND ht.tag_id IN (%s)", strings.Join(hiddenPlaceholders, ","))
 			hiddenWhere = "\n\t\t  AND ht.clip_id IS NULL"
 		}
 
-		// Tag IDs next (WHERE IN comes after LEFT JOIN ON)
-		for _, tagID := range tagIDs {
-			args = append(args, tagID)
+		// 2. Tag filter (WHERE IN clause)
+		tagPlaceholders := make([]string, len(tagIDs))
+		var tagArgs []interface{}
+		for i, id := range tagIDs {
+			tagPlaceholders[i] = "?"
+			tagArgs = append(tagArgs, id)
 		}
+
+		// Build args in SQL clause order: LEFT JOIN ON → WHERE IN → WHERE = → HAVING =
+		args = append(args, hiddenArgs...)
+		args = append(args, tagArgs...)
 		args = append(args, archivedInt, len(tagIDs))
 
 		query = fmt.Sprintf(`
@@ -298,7 +303,7 @@ func (a *App) GetClips(archived bool, tagIDs []int64, hiddenTagIDs []int64) ([]C
 		GROUP BY c.id
 		HAVING COUNT(DISTINCT ct.tag_id) = ?
 		ORDER BY c.created_at DESC
-		LIMIT %d`, hiddenJoin, strings.Join(placeholders, ","), hiddenWhere, defaultClipLimit)
+		LIMIT %d`, hiddenJoin, strings.Join(tagPlaceholders, ","), hiddenWhere, defaultClipLimit)
 	} else if len(effectiveHidden) > 0 {
 		// No tag filters but has hidden tags - use LEFT JOIN anti-join
 		hiddenPlaceholders := make([]string, len(effectiveHidden))
@@ -1576,17 +1581,19 @@ func (a *App) SetSetting(key string, value string) error {
 }
 
 // GetHiddenTags returns the list of hidden tag IDs
-func (a *App) GetHiddenTags() []int64 {
+func (a *App) GetHiddenTags() ([]int64, error) {
 	value, err := a.GetSetting("hidden_tags")
-	if err != nil || value == "" {
-		return []int64{}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get hidden_tags setting: %w", err)
+	}
+	if value == "" {
+		return []int64{}, nil
 	}
 	var ids []int64
 	if err := json.Unmarshal([]byte(value), &ids); err != nil {
-		log.Printf("Warning: failed to parse hidden_tags setting: %v", err)
-		return []int64{}
+		return nil, fmt.Errorf("failed to parse hidden_tags setting: %w", err)
 	}
-	return ids
+	return ids, nil
 }
 
 // SetHiddenTags saves the list of hidden tag IDs

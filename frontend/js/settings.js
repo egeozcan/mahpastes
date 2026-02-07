@@ -197,7 +197,7 @@ function renderHiddenTagsSettings() {
     }
 
     allTags.forEach(tag => {
-        const isHidden = hiddenTags.includes(tag.id);
+        const isHidden = getHiddenTags().includes(tag.id);
         const row = document.createElement('label');
         row.className = 'flex items-center justify-between py-2 px-1 cursor-pointer hover:bg-stone-50 rounded transition-colors';
         row.dataset.testid = `hidden-tag-row-${tag.name}`;
@@ -221,19 +221,17 @@ function renderHiddenTagsSettings() {
 }
 
 async function toggleHiddenTag(tagId, hidden) {
+    const current = getHiddenTags();
     if (hidden) {
-        if (!hiddenTags.includes(tagId)) {
-            hiddenTags.push(tagId);
+        if (!current.includes(tagId)) {
+            setHiddenTagsState([...current, tagId]);
         }
     } else {
-        const idx = hiddenTags.indexOf(tagId);
-        if (idx !== -1) {
-            hiddenTags.splice(idx, 1);
-        }
+        setHiddenTagsState(current.filter(id => id !== tagId));
     }
 
     try {
-        await window.go.main.App.SetHiddenTags(hiddenTags);
+        await window.go.main.App.SetHiddenTags(getHiddenTags());
     } catch (error) {
         console.error('Error saving hidden tags:', error);
         showToast('Failed to save hidden tags setting.');

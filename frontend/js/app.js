@@ -64,6 +64,13 @@ let allTags = [];
 let activeTagFilters = [];
 let hiddenTags = [];
 
+// Accessors for hiddenTags — other files should use these instead of the variable directly
+function getHiddenTags() { return hiddenTags; }
+function setHiddenTagsState(tags) {
+    hiddenTags.length = 0;
+    hiddenTags.push(...tags);
+}
+
 // App ready flag for testing
 window.__appReady = false;
 
@@ -80,11 +87,8 @@ Object.assign(window.__testHelpers, {
     activeTagFilters.push(...filters);
   },
   getActiveTagFilters: () => activeTagFilters,
-  setHiddenTags: (tags) => {
-    hiddenTags.length = 0;
-    hiddenTags.push(...tags);
-  },
-  getHiddenTags: () => hiddenTags,
+  setHiddenTags: (tags) => setHiddenTagsState(tags),
+  getHiddenTags: () => getHiddenTags(),
   setViewingArchive: (val) => { isViewingArchive = val; },
   // Expose loadClips function (defined in wails-api.js, but called here)
   loadClips: () => {
@@ -286,10 +290,11 @@ async function handleText(text) {
 
 async function loadHiddenTags() {
     try {
-        hiddenTags = await window.go.main.App.GetHiddenTags();
+        const tags = await window.go.main.App.GetHiddenTags();
+        setHiddenTagsState(tags);
     } catch (error) {
         console.error('Error loading hidden tags:', error);
-        hiddenTags = [];
+        setHiddenTagsState([]);
     }
 }
 

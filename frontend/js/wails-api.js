@@ -3,7 +3,7 @@
 
 async function loadClips() {
     try {
-        const effectiveHidden = hiddenTags.filter(id => !activeTagFilters.includes(id));
+        const effectiveHidden = getHiddenTags().filter(id => !activeTagFilters.includes(id));
         const clips = await window.go.main.App.GetClips(isViewingArchive, activeTagFilters, effectiveHidden);
 
         gallery.innerHTML = ''; // Clear gallery

@@ -44,7 +44,7 @@ function renderTagFilterDropdown() {
 
     allTags.forEach(tag => {
         const isActive = activeTagFilters.includes(tag.id);
-        const isHidden = hiddenTags.includes(tag.id);
+        const isHidden = getHiddenTags().includes(tag.id);
         const item = document.createElement('label');
         item.className = `flex items-center gap-2 px-3 py-1.5 hover:bg-stone-100 cursor-pointer transition-colors${isHidden ? ' opacity-50' : ''}`;
         item.innerHTML = `
