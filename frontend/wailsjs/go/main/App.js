@@ -82,12 +82,16 @@ export function GetClipboardText() {
   return window['go']['main']['App']['GetClipboardText']();
 }
 
-export function GetClips(arg1, arg2) {
-  return window['go']['main']['App']['GetClips'](arg1, arg2);
+export function GetClips(arg1, arg2, arg3) {
+  return window['go']['main']['App']['GetClips'](arg1, arg2, arg3);
 }
 
 export function GetGlobalWatchPaused() {
   return window['go']['main']['App']['GetGlobalWatchPaused']();
+}
+
+export function GetHiddenTags() {
+  return window['go']['main']['App']['GetHiddenTags']();
 }
 
 export function GetSetting(arg1) {
@@ -152,6 +156,10 @@ export function SetFolderPaused(arg1, arg2) {
 
 export function SetGlobalWatchPaused(arg1) {
   return window['go']['main']['App']['SetGlobalWatchPaused'](arg1);
+}
+
+export function SetHiddenTags(arg1) {
+  return window['go']['main']['App']['SetHiddenTags'](arg1);
 }
 
 export function SetSetting(arg1, arg2) {

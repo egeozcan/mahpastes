@@ -42,9 +42,11 @@ export function GetClipboardImage():Promise<string>;
 
 export function GetClipboardText():Promise<string>;
 
-export function GetClips(arg1:boolean,arg2:Array<number>):Promise<Array<main.ClipPreview>>;
+export function GetClips(arg1:boolean,arg2:Array<number>,arg3:Array<number>):Promise<Array<main.ClipPreview>>;
 
 export function GetGlobalWatchPaused():Promise<boolean>;
+
+export function GetHiddenTags():Promise<Array<number>>;
 
 export function GetSetting(arg1:string):Promise<string>;
 
@@ -77,6 +79,8 @@ export function SelectFolder():Promise<string>;
 export function SetFolderPaused(arg1:number,arg2:boolean):Promise<void>;
 
 export function SetGlobalWatchPaused(arg1:boolean):Promise<void>;
+
+export function SetHiddenTags(arg1:Array<number>):Promise<void>;
 
 export function SetSetting(arg1:string,arg2:string):Promise<void>;
 

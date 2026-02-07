@@ -242,10 +242,22 @@ var tagColors = []string{
 }
 
 // GetClips retrieves a list of clips for the gallery, optionally filtered by tags
-func (a *App) GetClips(archived bool, tagIDs []int64) ([]ClipPreview, error) {
+func (a *App) GetClips(archived bool, tagIDs []int64, hiddenTagIDs []int64) ([]ClipPreview, error) {
 	archivedInt := 0
 	if archived {
 		archivedInt = 1
+	}
+
+	// Compute effective hidden tags (remove any that are in active filters)
+	effectiveHidden := make([]int64, 0)
+	tagIDSet := make(map[int64]bool)
+	for _, id := range tagIDs {
+		tagIDSet[id] = true
+	}
+	for _, id := range hiddenTagIDs {
+		if !tagIDSet[id] {
+			effectiveHidden = append(effectiveHidden, id)
+		}
 	}
 
 	var query string
@@ -254,8 +266,24 @@ func (a *App) GetClips(archived bool, tagIDs []int64) ([]ClipPreview, error) {
 	if len(tagIDs) > 0 {
 		// Filter by tags (AND logic - clip must have ALL selected tags)
 		placeholders := make([]string, len(tagIDs))
-		for i, tagID := range tagIDs {
+		for i := range tagIDs {
 			placeholders[i] = "?"
+		}
+
+		hiddenJoin := ""
+		hiddenWhere := ""
+		if len(effectiveHidden) > 0 {
+			hiddenPlaceholders := make([]string, len(effectiveHidden))
+			for i, id := range effectiveHidden {
+				hiddenPlaceholders[i] = "?"
+				args = append(args, id) // Hidden IDs first (LEFT JOIN ON comes first in SQL)
+			}
+			hiddenJoin = fmt.Sprintf("\n\t\tLEFT JOIN clip_tags ht ON c.id = ht.clip_id AND ht.tag_id IN (%s)", strings.Join(hiddenPlaceholders, ","))
+			hiddenWhere = "\n\t\t  AND ht.clip_id IS NULL"
+		}
+
+		// Tag IDs next (WHERE IN comes after LEFT JOIN ON)
+		for _, tagID := range tagIDs {
 			args = append(args, tagID)
 		}
 		args = append(args, archivedInt, len(tagIDs))
@@ -263,15 +291,34 @@ func (a *App) GetClips(archived bool, tagIDs []int64) ([]ClipPreview, error) {
 		query = fmt.Sprintf(`
 		SELECT c.id, c.content_type, c.filename, c.created_at, c.expires_at, SUBSTR(c.data, 1, 500), c.is_archived
 		FROM clips c
-		INNER JOIN clip_tags ct ON c.id = ct.clip_id
+		INNER JOIN clip_tags ct ON c.id = ct.clip_id%s
 		WHERE ct.tag_id IN (%s)
 		  AND c.is_archived = ?
-		  AND (c.expires_at IS NULL OR c.expires_at > CURRENT_TIMESTAMP)
+		  AND (c.expires_at IS NULL OR c.expires_at > CURRENT_TIMESTAMP)%s
 		GROUP BY c.id
 		HAVING COUNT(DISTINCT ct.tag_id) = ?
 		ORDER BY c.created_at DESC
-		LIMIT %d`, strings.Join(placeholders, ","), defaultClipLimit)
+		LIMIT %d`, hiddenJoin, strings.Join(placeholders, ","), hiddenWhere, defaultClipLimit)
+	} else if len(effectiveHidden) > 0 {
+		// No tag filters but has hidden tags - use LEFT JOIN anti-join
+		hiddenPlaceholders := make([]string, len(effectiveHidden))
+		for i, id := range effectiveHidden {
+			hiddenPlaceholders[i] = "?"
+			args = append(args, id)
+		}
+		args = append(args, archivedInt)
+
+		query = fmt.Sprintf(`
+		SELECT c.id, c.content_type, c.filename, c.created_at, c.expires_at, SUBSTR(c.data, 1, 500), c.is_archived
+		FROM clips c
+		LEFT JOIN clip_tags ht ON c.id = ht.clip_id AND ht.tag_id IN (%s)
+		WHERE ht.clip_id IS NULL
+		  AND c.is_archived = ?
+		  AND (c.expires_at IS NULL OR c.expires_at > CURRENT_TIMESTAMP)
+		ORDER BY c.created_at DESC
+		LIMIT %d`, strings.Join(hiddenPlaceholders, ","), defaultClipLimit)
 	} else {
+		// No filters, no hidden tags - original simple query
 		args = append(args, archivedInt)
 		query = fmt.Sprintf(`
 		SELECT id, content_type, filename, created_at, expires_at, SUBSTR(data, 1, 500), is_archived
@@ -1526,5 +1573,31 @@ func (a *App) SetSetting(key string, value string) error {
 		ON CONFLICT(key) DO UPDATE SET value = excluded.value
 	`, key, value)
 	return err
+}
+
+// GetHiddenTags returns the list of hidden tag IDs
+func (a *App) GetHiddenTags() []int64 {
+	value, err := a.GetSetting("hidden_tags")
+	if err != nil || value == "" {
+		return []int64{}
+	}
+	var ids []int64
+	if err := json.Unmarshal([]byte(value), &ids); err != nil {
+		log.Printf("Warning: failed to parse hidden_tags setting: %v", err)
+		return []int64{}
+	}
+	return ids
+}
+
+// SetHiddenTags saves the list of hidden tag IDs
+func (a *App) SetHiddenTags(ids []int64) error {
+	if ids == nil {
+		ids = []int64{}
+	}
+	data, err := json.Marshal(ids)
+	if err != nil {
+		return fmt.Errorf("failed to marshal hidden tags: %w", err)
+	}
+	return a.SetSetting("hidden_tags", string(data))
 }
 
