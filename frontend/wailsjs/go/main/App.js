@@ -26,24 +26,12 @@ export function BulkDownloadToFile(arg1) {
   return window['go']['main']['App']['BulkDownloadToFile'](arg1);
 }
 
-export function BulkProcessImagesWithFal(arg1, arg2) {
-  return window['go']['main']['App']['BulkProcessImagesWithFal'](arg1, arg2);
-}
-
 export function BulkRemoveTag(arg1, arg2) {
   return window['go']['main']['App']['BulkRemoveTag'](arg1, arg2);
 }
 
 export function CancelExpiration(arg1) {
   return window['go']['main']['App']['CancelExpiration'](arg1);
-}
-
-export function CancelTask(arg1) {
-  return window['go']['main']['App']['CancelTask'](arg1);
-}
-
-export function ClearCompletedTasks() {
-  return window['go']['main']['App']['ClearCompletedTasks']();
 }
 
 export function ConfirmRestoreBackup(arg1) {
@@ -78,10 +66,6 @@ export function DeleteTag(arg1) {
   return window['go']['main']['App']['DeleteTag'](arg1);
 }
 
-export function GetAvailableFalModels() {
-  return window['go']['main']['App']['GetAvailableFalModels']();
-}
-
 export function GetClipData(arg1) {
   return window['go']['main']['App']['GetClipData'](arg1);
 }
@@ -114,10 +98,6 @@ export function GetTags() {
   return window['go']['main']['App']['GetTags']();
 }
 
-export function GetTasks() {
-  return window['go']['main']['App']['GetTasks']();
-}
-
 export function GetWatchStatus() {
   return window['go']['main']['App']['GetWatchStatus']();
 }
@@ -130,20 +110,12 @@ export function GetWatchedFolders() {
   return window['go']['main']['App']['GetWatchedFolders']();
 }
 
-export function HasFalApiKey() {
-  return window['go']['main']['App']['HasFalApiKey']();
-}
-
 export function IsDirectory(arg1) {
   return window['go']['main']['App']['IsDirectory'](arg1);
 }
 
 export function ProcessExistingFilesInFolder(arg1) {
   return window['go']['main']['App']['ProcessExistingFilesInFolder'](arg1);
-}
-
-export function ProcessImageWithFal(arg1, arg2) {
-  return window['go']['main']['App']['ProcessImageWithFal'](arg1, arg2);
 }
 
 export function ReadFileFromPath(arg1) {
@@ -192,10 +164,6 @@ export function ShowCreateBackupDialog() {
 
 export function ShowRestoreBackupDialog() {
   return window['go']['main']['App']['ShowRestoreBackupDialog']();
-}
-
-export function StartAITask(arg1, arg2, arg3) {
-  return window['go']['main']['App']['StartAITask'](arg1, arg2, arg3);
 }
 
 export function ToggleArchive(arg1) {

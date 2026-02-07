@@ -58,6 +58,11 @@ function toggleWatchView() {
     }
 }
 
+// Expose watch state for testing
+if (window.__testHelpers) {
+    window.__testHelpers.setViewingWatch = (val) => { isViewingWatch = val; };
+}
+
 // --- Load Watch Status ---
 async function updateWatchIndicator() {
     try {

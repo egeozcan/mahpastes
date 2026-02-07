@@ -7,6 +7,24 @@ import (
 	"strings"
 )
 
+// Pre-compiled regexes for manifest parsing (only static patterns)
+var (
+	rePluginTable     = regexp.MustCompile(`(?m)^Plugin\s*=\s*\{`)
+	reQuotedStrings   = regexp.MustCompile(`["']([^"']+)["']`)
+	reNetworkBlock    = regexp.MustCompile(`network\s*=\s*\{`)
+	reBracketDomain   = regexp.MustCompile(`\["([^"]+)"\]\s*=\s*\{([^}]*)\}`)
+	reSimpleDomain    = regexp.MustCompile(`(\w+)\s*=\s*\{([^}]*)\}`)
+	reSchedulesBlock  = regexp.MustCompile(`schedules\s*=\s*\{`)
+	reNameField       = regexp.MustCompile(`name\s*=\s*["']([^"']+)["']`)
+	reIntervalField   = regexp.MustCompile(`interval\s*=\s*(\d+)`)
+	reSettingsBlock   = regexp.MustCompile(`settings\s*=\s*\{`)
+	reUIBlock         = regexp.MustCompile(`ui\s*=\s*\{`)
+	reOptionsBlock    = regexp.MustCompile(`options\s*=\s*\{`)
+	reRequiredField   = regexp.MustCompile(`required\s*=\s*(true|false)`)
+	reChoicesBlock    = regexp.MustCompile(`choices\s*=\s*\{`)
+	reDefaultBool     = regexp.MustCompile(`default\s*=\s*(true|false)`)
+)
+
 // Manifest represents a parsed plugin manifest
 type Manifest struct {
 	Name        string
@@ -18,6 +36,7 @@ type Manifest struct {
 	Events      []string
 	Schedules   []Schedule
 	Settings    []SettingField
+	UI          *UIManifest
 }
 
 // FilesystemPerms represents filesystem permission requests
@@ -40,6 +59,40 @@ type SettingField struct {
 	Description string   `json:"description,omitempty"`
 	Default     any      `json:"default,omitempty"`
 	Options     []string `json:"options,omitempty"`
+}
+
+// UIManifest represents plugin UI declarations
+type UIManifest struct {
+	LightboxButtons []UIAction `json:"lightbox_buttons,omitempty"`
+	CardActions     []UIAction `json:"card_actions,omitempty"`
+}
+
+// UIAction represents a plugin-defined action button
+type UIAction struct {
+	ID      string      `json:"id"`
+	Label   string      `json:"label"`
+	Icon    string      `json:"icon,omitempty"`
+	Async   bool        `json:"async,omitempty"`
+	Options []FormField `json:"options,omitempty"`
+}
+
+// FormField represents a form field in an options dialog
+type FormField struct {
+	ID       string   `json:"id"`
+	Type     string   `json:"type"` // text, password, checkbox, select, range
+	Label    string   `json:"label"`
+	Required bool     `json:"required,omitempty"`
+	Default  any      `json:"default,omitempty"`
+	Choices  []Choice `json:"choices,omitempty"` // for select
+	Min      float64  `json:"min,omitempty"`     // for range
+	Max      float64  `json:"max,omitempty"`     // for range
+	Step     float64  `json:"step,omitempty"`    // for range
+}
+
+// Choice represents a select option
+type Choice struct {
+	Value string `json:"value"`
+	Label string `json:"label"`
 }
 
 // ParseManifest extracts the Plugin table from Lua source using text parsing.
@@ -82,14 +135,16 @@ func ParseManifest(source string) (*Manifest, error) {
 	// Parse settings
 	manifest.Settings = extractSettings(pluginBlock)
 
+	// Parse UI declarations
+	manifest.UI = extractUI(pluginBlock)
+
 	return manifest, nil
 }
 
 // extractPluginTable finds and extracts the Plugin = { ... } block
 func extractPluginTable(source string) (string, error) {
 	// Match Plugin = { with possible whitespace variations
-	re := regexp.MustCompile(`(?m)^Plugin\s*=\s*\{`)
-	loc := re.FindStringIndex(source)
+	loc := rePluginTable.FindStringIndex(source)
 	if loc == nil {
 		return "", fmt.Errorf("plugin must define a Plugin table")
 	}
@@ -229,8 +284,7 @@ func extractStringArray(block, field string) []string {
 	arrayContent := matches[1]
 
 	// Extract all quoted strings
-	stringRe := regexp.MustCompile(`["']([^"']+)["']`)
-	stringMatches := stringRe.FindAllStringSubmatch(arrayContent, -1)
+	stringMatches := reQuotedStrings.FindAllStringSubmatch(arrayContent, -1)
 
 	var result []string
 	for _, m := range stringMatches {
@@ -248,8 +302,7 @@ func extractNetworkPerms(block string) map[string][]string {
 	result := make(map[string][]string)
 
 	// Find the network block
-	networkPattern := regexp.MustCompile(`network\s*=\s*\{`)
-	loc := networkPattern.FindStringIndex(block)
+	loc := reNetworkBlock.FindStringIndex(block)
 	if loc == nil {
 		return result
 	}
@@ -263,8 +316,7 @@ func extractNetworkPerms(block string) map[string][]string {
 
 	// Match domain entries: ["domain.com"] = {"GET", "POST"} or domain = {"GET"}
 	// Pattern for bracket notation: ["domain.com"] = {...}
-	bracketPattern := regexp.MustCompile(`\["([^"]+)"\]\s*=\s*\{([^}]*)\}`)
-	bracketMatches := bracketPattern.FindAllStringSubmatch(networkBlock, -1)
+	bracketMatches := reBracketDomain.FindAllStringSubmatch(networkBlock, -1)
 	for _, m := range bracketMatches {
 		if len(m) >= 3 {
 			domain := m[1]
@@ -274,8 +326,7 @@ func extractNetworkPerms(block string) map[string][]string {
 	}
 
 	// Pattern for simple notation: domain = {...}
-	simplePattern := regexp.MustCompile(`(\w+)\s*=\s*\{([^}]*)\}`)
-	simpleMatches := simplePattern.FindAllStringSubmatch(networkBlock, -1)
+	simpleMatches := reSimpleDomain.FindAllStringSubmatch(networkBlock, -1)
 	for _, m := range simpleMatches {
 		if len(m) >= 3 {
 			domain := m[1]
@@ -297,8 +348,7 @@ func extractSchedules(block string) []Schedule {
 	var result []Schedule
 
 	// Find the schedules block
-	schedulesPattern := regexp.MustCompile(`schedules\s*=\s*\{`)
-	loc := schedulesPattern.FindStringIndex(block)
+	loc := reSchedulesBlock.FindStringIndex(block)
 	if loc == nil {
 		return result
 	}
@@ -343,15 +393,13 @@ func parseScheduleEntry(entry string) Schedule {
 	var schedule Schedule
 
 	// Extract name
-	namePattern := regexp.MustCompile(`name\s*=\s*["']([^"']+)["']`)
-	nameMatches := namePattern.FindStringSubmatch(entry)
+	nameMatches := reNameField.FindStringSubmatch(entry)
 	if len(nameMatches) >= 2 {
 		schedule.Name = nameMatches[1]
 	}
 
 	// Extract interval
-	intervalPattern := regexp.MustCompile(`interval\s*=\s*(\d+)`)
-	intervalMatches := intervalPattern.FindStringSubmatch(entry)
+	intervalMatches := reIntervalField.FindStringSubmatch(entry)
 	if len(intervalMatches) >= 2 {
 		schedule.Interval, _ = strconv.Atoi(intervalMatches[1])
 	}
@@ -365,8 +413,7 @@ func extractSettings(block string) []SettingField {
 	var result []SettingField
 
 	// Find the settings block
-	settingsPattern := regexp.MustCompile(`settings\s*=\s*\{`)
-	loc := settingsPattern.FindStringIndex(block)
+	loc := reSettingsBlock.FindStringIndex(block)
 	if loc == nil {
 		return result
 	}
@@ -442,6 +489,235 @@ func parseSettingEntry(entry string) SettingField {
 	return setting
 }
 
+// extractUI extracts UI declarations from the manifest
+// Format: ui = { lightbox_buttons = {...}, card_actions = {...} }
+func extractUI(block string) *UIManifest {
+	// Find the ui block
+	loc := reUIBlock.FindStringIndex(block)
+	if loc == nil {
+		return nil
+	}
+
+	start := loc[1] - 1
+	uiBlock := extractNestedBrace(block[start:])
+	if uiBlock == "" {
+		return nil
+	}
+
+	ui := &UIManifest{}
+	ui.LightboxButtons = extractUIActions(uiBlock, "lightbox_buttons")
+	ui.CardActions = extractUIActions(uiBlock, "card_actions")
+
+	// Return nil if no actions defined
+	if len(ui.LightboxButtons) == 0 && len(ui.CardActions) == 0 {
+		return nil
+	}
+
+	return ui
+}
+
+// extractUIActions extracts an array of UI actions
+func extractUIActions(block, field string) []UIAction {
+	var result []UIAction
+
+	// Find the field block
+	fieldPattern := regexp.MustCompile(regexp.QuoteMeta(field) + `\s*=\s*\{`)
+	loc := fieldPattern.FindStringIndex(block)
+	if loc == nil {
+		return result
+	}
+
+	start := loc[1] - 1
+	actionsBlock := extractNestedBrace(block[start:])
+	if actionsBlock == "" {
+		return result
+	}
+
+	// Find each action entry: {id = "...", label = "...", ...}
+	depth := 0
+	entryStart := -1
+
+	for i := 1; i < len(actionsBlock)-1; i++ {
+		c := actionsBlock[i]
+		if c == '{' {
+			if depth == 0 {
+				entryStart = i
+			}
+			depth++
+		} else if c == '}' {
+			depth--
+			if depth == 0 && entryStart >= 0 {
+				entry := actionsBlock[entryStart : i+1]
+				action := parseUIAction(entry)
+				if action.ID != "" && action.Label != "" {
+					result = append(result, action)
+				}
+				entryStart = -1
+			}
+		}
+	}
+
+	return result
+}
+
+// parseUIAction parses a single UI action entry
+func parseUIAction(entry string) UIAction {
+	var action UIAction
+
+	action.ID = extractStringField(entry, "id")
+	action.Label = extractStringField(entry, "label")
+	action.Icon = extractStringField(entry, "icon")
+
+	// Parse async flag
+	asyncPattern := regexp.MustCompile(`async\s*=\s*(true|false)`)
+	if m := asyncPattern.FindStringSubmatch(entry); len(m) >= 2 {
+		action.Async = m[1] == "true"
+	}
+
+	// Parse options if present
+	action.Options = extractFormFields(entry)
+
+	return action
+}
+
+// extractFormFields extracts form field definitions from an action
+func extractFormFields(block string) []FormField {
+	var result []FormField
+
+	// Find the options block
+	loc := reOptionsBlock.FindStringIndex(block)
+	if loc == nil {
+		return result
+	}
+
+	start := loc[1] - 1
+	optionsBlock := extractNestedBrace(block[start:])
+	if optionsBlock == "" {
+		return result
+	}
+
+	// Valid form field types
+	validFormFieldTypes := map[string]bool{
+		"text": true, "password": true, "checkbox": true, "select": true, "range": true,
+	}
+
+	// Find each field entry
+	depth := 0
+	entryStart := -1
+
+	for i := 1; i < len(optionsBlock)-1; i++ {
+		c := optionsBlock[i]
+		if c == '{' {
+			if depth == 0 {
+				entryStart = i
+			}
+			depth++
+		} else if c == '}' {
+			depth--
+			if depth == 0 && entryStart >= 0 {
+				entry := optionsBlock[entryStart : i+1]
+				field := parseFormField(entry)
+				if field.ID != "" && field.Type != "" && field.Label != "" && validFormFieldTypes[field.Type] {
+					// Validate select has choices
+					if field.Type == "select" && len(field.Choices) == 0 {
+						entryStart = -1
+						continue
+					}
+					result = append(result, field)
+				}
+				entryStart = -1
+			}
+		}
+	}
+
+	return result
+}
+
+// parseFormField parses a single form field entry
+func parseFormField(entry string) FormField {
+	var field FormField
+
+	field.ID = extractStringField(entry, "id")
+	field.Type = extractStringField(entry, "type")
+	field.Label = extractStringField(entry, "label")
+
+	// Parse required
+	if matches := reRequiredField.FindStringSubmatch(entry); len(matches) >= 2 {
+		field.Required = matches[1] == "true"
+	}
+
+	// Parse default value
+	field.Default = extractDefaultValue(entry)
+
+	// Parse choices for select type
+	field.Choices = extractChoices(entry)
+
+	// Parse range options
+	field.Min = extractFloatField(entry, "min")
+	field.Max = extractFloatField(entry, "max")
+	field.Step = extractFloatField(entry, "step")
+
+	return field
+}
+
+// extractChoices extracts choices array for select fields
+func extractChoices(block string) []Choice {
+	var result []Choice
+
+	// Find choices block
+	loc := reChoicesBlock.FindStringIndex(block)
+	if loc == nil {
+		return result
+	}
+
+	start := loc[1] - 1
+	choicesBlock := extractNestedBrace(block[start:])
+	if choicesBlock == "" {
+		return result
+	}
+
+	// Find each choice entry
+	depth := 0
+	entryStart := -1
+
+	for i := 1; i < len(choicesBlock)-1; i++ {
+		c := choicesBlock[i]
+		if c == '{' {
+			if depth == 0 {
+				entryStart = i
+			}
+			depth++
+		} else if c == '}' {
+			depth--
+			if depth == 0 && entryStart >= 0 {
+				entry := choicesBlock[entryStart : i+1]
+				value := extractStringField(entry, "value")
+				label := extractStringField(entry, "label")
+				if value != "" && label != "" {
+					result = append(result, Choice{Value: value, Label: label})
+				}
+				entryStart = -1
+			}
+		}
+	}
+
+	return result
+}
+
+// extractFloatField extracts a float64 field value
+func extractFloatField(block, field string) float64 {
+	pattern := fmt.Sprintf(`%s\s*=\s*([0-9.]+)`, regexp.QuoteMeta(field))
+	re := regexp.MustCompile(pattern)
+	matches := re.FindStringSubmatch(block)
+	if len(matches) >= 2 {
+		val, err := strconv.ParseFloat(matches[1], 64)
+		if err == nil {
+			return val
+		}
+	}
+	return 0
+}
+
 // extractDefaultValue extracts the default value which can be string, bool, or absent
 func extractDefaultValue(entry string) any {
 	// Try string first
@@ -451,8 +727,7 @@ func extractDefaultValue(entry string) any {
 	}
 
 	// Try boolean
-	boolPattern := regexp.MustCompile(`default\s*=\s*(true|false)`)
-	boolMatches := boolPattern.FindStringSubmatch(entry)
+	boolMatches := reDefaultBool.FindStringSubmatch(entry)
 	if len(boolMatches) >= 2 {
 		return boolMatches[1] == "true"
 	}
@@ -497,8 +772,7 @@ func extractNestedBrace(s string) string {
 
 // extractQuotedStrings extracts all quoted strings from a string
 func extractQuotedStrings(s string) []string {
-	re := regexp.MustCompile(`["']([^"']+)["']`)
-	matches := re.FindAllStringSubmatch(s, -1)
+	matches := reQuotedStrings.FindAllStringSubmatch(s, -1)
 
 	var result []string
 	for _, m := range matches {

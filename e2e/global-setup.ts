@@ -21,7 +21,7 @@ interface TestState {
 }
 
 // Delay between spawning instances (configurable via WAILS_SPAWN_DELAY env var)
-const DEFAULT_SPAWN_DELAY = 2000;
+const DEFAULT_SPAWN_DELAY = 500;
 
 async function globalSetup(config: FullConfig): Promise<void> {
   console.log('\n🚀 Starting Wails instances for parallel testing...\n');

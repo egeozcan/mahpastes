@@ -15,6 +15,13 @@ const (
 	MaxConsecutiveErrors = 3
 )
 
+// ActionResult represents the result of a plugin action execution
+type ActionResult struct {
+	Success      bool   `json:"success"`
+	Error        string `json:"error,omitempty"`
+	ResultClipID int64  `json:"result_clip_id,omitempty"`
+}
+
 // Plugin represents a loaded plugin
 type Plugin struct {
 	ID       int64
@@ -112,7 +119,7 @@ func (m *Manager) loadPlugin(p *Plugin) error {
 	sandbox := NewSandbox(manifest, p.ID)
 
 	// Register APIs
-	clipsAPI := NewClipsAPI(m.db)
+	clipsAPI := NewClipsAPI(m.db, manifest.Network)
 	clipsAPI.Register(sandbox.GetState())
 
 	storageAPI := NewStorageAPI(m.db, p.ID)
@@ -132,6 +139,9 @@ func (m *Manager) loadPlugin(p *Plugin) error {
 
 	toastAPI := NewToastAPI(m.ctx, p.ID)
 	toastAPI.Register(sandbox.GetState())
+
+	taskAPI := NewTaskAPI(m.ctx, p.ID)
+	taskAPI.Register(sandbox.GetState())
 
 	// Load the plugin source
 	if err := sandbox.LoadSource(string(source)); err != nil {
@@ -438,4 +448,97 @@ func (m *Manager) Shutdown() {
 
 	m.plugins = make(map[int64]*Plugin)
 	m.eventSubscribers = make(map[string][]int64)
+}
+
+// ExecuteUIAction calls a plugin's on_ui_action handler.
+// If the action has async=true in the manifest, it runs in a background goroutine
+// and returns immediately. The plugin should use task.start/progress/complete for feedback.
+func (m *Manager) ExecuteUIAction(pluginID int64, actionID string, clipIDs []int64, options map[string]interface{}) (*ActionResult, error) {
+	m.mu.RLock()
+	p, ok := m.plugins[pluginID]
+	m.mu.RUnlock()
+
+	if !ok {
+		return nil, fmt.Errorf("plugin not found: %d", pluginID)
+	}
+
+	if !p.Enabled {
+		return nil, fmt.Errorf("plugin is disabled: %s", p.Name)
+	}
+
+	if p.Sandbox == nil {
+		return nil, fmt.Errorf("plugin sandbox not initialized: %s", p.Name)
+	}
+
+	// Find the action in the manifest
+	action := findUIAction(p.Manifest, actionID)
+	if action == nil {
+		return nil, fmt.Errorf("unknown action ID: %s", actionID)
+	}
+
+	// Async actions run in a background goroutine with extended timeout
+	if action.Async {
+		go func() {
+			luaResult, err := p.Sandbox.CallUIAction(actionID, clipIDs, options, MaxUIActionTime)
+			if err != nil {
+				log.Printf("Plugin %s async action %s failed: %v", p.Name, actionID, err)
+				m.incrementErrorCount(pluginID)
+				return
+			}
+			m.resetErrorCount(pluginID)
+			_ = luaResult // Plugin communicates results via task events and toasts
+		}()
+		return &ActionResult{Success: true}, nil
+	}
+
+	// Synchronous actions block and return the result
+	luaResult, err := p.Sandbox.CallUIAction(actionID, clipIDs, options, MaxExecutionTime)
+	if err != nil {
+		return nil, fmt.Errorf("plugin action failed: %w", err)
+	}
+
+	return luaResultToActionResult(luaResult), nil
+}
+
+// luaResultToActionResult converts a Lua return table to an ActionResult
+func luaResultToActionResult(luaResult map[string]interface{}) *ActionResult {
+	result := &ActionResult{Success: true}
+
+	if success, ok := luaResult["success"]; ok {
+		if successBool, ok := success.(bool); ok {
+			result.Success = successBool
+		}
+	}
+
+	if errMsg, ok := luaResult["error"]; ok {
+		if errStr, ok := errMsg.(string); ok {
+			result.Error = errStr
+		}
+	}
+
+	if clipID, ok := luaResult["result_clip_id"]; ok {
+		if id, ok := clipID.(int64); ok {
+			result.ResultClipID = id
+		}
+	}
+
+	return result
+}
+
+// findUIAction finds a UI action by ID in the manifest, returning nil if not found
+func findUIAction(manifest *Manifest, actionID string) *UIAction {
+	if manifest == nil || manifest.UI == nil {
+		return nil
+	}
+	for i := range manifest.UI.LightboxButtons {
+		if manifest.UI.LightboxButtons[i].ID == actionID {
+			return &manifest.UI.LightboxButtons[i]
+		}
+	}
+	for i := range manifest.UI.CardActions {
+		if manifest.UI.CardActions[i].ID == actionID {
+			return &manifest.UI.CardActions[i]
+		}
+	}
+	return nil
 }

@@ -205,11 +205,9 @@ test.describe('Image Editor', () => {
 
       // Undo with Ctrl+Z
       await app.page.keyboard.press('Control+z');
-      await app.page.waitForTimeout(200);
 
       // Redo with Ctrl+Y
       await app.page.keyboard.press('Control+y');
-      await app.page.waitForTimeout(200);
     });
   });
 

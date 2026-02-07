@@ -104,7 +104,8 @@ test.describe('Search and Filtering', () => {
 
       // Type incrementally
       await app.page.locator('#search-input').type('a', { delay: 100 });
-      await app.page.waitForTimeout(400);
+      // Wait for gallery to re-render after search filter
+      await app.page.waitForFunction(() => (window as any).__appReady === true, { timeout: 5000 });
 
       // Should filter in real-time
       const count = await app.getClipCount();

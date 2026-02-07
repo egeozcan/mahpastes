@@ -20,17 +20,26 @@ test.describe('Watch Folder Auto-Tagging', () => {
 
   test.describe('Auto-Tag Configuration', () => {
     test('should show auto-tag dropdown in watch folder modal', async ({ app }) => {
-      // Open watch view and add folder modal
+      // Open watch view
       const watchBtn = app.page.locator('#toggle-watch-view-btn');
       await watchBtn.click();
       await app.page.waitForSelector('#watch-view:not(.hidden)');
 
-      const addFolderBtn = app.page.locator('#add-folder-btn');
-      await addFolderBtn.click();
+      // Open folder modal directly (bypassing native dialog)
+      await app.page.evaluate((testPath) => {
+        // @ts-ignore - call the modal open function directly
+        if (typeof openFolderModal === 'function') {
+          // @ts-ignore
+          openFolderModal(testPath);
+        }
+      }, watchDir);
       await app.page.waitForSelector('#folder-modal', { state: 'visible' });
 
       const autoTagSelect = app.page.locator('[data-testid="watch-folder-auto-tag"]');
       await expect(autoTagSelect).toBeVisible();
+
+      // Close the modal
+      await app.page.locator('#folder-modal-cancel').click();
     });
 
     test('should list available tags in auto-tag dropdown', async ({ app }) => {
@@ -66,21 +75,33 @@ test.describe('Watch Folder Auto-Tagging', () => {
 
       // Should have "None" + 2 tags
       expect(optionCount).toBeGreaterThanOrEqual(3);
+
+      // Close the modal
+      await app.page.locator('#folder-modal-cancel').click();
     });
 
     test('should have None option as default', async ({ app }) => {
-      // Open watch view and add folder modal
+      // Open watch view
       const watchBtn = app.page.locator('#toggle-watch-view-btn');
       await watchBtn.click();
       await app.page.waitForSelector('#watch-view:not(.hidden)');
 
-      const addFolderBtn = app.page.locator('#add-folder-btn');
-      await addFolderBtn.click();
+      // Open folder modal directly (bypassing native dialog)
+      await app.page.evaluate((testPath) => {
+        // @ts-ignore - call the modal open function directly
+        if (typeof openFolderModal === 'function') {
+          // @ts-ignore
+          openFolderModal(testPath);
+        }
+      }, watchDir);
       await app.page.waitForSelector('#folder-modal', { state: 'visible' });
 
       const autoTagSelect = app.page.locator('[data-testid="watch-folder-auto-tag"]');
       const noneOption = autoTagSelect.locator('option[value=""]');
       await expect(noneOption).toHaveText('None');
+
+      // Close the modal
+      await app.page.locator('#folder-modal-cancel').click();
     });
   });
 
@@ -109,8 +130,6 @@ test.describe('Watch Folder Auto-Tagging', () => {
         await window.go.main.App.RefreshWatches();
       }, { folderPath: watchDir, tagId: watchedTag!.id });
 
-      await app.page.waitForTimeout(500);
-
       // Enable global watch via API
       await app.page.evaluate(async () => {
         // @ts-ignore
@@ -118,25 +137,17 @@ test.describe('Watch Folder Auto-Tagging', () => {
         // @ts-ignore
         await window.go.main.App.RefreshWatches();
       });
-      await app.page.waitForTimeout(1000);
 
       // Drop a file into the watched folder
       const imageContent = generateTestImage(100, 100, [255, 128, 0]);
       const testFilePath = path.join(watchDir, 'auto-tagged-image.png');
       await fs.writeFile(testFilePath, imageContent);
 
-      // Wait for the file to be imported
-      await app.page.waitForTimeout(3000);
-
-      // Refresh clips via API
-      await app.page.evaluate(async () => {
-        // @ts-ignore
-        if (window.__testHelpers) window.__testHelpers.loadClips();
-      });
-      await app.page.waitForTimeout(500);
-
-      // Verify clip was imported with the tag
+      // Wait for import (polls DB, falls back to forced scan if fsnotify misses)
+      await app.waitForWatchImport(1);
+      await app.refreshClips();
       await app.expectClipCount(1);
+
       await app.expectClipHasTag('auto-tagged-image.png', 'watched');
     });
 
@@ -167,25 +178,17 @@ test.describe('Watch Folder Auto-Tagging', () => {
         // @ts-ignore
         await window.go.main.App.RefreshWatches();
       });
-      await app.page.waitForTimeout(1000);
 
       // Drop a file
       const imageContent = generateTestImage(100, 100, [0, 255, 128]);
       const testFilePath = path.join(watchDir, 'no-tag-image.png');
       await fs.writeFile(testFilePath, imageContent);
 
-      // Wait for import
-      await app.page.waitForTimeout(3000);
-
-      // Refresh clips via API
-      await app.page.evaluate(async () => {
-        // @ts-ignore
-        if (window.__testHelpers) window.__testHelpers.loadClips();
-      });
-      await app.page.waitForTimeout(500);
-
-      // Verify clip exists but has no tags
+      // Wait for import (polls DB, falls back to forced scan if fsnotify misses)
+      await app.waitForWatchImport(1);
+      await app.refreshClips();
       await app.expectClipCount(1);
+
       await app.expectClipDoesNotHaveTag('no-tag-image.png', 'unused');
     });
   });
@@ -242,23 +245,16 @@ test.describe('Watch Folder Auto-Tagging', () => {
         // @ts-ignore
         await window.go.main.App.RefreshWatches();
       });
-      await app.page.waitForTimeout(1000);
 
       const imageContent = generateTestImage(100, 100, [128, 0, 255]);
       const testFilePath = path.join(watchDir, 'updated-tag-image.png');
       await fs.writeFile(testFilePath, imageContent);
 
-      await app.page.waitForTimeout(3000);
-
-      // Refresh clips via API
-      await app.page.evaluate(async () => {
-        // @ts-ignore
-        if (window.__testHelpers) window.__testHelpers.loadClips();
-      });
-      await app.page.waitForTimeout(500);
-
-      // Should have the updated tag
+      // Wait for import (polls DB, falls back to forced scan if fsnotify misses)
+      await app.waitForWatchImport(1);
+      await app.refreshClips();
       await app.expectClipCount(1);
+
       await app.expectClipHasTag('updated-tag-image.png', 'updated');
     });
   });

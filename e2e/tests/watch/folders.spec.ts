@@ -60,8 +60,8 @@ test.describe('Watch Folders', () => {
       await app.addWatchFolder(dir1);
       await app.addWatchFolder(dir2);
 
-      const count = await app.getWatchFolderCount();
-      expect(count).toBeGreaterThanOrEqual(2);
+      // Wait for both folders to appear in the UI
+      await expect(app.page.locator('#watch-folder-list > li')).toHaveCount(2, { timeout: 5000 });
     });
   });
 
@@ -75,7 +75,11 @@ test.describe('Watch Folders', () => {
 
       await app.removeWatchFolder(tempDir);
 
-      await app.page.waitForTimeout(500);
+      // Wait for folder count to update in the UI
+      await expect.poll(
+        () => app.getWatchFolderCount(),
+        { timeout: 5000 }
+      ).toBe(initialCount - 1);
       const finalCount = await app.getWatchFolderCount();
       expect(finalCount).toBe(initialCount - 1);
     });
@@ -101,14 +105,8 @@ test.describe('Watch Folders', () => {
       // Pause first
       await app.toggleGlobalWatch(false);
 
-      // Wait for state to settle
-      await app.page.waitForTimeout(500);
-
       // Then resume
       await app.toggleGlobalWatch(true);
-
-      // Wait for state to update
-      await app.page.waitForTimeout(500);
 
       // Check the label indicates active state
       const label = app.page.locator(selectors.watch.globalLabel);
