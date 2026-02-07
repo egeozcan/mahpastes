@@ -1,4 +1,5 @@
 // --- Task Queue Module ---
+// Handles plugin task progress events and displays them in a queue bar + modal.
 
 const taskQueue = {
     tasks: new Map(),
@@ -16,82 +17,57 @@ const queueTaskList = document.getElementById('queue-task-list');
 // Initialize task queue and event listeners
 function initTaskQueue() {
     if (typeof window.runtime !== 'undefined') {
-        window.runtime.EventsOn('task:started', handleTaskStarted);
-        window.runtime.EventsOn('task:progress', handleTaskProgress);
-        window.runtime.EventsOn('task:completed', handleTaskCompleted);
-        window.runtime.EventsOn('task:cancelled', handleTaskCancelled);
-        window.runtime.EventsOn('task:failed', handleTaskFailed);
-    }
-
-    // Load existing tasks on startup
-    loadExistingTasks();
-}
-
-async function loadExistingTasks() {
-    try {
-        const tasks = await window.go.main.App.GetTasks();
-        if (tasks && tasks.length > 0) {
-            tasks.forEach(task => {
-                taskQueue.tasks.set(task.id, task);
-            });
-            updateQueueBar();
-        }
-    } catch (error) {
-        console.error('Failed to load existing tasks:', error);
+        window.runtime.EventsOn('plugin:task:started', handlePluginTaskStarted);
+        window.runtime.EventsOn('plugin:task:progress', handlePluginTaskProgress);
+        window.runtime.EventsOn('plugin:task:completed', handlePluginTaskCompleted);
+        window.runtime.EventsOn('plugin:task:failed', handlePluginTaskFailed);
     }
 }
 
-// Event handlers
-function handleTaskStarted(task) {
+// Plugin task event handlers
+function handlePluginTaskStarted(data) {
+    const task = {
+        id: data.task_id,
+        task_name: data.name,
+        status: 'running',
+        progress: 0,
+        total: data.total,
+        plugin_id: data.plugin_id,
+        created_at: new Date().toISOString(),
+    };
     taskQueue.tasks.set(task.id, task);
     showQueueBar();
     updateQueueBar();
     renderQueueModal();
 }
 
-function handleTaskProgress(data) {
-    const task = taskQueue.tasks.get(data.taskId);
+function handlePluginTaskProgress(data) {
+    const task = taskQueue.tasks.get(data.task_id);
     if (task) {
-        task.progress = data.progress;
+        task.progress = data.current;
         task.total = data.total;
         updateQueueBar();
         renderQueueModal();
     }
 }
 
-function handleTaskCompleted(task) {
-    taskQueue.tasks.set(task.id, task);
-    updateQueueBar();
-    renderQueueModal();
+function handlePluginTaskCompleted(data) {
+    const task = taskQueue.tasks.get(data.task_id);
+    if (task) {
+        task.status = 'completed';
+        task.progress = task.total;
+        updateQueueBar();
+        renderQueueModal();
 
-    // Refresh gallery when task completes
-    if (typeof loadClips === 'function') {
-        loadClips();
-    }
-
-    // Show toast with appropriate message
-    const successCount = task.results ? task.results.filter(r => r.success).length : 0;
-    const failedCount = task.total - successCount;
-    if (failedCount === task.total) {
-        showToast(`Failed: ${task.task_name}`);
-    } else if (failedCount > 0) {
-        showToast(`Partially completed: ${task.task_name} (${successCount}/${task.total} succeeded)`);
-    } else {
+        if (typeof loadClips === 'function') {
+            loadClips();
+        }
         showToast(`Completed: ${task.task_name}`);
     }
 }
 
-function handleTaskCancelled(data) {
-    const task = taskQueue.tasks.get(data.taskId);
-    if (task) {
-        task.status = 'cancelled';
-        updateQueueBar();
-        renderQueueModal();
-    }
-}
-
-function handleTaskFailed(data) {
-    const task = taskQueue.tasks.get(data.taskId);
+function handlePluginTaskFailed(data) {
+    const task = taskQueue.tasks.get(data.task_id);
     if (task) {
         task.status = 'failed';
         task.error = data.error;
@@ -224,68 +200,17 @@ function renderQueueModal() {
     }
 
     queueTaskList.innerHTML = tasks.map(task => renderTaskCard(task)).join('');
-
-    // Add cancel button listeners
-    queueTaskList.querySelectorAll('.task-cancel-btn').forEach(btn => {
-        btn.addEventListener('click', async (e) => {
-            e.stopPropagation();
-            const taskId = btn.dataset.taskId;
-            await cancelTaskById(taskId);
-        });
-    });
 }
 
 function renderTaskCard(task) {
     const statusIcon = getStatusIcon(task.status);
     const progressPercent = task.total > 0 ? (task.progress / task.total) * 100 : 0;
     const showProgress = task.status === 'running';
-    const showCancel = task.status === 'running' || task.status === 'pending';
     const timeAgo = getTimeAgo(task.created_at);
 
-    // Build error details section - show errors whenever results contain failures
+    // Build error details section
     let errorDetailsHtml = '';
-
-    // Check for failed results regardless of overall task status
-    if (task.results && task.results.length > 0) {
-        const failedResults = task.results.filter(r => r.success === false);
-        if (failedResults.length > 0) {
-            // Group by error message and count
-            const errorCounts = {};
-            failedResults.forEach(r => {
-                const errorMsg = r.error || 'Unknown error';
-                errorCounts[errorMsg] = (errorCounts[errorMsg] || 0) + 1;
-            });
-
-            const errorEntries = Object.entries(errorCounts);
-            const errorItems = errorEntries
-                .slice(0, 3)
-                .map(([error, count]) => {
-                    const countLabel = count > 1 ? ` (${count}x)` : '';
-                    const errorId = `error-${task.id}-${Math.random().toString(36).substr(2, 9)}`;
-                    return `
-                        <li class="cursor-pointer" onclick="toggleErrorExpand('${errorId}')">
-                            <span id="${errorId}" class="line-clamp-2 block">${escapeHTML(error)}${countLabel}</span>
-                        </li>`;
-                })
-                .join('');
-
-            const moreCount = errorEntries.length - 3;
-            const moreText = moreCount > 0 ? `<li class="text-stone-400">...and ${moreCount} more</li>` : '';
-
-            errorDetailsHtml = `
-                <div class="mt-2 pt-2 border-t border-stone-200">
-                    <ul class="text-xs text-red-500 space-y-1 list-disc list-inside">
-                        ${errorItems}
-                        ${moreText}
-                    </ul>
-                    <p class="text-xs text-stone-400 mt-1">Click error to expand</p>
-                </div>
-            `;
-        }
-    }
-
-    // Fallback: show task-level error if no result details but task has error
-    if (!errorDetailsHtml && task.error) {
+    if (task.error) {
         const errorId = `error-${task.id}-fallback`;
         errorDetailsHtml = `
             <div class="mt-2 pt-2 border-t border-stone-200">
@@ -302,13 +227,6 @@ function renderTaskCard(task) {
                     ${statusIcon}
                     <span class="text-sm font-medium text-stone-700">${escapeHTML(task.task_name)}</span>
                 </div>
-                ${showCancel ? `
-                    <button class="task-cancel-btn text-stone-400 hover:text-red-500 p-1 transition-colors" data-task-id="${task.id}" title="Cancel">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12"></path>
-                        </svg>
-                    </button>
-                ` : ''}
             </div>
 
             ${showProgress ? `
@@ -390,41 +308,15 @@ function toggleErrorExpand(errorId) {
     }
 }
 
-// Actions
-async function startBackgroundTask(clipIds, options, taskName) {
-    try {
-        const taskId = await window.go.main.App.StartAITask(clipIds, options, taskName);
-        return taskId;
-    } catch (error) {
-        console.error('Failed to start task:', error);
-        showToast('Failed to start task: ' + error.message);
-        throw error;
-    }
-}
-
-async function cancelTaskById(taskId) {
-    try {
-        await window.go.main.App.CancelTask(taskId);
-    } catch (error) {
-        console.error('Failed to cancel task:', error);
-        showToast('Failed to cancel task');
-    }
-}
-
-async function clearCompletedTasksAction() {
-    try {
-        await window.go.main.App.ClearCompletedTasks();
-        // Remove from local state
-        for (const [id, task] of taskQueue.tasks) {
-            if (task.status === 'completed' || task.status === 'cancelled' || task.status === 'failed') {
-                taskQueue.tasks.delete(id);
-            }
+// Clear completed/failed tasks (local only)
+function clearCompletedTasksAction() {
+    for (const [id, task] of taskQueue.tasks) {
+        if (task.status === 'completed' || task.status === 'cancelled' || task.status === 'failed') {
+            taskQueue.tasks.delete(id);
         }
-        updateQueueBar();
-        renderQueueModal();
-    } catch (error) {
-        console.error('Failed to clear tasks:', error);
     }
+    updateQueueBar();
+    renderQueueModal();
 }
 
 // Event listeners

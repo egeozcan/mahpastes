@@ -125,7 +125,8 @@ test.describe('Tag Filtering', () => {
       await app.openTagFilterDropdown();
       const checkbox = app.page.locator('[data-testid="tag-checkbox-counted"]');
       await checkbox.click();
-      await app.page.waitForTimeout(500);
+      // Wait for gallery to re-render after tag filter change
+      await app.page.waitForFunction(() => (window as any).__appReady === true, { timeout: 5000 });
 
       // Badge should show count
       const badge = app.page.locator('#tag-filter-badge');
@@ -149,7 +150,8 @@ test.describe('Tag Filtering', () => {
       await app.openTagFilterDropdown();
       const checkbox = app.page.locator('[data-testid="tag-checkbox-active"]');
       await checkbox.click();
-      await app.page.waitForTimeout(500);
+      // Wait for gallery to re-render after tag filter change
+      await app.page.waitForFunction(() => (window as any).__appReady === true, { timeout: 5000 });
       await app.closeTagFilterDropdown();
 
       // Active tags container should show the tag
@@ -175,7 +177,8 @@ test.describe('Tag Filtering', () => {
       const clip = await app.getClipByFilename(filename1);
       const tagPill = clip.locator('[data-testid="tag-pill-clickable"]');
       await tagPill.click();
-      await app.page.waitForTimeout(500);
+      // Wait for gallery to re-render after tag filter change
+      await app.page.waitForFunction(() => (window as any).__appReady === true, { timeout: 5000 });
 
       // Should filter to only clips with this tag
       await app.expectClipCount(1);

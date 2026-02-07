@@ -39,7 +39,8 @@ test.describe('Image Lightbox', () => {
       await app.openLightbox(filename);
 
       await app.page.keyboard.press('Escape');
-      await app.page.waitForTimeout(300);
+      // Wait for lightbox to close (loses .active class)
+      await app.page.waitForSelector(`${selectors.lightbox.overlay}:not(.active)`);
 
       const isOpen = await app.isLightboxOpen();
       expect(isOpen).toBe(false);
@@ -73,7 +74,6 @@ test.describe('Image Lightbox', () => {
 
       // Navigate next
       await app.lightboxNext();
-      await app.page.waitForTimeout(200);
 
       const isOpen = await app.isLightboxOpen();
       expect(isOpen).toBe(true);
@@ -91,7 +91,6 @@ test.describe('Image Lightbox', () => {
       await app.openLightbox(filenames[1]);
 
       await app.lightboxPrev();
-      await app.page.waitForTimeout(200);
 
       const isOpen = await app.isLightboxOpen();
       expect(isOpen).toBe(true);
@@ -109,7 +108,6 @@ test.describe('Image Lightbox', () => {
 
       // Navigate with arrow key
       await app.page.keyboard.press('ArrowRight');
-      await app.page.waitForTimeout(200);
 
       const isOpen = await app.isLightboxOpen();
       expect(isOpen).toBe(true);
@@ -128,7 +126,6 @@ test.describe('Image Lightbox', () => {
       // Navigate past the end
       await app.lightboxNext();
       await app.lightboxNext();
-      await app.page.waitForTimeout(200);
 
       // Should still be open (wrapped or at boundary)
       const isOpen = await app.isLightboxOpen();

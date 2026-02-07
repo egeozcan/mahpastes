@@ -63,8 +63,6 @@ test.describe('Expiration Timer', () => {
         }
       }, filename);
 
-      await app.page.waitForTimeout(500);
-
       // Clip should still exist and have no expiration
       await app.expectClipVisible(filename);
     });

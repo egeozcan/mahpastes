@@ -64,32 +64,121 @@
     gap: 1rem;
 }
 
-.lightbox-ai-actions {
+/* Lightbox Plugin Trigger & Menu */
+.lightbox-plugin-actions {
     display: flex;
-    gap: 0.5rem;
-    flex-wrap: wrap;
+    margin-right: 1rem;
 }
 
-.lightbox-ai-actions.hidden {
+.lightbox-plugin-actions.hidden {
     display: none;
 }
 
-.lightbox-ai-btn {
-    padding: 0.375rem 0.625rem;
-    background: rgba(87, 83, 78, 0.6);
-    color: #e7e5e4;
+.lightbox-plugin-trigger {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.375rem 0.75rem;
     font-size: 0.6875rem;
     font-weight: 500;
-    letter-spacing: 0.01em;
+    color: #d6d3d1;
+    background: rgba(87, 83, 78, 0.5);
     border: none;
     border-radius: 0.25rem;
     cursor: pointer;
     transition: background 0.15s, color 0.15s;
 }
 
-.lightbox-ai-btn:hover {
-    background: rgba(87, 83, 78, 0.9);
+.lightbox-plugin-trigger:hover {
+    background: rgba(87, 83, 78, 0.7);
     color: #fafaf9;
+}
+
+.lightbox-plugin-trigger[aria-expanded="true"] {
+    background: rgba(87, 83, 78, 0.8);
+    color: #fafaf9;
+}
+
+.lightbox-plugin-trigger span {
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.lightbox-plugin-trigger svg {
+    width: 0.75rem;
+    height: 0.75rem;
+    flex-shrink: 0;
+}
+
+.lightbox-plugin-menu {
+    position: fixed;
+    z-index: 110;
+    min-width: 180px;
+    max-width: 260px;
+    background: rgba(41, 37, 36, 0.9);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(68, 64, 60, 0.5);
+    border-radius: 0.375rem;
+    padding: 0.25rem;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    opacity: 0;
+    transform: translateY(4px);
+    transition: opacity 0.15s ease, transform 0.15s ease;
+    pointer-events: none;
+}
+
+.lightbox-plugin-menu.active {
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
+}
+
+.lightbox-plugin-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.4375rem 0.625rem;
+    font-size: 0.6875rem;
+    font-weight: 500;
+    color: #d6d3d1;
+    background: transparent;
+    border: none;
+    border-radius: 0.25rem;
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.1s, color 0.1s;
+}
+
+.lightbox-plugin-menu-item:hover,
+.lightbox-plugin-menu-item:focus {
+    background: rgba(87, 83, 78, 0.5);
+    color: #fafaf9;
+    outline: none;
+}
+
+.lightbox-plugin-menu-item svg {
+    width: 0.875rem;
+    height: 0.875rem;
+    flex-shrink: 0;
+}
+
+.lightbox-plugin-menu-header {
+    padding: 0.375rem 0.625rem 0.25rem;
+    font-size: 0.625rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #78716c;
+    pointer-events: none;
+}
+
+.lightbox-plugin-menu-divider {
+    height: 1px;
+    background: rgba(68, 64, 60, 0.5);
+    margin: 0.25rem 0.375rem;
 }
 
 .lightbox-image-info {
@@ -505,4 +594,197 @@ input[type="range"].comparison-range::-webkit-slider-thumb {
     position: fixed;
     z-index: 250;
     font-size: 14px;
+}
+
+/* Plugin Options Dialog Styles */
+.modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background-color: rgba(28, 25, 23, 0.4);
+    backdrop-filter: blur(4px);
+    z-index: 150; /* Above lightbox (100) */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    transition: opacity 0.2s ease;
+}
+
+.modal-content {
+    background: white;
+    border-radius: 0.5rem;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+    width: 100%;
+    overflow: hidden;
+    transform: scale(0.95);
+    transition: transform 0.2s ease;
+}
+
+.modal-backdrop.opacity-100 .modal-content {
+    transform: scale(1);
+}
+
+.modal-header {
+    padding: 1.25rem;
+    border-bottom: 1px solid #f5f5f4;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.modal-body {
+    padding: 1.25rem;
+}
+
+.modal-footer {
+    padding: 0.75rem 1.25rem;
+    background: #fafaf9;
+    border-top: 1px solid #f5f5f4;
+    display: flex;
+    gap: 0.5rem;
+    justify-content: flex-end;
+}
+
+.btn-primary {
+    background-color: #292524;
+    color: white;
+    font-size: 0.75rem;
+    font-weight: 500;
+    padding: 0.5rem 1rem;
+    border-radius: 0.375rem;
+    border: none;
+    cursor: pointer;
+    transition: background-color 0.15s;
+}
+
+.btn-primary:hover {
+    background-color: #44403c;
+}
+
+.btn-secondary {
+    background-color: white;
+    color: #57534e;
+    font-size: 0.75rem;
+    font-weight: 500;
+    padding: 0.5rem 1rem;
+    border-radius: 0.375rem;
+    border: 1px solid #e7e5e4;
+    cursor: pointer;
+    transition: background-color 0.15s, border-color 0.15s;
+}
+
+.btn-secondary:hover {
+    background-color: #fafaf9;
+    border-color: #d6d3d1;
+}
+
+/* Plugin Options Dialog Form Fields */
+.form-field {
+    margin-bottom: 1rem;
+}
+
+.form-field:last-child {
+    margin-bottom: 0;
+}
+
+.form-label {
+    display: block;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: #57534e;
+    margin-bottom: 0.375rem;
+}
+
+.form-input {
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+    border: 1px solid #e7e5e4;
+    border-radius: 0.375rem;
+    background: white;
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.form-input:focus {
+    outline: none;
+    border-color: #a8a29e;
+    box-shadow: 0 0 0 3px rgba(168, 162, 158, 0.1);
+}
+
+.form-input::placeholder {
+    color: #a8a29e;
+}
+
+.form-select {
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+    border: 1px solid #e7e5e4;
+    border-radius: 0.375rem;
+    background: white;
+    cursor: pointer;
+    transition: border-color 0.15s;
+}
+
+.form-select:focus {
+    outline: none;
+    border-color: #a8a29e;
+}
+
+.form-checkbox-wrapper {
+    display: flex;
+    align-items: center;
+}
+
+.form-checkbox {
+    width: 1rem;
+    height: 1rem;
+    border-radius: 0.25rem;
+    border: 1px solid #d6d3d1;
+    cursor: pointer;
+    accent-color: #292524;
+}
+
+.form-range-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.form-range {
+    flex: 1;
+    height: 0.5rem;
+    background: #e7e5e4;
+    border-radius: 0.25rem;
+    appearance: none;
+    cursor: pointer;
+}
+
+.form-range::-webkit-slider-thumb {
+    appearance: none;
+    width: 1rem;
+    height: 1rem;
+    background: #44403c;
+    border-radius: 50%;
+    cursor: pointer;
+    border: 2px solid white;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.form-range::-moz-range-thumb {
+    width: 1rem;
+    height: 1rem;
+    background: #44403c;
+    border-radius: 50%;
+    cursor: pointer;
+    border: 2px solid white;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.form-range-value {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: #57534e;
+    min-width: 3rem;
+    text-align: right;
 }

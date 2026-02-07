@@ -15,8 +15,8 @@ import (
 const (
 	// HTTPRequestsPerMinute is the rate limit for HTTP requests
 	HTTPRequestsPerMinute = 100
-	// HTTPTimeout is the timeout for HTTP requests
-	HTTPTimeout = 30 * time.Second
+	// HTTPTimeout is the timeout for HTTP requests (5 min for long-running AI APIs)
+	HTTPTimeout = 5 * time.Minute
 	// HTTPMaxResponseSize is the maximum response body size (10MB)
 	HTTPMaxResponseSize = 10 * 1024 * 1024
 )
@@ -45,7 +45,7 @@ func NewHTTPAPI(allowedDomains map[string][]string) *HTTPAPI {
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			// Validate redirect URL against allowlist
 			domain := req.URL.Hostname()
-			if _, ok := api.allowedDomains[domain]; !ok {
+			if _, ok := FindAllowedMethods(api.allowedDomains, domain); !ok {
 				return fmt.Errorf("redirect to unauthorized domain: %s", domain)
 			}
 			// Prevent downgrade to non-HTTPS
@@ -76,6 +76,34 @@ func (h *HTTPAPI) Register(L *lua.LState) {
 	L.SetGlobal("http", httpMod)
 }
 
+// MatchDomain checks if a domain matches an allowlist entry, supporting wildcard prefixes.
+// e.g. "*.fal.media" matches "v3.fal.media", "v3b.fal.media", etc.
+func MatchDomain(pattern, domain string) bool {
+	if pattern == domain {
+		return true
+	}
+	if strings.HasPrefix(pattern, "*.") {
+		suffix := pattern[1:] // e.g. ".fal.media"
+		return strings.HasSuffix(domain, suffix) && strings.Count(domain, ".") == strings.Count(suffix, ".")
+	}
+	return false
+}
+
+// FindAllowedMethods returns the allowed methods for a domain, checking wildcards.
+func FindAllowedMethods(allowedDomains map[string][]string, domain string) ([]string, bool) {
+	// Exact match first
+	if methods, ok := allowedDomains[domain]; ok {
+		return methods, true
+	}
+	// Wildcard match
+	for pattern, methods := range allowedDomains {
+		if MatchDomain(pattern, domain) {
+			return methods, true
+		}
+	}
+	return nil, false
+}
+
 // checkDomainPermission validates that the URL domain is in the allowlist and method is allowed
 func (h *HTTPAPI) checkDomainPermission(urlStr, method string) error {
 	parsed, err := url.Parse(urlStr)
@@ -86,7 +114,7 @@ func (h *HTTPAPI) checkDomainPermission(urlStr, method string) error {
 	// Use url.Hostname() to correctly handle IPv6 addresses and ports
 	domain := parsed.Hostname()
 
-	allowedMethods, ok := h.allowedDomains[domain]
+	allowedMethods, ok := FindAllowedMethods(h.allowedDomains, domain)
 	if !ok {
 		return fmt.Errorf("domain not in allowlist: %s", domain)
 	}

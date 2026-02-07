@@ -27,7 +27,7 @@ test.describe('Plugins UI', () => {
 
       // Click on the backdrop (the modal container itself)
       await page.locator('[data-testid="plugins-modal"]').click({ position: { x: 10, y: 10 } });
-      await page.waitForTimeout(300);
+      await page.waitForSelector('[data-testid="plugins-modal"].opacity-0', { timeout: 5000 });
       expect(await app.isPluginsModalOpen()).toBe(false);
     });
   });
@@ -192,7 +192,6 @@ function on_clip_created() end
       // Click to expand
       const card = page.locator(`[data-testid="plugin-card-${result!.id}"]`);
       await card.locator('[data-action="toggle-expand"]').click();
-      await page.waitForTimeout(200);
 
       // Should show description
       await expect(card.locator('text=This is a test description')).toBeVisible();

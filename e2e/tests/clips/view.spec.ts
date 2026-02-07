@@ -73,9 +73,9 @@ test.describe('Clip View', () => {
       const clip = await app.getClipByFilename(filename);
       await clip.hover();
 
-      // Actions should be visible on hover
-      const deleteBtn = clip.locator(selectors.clipActions.delete);
-      await expect(deleteBtn).toBeVisible();
+      // Menu trigger should be visible on hover
+      const menuTrigger = clip.locator(selectors.clipActions.menuTrigger);
+      await expect(menuTrigger).toBeVisible();
     });
 
     test('should copy clip path to clipboard', async ({ app }) => {
@@ -123,7 +123,6 @@ test.describe('Clip View', () => {
     test('should order clips by creation time (newest first)', async ({ app }) => {
       const file1 = await createTempFile(generateTestText('first'), 'txt');
       await app.uploadFile(file1);
-      await app.page.waitForTimeout(100);
 
       const file2 = await createTempFile(generateTestText('second'), 'txt');
       await app.uploadFile(file2);

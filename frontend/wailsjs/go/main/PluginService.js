@@ -10,6 +10,10 @@ export function EnablePlugin(arg1) {
   return window['go']['main']['PluginService']['EnablePlugin'](arg1);
 }
 
+export function ExecutePluginAction(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['PluginService']['ExecutePluginAction'](arg1, arg2, arg3, arg4);
+}
+
 export function GetAllPluginStorage(arg1) {
   return window['go']['main']['PluginService']['GetAllPluginStorage'](arg1);
 }
@@ -20,6 +24,10 @@ export function GetPluginPermissions(arg1) {
 
 export function GetPluginStorage(arg1, arg2) {
   return window['go']['main']['PluginService']['GetPluginStorage'](arg1, arg2);
+}
+
+export function GetPluginUIActions() {
+  return window['go']['main']['PluginService']['GetPluginUIActions']();
 }
 
 export function GetPlugins() {

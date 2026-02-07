@@ -66,8 +66,8 @@ let activeTagFilters = [];
 // App ready flag for testing
 window.__appReady = false;
 
-// Expose state and functions for testing
-window.__testHelpers = {
+// Expose state and functions for testing (extend, don't overwrite - other scripts add helpers too)
+Object.assign(window.__testHelpers, {
   setAllTags: (tags) => {
     // Modify in place to preserve references
     allTags.length = 0;
@@ -79,13 +79,14 @@ window.__testHelpers = {
     activeTagFilters.push(...filters);
   },
   getActiveTagFilters: () => activeTagFilters,
+  setViewingArchive: (val) => { isViewingArchive = val; },
   // Expose loadClips function (defined in wails-api.js, but called here)
   loadClips: () => {
     if (typeof loadClips === 'function') {
       loadClips();
     }
   },
-};
+});
 
 // --- Event Listeners ---
 
@@ -281,6 +282,7 @@ async function handleText(text) {
 window.addEventListener('load', async () => {
     window.__appReady = false;
     try {
+        await loadPluginUIActions();
         await loadTags();
         await loadClips();
         setupEditorListeners();
@@ -296,6 +298,91 @@ window.addEventListener('load', async () => {
                 showToast(data.message, data.type || 'info');
             }
         });
+    }
+});
+
+// Close card menu when clicking outside
+document.addEventListener('click', (e) => {
+    const menu = document.querySelector('.card-menu-dropdown');
+    if (!menu) return;
+
+    // Check if click is on menu or menu trigger
+    const isMenuClick = e.target.closest('.card-menu-dropdown');
+    const isTriggerClick = e.target.closest('[data-action="menu"]');
+
+    if (!isMenuClick && !isTriggerClick) {
+        closeCardMenu();
+    }
+});
+
+// Close lightbox plugin menu when clicking outside
+document.addEventListener('click', (e) => {
+    const menu = document.getElementById('lightbox-plugin-menu');
+    if (!menu) return;
+
+    const isMenuClick = e.target.closest('#lightbox-plugin-menu');
+    const isTriggerClick = e.target.closest('#lightbox-plugin-menu-trigger');
+
+    if (!isMenuClick && !isTriggerClick) {
+        closeLightboxPluginMenu();
+    }
+});
+
+// Handle menu item clicks via event delegation
+document.addEventListener('click', (e) => {
+    const menuItem = e.target.closest('.card-menu-item');
+    if (!menuItem) return;
+
+    e.stopPropagation();
+    const action = menuItem.dataset.action;
+    const clipId = menuItem.dataset.clipId;
+
+    if (action === 'plugin') {
+        // Handle plugin action
+        const pluginId = Number(menuItem.dataset.pluginId);
+        const actionId = menuItem.dataset.actionId;
+        const hasOptions = menuItem.dataset.hasOptions === 'true';
+
+        closeCardMenu();
+
+        // Verify plugin UI actions are loaded
+        if (!pluginUIActions || !pluginUIActions.card_actions) {
+            console.error('Plugin UI actions not loaded');
+            if (typeof showToast === 'function') {
+                showToast('Plugin actions not available. Try refreshing the page.', 'error');
+            }
+            return;
+        }
+
+        if (hasOptions && typeof openPluginOptionsDialog === 'function') {
+            // Find the full action object from pluginUIActions
+            const pluginAction = pluginUIActions.card_actions.find(
+                a => a.plugin_id === pluginId && a.id === actionId
+            );
+            if (pluginAction) {
+                openPluginOptionsDialog(pluginAction, [Number(clipId)]);
+            } else {
+                console.error('Could not find plugin action:', pluginId, actionId);
+                if (typeof showToast === 'function') {
+                    showToast('Plugin action not found', 'error');
+                }
+            }
+        } else if (typeof executePluginAction === 'function') {
+            // Execute directly - look up action to check async flag
+            const pluginAction = pluginUIActions.card_actions.find(
+                a => a.plugin_id === pluginId && a.id === actionId
+            );
+            executePluginAction(pluginId, actionId, [Number(clipId)], {}, pluginAction && pluginAction.async);
+        } else {
+            console.error('Plugin action handler not available');
+            if (typeof showToast === 'function') {
+                showToast('Plugin system not initialized', 'error');
+            }
+        }
+    } else {
+        // Handle built-in action
+        const triggerBtn = document.querySelector(`[data-action="menu"][data-id="${clipId}"]`);
+        handleCardAction(action, clipId, triggerBtn);
     }
 });
 

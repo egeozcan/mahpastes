@@ -4,26 +4,40 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
+	"net/url"
+	"path"
+	"regexp"
 	"strings"
 	"time"
 
 	lua "github.com/yuin/gopher-lua"
 )
 
+// maxContentTypeLength is the maximum length for a MIME content type string
+const maxContentTypeLength = 256
+
+// validMIMEType matches standard MIME type format (e.g. "application/json", "image/png")
+var validMIMEType = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9!#$&\-^_.+]*\/[a-zA-Z0-9][a-zA-Z0-9!#$&\-^_.+]*$`)
+
 const (
 	// MaxClipDataSize is the maximum size of data a plugin can create (10MB)
 	MaxClipDataSize = 10 * 1024 * 1024
+	// URLFetchTimeout is the timeout for downloading content from URLs
+	URLFetchTimeout = 60 * time.Second
 )
 
 // ClipsAPI provides clip CRUD operations to plugins
 type ClipsAPI struct {
-	db *sql.DB
+	db             *sql.DB
+	allowedDomains map[string][]string // domain -> allowed methods (from manifest)
 }
 
 // NewClipsAPI creates a new clips API instance
-func NewClipsAPI(db *sql.DB) *ClipsAPI {
-	return &ClipsAPI{db: db}
+func NewClipsAPI(db *sql.DB, allowedDomains map[string][]string) *ClipsAPI {
+	return &ClipsAPI{db: db, allowedDomains: allowedDomains}
 }
 
 // Register adds the clips module to the Lua state
@@ -32,7 +46,9 @@ func (c *ClipsAPI) Register(L *lua.LState) {
 
 	clipsMod.RawSetString("list", L.NewFunction(c.list))
 	clipsMod.RawSetString("get", L.NewFunction(c.get))
+	clipsMod.RawSetString("get_data", L.NewFunction(c.getData))
 	clipsMod.RawSetString("create", L.NewFunction(c.create))
+	clipsMod.RawSetString("create_from_url", L.NewFunction(c.createFromURL))
 	clipsMod.RawSetString("update", L.NewFunction(c.update))
 	clipsMod.RawSetString("delete", L.NewFunction(c.deleteClip))
 	clipsMod.RawSetString("delete_many", L.NewFunction(c.deleteMany))
@@ -164,6 +180,39 @@ func (c *ClipsAPI) get(L *lua.LState) int {
 	return 1
 }
 
+// getData returns raw clip data (base64 for binary, plain for text)
+// Returns: data, mime_type or nil, error
+func (c *ClipsAPI) getData(L *lua.LState) int {
+	id := L.CheckInt64(1)
+
+	var contentType string
+	var data []byte
+
+	err := c.db.QueryRow(`
+		SELECT content_type, data FROM clips WHERE id = ?
+	`, id).Scan(&contentType, &data)
+
+	if err == sql.ErrNoRows {
+		L.Push(lua.LNil)
+		L.Push(lua.LString("clip not found"))
+		return 2
+	}
+	if err != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	// For text content, return as-is; for binary, base64 encode
+	if strings.HasPrefix(contentType, "text/") || contentType == "application/json" {
+		L.Push(lua.LString(string(data)))
+	} else {
+		L.Push(lua.LString(base64.StdEncoding.EncodeToString(data)))
+	}
+	L.Push(lua.LString(contentType))
+	return 2
+}
+
 func (c *ClipsAPI) create(L *lua.LState) int {
 	opts := L.CheckTable(1)
 
@@ -182,24 +231,42 @@ func (c *ClipsAPI) create(L *lua.LState) int {
 		return 2
 	}
 
+	// Support both content_type and mime_type for flexibility
 	contentType := "application/octet-stream"
 	if ct := opts.RawGetString("content_type"); ct != lua.LNil {
 		contentType = ct.String()
+	} else if mt := opts.RawGetString("mime_type"); mt != lua.LNil {
+		contentType = mt.String()
 	}
 
+	// Validate content type format
+	contentType = validateContentType(contentType)
+
+	// Support both filename and name for flexibility
 	var filename string
 	if fn := opts.RawGetString("filename"); fn != lua.LNil {
 		filename = fn.String()
+	} else if nm := opts.RawGetString("name"); nm != lua.LNil {
+		filename = nm.String()
 	}
 
-	// Decode if base64 encoded
-	var data []byte
+	// Determine if data is base64 encoded
+	// Check explicit encoding flag or auto-detect for binary content types
+	isBase64 := false
 	if enc := opts.RawGetString("data_encoding"); enc != lua.LNil && enc.String() == "base64" {
+		isBase64 = true
+	} else if !strings.HasPrefix(contentType, "text/") && contentType != "application/json" {
+		// For binary content types, assume base64 if not explicitly text
+		isBase64 = true
+	}
+
+	var data []byte
+	if isBase64 {
 		var err error
 		data, err = base64.StdEncoding.DecodeString(dataStr)
 		if err != nil {
 			L.Push(lua.LNil)
-			L.Push(lua.LString("invalid base64 data"))
+			L.Push(lua.LString("invalid base64 data: " + err.Error()))
 			return 2
 		}
 		// Check decoded size as well
@@ -223,7 +290,183 @@ func (c *ClipsAPI) create(L *lua.LState) int {
 	}
 
 	id, _ := result.LastInsertId()
-	L.Push(lua.LNumber(id))
+
+	// Return a table with clip info (matching design spec)
+	clip := L.NewTable()
+	clip.RawSetString("id", lua.LNumber(id))
+	L.Push(clip)
+	return 1
+}
+
+// validateContentType checks that a content type string is a valid MIME type
+func validateContentType(ct string) string {
+	if len(ct) > maxContentTypeLength {
+		return "application/octet-stream"
+	}
+	if !validMIMEType.MatchString(ct) {
+		return "application/octet-stream"
+	}
+	return ct
+}
+
+// checkURLDomain validates the URL domain against the plugin's network permissions
+func (c *ClipsAPI) checkURLDomain(urlStr string) error {
+	parsed, err := url.Parse(urlStr)
+	if err != nil {
+		return fmt.Errorf("invalid URL: %w", err)
+	}
+
+	domain := parsed.Hostname()
+
+	if len(c.allowedDomains) == 0 {
+		return fmt.Errorf("no network permissions: plugin must declare network permissions to fetch URLs (domain: %s)", domain)
+	}
+
+	allowedMethods, ok := FindAllowedMethods(c.allowedDomains, domain)
+	if !ok {
+		return fmt.Errorf("domain not in allowlist: %s", domain)
+	}
+
+	// Check if GET is allowed for this domain
+	getAllowed := false
+	for _, m := range allowedMethods {
+		if strings.EqualFold(m, "GET") {
+			getAllowed = true
+			break
+		}
+	}
+	if !getAllowed {
+		return fmt.Errorf("GET not allowed for domain %s (allowed: [%s])", domain, strings.Join(allowedMethods, ", "))
+	}
+
+	return nil
+}
+
+// createFromURL downloads content from a URL and creates a clip
+func (c *ClipsAPI) createFromURL(L *lua.LState) int {
+	rawURL := L.CheckString(1)
+
+	// Validate URL scheme - only allow http and https
+	if !strings.HasPrefix(rawURL, "http://") && !strings.HasPrefix(rawURL, "https://") {
+		L.Push(lua.LNil)
+		L.Push(lua.LString("only http:// and https:// URLs are allowed"))
+		return 2
+	}
+
+	// Validate domain against plugin's network permissions
+	if err := c.checkURLDomain(rawURL); err != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	var opts *lua.LTable
+	if L.GetTop() >= 2 {
+		opts = L.OptTable(2, nil)
+	}
+
+	// Create HTTP client with timeout and redirect limits
+	allowedDomains := c.allowedDomains
+	client := &http.Client{
+		Timeout: URLFetchTimeout,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 5 {
+				return fmt.Errorf("too many redirects")
+			}
+			// Validate redirect domain against allowlist
+			domain := req.URL.Hostname()
+			if _, ok := FindAllowedMethods(allowedDomains, domain); !ok {
+				return fmt.Errorf("redirect to unauthorized domain: %s", domain)
+			}
+			return nil
+		},
+	}
+
+	resp, err := client.Get(rawURL)
+	if err != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString("failed to fetch URL: " + err.Error()))
+		return 2
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(fmt.Sprintf("HTTP error: %d %s", resp.StatusCode, resp.Status)))
+		return 2
+	}
+
+	// Read body with size limit
+	limitedReader := io.LimitReader(resp.Body, MaxClipDataSize+1)
+	data, err := io.ReadAll(limitedReader)
+	if err != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString("failed to read response: " + err.Error()))
+		return 2
+	}
+
+	if len(data) > MaxClipDataSize {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(fmt.Sprintf("response too large: exceeds %d bytes", MaxClipDataSize)))
+		return 2
+	}
+
+	// Determine content type
+	contentType := resp.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	// Strip charset if present
+	if idx := strings.Index(contentType, ";"); idx > 0 {
+		contentType = strings.TrimSpace(contentType[:idx])
+	}
+
+	// Override with options if provided
+	if opts != nil {
+		if mt := opts.RawGetString("mime_type"); mt != lua.LNil {
+			contentType = mt.String()
+		} else if ct := opts.RawGetString("content_type"); ct != lua.LNil {
+			contentType = ct.String()
+		}
+	}
+
+	// Validate content type format
+	contentType = validateContentType(contentType)
+
+	// Determine filename
+	filename := ""
+	if opts != nil {
+		if nm := opts.RawGetString("name"); nm != lua.LNil {
+			filename = nm.String()
+		} else if fn := opts.RawGetString("filename"); fn != lua.LNil {
+			filename = fn.String()
+		}
+	}
+	// Fallback to URL path
+	if filename == "" {
+		filename = path.Base(rawURL)
+		if filename == "." || filename == "/" {
+			filename = "downloaded"
+		}
+	}
+
+	// Insert into database
+	result, err := c.db.Exec(
+		"INSERT INTO clips (content_type, data, filename) VALUES (?, ?, ?)",
+		contentType, data, filename,
+	)
+	if err != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	id, _ := result.LastInsertId()
+
+	// Return a table with clip info
+	clip := L.NewTable()
+	clip.RawSetString("id", lua.LNumber(id))
+	L.Push(clip)
 	return 1
 }
 

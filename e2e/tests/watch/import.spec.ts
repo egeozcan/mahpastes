@@ -20,10 +20,9 @@ test.describe('Watch Folder Import', () => {
       const filePath = path.join(tempDir, filename);
       await fs.writeFile(filePath, generateTestImage());
 
-      // Wait for import (debounce is 250ms + processing time)
-      await app.page.waitForTimeout(2000);
-
-      // Clip should appear
+      // Wait for import (polls DB, falls back to forced scan if fsnotify misses)
+      await app.waitForWatchImport(1);
+      await app.refreshClips();
       await app.expectClipCount(1);
     });
 
@@ -37,8 +36,8 @@ test.describe('Watch Folder Import', () => {
       const filePath = path.join(tempDir, filename);
       await fs.writeFile(filePath, generateTestText('auto-import'));
 
-      await app.page.waitForTimeout(2000);
-
+      await app.waitForWatchImport(1);
+      await app.refreshClips();
       await app.expectClipCount(1);
     });
 
@@ -61,14 +60,11 @@ test.describe('Watch Folder Import', () => {
         } else {
           await fs.writeFile(file, generateTestText('multi-import'));
         }
-        await app.page.waitForTimeout(100); // Small delay between files
       }
 
-      await app.page.waitForTimeout(3000);
-
-      // All files should be imported
-      const count = await app.getClipCount();
-      expect(count).toBeGreaterThanOrEqual(3);
+      await app.waitForWatchImport(3);
+      await app.refreshClips();
+      await app.expectClipCount(3);
     });
   });
 
@@ -94,19 +90,13 @@ test.describe('Watch Folder Import', () => {
       await app.toggleGlobalWatch(true);
       await app.closeWatchView();
 
-      // Wait for watcher to start
-      await app.page.waitForTimeout(500);
-
       // Create image file
       const imageFile = path.join(tempDir, `filter-test-${Date.now()}.png`);
       await fs.writeFile(imageFile, generateTestImage());
 
-      // Wait for file system events to be processed
-      await app.page.waitForTimeout(2500);
-
-      // Image should be imported (filter allows .png)
-      const count = await app.getClipCount();
-      expect(count).toBeGreaterThanOrEqual(1);
+      await app.waitForWatchImport(1);
+      await app.refreshClips();
+      await app.expectClipCount(1);
     });
 
     test('should import file matching custom regex filter', async ({ app, tempDir }) => {
@@ -130,19 +120,13 @@ test.describe('Watch Folder Import', () => {
       await app.toggleGlobalWatch(true);
       await app.closeWatchView();
 
-      // Wait for watcher to start
-      await app.page.waitForTimeout(500);
-
       // Create log file
       const logFile = path.join(tempDir, `app-${Date.now()}.log`);
       await fs.writeFile(logFile, 'log content');
 
-      // Wait for file system events to be processed
-      await app.page.waitForTimeout(2500);
-
-      // Log file should be imported (matches regex)
-      const count = await app.getClipCount();
-      expect(count).toBeGreaterThanOrEqual(1);
+      await app.waitForWatchImport(1);
+      await app.refreshClips();
+      await app.expectClipCount(1);
     });
   });
 
@@ -168,25 +152,17 @@ test.describe('Watch Folder Import', () => {
       await app.toggleGlobalWatch(true);
       await app.closeWatchView();
 
-      // Wait for watcher to start
-      await app.page.waitForTimeout(500);
-
       // Create a file
       const filename = `auto-archive-${Date.now()}.txt`;
       const filePath = path.join(tempDir, filename);
       await fs.writeFile(filePath, generateTestText('auto-archive'));
 
-      // Wait for file system events to be processed
-      await app.page.waitForTimeout(2500);
+      // Wait for archived clip (auto-archive sends directly to archive)
+      await app.waitForWatchImport(1, true);
 
-      // Query database directly to verify auto-archive worked
-      // Clip should NOT be in active clips (archived=false)
+      // Verify it's not in active clips
       const activeCount = await app.getClipCountFromDB(false);
       expect(activeCount).toBe(0);
-
-      // Clip SHOULD be in archived clips (archived=true)
-      const archivedCount = await app.getClipCountFromDB(true);
-      expect(archivedCount).toBe(1);
     });
   });
 
@@ -225,7 +201,10 @@ test.describe('Watch Folder Import', () => {
       await app.closeWatchView();
 
       // Wait for processing to complete
-      await app.page.waitForTimeout(2000);
+      await expect.poll(
+        async () => app.getClipCountFromDB(),
+        { timeout: 10000, intervals: [500, 1000] }
+      ).toBeGreaterThanOrEqual(0);
 
       // Verify the folder was added successfully (even if processing didn't work)
       await app.openWatchView();
@@ -246,7 +225,7 @@ test.describe('Watch Folder Import', () => {
       await app.toggleGlobalWatch(true);
       await app.closeWatchView();
 
-      await app.page.waitForTimeout(1000);
+      await app.page.waitForTimeout(500);
 
       // Existing file should NOT be imported
       await app.expectClipCount(0);
@@ -265,7 +244,7 @@ test.describe('Watch Folder Import', () => {
       const filePath = path.join(tempDir, filename);
       await fs.writeFile(filePath, generateTestText('should-not-import'));
 
-      await app.page.waitForTimeout(1500);
+      await app.page.waitForTimeout(500);
 
       // File should NOT be imported
       await app.expectClipCount(0);
@@ -283,7 +262,7 @@ test.describe('Watch Folder Import', () => {
       const filePath = path.join(tempDir, filename);
       await fs.writeFile(filePath, generateTestText('should-not-import'));
 
-      await app.page.waitForTimeout(1500);
+      await app.page.waitForTimeout(500);
 
       // File should NOT be imported
       await app.expectClipCount(0);

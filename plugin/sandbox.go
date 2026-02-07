@@ -11,6 +11,7 @@ import (
 
 const (
 	MaxExecutionTime = 30 * time.Second
+	MaxUIActionTime  = 5 * time.Minute // for long-running UI actions (e.g. AI processing)
 	MaxMemoryMB      = 50
 )
 
@@ -207,4 +208,89 @@ func (s *Sandbox) GetManifest() *Manifest {
 // GetPluginID returns the plugin database ID
 func (s *Sandbox) GetPluginID() int64 {
 	return s.pluginID
+}
+
+// CallUIAction calls the on_ui_action handler with proper context and returns the result.
+// The timeout parameter controls how long the action is allowed to run.
+func (s *Sandbox) CallUIAction(actionID string, clipIDs []int64, options map[string]interface{}, timeout time.Duration) (map[string]interface{}, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	fn := s.L.GetGlobal("on_ui_action")
+	if fn == lua.LNil {
+		return nil, fmt.Errorf("plugin does not implement on_ui_action")
+	}
+
+	if _, ok := fn.(*lua.LFunction); !ok {
+		return nil, fmt.Errorf("on_ui_action is not a function")
+	}
+
+	// Create context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	s.cancel = cancel
+	defer func() {
+		cancel()
+		s.cancel = nil
+	}()
+
+	// Set up cancellation check
+	s.L.SetContext(ctx)
+
+	// Convert clip_ids to Lua table
+	clipIDsTable := s.L.NewTable()
+	for _, id := range clipIDs {
+		clipIDsTable.Append(lua.LNumber(id))
+	}
+
+	// Convert options to Lua table
+	optionsTable := s.L.NewTable()
+	for k, v := range options {
+		switch val := v.(type) {
+		case string:
+			optionsTable.RawSetString(k, lua.LString(val))
+		case float64:
+			optionsTable.RawSetString(k, lua.LNumber(val))
+		case bool:
+			optionsTable.RawSetString(k, lua.LBool(val))
+		case int:
+			optionsTable.RawSetString(k, lua.LNumber(val))
+		}
+	}
+
+	// Push function and arguments
+	s.L.Push(fn)
+	s.L.Push(lua.LString(actionID))
+	s.L.Push(clipIDsTable)
+	s.L.Push(optionsTable)
+
+	// Call with error handling
+	err := s.L.PCall(3, 1, nil)
+	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return nil, fmt.Errorf("on_ui_action timed out after %v", timeout)
+		}
+		return nil, fmt.Errorf("on_ui_action failed: %w", err)
+	}
+
+	// Get return value
+	result := make(map[string]interface{})
+	ret := s.L.Get(-1)
+	s.L.Pop(1)
+
+	if tbl, ok := ret.(*lua.LTable); ok {
+		tbl.ForEach(func(k, v lua.LValue) {
+			if key, ok := k.(lua.LString); ok {
+				switch val := v.(type) {
+				case lua.LNumber:
+					result[string(key)] = int64(val)
+				case lua.LString:
+					result[string(key)] = string(val)
+				case lua.LBool:
+					result[string(key)] = bool(val)
+				}
+			}
+		})
+	}
+
+	return result, nil
 }

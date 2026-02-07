@@ -12,8 +12,16 @@ A Wails desktop clipboard manager for macOS with image editing, comparison, and 
 ## Development Setup
 
 - **Wails CLI**: `~/go/bin/wails`
-- Run `~/go/bin/wails dev` to start development server
-- Run `~/go/bin/wails generate module` to regenerate frontend bindings after Go changes
+- Use `make` targets for common operations:
+
+```bash
+make dev        # Start dev server with hot reload
+make build      # Clean production build
+make install    # Build, kill running app, install to /Applications, launch
+make bindings   # Regenerate frontend bindings after Go changes
+make test       # Run e2e tests
+make help       # Show all targets
+```
 
 ## E2E Testing Requirements
 
@@ -150,17 +158,27 @@ The app uses Tailwind's `stone` color scale exclusively:
 
 ```
 mahpastes/
+├── Makefile            # Build, install, test targets
 ├── app.go              # Main Wails app logic
 ├── database.go         # SQLite operations
-├── falai.go            # FAL AI integration
+├── plugin_service.go   # Plugin frontend API (separate struct for Wails binding limit)
 ├── watcher.go          # Watch folder implementation
 ├── main.go             # Entry point
+├── plugin/             # Lua plugin system
+│   ├── manager.go      # Plugin lifecycle, event dispatch
+│   ├── sandbox.go      # Sandboxed Lua execution
+│   ├── manifest.go     # Manifest parsing, validation
+│   └── api_*.go        # Lua APIs (clips, tags, storage, http, fs, utils)
+├── plugins/            # Example/bundled plugins
+│   └── fal-ai.lua      # FAL.AI image processing plugin
 ├── frontend/
 │   ├── index.html      # Single HTML file with all markup
 │   ├── js/
 │   │   ├── app.js      # Main app initialization, event handlers
 │   │   ├── ui.js       # Card rendering, gallery management
 │   │   ├── modals.js   # All modal/lightbox/editor logic
+│   │   ├── plugins.js  # Plugin management UI
+│   │   ├── task-queue.js # Plugin task progress UI
 │   │   ├── watch.js    # Watch folders UI
 │   │   ├── settings.js # Settings modal
 │   │   ├── wails-api.js # Wails bindings wrapper

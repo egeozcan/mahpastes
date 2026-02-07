@@ -34,11 +34,10 @@ test.describe('Plugin Settings', () => {
     await app.openPluginsModal();
     const card = app.page.locator(selectors.plugins.pluginCard(plugin!.id));
     await card.locator(selectors.plugins.expandToggle).click();
-    await app.page.waitForTimeout(500);
 
     // Check settings section exists
     const settingsSection = card.locator(selectors.pluginSettings.section);
-    await expect(settingsSection).toBeVisible();
+    await expect(settingsSection).toBeVisible({ timeout: 5000 });
 
     // Check all 4 settings fields are present
     await expect(card.locator(selectors.pluginSettings.settingField('api_key'))).toBeVisible();
@@ -55,16 +54,20 @@ test.describe('Plugin Settings', () => {
     await app.openPluginsModal();
     const card = app.page.locator(selectors.plugins.pluginCard(plugin!.id));
     await card.locator(selectors.plugins.expandToggle).click();
-    await app.page.waitForTimeout(500);
+
+    // Wait for settings section to be visible after expand
+    const settingsSection = card.locator(selectors.pluginSettings.section);
+    await expect(settingsSection).toBeVisible({ timeout: 5000 });
 
     // Fill in text input
     const endpointInput = card.locator(selectors.pluginSettings.settingField('endpoint'));
     await endpointInput.fill('https://custom.api.com');
-    await app.page.waitForTimeout(500); // Wait for debounce
 
-    // Verify storage was updated
-    const value = await app.getPluginStorage(plugin!.id, 'endpoint');
-    expect(value).toBe('https://custom.api.com');
+    // Wait for debounce to save value to storage
+    await expect.poll(
+      async () => app.getPluginStorage(plugin!.id, 'endpoint'),
+      { timeout: 5000, intervals: [100, 200, 500] }
+    ).toBe('https://custom.api.com');
   });
 
   test('checkbox saves value to storage', async ({ app }) => {
@@ -75,16 +78,20 @@ test.describe('Plugin Settings', () => {
     await app.openPluginsModal();
     const card = app.page.locator(selectors.plugins.pluginCard(plugin!.id));
     await card.locator(selectors.plugins.expandToggle).click();
-    await app.page.waitForTimeout(500);
+
+    // Wait for settings section to be visible after expand
+    const settingsSection = card.locator(selectors.pluginSettings.section);
+    await expect(settingsSection).toBeVisible({ timeout: 5000 });
 
     // Uncheck the checkbox (default is true)
     const checkbox = card.locator(selectors.pluginSettings.settingField('enabled'));
     await checkbox.uncheck();
-    await app.page.waitForTimeout(300);
 
-    // Verify storage was updated
-    const value = await app.getPluginStorage(plugin!.id, 'enabled');
-    expect(value).toBe('false');
+    // Wait for storage to reflect the unchecked state
+    await expect.poll(
+      async () => app.getPluginStorage(plugin!.id, 'enabled'),
+      { timeout: 5000, intervals: [100, 200, 500] }
+    ).toBe('false');
   });
 
   test('select saves value to storage', async ({ app }) => {
@@ -95,16 +102,20 @@ test.describe('Plugin Settings', () => {
     await app.openPluginsModal();
     const card = app.page.locator(selectors.plugins.pluginCard(plugin!.id));
     await card.locator(selectors.plugins.expandToggle).click();
-    await app.page.waitForTimeout(500);
+
+    // Wait for settings section to be visible after expand
+    const settingsSection = card.locator(selectors.pluginSettings.section);
+    await expect(settingsSection).toBeVisible({ timeout: 5000 });
 
     // Change select value
     const select = card.locator(selectors.pluginSettings.settingField('mode'));
     await select.selectOption('thorough');
-    await app.page.waitForTimeout(300);
 
-    // Verify storage was updated
-    const value = await app.getPluginStorage(plugin!.id, 'mode');
-    expect(value).toBe('thorough');
+    // Wait for storage to reflect the selected value
+    await expect.poll(
+      async () => app.getPluginStorage(plugin!.id, 'mode'),
+      { timeout: 5000, intervals: [100, 200, 500] }
+    ).toBe('thorough');
   });
 
   test('password input saves value to storage', async ({ app }) => {
@@ -115,16 +126,20 @@ test.describe('Plugin Settings', () => {
     await app.openPluginsModal();
     const card = app.page.locator(selectors.plugins.pluginCard(plugin!.id));
     await card.locator(selectors.plugins.expandToggle).click();
-    await app.page.waitForTimeout(500);
+
+    // Wait for settings section to be visible after expand
+    const settingsSection = card.locator(selectors.pluginSettings.section);
+    await expect(settingsSection).toBeVisible({ timeout: 5000 });
 
     // Fill in password input
     const apiKeyInput = card.locator(selectors.pluginSettings.settingField('api_key'));
     await apiKeyInput.fill('secret-api-key-123');
-    await app.page.waitForTimeout(500); // Wait for debounce
 
-    // Verify storage was updated
-    const value = await app.getPluginStorage(plugin!.id, 'api_key');
-    expect(value).toBe('secret-api-key-123');
+    // Wait for debounce to save value to storage
+    await expect.poll(
+      async () => app.getPluginStorage(plugin!.id, 'api_key'),
+      { timeout: 5000, intervals: [100, 200, 500] }
+    ).toBe('secret-api-key-123');
   });
 
   test('settings persist after closing and reopening modal', async ({ app }) => {
@@ -136,21 +151,31 @@ test.describe('Plugin Settings', () => {
     await app.openPluginsModal();
     let card = app.page.locator(selectors.plugins.pluginCard(plugin!.id));
     await card.locator(selectors.plugins.expandToggle).click();
-    await app.page.waitForTimeout(500);
+
+    // Wait for settings section to be visible after expand
+    let settingsSection = card.locator(selectors.pluginSettings.section);
+    await expect(settingsSection).toBeVisible({ timeout: 5000 });
 
     const endpointInput = card.locator(selectors.pluginSettings.settingField('endpoint'));
     await endpointInput.fill('https://persistent.api.com');
-    await app.page.waitForTimeout(500);
+
+    // Wait for debounce to save value to storage
+    await expect.poll(
+      async () => app.getPluginStorage(plugin!.id, 'endpoint'),
+      { timeout: 5000, intervals: [100, 200, 500] }
+    ).toBe('https://persistent.api.com');
 
     // Close and reopen modal
     await app.closePluginsModal();
-    await app.page.waitForTimeout(300);
     await app.openPluginsModal();
 
     // Expand plugin card again
     card = app.page.locator(selectors.plugins.pluginCard(plugin!.id));
     await card.locator(selectors.plugins.expandToggle).click();
-    await app.page.waitForTimeout(500);
+
+    // Wait for settings section to be visible after expand
+    settingsSection = card.locator(selectors.pluginSettings.section);
+    await expect(settingsSection).toBeVisible({ timeout: 5000 });
 
     // Verify the value persisted
     const newEndpointInput = card.locator(selectors.pluginSettings.settingField('endpoint'));
@@ -166,7 +191,11 @@ test.describe('Plugin Settings', () => {
     await app.openPluginsModal();
     const card = app.page.locator(selectors.plugins.pluginCard(plugin!.id));
     await card.locator(selectors.plugins.expandToggle).click();
-    await app.page.waitForTimeout(500);
+
+    // Wait for the expanded card content to be visible (e.g., description or events section)
+    // Since there are no settings, we wait for the card to finish expanding by checking
+    // that the expand toggle has the expected state, then verify settings section is absent
+    await expect(card.locator(selectors.plugins.expandToggle)).toBeVisible({ timeout: 5000 });
 
     // Settings section should not exist
     const settingsSection = card.locator(selectors.pluginSettings.section);

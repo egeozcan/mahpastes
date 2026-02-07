@@ -37,14 +37,23 @@ export const selectors = {
     emptyState: '#empty-state',
   },
 
-  // Clip card actions (visible on hover)
+  // Clip card actions (now in dropdown menu)
   clipActions: {
-    copyPath: '[data-action="copy-path"]',
-    save: '[data-action="save-file"]',
-    edit: '[data-action="edit"]',
-    archive: '[data-action="archive"]',
-    delete: '[data-action="delete"]',
+    menuTrigger: '[data-action="menu"]',
     view: '[data-action="open-lightbox"]',
+  },
+
+  // Card menu dropdown
+  cardMenu: {
+    dropdown: '.card-menu-dropdown',
+    copyPath: '.card-menu-dropdown [data-action="copy-path"]',
+    save: '.card-menu-dropdown [data-action="save-file"]',
+    edit: '.card-menu-dropdown [data-action="edit"]',
+    tags: '.card-menu-dropdown [data-action="tags"]',
+    archive: '.card-menu-dropdown [data-action="archive"]',
+    delete: '.card-menu-dropdown [data-action="delete"]',
+    pluginAction: '.card-menu-dropdown [data-action="plugin"]',
+    divider: '.card-menu-dropdown .card-menu-divider',
   },
 
   // Bulk toolbar
@@ -68,7 +77,10 @@ export const selectors = {
     bar: '.lightbox-bar',
     zoomSlider: '#lightbox-zoom-slider',
     zoomInfo: '#lightbox-zoom-info',
-    aiActions: '#lightbox-ai-actions',
+    pluginActions: '#lightbox-plugin-actions',
+    pluginTrigger: '#lightbox-plugin-menu-trigger',
+    pluginMenu: '#lightbox-plugin-menu',
+    pluginMenuItem: '.lightbox-plugin-menu-item',
   },
 
   // Image editor
@@ -209,6 +221,15 @@ export const selectors = {
     checkbox: '[data-setting-type="checkbox"]',
     select: '[data-setting-type="select"]',
     passwordToggle: '[data-action="toggle-password"]',
+  },
+
+  // Plugin options dialog (for action parameters)
+  pluginOptions: {
+    modal: '#plugin-options-modal',
+    form: '#plugin-options-form',
+    cancelButton: '#plugin-options-cancel',
+    submitButton: 'button[type="submit"][form="plugin-options-form"]',
+    formField: (id: string) => `#plugin-options-form [name="${id}"]`,
   },
 
   // Settings modal

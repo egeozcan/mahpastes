@@ -421,6 +421,9 @@ async function openLightbox(index) {
     // Update reference (event delegation handles mousedown/dblclick on lightbox-content)
     lightboxImg = existingImg;
 
+    // Close plugin menu if open (when navigating between images)
+    closeLightboxPluginMenu();
+
     // Reset zoom state
     resetLightboxZoom();
 
@@ -442,30 +445,15 @@ async function openLightbox(index) {
     updateLightboxNav();
     lightbox.focus();
 
-    // Show AI actions if API key configured
-    const lightboxAIActions = document.getElementById('lightbox-ai-actions');
-    if (lightboxAIActions) {
-        if (typeof falApiKeyConfigured !== 'undefined' && falApiKeyConfigured) {
-            lightboxAIActions.classList.remove('hidden');
-            // Hide vectorize button for SVGs (can't vectorize vectors)
-            const vectorizeBtn = document.getElementById('lightbox-vectorize-btn');
-            if (vectorizeBtn) {
-                if (clip.content_type === 'image/svg+xml') {
-                    vectorizeBtn.classList.add('hidden');
-                } else {
-                    vectorizeBtn.classList.remove('hidden');
-                }
-            }
-        } else {
-            lightboxAIActions.classList.add('hidden');
-        }
-    }
-
     // Update image info in bottom bar
     updateLightboxImageInfo();
+
+    // Render plugin buttons
+    renderLightboxPluginButtons();
 }
 
 function closeLightbox() {
+    closeLightboxPluginMenu();
     lightbox.classList.remove('active');
     resetLightboxZoom();
     setTimeout(() => {
@@ -516,6 +504,205 @@ function handleLightboxKeydown(e) {
             first.focus();
             e.preventDefault();
         }
+    }
+}
+
+// --- Plugin Menu in Lightbox ---
+
+// Render single trigger button for plugin actions in lightbox
+async function renderLightboxPluginButtons() {
+    const container = document.getElementById('lightbox-plugin-actions');
+    if (!container) return;
+
+    container.innerHTML = '';
+
+    if (!pluginUIActions || !pluginUIActions.lightbox_buttons || pluginUIActions.lightbox_buttons.length === 0) {
+        container.classList.add('hidden');
+        return;
+    }
+
+    const actions = pluginUIActions.lightbox_buttons;
+
+    // Determine trigger label: plugin name if single plugin, "Plugins" if multiple
+    const pluginNames = new Set(actions.map(a => a.plugin_name).filter(Boolean));
+    const triggerLabel = pluginNames.size === 1 ? [...pluginNames][0] : 'Plugins';
+
+    const btn = document.createElement('button');
+    btn.className = 'lightbox-plugin-trigger';
+    btn.id = 'lightbox-plugin-menu-trigger';
+    btn.setAttribute('aria-expanded', 'false');
+    btn.setAttribute('aria-haspopup', 'true');
+
+    const chevronSvg = '<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5"/></svg>';
+    btn.innerHTML = `<span>${escapeHTML(triggerLabel)}</span>${chevronSvg}`;
+
+    btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const menu = document.getElementById('lightbox-plugin-menu');
+        if (menu) {
+            closeLightboxPluginMenu();
+        } else {
+            openLightboxPluginMenu(btn, actions);
+        }
+    });
+
+    container.appendChild(btn);
+    container.classList.remove('hidden');
+}
+
+function openLightboxPluginMenu(trigger, actions) {
+    // Remove any existing menu
+    closeLightboxPluginMenu(true);
+
+    const menu = document.createElement('div');
+    menu.id = 'lightbox-plugin-menu';
+    menu.className = 'lightbox-plugin-menu';
+    menu.setAttribute('role', 'menu');
+
+    // Group actions by plugin_name
+    const grouped = new Map();
+    for (const action of actions) {
+        const name = action.plugin_name || 'Plugin';
+        if (!grouped.has(name)) grouped.set(name, []);
+        grouped.get(name).push(action);
+    }
+
+    const showHeaders = grouped.size > 1;
+    let isFirst = true;
+
+    for (const [pluginName, pluginActions] of grouped) {
+        if (showHeaders) {
+            if (!isFirst) {
+                const divider = document.createElement('div');
+                divider.className = 'lightbox-plugin-menu-divider';
+                menu.appendChild(divider);
+            }
+            const header = document.createElement('div');
+            header.className = 'lightbox-plugin-menu-header';
+            header.textContent = pluginName;
+            menu.appendChild(header);
+        }
+
+        for (const action of pluginActions) {
+            const item = document.createElement('button');
+            item.className = 'lightbox-plugin-menu-item';
+            item.setAttribute('role', 'menuitem');
+            item.dataset.pluginId = action.plugin_id;
+            item.dataset.actionId = action.id;
+
+            const icon = action.icon ? getPluginIcon(action.icon) : '';
+            item.innerHTML = `${icon}<span>${escapeHTML(action.label)}</span>`;
+
+            item.addEventListener('click', (e) => {
+                e.stopPropagation();
+                closeLightboxPluginMenu();
+                handleLightboxPluginAction(action);
+            });
+
+            menu.appendChild(item);
+        }
+
+        isFirst = false;
+    }
+
+    document.body.appendChild(menu);
+    positionLightboxPluginMenu(menu, trigger);
+    setupLightboxPluginMenuKeyboard(menu);
+
+    // Animate in
+    requestAnimationFrame(() => {
+        menu.classList.add('active');
+    });
+
+    trigger.setAttribute('aria-expanded', 'true');
+}
+
+function positionLightboxPluginMenu(menu, trigger) {
+    const triggerRect = trigger.getBoundingClientRect();
+    const menuRect = menu.getBoundingClientRect();
+    const gap = 8;
+
+    let top = triggerRect.top - menuRect.height - gap;
+    let left = triggerRect.left;
+
+    // Fall back to below if not enough space above
+    if (top < 8) {
+        top = triggerRect.bottom + gap;
+    }
+
+    // Clamp horizontal to viewport
+    if (left + menuRect.width > window.innerWidth - 8) {
+        left = window.innerWidth - menuRect.width - 8;
+    }
+    if (left < 8) {
+        left = 8;
+    }
+
+    menu.style.top = `${top}px`;
+    menu.style.left = `${left}px`;
+}
+
+function setupLightboxPluginMenuKeyboard(menu) {
+    const items = menu.querySelectorAll('.lightbox-plugin-menu-item');
+    if (items.length === 0) return;
+
+    menu.addEventListener('keydown', (e) => {
+        const focused = document.activeElement;
+        const itemArray = Array.from(items);
+        const idx = itemArray.indexOf(focused);
+
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            const next = idx < itemArray.length - 1 ? idx + 1 : 0;
+            itemArray[next].focus();
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            const prev = idx > 0 ? idx - 1 : itemArray.length - 1;
+            itemArray[prev].focus();
+        } else if (e.key === 'Escape') {
+            e.preventDefault();
+            e.stopPropagation();
+            closeLightboxPluginMenu();
+            const trigger = document.getElementById('lightbox-plugin-menu-trigger');
+            if (trigger) trigger.focus();
+        } else if (e.key === 'Tab') {
+            e.preventDefault();
+            closeLightboxPluginMenu();
+        }
+    });
+
+    // Focus first item
+    items[0].focus();
+}
+
+function closeLightboxPluginMenu(immediate) {
+    const menu = document.getElementById('lightbox-plugin-menu');
+    if (!menu) return;
+
+    const trigger = document.getElementById('lightbox-plugin-menu-trigger');
+    if (trigger) trigger.setAttribute('aria-expanded', 'false');
+
+    if (immediate) {
+        menu.remove();
+        return;
+    }
+
+    menu.classList.remove('active');
+    setTimeout(() => {
+        menu.remove();
+    }, 150);
+}
+
+async function handleLightboxPluginAction(action) {
+    const clip = imageClips[currentLightboxIndex];
+    if (!clip) return;
+
+    if (action.options && action.options.length > 0) {
+        // Show options dialog
+        openPluginOptionsDialog(action, [clip.id]);
+    } else {
+        // Execute directly
+        await executePluginAction(action.plugin_id, action.id, [clip.id], {}, action.async);
     }
 }
 

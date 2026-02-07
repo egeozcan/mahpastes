@@ -229,50 +229,6 @@
                     </svg>
                     Compare
                 </button>
-                <div id="bulk-ai-actions" class="hidden relative">
-                    <button id="bulk-ai-btn"
-                        class="flex items-center gap-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 px-3 py-1.5 rounded-md text-xs font-medium transition-colors">
-                        <svg class="w-4 h-4 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
-                        </svg>
-                        AI
-                        <svg class="w-3 h-3 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
-                        </svg>
-                    </button>
-                    <div id="bulk-ai-dropdown" class="hidden absolute bottom-full left-0 mb-2 w-48 bg-white rounded-lg shadow-xl border border-stone-200 py-1 z-10">
-                        <button class="ai-action-btn w-full text-left px-4 py-2 text-sm text-stone-700 hover:bg-stone-50 flex items-center gap-2" data-action="colorize">
-                            <svg class="w-4 h-4 text-amber-500" fill="currentColor" viewBox="0 0 20 20">
-                                <path d="M4 2a2 2 0 00-2 2v11a3 3 0 106 0V4a2 2 0 00-2-2H4zm1 14a1 1 0 100-2 1 1 0 000 2zm5-1.757l4.9-4.9a2 2 0 000-2.828L13.485 5.1a2 2 0 00-2.828 0L10 5.757v8.486zM16 18H9.071l6-6H16a2 2 0 012 2v2a2 2 0 01-2 2z"></path>
-                            </svg>
-                            Colorize
-                        </button>
-                        <button class="ai-action-btn w-full text-left px-4 py-2 text-sm text-stone-700 hover:bg-stone-50 flex items-center gap-2" data-action="upscale">
-                            <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"></path>
-                            </svg>
-                            Upscale
-                        </button>
-                        <button class="ai-action-btn w-full text-left px-4 py-2 text-sm text-stone-700 hover:bg-stone-50 flex items-center gap-2" data-action="restore">
-                            <svg class="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
-                            </svg>
-                            Restore
-                        </button>
-                        <button class="ai-action-btn w-full text-left px-4 py-2 text-sm text-stone-700 hover:bg-stone-50 flex items-center gap-2" data-action="edit">
-                            <svg class="w-4 h-4 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
-                            </svg>
-                            AI Edit...
-                        </button>
-                        <button class="ai-action-btn w-full text-left px-4 py-2 text-sm text-stone-700 hover:bg-stone-50 flex items-center gap-2" data-action="vectorize">
-                            <svg class="w-4 h-4 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"></path>
-                            </svg>
-                            Vectorize
-                        </button>
-                    </div>
-                </div>
                 <button id="bulk-tag-btn"
                     class="flex items-center gap-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 px-3 py-1.5 rounded-md text-xs font-medium transition-colors"
                     data-tag-btn>
@@ -444,12 +400,8 @@
         </button>
 
         <div class="lightbox-bar">
-            <div id="lightbox-ai-actions" class="lightbox-ai-actions hidden">
-                <button class="lightbox-ai-btn" data-action="colorize">Colorize</button>
-                <button class="lightbox-ai-btn" data-action="upscale">Upscale</button>
-                <button class="lightbox-ai-btn" data-action="restore">Restore</button>
-                <button class="lightbox-ai-btn" data-action="edit">AI Edit</button>
-                <button id="lightbox-vectorize-btn" class="lightbox-ai-btn" data-action="vectorize">Vectorize</button>
+            <div id="lightbox-plugin-actions" class="lightbox-plugin-actions hidden">
+                <!-- Plugin buttons rendered by JS -->
             </div>
             <div id="lightbox-image-info" class="lightbox-image-info"></div>
             <div class="lightbox-zoom-control">
@@ -786,45 +738,6 @@
                 </button>
             </div>
             <div class="p-5 space-y-6">
-                <div>
-                    <h3 class="text-xs font-semibold text-stone-600 uppercase tracking-wider mb-3 flex items-center gap-2">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
-                        </svg>
-                        AI Image Processing
-                    </h3>
-                    <p class="text-[11px] text-stone-500 mb-3">
-                        Connect to <a href="https://fal.ai" target="_blank" class="text-blue-600 hover:underline">fal.ai</a>
-                        for colorization, upscaling, restoration, and AI editing.
-                    </p>
-                    <div class="space-y-3">
-                        <div>
-                            <label for="fal-api-key" class="block text-[10px] font-medium text-stone-500 uppercase tracking-wider mb-1.5">
-                                API Key
-                            </label>
-                            <div class="relative">
-                                <input type="password" id="fal-api-key"
-                                    class="w-full px-3 py-2 pr-10 border border-stone-200 rounded-md text-sm focus:outline-none focus:border-stone-400 focus:ring-1 focus:ring-stone-400/20 font-mono"
-                                    placeholder="Enter your fal.ai API key">
-                                <button id="toggle-api-key-visibility" type="button"
-                                    class="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-stone-400 hover:text-stone-600">
-                                    <svg id="eye-icon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
-                                    </svg>
-                                </button>
-                            </div>
-                            <p class="text-[10px] text-stone-400 mt-1">
-                                Get your key at <a href="https://fal.ai/dashboard/keys" target="_blank" class="text-blue-500 hover:underline">fal.ai/dashboard/keys</a>
-                            </p>
-                        </div>
-                        <div id="fal-status" class="flex items-center gap-2 text-xs">
-                            <span id="fal-status-indicator" class="w-2 h-2 rounded-full bg-stone-300"></span>
-                            <span id="fal-status-text" class="text-stone-500">Not configured</span>
-                        </div>
-                    </div>
-                </div>
-
                 <!-- Backup & Restore -->
                 <div class="pt-4 border-t border-stone-100">
                     <h3 class="text-xs font-semibold text-stone-600 uppercase tracking-wider mb-3 flex items-center gap-2">
@@ -907,111 +820,6 @@
         </div>
     </div>
 
-    <!-- AI Processing Modal -->
-    <div id="ai-processing-modal" role="dialog" aria-modal="true"
-        class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm transition-opacity duration-200 opacity-0 pointer-events-none">
-        <div class="bg-white rounded-lg shadow-xl max-w-md w-full overflow-hidden transform transition-transform duration-200 scale-95">
-            <div class="p-5 border-b border-stone-100">
-                <h2 id="ai-modal-title" class="text-sm font-semibold text-stone-800">AI Image Processing</h2>
-            </div>
-            <div class="p-5 space-y-4">
-                <div class="flex items-center gap-3 p-3 bg-stone-50 rounded-lg">
-                    <div id="ai-task-icon" class="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center">
-                        <svg class="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
-                        </svg>
-                    </div>
-                    <div>
-                        <p id="ai-task-description" class="text-sm font-medium text-stone-700">Processing images...</p>
-                        <p id="ai-image-count" class="text-xs text-stone-500">0 images selected</p>
-                    </div>
-                </div>
-
-                <div id="ai-model-section">
-                    <label class="block text-[10px] font-medium text-stone-500 uppercase tracking-wider mb-1.5">Model</label>
-                    <select id="ai-model-select"
-                        class="w-full px-3 py-2 border border-stone-200 rounded-md text-sm focus:outline-none focus:border-stone-400 bg-white">
-                    </select>
-                </div>
-
-                <div id="ai-restore-options" class="hidden space-y-2">
-                    <label class="flex items-center gap-2 cursor-pointer">
-                        <input type="checkbox" id="ai-restore-colors" checked class="w-4 h-4 rounded border-stone-300 text-stone-700">
-                        <span class="text-sm text-stone-600">Fix colors</span>
-                    </label>
-                    <label class="flex items-center gap-2 cursor-pointer">
-                        <input type="checkbox" id="ai-restore-scratches" checked class="w-4 h-4 rounded border-stone-300 text-stone-700">
-                        <span class="text-sm text-stone-600">Remove scratches</span>
-                    </label>
-                </div>
-
-                <div id="ai-edit-options" class="hidden">
-                    <label class="block text-[10px] font-medium text-stone-500 uppercase tracking-wider mb-1.5">Prompt</label>
-                    <textarea id="ai-edit-prompt" rows="3"
-                        class="w-full px-3 py-2 border border-stone-200 rounded-md text-sm focus:outline-none focus:border-stone-400 resize-none"
-                        placeholder="Describe the changes you want..."></textarea>
-                    <label class="block text-[10px] font-medium text-stone-500 uppercase tracking-wider mt-3 mb-1.5">
-                        Strength: <span id="ai-edit-strength-value">75%</span>
-                    </label>
-                    <input type="range" id="ai-edit-strength" min="10" max="100" value="75"
-                        class="w-full accent-purple-600">
-                    <p class="text-[10px] text-stone-400 mt-1">Higher = more changes to the original</p>
-                </div>
-
-                <div id="ai-progress" class="hidden">
-                    <div class="flex items-center justify-between mb-2">
-                        <span class="text-xs text-stone-500">Processing...</span>
-                        <span id="ai-progress-text" class="text-xs font-medium text-stone-700">0/0</span>
-                    </div>
-                    <div class="w-full bg-stone-200 rounded-full h-2">
-                        <div id="ai-progress-bar" class="bg-purple-600 h-2 rounded-full transition-all" style="width: 0%"></div>
-                    </div>
-                </div>
-            </div>
-            <div class="bg-stone-50 px-5 py-3 flex gap-2 justify-end border-t border-stone-100">
-                <button id="ai-modal-cancel"
-                    class="bg-white border border-stone-200 hover:bg-stone-50 text-stone-600 text-xs font-medium py-2 px-4 rounded-md transition-colors">
-                    Cancel
-                </button>
-                <button id="ai-modal-process"
-                    class="bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600 text-white text-xs font-medium py-2 px-4 rounded-md transition-colors flex items-center gap-2">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
-                    </svg>
-                    Process
-                </button>
-            </div>
-        </div>
-    </div>
-
-    <!-- AI Confirmation Modal -->
-    <div id="ai-confirm-modal" role="alertdialog" aria-modal="true"
-        class="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm transition-opacity duration-200 opacity-0 pointer-events-none">
-        <div class="bg-white rounded-lg shadow-xl max-w-sm w-full overflow-hidden">
-            <div class="p-5">
-                <div class="flex items-center justify-center w-12 h-12 mx-auto bg-purple-100 rounded-full mb-4">
-                    <svg class="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
-                    </svg>
-                </div>
-                <h3 class="text-sm font-semibold text-stone-800 text-center mb-2">Send to fal.ai?</h3>
-                <p id="ai-confirm-message" class="text-xs text-stone-500 text-center">
-                    You are about to send <strong>X images</strong> to fal.ai using <strong>Model Name</strong>.
-                </p>
-            </div>
-            <div class="bg-stone-50 px-5 py-3 flex gap-2 justify-end border-t border-stone-100">
-                <button id="ai-confirm-cancel"
-                    class="bg-white border border-stone-200 hover:bg-stone-50 text-stone-600 text-xs font-medium py-2 px-4 rounded-md transition-colors">
-                    Cancel
-                </button>
-                <button id="ai-confirm-proceed"
-                    class="bg-purple-600 hover:bg-purple-700 text-white text-xs font-medium py-2 px-4 rounded-md transition-colors">
-                    Continue
-                </button>
-            </div>
-        </div>
-    </div>
-
     <!-- Task Queue Bar -->
     <div id="task-queue-bar"
         class="fixed bottom-0 left-0 right-0 z-40 bg-stone-800 text-white px-4 py-2.5 flex items-center justify-between cursor-pointer transform translate-y-full transition-transform duration-300 shadow-lg">
@@ -1062,9 +870,31 @@
         </div>
     </div>
 
+    <!-- Plugin Options Dialog -->
+    <div id="plugin-options-modal" class="modal-backdrop opacity-0 pointer-events-none" role="dialog" aria-modal="true">
+        <div class="modal-content max-w-md">
+            <div class="modal-header">
+                <h3 id="plugin-options-title" class="text-sm font-semibold text-stone-800">Action Options</h3>
+                <button id="plugin-options-close" class="p-1 hover:bg-stone-100 rounded transition-colors" aria-label="Close">
+                    <svg class="w-4 h-4 text-stone-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+            <form id="plugin-options-form" class="modal-body">
+                <!-- Form fields rendered by JS -->
+            </form>
+            <div class="modal-footer">
+                <button type="button" id="plugin-options-cancel" class="btn-secondary">Cancel</button>
+                <button type="submit" form="plugin-options-form" class="btn-primary">Process</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Scripts split for better organization -->
     <script src="js/utils.js"></script>
     <script src="js/wails-api.js"></script>
+    <script src="js/plugin-icons.js"></script>
     <script src="js/ui.js"></script>
     <script src="js/modals.js"></script>
     <script src="js/editor.js"></script>
@@ -1072,7 +902,6 @@
     <script src="js/settings.js"></script>
     <script src="js/plugins.js"></script>
     <script src="js/task-queue.js"></script>
-    <script src="js/ai-processing.js"></script>
     <script src="js/tags.js"></script>
     <script src="js/app.js"></script>
 </body>
