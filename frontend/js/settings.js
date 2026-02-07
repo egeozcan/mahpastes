@@ -7,6 +7,7 @@ const settingsCloseBtn = document.getElementById('settings-close');
 const settingsSaveBtn = document.getElementById('settings-save');
 
 function openSettings() {
+    renderHiddenTagsSettings();
     settingsModal.classList.remove('opacity-0', 'pointer-events-none');
     settingsModal.classList.add('opacity-100');
     settingsModal.querySelector(':scope > div').classList.remove('scale-95');
@@ -18,6 +19,8 @@ function closeSettings() {
     settingsModal.classList.remove('opacity-100');
     settingsModal.querySelector(':scope > div').classList.add('scale-95');
     settingsModal.querySelector(':scope > div').classList.remove('scale-100');
+    renderTagFilterDropdown();
+    loadClips();
 }
 
 async function saveSettings() {
@@ -178,3 +181,61 @@ restoreConfirmYes.addEventListener('click', confirmRestore);
 restoreConfirmDialog.addEventListener('click', (e) => {
     if (e.target === restoreConfirmDialog) hideRestoreConfirmDialog();
 });
+
+// --- Hidden Tags ---
+
+const hiddenTagsList = document.getElementById('hidden-tags-list');
+
+function renderHiddenTagsSettings() {
+    if (!hiddenTagsList) return;
+
+    hiddenTagsList.innerHTML = '';
+
+    if (allTags.length === 0) {
+        hiddenTagsList.innerHTML = '<p class="text-stone-400 text-xs">No tags yet</p>';
+        return;
+    }
+
+    allTags.forEach(tag => {
+        const isHidden = hiddenTags.includes(tag.id);
+        const row = document.createElement('label');
+        row.className = 'flex items-center justify-between py-2 px-1 cursor-pointer hover:bg-stone-50 rounded transition-colors';
+        row.dataset.testid = `hidden-tag-row-${tag.name}`;
+        row.innerHTML = `
+            <div class="flex items-center gap-2">
+                <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background-color: ${tag.color}"></span>
+                <span class="text-xs font-medium text-stone-700">${escapeHtml(tag.name)}</span>
+                <span class="text-[10px] text-stone-400">${tag.count}</span>
+            </div>
+            <div class="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" class="sr-only peer" data-testid="hidden-tag-toggle-${tag.name}" ${isHidden ? 'checked' : ''}>
+                <div class="w-8 h-4 bg-stone-300 rounded-full peer peer-checked:bg-stone-800 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:after:translate-x-4"></div>
+            </div>
+        `;
+
+        const checkbox = row.querySelector('input');
+        checkbox.addEventListener('change', () => toggleHiddenTag(tag.id, checkbox.checked));
+
+        hiddenTagsList.appendChild(row);
+    });
+}
+
+async function toggleHiddenTag(tagId, hidden) {
+    if (hidden) {
+        if (!hiddenTags.includes(tagId)) {
+            hiddenTags.push(tagId);
+        }
+    } else {
+        const idx = hiddenTags.indexOf(tagId);
+        if (idx !== -1) {
+            hiddenTags.splice(idx, 1);
+        }
+    }
+
+    try {
+        await window.go.main.App.SetHiddenTags(hiddenTags);
+    } catch (error) {
+        console.error('Error saving hidden tags:', error);
+        showToast('Failed to save hidden tags setting.');
+    }
+}

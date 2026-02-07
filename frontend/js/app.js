@@ -62,6 +62,7 @@ let lastFocusedElement = null; // For confirm dialog
 // Tag state
 let allTags = [];
 let activeTagFilters = [];
+let hiddenTags = [];
 
 // App ready flag for testing
 window.__appReady = false;
@@ -79,6 +80,11 @@ Object.assign(window.__testHelpers, {
     activeTagFilters.push(...filters);
   },
   getActiveTagFilters: () => activeTagFilters,
+  setHiddenTags: (tags) => {
+    hiddenTags.length = 0;
+    hiddenTags.push(...tags);
+  },
+  getHiddenTags: () => hiddenTags,
   setViewingArchive: (val) => { isViewingArchive = val; },
   // Expose loadClips function (defined in wails-api.js, but called here)
   loadClips: () => {
@@ -278,12 +284,22 @@ async function handleText(text) {
     upload([fileData], expiration);
 }
 
+async function loadHiddenTags() {
+    try {
+        hiddenTags = await window.go.main.App.GetHiddenTags();
+    } catch (error) {
+        console.error('Error loading hidden tags:', error);
+        hiddenTags = [];
+    }
+}
+
 // --- Initial Load ---
 window.addEventListener('load', async () => {
     window.__appReady = false;
     try {
         await loadPluginUIActions();
         await loadTags();
+        await loadHiddenTags();
         await loadClips();
         setupEditorListeners();
     } catch (error) {
