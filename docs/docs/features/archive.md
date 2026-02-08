@@ -1,5 +1,5 @@
 ---
-sidebar_position: 6
+sidebar_position: 7
 ---
 
 # Archive
@@ -17,49 +17,47 @@ Keep important clips separate from your active workspace. The archive provides l
 
 ### Single Clip
 
-1. Hover over the clip
-2. Click the archive icon (box with arrow)
+1. Click the menu button (three dots) on the clip
+2. Select **Archive**
 3. The clip moves to Archive
 
 ### Multiple Clips
 
-1. Hold <span className="keyboard-key">Shift</span> and click to select multiple clips
-2. Click **Archive All** in the bulk action bar
+1. Select multiple clips using the checkboxes
+2. Click **Archive** in the bulk action bar
 3. All selected clips move to Archive
 
 ## Viewing the Archive
 
-Click the **Archive** tab at the top of the window.
+Click the **Archive** button in the header. When active, the button toggles to show "Active" to switch back.
 
 The archive view shows:
 - All archived clips in a grid
 - Same display format as main gallery
-- Search and filter work here too
+- Search and tag filters work here too
 
 ## Unarchiving
 
 ### Single Clip
 
-1. Open the Archive tab
-2. Click the archive icon on the clip (same icon, reverse action)
-3. The clip returns to the main gallery
+1. Open the Archive view
+2. Click the menu button (three dots) on the clip
+3. Select **Restore**
+4. The clip returns to the main gallery
 
 ### Multiple Clips
 
-1. Select multiple archived clips
-2. Click **Unarchive All** in the bulk action bar
+1. Select multiple archived clips using the checkboxes
+2. Click **Restore** in the bulk action bar
 3. All selected clips return to gallery
 
 ## Archive Behavior
 
-### No Expiration
+### Expiration
 
-When you archive a clip:
-- Any existing expiration is **removed**
-- The clip becomes permanent
-- It won't be auto-deleted
-
-This protects important content from accidental deletion.
+:::note
+Archiving a clip does **not** remove any existing expiration. If a clip has an auto-delete timer, it will still expire even when archived. The cleanup job runs regardless of archive status.
+:::
 
 ### All Features Available
 

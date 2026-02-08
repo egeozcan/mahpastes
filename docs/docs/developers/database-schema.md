@@ -71,6 +71,15 @@ CREATE TABLE watched_folders (
 **Constraints:**
 - `path` must be unique
 
+**Migrations:**
+```sql
+ALTER TABLE watched_folders ADD COLUMN auto_tag_id INTEGER
+```
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `auto_tag_id` | INTEGER | Tag ID to auto-apply on import (nullable) |
+
 ### settings
 
 Application settings as key-value pairs.
@@ -92,6 +101,7 @@ CREATE TABLE settings (
 | Key | Values | Description |
 |-----|--------|-------------|
 | `global_watch_paused` | "true" / "false" | Global watching pause state |
+| `hidden_tags` | JSON array of int64 | Tag IDs to hide from gallery by default |
 
 ### tags
 
@@ -101,9 +111,11 @@ Stores tag definitions for organizing clips.
 CREATE TABLE tags (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL UNIQUE,
-    color TEXT NOT NULL DEFAULT '#6b7280'
+    color TEXT NOT NULL
 );
 ```
+
+Note: Colors are auto-assigned from a palette when creating tags, not via a SQL default.
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -141,11 +153,11 @@ Stores installed plugin metadata and state.
 ```sql
 CREATE TABLE plugins (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    filename TEXT NOT NULL UNIQUE,
+    filename TEXT UNIQUE NOT NULL,
     name TEXT NOT NULL,
-    version TEXT NOT NULL,
+    version TEXT,
     enabled INTEGER DEFAULT 1,
-    status TEXT DEFAULT 'loaded',
+    status TEXT DEFAULT 'enabled',
     error_count INTEGER DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -156,9 +168,9 @@ CREATE TABLE plugins (
 | `id` | INTEGER | Auto-incrementing primary key |
 | `filename` | TEXT | Plugin filename (unique) |
 | `name` | TEXT | Human-readable plugin name |
-| `version` | TEXT | Plugin version string |
+| `version` | TEXT | Plugin version string (nullable) |
 | `enabled` | INTEGER | 0 = disabled, 1 = enabled |
-| `status` | TEXT | Current status (loaded, error, disabled) |
+| `status` | TEXT | Current status (enabled, error, disabled) |
 | `error_count` | INTEGER | Number of runtime errors |
 | `created_at` | DATETIME | When plugin was installed |
 
@@ -171,10 +183,15 @@ CREATE TABLE plugin_permissions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     plugin_id INTEGER NOT NULL,
     permission_type TEXT NOT NULL,
-    path TEXT,
+    path TEXT NOT NULL,
     granted_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (plugin_id) REFERENCES plugins(id) ON DELETE CASCADE
 );
+```
+
+Migration adds `pending_reconfirm` column:
+```sql
+ALTER TABLE plugin_permissions ADD COLUMN pending_reconfirm INTEGER DEFAULT 0
 ```
 
 | Column | Type | Description |
@@ -182,8 +199,9 @@ CREATE TABLE plugin_permissions (
 | `id` | INTEGER | Auto-incrementing primary key |
 | `plugin_id` | INTEGER | Foreign key to plugins table |
 | `permission_type` | TEXT | Permission type (http, fs, etc.) |
-| `path` | TEXT | Specific path/domain granted (nullable) |
+| `path` | TEXT | Specific path/domain granted |
 | `granted_at` | DATETIME | When permission was granted |
+| `pending_reconfirm` | INTEGER | 1 if permission needs re-confirmation after restore |
 
 ### plugin_storage
 
@@ -193,7 +211,7 @@ Key-value storage scoped to individual plugins.
 CREATE TABLE plugin_storage (
     plugin_id INTEGER NOT NULL,
     key TEXT NOT NULL,
-    value TEXT,
+    value BLOB,
     PRIMARY KEY (plugin_id, key),
     FOREIGN KEY (plugin_id) REFERENCES plugins(id) ON DELETE CASCADE
 );
@@ -203,7 +221,7 @@ CREATE TABLE plugin_storage (
 |--------|------|-------------|
 | `plugin_id` | INTEGER | Foreign key to plugins table |
 | `key` | TEXT | Storage key |
-| `value` | TEXT | Stored value (JSON-encoded) |
+| `value` | BLOB | Stored value (JSON-encoded) |
 
 **Constraints:**
 - Composite primary key on (plugin_id, key)
@@ -217,9 +235,11 @@ Migrations are handled inline in `initDB()`:
 // Initial table creation
 db.Exec(createTableSQL)
 
-// Migrations (idempotent)
+// Migrations (idempotent - ALTER TABLE silently fails if column exists)
 db.Exec("ALTER TABLE clips ADD COLUMN is_archived INTEGER DEFAULT 0")
 db.Exec("ALTER TABLE clips ADD COLUMN expires_at DATETIME")
+db.Exec("ALTER TABLE watched_folders ADD COLUMN auto_tag_id INTEGER")
+db.Exec("ALTER TABLE plugin_permissions ADD COLUMN pending_reconfirm INTEGER DEFAULT 0")
 ```
 
 Migrations use `ALTER TABLE` which silently fails if column exists.
@@ -238,6 +258,16 @@ Benefits:
 - Better read/write concurrency
 - Faster writes
 - Crash recovery
+
+### Foreign Keys
+
+Foreign key constraints are enabled explicitly:
+
+```go
+db.Exec("PRAGMA foreign_keys = ON")
+```
+
+This is required for CASCADE deletes to work on `clip_tags`, `plugin_permissions`, and `plugin_storage`.
 
 ### Connection
 
@@ -261,6 +291,7 @@ func (a *App) shutdown(ctx context.Context) {
 
 ### Get clips for gallery
 
+Basic query (no tag filters):
 ```sql
 SELECT id, content_type, filename, created_at, expires_at,
        SUBSTR(data, 1, 500), is_archived
@@ -271,7 +302,7 @@ ORDER BY created_at DESC
 LIMIT 50
 ```
 
-Note: Only first 500 bytes of data fetched for preview.
+Note: Only first 500 bytes of data fetched for preview. When tag filters or hidden tags are active, the query uses JOINs with `clip_tags` for filtering.
 
 ### Get full clip data
 

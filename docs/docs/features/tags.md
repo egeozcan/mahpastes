@@ -98,3 +98,26 @@ Tags cycle through 8 colors in order:
 | Cyan | `#06B6D4` |
 
 The color is assigned based on how many tags exist when you create one.
+
+## Hidden Tags
+
+Hide specific tags from the main gallery so clips tagged with them don't appear unless you're actively filtering by that tag.
+
+### Setting Up Hidden Tags
+
+1. Open **Settings** (gear icon)
+2. Find the **Hidden Tags** section
+3. Toggle on any tags you want to hide
+
+### How Hidden Tags Work
+
+- Clips with hidden tags are excluded from the main gallery view
+- If you actively filter by a hidden tag, the clips will appear (the filter overrides the hidden setting)
+- Hidden tags show an eye-slash icon in the tag filter dropdown
+- Hidden tag settings are stored per-instance and persist across sessions
+
+### Use Cases
+
+- **Work/Personal separation**: Hide personal tags during work
+- **Archived projects**: Hide tags for completed projects without deleting them
+- **Sensitive content**: Keep tagged content out of the default view

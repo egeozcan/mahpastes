@@ -13,13 +13,15 @@ Complete reference for all Go functions exposed to the frontend via Wails bindin
 Retrieve a list of clips for the gallery.
 
 ```go
-func (a *App) GetClips(archived bool) ([]ClipPreview, error)
+func (a *App) GetClips(archived bool, tagIDs []int64, hiddenTagIDs []int64) ([]ClipPreview, error)
 ```
 
 **Parameters:**
 | Name | Type | Description |
 |------|------|-------------|
 | `archived` | bool | true for archived clips, false for active |
+| `tagIDs` | []int64 | Tag IDs to filter by (AND logic - clip must have ALL tags). Empty for no filter |
+| `hiddenTagIDs` | []int64 | Tag IDs whose clips should be excluded. Empty for no hiding |
 
 **Returns:**
 | Type | Description |
@@ -37,13 +39,16 @@ type ClipPreview struct {
     ExpiresAt   *time.Time `json:"expires_at"`
     Preview     string     `json:"preview"`      // Text preview (500 chars max)
     IsArchived  bool       `json:"is_archived"`
+    Tags        []Tag      `json:"tags"`          // Tags assigned to this clip
 }
 ```
 
 **JavaScript usage:**
 ```javascript
-const clips = await GetClips(false); // Active clips
-const archived = await GetClips(true); // Archived clips
+const clips = await GetClips(false, [], []);      // Active clips, no filters
+const archived = await GetClips(true, [], []);     // Archived clips
+const tagged = await GetClips(false, [1, 2], []);  // Clips with tags 1 AND 2
+const filtered = await GetClips(false, [], [3]);   // Active clips, hide tag 3
 ```
 
 ---
@@ -318,6 +323,7 @@ type WatchedFolder struct {
     FilterRegex     string    `json:"filter_regex"`
     ProcessExisting bool      `json:"process_existing"`
     AutoArchive     bool      `json:"auto_archive"`
+    AutoTagID       *int64    `json:"auto_tag_id"`
     IsPaused        bool      `json:"is_paused"`
     CreatedAt       time.Time `json:"created_at"`
     Exists          bool      `json:"exists"`
@@ -353,6 +359,7 @@ type WatchedFolderConfig struct {
     FilterRegex     string   `json:"filter_regex"`
     ProcessExisting bool     `json:"process_existing"`
     AutoArchive     bool     `json:"auto_archive"`
+    AutoTagID       *int64   `json:"auto_tag_id"`
 }
 ```
 
@@ -475,6 +482,7 @@ type Tag struct {
     ID    int64  `json:"id"`
     Name  string `json:"name"`
     Color string `json:"color"`
+    Count int    `json:"count"` // Number of clips using this tag
 }
 ```
 
@@ -497,22 +505,16 @@ Removes the tag and all clip associations.
 Get all tags with usage counts.
 
 ```go
-func (a *App) GetTags() ([]TagWithCount, error)
+func (a *App) GetTags() ([]Tag, error)
 ```
 
 **Returns:**
 | Type | Description |
 |------|-------------|
-| `[]TagWithCount` | Array of tags with clip counts |
+| `[]Tag` | Array of tags with clip counts |
 | `error` | Error if query fails |
 
-**TagWithCount structure:**
-```go
-type TagWithCount struct {
-    Tag
-    ClipCount int `json:"clip_count"`
-}
-```
+The `Count` field on each Tag contains the number of clips using that tag.
 
 ---
 
@@ -597,6 +599,158 @@ Remove a tag from multiple clips at once.
 
 ```go
 func (a *App) BulkRemoveTag(clipIDs []int64, tagID int64) error
+```
+
+---
+
+### GetHiddenTags
+
+Get the list of hidden tag IDs.
+
+```go
+func (a *App) GetHiddenTags() ([]int64, error)
+```
+
+**Returns:** Array of tag IDs that are currently hidden from the gallery.
+
+---
+
+### SetHiddenTags
+
+Save the list of hidden tag IDs.
+
+```go
+func (a *App) SetHiddenTags(ids []int64) error
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `ids` | []int64 | Array of tag IDs to hide |
+
+---
+
+## Settings Operations
+
+### GetSetting
+
+Retrieve a setting value by key.
+
+```go
+func (a *App) GetSetting(key string) (string, error)
+```
+
+---
+
+### SetSetting
+
+Store a setting value (insert or update).
+
+```go
+func (a *App) SetSetting(key string, value string) error
+```
+
+---
+
+## Backup Operations
+
+### ShowCreateBackupDialog
+
+Open a save dialog and create a backup ZIP.
+
+```go
+func (a *App) ShowCreateBackupDialog() (string, error)
+```
+
+**Returns:** The path where the backup was saved, or empty string if cancelled.
+
+---
+
+### ShowRestoreBackupDialog
+
+Open a file picker and validate the selected backup.
+
+```go
+func (a *App) ShowRestoreBackupDialog() (*BackupManifest, string, error)
+```
+
+**Returns:** The backup manifest, file path, and any error. Returns nil/empty if user cancels.
+
+---
+
+### ConfirmRestoreBackup
+
+Perform the actual restore after user confirmation.
+
+```go
+func (a *App) ConfirmRestoreBackup(backupPath string) error
+```
+
+---
+
+## Plugin Service Operations
+
+Plugin-related APIs are on the `PluginService` struct (accessed via `window.go.main.PluginService.*` in JavaScript) due to Wails method binding limits.
+
+### GetPlugins
+
+```go
+func (s *PluginService) GetPlugins() ([]PluginInfo, error)
+```
+
+### ImportPlugin
+
+Opens a file dialog to import a `.lua` plugin file.
+
+```go
+func (s *PluginService) ImportPlugin() (*PluginInfo, error)
+```
+
+### ImportPluginFromPath
+
+Import a plugin from a specific file path.
+
+```go
+func (s *PluginService) ImportPluginFromPath(path string) (*PluginInfo, error)
+```
+
+### EnablePlugin / DisablePlugin / RemovePlugin
+
+```go
+func (s *PluginService) EnablePlugin(id int64) error
+func (s *PluginService) DisablePlugin(id int64) error
+func (s *PluginService) RemovePlugin(id int64) error
+```
+
+### GetPluginPermissions / RevokePluginPermission
+
+```go
+func (s *PluginService) GetPluginPermissions(id int64) ([]map[string]string, error)
+func (s *PluginService) RevokePluginPermission(pluginID int64, permType, path string) error
+```
+
+### GetPluginStorage / SetPluginStorage / GetAllPluginStorage
+
+```go
+func (s *PluginService) GetPluginStorage(pluginID int64, key string) (string, error)
+func (s *PluginService) SetPluginStorage(pluginID int64, key, value string) error
+func (s *PluginService) GetAllPluginStorage(pluginID int64) (map[string]string, error)
+```
+
+### GetPluginUIActions
+
+Returns all UI actions (lightbox buttons, card actions) from enabled plugins.
+
+```go
+func (s *PluginService) GetPluginUIActions() (*UIActionsResponse, error)
+```
+
+### ExecutePluginAction
+
+Calls a plugin's `on_ui_action` handler.
+
+```go
+func (s *PluginService) ExecutePluginAction(pluginID int64, actionID string, clipIDs []int64, options map[string]interface{}) (*ActionResult, error)
 ```
 
 ---

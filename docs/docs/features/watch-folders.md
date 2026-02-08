@@ -1,5 +1,5 @@
 ---
-sidebar_position: 7
+sidebar_position: 8
 ---
 
 # Watch Folders
@@ -73,7 +73,14 @@ The regex matches against the filename (not the full path).
 Enable to automatically move imported files to archive:
 - Keeps main gallery clean
 - Good for background collection
-- Find imports in Archive tab
+- Find imports in Archive view
+
+### Auto-Tag
+
+Automatically apply a tag to all imported files:
+1. Select a tag from the **Auto-tag** dropdown
+2. Every file imported from this folder gets that tag
+3. Select "None" to disable
 
 ### Process Existing Files
 
@@ -185,6 +192,11 @@ Videos are imported and archived for later review.
 2. New file creation triggers import
 3. File is read and stored as a clip
 4. Events are debounced (500ms) for stability
+5. The original file is deleted from the watched folder after successful import
+
+:::note Source File Removal
+Imported files are automatically removed from the watched folder after they are successfully stored in mahpastes. This prevents duplicate imports and keeps the watched folder clean.
+:::
 
 ### Debouncing
 

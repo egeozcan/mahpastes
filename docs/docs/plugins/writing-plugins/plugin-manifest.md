@@ -121,7 +121,7 @@ network = {
 },
 ```
 
-- **Domain**: The exact domain (no wildcards)
+- **Domain**: The exact domain, or a wildcard subdomain pattern (e.g., `*.cdn.example.com`)
 - **Methods**: Array of allowed HTTP methods (`GET`, `POST`, `PUT`, `PATCH`, `DELETE`)
 
 Requests to undeclared domains will fail with a permission error.
@@ -164,7 +164,7 @@ schedules = {
 },
 ```
 
-- **name**: Matches a handler function `scheduled_<name>()`
+- **name**: The name of the Lua function to call at each interval
 - **interval**: Seconds between executions
 
 ### Handler Example
@@ -174,11 +174,13 @@ schedules = {
     {name = "backup", interval = 1800},  -- Every 30 minutes
 },
 
-function scheduled_backup()
+function backup()
     log("Running scheduled backup...")
     -- Backup logic here
 end
 ```
+
+The function name must match the `name` field exactly. For example, `{name = "cleanup", interval = 3600}` calls a function named `cleanup()`.
 
 ## Settings
 
@@ -287,6 +289,76 @@ function on_startup()
 end
 ```
 
+## UI Actions
+
+Plugins can add custom buttons to the lightbox and card context menus. When a user clicks a plugin action, the `on_ui_action(action_id, clip_ids, options)` handler is called.
+
+```lua
+ui = {
+    lightbox_buttons = {
+        {id = "enhance", label = "Enhance", icon = "wand", async = true},
+        {id = "convert", label = "Convert", icon = "refresh",
+            options = {
+                {id = "format", type = "select", label = "Format",
+                    choices = {
+                        {value = "png", label = "PNG"},
+                        {value = "jpg", label = "JPEG"},
+                    }
+                },
+            }
+        },
+    },
+    card_actions = {
+        {id = "enhance", label = "Enhance", icon = "wand", async = true},
+    },
+},
+```
+
+### Action Fields
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `id` | Yes | Unique action identifier |
+| `label` | Yes | Display text for the button |
+| `icon` | No | Icon name (e.g., `"wand"`, `"refresh"`, `"pencil"`) |
+| `async` | No | If `true`, runs in background (up to 5 minutes timeout) |
+| `options` | No | Array of form fields shown in a dialog before execution |
+
+### Option Form Fields
+
+Options support these types: `text`, `password`, `checkbox`, `select`, `range`.
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `id` | Yes | Field identifier (passed in options table) |
+| `type` | Yes | Input type |
+| `label` | Yes | Display label |
+| `required` | No | Whether field is required |
+| `default` | No | Default value |
+| `choices` | For `select` | Array of `{value, label}` objects |
+| `min`, `max`, `step` | For `range` | Numeric range constraints |
+
+### Handler
+
+```lua
+function on_ui_action(action_id, clip_ids, options)
+    if action_id == "enhance" then
+        -- Process each clip
+        for _, clip_id in ipairs(clip_ids) do
+            -- ... processing logic
+        end
+    end
+    return {success = true, result_clip_id = new_id}
+end
+```
+
+The handler receives:
+- `action_id` (string) - Which action was triggered
+- `clip_ids` (table) - Array of selected clip IDs
+- `options` (table) - User-provided option values (empty table if no options defined)
+
+It should return a table with `success` (boolean), optionally `error` (string), and optionally `result_clip_id` (number) to navigate to the result.
+
 ## Complete Example
 
 Here's a full manifest for a cloud sync plugin:
@@ -372,7 +444,7 @@ function on_clip_created(clip)
     end
 end
 
-function scheduled_sync_check()
+function sync_check()
     log("Checking for sync conflicts...")
     -- Sync logic here
 end

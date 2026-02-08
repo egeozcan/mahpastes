@@ -29,34 +29,11 @@ If using Apple Silicon (M1/M2/M3):
 1. Ensure you downloaded the Universal build
 2. Try the Intel build via Rosetta if issues persist
 
-### Windows: SmartScreen Warning
-
-Windows may show a SmartScreen warning for unsigned apps.
-
-**Solution:**
-1. Click "More info"
-2. Click "Run anyway"
-
-### Linux: App Won't Start
-
-Ensure GTK3 is installed:
-
-```bash
-# Ubuntu/Debian
-sudo apt install libgtk-3-0 libwebkit2gtk-4.0-37
-
-# Fedora
-sudo dnf install gtk3 webkit2gtk3
-
-# Arch
-sudo pacman -S gtk3 webkit2gtk
-```
-
 ## Runtime Issues
 
 ### Paste Not Working
 
-**Symptoms:** Pressing Cmd/Ctrl+V doesn't add clips.
+**Symptoms:** Pressing Cmd+V doesn't add clips.
 
 **Solutions:**
 1. Ensure mahpastes window is focused
@@ -166,7 +143,7 @@ sudo pacman -S gtk3 webkit2gtk
 
 ### Undo/Redo Not Working
 
-**Symptoms:** Cmd/Ctrl+Z doesn't undo.
+**Symptoms:** Cmd+Z doesn't undo.
 
 **Solutions:**
 1. Ensure editor window is focused
@@ -248,27 +225,6 @@ sudo pacman -S gtk3 webkit2gtk
 **Issue:** Dragging images from Safari doesn't work.
 
 **Solution:** Right-click and save image first, then drag file.
-
-### Windows: Blurry UI
-
-**Issue:** App appears blurry on high-DPI displays.
-
-**Solution:**
-1. Right-click app executable
-2. Properties → Compatibility
-3. Change high DPI settings
-4. Override scaling behavior: Application
-
-### Linux: Clipboard Issues
-
-**Issue:** Can't paste images from certain apps.
-
-**Cause:** Clipboard format compatibility varies between Linux apps.
-
-**Solutions:**
-1. Save image to file first
-2. Use drag and drop
-3. Try different source apps
 
 ## Getting Help
 

@@ -8,14 +8,9 @@ Compare two images side-by-side with interactive fade and slider modes. Perfect 
 
 ## Starting a Comparison
 
-1. Select two image clips (hold <span className="keyboard-key">Shift</span> and click)
-2. Click the **Compare** button that appears
-3. The comparison modal opens with both images loaded
-
-Alternatively:
-1. Open an image in the viewer
-2. Click the compare icon
-3. Select the second image to compare
+1. Select exactly two image clips using the checkboxes
+2. The **Compare** button appears in the bulk action bar
+3. Click **Compare** to open the comparison modal with both images loaded
 
 ## Comparison Modes
 
@@ -55,23 +50,17 @@ A movable divider reveals each image on its respective side.
 
 | Control | Action |
 |---------|--------|
-| <span className="keyboard-key">+</span> | Zoom in |
-| <span className="keyboard-key">-</span> | Zoom out |
-| <span className="keyboard-key">0</span> | Reset to fit |
-| Mouse wheel | Zoom in/out |
-| Zoom slider | Precise zoom control |
+| **Zoom In** button | Zoom in (1.2x increments) |
+| **Zoom Out** button | Zoom out (1.2x increments) |
+| **Fit** button | Fit images to viewport |
 
-### Pan
-
-When zoomed in:
-- Click and drag to pan
-- Both images pan together (locked)
+The current zoom level is displayed as a percentage.
 
 ### Alignment
 
-Toggle between:
-- **Horizontal split** — Images side by side
-- **Vertical split** — Images top and bottom
+Position the images within the comparison viewport:
+- **Horizontal**: Left, Center, or Right
+- **Vertical**: Top, Middle, or Bottom
 
 ### Stretch
 
@@ -121,15 +110,6 @@ Enable Stretch mode when comparing images of different dimensions. This aligns t
 - **Same position**: Screenshot the same area for accurate comparison
 - **High zoom**: Check fine details at high zoom levels
 - **Both modes**: Use fade for overview, slider for specifics
-
-### Keyboard Shortcuts
-
-| Shortcut | Action |
-|----------|--------|
-| <span className="keyboard-key">←</span> / <span className="keyboard-key">→</span> | Move slider (slider mode) |
-| <span className="keyboard-key">+</span> / <span className="keyboard-key">-</span> | Zoom in/out |
-| <span className="keyboard-key">0</span> | Reset zoom |
-| <span className="keyboard-key">Esc</span> | Close comparison |
 
 ### Common Workflow
 

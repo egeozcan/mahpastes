@@ -55,28 +55,42 @@ mahpastes is built using Wails, a framework for building desktop applications wi
 ### Backend Components
 
 ```
-main.go          Entry point, Wails setup
-app.go           Core application logic, API methods
-database.go      SQLite setup, schema, migrations
-watcher.go       Folder watching, file import
+main.go              Entry point, Wails setup
+app.go               Core application logic, API methods
+database.go          SQLite setup, schema, migrations
+watcher.go           Folder watching, file import
+backup.go            ZIP backup and restore
+plugin_service.go    Plugin frontend API (separate struct for Wails binding limit)
+plugins.go           Plugin install/uninstall helpers
+plugin/              Lua plugin system
+├── manager.go       Plugin lifecycle, event dispatch
+├── manifest.go      Manifest parsing, validation
+├── sandbox.go       Sandboxed Lua execution
+├── scheduler.go     Scheduled/recurring plugin tasks
+└── api_*.go         Lua APIs (clips, tags, storage, http, fs, utils, task, toast)
 ```
 
 ### Frontend Components
 
 ```
 frontend/
-├── index.html       Main UI structure
+├── index.html           Main UI structure
 ├── js/
-│   ├── app.js       Core application logic
-│   ├── ui.js        UI interactions
-│   ├── editor.js    Image/text editing
-│   ├── modals.js    Modal management
-│   ├── watch.js     Watch folders UI
-│   ├── utils.js     Utility functions
-│   └── wails-api.js Backend API wrapper
+│   ├── app.js           Core application logic
+│   ├── ui.js            Card rendering, gallery management
+│   ├── editor.js        Image editor canvas logic
+│   ├── modals.js        All modal/lightbox/editor logic
+│   ├── tags.js          Tag management UI
+│   ├── settings.js      Settings modal
+│   ├── plugins.js       Plugin management UI
+│   ├── plugin-icons.js  Plugin icon rendering
+│   ├── task-queue.js    Plugin task progress UI
+│   ├── watch.js         Watch folders UI
+│   ├── utils.js         Shared utilities
+│   └── wails-api.js     Wails bindings wrapper
 └── css/
-    ├── main.css     Core styles
-    └── modals.css   Modal styles
+    ├── main.css         Global styles, scrollbars, form styling
+    └── modals.css       Modal-specific styles
 ```
 
 ## Data Flow
@@ -207,6 +221,7 @@ type App struct {
     tempDir        string
     mu             sync.Mutex
     watcherManager *WatcherManager
+    pluginManager  *plugin.Manager
 }
 ```
 
@@ -220,8 +235,8 @@ JavaScript calls Go functions via Wails bindings:
 // Generated bindings in wailsjs/go/main/App.js
 import { GetClips, UploadFiles } from '../wailsjs/go/main/App';
 
-// Usage
-const clips = await GetClips(false);
+// Usage - GetClips takes archived flag, tag filter IDs, and hidden tag IDs
+const clips = await GetClips(false, [], []);
 ```
 
 ### Backend → Frontend
@@ -274,8 +289,8 @@ try {
 ### Local Only
 
 - All data stays on the user's machine
-- No network requests (except Wails dev mode)
-- No cloud sync or external APIs
+- No network requests (except Wails dev mode and plugin HTTP APIs)
+- No cloud sync or external APIs (plugins may make network requests with user permission)
 
 ### File System Access
 

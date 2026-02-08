@@ -8,10 +8,10 @@ Edit text and code clips directly within mahpastes. Modify content, fix typos, o
 
 ## Opening the Editor
 
-1. Click the edit button on any text-based clip
+1. Click the menu button (three dots) on any text-based clip and select **Edit**, or click the text preview directly
 2. The editor opens with the full content loaded
 3. Make your changes
-4. Click **Save** to update the clip
+4. Click **Save** to create a new clip with the changes
 
 Text-based clips include:
 - Plain text
@@ -108,10 +108,10 @@ Edit HTML source code directly.
 
 ### Save
 
-Click **Save** to apply your changes. The clip is updated with the new content.
+Click **Save** to create a new clip with your edits. The original clip is preserved unchanged, and the edited version is saved with `_edited` appended to the filename.
 
 :::note Content Type
-The content type (text/plain, application/json, etc.) is preserved when saving. Only the content itself is modified.
+The content type (text/plain, application/json, etc.) is preserved when saving.
 :::
 
 ### Cancel

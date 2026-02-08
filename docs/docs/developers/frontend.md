@@ -18,19 +18,25 @@ frontend/
 ├── dist/
 │   └── output.css       Compiled Tailwind
 ├── css/
-│   ├── main.css         Custom styles
+│   ├── main.css         Global styles, scrollbars, form styling
 │   └── modals.css       Modal-specific styles
 ├── js/
-│   ├── app.js           Core app logic (246 lines)
-│   ├── ui.js            UI interactions (308 lines)
-│   ├── editor.js        Image/text editor (700 lines)
-│   ├── modals.js        Modal management (226 lines)
-│   ├── watch.js         Watch folders (432 lines)
-│   ├── utils.js         Utilities (151 lines)
-│   └── wails-api.js     Backend wrapper (183 lines)
+│   ├── app.js           Core app logic, event handlers
+│   ├── ui.js            Card rendering, gallery management
+│   ├── editor.js        Image editor canvas logic
+│   ├── modals.js        All modal/lightbox/editor logic
+│   ├── tags.js          Tag management UI
+│   ├── settings.js      Settings modal
+│   ├── plugins.js       Plugin management UI
+│   ├── plugin-icons.js  Plugin icon rendering
+│   ├── task-queue.js    Plugin task progress UI
+│   ├── watch.js         Watch folders UI
+│   ├── utils.js         Shared utilities
+│   └── wails-api.js     Wails bindings wrapper
 └── wailsjs/
-    ├── go/main/App.js   Generated bindings
-    └── runtime/runtime.js Wails runtime
+    ├── go/main/App.js           Generated App bindings
+    ├── go/main/PluginService.js Generated PluginService bindings
+    └── runtime/runtime.js       Wails runtime
 ```
 
 ## Module Overview
@@ -238,11 +244,14 @@ document.addEventListener('keydown', e => {
 ```javascript
 import { GetClips, UploadFiles } from '../wailsjs/go/main/App';
 
-// Async function call
-const clips = await GetClips(false);
+// GetClips takes archived flag, tag filter IDs, and hidden tag IDs
+const clips = await GetClips(false, [], []);
 
 // With parameters
 await UploadFiles(fileDataArray, expirationMinutes);
+
+// Plugin service bindings are separate
+import { GetPlugins } from '../wailsjs/go/main/PluginService';
 ```
 
 ### Listening to Events
@@ -264,9 +273,11 @@ EventsOn('watch:error', (data) => {
 
 ### Tailwind Usage
 
+The app uses Tailwind's `stone` color scale exclusively:
+
 ```html
-<div class="flex items-center gap-2 p-4 bg-slate-50 rounded-lg">
-    <button class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
+<div class="flex items-center gap-2 p-4 bg-stone-50 rounded-lg">
+    <button class="px-4 py-2 bg-stone-800 text-white rounded hover:bg-stone-700">
         Click me
     </button>
 </div>

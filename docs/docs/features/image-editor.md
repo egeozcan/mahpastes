@@ -8,7 +8,7 @@ Annotate and modify images directly within mahpastes. Add highlights, shapes, te
 
 ## Opening the Editor
 
-1. Click the edit button on any image clip
+1. Click the menu button (three dots) on any image clip and select **Edit**, or click the image preview directly
 2. The editor opens in a modal with the image loaded
 3. Use the toolbar to select tools and options
 
@@ -117,6 +117,12 @@ Adjust line thickness:
 - Slider control for fine adjustment
 - Affects brush, line, rectangle, and circle tools
 
+### Opacity
+
+Control transparency of annotations:
+- Slider from 0% to 100%
+- Affects all drawing tools
+
 ### Undo/Redo
 
 Fix mistakes with full undo support:
@@ -124,7 +130,7 @@ Fix mistakes with full undo support:
 | Action | Shortcut |
 |--------|----------|
 | Undo | <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">Z</span> |
-| Redo | <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">Y</span> |
+| Redo | <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">Shift</span> + <span className="keyboard-key">Z</span> or <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">Y</span> |
 
 The editor maintains up to **50 undo steps**.
 
@@ -150,13 +156,13 @@ The editor maintains up to **50 undo steps**.
 
 ## Saving Changes
 
-### Save to Clip
+### Save as New Clip
 
-Click **Save** to update the original clip with your annotations. The annotated version replaces the original.
+Click **Save** to create a new clip with your annotations. The original clip is preserved unchanged, and an edited copy is saved with `_edited` appended to the filename.
 
 ### Cancel
 
-Click **Cancel** or press <span className="keyboard-key">Esc</span> to discard changes and close the editor.
+Click **Cancel** (X button) or press <span className="keyboard-key">Esc</span> to discard changes and close the editor.
 
 ## Tips and Best Practices
 

@@ -12,21 +12,17 @@ mahpastes stores all data locally on your machine. Nothing is sent to the cloud.
 
 The SQLite database contains all clips and settings.
 
-| Platform | Path |
-|----------|------|
-| **macOS** | `~/Library/Application Support/mahpastes/clips.db` |
-| **Windows** | `%APPDATA%\mahpastes\clips.db` |
-| **Linux** | `~/.config/mahpastes/clips.db` |
+```
+~/Library/Application Support/mahpastes/clips.db
+```
 
 ### Temporary Files
 
 Files created via "Copy Path" are stored temporarily.
 
-| Platform | Path |
-|----------|------|
-| **macOS** | `~/Library/Application Support/mahpastes/clip_temp_files/` |
-| **Windows** | `%APPDATA%\mahpastes\clip_temp_files\` |
-| **Linux** | `~/.config/mahpastes/clip_temp_files/` |
+```
+~/Library/Application Support/mahpastes/clip_temp_files/
+```
 
 Temporary files are cleaned up when mahpastes exits.
 
@@ -41,7 +37,11 @@ Temporary files are cleaned up when mahpastes exits.
 | Filename | Original name (if available) |
 | Timestamps | Creation time, expiration time |
 | Archive status | Boolean flag |
+| Tags | Name and color |
+| Clip-tag associations | Many-to-many relationship |
 | Watch folders | Path and configuration |
+| Plugins | Filename, name, status, permissions |
+| Plugin storage | Plugin-scoped key-value data |
 | Settings | Key-value pairs |
 
 ### File Sizes
@@ -68,14 +68,7 @@ This backs up clips, tags, plugins, watch folders, and settings. See [Backup & R
 For direct database backup, copy the database file:
 
 ```bash
-# macOS
 cp ~/Library/Application\ Support/mahpastes/clips.db ~/backup/clips.db
-
-# Windows (Command Prompt)
-copy "%APPDATA%\mahpastes\clips.db" "%USERPROFILE%\backup\clips.db"
-
-# Linux
-cp ~/.config/mahpastes/clips.db ~/backup/clips.db
 ```
 
 ### Restore
@@ -89,14 +82,7 @@ cp ~/.config/mahpastes/clips.db ~/backup/clips.db
 3. Restart mahpastes
 
 ```bash
-# macOS
 cp ~/backup/clips.db ~/Library/Application\ Support/mahpastes/clips.db
-
-# Windows
-copy "%USERPROFILE%\backup\clips.db" "%APPDATA%\mahpastes\clips.db"
-
-# Linux
-cp ~/backup/clips.db ~/.config/mahpastes/clips.db
 ```
 
 ## Data Management
@@ -106,14 +92,7 @@ cp ~/backup/clips.db ~/.config/mahpastes/clips.db
 The database grows with each clip added. To check size:
 
 ```bash
-# macOS
 ls -lh ~/Library/Application\ Support/mahpastes/clips.db
-
-# Windows (PowerShell)
-Get-Item "$env:APPDATA\mahpastes\clips.db" | Select-Object Length
-
-# Linux
-ls -lh ~/.config/mahpastes/clips.db
 ```
 
 ### Reducing Size
@@ -139,14 +118,7 @@ To start fresh:
 3. Restart mahpastes
 
 ```bash
-# macOS
 rm -rf ~/Library/Application\ Support/mahpastes/
-
-# Windows (PowerShell)
-Remove-Item -Recurse -Force "$env:APPDATA\mahpastes"
-
-# Linux
-rm -rf ~/.config/mahpastes/
 ```
 
 ## Migration

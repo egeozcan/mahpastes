@@ -9,12 +9,21 @@ The backend is written in Go using the Wails framework. It handles data storage,
 ## File Structure
 
 ```
-├── main.go          Entry point, Wails configuration
-├── app.go           Core application logic, exposed APIs
-├── database.go      SQLite setup and migrations
-├── watcher.go       File system watching
-├── go.mod           Go module definition
-└── go.sum           Dependency checksums
+├── main.go              Entry point, Wails configuration
+├── app.go               Core application logic, exposed APIs
+├── database.go          SQLite setup and migrations
+├── watcher.go           File system watching
+├── backup.go            ZIP backup and restore
+├── plugin_service.go    Plugin frontend API (separate struct)
+├── plugins.go           Plugin install/uninstall helpers
+├── plugin/              Lua plugin system
+│   ├── manager.go       Plugin lifecycle, event dispatch
+│   ├── manifest.go      Manifest parsing, validation
+│   ├── sandbox.go       Sandboxed Lua execution
+│   ├── scheduler.go     Scheduled/recurring plugin tasks
+│   └── api_*.go         Lua APIs (clips, tags, storage, http, fs, utils, task, toast)
+├── go.mod               Go module definition
+└── go.sum               Dependency checksums
 ```
 
 ## Core Components
@@ -26,13 +35,14 @@ Initializes and runs the Wails application:
 ```go
 func main() {
     app := NewApp()
+    pluginService := NewPluginService(app)
 
     err := wails.Run(&options.App{
         Title:  "mahpastes",
         Width:  1280,
         Height: 800,
         // ... configuration
-        Bind: []interface{}{app},
+        Bind: []interface{}{app, pluginService},
         OnStartup: app.startup,
         OnShutdown: app.shutdown,
     })
@@ -56,6 +66,7 @@ type App struct {
     tempDir        string
     mu             sync.Mutex
     watcherManager *WatcherManager
+    pluginManager  *plugin.Manager
 }
 ```
 
@@ -67,18 +78,40 @@ func (a *App) shutdown(ctx context.Context)  // Cleanup on exit
 
 **Clip operations:**
 ```go
-func (a *App) GetClips(archived bool) ([]ClipPreview, error)
+func (a *App) GetClips(archived bool, tagIDs []int64, hiddenTagIDs []int64) ([]ClipPreview, error)
 func (a *App) GetClipData(id int64) (*ClipData, error)
 func (a *App) UploadFiles(files []FileData, expMins int) error
 func (a *App) DeleteClip(id int64) error
 func (a *App) ToggleArchive(id int64) error
 ```
 
+**Tag operations:**
+```go
+func (a *App) CreateTag(name string) (*Tag, error)
+func (a *App) UpdateTag(id int64, name, color string) error
+func (a *App) DeleteTag(id int64) error
+func (a *App) GetTags() ([]Tag, error)
+func (a *App) AddTagToClip(clipID, tagID int64) error
+func (a *App) RemoveTagFromClip(clipID, tagID int64) error
+func (a *App) BulkAddTag(clipIDs []int64, tagID int64) error
+func (a *App) BulkRemoveTag(clipIDs []int64, tagID int64) error
+func (a *App) GetClipTags(clipID int64) ([]Tag, error)
+func (a *App) GetHiddenTags() ([]int64, error)
+func (a *App) SetHiddenTags(ids []int64) error
+```
+
 **Watch folder operations:**
 ```go
 func (a *App) GetWatchedFolders() ([]WatchedFolder, error)
-func (a *App) AddWatchedFolder(config WatchedFolderConfig) error
+func (a *App) AddWatchedFolder(config WatchedFolderConfig) (*WatchedFolder, error)
 func (a *App) RemoveWatchedFolder(id int64) error
+```
+
+**Backup operations:**
+```go
+func (a *App) ShowCreateBackupDialog() (string, error)
+func (a *App) ShowRestoreBackupDialog() (*BackupManifest, string, error)
+func (a *App) ConfirmRestoreBackup(backupPath string) error
 ```
 
 ### database.go — SQLite Management
@@ -365,12 +398,12 @@ wails build -platform linux/amd64
 
 ## Testing
 
-Currently no automated tests. Manual testing covers:
+The project uses Playwright for end-to-end testing:
 
-1. Paste various content types
-2. Drag and drop files
-3. Archive/unarchive operations
-4. Expiration and cleanup
-5. Watch folder imports
-6. Image editing
-7. Cross-platform behavior
+```bash
+cd e2e && npm test              # Run all tests
+cd e2e && npm run test:headed   # Run with browser visible
+cd e2e && npm run test:debug    # Debug mode with Playwright inspector
+```
+
+Tests are organized by feature in `e2e/tests/` covering clips, tags, search, images, plugins, watch folders, backup, bulk operations, and edge cases.

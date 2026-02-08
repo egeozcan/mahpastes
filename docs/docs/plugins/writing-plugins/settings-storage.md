@@ -244,9 +244,9 @@ function on_clip_created(clip)
 end
 
 -- Scheduled task to retry pending items
-Plugin.schedules = {{name = "retry", interval = 300}}
+-- (Declared in Plugin table: schedules = {{name = "retry", interval = 300}})
 
-function scheduled_retry()
+function retry()
     local pending = json.decode(storage.get("pending") or "[]")
     local still_pending = {}
 
@@ -272,7 +272,7 @@ end
 Record when operations were last performed:
 
 ```lua
-function scheduled_cleanup()
+function cleanup()
     local last_cleanup = storage.get("last_cleanup")
     local now = utils.time()
 
@@ -313,7 +313,7 @@ function get_remote_config()
     log("Fetching fresh config from API...")
     local response = http.get("https://api.example.com/config")
 
-    if response.ok then
+    if response and response.status == 200 then
         storage.set("cache:remote_config", response.body)
         storage.set("cache:remote_config:time", tostring(utils.time()))
         return json.decode(response.body)

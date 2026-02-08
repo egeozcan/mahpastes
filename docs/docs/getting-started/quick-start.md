@@ -12,13 +12,13 @@ Learn the essentials of mahpastes in under 5 minutes.
 
 1. Copy something to your system clipboard (text, image, or file)
 2. Focus the mahpastes window
-3. Press <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">V</span>
+3. Press <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">V</span>
 
 The content appears as a clip in your gallery.
 
 ### Method 2: Drag and Drop
 
-1. Drag any file from Finder/Explorer
+1. Drag any file from Finder
 2. Drop it onto the mahpastes window
 
 Multiple files can be dropped at once.
@@ -103,13 +103,13 @@ Click the archive icon again to move a clip back to the main gallery.
 
 1. Click the edit button on an image clip
 2. Use the toolbar to annotate:
-   - <span className="keyboard-key">B</span> Brush
-   - <span className="keyboard-key">L</span> Line
-   - <span className="keyboard-key">R</span> Rectangle
-   - <span className="keyboard-key">C</span> Circle
-   - <span className="keyboard-key">T</span> Text
-   - <span className="keyboard-key">E</span> Eraser
-3. Click **Save** to update the clip
+   - **Brush** — Freehand drawing
+   - **Line** — Draw straight lines
+   - **Rectangle** — Draw rectangles
+   - **Circle** — Draw circles
+   - **Text** — Add text annotations
+   - **Eraser** — Erase annotations
+3. Click **Save** to create a new clip with your edits
 
 ### Edit Text
 
@@ -133,10 +133,11 @@ Essential shortcuts for power users:
 
 | Shortcut | Action |
 |----------|--------|
-| <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">V</span> | Paste from clipboard |
+| <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">V</span> | Paste from clipboard |
 | <span className="keyboard-key">Esc</span> | Close modal/dialog |
-| <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">Z</span> | Undo (in editor) |
-| <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">Y</span> | Redo (in editor) |
+| <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">Z</span> | Undo (in editor) |
+| <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">Y</span> | Redo (in editor) |
+| <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">S</span> | Save (in editor) |
 
 See all shortcuts in [Keyboard Shortcuts](/getting-started/keyboard-shortcuts).
 

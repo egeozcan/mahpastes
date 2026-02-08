@@ -1,5 +1,5 @@
 ---
-sidebar_position: 8
+sidebar_position: 9
 ---
 
 # Bulk Actions
@@ -8,31 +8,53 @@ Select and operate on multiple clips at once. Archive, download, or delete many 
 
 ## Selecting Multiple Clips
 
-### Shift-Click Selection
+### Checkbox Selection
 
-1. Click the first clip
-2. Hold <span className="keyboard-key">Shift</span>
-3. Click additional clips to add/remove from selection
+Each clip card has a checkbox that appears on hover:
 
-Selected clips show a visual indicator (checkmark or highlight).
+1. Hover over a clip to reveal the checkbox (top-right corner)
+2. Click the checkbox to select/deselect
+3. Use the **Select All** checkbox to select all visible clips
+
+Selected clips show a checkmark indicator.
 
 ### Selection Indicator
 
 When clips are selected:
 - A count appears showing "X selected"
 - A bulk action bar appears at the bottom
+- A **Cancel** button lets you clear the selection
 
 ## Available Bulk Actions
 
-### Archive All
+### Tag
+
+Apply or remove tags from all selected clips:
+
+1. Select clips
+2. Click **Tag** in the action bar
+3. Check or uncheck tags in the popover
+4. You can also create a new tag and apply it immediately
+
+### Compare
+
+Compare two images side by side:
+
+1. Select exactly **two** image clips
+2. The **Compare** button appears in the action bar
+3. Click to open the comparison modal
+
+This button only appears when exactly two image clips are selected.
+
+### Archive
 
 Move all selected clips to the archive:
 
 1. Select clips
-2. Click **Archive All** in the action bar
+2. Click **Archive** in the action bar
 3. All selected clips move to Archive
 
-If clips are already archived (in Archive view), this becomes **Unarchive All**.
+If clips are already archived (in Archive view), this becomes **Restore**.
 
 ### Download as ZIP
 
@@ -48,7 +70,7 @@ ZIP file contents:
 - Filenames: `id_originalname.ext` or `clip_id.ext`
 - Preserves original file formats
 
-### Delete All
+### Delete
 
 Remove all selected clips permanently:
 
@@ -101,10 +123,10 @@ Remove many clips at once:
 ### End of Day Cleanup
 
 1. Review main gallery
-2. <span className="keyboard-key">Shift</span>-click to select temporary clips
-3. Delete All
-4. <span className="keyboard-key">Shift</span>-click to select keepers
-5. Archive All
+2. Select temporary clips using checkboxes
+3. Click Delete
+4. Select clips worth keeping
+5. Click Archive
 6. Gallery is clean for tomorrow
 
 ### Project Export
@@ -126,9 +148,9 @@ Remove many clips at once:
 
 ### Efficient Selection
 
-- Click first, then <span className="keyboard-key">Shift</span>-click to add
-- Click a selected clip to deselect
-- Clear selection by clicking empty space
+- Use checkboxes on each clip to select
+- Use Select All to select all visible clips
+- Click Cancel to clear all selections
 
 ### Before Deleting
 

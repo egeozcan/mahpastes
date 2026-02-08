@@ -42,7 +42,12 @@ cd frontend && npm install && cd ..
 ### Run Development Mode
 
 ```bash
-wails dev
+make dev
+```
+
+Or directly:
+```bash
+~/go/bin/wails dev
 ```
 
 This starts the app with:
@@ -50,21 +55,44 @@ This starts the app with:
 - Automatic rebuild for Go changes
 - Dev tools access
 
+### Available Make Targets
+
+```bash
+make dev        # Start dev server with hot reload
+make build      # Clean production build
+make install    # Build, kill running app, install to /Applications, launch
+make bindings   # Regenerate frontend bindings after Go changes
+make test       # Run e2e tests
+make test-headed # Run e2e tests with visible browser
+make test-debug # Run e2e tests with Playwright inspector
+make help       # Show all targets
+```
+
 ## Project Structure
 
 ```
 mahpastes/
+├── Makefile             # Build, install, test targets
 ├── main.go              # Entry point
 ├── app.go               # Core logic, API
 ├── database.go          # SQLite
 ├── watcher.go           # File watching
+├── backup.go            # ZIP backup and restore
+├── plugin_service.go    # Plugin frontend API
+├── plugins.go           # Plugin helpers
+├── plugin/              # Lua plugin system
+├── plugins/             # Bundled plugin files
 ├── go.mod               # Go dependencies
 ├── wails.json           # Wails config
 ├── frontend/
 │   ├── index.html       # Main UI
-│   ├── js/              # JavaScript modules
+│   ├── js/              # JavaScript modules (12 files)
 │   ├── css/             # Styles
 │   └── package.json     # Frontend deps
+├── e2e/                 # Playwright tests
+│   ├── tests/           # Test files by feature
+│   ├── fixtures/        # Test fixtures (AppHelper)
+│   └── helpers/         # Test utilities and selectors
 └── build/               # Build output
 ```
 
@@ -85,7 +113,7 @@ mahpastes/
 
 ### Adding New API Methods
 
-1. Add method to `app.go`:
+1. Add method to `app.go` (or `plugin_service.go` for plugin-related APIs):
    ```go
    func (a *App) MyNewMethod(param string) (string, error) {
        // Implementation
@@ -93,12 +121,17 @@ mahpastes/
    }
    ```
 
-2. Wails auto-generates bindings in `frontend/wailsjs/go/main/App.js`
+   **Note:** Wails has a ~49 method limit per bound struct. Plugin APIs go in `PluginService` (not `App`) to work around this.
+
+2. Regenerate bindings: `make bindings`
 
 3. Call from JavaScript:
    ```javascript
    import { MyNewMethod } from '../wailsjs/go/main/App';
    const result = await MyNewMethod("param");
+
+   // For PluginService methods:
+   import { GetPlugins } from '../wailsjs/go/main/PluginService';
    ```
 
 ## Code Style
@@ -142,6 +175,18 @@ async function loadClips() {
 
 ## Testing Changes
 
+### E2E Tests (Required)
+
+All changes must pass e2e tests:
+
+```bash
+make test              # Run all tests
+make test-headed       # Run with browser visible (for debugging)
+make test-debug        # Debug mode with Playwright inspector
+```
+
+Tests are in `e2e/tests/` organized by feature. Add tests for any new functionality.
+
 ### Manual Testing Checklist
 
 Before submitting:
@@ -157,6 +202,9 @@ Before submitting:
 - [ ] Watch folders (add, pause, remove)
 - [ ] Lightbox navigation
 - [ ] Search filtering
+- [ ] Tag operations (create, assign, filter, hidden tags)
+- [ ] Plugin management
+- [ ] Backup and restore
 
 ### Cross-Platform
 

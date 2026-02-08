@@ -123,12 +123,10 @@ manifest = {
     description = "Send notifications to webhooks when clips are created",
     author = "mahpastes",
     events = {"clip:created"},
-    permissions = {
-        http = {
-            ["hooks.slack.com"] = {"POST"},
-            ["discord.com"] = {"POST"},
-            ["webhook.site"] = {"POST"},
-        },
+    network = {
+        ["hooks.slack.com"] = {"POST"},
+        ["discord.com"] = {"POST"},
+        ["webhook.site"] = {"POST"},
     },
 }
 ]]
@@ -140,12 +138,10 @@ Plugin = {
     author = "mahpastes",
     events = {"clip:created"},
 
-    permissions = {
-        http = {
-            ["hooks.slack.com"] = {"POST"},
-            ["discord.com"] = {"POST"},
-            ["webhook.site"] = {"POST"},
-        },
+    network = {
+        ["hooks.slack.com"] = {"POST"},
+        ["discord.com"] = {"POST"},
+        ["webhook.site"] = {"POST"},
     },
 
     settings = {
@@ -228,7 +224,7 @@ end
 
 1. **Settings** - User configures their webhook URL and notification preferences through the plugin settings UI.
 
-2. **Permission declaration** - The `permissions.http` table whitelists domains the plugin can access. Requests to other domains are blocked.
+2. **Permission declaration** - The `network` table whitelists domains the plugin can access. Requests to other domains are blocked.
 
 3. **`pcall` error handling** - Wraps the HTTP request in `pcall` to catch network errors, timeouts, or bad responses without crashing the plugin.
 
@@ -245,15 +241,13 @@ end
 
 ### Adding More Webhook Services
 
-To add support for additional services, add their domains to the `permissions.http` table:
+To add support for additional services, add their domains to the `network` table:
 
 ```lua
-permissions = {
-    http = {
-        ["hooks.slack.com"] = {"POST"},
-        ["discord.com"] = {"POST"},
-        ["your-service.com"] = {"POST"},
-    },
+network = {
+    ["hooks.slack.com"] = {"POST"},
+    ["discord.com"] = {"POST"},
+    ["your-service.com"] = {"POST"},
 },
 ```
 
@@ -338,8 +332,8 @@ function on_startup()
     end
 end
 
--- Scheduled cleanup task
-function scheduled_cleanup()
+-- Scheduled task: function name matches the schedule's "name" field
+function cleanup()
     local max_age_days = tonumber(get_setting("max_age_days", "30"))
     local dry_run = is_dry_run()
     local now = utils.time()
@@ -413,7 +407,7 @@ end
 
 ### How It Works
 
-1. **Scheduled execution** - The `schedules` array defines a task named "cleanup" that runs every 3600 seconds (1 hour). The corresponding handler function is `scheduled_cleanup()`.
+1. **Scheduled execution** - The `schedules` array defines a task named "cleanup" that runs every 3600 seconds (1 hour). The corresponding handler function is `cleanup()` (the function name must match the schedule's `name` field).
 
 2. **Safety first** - Archived clips are never deleted. The `is_archived` check ensures users can protect important clips by archiving them.
 
@@ -473,7 +467,7 @@ settings = {
     },
 }
 
-function scheduled_task()
+function my_task()
     local dry_run = storage.get("setting:dry_run") == "true"
 
     if dry_run then

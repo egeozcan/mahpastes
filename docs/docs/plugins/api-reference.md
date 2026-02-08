@@ -113,26 +113,82 @@ Creates a new clip.
 | options.filename | string | No | Optional filename |
 | options.data_encoding | string | No | Set to "base64" for binary data |
 
-**Returns:** New clip ID (number), or `nil, error_message`
+**Returns:** Table with `id` field (e.g., `{id = 123}`), or `nil, error_message`
 
 **Size limit:** 10MB maximum for clip data.
 
 **Example:**
 ```lua
 -- Create text clip
-local id = clips.create({
+local result = clips.create({
   data = "Hello, world!",
   content_type = "text/plain",
   filename = "greeting.txt"
 })
+if result then
+  log("Created clip with ID: " .. result.id)
+end
 
 -- Create image clip from base64
-local id = clips.create({
+local result = clips.create({
   data = base64_image_data,
   data_encoding = "base64",
   content_type = "image/png",
   filename = "generated.png"
 })
+```
+
+---
+
+### clips.get_data(id)
+
+Returns raw clip data without metadata. For text content, returns the data as-is. For binary content, returns base64-encoded data.
+
+**Parameters:**
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| id | number | Yes | Clip ID |
+
+**Returns:** `data, content_type` on success, or `nil, error_message`
+
+**Example:**
+```lua
+local data, mime_type = clips.get_data(123)
+if data then
+  log("Content type: " .. mime_type)
+  -- For binary content, data is base64-encoded
+  -- For text content, data is plain text
+end
+```
+
+---
+
+### clips.create_from_url(url, options?)
+
+Downloads content from a URL and creates a new clip. The URL domain must be in the plugin's network permissions.
+
+**Parameters:**
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| url | string | Yes | URL to download (must be http:// or https://) |
+| options | table | No | Optional settings |
+| options.filename | string | No | Override filename (also accepts `name`) |
+| options.content_type | string | No | Override MIME type (also accepts `mime_type`) |
+
+**Returns:** Table with `id` field (e.g., `{id = 123}`), or `nil, error_message`
+
+**Size limit:** 10MB maximum download size.
+
+**Example:**
+```lua
+local result, err = clips.create_from_url("https://example.com/image.png", {
+  name = "downloaded.png"
+})
+if result then
+  log("Created clip: " .. result.id)
+else
+  log("Error: " .. err)
+end
 ```
 
 ---
@@ -468,19 +524,18 @@ Make HTTP requests to allowed domains. Plugins must declare domains in their man
 HTTP requests are only allowed to domains listed in the plugin manifest:
 
 ```lua
---[[
-manifest = {
-  permissions = {
-    http = {
-      ["api.example.com"] = {"GET", "POST"},
-      ["webhook.site"] = {"POST"}
-    }
-  }
+Plugin = {
+    name = "My Plugin",
+    network = {
+        ["api.example.com"] = {"GET", "POST"},
+        ["webhook.site"] = {"POST"},
+        ["*.cdn.example.com"] = {"GET"},  -- Wildcard subdomain
+    },
 }
-]]
 ```
 
 - Each domain must be explicitly declared
+- Wildcard subdomains are supported (e.g., `*.cdn.example.com` matches `v1.cdn.example.com`)
 - Allowed HTTP methods must be specified per domain
 - Redirects to unauthorized domains are blocked
 - HTTPS is enforced (HTTP requests are rejected for redirects)
@@ -599,16 +654,13 @@ Filesystem access with user permission prompts.
 
 **Manifest declaration:**
 ```lua
---[[
-manifest = {
-  permissions = {
+Plugin = {
+    name = "My Plugin",
     filesystem = {
-      read = true,   -- Request read access
-      write = true   -- Request write access
-    }
-  }
+        read = true,   -- Request read access
+        write = true,  -- Request write access
+    },
 }
-]]
 ```
 
 ### fs.read(path)
@@ -733,6 +785,88 @@ Shows a toast notification.
 toast.show("Sync complete!", "success")
 toast.show("Warning: File not found", "error")
 toast.show("Processing...")  -- defaults to "info"
+```
+
+---
+
+## task
+
+Track progress of long-running operations. Tasks show a progress indicator in the UI.
+
+### task.start(name, total?)
+
+Starts a new task and returns a task ID.
+
+**Parameters:**
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| name | string | Yes | Display name for the task |
+| total | number | No | Total number of steps (default: 1) |
+
+**Returns:** Task ID (number)
+
+**Example:**
+```lua
+local task_id = task.start("Processing images", 5)
+```
+
+---
+
+### task.progress(task_id, current)
+
+Updates a task's progress.
+
+**Parameters:**
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| task_id | number | Yes | Task ID from `task.start` |
+| current | number | Yes | Current step number |
+
+**Returns:** `true` on success, or `false, error_message`
+
+**Example:**
+```lua
+for i = 1, 5 do
+  -- Process item...
+  task.progress(task_id, i)
+end
+```
+
+---
+
+### task.complete(task_id)
+
+Marks a task as completed.
+
+**Parameters:**
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| task_id | number | Yes | Task ID from `task.start` |
+
+**Returns:** `true` on success, or `false, error_message`
+
+**Example:**
+```lua
+task.complete(task_id)
+```
+
+---
+
+### task.fail(task_id, error_message?)
+
+Marks a task as failed.
+
+**Parameters:**
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| task_id | number | Yes | Task ID from `task.start` |
+| error_message | string | No | Error description (default: "Unknown error") |
+
+**Returns:** `true` on success, or `false, error_message`
+
+**Example:**
+```lua
+task.fail(task_id, "API returned an error")
 ```
 
 ---

@@ -1,5 +1,5 @@
 ---
-sidebar_position: 5
+sidebar_position: 6
 ---
 
 # Auto-Delete
@@ -31,9 +31,7 @@ The clip is created with the selected expiration.
 
 ### Visual Indicator
 
-Clips with expiration show:
-- A clock icon
-- Remaining time until deletion
+Clips with expiration show a **Temp** badge in the top-left corner of the clip card.
 
 ## Expiration Options
 
@@ -47,13 +45,7 @@ Clips with expiration show:
 
 ## Canceling Expiration
 
-Changed your mind? Remove the expiration before it triggers:
-
-1. Find the clip with the clock icon
-2. Click the clock icon
-3. Select **Cancel expiration**
-
-The clip becomes permanent.
+Expiration can be canceled programmatically via the backend API (`CancelExpiration`), and archiving a clip also removes its expiration automatically.
 
 ## Automatic Cleanup
 
@@ -73,9 +65,8 @@ mahpastes runs a cleanup job that:
 
 ### What Doesn't Get Deleted
 
-- Archived clips (archiving removes expiration)
-- Clips with "Never" expiration
-- Clips where expiration was canceled
+- Clips with "Never" expiration (the default)
+- Clips where expiration was canceled via the API
 
 ## Use Cases
 
@@ -113,14 +104,9 @@ To prevent clip accumulation:
 
 ## Interaction with Archive
 
-Archiving a clip **removes its expiration**:
-
-1. Clip has 5-minute expiration
-2. You archive it before expiration
-3. Expiration is canceled
-4. Clip stays in archive permanently
-
-This protects important content from accidental deletion.
+:::warning
+Archiving a clip does **not** remove its expiration. Archived clips with an expiration will still be auto-deleted when their time expires. If you want to keep an archived clip permanently, cancel its expiration first.
+:::
 
 ## Tips
 

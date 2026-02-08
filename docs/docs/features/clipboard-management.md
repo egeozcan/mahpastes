@@ -70,11 +70,17 @@ Clips display in a responsive grid:
 
 ### Lightbox
 
-Click any image clip to open it in a full-screen lightbox:
+Click any image clip's preview to open it in a full-screen lightbox:
 
-- View at full resolution
-- Navigate between images with arrow keys
+- View at full resolution with zoom (up to 4x via slider or pinch)
+- Navigate between images with arrow keys or swipe
+- Pan when zoomed in by clicking and dragging
 - Press <span className="keyboard-key">Esc</span> to close
+
+### Opening Content
+
+- **Images**: Click the preview to open in lightbox
+- **Text/Code/JSON/HTML**: Click the preview to open in the text editor
 
 ### Content Detection
 
@@ -89,22 +95,13 @@ image/*        → Image viewer/editor
 
 ## Retrieving Clips
 
-### Copy to Clipboard
-
-Get content back to your system clipboard:
-
-- **Quick copy**: Double-click any clip
-- **Button**: Click the copy icon on the clip
-
-The content is now in your clipboard, ready to paste elsewhere.
-
 ### Copy Path
 
 For terminal workflows or apps that need file paths:
 
-1. Click the path icon on any clip
-2. mahpastes creates a temporary file
-3. The absolute path is copied to clipboard
+1. Click the menu button (three dots) on any clip
+2. Select **Copy Path**
+3. mahpastes creates a temporary file and copies the absolute path to clipboard
 
 Example use:
 ```bash
@@ -120,9 +117,10 @@ Files created via "Copy Path" are stored in a temp directory and cleaned up when
 
 Export a clip as a permanent file:
 
-1. Click the download icon on a clip
-2. Choose a save location in the dialog
-3. The file is saved with its original filename (or a generated one)
+1. Click the menu button (three dots) on a clip
+2. Select **Save**
+3. Choose a save location in the dialog
+4. The file is saved with its original filename (or a generated one)
 
 ## Organizing Clips
 
@@ -130,7 +128,7 @@ Export a clip as a permanent file:
 
 Filter clips instantly:
 
-- Type in the search bar to filter by filename
+- Type in the search bar to filter by filename or content type
 - Search is case-insensitive
 - Results update as you type
 
@@ -138,9 +136,10 @@ Filter clips instantly:
 
 Move important clips to a separate space:
 
-1. Click the archive icon on a clip
-2. The clip moves to the Archive tab
-3. Access archived clips via the Archive tab
+1. Click the menu button (three dots) on a clip
+2. Select **Archive**
+3. The clip moves to the Archive view
+4. Access archived clips via the Archive button
 
 Archived clips:
 - Don't appear in the main gallery
@@ -151,8 +150,9 @@ Archived clips:
 
 Remove clips you no longer need:
 
-1. Click the delete icon on a clip
-2. Confirm the deletion
+1. Click the menu button (three dots) on a clip
+2. Select **Delete**
+3. Confirm the deletion
 
 Deleted clips are permanently removed from the database.
 

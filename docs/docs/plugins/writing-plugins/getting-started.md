@@ -79,11 +79,12 @@ Event names map to handler functions:
 | Event | Handler Function |
 |-------|------------------|
 | `app:startup` | `on_startup()` |
+| `app:shutdown` | `on_shutdown()` |
 | `clip:created` | `on_clip_created(clip)` |
 | `clip:deleted` | `on_clip_deleted(clip_id)` |
 | `tag:added_to_clip` | `on_tag_added_to_clip(data)` |
 
-Pattern: Replace `:` with `_` and prefix with `on_`.
+Pattern: Replace `:` with `_` and prefix with `on_`. For `app:` events, the `app:` prefix is stripped (e.g., `app:startup` becomes `on_startup`, not `on_app_startup`).
 
 ## Using the Clips API
 
@@ -100,8 +101,8 @@ function on_startup()
     local all_clips = clips.list()
     log("Total clips: " .. #all_clips)
 
-    local images = clips.list({content_type = "image/%"})
-    log("Image clips: " .. #images)
+    local images = clips.list({content_type = "image/png"})
+    log("PNG clips: " .. #images)
 end
 ```
 

@@ -29,7 +29,7 @@ end
 
 ## Handler Naming Convention
 
-Event names map to handler function names by replacing `:` with `_` and prefixing with `on_`:
+Event names map to handler function names by replacing `:` with `_` and prefixing with `on_`. For `app:` events, the `app:` prefix is stripped for cleaner handler names.
 
 | Event | Handler Function |
 |-------|------------------|
@@ -69,7 +69,7 @@ function on_shutdown()
     log("Plugin shutting down, cleaning up...")
 
     -- Perform cleanup, save state, etc.
-    storage.set("last_shutdown", utils.time())
+    storage.set("last_shutdown", tostring(utils.time()))
 end
 ```
 
@@ -328,7 +328,7 @@ function on_clip_created(clip)
             body = json.encode({clip_id = clip.id}),
         })
 
-        if not response.ok then
+        if response.status >= 400 then
             error("API returned " .. response.status)
         end
     end)
@@ -393,15 +393,17 @@ function on_clip_created(clip)
     log("Queued clip " .. clip.id)
 end
 
--- Process in scheduled task
-schedules = {{name = "process", interval = 60}}
+-- Process in scheduled task (declared in Plugin table)
+-- schedules = {{name = "process", interval = 60}}
 
-function scheduled_process()
-    local pending = storage.list("pending:")
-    for _, key in ipairs(pending) do
-        local clip_id = key:match("pending:(%d+)")
-        process_clip(clip_id)
-        storage.delete(key)
+function process()
+    local keys = storage.list()
+    for _, key in ipairs(keys) do
+        local clip_id = key:match("^pending:(%d+)$")
+        if clip_id then
+            process_clip(clip_id)
+            storage.delete(key)
+        end
     end
 end
 ```
@@ -433,7 +435,6 @@ function on_clip_created(clip)
     local success, result = pcall(function()
         return http.post("https://api.example.com/webhook", {
             body = json.encode({event = "clip_created", clip_id = clip.id}),
-            timeout = 5000,  -- 5 second timeout
         })
     end)
 
@@ -443,7 +444,7 @@ function on_clip_created(clip)
         return
     end
 
-    if not result.ok then
+    if result.status >= 400 then
         log("API error: " .. result.status)
     end
 end
