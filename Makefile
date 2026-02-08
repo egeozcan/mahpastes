@@ -4,7 +4,7 @@ BUILD_DIR := build/bin
 APP_BUNDLE := $(BUILD_DIR)/$(APP_NAME).app
 INSTALL_DIR := /Applications
 
-.PHONY: dev build clean install uninstall bindings test
+.PHONY: dev build clean install uninstall bindings test screenshots
 
 ## Development
 
@@ -52,6 +52,9 @@ test-headed: ## Run e2e tests with visible browser
 
 test-debug: ## Run e2e tests with Playwright inspector
 	cd e2e && npm run test:debug
+
+screenshots: ## Capture documentation screenshots via Playwright
+	cd e2e && npm run screenshots
 
 ## Help
 

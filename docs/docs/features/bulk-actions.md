@@ -18,6 +18,8 @@ Each clip card has a checkbox that appears on hover:
 
 Selected clips show a checkmark indicator.
 
+![Bulk actions toolbar](/img/screenshots/bulk-actions.png)
+
 ### Selection Indicator
 
 When clips are selected:

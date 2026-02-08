@@ -66,6 +66,8 @@ sidebar_position: 1
 
 All data is stored locally in a SQLite database. Nothing leaves your machine.
 
+![mahpastes gallery](/img/screenshots/gallery.png)
+
 ## System Requirements
 
 - **macOS** 10.15 (Catalina) or later

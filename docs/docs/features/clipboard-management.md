@@ -68,6 +68,8 @@ Clips display in a responsive grid:
 - **Text previews** for text-based content
 - **Metadata** showing filename, type, and timestamp
 
+![Gallery view](/img/screenshots/gallery.png)
+
 ### Lightbox
 
 Click any image clip's preview to open it in a full-screen lightbox:
@@ -76,6 +78,8 @@ Click any image clip's preview to open it in a full-screen lightbox:
 - Navigate between images with arrow keys or swipe
 - Pan when zoomed in by clicking and dragging
 - Press <span className="keyboard-key">Esc</span> to close
+
+![Image lightbox](/img/screenshots/lightbox.png)
 
 ### Opening Content
 
@@ -131,6 +135,8 @@ Filter clips instantly:
 - Type in the search bar to filter by filename or content type
 - Search is case-insensitive
 - Results update as you type
+
+![Search filtering](/img/screenshots/search.png)
 
 ### Archive
 
