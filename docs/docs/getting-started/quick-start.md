@@ -31,6 +31,8 @@ The main window shows your clips in a grid layout:
 - **Text/Code** shows a preview of the content
 - **Files** show the filename and type icon
 
+![Gallery view](/img/screenshots/gallery.png)
+
 ### Clip Actions
 
 Hover over a clip to reveal action buttons:
@@ -43,6 +45,8 @@ Hover over a clip to reveal action buttons:
 | **Archive** | Move to archive |
 | **Download** | Save to disk |
 | **Delete** | Remove permanently |
+
+![Clip card menu](/img/screenshots/card-menu.png)
 
 ## Working with Clips
 

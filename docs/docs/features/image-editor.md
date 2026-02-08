@@ -12,6 +12,8 @@ Annotate and modify images directly within mahpastes. Add highlights, shapes, te
 2. The editor opens in a modal with the image loaded
 3. Use the toolbar to select tools and options
 
+![Image editor](/img/screenshots/image-editor.png)
+
 ## Tools
 
 ### Brush Tool

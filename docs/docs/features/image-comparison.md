@@ -12,6 +12,8 @@ Compare two images side-by-side with interactive fade and slider modes. Perfect 
 2. The **Compare** button appears in the bulk action bar
 3. Click **Compare** to open the comparison modal with both images loaded
 
+![Image comparison](/img/screenshots/image-comparison.png)
+
 ## Comparison Modes
 
 ### Fade Mode

@@ -4,6 +4,8 @@ A local clipboard manager for macOS, Windows, and Linux. Store, organize, and qu
 
 ![mahpastes](build/appicon.png)
 
+![mahpastes gallery](docs/static/img/screenshots/gallery.png)
+
 ## Features
 
 - **Paste Anything** — Images, text, code, JSON, HTML, and files (paste or drag & drop)

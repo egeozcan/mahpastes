@@ -9,7 +9,8 @@
     "test:debug": "playwright test --debug",
     "test:ui": "playwright test --ui",
     "test:chromium": "playwright test --project=chromium",
-    "test:webkit": "playwright test --project=webkit"
+    "test:webkit": "playwright test --project=webkit",
+    "screenshots": "playwright test tests/screenshots/ --workers=1"
   },
   "devDependencies": {
     "@playwright/test": "^1.40.0",

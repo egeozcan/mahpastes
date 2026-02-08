@@ -25,6 +25,8 @@ The backup system creates a portable ZIP file containing:
 
 The backup file is a standard ZIP with a `.zip` extension.
 
+![Settings with backup options](/img/screenshots/settings.png)
+
 ## Restoring from Backup
 
 :::warning

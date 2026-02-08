@@ -33,6 +33,8 @@ Plugins respond to app events:
 - File detected in watch folder
 - Tags added or removed
 
+![Plugins modal](/img/screenshots/plugins.png)
+
 ### Run Scheduled Tasks
 
 Periodic tasks run in the background:

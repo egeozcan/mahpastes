@@ -24,6 +24,8 @@ Watch folders monitor directories on your system:
 
 mahpastes immediately starts watching the folder.
 
+![Watch folders view](/img/screenshots/watch-folders.png)
+
 ## Configuration Options
 
 ### Filter Mode
