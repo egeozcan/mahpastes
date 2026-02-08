@@ -47,12 +47,15 @@ npm run test:ui       # Interactive UI mode
 ### Test Organization
 
 Tests are organized by feature in `e2e/tests/`:
-- `clips/` - Upload, view, delete, archive operations
+- `backup/` - Backup and restore operations
 - `bulk/` - Multi-select operations
-- `images/` - Lightbox, editor, comparison
-- `search/` - Filtering functionality
-- `watch/` - Watch folders feature
+- `clips/` - Upload, view, delete, archive operations
 - `edge-cases/` - Error handling, expiration
+- `images/` - Lightbox, editor, comparison
+- `plugins/` - Plugin system (install, events, APIs, scheduling)
+- `search/` - Filtering functionality
+- `tags/` - Tag CRUD, filtering, hidden tags
+- `watch/` - Watch folders feature
 
 ### Test Abstractions
 
@@ -160,29 +163,35 @@ The app uses Tailwind's `stone` color scale exclusively:
 mahpastes/
 ├── Makefile            # Build, install, test targets
 ├── app.go              # Main Wails app logic
+├── backup.go           # ZIP backup and restore
 ├── database.go         # SQLite operations
-├── plugin_service.go   # Plugin frontend API (separate struct for Wails binding limit)
-├── watcher.go          # Watch folder implementation
 ├── main.go             # Entry point
+├── plugin_service.go   # Plugin frontend API (separate struct for Wails binding limit)
+├── plugins.go          # Plugin install/uninstall helpers
+├── watcher.go          # Watch folder implementation
 ├── plugin/             # Lua plugin system
 │   ├── manager.go      # Plugin lifecycle, event dispatch
-│   ├── sandbox.go      # Sandboxed Lua execution
 │   ├── manifest.go     # Manifest parsing, validation
-│   └── api_*.go        # Lua APIs (clips, tags, storage, http, fs, utils)
+│   ├── sandbox.go      # Sandboxed Lua execution
+│   ├── scheduler.go    # Scheduled/recurring plugin tasks
+│   └── api_*.go        # Lua APIs (clips, tags, storage, http, fs, utils, task, toast)
 ├── plugins/            # Example/bundled plugins
 │   └── fal-ai.lua      # FAL.AI image processing plugin
 ├── frontend/
 │   ├── index.html      # Single HTML file with all markup
 │   ├── js/
 │   │   ├── app.js      # Main app initialization, event handlers
-│   │   ├── ui.js       # Card rendering, gallery management
+│   │   ├── editor.js   # Image editor canvas logic
 │   │   ├── modals.js   # All modal/lightbox/editor logic
+│   │   ├── plugin-icons.js # Plugin icon rendering
 │   │   ├── plugins.js  # Plugin management UI
-│   │   ├── task-queue.js # Plugin task progress UI
-│   │   ├── watch.js    # Watch folders UI
 │   │   ├── settings.js # Settings modal
+│   │   ├── tags.js     # Tag management UI
+│   │   ├── task-queue.js # Plugin task progress UI
+│   │   ├── ui.js       # Card rendering, gallery management
+│   │   ├── utils.js    # Shared utilities
 │   │   ├── wails-api.js # Wails bindings wrapper
-│   │   └── utils.js    # Shared utilities
+│   │   └── watch.js    # Watch folders UI
 │   ├── css/
 │   │   ├── main.css    # Global styles, scrollbars, form styling
 │   │   └── modals.css  # Modal-specific styles
@@ -223,7 +232,8 @@ The app has a Lua-based plugin system that allows extending functionality.
 - `plugin/manager.go` - Plugin lifecycle management, event dispatch
 - `plugin/sandbox.go` - Sandboxed Lua execution environment
 - `plugin/manifest.go` - Plugin manifest parsing, event validation
-- `plugin/api_*.go` - Lua APIs exposed to plugins (clips, storage, http, fs, utils)
+- `plugin/api_*.go` - Lua APIs exposed to plugins (clips, tags, storage, http, fs, utils, task, toast)
+- `plugin/scheduler.go` - Scheduled/recurring plugin tasks
 - `plugin_service.go` - Frontend API for plugin management (separate from App due to Wails method limit)
 
 ### Wails Method Binding Limit
@@ -253,11 +263,13 @@ APIs are registered in `plugin/manager.go` when loading plugins. Each API module
 
 | Module | File | Functions |
 |--------|------|-----------|
-| `clips` | `api_clips.go` | list, get, create, update, delete, delete_many, archive, unarchive |
+| `clips` | `api_clips.go` | list, get, get_data, create, create_from_url, update, delete, delete_many, archive, unarchive |
 | `tags` | `api_tags.go` | list, get, create, update, delete, add_to_clip, remove_from_clip, get_for_clip |
 | `storage` | `api_storage.go` | get, set, delete, list (plugin-scoped key-value storage) |
 | `http` | `api_http.go` | get, post, put, patch, delete (network requests with domain restrictions) |
 | `fs` | `api_fs.go` | read, write, list, exists (filesystem with permission prompts) |
+| `task` | `api_task.go` | start, progress, complete, fail (long-running task progress UI) |
+| `toast` | `api_toast.go` | show (display toast notifications) |
 | `utils` | `api_utils.go` | time (current Unix timestamp) |
 | `log` | `api_utils.go` | Global function for logging (not a module) |
 | `json` | `api_utils.go` | encode, decode |
@@ -270,8 +282,9 @@ APIs are registered in `plugin/manager.go` when loading plugins. Each API module
 
 ### Tag Functions (in app.go)
 
-Tag operations that could be exposed to plugins:
+Tag operations exposed to the frontend (and to plugins via `plugin/api_tags.go`):
 - `CreateTag(name)` → `*Tag, error`
+- `UpdateTag(id, name, color)` → `error`
 - `DeleteTag(id)` → `error`
 - `GetTags()` → `[]Tag, error`
 - `AddTagToClip(clipID, tagID)` → `error`
@@ -279,6 +292,8 @@ Tag operations that could be exposed to plugins:
 - `BulkAddTag(clipIDs, tagID)` → `error`
 - `BulkRemoveTag(clipIDs, tagID)` → `error`
 - `GetClipTags(clipID)` → `[]Tag, error`
+- `GetHiddenTags()` → `[]int64, error`
+- `SetHiddenTags(ids)` → `error`
 
 ## Common Tasks
 
