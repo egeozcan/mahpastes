@@ -23,6 +23,7 @@ var (
 	reRequiredField   = regexp.MustCompile(`required\s*=\s*(true|false)`)
 	reChoicesBlock    = regexp.MustCompile(`choices\s*=\s*\{`)
 	reDefaultBool     = regexp.MustCompile(`default\s*=\s*(true|false)`)
+	reClipboard       = regexp.MustCompile(`clipboard\s*=\s*(true|false)`)
 )
 
 // Manifest represents a parsed plugin manifest
@@ -33,6 +34,7 @@ type Manifest struct {
 	Author      string
 	Network     map[string][]string // domain -> allowed methods
 	Filesystem  FilesystemPerms
+	Clipboard   bool // whether the plugin can write to the system clipboard
 	Events      []string
 	Schedules   []Schedule
 	Settings    []SettingField
@@ -122,6 +124,11 @@ func ParseManifest(source string) (*Manifest, error) {
 	// Parse filesystem permissions
 	manifest.Filesystem.Read = extractBoolField(pluginBlock, "filesystem", "read")
 	manifest.Filesystem.Write = extractBoolField(pluginBlock, "filesystem", "write")
+
+	// Parse clipboard permission
+	if m := reClipboard.FindStringSubmatch(pluginBlock); len(m) >= 2 {
+		manifest.Clipboard = m[1] == "true"
+	}
 
 	// Parse events array
 	manifest.Events = extractStringArray(pluginBlock, "events")

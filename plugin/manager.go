@@ -131,7 +131,7 @@ func (m *Manager) loadPlugin(p *Plugin) error {
 	fsAPI := NewFilesystemAPI(m.db, p.ID, manifest.Name, manifest.Filesystem, m.permCallback)
 	fsAPI.Register(sandbox.GetState())
 
-	utilsAPI := NewUtilsAPI(manifest.Name)
+	utilsAPI := NewUtilsAPI(manifest.Name, manifest.Clipboard)
 	utilsAPI.Register(sandbox.GetState())
 
 	tagsAPI := NewTagsAPI(m.db)
@@ -142,6 +142,9 @@ func (m *Manager) loadPlugin(p *Plugin) error {
 
 	taskAPI := NewTaskAPI(m.ctx, p.ID)
 	taskAPI.Register(sandbox.GetState())
+
+	imageAPI := NewImageAPI(m.db)
+	imageAPI.Register(sandbox.GetState())
 
 	// Load the plugin source
 	if err := sandbox.LoadSource(string(source)); err != nil {
@@ -247,15 +250,7 @@ func eventToHandler(event string) string {
 	}
 
 	// For other events, replace : with _
-	result := "on_"
-	for _, c := range event {
-		if c == ':' {
-			result += "_"
-		} else {
-			result += string(c)
-		}
-	}
-	return result
+	return "on_" + strings.ReplaceAll(event, ":", "_")
 }
 
 func (m *Manager) incrementErrorCount(pluginID int64) {

@@ -36,3 +36,6 @@ Thumbs.db
 /docs/.docusaurus/
 /docs/node_modules/
 test-results/
+
+# Generated reports
+*_REPORT.md

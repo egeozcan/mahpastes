@@ -232,7 +232,7 @@ The app has a Lua-based plugin system that allows extending functionality.
 - `plugin/manager.go` - Plugin lifecycle management, event dispatch
 - `plugin/sandbox.go` - Sandboxed Lua execution environment
 - `plugin/manifest.go` - Plugin manifest parsing, event validation
-- `plugin/api_*.go` - Lua APIs exposed to plugins (clips, tags, storage, http, fs, utils, task, toast)
+- `plugin/api_*.go` - Lua APIs exposed to plugins (clips, tags, storage, http, fs, utils, task, toast, image)
 - `plugin/scheduler.go` - Scheduled/recurring plugin tasks
 - `plugin_service.go` - Frontend API for plugin management (separate from App due to Wails method limit)
 
@@ -270,7 +270,8 @@ APIs are registered in `plugin/manager.go` when loading plugins. Each API module
 | `fs` | `api_fs.go` | read, write, list, exists (filesystem with permission prompts) |
 | `task` | `api_task.go` | start, progress, complete, fail (long-running task progress UI) |
 | `toast` | `api_toast.go` | show (display toast notifications) |
-| `utils` | `api_utils.go` | time (current Unix timestamp) |
+| `image` | `api_image.go` | info, resize, overlay_text, composite, dominant_colors, grayscale_pixels, metadata, diff (Go-side image processing) |
+| `utils` | `api_utils.go` | time, sha256, hmac_sha256, url_encode, url_decode, clipboard_write (requires `clipboard = true` in manifest) |
 | `log` | `api_utils.go` | Global function for logging (not a module) |
 | `json` | `api_utils.go` | encode, decode |
 | `base64` | `api_utils.go` | encode, decode |

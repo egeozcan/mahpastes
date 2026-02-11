@@ -5,9 +5,13 @@ go 1.24.1
 require (
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/mattn/go-sqlite3 v1.14.32
+	// NOTE: goexif is archived/unmaintained (last updated 2019).
+	// Consider github.com/dsoprea/go-exif/v3 or github.com/evanoberholster/imagemeta as alternatives.
+	github.com/rwcarlsen/goexif v0.0.0-20190401172101-9e8deecbddbd
 	github.com/wailsapp/wails/v2 v2.11.0
 	github.com/yuin/gopher-lua v1.1.1
 	golang.design/x/clipboard v0.7.0
+	golang.org/x/image v0.35.0
 )
 
 require (
@@ -36,7 +40,6 @@ require (
 	github.com/wailsapp/mimetype v1.4.1 // indirect
 	golang.org/x/crypto v0.33.0 // indirect
 	golang.org/x/exp/shiny v0.0.0-20260112195511-716be5621a96 // indirect
-	golang.org/x/image v0.35.0 // indirect
 	golang.org/x/mobile v0.0.0-20251209145715-2553ed8ce294 // indirect
 	golang.org/x/net v0.35.0 // indirect
 	golang.org/x/sys v0.40.0 // indirect
