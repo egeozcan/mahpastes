@@ -96,7 +96,7 @@ async function saveTempFile(id) {
 
 async function copyFileToClipboard(id) {
     try {
-        await window.go.main.App.CopyFileToClipboard(id);
+        await window.go.main.ClipboardService.CopyFileToClipboard(id);
         showToast('File copied to clipboard!');
     } catch (error) {
         console.error('Error copying file to clipboard:', error);
@@ -106,7 +106,7 @@ async function copyFileToClipboard(id) {
 
 async function copyClipContents(id) {
     try {
-        await window.go.main.App.CopyClipContents(id);
+        await window.go.main.ClipboardService.CopyClipContents(id);
         showToast('Contents copied to clipboard!');
     } catch (error) {
         console.error('Error copying contents:', error);
@@ -171,7 +171,7 @@ async function bulkDownload() {
 async function bulkCopyFiles() {
     if (selectedIds.size === 0) return;
     try {
-        await window.go.main.App.BulkCopyFilesToClipboard(Array.from(selectedIds));
+        await window.go.main.ClipboardService.BulkCopyFilesToClipboard(Array.from(selectedIds));
         showToast(`${selectedIds.size} file${selectedIds.size > 1 ? 's' : ''} copied to clipboard!`);
     } catch (error) {
         console.error('Error copying files to clipboard:', error);

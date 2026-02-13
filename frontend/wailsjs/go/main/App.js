@@ -18,10 +18,6 @@ export function BulkArchive(arg1) {
   return window['go']['main']['App']['BulkArchive'](arg1);
 }
 
-export function BulkCopyFilesToClipboard(arg1) {
-  return window['go']['main']['App']['BulkCopyFilesToClipboard'](arg1);
-}
-
 export function BulkDelete(arg1) {
   return window['go']['main']['App']['BulkDelete'](arg1);
 }
@@ -40,14 +36,6 @@ export function CancelExpiration(arg1) {
 
 export function ConfirmRestoreBackup(arg1) {
   return window['go']['main']['App']['ConfirmRestoreBackup'](arg1);
-}
-
-export function CopyClipContents(arg1) {
-  return window['go']['main']['App']['CopyClipContents'](arg1);
-}
-
-export function CopyFileToClipboard(arg1) {
-  return window['go']['main']['App']['CopyFileToClipboard'](arg1);
 }
 
 export function CopyToClipboard(arg1) {

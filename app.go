@@ -8,14 +8,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"image"
-	_ "image/gif"
-	_ "image/jpeg"
-	"image/png"
 	"log"
 	"mime"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -1644,88 +1639,5 @@ func (a *App) SetHiddenTags(ids []int64) error {
 		return fmt.Errorf("failed to marshal hidden tags: %w", err)
 	}
 	return a.SetSetting("hidden_tags", string(data))
-}
-
-// CopyFileToClipboard copies a clip as a file reference to the macOS clipboard
-func (a *App) CopyFileToClipboard(id int64) error {
-	tempPath, err := a.CreateTempFile(id)
-	if err != nil {
-		return fmt.Errorf("failed to create temp file: %w", err)
-	}
-
-	// Escape for AppleScript
-	escaped := strings.ReplaceAll(tempPath, `\`, `\\`)
-	escaped = strings.ReplaceAll(escaped, `"`, `\"`)
-
-	script := fmt.Sprintf(`set the clipboard to (POSIX file "%s")`, escaped)
-	cmd := exec.Command("osascript", "-e", script)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("osascript failed: %w: %s", err, string(out))
-	}
-	return nil
-}
-
-// BulkCopyFilesToClipboard copies multiple clips as files to the system clipboard
-func (a *App) BulkCopyFilesToClipboard(ids []int64) error {
-	if len(ids) == 0 {
-		return fmt.Errorf("no IDs provided")
-	}
-
-	var fileParts []string
-	for _, id := range ids {
-		tempPath, err := a.CreateTempFile(id)
-		if err != nil {
-			return fmt.Errorf("failed to create temp file for clip %d: %w", id, err)
-		}
-		escaped := strings.ReplaceAll(tempPath, `\`, `\\`)
-		escaped = strings.ReplaceAll(escaped, `"`, `\"`)
-		fileParts = append(fileParts, fmt.Sprintf(`POSIX file "%s"`, escaped))
-	}
-
-	script := fmt.Sprintf(`set the clipboard to {%s}`, strings.Join(fileParts, ", "))
-	cmd := exec.Command("osascript", "-e", script)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("osascript failed: %w: %s", err, string(out))
-	}
-	return nil
-}
-
-// CopyClipContents copies the raw content of a clip to the system clipboard
-func (a *App) CopyClipContents(id int64) error {
-	var data []byte
-	var contentType string
-
-	row := a.db.QueryRow("SELECT data, content_type FROM clips WHERE id = ?", id)
-	if err := row.Scan(&data, &contentType); err != nil {
-		if err == sql.ErrNoRows {
-			return fmt.Errorf("clip not found")
-		}
-		return fmt.Errorf("failed to get clip: %w", err)
-	}
-
-	if strings.HasPrefix(contentType, "text/") || contentType == "application/json" {
-		clipboard.Write(clipboard.FmtText, data)
-		return nil
-	}
-
-	if strings.HasPrefix(contentType, "image/") {
-		if contentType == "image/png" {
-			clipboard.Write(clipboard.FmtImage, data)
-			return nil
-		}
-		// Decode any supported image format and re-encode as PNG
-		img, _, err := image.Decode(bytes.NewReader(data))
-		if err != nil {
-			return fmt.Errorf("failed to decode image: %w", err)
-		}
-		var buf bytes.Buffer
-		if err := png.Encode(&buf, img); err != nil {
-			return fmt.Errorf("failed to encode image as PNG: %w", err)
-		}
-		clipboard.Write(clipboard.FmtImage, buf.Bytes())
-		return nil
-	}
-
-	return fmt.Errorf("unsupported content type for clipboard copy: %s", contentType)
 }
 
