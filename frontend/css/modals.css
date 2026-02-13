@@ -181,6 +181,112 @@
     margin: 0.25rem 0.375rem;
 }
 
+/* Lightbox File Actions Trigger & Menu */
+.lightbox-file-actions {
+    display: flex;
+    align-items: center;
+}
+
+.lightbox-file-trigger {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.375rem 0.75rem;
+    font-size: 0.6875rem;
+    font-weight: 500;
+    color: #d6d3d1;
+    background: rgba(87, 83, 78, 0.5);
+    border: none;
+    border-radius: 0.25rem;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+
+.lightbox-file-trigger:hover {
+    background: rgba(87, 83, 78, 0.7);
+    color: #fafaf9;
+}
+
+.lightbox-file-trigger[aria-expanded="true"] {
+    background: rgba(87, 83, 78, 0.8);
+    color: #fafaf9;
+}
+
+.lightbox-file-trigger svg {
+    width: 0.75rem;
+    height: 0.75rem;
+    flex-shrink: 0;
+}
+
+.lightbox-file-menu {
+    position: fixed;
+    z-index: 110;
+    min-width: 160px;
+    max-width: 220px;
+    background: rgba(41, 37, 36, 0.9);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(68, 64, 60, 0.5);
+    border-radius: 0.375rem;
+    padding: 0.25rem;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    opacity: 0;
+    transform: translateY(4px);
+    transition: opacity 0.15s ease, transform 0.15s ease;
+    pointer-events: none;
+}
+
+.lightbox-file-menu.active {
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
+}
+
+.lightbox-file-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.4375rem 0.625rem;
+    font-size: 0.6875rem;
+    font-weight: 500;
+    color: #d6d3d1;
+    background: transparent;
+    border: none;
+    border-radius: 0.25rem;
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.1s, color 0.1s;
+}
+
+.lightbox-file-menu-item:hover,
+.lightbox-file-menu-item:focus {
+    background: rgba(87, 83, 78, 0.5);
+    color: #fafaf9;
+    outline: none;
+}
+
+.lightbox-file-menu-item svg {
+    width: 0.875rem;
+    height: 0.875rem;
+    flex-shrink: 0;
+}
+
+.lightbox-file-menu-item-danger {
+    color: #fca5a5;
+}
+
+.lightbox-file-menu-item-danger:hover,
+.lightbox-file-menu-item-danger:focus {
+    background: rgba(127, 29, 29, 0.4);
+    color: #fecaca;
+}
+
+.lightbox-file-menu-divider {
+    height: 1px;
+    background: rgba(68, 64, 60, 0.5);
+    margin: 0.25rem 0.375rem;
+}
+
 .lightbox-image-info {
     color: #a8a29e;
     font-size: 0.6875rem;

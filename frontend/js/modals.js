@@ -421,8 +421,9 @@ async function openLightbox(index) {
     // Update reference (event delegation handles mousedown/dblclick on lightbox-content)
     lightboxImg = existingImg;
 
-    // Close plugin menu if open (when navigating between images)
+    // Close menus if open (when navigating between images)
     closeLightboxPluginMenu();
+    closeLightboxFileMenu(true);
 
     // Reset zoom state
     resetLightboxZoom();
@@ -448,12 +449,14 @@ async function openLightbox(index) {
     // Update image info in bottom bar
     updateLightboxImageInfo();
 
-    // Render plugin buttons
+    // Render plugin buttons and file actions
     renderLightboxPluginButtons();
+    renderLightboxFileActions();
 }
 
 function closeLightbox() {
     closeLightboxPluginMenu();
+    closeLightboxFileMenu(true);
     lightbox.classList.remove('active');
     resetLightboxZoom();
     setTimeout(() => {
@@ -486,6 +489,14 @@ function handleLightboxKeydown(e) {
     if (!lightbox.classList.contains('active')) return;
 
     if (e.key === 'Escape') {
+        // Close file menu first if open, before closing lightbox
+        const fileMenu = document.getElementById('lightbox-file-menu');
+        if (fileMenu) {
+            closeLightboxFileMenu();
+            const trigger = document.getElementById('lightbox-file-menu-trigger');
+            if (trigger) trigger.focus();
+            return;
+        }
         closeLightbox();
     } else if (e.key === 'ArrowRight') {
         showNextImage();
@@ -703,6 +714,185 @@ async function handleLightboxPluginAction(action) {
     } else {
         // Execute directly
         await executePluginAction(action.plugin_id, action.id, [clip.id], {}, action.async);
+    }
+}
+
+// --- File Actions Menu in Lightbox ---
+
+function renderLightboxFileActions() {
+    const container = document.getElementById('lightbox-file-actions');
+    if (!container) return;
+
+    container.innerHTML = '';
+
+    const clip = imageClips[currentLightboxIndex];
+    if (!clip) return;
+
+    const btn = document.createElement('button');
+    btn.className = 'lightbox-file-trigger';
+    btn.id = 'lightbox-file-menu-trigger';
+    btn.setAttribute('aria-expanded', 'false');
+    btn.setAttribute('aria-haspopup', 'true');
+
+    // Three-dot icon + "Actions" label
+    const dotsSvg = '<svg fill="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>';
+    btn.innerHTML = `${dotsSvg}<span>Actions</span>`;
+
+    btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const menu = document.getElementById('lightbox-file-menu');
+        if (menu) {
+            closeLightboxFileMenu();
+        } else {
+            openLightboxFileMenu(btn);
+        }
+    });
+
+    container.appendChild(btn);
+}
+
+function openLightboxFileMenu(trigger) {
+    closeLightboxFileMenu(true);
+
+    const clip = imageClips[currentLightboxIndex];
+    if (!clip) return;
+
+    const menu = document.createElement('div');
+    menu.id = 'lightbox-file-menu';
+    menu.className = 'lightbox-file-menu';
+    menu.setAttribute('role', 'menu');
+
+    const actions = [
+        { id: 'copy-path', label: 'Copy Path', icon: 'copy-path' },
+        { id: 'save-file', label: 'Save', icon: 'save' },
+    ];
+
+    if (isEditableType(clip.content_type)) {
+        actions.push({ id: 'edit', label: 'Edit', icon: 'edit' });
+    }
+
+    actions.push({ id: 'tags', label: 'Tags', icon: 'tags' });
+    actions.push({ id: 'archive', label: isViewingArchive ? 'Restore' : 'Archive', icon: isViewingArchive ? 'restore' : 'archive' });
+
+    // Divider before delete
+    const divider = document.createElement('div');
+    divider.className = 'lightbox-file-menu-divider';
+
+    for (const action of actions) {
+        const item = document.createElement('button');
+        item.className = 'lightbox-file-menu-item';
+        item.setAttribute('role', 'menuitem');
+        item.dataset.action = action.id;
+        item.innerHTML = `${getMenuIcon(action.icon)}<span>${action.label}</span>`;
+
+        item.addEventListener('click', (e) => {
+            e.stopPropagation();
+            closeLightboxFileMenu();
+            handleLightboxFileAction(action.id);
+        });
+
+        menu.appendChild(item);
+    }
+
+    menu.appendChild(divider);
+
+    // Delete action (danger)
+    const deleteItem = document.createElement('button');
+    deleteItem.className = 'lightbox-file-menu-item lightbox-file-menu-item-danger';
+    deleteItem.setAttribute('role', 'menuitem');
+    deleteItem.dataset.action = 'delete';
+    deleteItem.innerHTML = `${getMenuIcon('delete')}<span>Delete</span>`;
+    deleteItem.addEventListener('click', (e) => {
+        e.stopPropagation();
+        closeLightboxFileMenu();
+        handleLightboxFileAction('delete');
+    });
+    menu.appendChild(deleteItem);
+
+    document.body.appendChild(menu);
+    positionLightboxPluginMenu(menu, trigger);
+
+    // Keyboard navigation
+    const items = menu.querySelectorAll('.lightbox-file-menu-item');
+    menu.addEventListener('keydown', (e) => {
+        const focused = document.activeElement;
+        const itemArray = Array.from(items);
+        const idx = itemArray.indexOf(focused);
+
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            const next = idx < itemArray.length - 1 ? idx + 1 : 0;
+            itemArray[next].focus();
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            const prev = idx > 0 ? idx - 1 : itemArray.length - 1;
+            itemArray[prev].focus();
+        } else if (e.key === 'Escape') {
+            e.preventDefault();
+            e.stopPropagation();
+            closeLightboxFileMenu();
+            trigger.focus();
+        } else if (e.key === 'Tab') {
+            e.preventDefault();
+            closeLightboxFileMenu();
+        }
+    });
+
+    // Animate in
+    requestAnimationFrame(() => {
+        menu.classList.add('active');
+    });
+
+    trigger.setAttribute('aria-expanded', 'true');
+    items[0]?.focus();
+}
+
+function closeLightboxFileMenu(immediate) {
+    const menu = document.getElementById('lightbox-file-menu');
+    if (!menu) return;
+
+    const trigger = document.getElementById('lightbox-file-menu-trigger');
+    if (trigger) trigger.setAttribute('aria-expanded', 'false');
+
+    if (immediate) {
+        menu.remove();
+        return;
+    }
+
+    menu.classList.remove('active');
+    setTimeout(() => {
+        menu.remove();
+    }, 150);
+}
+
+function handleLightboxFileAction(action) {
+    const clip = imageClips[currentLightboxIndex];
+    if (!clip) return;
+
+    switch (action) {
+        case 'copy-path':
+            saveTempFile(clip.id);
+            break;
+        case 'save-file':
+            saveClipToFile(clip.id);
+            break;
+        case 'edit':
+            closeLightbox();
+            setTimeout(() => openEditor(clip.id), 350);
+            break;
+        case 'tags': {
+            const trigger = document.getElementById('lightbox-file-menu-trigger');
+            openTagPopover(clip.id, trigger);
+            break;
+        }
+        case 'archive':
+            closeLightbox();
+            toggleArchiveClip(clip.id);
+            break;
+        case 'delete':
+            closeLightbox();
+            setTimeout(() => deleteClip(clip.id), 350);
+            break;
     }
 }
 

@@ -288,7 +288,7 @@
     <!-- Confirm Dialog -->
     <div id="confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title"
         aria-describedby="confirm-message"
-        class="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm transition-opacity duration-200 opacity-0 pointer-events-none">
+        class="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm transition-opacity duration-200 opacity-0 pointer-events-none">
         <div class="bg-white rounded-lg shadow-xl max-w-sm w-full overflow-hidden transform transition-transform duration-200 scale-95">
             <div class="p-5">
                 <div class="flex items-center justify-center w-10 h-10 mx-auto bg-red-50 rounded-full mb-3">
@@ -404,6 +404,9 @@
                 <!-- Plugin buttons rendered by JS -->
             </div>
             <div id="lightbox-image-info" class="lightbox-image-info"></div>
+            <div id="lightbox-file-actions" class="lightbox-file-actions">
+                <!-- File action menu rendered by JS -->
+            </div>
             <div class="lightbox-zoom-control">
                 <input type="range" id="lightbox-zoom-slider" class="lightbox-range" min="100" max="400" value="100">
                 <span id="lightbox-zoom-info" class="lightbox-zoom-info">100%</span>
