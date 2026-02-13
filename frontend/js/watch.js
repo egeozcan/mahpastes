@@ -459,18 +459,41 @@ window.runtime.OnFileDrop(async (x, y, paths) => {
     }
 }, true); // true = only trigger on elements with --wails-drop-target CSS
 
-// Wails events for watch notifications
-window.runtime.EventsOn('watch:error', (data) => {
-    showToast(`Failed to import ${data.file}: ${data.error}`);
-});
+// --- Deferred Watch Event Registration ---
+function initWatchEvents() {
+    if (typeof window.runtime === 'undefined') return;
 
-window.runtime.EventsOn('watch:import', (filename) => {
-    // Refresh clips if not viewing watch or archive
-    if (!isViewingWatch && !isViewingArchive) {
-        loadClips();
-    }
-    showToast(`Imported: ${filename}`);
-});
+    window.runtime.EventsOn('watch:error', (data) => {
+        showToast(`Failed to import ${data.file}: ${data.error}`);
+    });
+
+    window.runtime.EventsOn('watch:import', async (clip) => {
+        showToast(`Imported: ${clip.filename}`);
+        if (isViewingWatch) return;
+        if (clip.is_archived !== isViewingArchive) return;
+
+        // Tag filter check (AND logic)
+        if (activeTagFilters.length > 0) {
+            const clipTagIds = (clip.tags || []).map(t => t.id);
+            if (!activeTagFilters.every(fid => clipTagIds.includes(fid))) return;
+        }
+
+        // Hidden tag check
+        const effectiveHidden = getHiddenTags().filter(id => !activeTagFilters.includes(id));
+        if (effectiveHidden.length > 0) {
+            const clipTagIds = (clip.tags || []).map(t => t.id);
+            if (clipTagIds.some(tid => effectiveHidden.includes(tid))) return;
+        }
+
+        // Clear empty state if present
+        const emptyMsg = gallery.querySelector('p.col-span-full');
+        if (emptyMsg) emptyMsg.remove();
+
+        await createClipCard(clip, { prepend: true });
+    });
+}
+
+window.addEventListener('load', initWatchEvents);
 
 // Initial status check
 updateWatchIndicator();

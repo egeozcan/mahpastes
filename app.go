@@ -45,9 +45,41 @@ func (a *App) emitWatchError(filePath string, errMsg string) {
 	})
 }
 
-// emitWatchImport sends an import event to the frontend
-func (a *App) emitWatchImport(filename string) {
-	runtime.EventsEmit(a.ctx, "watch:import", filename)
+// emitWatchImport sends an import event to the frontend with full clip data
+func (a *App) emitWatchImport(clip ClipPreview) {
+	runtime.EventsEmit(a.ctx, "watch:import", clip)
+}
+
+// getClipPreview fetches a single clip's preview data (private helper, not exported to frontend)
+func (a *App) getClipPreview(id int64) (*ClipPreview, error) {
+	var clip ClipPreview
+	var filename sql.NullString
+	var expiresAt sql.NullTime
+	var previewData []byte
+	var isArchivedInt int
+
+	err := a.db.QueryRow(`
+		SELECT id, content_type, filename, created_at, expires_at, SUBSTR(data, 1, 500), is_archived
+		FROM clips WHERE id = ?`, id).Scan(
+		&clip.ID, &clip.ContentType, &filename, &clip.CreatedAt, &expiresAt, &previewData, &isArchivedInt)
+	if err != nil {
+		return nil, err
+	}
+
+	clip.Filename = filename.String
+	clip.IsArchived = isArchivedInt == 1
+	if expiresAt.Valid {
+		clip.ExpiresAt = &expiresAt.Time
+	}
+	if strings.HasPrefix(clip.ContentType, "text/") || clip.ContentType == "application/json" {
+		clip.Preview = string(previewData)
+	}
+
+	clip.Tags, _ = a.GetClipTags(id)
+	if clip.Tags == nil {
+		clip.Tags = []Tag{}
+	}
+	return &clip, nil
 }
 
 // RefreshWatches reloads the watcher configuration

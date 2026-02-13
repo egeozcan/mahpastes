@@ -206,7 +206,7 @@ async function handleCardAction(action, clipId, triggerButton) {
     }
 }
 
-async function createClipCard(clip) {
+async function createClipCard(clip, options = {}) {
     const card = document.createElement('li');
     card.className = 'bg-white rounded-md border border-stone-200 overflow-hidden flex flex-col transition-all duration-150 hover:border-stone-300 relative group';
     card.dataset.id = clip.id;
@@ -328,9 +328,20 @@ async function createClipCard(clip) {
 
     // Lightbox trigger logic
     if (clip.content_type.startsWith('image/')) {
-        const imageIndex = imageClips.length;
-        imageClips.push(clip);
-        card.querySelector('[data-action="open-lightbox"]').addEventListener('click', () => openLightbox(imageIndex));
+        if (options.prepend) {
+            imageClips.unshift(clip);
+        } else {
+            imageClips.push(clip);
+        }
+        card.querySelector('[data-action="open-lightbox"]').addEventListener('click', () => {
+            const idx = imageClips.findIndex(c => c.id === clip.id);
+            if (idx !== -1) openLightbox(idx);
+        });
+
+        // Bump lightbox index if prepending while lightbox is open
+        if (options.prepend && lightbox.classList.contains('active')) {
+            currentLightboxIndex++;
+        }
 
         // Load image asynchronously
         loadImageForCard(clip.id, card);
@@ -343,7 +354,11 @@ async function createClipCard(clip) {
         });
     }
 
-    gallery.appendChild(card);
+    if (options.prepend) {
+        gallery.prepend(card);
+    } else {
+        gallery.appendChild(card);
+    }
 }
 
 // Load image data for a card

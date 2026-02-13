@@ -315,7 +315,12 @@ func (w *WatcherManager) importFile(filePath string, folder *WatchedFolder) (int
 	}
 
 	// Emit import event for UI refresh (after archiving is complete)
-	w.app.emitWatchImport(fileData.Name)
+	clip, err := w.app.getClipPreview(clipID)
+	if err != nil {
+		log.Printf("Failed to get clip preview for watch event: %v", err)
+	} else {
+		w.app.emitWatchImport(*clip)
+	}
 
 	// Emit watch:import_complete event
 	if w.app.pluginManager != nil {
