@@ -47,6 +47,8 @@ export const selectors = {
   cardMenu: {
     dropdown: '.card-menu-dropdown',
     copyPath: '.card-menu-dropdown [data-action="copy-path"]',
+    copyFile: '.card-menu-dropdown [data-action="copy-file"]',
+    copyContents: '.card-menu-dropdown [data-action="copy-contents"]',
     save: '.card-menu-dropdown [data-action="save-file"]',
     edit: '.card-menu-dropdown [data-action="edit"]',
     tags: '.card-menu-dropdown [data-action="tags"]',
@@ -62,6 +64,7 @@ export const selectors = {
     selectAllCheckbox: '#select-all-checkbox',
     selectedCount: '#selected-count',
     compareButton: '#bulk-compare-btn',
+    copyButton: '#bulk-copy-btn',
     downloadButton: '#bulk-download-btn',
     archiveButton: '#bulk-archive-btn',
     deleteButton: '#bulk-delete-btn',

@@ -94,6 +94,26 @@ async function saveTempFile(id) {
     }
 }
 
+async function copyFileToClipboard(id) {
+    try {
+        await window.go.main.App.CopyFileToClipboard(id);
+        showToast('File copied to clipboard!');
+    } catch (error) {
+        console.error('Error copying file to clipboard:', error);
+        showToast('Failed to copy file.');
+    }
+}
+
+async function copyClipContents(id) {
+    try {
+        await window.go.main.App.CopyClipContents(id);
+        showToast('Contents copied to clipboard!');
+    } catch (error) {
+        console.error('Error copying contents:', error);
+        showToast('Failed to copy contents.');
+    }
+}
+
 async function deleteAllTempFiles() {
     showConfirmDialog('Delete All Temp Files', 'Are you sure you want to delete ALL temporary files?', async () => {
         try {
@@ -145,6 +165,17 @@ async function bulkDownload() {
         if (!error.message.includes('cancelled')) {
             showToast('Bulk download failed.');
         }
+    }
+}
+
+async function bulkCopyFiles() {
+    if (selectedIds.size === 0) return;
+    try {
+        await window.go.main.App.BulkCopyFilesToClipboard(Array.from(selectedIds));
+        showToast(`${selectedIds.size} file${selectedIds.size > 1 ? 's' : ''} copied to clipboard!`);
+    } catch (error) {
+        console.error('Error copying files to clipboard:', error);
+        showToast('Failed to copy files.');
     }
 }
 

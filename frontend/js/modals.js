@@ -780,12 +780,19 @@ function openLightboxFileMenu(trigger) {
     menu.className = 'lightbox-file-menu';
     menu.setAttribute('role', 'menu');
 
+    const ct = clip.content_type || '';
     const actions = [
         { id: 'copy-path', label: 'Copy Path', icon: 'copy-path' },
-        { id: 'save-file', label: 'Save', icon: 'save' },
+        { id: 'copy-file', label: 'Copy File', icon: 'copy-file' },
     ];
 
-    if (isEditableType(clip.content_type)) {
+    if (ct.startsWith('text/') || ct === 'application/json' || ct.startsWith('image/')) {
+        actions.push({ id: 'copy-contents', label: 'Copy Contents', icon: 'copy-contents' });
+    }
+
+    actions.push({ id: 'save-file', label: 'Save', icon: 'save' });
+
+    if (isEditableType(ct)) {
         actions.push({ id: 'edit', label: 'Edit', icon: 'edit' });
     }
 
@@ -890,6 +897,12 @@ function handleLightboxFileAction(action) {
     switch (action) {
         case 'copy-path':
             saveTempFile(clip.id);
+            break;
+        case 'copy-file':
+            copyFileToClipboard(clip.id);
+            break;
+        case 'copy-contents':
+            copyClipContents(clip.id);
             break;
         case 'save-file':
             saveClipToFile(clip.id);

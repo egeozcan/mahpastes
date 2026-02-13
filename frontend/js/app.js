@@ -11,6 +11,7 @@ const expirationSelect = document.getElementById('expiration-select');
 const bulkToolbar = document.getElementById('bulk-toolbar');
 const selectAllCheckbox = document.getElementById('select-all-checkbox');
 const selectedCountEl = document.getElementById('selected-count');
+const bulkCopyBtn = document.getElementById('bulk-copy-btn');
 const bulkDownloadBtn = document.getElementById('bulk-download-btn');
 const bulkArchiveBtn = document.getElementById('bulk-archive-btn');
 const bulkArchiveText = document.getElementById('bulk-archive-text');
@@ -170,6 +171,7 @@ selectAllCheckbox.addEventListener('change', toggleSelectAll);
 cancelSelectionBtn.addEventListener('click', cancelSelection);
 bulkDeleteBtn.addEventListener('click', bulkDelete);
 bulkArchiveBtn.addEventListener('click', bulkArchive);
+bulkCopyBtn.addEventListener('click', bulkCopyFiles);
 bulkDownloadBtn.addEventListener('click', bulkDownload);
 bulkCompareBtn.addEventListener('click', openComparisonModal);
 
@@ -211,6 +213,39 @@ lightbox.addEventListener('click', (e) => {
     if (e.target === lightbox) closeLightbox();
 });
 document.addEventListener('keydown', handleLightboxKeydown);
+
+// Cmd+C / Ctrl+C shortcut for copy operations
+document.addEventListener('keydown', (e) => {
+    if (!(e.key === 'c' && (e.metaKey || e.ctrlKey))) return;
+    if (e.shiftKey || e.altKey) return;
+
+    // Priority 1: Lightbox open → copy image contents
+    if (lightbox.classList.contains('active')) {
+        e.preventDefault();
+        const clip = imageClips[currentLightboxIndex];
+        if (clip) copyClipContents(clip.id);
+        return;
+    }
+
+    // Don't interfere with text inputs (skip checkboxes/radios which don't use native copy)
+    const active = document.activeElement;
+    if (active && (active.tagName === 'TEXTAREA' || active.isContentEditable ||
+        (active.tagName === 'INPUT' && active.type !== 'checkbox' && active.type !== 'radio'))) {
+        return;
+    }
+
+    // Priority 2: Editor modal open → don't intercept
+    if (document.getElementById('editor-modal')?.classList.contains('active')) {
+        return;
+    }
+
+    // Priority 3: Clips selected in gallery → copy as files
+    if (selectedIds.size > 0) {
+        e.preventDefault();
+        bulkCopyFiles();
+        return;
+    }
+});
 
 // Initialize lightbox gestures (touch, wheel, drag, zoom slider)
 // All gesture listeners are centralized in modals.js for better cohesion
