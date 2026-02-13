@@ -223,7 +223,7 @@ async function handleCardAction(action, clipId, triggerButton) {
 
 async function createClipCard(clip, options = {}) {
     const card = document.createElement('li');
-    card.className = 'bg-white rounded-md border border-stone-200 overflow-hidden flex flex-col transition-all duration-150 hover:border-stone-300 relative group';
+    card.className = 'bg-white rounded-md border border-stone-200 overflow-hidden flex flex-col transition-all duration-150 hover:border-stone-300 relative group [&.has-checked]:ring-1 [&.has-checked]:ring-stone-400';
     card.dataset.id = clip.id;
     card.dataset.filename = (clip.filename || '').toLowerCase();
     card.dataset.type = (clip.content_type || '').toLowerCase();
