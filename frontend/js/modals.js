@@ -1,5 +1,8 @@
 // --- Lightbox Functions ---
 
+// Delay after lightbox close animation before opening a new modal (matches CSS transition 0.2s + buffer)
+const LIGHTBOX_CLOSE_DELAY = 350;
+
 // Lightbox image element - managed here, accessed via getLightboxImg()
 let lightboxImg = null;
 
@@ -489,11 +492,18 @@ function handleLightboxKeydown(e) {
     if (!lightbox.classList.contains('active')) return;
 
     if (e.key === 'Escape') {
-        // Close file menu first if open, before closing lightbox
+        // Close any open menu first before closing lightbox
         const fileMenu = document.getElementById('lightbox-file-menu');
         if (fileMenu) {
             closeLightboxFileMenu();
             const trigger = document.getElementById('lightbox-file-menu-trigger');
+            if (trigger) trigger.focus();
+            return;
+        }
+        const pluginMenu = document.getElementById('lightbox-plugin-menu');
+        if (pluginMenu) {
+            closeLightboxPluginMenu();
+            const trigger = document.getElementById('lightbox-plugin-menu-trigger');
             if (trigger) trigger.focus();
             return;
         }
@@ -617,7 +627,7 @@ function openLightboxPluginMenu(trigger, actions) {
     }
 
     document.body.appendChild(menu);
-    positionLightboxPluginMenu(menu, trigger);
+    positionLightboxPopupMenu(menu, trigger);
     setupLightboxPluginMenuKeyboard(menu);
 
     // Animate in
@@ -628,7 +638,7 @@ function openLightboxPluginMenu(trigger, actions) {
     trigger.setAttribute('aria-expanded', 'true');
 }
 
-function positionLightboxPluginMenu(menu, trigger) {
+function positionLightboxPopupMenu(menu, trigger) {
     const triggerRect = trigger.getBoundingClientRect();
     const menuRect = menu.getBoundingClientRect();
     const gap = 8;
@@ -810,7 +820,7 @@ function openLightboxFileMenu(trigger) {
     menu.appendChild(deleteItem);
 
     document.body.appendChild(menu);
-    positionLightboxPluginMenu(menu, trigger);
+    positionLightboxPopupMenu(menu, trigger);
 
     // Keyboard navigation
     const items = menu.querySelectorAll('.lightbox-file-menu-item');
@@ -878,7 +888,7 @@ function handleLightboxFileAction(action) {
             break;
         case 'edit':
             closeLightbox();
-            setTimeout(() => openEditor(clip.id), 350);
+            setTimeout(() => openEditor(clip.id), LIGHTBOX_CLOSE_DELAY);
             break;
         case 'tags': {
             const trigger = document.getElementById('lightbox-file-menu-trigger');
@@ -891,7 +901,7 @@ function handleLightboxFileAction(action) {
             break;
         case 'delete':
             closeLightbox();
-            setTimeout(() => deleteClip(clip.id), 350);
+            setTimeout(() => deleteClip(clip.id), LIGHTBOX_CLOSE_DELAY);
             break;
     }
 }
