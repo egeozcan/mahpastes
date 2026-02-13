@@ -534,6 +534,7 @@ pluginsModal.addEventListener('click', (e) => {
 // Close on escape - single handler for both plugin modals with correct priority
 document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
+    e.preventDefault();
 
     // Options dialog takes priority over plugins modal
     const optionsModal = document.getElementById('plugin-options-modal');

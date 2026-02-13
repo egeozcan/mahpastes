@@ -280,6 +280,7 @@ function setupConfirmDialogFocusTrap() {
                 }
             }
         } else if (e.key === 'Escape') {
+            e.preventDefault();
             closeConfirmDialog();
         }
     });

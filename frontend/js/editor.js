@@ -9,6 +9,8 @@ let isTextEditor = false;
 // Canvas state
 let canvas = null;
 let ctx = null;
+let overlayCanvas = null;
+let overlayCtx = null;
 let originalImage = null;
 let currentTool = 'brush';
 let currentColor = '#3b82f6';
@@ -27,7 +29,6 @@ const MAX_UNDO = 50;
 let textInputActive = false;
 let textInputX = 0;
 let textInputY = 0;
-let savedImageData = null;
 
 // --- Editor Functions ---
 
@@ -114,8 +115,6 @@ function closeEditor() {
     editorFilename = '';
     undoStack = [];
     redoStack = [];
-    savedImageData = null;
-
     // Hide text input
     const textInput = document.getElementById('canvas-text-input');
     if (textInput) {
@@ -135,6 +134,8 @@ function closeEditor() {
 async function initCanvasEditor(imageBlob) {
     canvas = document.getElementById('editor-canvas');
     ctx = canvas.getContext('2d');
+    overlayCanvas = document.getElementById('editor-overlay-canvas');
+    overlayCtx = overlayCanvas.getContext('2d');
 
     originalImage = new Image();
     originalImage.src = URL.createObjectURL(imageBlob);
@@ -156,9 +157,14 @@ async function initCanvasEditor(imageBlob) {
 
     canvas.width = width;
     canvas.height = height;
+    overlayCanvas.width = width;
+    overlayCanvas.height = height;
 
     // Draw the image
     ctx.drawImage(originalImage, 0, 0, width, height);
+
+    // Position overlay canvas on top of main canvas
+    syncOverlay();
 
     // Save initial state
     saveUndoState();
@@ -173,6 +179,16 @@ async function initCanvasEditor(imageBlob) {
     canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
     canvas.addEventListener('touchmove', handleTouchMove, { passive: false });
     canvas.addEventListener('touchend', handleTouchEnd);
+}
+
+function syncOverlay() {
+    if (!canvas || !overlayCanvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const container = canvas.parentElement.getBoundingClientRect();
+    overlayCanvas.style.left = (rect.left - container.left) + 'px';
+    overlayCanvas.style.top = (rect.top - container.top) + 'px';
+    overlayCanvas.style.width = rect.width + 'px';
+    overlayCanvas.style.height = rect.height + 'px';
 }
 
 function resetToolState() {
@@ -249,8 +265,6 @@ function handleCanvasMouseDown(e) {
     if (currentTool === 'brush' || currentTool === 'eraser') {
         ctx.beginPath();
         ctx.moveTo(coords.x, coords.y);
-    } else if (currentTool === 'line' || currentTool === 'rectangle' || currentTool === 'circle') {
-        savedImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     }
 }
 
@@ -264,10 +278,6 @@ function handleCanvasMouseMove(e) {
     } else if (currentTool === 'eraser') {
         erase(coords.x, coords.y);
     } else if (currentTool === 'line' || currentTool === 'rectangle' || currentTool === 'circle') {
-        // Preview - restore and redraw
-        if (savedImageData) {
-            ctx.putImageData(savedImageData, 0, 0);
-        }
         drawShapePreview(coords.x, coords.y, e.shiftKey);
     }
 
@@ -281,11 +291,8 @@ function handleCanvasMouseUp(e) {
 
     const coords = getCanvasCoordinates(e);
 
-    // Restore clean state before final draw
-    if (savedImageData) {
-        ctx.putImageData(savedImageData, 0, 0);
-        savedImageData = null;
-    }
+    // Clear the overlay preview
+    overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
 
     if (currentTool === 'line') {
         drawLine(startX, startY, coords.x, coords.y, e.shiftKey);
@@ -401,10 +408,12 @@ function drawCircle(x1, y1, x2, y2) {
 }
 
 function drawShapePreview(x, y, snap) {
-    ctx.globalAlpha = currentOpacity * 0.5; // Preview is semi-transparent
-    ctx.strokeStyle = currentColor;
-    ctx.lineWidth = brushSize;
-    ctx.setLineDash([5, 5]);
+    const oc = overlayCtx;
+    oc.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+    oc.globalAlpha = currentOpacity * 0.5;
+    oc.strokeStyle = currentColor;
+    oc.lineWidth = brushSize;
+    oc.setLineDash([5, 5]);
 
     if (currentTool === 'line') {
         let endX = x, endY = y;
@@ -413,23 +422,23 @@ function drawShapePreview(x, y, snap) {
             endX = snapped.x;
             endY = snapped.y;
         }
-        ctx.beginPath();
-        ctx.moveTo(startX, startY);
-        ctx.lineTo(endX, endY);
-        ctx.stroke();
+        oc.beginPath();
+        oc.moveTo(startX, startY);
+        oc.lineTo(endX, endY);
+        oc.stroke();
     } else if (currentTool === 'rectangle') {
-        ctx.beginPath();
-        ctx.rect(Math.min(startX, x), Math.min(startY, y), Math.abs(x - startX), Math.abs(y - startY));
-        ctx.stroke();
+        oc.beginPath();
+        oc.rect(Math.min(startX, x), Math.min(startY, y), Math.abs(x - startX), Math.abs(y - startY));
+        oc.stroke();
     } else if (currentTool === 'circle') {
         const radius = Math.sqrt(Math.pow(x - startX, 2) + Math.pow(y - startY, 2));
-        ctx.beginPath();
-        ctx.arc(startX, startY, radius, 0, Math.PI * 2);
-        ctx.stroke();
+        oc.beginPath();
+        oc.arc(startX, startY, radius, 0, Math.PI * 2);
+        oc.stroke();
     }
 
-    ctx.setLineDash([]);
-    ctx.globalAlpha = 1;
+    oc.setLineDash([]);
+    oc.globalAlpha = 1;
 }
 
 function snapTo45(x1, y1, x2, y2) {
@@ -659,6 +668,7 @@ function setupEditorListeners() {
             e.preventDefault();
             commitTextInput();
         } else if (e.key === 'Escape') {
+            e.preventDefault();
             textInput.style.display = 'none';
             textInput.value = '';
             textInputActive = false;
@@ -683,6 +693,7 @@ function setupEditorListeners() {
         if (!editorModal.classList.contains('active')) return;
 
         if (e.key === 'Escape') {
+            e.preventDefault();
             closeEditor();
         } else if (e.ctrlKey || e.metaKey) {
             if (e.key === 'z' && !e.shiftKey) {

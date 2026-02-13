@@ -629,13 +629,9 @@ input[type="range"].comparison-range::-webkit-slider-thumb {
 }
 
 /* Text editor has no toolbar, so use simple flex layout */
-#text-editor-view {
-    display: flex;
-    flex-direction: column;
-}
-
 #text-editor-view:not(.hidden) {
     display: flex;
+    flex-direction: column;
 }
 
 #text-editor-textarea {
@@ -694,6 +690,12 @@ input[type="range"].comparison-range::-webkit-slider-thumb {
     max-height: 100%;
     background: white;
     cursor: crosshair;
+}
+
+#editor-overlay-canvas {
+    position: absolute;
+    pointer-events: none;
+    /* Sized and positioned by JS to match the main canvas exactly */
 }
 
 #canvas-text-input {

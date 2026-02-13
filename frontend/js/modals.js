@@ -500,6 +500,7 @@ function handleLightboxKeydown(e) {
     if (!lightbox.classList.contains('active')) return;
 
     if (e.key === 'Escape') {
+        e.preventDefault();
         // Close any open menu first before closing lightbox
         const fileMenu = document.getElementById('lightbox-file-menu');
         if (fileMenu) {
