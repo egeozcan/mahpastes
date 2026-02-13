@@ -127,7 +127,12 @@ function updateLightboxImageInfo() {
 
     const filename = clip.filename || 'Pasted Image';
     const position = `${currentLightboxIndex + 1}/${imageClips.length}`;
-    imageInfo.textContent = `${position} · ${filename}`;
+    const resolution = lightboxImg?.naturalWidth && lightboxImg?.naturalHeight
+        ? `${lightboxImg.naturalWidth}×${lightboxImg.naturalHeight}`
+        : '';
+    imageInfo.textContent = resolution
+        ? `${position} · ${filename} · ${resolution}`
+        : `${position} · ${filename}`;
 }
 
 // Reset zoom state
@@ -436,7 +441,10 @@ async function openLightbox(index) {
         const dataUrl = await getImageDataUrl(clip.id);
         lightboxImg.src = dataUrl;
         // Update zoom display after image loads (use addEventListener for safe composition)
-        lightboxImg.addEventListener('load', updateZoomDisplay, { once: true });
+        lightboxImg.addEventListener('load', () => {
+            updateZoomDisplay();
+            updateLightboxImageInfo();
+        }, { once: true });
     } catch (error) {
         console.error('Failed to load image for lightbox:', error);
         lightboxImg.src = '';
