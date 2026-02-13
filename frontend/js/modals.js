@@ -590,7 +590,7 @@ function openLightboxPluginMenu(trigger, actions) {
             item.dataset.pluginId = action.plugin_id;
             item.dataset.actionId = action.id;
 
-            const icon = action.icon ? getPluginIcon(action.icon) : '';
+            const icon = action.icon ? (getPluginIcon(action.icon) || '') : '';
             item.innerHTML = `${icon}<span>${escapeHTML(action.label)}</span>`;
 
             item.addEventListener('click', (e) => {
