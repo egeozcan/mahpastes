@@ -517,8 +517,10 @@ function handleLightboxKeydown(e) {
         }
         closeLightbox();
     } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
         showNextImage();
     } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
         showPrevImage();
     } else if (e.key === 'Tab') {
         // Focus trap logic
