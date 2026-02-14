@@ -234,12 +234,18 @@ document.addEventListener('keydown', (e) => {
         return;
     }
 
+    // Don't interfere if there's selected text on the page
+    const selection = window.getSelection();
+    if (selection && selection.toString().length > 0) {
+        return;
+    }
+
     // Priority 2: Editor modal open → don't intercept
     if (document.getElementById('editor-modal')?.classList.contains('active')) {
         return;
     }
 
-    // Priority 3: Clips selected in gallery → copy as files
+    // Priority 3: Clips selected in gallery → copy as files (only when clips are selected)
     if (selectedIds.size > 0) {
         e.preventDefault();
         bulkCopyFiles();
