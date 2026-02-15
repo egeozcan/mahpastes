@@ -9,14 +9,14 @@ Plugin = {
 
     ui = {
         lightbox_buttons = {
-            {id = "to_ascii", label = "To ASCII", icon = "code", async = true,
+            {id = "to_ascii", label = "To ASCII", icon = "code", async = true, file_types = {"image/*"},
                 options = {
                     {id = "width", type = "range", label = "Width (chars)", default = 80, min = 40, max = 120, step = 1},
                 }
             },
         },
         card_actions = {
-            {id = "to_ascii", label = "To ASCII", icon = "code", async = true,
+            {id = "to_ascii", label = "To ASCII", icon = "code", async = true, file_types = {"image/*"},
                 options = {
                     {id = "width", type = "range", label = "Width (chars)", default = 80, min = 40, max = 120, step = 1},
                 }

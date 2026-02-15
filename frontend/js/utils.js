@@ -105,6 +105,23 @@ function escapeHTML(str) {
 // Alias for compatibility
 const escapeHtml = escapeHTML;
 
+function matchesMimePattern(contentType, fileTypes) {
+    if (!fileTypes || fileTypes.length === 0) return true;
+    if (!contentType) return false;
+    const ct = contentType.toLowerCase();
+    return fileTypes.some(pattern => {
+        const p = pattern.toLowerCase();
+        if (p.endsWith('/*')) return ct.startsWith(p.slice(0, -1));
+        return ct === p;
+    });
+}
+
+function shouldShowPluginAction(action, clip) {
+    if (!matchesMimePattern(clip.content_type, action.file_types)) return false;
+    if (action.max_size && action.max_size > 0 && clip.size > action.max_size) return false;
+    return true;
+}
+
 function getFriendlyFileType(contentType, filename) {
     // Map of MIME types to friendly names
     const mimeMap = {

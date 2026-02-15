@@ -13,10 +13,10 @@ Plugin = {
 
     ui = {
         lightbox_buttons = {
-            {id = "generate_qr", label = "Generate QR", icon = "qrcode", async = true},
+            {id = "generate_qr", label = "Generate QR", icon = "qrcode", async = true, file_types = {"text/*", "application/json"}, max_size = 4296},
         },
         card_actions = {
-            {id = "generate_qr", label = "Generate QR", icon = "qrcode", async = true},
+            {id = "generate_qr", label = "Generate QR", icon = "qrcode", async = true, file_types = {"text/*", "application/json"}, max_size = 4296},
         },
     },
 }

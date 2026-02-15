@@ -79,30 +79,36 @@ function renderCardMenu(clipId, button, clip) {
 
     // Add plugin actions if any
     if (pluginUIActions && pluginUIActions.card_actions && pluginUIActions.card_actions.length > 0) {
-        // Add divider
-        const divider = document.createElement('hr');
-        divider.className = 'card-menu-divider';
-        menu.appendChild(divider);
+        const applicableActions = pluginUIActions.card_actions.filter(action =>
+            shouldShowPluginAction(action, clip)
+        );
 
-        // Render plugin actions
-        pluginUIActions.card_actions.forEach(action => {
-            const item = document.createElement('button');
-            item.className = 'card-menu-item';
-            item.setAttribute('role', 'menuitem');
-            item.dataset.action = 'plugin';
-            item.dataset.pluginId = action.plugin_id;
-            item.dataset.actionId = action.id;
-            item.dataset.clipId = clipId;
-            item.dataset.hasOptions = action.options && action.options.length > 0 ? 'true' : 'false';
+        if (applicableActions.length > 0) {
+            // Add divider
+            const divider = document.createElement('hr');
+            divider.className = 'card-menu-divider';
+            menu.appendChild(divider);
 
-            let iconHtml = '';
-            if (typeof getPluginIcon === 'function') {
-                iconHtml = getPluginIcon(action.icon) || getPluginIcon('bolt') || '';
-            }
+            // Render plugin actions
+            applicableActions.forEach(action => {
+                const item = document.createElement('button');
+                item.className = 'card-menu-item';
+                item.setAttribute('role', 'menuitem');
+                item.dataset.action = 'plugin';
+                item.dataset.pluginId = action.plugin_id;
+                item.dataset.actionId = action.id;
+                item.dataset.clipId = clipId;
+                item.dataset.hasOptions = action.options && action.options.length > 0 ? 'true' : 'false';
 
-            item.innerHTML = `${iconHtml}<span>${escapeHTML(action.label)}</span>`;
-            menu.appendChild(item);
-        });
+                let iconHtml = '';
+                if (typeof getPluginIcon === 'function') {
+                    iconHtml = getPluginIcon(action.icon) || getPluginIcon('bolt') || '';
+                }
+
+                item.innerHTML = `${iconHtml}<span>${escapeHTML(action.label)}</span>`;
+                menu.appendChild(item);
+            });
+        }
     }
 
     // Position the menu

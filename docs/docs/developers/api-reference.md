@@ -40,6 +40,7 @@ type ClipPreview struct {
     Preview     string     `json:"preview"`      // Text preview (500 chars max)
     IsArchived  bool       `json:"is_archived"`
     Tags        []Tag      `json:"tags"`          // Tags assigned to this clip
+    Size        int64      `json:"size"`          // Clip size in bytes
 }
 ```
 
@@ -744,6 +745,29 @@ Returns all UI actions (lightbox buttons, card actions) from enabled plugins.
 ```go
 func (s *PluginService) GetPluginUIActions() (*UIActionsResponse, error)
 ```
+
+**Response structure:**
+```go
+type UIActionsResponse struct {
+    LightboxButtons []PluginUIAction `json:"lightbox_buttons"`
+    CardActions     []PluginUIAction `json:"card_actions"`
+}
+
+type PluginUIAction struct {
+    PluginID   int64       `json:"plugin_id"`
+    PluginName string      `json:"plugin_name"`
+    ID         string      `json:"id"`
+    Label      string      `json:"label"`
+    Icon       string      `json:"icon,omitempty"`
+    Async      bool        `json:"async,omitempty"`
+    Options    []FormField `json:"options,omitempty"`
+    FileTypes  []string    `json:"file_types,omitempty"` // MIME filters, e.g. image/* or text/plain
+    MaxSize    int64       `json:"max_size,omitempty"`   // Max clip size in bytes (0 = no limit)
+}
+```
+
+`file_types` supports exact MIME matches and wildcard prefixes (for example `image/*`).  
+`max_size` is compared against clip byte size and hides actions for larger clips.
 
 ### ExecutePluginAction
 

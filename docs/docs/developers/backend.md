@@ -194,6 +194,7 @@ type ClipPreview struct {
     ExpiresAt   *time.Time `json:"expires_at"`
     Preview     string     `json:"preview"`    // First 500 chars for text
     IsArchived  bool       `json:"is_archived"`
+    Size        int64      `json:"size"`       // Clip size in bytes
 }
 ```
 

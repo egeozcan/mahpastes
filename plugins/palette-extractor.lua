@@ -11,7 +11,7 @@ Plugin = {
 
     ui = {
         lightbox_buttons = {
-            {id = "extract_palette", label = "Extract Palette", icon = "swatch", async = true,
+            {id = "extract_palette", label = "Extract Palette", icon = "swatch", async = true, file_types = {"image/*"},
                 options = {
                     {id = "count", type = "range", label = "Number of Colors", default = 6, min = 3, max = 10, step = 1},
                     {id = "tag_colors", type = "checkbox", label = "Tag with hex colors", default = false},
@@ -19,7 +19,7 @@ Plugin = {
             },
         },
         card_actions = {
-            {id = "extract_palette", label = "Extract Palette", icon = "swatch", async = true,
+            {id = "extract_palette", label = "Extract Palette", icon = "swatch", async = true, file_types = {"image/*"},
                 options = {
                     {id = "count", type = "range", label = "Number of Colors", default = 6, min = 3, max = 10, step = 1},
                     {id = "tag_colors", type = "checkbox", label = "Tag with hex colors", default = false},

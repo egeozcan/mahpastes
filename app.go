@@ -60,9 +60,9 @@ func (a *App) getClipPreview(id int64) (*ClipPreview, error) {
 	var isArchivedInt int
 
 	err := a.db.QueryRow(`
-		SELECT id, content_type, filename, created_at, expires_at, SUBSTR(data, 1, 500), is_archived
+		SELECT id, content_type, filename, created_at, expires_at, SUBSTR(data, 1, 500), is_archived, LENGTH(data)
 		FROM clips WHERE id = ?`, id).Scan(
-		&clip.ID, &clip.ContentType, &filename, &clip.CreatedAt, &expiresAt, &previewData, &isArchivedInt)
+		&clip.ID, &clip.ContentType, &filename, &clip.CreatedAt, &expiresAt, &previewData, &isArchivedInt, &clip.Size)
 	if err != nil {
 		return nil, err
 	}
@@ -205,6 +205,7 @@ type ClipPreview struct {
 	Preview     string     `json:"preview"`
 	IsArchived  bool       `json:"is_archived"`
 	Tags        []Tag      `json:"tags"`
+	Size        int64      `json:"size"`
 }
 
 // ClipData for full clip retrieval
@@ -327,7 +328,7 @@ func (a *App) GetClips(archived bool, tagIDs []int64, hiddenTagIDs []int64) ([]C
 		args = append(args, archivedInt, len(tagIDs))
 
 		query = fmt.Sprintf(`
-		SELECT c.id, c.content_type, c.filename, c.created_at, c.expires_at, SUBSTR(c.data, 1, 500), c.is_archived
+		SELECT c.id, c.content_type, c.filename, c.created_at, c.expires_at, SUBSTR(c.data, 1, 500), c.is_archived, LENGTH(c.data)
 		FROM clips c
 		INNER JOIN clip_tags ct ON c.id = ct.clip_id%s
 		WHERE ct.tag_id IN (%s)
@@ -347,7 +348,7 @@ func (a *App) GetClips(archived bool, tagIDs []int64, hiddenTagIDs []int64) ([]C
 		args = append(args, archivedInt)
 
 		query = fmt.Sprintf(`
-		SELECT c.id, c.content_type, c.filename, c.created_at, c.expires_at, SUBSTR(c.data, 1, 500), c.is_archived
+		SELECT c.id, c.content_type, c.filename, c.created_at, c.expires_at, SUBSTR(c.data, 1, 500), c.is_archived, LENGTH(c.data)
 		FROM clips c
 		LEFT JOIN clip_tags ht ON c.id = ht.clip_id AND ht.tag_id IN (%s)
 		WHERE ht.clip_id IS NULL
@@ -359,7 +360,7 @@ func (a *App) GetClips(archived bool, tagIDs []int64, hiddenTagIDs []int64) ([]C
 		// No filters, no hidden tags - original simple query
 		args = append(args, archivedInt)
 		query = fmt.Sprintf(`
-		SELECT id, content_type, filename, created_at, expires_at, SUBSTR(data, 1, 500), is_archived
+		SELECT id, content_type, filename, created_at, expires_at, SUBSTR(data, 1, 500), is_archived, LENGTH(data)
 		FROM clips
 		WHERE is_archived = ? AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
 		ORDER BY created_at DESC
@@ -381,7 +382,7 @@ func (a *App) GetClips(archived bool, tagIDs []int64, hiddenTagIDs []int64) ([]C
 		var previewData []byte
 		var isArchivedInt int
 
-		if err := rows.Scan(&clip.ID, &clip.ContentType, &filename, &clip.CreatedAt, &expiresAt, &previewData, &isArchivedInt); err != nil {
+		if err := rows.Scan(&clip.ID, &clip.ContentType, &filename, &clip.CreatedAt, &expiresAt, &previewData, &isArchivedInt, &clip.Size); err != nil {
 			log.Printf("Failed to scan clip row: %v\n", err)
 			continue
 		}

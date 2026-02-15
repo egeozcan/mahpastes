@@ -71,11 +71,13 @@ type UIManifest struct {
 
 // UIAction represents a plugin-defined action button
 type UIAction struct {
-	ID      string      `json:"id"`
-	Label   string      `json:"label"`
-	Icon    string      `json:"icon,omitempty"`
-	Async   bool        `json:"async,omitempty"`
-	Options []FormField `json:"options,omitempty"`
+	ID        string      `json:"id"`
+	Label     string      `json:"label"`
+	Icon      string      `json:"icon,omitempty"`
+	Async     bool        `json:"async,omitempty"`
+	Options   []FormField `json:"options,omitempty"`
+	FileTypes []string    `json:"file_types,omitempty"`
+	MaxSize   int64       `json:"max_size,omitempty"`
 }
 
 // FormField represents a form field in an options dialog
@@ -584,7 +586,22 @@ func parseUIAction(entry string) UIAction {
 	// Parse options if present
 	action.Options = extractFormFields(entry)
 
+	// Parse file type filter and max size
+	action.FileTypes = extractStringArray(entry, "file_types")
+	action.MaxSize = extractIntField(entry, "max_size")
+
 	return action
+}
+
+// extractIntField extracts an integer field like: max_size = 4296
+func extractIntField(block, field string) int64 {
+	pattern := fmt.Sprintf(`%s\s*=\s*(\d+)`, regexp.QuoteMeta(field))
+	re := regexp.MustCompile(pattern)
+	if m := re.FindStringSubmatch(block); len(m) >= 2 {
+		val, _ := strconv.ParseInt(m[1], 10, 64)
+		return val
+	}
+	return 0
 }
 
 // extractFormFields extracts form field definitions from an action

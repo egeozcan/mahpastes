@@ -43,6 +43,8 @@ type PluginUIAction struct {
 	Icon       string             `json:"icon,omitempty"`
 	Async      bool               `json:"async,omitempty"`
 	Options    []plugin.FormField `json:"options,omitempty"`
+	FileTypes  []string           `json:"file_types,omitempty"`
+	MaxSize    int64              `json:"max_size,omitempty"`
 }
 
 // UIActionsResponse contains all plugin UI actions
@@ -324,6 +326,8 @@ func (s *PluginService) GetPluginUIActions() (*UIActionsResponse, error) {
 				Icon:       btn.Icon,
 				Async:      btn.Async,
 				Options:    btn.Options,
+				FileTypes:  btn.FileTypes,
+				MaxSize:    btn.MaxSize,
 			})
 		}
 
@@ -337,6 +341,8 @@ func (s *PluginService) GetPluginUIActions() (*UIActionsResponse, error) {
 				Icon:       action.Icon,
 				Async:      action.Async,
 				Options:    action.Options,
+				FileTypes:  action.FileTypes,
+				MaxSize:    action.MaxSize,
 			})
 		}
 	}

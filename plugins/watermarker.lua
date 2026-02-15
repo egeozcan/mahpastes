@@ -9,7 +9,7 @@ Plugin = {
 
     ui = {
         lightbox_buttons = {
-            {id = "watermark", label = "Watermark", icon = "pencil", async = true,
+            {id = "watermark", label = "Watermark", icon = "pencil", async = true, file_types = {"image/*"},
                 options = {
                     {id = "text", type = "text", label = "Watermark Text", required = true},
                     {id = "position", type = "select", label = "Position", default = "center",
@@ -28,7 +28,7 @@ Plugin = {
             },
         },
         card_actions = {
-            {id = "watermark", label = "Watermark", icon = "pencil", async = true,
+            {id = "watermark", label = "Watermark", icon = "pencil", async = true, file_types = {"image/*"},
                 options = {
                     {id = "text", type = "text", label = "Watermark Text", required = true},
                     {id = "position", type = "select", label = "Position", default = "center",

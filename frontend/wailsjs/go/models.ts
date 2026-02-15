@@ -107,6 +107,7 @@ export namespace main {
 	    preview: string;
 	    is_archived: boolean;
 	    tags: Tag[];
+	    size: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new ClipPreview(source);
@@ -122,6 +123,7 @@ export namespace main {
 	        this.preview = source["preview"];
 	        this.is_archived = source["is_archived"];
 	        this.tags = this.convertValues(source["tags"], Tag);
+	        this.size = source["size"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -212,6 +214,8 @@ export namespace main {
 	    icon?: string;
 	    async?: boolean;
 	    options?: plugin.FormField[];
+	    file_types?: string[];
+	    max_size?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new PluginUIAction(source);
@@ -226,6 +230,8 @@ export namespace main {
 	        this.icon = source["icon"];
 	        this.async = source["async"];
 	        this.options = this.convertValues(source["options"], plugin.FormField);
+	        this.file_types = source["file_types"];
+	        this.max_size = source["max_size"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

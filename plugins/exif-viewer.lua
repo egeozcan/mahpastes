@@ -11,10 +11,10 @@ Plugin = {
 
     ui = {
         lightbox_buttons = {
-            {id = "view_exif", label = "View EXIF", icon = "info", async = true},
+            {id = "view_exif", label = "View EXIF", icon = "info", async = true, file_types = {"image/*"}},
         },
         card_actions = {
-            {id = "view_exif", label = "View EXIF", icon = "info", async = true},
+            {id = "view_exif", label = "View EXIF", icon = "info", async = true, file_types = {"image/*"}},
         },
     },
 }

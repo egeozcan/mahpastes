@@ -296,8 +296,8 @@ Plugins can add custom buttons to the lightbox and card context menus. When a us
 ```lua
 ui = {
     lightbox_buttons = {
-        {id = "enhance", label = "Enhance", icon = "wand", async = true},
-        {id = "convert", label = "Convert", icon = "refresh",
+        {id = "enhance", label = "Enhance", icon = "wand", async = true, file_types = {"image/*"}},
+        {id = "convert", label = "Convert", icon = "refresh", file_types = {"image/*"},
             options = {
                 {id = "format", type = "select", label = "Format",
                     choices = {
@@ -309,7 +309,8 @@ ui = {
         },
     },
     card_actions = {
-        {id = "enhance", label = "Enhance", icon = "wand", async = true},
+        {id = "enhance", label = "Enhance", icon = "wand", async = true, file_types = {"image/*"}},
+        {id = "generate_qr", label = "Generate QR", icon = "qrcode", async = true, file_types = {"text/*", "application/json"}, max_size = 4296},
     },
 },
 ```
@@ -323,6 +324,8 @@ ui = {
 | `icon` | No | Icon name (e.g., `"wand"`, `"refresh"`, `"pencil"`) |
 | `async` | No | If `true`, runs in background (up to 5 minutes timeout) |
 | `options` | No | Array of form fields shown in a dialog before execution |
+| `file_types` | No | MIME type filters. Supports exact match (`"text/plain"`) and wildcard prefixes (`"image/*"`) |
+| `max_size` | No | Maximum clip size in bytes. Action is hidden when clip size exceeds this value |
 
 ### Option Form Fields
 

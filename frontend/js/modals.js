@@ -553,7 +553,15 @@ async function renderLightboxPluginButtons() {
         return;
     }
 
-    const actions = pluginUIActions.lightbox_buttons;
+    const clip = imageClips[currentLightboxIndex];
+    const actions = clip
+        ? pluginUIActions.lightbox_buttons.filter(action => shouldShowPluginAction(action, clip))
+        : pluginUIActions.lightbox_buttons;
+
+    if (actions.length === 0) {
+        container.classList.add('hidden');
+        return;
+    }
 
     // Determine trigger label: plugin name if single plugin, "Plugins" if multiple
     const pluginNames = new Set(actions.map(a => a.plugin_name).filter(Boolean));

@@ -20,10 +20,14 @@ Plugin = {
           {id = "uppercase", type = "checkbox", label = "Uppercase", default = false},
         }
       },
+      {id = "test_image_only", label = "Test Image Only", icon = "sparkles", file_types = {"image/*"}},
+      {id = "test_text_only", label = "Test Text Only", icon = "sparkles", file_types = {"text/*"}},
     },
     card_actions = {
       {id = "test_simple", label = "Test Simple", icon = "sparkles"},
       {id = "test_bulk", label = "Test Bulk", icon = "refresh"},
+      {id = "test_image_only", label = "Test Image Only", icon = "sparkles", file_types = {"image/*"}},
+      {id = "test_text_only", label = "Test Text Only", icon = "sparkles", file_types = {"text/*"}},
     },
   },
 }
@@ -33,6 +37,8 @@ local VALID_ACTIONS = {
   test_simple = true,
   test_options = true,
   test_bulk = true,
+  test_image_only = true,
+  test_text_only = true,
 }
 
 function on_ui_action(action_id, clip_ids, options)

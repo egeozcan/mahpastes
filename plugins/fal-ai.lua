@@ -19,8 +19,8 @@ Plugin = {
 
     ui = {
         lightbox_buttons = {
-            {id = "colorize", label = "Colorize", icon = "wand", async = true},
-            {id = "upscale", label = "Upscale", icon = "arrows-expand", async = true,
+            {id = "colorize", label = "Colorize", icon = "wand", async = true, file_types = {"image/*"}},
+            {id = "upscale", label = "Upscale", icon = "arrows-expand", async = true, file_types = {"image/*"},
                 options = {
                     {id = "model", type = "select", label = "Model", default = "clarity",
                         choices = {
@@ -31,13 +31,13 @@ Plugin = {
                     },
                 }
             },
-            {id = "restore", label = "Restore", icon = "refresh", async = true,
+            {id = "restore", label = "Restore", icon = "refresh", async = true, file_types = {"image/*"},
                 options = {
                     {id = "fix_colors", type = "checkbox", label = "Fix Colors", default = true},
                     {id = "remove_scratches", type = "checkbox", label = "Remove Scratches", default = true},
                 }
             },
-            {id = "edit", label = "AI Edit", icon = "pencil", async = true,
+            {id = "edit", label = "AI Edit", icon = "pencil", async = true, file_types = {"image/*"},
                 options = {
                     {id = "prompt", type = "text", label = "Edit Prompt", required = true},
                     {id = "model", type = "select", label = "Model", default = "flux2",
@@ -50,11 +50,11 @@ Plugin = {
                     {id = "strength", type = "range", label = "Strength", default = 0.75, min = 0.1, max = 1, step = 0.05},
                 }
             },
-            {id = "vectorize", label = "Vectorize", icon = "sparkles", async = true},
+            {id = "vectorize", label = "Vectorize", icon = "sparkles", async = true, file_types = {"image/*"}},
         },
         card_actions = {
-            {id = "colorize", label = "Colorize", icon = "wand", async = true},
-            {id = "upscale", label = "Upscale", icon = "arrows-expand", async = true,
+            {id = "colorize", label = "Colorize", icon = "wand", async = true, file_types = {"image/*"}},
+            {id = "upscale", label = "Upscale", icon = "arrows-expand", async = true, file_types = {"image/*"},
                 options = {
                     {id = "model", type = "select", label = "Model", default = "clarity",
                         choices = {
@@ -65,7 +65,7 @@ Plugin = {
                     },
                 }
             },
-            {id = "restore", label = "Restore", icon = "refresh", async = true,
+            {id = "restore", label = "Restore", icon = "refresh", async = true, file_types = {"image/*"},
                 options = {
                     {id = "fix_colors", type = "checkbox", label = "Fix Colors", default = true},
                     {id = "remove_scratches", type = "checkbox", label = "Remove Scratches", default = true},
