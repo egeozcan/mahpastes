@@ -197,3 +197,53 @@ input[type="color"]::-webkit-color-swatch {
     border-top: 1px solid #e7e5e4;
     margin: 0.25rem 0;
 }
+
+/* Drag-out handle */
+.clip-drag-handle {
+    cursor: wait;
+    user-select: none;
+    -webkit-user-drag: element;
+}
+
+.clip-drag-handle.is-ready:active {
+    cursor: grabbing;
+}
+
+.clip-drag-handle.is-preparing {
+    cursor: progress;
+}
+
+.clip-drag-handle.is-ready {
+    cursor: grab;
+    color: #57534e;
+    background-color: #f5f5f4;
+}
+
+.clip-drag-progress-track {
+    opacity: 0.2;
+}
+
+.clip-drag-progress-fill {
+    stroke-dasharray: 56.55;
+    stroke-dashoffset: 56.55;
+    transform-origin: center;
+    transform: rotate(-90deg);
+}
+
+.clip-drag-handle.is-hover-arming .clip-drag-progress-fill {
+    animation: drag-prep-pie 1s linear forwards;
+}
+
+body.drag-preparing,
+body.drag-preparing * {
+    cursor: wait !important;
+}
+
+@keyframes drag-prep-pie {
+    from {
+        stroke-dashoffset: 56.55;
+    }
+    to {
+        stroke-dashoffset: 0;
+    }
+}

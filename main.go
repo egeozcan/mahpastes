@@ -22,6 +22,7 @@ func main() {
 	// Create services (separate structs to stay under Wails ~49 method binding limit)
 	pluginService := NewPluginService(app)
 	clipboardService := NewClipboardService(app)
+	transferService := NewTransferService(app)
 
 	// Create application with options
 	err := wails.Run(&options.App{
@@ -44,6 +45,7 @@ func main() {
 			app,
 			pluginService,
 			clipboardService,
+			transferService,
 		},
 		Mac: &mac.Options{
 			TitleBar: &mac.TitleBar{

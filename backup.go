@@ -551,6 +551,11 @@ func (a *App) RestoreBackup(backupPath string) error {
 		return fmt.Errorf("failed to commit restore: %w", err)
 	}
 
+	// Clear transfer temp files to avoid stale clip references after restore.
+	if err := a.DeleteAllTempFiles(); err != nil {
+		fmt.Printf("Warning: failed to clear temp files after restore: %v\n", err)
+	}
+
 	// Copy plugin files
 	dataDir, err := getDataDir()
 	if err != nil {

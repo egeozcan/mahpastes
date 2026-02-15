@@ -3,6 +3,19 @@ const imageCache = new Map();
 
 // Plugin UI actions cache
 let pluginUIActions = null;
+let dragPrepBusyCount = 0;
+
+function beginGlobalDragPrepareCursor() {
+    dragPrepBusyCount += 1;
+    document.body.classList.add('drag-preparing');
+}
+
+function endGlobalDragPrepareCursor() {
+    dragPrepBusyCount = Math.max(0, dragPrepBusyCount - 1);
+    if (dragPrepBusyCount === 0) {
+        document.body.classList.remove('drag-preparing');
+    }
+}
 
 // Load plugin UI actions from backend
 async function loadPluginUIActions() {
@@ -227,6 +240,285 @@ async function handleCardAction(action, clipId, triggerButton) {
     }
 }
 
+function renderDragHandle(clipId) {
+    if (typeof canDragOut !== 'function' || !canDragOut()) {
+        return '';
+    }
+    return `
+        <span class="clip-drag-handle p-1 text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded transition-colors"
+                data-action="drag-out"
+                data-id="${clipId}"
+                draggable="true"
+                role="button"
+                tabindex="0"
+                aria-label="Drag clip to another app"
+                title="Drag to another app">
+            <svg class="clip-drag-icon-grip w-3 h-3" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M8 5h.01M8 12h.01M8 19h.01M16 5h.01M16 12h.01M16 19h.01" />
+            </svg>
+            <svg class="clip-drag-icon-progress w-3 h-3 hidden" viewBox="0 0 24 24" aria-hidden="true">
+                <circle class="clip-drag-progress-track" cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"></circle>
+                <circle class="clip-drag-progress-fill" cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"></circle>
+            </svg>
+            <svg class="clip-drag-icon-spinner w-3 h-3 hidden animate-spin" viewBox="0 0 24 24" aria-hidden="true">
+                <circle class="opacity-25" cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"></circle>
+                <path class="opacity-75" fill="currentColor" d="M12 3a9 9 0 0 1 9 9h-2a7 7 0 0 0-7-7z"></path>
+            </svg>
+        </span>
+    `;
+}
+
+function setDragHandleMode(handle, mode) {
+    const isArming = mode === 'arming';
+    const isPreparing = mode === 'preparing';
+    const isReady = mode === 'ready';
+
+    handle.classList.toggle('is-hover-arming', isArming);
+    handle.classList.toggle('is-preparing', isPreparing);
+    handle.classList.toggle('is-ready', isReady);
+    handle.setAttribute('aria-busy', isPreparing ? 'true' : 'false');
+    handle.setAttribute('draggable', isReady ? 'true' : 'false');
+
+    const gripIcon = handle.querySelector('.clip-drag-icon-grip');
+    const progressIcon = handle.querySelector('.clip-drag-icon-progress');
+    const spinnerIcon = handle.querySelector('.clip-drag-icon-spinner');
+    if (gripIcon) {
+        gripIcon.classList.toggle('hidden', isArming || isPreparing);
+    }
+    if (progressIcon) {
+        progressIcon.classList.toggle('hidden', !isArming);
+    }
+    if (spinnerIcon) {
+        spinnerIcon.classList.toggle('hidden', !isPreparing);
+    }
+}
+
+async function ensureDragPrepared(handle, clipId) {
+    if (typeof getPreparedDragItem === 'function') {
+        const cached = getPreparedDragItem(clipId);
+        if (cached) {
+            setDragHandleMode(handle, 'ready');
+            return cached;
+        }
+    }
+    if (typeof prepareDrag !== 'function') {
+        setDragHandleMode(handle, 'idle');
+        return null;
+    }
+
+    setDragHandleMode(handle, 'preparing');
+    beginGlobalDragPrepareCursor();
+    try {
+        const prepared = await prepareDrag(clipId);
+        setDragHandleMode(handle, 'ready');
+        return prepared;
+    } catch (error) {
+        console.error(`Failed to prepare clip ${clipId} for drag:`, error);
+        setDragHandleMode(handle, 'idle');
+        return null;
+    } finally {
+        endGlobalDragPrepareCursor();
+    }
+}
+
+function setupDragHandle(handle, clipId) {
+    const hoverPrepDelayMs = 1000;
+    const id = Number(clipId);
+    let armTimer = null;
+    let prepPromise = null;
+    let hoverLookupSeq = 0;
+    let isHovering = false;
+
+    const getPrepared = () => {
+        if (typeof getPreparedDragItem !== 'function') {
+            return null;
+        }
+        return getPreparedDragItem(id);
+    };
+
+    const clearArmTimer = () => {
+        if (armTimer) {
+            clearTimeout(armTimer);
+            armTimer = null;
+        }
+    };
+
+    const refreshMode = () => {
+        if (prepPromise) {
+            setDragHandleMode(handle, 'preparing');
+            return;
+        }
+        const prepared = getPrepared();
+        if (prepared) {
+            setDragHandleMode(handle, 'ready');
+            return;
+        }
+        if (isHovering && armTimer) {
+            setDragHandleMode(handle, 'arming');
+            return;
+        }
+        setDragHandleMode(handle, 'idle');
+    };
+
+    const startPrepare = () => {
+        if (prepPromise) {
+            return prepPromise;
+        }
+        prepPromise = ensureDragPrepared(handle, id)
+            .catch((error) => {
+                console.error(`Failed preparing drag for clip ${id}:`, error);
+                return null;
+            })
+            .finally(() => {
+                prepPromise = null;
+                refreshMode();
+            });
+        return prepPromise;
+    };
+
+    const scheduleHoverPrep = () => {
+        const seq = ++hoverLookupSeq;
+        const beginArming = () => {
+            if (!isHovering || seq !== hoverLookupSeq) {
+                return;
+            }
+            clearArmTimer();
+            setDragHandleMode(handle, 'arming');
+            armTimer = setTimeout(() => {
+                armTimer = null;
+                startPrepare();
+            }, hoverPrepDelayMs);
+        };
+
+        const prepared = getPrepared();
+        if (prepared) {
+            setDragHandleMode(handle, 'ready');
+            return;
+        }
+        if (prepPromise) {
+            setDragHandleMode(handle, 'preparing');
+            return;
+        }
+        if (typeof lookupPreparedDrag !== 'function') {
+            beginArming();
+            return;
+        }
+
+        lookupPreparedDrag(id).then((existing) => {
+            if (!isHovering || seq !== hoverLookupSeq) {
+                return;
+            }
+            if (existing) {
+                setDragHandleMode(handle, 'ready');
+                return;
+            }
+            beginArming();
+        }).catch((error) => {
+            console.error(`Failed lookup for prepared drag clip ${id}:`, error);
+            beginArming();
+        });
+    };
+
+    handle.addEventListener('pointerenter', () => {
+        isHovering = true;
+        scheduleHoverPrep();
+    });
+
+    handle.addEventListener('pointerleave', () => {
+        isHovering = false;
+        hoverLookupSeq += 1;
+        clearArmTimer();
+        refreshMode();
+    });
+
+    handle.addEventListener('pointerdown', (e) => {
+        e.stopPropagation();
+
+        const prepared = getPrepared();
+        if (!prepared) {
+            e.preventDefault();
+            clearArmTimer();
+            startPrepare();
+            return;
+        }
+    });
+
+    // Native drag must be triggered directly from a mouse event for reliable macOS behavior.
+    handle.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) {
+            return;
+        }
+        const prepared = getPrepared();
+        if (!prepared) {
+            return;
+        }
+        if (typeof canUseNativeDragOut === 'function' && canUseNativeDragOut() && typeof startNativeDrag === 'function') {
+            e.preventDefault();
+            e.stopPropagation();
+            clearArmTimer();
+            startNativeDrag(id, prepared).catch((error) => {
+                console.error(`Failed native drag for clip ${id}:`, error);
+            }).finally(() => {
+                refreshMode();
+            });
+        }
+    });
+
+    handle.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+    });
+
+    handle.addEventListener('dragstart', (e) => {
+        e.stopPropagation();
+
+        if (handle.classList.contains('is-hover-arming') || handle.classList.contains('is-preparing')) {
+            e.preventDefault();
+            clearArmTimer();
+            startPrepare();
+            return;
+        }
+
+        if (!e.dataTransfer || typeof setDragData !== 'function') {
+            e.preventDefault();
+            return;
+        }
+
+        const prepared = getPrepared();
+        const strategy = typeof getDragStrategy === 'function' ? getDragStrategy() : '';
+        if (!prepared || !setDragData(e.dataTransfer, prepared, strategy)) {
+            e.preventDefault();
+            clearArmTimer();
+            startPrepare();
+            return;
+        }
+
+        if (e.dataTransfer) {
+            e.dataTransfer.dropEffect = 'copy';
+        }
+        e.dataTransfer.effectAllowed = 'copy';
+    });
+
+    handle.addEventListener('dragend', () => {
+        clearArmTimer();
+        refreshMode();
+    });
+
+    refreshMode();
+}
+
+function resetDragHandleStates() {
+    if (!gallery) {
+        return;
+    }
+    const handles = gallery.querySelectorAll('[data-action="drag-out"]');
+    handles.forEach((handle) => {
+        const id = Number(handle.dataset.id);
+        const prepared = typeof getPreparedDragItem === 'function' ? getPreparedDragItem(id) : null;
+        setDragHandleMode(handle, prepared ? 'ready' : 'idle');
+    });
+}
+
 async function createClipCard(clip, options = {}) {
     const card = document.createElement('li');
     card.className = 'bg-white rounded-md border border-stone-200 overflow-hidden flex flex-col transition-all duration-150 hover:border-stone-300 relative group [&.has-checked]:ring-2 [&.has-checked]:ring-stone-800';
@@ -284,6 +576,7 @@ async function createClipCard(clip, options = {}) {
             Temp
         </div>`;
     }
+    const dragHandleHTML = renderDragHandle(clip.id);
 
     card.innerHTML = `
         ${checkboxHTML}
@@ -299,16 +592,19 @@ async function createClipCard(clip, options = {}) {
             </p>
             <div class="flex justify-between items-center">
                 <span class="text-[9px] font-medium text-stone-400 uppercase tracking-wide">${getFriendlyFileType(clip.content_type, clip.filename)}</span>
-                <button class="card-menu-trigger p-1 text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded transition-colors"
-                        data-action="menu"
-                        data-id="${clip.id}"
-                        aria-label="Actions"
-                        aria-haspopup="true"
-                        aria-expanded="false">
-                    <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 12.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 18.75a.75.75 0 110-1.5.75.75 0 010 1.5z" />
-                    </svg>
-                </button>
+                <div class="flex items-center gap-1">
+                    ${dragHandleHTML}
+                    <button class="card-menu-trigger p-1 text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded transition-colors"
+                            data-action="menu"
+                            data-id="${clip.id}"
+                            aria-label="Actions"
+                            aria-haspopup="true"
+                            aria-expanded="false">
+                        <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 12.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 18.75a.75.75 0 110-1.5.75.75 0 010 1.5z" />
+                        </svg>
+                    </button>
+                </div>
             </div>
         </div>
     `;
@@ -319,6 +615,11 @@ async function createClipCard(clip, options = {}) {
         e.stopPropagation();
         renderCardMenu(clip.id, e.currentTarget, clip);
     });
+
+    const dragHandle = card.querySelector('[data-action="drag-out"]');
+    if (dragHandle) {
+        setupDragHandle(dragHandle, clip.id);
+    }
 
     // Render tags on the card
     if (typeof renderCardTags === 'function') {

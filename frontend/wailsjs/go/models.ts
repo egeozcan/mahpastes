@@ -144,6 +144,22 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class DragCapability {
+	    enabled: boolean;
+	    strategy: string;
+	    reason: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DragCapability(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.enabled = source["enabled"];
+	        this.strategy = source["strategy"];
+	        this.reason = source["reason"];
+	    }
+	}
 	export class FileData {
 	    name: string;
 	    content_type: string;
@@ -252,7 +268,108 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class PrepareTransferRequest {
+	    clip_id: number;
+	    channel: string;
 	
+	    static createFrom(source: any = {}) {
+	        return new PrepareTransferRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.clip_id = source["clip_id"];
+	        this.channel = source["channel"];
+	    }
+	}
+	export class PreparedTransferItem {
+	    clip_id: number;
+	    abs_path: string;
+	    file_url: string;
+	    filename: string;
+	    content_type: string;
+	    // Go type: time
+	    lease_expires_at: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new PreparedTransferItem(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.clip_id = source["clip_id"];
+	        this.abs_path = source["abs_path"];
+	        this.file_url = source["file_url"];
+	        this.filename = source["filename"];
+	        this.content_type = source["content_type"];
+	        this.lease_expires_at = this.convertValues(source["lease_expires_at"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class StartNativeDragRequest {
+	    clip_id: number;
+	    abs_path: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new StartNativeDragRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.clip_id = source["clip_id"];
+	        this.abs_path = source["abs_path"];
+	    }
+	}
+	
+	export class TransferCapabilities {
+	    drag_out: DragCapability;
+	    clipboard_file: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new TransferCapabilities(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.drag_out = this.convertValues(source["drag_out"], DragCapability);
+	        this.clipboard_file = source["clipboard_file"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class UIActionsResponse {
 	    lightbox_buttons: PluginUIAction[];
 	    card_actions: PluginUIAction[];

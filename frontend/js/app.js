@@ -347,6 +347,9 @@ window.addEventListener('load', async () => {
         await loadPluginUIActions();
         await loadTags();
         await loadHiddenTags();
+        if (typeof initTransferCapabilities === 'function') {
+            await initTransferCapabilities();
+        }
         await loadClips();
         setupEditorListeners();
     } catch (error) {

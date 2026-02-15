@@ -6,6 +6,10 @@ async function loadClips() {
         const effectiveHidden = getHiddenTags().filter(id => !activeTagFilters.includes(id));
         const clips = await window.go.main.App.GetClips(isViewingArchive, activeTagFilters, effectiveHidden);
 
+        if (typeof clearPreparedDragState === 'function') {
+            clearPreparedDragState();
+        }
+
         gallery.innerHTML = ''; // Clear gallery
         selectedIds.clear();
         imageClips = []; // Clear image clips
@@ -118,6 +122,9 @@ async function deleteAllTempFiles() {
     showConfirmDialog('Delete All Temp Files', 'Are you sure you want to delete ALL temporary files?', async () => {
         try {
             await window.go.main.App.DeleteAllTempFiles();
+            if (typeof clearPreparedDragState === 'function') {
+                clearPreparedDragState();
+            }
             showToast('All temp files deleted.');
         } catch (error) {
             console.error('Error deleting temp files:', error);

@@ -27,11 +27,11 @@ func NewClipboardService(app *App) *ClipboardService {
 
 // CopyFileToClipboard copies a clip as a file reference to the system clipboard.
 func (s *ClipboardService) CopyFileToClipboard(id int64) error {
-	tempPath, err := s.app.CreateTempFile(id)
+	prepared, err := s.app.prepareClipTransferItem(id, "clipboard_file")
 	if err != nil {
 		return fmt.Errorf("failed to create temp file: %w", err)
 	}
-	return copyFilesToClipboard([]string{tempPath})
+	return copyFilesToClipboard([]string{prepared.AbsPath})
 }
 
 // BulkCopyFilesToClipboard copies multiple clips as files to the system clipboard.
@@ -41,11 +41,11 @@ func (s *ClipboardService) BulkCopyFilesToClipboard(ids []int64) error {
 	}
 	var paths []string
 	for _, id := range ids {
-		tempPath, err := s.app.CreateTempFile(id)
+		prepared, err := s.app.prepareClipTransferItem(id, "clipboard_file")
 		if err != nil {
 			return fmt.Errorf("failed to create temp file for clip %d: %w", id, err)
 		}
-		paths = append(paths, tempPath)
+		paths = append(paths, prepared.AbsPath)
 	}
 	return copyFilesToClipboard(paths)
 }

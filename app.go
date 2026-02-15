@@ -28,6 +28,7 @@ type App struct {
 	ctx            context.Context
 	db             *sql.DB
 	tempDir        string
+	tempStore      *TempClipStore
 	mu             sync.Mutex
 	watcherManager *WatcherManager
 	pluginManager  *plugin.Manager
@@ -108,6 +109,11 @@ func (a *App) startup(ctx context.Context) {
 	// Initialize temp directory
 	if err := a.initTempDir(); err != nil {
 		log.Printf("Warning: Failed to initialize temp directory: %v", err)
+	} else {
+		a.tempStore = NewTempClipStore(a.db, a.tempDir, defaultTempLeaseTTL, defaultTempPruneInterval)
+		if err := a.tempStore.Prune(true); err != nil {
+			log.Printf("Warning: Failed to prune temp clip files on startup: %v", err)
+		}
 	}
 
 	// Initialize clipboard
@@ -614,6 +620,9 @@ func (a *App) DeleteClip(id int64) error {
 	if err != nil {
 		return fmt.Errorf("failed to delete clip: %w", err)
 	}
+	if err := a.deleteTempFilesForClipIDs([]int64{id}); err != nil {
+		log.Printf("Warning: failed to clean temp file for clip %d: %v", id, err)
+	}
 
 	// Clean up orphaned tags
 	for _, tagID := range tagIDs {
@@ -997,6 +1006,9 @@ func (a *App) BulkDelete(ids []int64) error {
 	if err != nil {
 		return fmt.Errorf("failed to bulk delete: %w", err)
 	}
+	if err := a.deleteTempFilesForClipIDs(ids); err != nil {
+		log.Printf("Warning: failed to clean temp files for bulk delete: %v", err)
+	}
 
 	// Clean up orphaned tags
 	for _, tagID := range tagIDs {
@@ -1117,65 +1129,19 @@ func (a *App) BulkDownloadToFile(ids []int64) error {
 
 // CreateTempFile creates a temporary file from a clip and returns its path
 func (a *App) CreateTempFile(id int64) (string, error) {
-	var data []byte
-	var filename sql.NullString
-	var contentType string
-
-	row := a.db.QueryRow("SELECT data, filename, content_type FROM clips WHERE id = ?", id)
-	if err := row.Scan(&data, &filename, &contentType); err != nil {
-		if err == sql.ErrNoRows {
-			return "", fmt.Errorf("clip not found")
-		}
-		return "", fmt.Errorf("failed to get clip: %w", err)
-	}
-
-	// Create a safe filename
-	safeName := fmt.Sprintf("%d", id)
-	if filename.Valid && filename.String != "" {
-		safeName = fmt.Sprintf("%d_%s", id, filepath.Base(filename.String))
-	} else {
-		exts, _ := mime.ExtensionsByType(contentType)
-		if len(exts) > 0 {
-			safeName = safeName + exts[0]
-		}
-	}
-
-	a.mu.Lock()
-	tempFilePath := filepath.Join(a.tempDir, safeName)
-	a.mu.Unlock()
-
-	if err := os.WriteFile(tempFilePath, data, 0644); err != nil {
-		return "", fmt.Errorf("failed to write temp file: %w", err)
-	}
-
-	absPath, err := filepath.Abs(tempFilePath)
+	item, err := a.prepareClipTransferItem(id, "legacy_create_temp")
 	if err != nil {
-		return "", fmt.Errorf("failed to get absolute path: %w", err)
+		return "", err
 	}
-
-	return absPath, nil
+	return item.AbsPath, nil
 }
 
 // DeleteAllTempFiles deletes all files from the temp directory
 func (a *App) DeleteAllTempFiles() error {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-
-	if a.tempDir == "" {
+	if a.tempStore == nil {
 		return nil
 	}
-
-	// Remove the directory and all its contents
-	if err := os.RemoveAll(a.tempDir); err != nil {
-		return fmt.Errorf("failed to remove temp dir: %w", err)
-	}
-
-	// Recreate the directory
-	if err := os.MkdirAll(a.tempDir, 0755); err != nil {
-		return fmt.Errorf("failed to recreate temp dir: %w", err)
-	}
-
-	return nil
+	return a.tempStore.DeleteAll()
 }
 
 // CopyToClipboard copies text to the system clipboard
@@ -1641,4 +1607,3 @@ func (a *App) SetHiddenTags(ids []int64) error {
 	}
 	return a.SetSetting("hidden_tags", string(data))
 }
-

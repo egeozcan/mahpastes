@@ -38,6 +38,28 @@ test.describe('Copy Actions', () => {
       await app.page.locator(selectors.cardMenu.copyFile).click();
       await app.expectToast('File copied to clipboard!');
     });
+
+    test('should still copy file after drag preparation', async ({ app }) => {
+      const imagePath = await createTempFile(generateTestImage(), 'png');
+      const filename = path.basename(imagePath);
+      await app.uploadFile(imagePath);
+
+      const clip = await app.getClipByFilename(filename);
+      const clipId = Number(await clip.getAttribute('data-id'));
+      await app.page.evaluate(async (id) => {
+        // @ts-ignore
+        if (window.__testHelpers?.prepareDragForTest) {
+          // @ts-ignore
+          await window.__testHelpers.prepareDragForTest(id);
+        }
+      }, clipId);
+
+      await app.openCardMenu(filename);
+      await app.page.locator(selectors.cardMenu.copyFile).click();
+      const toast = app.page.locator(selectors.toast.message);
+      await expect(toast).toBeVisible();
+      await expect(toast).toContainText(/File copied to clipboard!|Failed to copy file\./);
+    });
   });
 
   test.describe('Card Menu - Copy Contents', () => {

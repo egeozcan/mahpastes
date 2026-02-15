@@ -41,6 +41,11 @@ export const selectors = {
   clipActions: {
     menuTrigger: '[data-action="menu"]',
     view: '[data-action="open-lightbox"]',
+    dragOut: '[data-action="drag-out"]',
+    dragOutPreparing: '[data-action="drag-out"].is-preparing',
+    dragOutArming: '[data-action="drag-out"].is-hover-arming',
+    dragOutProgress: '[data-action="drag-out"] .clip-drag-icon-progress',
+    dragOutSpinner: '[data-action="drag-out"] .clip-drag-icon-spinner',
   },
 
   // Card menu dropdown
