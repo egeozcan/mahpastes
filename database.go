@@ -9,7 +9,7 @@ import (
 	"runtime"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 // getDataDir returns the OS-appropriate data directory for the app
@@ -60,7 +60,7 @@ func initDB() (*sql.DB, error) {
 	dbPath := filepath.Join(dataDir, "clips.db")
 	log.Printf("Using database at: %s", dbPath)
 
-	db, err := sql.Open("sqlite3", dbPath)
+	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open db: %w", err)
 	}
