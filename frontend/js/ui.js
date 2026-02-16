@@ -616,6 +616,13 @@ async function createClipCard(clip, options = {}) {
         renderCardMenu(clip.id, e.currentTarget, clip);
     });
 
+    // Right-click anywhere on the card opens the same actions menu as the three-dot trigger.
+    card.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        renderCardMenu(clip.id, menuTrigger, clip);
+    });
+
     const dragHandle = card.querySelector('[data-action="drag-out"]');
     if (dragHandle) {
         setupDragHandle(dragHandle, clip.id);

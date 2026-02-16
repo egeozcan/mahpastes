@@ -330,3 +330,71 @@ Plugin = {
 		t.Errorf("Expected 0 settings (missing required fields), got %d", len(manifest.Settings))
 	}
 }
+
+func TestParseManifestWithSettings_NumericDefault(t *testing.T) {
+	source := `
+Plugin = {
+  name = "Test Plugin",
+  version = "1.0.0",
+  settings = {
+    {key = "strength", type = "text", label = "Strength", default = 0.75}
+  }
+}
+`
+
+	manifest, err := ParseManifest(source)
+	if err != nil {
+		t.Fatalf("ParseManifest failed: %v", err)
+	}
+
+	if len(manifest.Settings) != 1 {
+		t.Fatalf("Expected 1 setting, got %d", len(manifest.Settings))
+	}
+
+	value, ok := manifest.Settings[0].Default.(float64)
+	if !ok {
+		t.Fatalf("Expected numeric default to be float64, got %T", manifest.Settings[0].Default)
+	}
+	if value != 0.75 {
+		t.Fatalf("Expected default 0.75, got %v", value)
+	}
+}
+
+func TestParseManifestWithUIRangeDefault(t *testing.T) {
+	source := `
+Plugin = {
+  name = "Test Plugin",
+  version = "1.0.0",
+  ui = {
+    lightbox_buttons = {
+      {id = "edit", label = "Edit", file_types = {"image/*"},
+        options = {
+          {id = "strength", type = "range", label = "Strength", default = 0.75, min = 0.1, max = 1, step = 0.05}
+        }
+      }
+    }
+  }
+}
+`
+
+	manifest, err := ParseManifest(source)
+	if err != nil {
+		t.Fatalf("ParseManifest failed: %v", err)
+	}
+
+	if manifest.UI == nil || len(manifest.UI.LightboxButtons) != 1 {
+		t.Fatalf("Expected 1 lightbox action")
+	}
+	if len(manifest.UI.LightboxButtons[0].Options) != 1 {
+		t.Fatalf("Expected 1 option on lightbox action")
+	}
+
+	field := manifest.UI.LightboxButtons[0].Options[0]
+	value, ok := field.Default.(float64)
+	if !ok {
+		t.Fatalf("Expected numeric range default to be float64, got %T", field.Default)
+	}
+	if value != 0.75 {
+		t.Fatalf("Expected range default 0.75, got %v", value)
+	}
+}

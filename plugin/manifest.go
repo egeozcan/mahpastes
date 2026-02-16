@@ -9,21 +9,22 @@ import (
 
 // Pre-compiled regexes for manifest parsing (only static patterns)
 var (
-	rePluginTable     = regexp.MustCompile(`(?m)^Plugin\s*=\s*\{`)
-	reQuotedStrings   = regexp.MustCompile(`["']([^"']+)["']`)
-	reNetworkBlock    = regexp.MustCompile(`network\s*=\s*\{`)
-	reBracketDomain   = regexp.MustCompile(`\["([^"]+)"\]\s*=\s*\{([^}]*)\}`)
-	reSimpleDomain    = regexp.MustCompile(`(\w+)\s*=\s*\{([^}]*)\}`)
-	reSchedulesBlock  = regexp.MustCompile(`schedules\s*=\s*\{`)
-	reNameField       = regexp.MustCompile(`name\s*=\s*["']([^"']+)["']`)
-	reIntervalField   = regexp.MustCompile(`interval\s*=\s*(\d+)`)
-	reSettingsBlock   = regexp.MustCompile(`settings\s*=\s*\{`)
-	reUIBlock         = regexp.MustCompile(`ui\s*=\s*\{`)
-	reOptionsBlock    = regexp.MustCompile(`options\s*=\s*\{`)
-	reRequiredField   = regexp.MustCompile(`required\s*=\s*(true|false)`)
-	reChoicesBlock    = regexp.MustCompile(`choices\s*=\s*\{`)
-	reDefaultBool     = regexp.MustCompile(`default\s*=\s*(true|false)`)
-	reClipboard       = regexp.MustCompile(`clipboard\s*=\s*(true|false)`)
+	rePluginTable    = regexp.MustCompile(`(?m)^Plugin\s*=\s*\{`)
+	reQuotedStrings  = regexp.MustCompile(`["']([^"']+)["']`)
+	reNetworkBlock   = regexp.MustCompile(`network\s*=\s*\{`)
+	reBracketDomain  = regexp.MustCompile(`\["([^"]+)"\]\s*=\s*\{([^}]*)\}`)
+	reSimpleDomain   = regexp.MustCompile(`(\w+)\s*=\s*\{([^}]*)\}`)
+	reSchedulesBlock = regexp.MustCompile(`schedules\s*=\s*\{`)
+	reNameField      = regexp.MustCompile(`name\s*=\s*["']([^"']+)["']`)
+	reIntervalField  = regexp.MustCompile(`interval\s*=\s*(\d+)`)
+	reSettingsBlock  = regexp.MustCompile(`settings\s*=\s*\{`)
+	reUIBlock        = regexp.MustCompile(`ui\s*=\s*\{`)
+	reOptionsBlock   = regexp.MustCompile(`options\s*=\s*\{`)
+	reRequiredField  = regexp.MustCompile(`required\s*=\s*(true|false)`)
+	reChoicesBlock   = regexp.MustCompile(`choices\s*=\s*\{`)
+	reDefaultBool    = regexp.MustCompile(`default\s*=\s*(true|false)`)
+	reDefaultNumber  = regexp.MustCompile(`default\s*=\s*(-?(?:\d+\.\d+|\d+|\.\d+))`)
+	reClipboard      = regexp.MustCompile(`clipboard\s*=\s*(true|false)`)
 )
 
 // Manifest represents a parsed plugin manifest
@@ -754,6 +755,14 @@ func extractDefaultValue(entry string) any {
 	boolMatches := reDefaultBool.FindStringSubmatch(entry)
 	if len(boolMatches) >= 2 {
 		return boolMatches[1] == "true"
+	}
+
+	// Try number (int or float)
+	numberMatches := reDefaultNumber.FindStringSubmatch(entry)
+	if len(numberMatches) >= 2 {
+		if val, err := strconv.ParseFloat(numberMatches[1], 64); err == nil {
+			return val
+		}
 	}
 
 	return nil

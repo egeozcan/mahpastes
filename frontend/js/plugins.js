@@ -188,7 +188,9 @@ function renderSettingsSection(settings, pluginId, storageValues) {
 
     const fields = settings.map(field => {
         const currentValue = storageValues[field.key];
-        const displayValue = currentValue !== undefined ? currentValue : (field.default || '');
+        const hasDefault = field.default !== undefined && field.default !== null;
+        const hasCurrentValue = currentValue !== undefined && currentValue !== null;
+        const displayValue = hasCurrentValue ? currentValue : (hasDefault ? field.default : '');
 
         return renderSettingField(field, displayValue, pluginId);
     }).join('');
@@ -210,13 +212,15 @@ function renderSettingField(field, currentValue, pluginId) {
 
     switch (field.type) {
         case 'text':
+            const textValue = currentValue !== undefined && currentValue !== null ? String(currentValue) : '';
+            const textPlaceholder = field.default !== undefined && field.default !== null ? String(field.default) : '';
             return `
                 <div class="setting-field" data-key="${escapeHTML(field.key)}">
                     <label class="block text-[11px] font-medium text-stone-600 mb-1">${escapeHTML(field.label)}</label>
                     <input type="text"
                            class="block w-full border border-stone-200 rounded-md text-xs bg-white px-2 py-1.5 placeholder-stone-400 focus:outline-none focus:border-stone-400 focus:ring-1 focus:ring-stone-400/20 transition-colors"
-                           value="${escapeHTML(currentValue || '')}"
-                           placeholder="${escapeHTML(field.default || '')}"
+                           value="${escapeHTML(textValue)}"
+                           placeholder="${escapeHTML(textPlaceholder)}"
                            data-plugin-id="${pluginId}"
                            data-setting-key="${escapeHTML(field.key)}"
                            data-setting-type="text">
@@ -225,13 +229,14 @@ function renderSettingField(field, currentValue, pluginId) {
             `;
 
         case 'password':
+            const passwordValue = currentValue !== undefined && currentValue !== null ? String(currentValue) : '';
             return `
                 <div class="setting-field" data-key="${escapeHTML(field.key)}">
                     <label class="block text-[11px] font-medium text-stone-600 mb-1">${escapeHTML(field.label)}</label>
                     <div class="relative">
                         <input type="password"
                                class="block w-full border border-stone-200 rounded-md text-xs bg-white px-2 py-1.5 pr-8 placeholder-stone-400 focus:outline-none focus:border-stone-400 focus:ring-1 focus:ring-stone-400/20 transition-colors"
-                               value="${escapeHTML(currentValue || '')}"
+                               value="${escapeHTML(passwordValue)}"
                                data-plugin-id="${pluginId}"
                                data-setting-key="${escapeHTML(field.key)}"
                                data-setting-type="password">
@@ -633,10 +638,15 @@ function openPluginOptionsDialog(action, clipIds) {
                 input = document.createElement('input');
                 input.type = 'range';
                 input.className = 'form-range';
-                input.min = field.min || 0;
-                input.max = field.max || 1;
-                input.step = field.step || 0.1;
-                input.value = field.default || field.min || 0;
+                const hasMin = field.min !== undefined && field.min !== null;
+                const hasMax = field.max !== undefined && field.max !== null;
+                const hasStep = field.step !== undefined && field.step !== null;
+                const hasDefault = field.default !== undefined && field.default !== null;
+
+                input.min = hasMin ? String(field.min) : '0';
+                input.max = hasMax ? String(field.max) : '1';
+                input.step = hasStep ? String(field.step) : '0.1';
+                input.value = hasDefault ? String(field.default) : (hasMin ? String(field.min) : '0');
 
                 const valueDisplay = document.createElement('span');
                 valueDisplay.className = 'form-range-value';
@@ -658,7 +668,7 @@ function openPluginOptionsDialog(action, clipIds) {
                 input = document.createElement('input');
                 input.type = field.type === 'password' ? 'password' : 'text';
                 input.className = 'form-input';
-                input.value = field.default || '';
+                input.value = field.default !== undefined && field.default !== null ? String(field.default) : '';
                 input.placeholder = field.label;
         }
 
@@ -728,4 +738,3 @@ document.getElementById('plugin-options-form')?.addEventListener('submit', async
 document.getElementById('plugin-options-modal')?.addEventListener('click', (e) => {
     if (e.target.id === 'plugin-options-modal') closePluginOptionsDialog();
 });
-
