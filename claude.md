@@ -15,12 +15,17 @@ A Wails desktop clipboard manager for macOS with image editing, comparison, and 
 - Use `make` targets for common operations:
 
 ```bash
-make dev        # Start dev server with hot reload
-make build      # Clean production build
-make install    # Build, kill running app, install to /Applications, launch
-make bindings   # Regenerate frontend bindings after Go changes
-make test       # Run e2e tests
-make help       # Show all targets
+make dev          # Start dev server with hot reload
+make build        # Clean production build
+make clean        # Remove build artifacts
+make install      # Build, kill running app, install to /Applications, launch
+make uninstall    # Remove from /Applications
+make bindings     # Regenerate frontend bindings after Go changes
+make test         # Run e2e tests
+make test-headed  # Run e2e tests with visible browser
+make test-debug   # Run e2e tests with Playwright inspector
+make screenshots  # Capture documentation screenshots
+make help         # Show all targets
 ```
 
 ## E2E Testing Requirements
@@ -54,6 +59,7 @@ Tests are organized by feature in `e2e/tests/`:
 - `images/` - Lightbox, editor, comparison
 - `plugins/` - Plugin system (install, events, APIs, scheduling)
 - `search/` - Filtering functionality
+- `screenshots/` - Documentation screenshot capture
 - `tags/` - Tag CRUD, filtering, hidden tags
 - `watch/` - Watch folders feature
 
@@ -161,45 +167,58 @@ The app uses Tailwind's `stone` color scale exclusively:
 
 ```
 mahpastes/
-├── Makefile            # Build, install, test targets
-├── app.go              # Main Wails app logic
-├── backup.go           # ZIP backup and restore
-├── database.go         # SQLite operations
-├── main.go             # Entry point
-├── plugin_service.go   # Plugin frontend API (separate struct for Wails binding limit)
-├── plugins.go          # Plugin install/uninstall helpers
-├── watcher.go          # Watch folder implementation
-├── plugin/             # Lua plugin system
-│   ├── manager.go      # Plugin lifecycle, event dispatch
-│   ├── manifest.go     # Manifest parsing, validation
-│   ├── sandbox.go      # Sandboxed Lua execution
-│   ├── scheduler.go    # Scheduled/recurring plugin tasks
-│   └── api_*.go        # Lua APIs (clips, tags, storage, http, fs, utils, task, toast)
-├── plugins/            # Example/bundled plugins
-│   └── fal-ai.lua      # FAL.AI image processing plugin
+├── Makefile              # Build, install, test targets
+├── app.go                # Main Wails app logic
+├── app_transfer_helpers.go # Bridge between App and TempClipStore
+├── backup.go             # ZIP backup and restore
+├── clipboard_service.go  # Clipboard copy service (separate struct for Wails binding limit)
+├── clipboard_darwin.go   # macOS clipboard via NSPasteboard (CGo)
+├── clipboard_windows.go  # Windows clipboard via PowerShell
+├── clipboard_other.go    # Unsupported platform stub
+├── database.go           # SQLite operations
+├── main.go               # Entry point
+├── native_drag_darwin.go # macOS native file drag via CGo
+├── native_drag_other.go  # Unsupported platform stub
+├── plugin_service.go     # Plugin frontend API (separate struct for Wails binding limit)
+├── plugins.go            # Plugin install/uninstall helpers
+├── temp_clip_store.go    # Leased temp file management for transfers
+├── transfer_service.go   # Drag-out preparation and native drag initiation
+├── transfer_types.go     # Transfer system type definitions
+├── watcher.go            # Watch folder implementation
+├── plugin/               # Lua plugin system
+│   ├── manager.go        # Plugin lifecycle, event dispatch
+│   ├── manifest.go       # Manifest parsing, validation
+│   ├── sandbox.go        # Sandboxed Lua execution
+│   ├── scheduler.go      # Scheduled/recurring plugin tasks
+│   └── api_*.go          # Lua APIs (clips, tags, storage, http, fs, utils, task, toast, image, modal)
+├── plugins/              # Example/bundled plugins
+│   └── fal-ai.lua        # FAL.AI image processing plugin
 ├── frontend/
-│   ├── index.html      # Single HTML file with all markup
+│   ├── index.html        # Single HTML file with all markup
 │   ├── js/
-│   │   ├── app.js      # Main app initialization, event handlers
-│   │   ├── editor.js   # Image editor canvas logic
-│   │   ├── modals.js   # All modal/lightbox/editor logic
+│   │   ├── app.js        # Main app initialization, event handlers
+│   │   ├── editor.js     # Image editor canvas logic
+│   │   ├── modal-renderer.js # Plugin result modal rendering
+│   │   ├── modals.js     # All modal/lightbox/editor logic
 │   │   ├── plugin-icons.js # Plugin icon rendering
-│   │   ├── plugins.js  # Plugin management UI
-│   │   ├── settings.js # Settings modal
-│   │   ├── tags.js     # Tag management UI
+│   │   ├── plugins.js    # Plugin management UI
+│   │   ├── settings.js   # Settings modal
+│   │   ├── tags.js       # Tag management UI
 │   │   ├── task-queue.js # Plugin task progress UI
-│   │   ├── ui.js       # Card rendering, gallery management
-│   │   ├── utils.js    # Shared utilities
-│   │   ├── wails-api.js # Wails bindings wrapper
-│   │   └── watch.js    # Watch folders UI
+│   │   ├── transfer.js   # Drag-out transfer state management
+│   │   ├── transfer-strategies.js # Platform-specific drag data adapters
+│   │   ├── ui.js         # Card rendering, gallery management
+│   │   ├── utils.js      # Shared utilities
+│   │   ├── wails-api.js  # Wails bindings wrapper
+│   │   └── watch.js      # Watch folders UI
 │   ├── css/
-│   │   ├── main.css    # Global styles, scrollbars, form styling
-│   │   └── modals.css  # Modal-specific styles
-│   └── wailsjs/        # Generated Wails bindings
-└── e2e/                # Playwright tests
-    ├── tests/          # Test files by feature
-    ├── fixtures/       # Test fixtures (AppHelper)
-    └── helpers/        # Test utilities and selectors
+│   │   ├── main.css      # Global styles, scrollbars, form styling
+│   │   └── modals.css    # Modal-specific styles
+│   └── wailsjs/          # Generated Wails bindings
+└── e2e/                  # Playwright tests
+    ├── tests/            # Test files by feature
+    ├── fixtures/         # Test fixtures (AppHelper)
+    └── helpers/          # Test utilities and selectors
 ```
 
 ## Code Style
@@ -232,15 +251,18 @@ The app has a Lua-based plugin system that allows extending functionality.
 - `plugin/manager.go` - Plugin lifecycle management, event dispatch
 - `plugin/sandbox.go` - Sandboxed Lua execution environment
 - `plugin/manifest.go` - Plugin manifest parsing, event validation
-- `plugin/api_*.go` - Lua APIs exposed to plugins (clips, tags, storage, http, fs, utils, task, toast, image)
+- `plugin/api_*.go` - Lua APIs exposed to plugins (clips, tags, storage, http, fs, utils, task, toast, image, modal)
 - `plugin/scheduler.go` - Scheduled/recurring plugin tasks
 - `plugin_service.go` - Frontend API for plugin management (separate from App due to Wails method limit)
 
 ### Wails Method Binding Limit
 
-**CRITICAL**: Wails has a ~49 method limit per bound struct. Plugin APIs are in `PluginService` (not `App`) to work around this. When adding new methods:
-- Add to `PluginService` in `plugin_service.go` for plugin-related APIs
-- Frontend accesses via `window.go.main.PluginService.*`
+**CRITICAL**: Wails has a ~49 method limit per bound struct. Multiple services exist as separate structs to stay under this limit:
+- `PluginService` in `plugin_service.go` - Plugin-related APIs (TryAcquireModalGuard, IsPluginURLAllowed, GetPluginUIActions, ExecutePluginAction, ImportPluginFromPath, GetPluginPermissions, RevokePluginPermission, GetPluginStorage, SetPluginStorage, GetAllPluginStorage, etc.)
+- `ClipboardService` in `clipboard_service.go` - Clipboard copy operations
+- `TransferService` in `transfer_service.go` - Drag-out/transfer operations
+
+Frontend accesses via `window.go.main.PluginService.*`, `window.go.main.ClipboardService.*`, `window.go.main.TransferService.*`.
 
 ### Event System
 
@@ -275,6 +297,7 @@ APIs are registered in `plugin/manager.go` when loading plugins. Each API module
 | `log` | `api_utils.go` | Global function for logging (not a module) |
 | `json` | `api_utils.go` | encode, decode |
 | `base64` | `api_utils.go` | encode, decode |
+| `modal` | `api_modal.go` | show (display plugin result modal with markdown/image/text content) |
 
 **To add a new API module**:
 1. Create `plugin/api_<name>.go` with struct and `Register(L *lua.LState)` method
@@ -295,6 +318,68 @@ Tag operations exposed to the frontend (and to plugins via `plugin/api_tags.go`)
 - `GetClipTags(clipID)` → `[]Tag, error`
 - `GetHiddenTags()` → `[]int64, error`
 - `SetHiddenTags(ids)` → `error`
+
+### Plugin UI Actions
+
+Plugins can define UI actions that appear in the lightbox and card context menu.
+
+**Manifest structure**: Define actions under `ui.lightbox_buttons` and `ui.card_actions` with fields:
+- `id` - Unique action identifier
+- `label` - Display text
+- `icon` - Icon name
+- `async` - Run in background goroutine (bool)
+- `file_types` - MIME type filter (e.g., `["image/*"]`)
+- `max_size` - Maximum clip size in bytes
+- `options` - Form fields shown before execution
+
+**Form field types**: `text`, `password`, `checkbox`, `select`, `range`. Each has `id`, `label`, `required`, `default`. Select adds `choices`; range adds `min`, `max`, `step`.
+
+**Action results**: Actions return `ActionResult` with `success`, `error`, `result_clip_id`, `modal`. The `modal` field triggers the result modal system.
+
+**Async actions**: When `async = true`, action returns immediately, runs in a goroutine, and shows modal or toast on completion.
+
+**Modal system**: One-modal-at-a-time guard via `TryAcquireModalGuard`. `modal.show()` takes `title`, `content`, `format` (`markdown`/`image`/`text`), plus optional `copy_data`, `paste_data`, `paste_name`, `paste_content_type`.
+
+## Transfer/Drag-Out System
+
+The transfer system handles copying clips as files to the system clipboard and dragging clips out of the app window into other applications.
+
+### Architecture
+
+Three separate Wails-bound services (`ClipboardService`, `TransferService`, `PluginService`) exist alongside `App` to stay under the Wails ~49 method limit per struct.
+
+### Key Files
+
+**Go (root)**:
+- `clipboard_service.go` - Clipboard copy service struct
+- `clipboard_darwin.go` - macOS clipboard via NSPasteboard (CGo)
+- `clipboard_windows.go` - Windows clipboard via PowerShell
+- `clipboard_other.go` - Unsupported platform stub
+- `transfer_service.go` - Drag-out preparation and native drag initiation
+- `transfer_types.go` - Transfer system type definitions
+- `app_transfer_helpers.go` - Bridge between App and TempClipStore
+- `temp_clip_store.go` - Leased temp file management for transfers
+- `native_drag_darwin.go` - macOS native file drag via CGo
+- `native_drag_other.go` - Unsupported platform stub
+
+**Frontend JS**:
+- `transfer.js` - Drag-out transfer state management
+- `transfer-strategies.js` - Platform-specific drag data adapters
+
+### How Drag-Out Works
+
+1. Frontend calls `TransferService.PrepareClipForTransfer` to materialize a temp file
+2. On `dragstart`, sets `DataTransfer` types via platform strategy adapter AND calls native drag
+3. Temp files have 60-min leases, pruned every 10 min
+4. Platform-specific: macOS uses CGo/NSPasteboard for clipboard, NSView.dragFile for drag
+
+### Platform Support
+
+| Operation | macOS | Windows | Linux |
+|-----------|-------|---------|-------|
+| Copy as file | NSPasteboard (CGo) | PowerShell SetFileDropList | Not supported |
+| Copy raw content | golang.design/x/clipboard | Same | Same |
+| Drag out | NSView.dragFile + file-uri-v1 | Planned | Planned |
 
 ## Common Tasks
 

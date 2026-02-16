@@ -16,12 +16,22 @@ The backend is written in Go using the Wails framework. It handles data storage,
 ├── backup.go            ZIP backup and restore
 ├── plugin_service.go    Plugin frontend API (separate struct)
 ├── plugins.go           Plugin install/uninstall helpers
+├── clipboard_service.go Clipboard copy service (Wails-bound)
+├── clipboard_darwin.go  macOS clipboard implementation
+├── clipboard_windows.go Windows clipboard implementation
+├── clipboard_other.go   Fallback clipboard implementation
+├── transfer_service.go  Drag-out preparation and native drag initiation
+├── transfer_types.go    Transfer system type definitions
+├── app_transfer_helpers.go  Bridge between App and TempClipStore
+├── temp_clip_store.go   Leased temp file management
+├── native_drag_darwin.go    macOS native drag implementation
+├── native_drag_other.go     Fallback native drag stub
 ├── plugin/              Lua plugin system
 │   ├── manager.go       Plugin lifecycle, event dispatch
 │   ├── manifest.go      Manifest parsing, validation
 │   ├── sandbox.go       Sandboxed Lua execution
 │   ├── scheduler.go     Scheduled/recurring plugin tasks
-│   └── api_*.go         Lua APIs (clips, tags, storage, http, fs, utils, task, toast)
+│   └── api_*.go         Lua APIs (clips, tags, storage, http, fs, utils, task, toast, image, modal)
 ├── go.mod               Go module definition
 └── go.sum               Dependency checksums
 ```

@@ -150,7 +150,7 @@ filesystem = {
 Both default to `false`. Users are prompted to approve filesystem access on first use.
 
 :::warning
-Filesystem access is powerful. Only request what you need, and document why in your description.
+Filesystem access grants broad permissions. Only request what you need, and document why in your description.
 :::
 
 ## Scheduled Tasks

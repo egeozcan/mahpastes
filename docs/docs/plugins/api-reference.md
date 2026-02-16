@@ -991,6 +991,245 @@ storage.set("last_run", tostring(now))
 
 ---
 
+### utils.sha256(data)
+
+Returns the SHA-256 hex digest of a string.
+
+**Parameters:**
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| data | string | Yes | Data to hash |
+
+**Returns:** Hex-encoded hash string
+
+---
+
+### utils.hmac_sha256(key, data)
+
+Returns the HMAC-SHA256 hex digest.
+
+**Parameters:**
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| key | string | Yes | HMAC key |
+| data | string | Yes | Data to sign |
+
+**Returns:** Hex-encoded HMAC string
+
+---
+
+### utils.url_encode(s)
+
+URL-encodes a string.
+
+**Parameters:**
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| s | string | Yes | String to encode |
+
+**Returns:** URL-encoded string
+
+---
+
+### utils.url_decode(s)
+
+Decodes a URL-encoded string.
+
+**Parameters:**
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| s | string | Yes | String to decode |
+
+**Returns:** Decoded string
+
+---
+
+### utils.clipboard_write(text)
+
+Writes text to the system clipboard.
+
+**Parameters:**
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| text | string | Yes | Text to copy |
+
+**Returns:** `true` on success, or `false, error_message`
+
+:::warning
+Requires `clipboard = true` in the plugin manifest.
+:::
+
+---
+
+## image
+
+Go-side image processing functions. These operate on clip data directly by clip ID, so you don't need to decode image bytes in Lua.
+
+### image.info(clip_id)
+
+Returns dimensions and format of an image clip.
+
+**Parameters:**
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| clip_id | number | Yes | Clip ID |
+
+**Returns:** Table with `width`, `height`, `format` fields, or `nil, error_message`
+
+---
+
+### image.resize(clip_id, opts)
+
+Resizes an image clip and creates a new clip with the result.
+
+**Parameters:**
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| clip_id | number | Yes | Source clip ID |
+| opts | table | Yes | Resize options |
+| opts.width | number | No | Target width (0 to auto-scale) |
+| opts.height | number | No | Target height (0 to auto-scale) |
+
+**Returns:** Table with `id` (new clip ID), or `nil, error_message`
+
+---
+
+### image.overlay_text(clip_id, opts)
+
+Draws text onto an image clip and creates a new clip.
+
+**Parameters:**
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| clip_id | number | Yes | Source clip ID |
+| opts | table | Yes | Text overlay options |
+| opts.text | string | Yes | Text to draw |
+| opts.x | number | No | X position |
+| opts.y | number | No | Y position |
+| opts.size | number | No | Font size |
+| opts.color | string | No | Hex color (e.g., "#FF0000") |
+
+**Returns:** Table with `id` (new clip ID), or `nil, error_message`
+
+---
+
+### image.composite(clip_id, overlay_clip_id, opts)
+
+Composites one image on top of another and creates a new clip.
+
+**Parameters:**
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| clip_id | number | Yes | Base image clip ID |
+| overlay_clip_id | number | Yes | Overlay image clip ID |
+| opts | table | No | Composite options (position, opacity) |
+
+**Returns:** Table with `id` (new clip ID), or `nil, error_message`
+
+---
+
+### image.dominant_colors(clip_id, n)
+
+Extracts the dominant colors from an image.
+
+**Parameters:**
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| clip_id | number | Yes | Clip ID |
+| n | number | No | Number of colors to return (default: 5) |
+
+**Returns:** Array of hex color strings, or `nil, error_message`
+
+---
+
+### image.grayscale_pixels(clip_id, opts)
+
+Returns a downsampled grayscale pixel grid. Useful for perceptual hashing or image analysis.
+
+**Parameters:**
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| clip_id | number | Yes | Clip ID |
+| opts | table | No | Options (e.g., target dimensions) |
+
+**Returns:** Table of pixel values, or `nil, error_message`
+
+---
+
+### image.metadata(clip_id)
+
+Returns EXIF and other metadata from an image clip.
+
+**Parameters:**
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| clip_id | number | Yes | Clip ID |
+
+**Returns:** Table of metadata key-value pairs, or `nil, error_message`
+
+---
+
+### image.diff(clip_id1, clip_id2)
+
+Compares two images and returns a similarity score.
+
+**Parameters:**
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| clip_id1 | number | Yes | First image clip ID |
+| clip_id2 | number | Yes | Second image clip ID |
+
+**Returns:** Table with comparison results (e.g., `score`), or `nil, error_message`
+
+---
+
+## modal
+
+Display result modals to the user from plugin actions.
+
+### modal.show(opts)
+
+Opens a modal dialog showing plugin output. Supports markdown, plain text, and image content.
+
+**Parameters:**
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| opts | table | Yes | Modal options |
+| opts.title | string | Yes | Modal title |
+| opts.content | string | Yes | Content to display |
+| opts.format | string | No | `"markdown"` (default), `"text"`, or `"image"` |
+| opts.copy_data | string | No | Data placed on clipboard when user clicks Copy |
+| opts.paste_data | string | No | Data to create a new clip when user clicks Paste |
+| opts.paste_data_base64 | boolean | No | If true, `paste_data` is base64-encoded binary |
+| opts.paste_name | string | No | Filename for the pasted clip |
+| opts.paste_content_type | string | No | MIME type for the pasted clip |
+
+**Returns:** `true` on success, or `false, error_message`
+
+**Example:**
+```lua
+-- Show markdown result
+modal.show({
+  title = "Analysis Results",
+  content = "## Summary\n\nFound **3** duplicate images.",
+  format = "markdown",
+  copy_data = "3 duplicates found"
+})
+
+-- Show a generated image
+modal.show({
+  title = "Generated Image",
+  content = base64_png_data,
+  format = "image",
+  paste_data = base64_png_data,
+  paste_data_base64 = true,
+  paste_name = "generated.png",
+  paste_content_type = "image/png"
+})
+```
+
+---
+
 ## Resource Limits
 
 Plugins operate within strict resource limits to ensure system stability:

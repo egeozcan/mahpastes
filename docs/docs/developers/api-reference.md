@@ -779,6 +779,106 @@ func (s *PluginService) ExecutePluginAction(pluginID int64, actionID string, cli
 
 ---
 
+## ClipboardService Operations
+
+Clipboard operations are on the `ClipboardService` struct (accessed via `window.go.main.ClipboardService.*` in JavaScript), separate from `App` to stay within Wails method binding limits.
+
+### CopyFileToClipboard
+
+Copy a clip as a file reference to the system clipboard.
+
+```go
+func (s *ClipboardService) CopyFileToClipboard(id int64) error
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `id` | int64 | Clip ID |
+
+Creates a temp file from the clip data and places a file reference on the system clipboard. The receiving app gets the file as if it were copied from Finder.
+
+---
+
+### BulkCopyFilesToClipboard
+
+Copy multiple clips as file references to the system clipboard.
+
+```go
+func (s *ClipboardService) BulkCopyFilesToClipboard(ids []int64) error
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `ids` | []int64 | Array of clip IDs |
+
+---
+
+### CopyClipContents
+
+Copy the raw content of a clip to the system clipboard.
+
+```go
+func (s *ClipboardService) CopyClipContents(id int64) error
+```
+
+For text clips, copies the text directly. For image clips, copies as PNG image data.
+
+---
+
+## TransferService Operations
+
+Transfer operations handle dragging clips out of mahpastes into other apps. Accessed via `window.go.main.TransferService.*` in JavaScript.
+
+### GetTransferCapabilities
+
+Returns platform-specific capability flags for drag and clipboard operations.
+
+```go
+func (s *TransferService) GetTransferCapabilities() (*TransferCapabilities, error)
+```
+
+**Returns:** A capabilities object indicating which drag/clipboard features are available on the current platform.
+
+---
+
+### PrepareClipForTransfer
+
+Create or refresh a temp file for a clip, preparing it for drag-out.
+
+```go
+func (s *TransferService) PrepareClipForTransfer(req PrepareTransferRequest) (*PreparedTransferItem, error)
+```
+
+Returns the temp file path and metadata needed to start a native drag.
+
+---
+
+### GetExistingPreparedClipForTransfer
+
+Check if a temp file already exists for a clip without creating a new one.
+
+```go
+func (s *TransferService) GetExistingPreparedClipForTransfer(req PrepareTransferRequest) (*PreparedTransferItem, error)
+```
+
+Returns the existing prepared transfer if available, or nil if the clip hasn't been prepared yet.
+
+---
+
+### StartNativeDragOut
+
+Initiate a native OS drag operation for a prepared clip.
+
+```go
+func (s *TransferService) StartNativeDragOut(req NativeDragRequest) error
+```
+
+On macOS, this triggers a native pasteboard drag with the file URI. The user sees the file "leave" the app and can drop it into Finder, Mail, Slack, or other apps.
+
+---
+
 ## Events
 
 Events emitted from Go to JavaScript:

@@ -31,6 +31,9 @@ frontend/
 │   ├── plugin-icons.js  Plugin icon rendering
 │   ├── task-queue.js    Plugin task progress UI
 │   ├── watch.js         Watch folders UI
+│   ├── transfer.js      Drag-out transfer state management
+│   ├── transfer-strategies.js  Platform-specific drag data adapters
+│   ├── modal-renderer.js       Plugin result modal rendering
 │   ├── utils.js         Shared utilities
 │   └── wails-api.js     Wails bindings wrapper
 └── wailsjs/
@@ -194,6 +197,32 @@ export async function getClips(archived) {
     }
 }
 ```
+
+### transfer.js — Drag-Out Transfers
+
+Manages the state machine for dragging clips out of mahpastes into other apps. Wraps Wails bindings for `TransferService` and handles the prepare-then-drag lifecycle.
+
+**Key responsibilities:**
+- Prepare temp files for drag-out via `TransferService.PrepareClipForTransfer`
+- Initiate native OS drag via `TransferService.StartNativeDragOut`
+- Track in-flight transfer state
+
+### transfer-strategies.js — Platform Drag Adapters
+
+Platform-specific adapters for drag data formatting. On macOS, uses the `file-uri-v1` strategy to provide file URIs for native drag operations.
+
+**Key responsibilities:**
+- Abstract platform differences for drag data
+- Provide `file://` URIs on macOS for Finder/Mail/Slack compatibility
+
+### modal-renderer.js — Plugin Result Modals
+
+Renders plugin action results in modal dialogs. Supports markdown (via marked + DOMPurify), plain text, and image formats.
+
+**Key responsibilities:**
+- Render markdown content with sanitized HTML
+- Display base64 images from plugin results
+- Provide copy-to-clipboard and paste-as-clip actions from modal content
 
 ## Event Handling
 
