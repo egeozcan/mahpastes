@@ -38,39 +38,69 @@ function on_ui_action(action_id, clip_ids, options)
     -- Approximate aspect ratio correction: terminal characters are ~2x taller than wide
     local height = math.floor(width / 2)
 
+    -- Helper to convert a single clip to ASCII art string
+    local function convert_to_ascii(clip_id)
+        local pixels = image.grayscale_pixels(clip_id, width, height)
+        if not pixels then
+            error("Failed to get grayscale pixels")
+        end
+
+        local lines = {}
+        for y = 0, height - 1 do
+            local row = ""
+            for x = 0, width - 1 do
+                local lum = pixels[y * width + x + 1] or 0
+                local inverted = 255 - lum
+                local idx = math.floor(inverted / 256 * #charset) + 1
+                if idx > #charset then idx = #charset end
+                if idx < 1 then idx = 1 end
+                row = row .. charset:sub(idx, idx)
+            end
+            lines[#lines + 1] = row
+        end
+        return table.concat(lines, "\n")
+    end
+
+    -- Single clip: show modal
+    if #clip_ids == 1 then
+        local clip_id = clip_ids[1]
+        local ok, art = pcall(convert_to_ascii, clip_id)
+        if not ok then
+            return {success = false, error = tostring(art)}
+        end
+
+        local clip_info = clips.get(clip_id)
+        local name = "ascii_" .. clip_id .. ".txt"
+        if clip_info and clip_info.filename then
+            local base = clip_info.filename:match("^(.+)%.[^%.]+$") or clip_info.filename
+            name = "ascii_" .. base .. ".txt"
+        end
+
+        return {
+            success = true,
+            modal = {
+                title = "ASCII Art (" .. width .. "x" .. height .. ")",
+                content = art,
+                format = "text",
+                copy_data = art,
+                paste_data = art,
+                paste_name = name,
+                paste_content_type = "text/plain",
+            },
+        }
+    end
+
+    -- Multiple clips: batch create text clips
     local clip_count = #clip_ids
-    local task_id = task.start("ASCII Art (" .. clip_count .. " image" .. (clip_count > 1 and "s" or "") .. ")", clip_count)
+    local task_id = task.start("ASCII Art (" .. clip_count .. " images)", clip_count)
 
     local last_clip_id = nil
     local errors = 0
 
     for i, clip_id in ipairs(clip_ids) do
         local ok, err = pcall(function()
-            -- Get grayscale pixel luminance values
-            local pixels = image.grayscale_pixels(clip_id, width, height)
-            if not pixels then
-                error("Failed to get grayscale pixels")
-            end
+            local art = convert_to_ascii(clip_id)
 
-            -- Map pixels to ASCII characters
-            local lines = {}
-            for y = 0, height - 1 do
-                local row = ""
-                for x = 0, width - 1 do
-                    local lum = pixels[y * width + x + 1] or 0
-                    -- Map luminance (0=black, 255=white) to charset index
-                    -- Invert so dark pixels get dense characters
-                    local inverted = 255 - lum
-                    local idx = math.floor(inverted / 256 * #charset) + 1
-                    if idx > #charset then idx = #charset end
-                    if idx < 1 then idx = 1 end
-                    row = row .. charset:sub(idx, idx)
-                end
-                lines[#lines + 1] = row
-            end
-            local art = table.concat(lines, "\n")
-
-            -- Get original clip info for naming
             local clip_info = clips.get(clip_id)
             local name = "ascii_" .. clip_id .. ".txt"
             if clip_info and clip_info.filename then
@@ -78,7 +108,6 @@ function on_ui_action(action_id, clip_ids, options)
                 name = "ascii_" .. base .. ".txt"
             end
 
-            -- Create text clip with ASCII art
             local new_clip, create_err = clips.create({
                 data = art,
                 content_type = "text/plain",
@@ -103,7 +132,7 @@ function on_ui_action(action_id, clip_ids, options)
         task.fail(task_id, "Failed to convert to ASCII art")
     else
         task.complete(task_id)
-        toast.show("ASCII art created (" .. width .. "x" .. math.floor(width / 2) .. " chars)", "success")
+        toast.show("ASCII art created (" .. width .. "x" .. height .. " chars)", "success")
     end
 
     return {success = errors < clip_count, result_clip_id = last_clip_id or 0}

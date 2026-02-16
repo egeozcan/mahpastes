@@ -23,8 +23,12 @@ export function ImportPlugin():Promise<main.PluginInfo>;
 
 export function ImportPluginFromPath(arg1:string):Promise<main.PluginInfo>;
 
+export function IsPluginURLAllowed(arg1:number,arg2:string,arg3:string):Promise<boolean>;
+
 export function RemovePlugin(arg1:number):Promise<void>;
 
 export function RevokePluginPermission(arg1:number,arg2:string,arg3:string):Promise<void>;
 
 export function SetPluginStorage(arg1:number,arg2:string,arg3:string):Promise<void>;
+
+export function TryAcquireModalGuard():Promise<boolean>;

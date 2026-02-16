@@ -5,21 +5,53 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 const (
 	MaxConsecutiveErrors = 3
 )
 
+// ModalData represents data for a plugin result modal
+type ModalData struct {
+	PluginID         int64  `json:"plugin_id"`
+	Title            string `json:"title"`
+	Content          string `json:"content"`
+	Format           string `json:"format"`
+	CopyData         string `json:"copy_data,omitempty"`
+	PasteData        string `json:"paste_data,omitempty"`
+	PasteDataBase64  bool   `json:"paste_data_base64,omitempty"`
+	PasteName        string `json:"paste_name,omitempty"`
+	PasteContentType string `json:"paste_content_type,omitempty"`
+}
+
+// ToEventMap converts ModalData to a map suitable for Wails EventsEmit.
+func (d *ModalData) ToEventMap() map[string]interface{} {
+	return map[string]interface{}{
+		"plugin_id":          d.PluginID,
+		"title":              d.Title,
+		"content":            d.Content,
+		"format":             d.Format,
+		"copy_data":          d.CopyData,
+		"paste_data":         d.PasteData,
+		"paste_data_base64":  d.PasteDataBase64,
+		"paste_name":         d.PasteName,
+		"paste_content_type": d.PasteContentType,
+	}
+}
+
 // ActionResult represents the result of a plugin action execution
 type ActionResult struct {
-	Success      bool   `json:"success"`
-	Error        string `json:"error,omitempty"`
-	ResultClipID int64  `json:"result_clip_id,omitempty"`
+	Success      bool       `json:"success"`
+	Error        string     `json:"error,omitempty"`
+	ResultClipID int64      `json:"result_clip_id,omitempty"`
+	Modal        *ModalData `json:"modal,omitempty"`
 }
 
 // Plugin represents a loaded plugin
@@ -44,6 +76,7 @@ type Manager struct {
 	permCallback     PermissionCallback
 	mu               sync.RWMutex
 	pluginsDir       string
+	modalGuard       *modalGuard
 }
 
 // NewManager creates a new plugin manager
@@ -60,6 +93,7 @@ func NewManager(ctx context.Context, db *sql.DB, pluginsDir string) (*Manager, e
 		eventSubscribers: make(map[string][]int64),
 		scheduler:        NewScheduler(),
 		pluginsDir:       pluginsDir,
+		modalGuard:       newModalGuard(ctx),
 	}
 
 	return m, nil
@@ -142,6 +176,9 @@ func (m *Manager) loadPlugin(p *Plugin) error {
 
 	taskAPI := NewTaskAPI(m.ctx, p.ID)
 	taskAPI.Register(sandbox.GetState())
+
+	modalAPI := NewModalAPI(m.ctx, p.ID, m.modalGuard)
+	modalAPI.Register(sandbox.GetState())
 
 	imageAPI := NewImageAPI(m.db)
 	imageAPI.Register(sandbox.GetState())
@@ -355,6 +392,41 @@ func (m *Manager) GetPlugins() []*Plugin {
 	return plugins
 }
 
+// TryAcquireModalGuard attempts to acquire the app-wide modal guard.
+// Returns true if acquired (caller must ensure plugin:modal:closed is emitted to release).
+func (m *Manager) TryAcquireModalGuard() bool {
+	ok, gen := m.modalGuard.acquire()
+	if ok {
+		m.modalGuard.startAckTimeout(gen)
+	}
+	return ok
+}
+
+// IsPluginURLAllowed checks whether a URL is permitted by the plugin's network allowlist
+func (m *Manager) IsPluginURLAllowed(pluginID int64, rawURL string, method string) bool {
+	m.mu.RLock()
+	p, ok := m.plugins[pluginID]
+	m.mu.RUnlock()
+	if !ok || p.Manifest == nil {
+		return false
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	domain := parsed.Hostname()
+	allowedMethods, ok := FindAllowedMethods(p.Manifest.Network, domain)
+	if !ok {
+		return false
+	}
+	for _, am := range allowedMethods {
+		if strings.EqualFold(am, method) {
+			return true
+		}
+	}
+	return false
+}
+
 // EnablePlugin enables a plugin
 func (m *Manager) EnablePlugin(pluginID int64) error {
 	// Check if plugin is already loaded
@@ -481,7 +553,25 @@ func (m *Manager) ExecuteUIAction(pluginID int64, actionID string, clipIDs []int
 				return
 			}
 			m.resetErrorCount(pluginID)
-			_ = luaResult // Plugin communicates results via task events and toasts
+			actionResult := luaResultToActionResult(luaResult)
+			if actionResult.Modal != nil {
+				actionResult.Modal.PluginID = p.ID
+				ok, gen := m.modalGuard.acquire()
+				if ok {
+					m.modalGuard.startAckTimeout(gen)
+					runtime.EventsEmit(m.ctx, "plugin:modal", actionResult.Modal.ToEventMap())
+				} else {
+					runtime.EventsEmit(m.ctx, "plugin:toast", map[string]string{
+						"message": "Cannot show result — another modal is open",
+						"type":    "error",
+					})
+				}
+			} else if !actionResult.Success && actionResult.Error != "" {
+				runtime.EventsEmit(m.ctx, "plugin:toast", map[string]string{
+					"message": actionResult.Error,
+					"type":    "error",
+				})
+			}
 		}()
 		return &ActionResult{Success: true}, nil
 	}
@@ -492,7 +582,11 @@ func (m *Manager) ExecuteUIAction(pluginID int64, actionID string, clipIDs []int
 		return nil, fmt.Errorf("plugin action failed: %w", err)
 	}
 
-	return luaResultToActionResult(luaResult), nil
+	result := luaResultToActionResult(luaResult)
+	if result.Modal != nil {
+		result.Modal.PluginID = p.ID
+	}
+	return result, nil
 }
 
 // luaResultToActionResult converts a Lua return table to an ActionResult
@@ -514,6 +608,55 @@ func luaResultToActionResult(luaResult map[string]interface{}) *ActionResult {
 	if clipID, ok := luaResult["result_clip_id"]; ok {
 		if id, ok := clipID.(int64); ok {
 			result.ResultClipID = id
+		}
+	}
+
+	if modalRaw, ok := luaResult["modal"]; ok {
+		if modalMap, ok := modalRaw.(map[string]interface{}); ok {
+			modal := &ModalData{}
+			if v, ok := modalMap["title"].(string); ok {
+				modal.Title = v
+			}
+			if v, ok := modalMap["content"].(string); ok {
+				modal.Content = v
+			}
+			if v, ok := modalMap["format"].(string); ok {
+				modal.Format = v
+			}
+			if v, ok := modalMap["copy_data"].(string); ok {
+				modal.CopyData = v
+			}
+			if v, ok := modalMap["paste_data"].(string); ok {
+				modal.PasteData = v
+			}
+			if v, ok := modalMap["paste_name"].(string); ok {
+				modal.PasteName = v
+			}
+			if v, ok := modalMap["paste_content_type"].(string); ok {
+				modal.PasteContentType = v
+			}
+			if v, ok := modalMap["paste_data_base64"].(bool); ok {
+				modal.PasteDataBase64 = v
+			}
+			// Validate required fields and limits
+			if modal.Title == "" || modal.Content == "" || modal.Format == "" {
+				result.Success = false
+				result.Error = "modal requires title, content, and format"
+			} else if len(modal.Content) > 1<<20 || len(modal.CopyData) > 1<<20 || len(modal.PasteData) > 10<<20 {
+				result.Success = false
+				result.Error = "modal content/data exceeds size limit"
+			} else {
+				validFormats := map[string]bool{"markdown": true, "image": true, "text": true}
+				if !validFormats[modal.Format] {
+					result.Success = false
+					result.Error = "modal format must be 'markdown', 'image', or 'text'"
+				} else {
+					if len(modal.Title) > 200 {
+						modal.Title = modal.Title[:200]
+					}
+					result.Modal = modal
+				}
+			}
 		}
 	}
 

@@ -42,6 +42,10 @@ export function ImportPluginFromPath(arg1) {
   return window['go']['main']['PluginService']['ImportPluginFromPath'](arg1);
 }
 
+export function IsPluginURLAllowed(arg1, arg2, arg3) {
+  return window['go']['main']['PluginService']['IsPluginURLAllowed'](arg1, arg2, arg3);
+}
+
 export function RemovePlugin(arg1) {
   return window['go']['main']['PluginService']['RemovePlugin'](arg1);
 }
@@ -52,4 +56,8 @@ export function RevokePluginPermission(arg1, arg2, arg3) {
 
 export function SetPluginStorage(arg1, arg2, arg3) {
   return window['go']['main']['PluginService']['SetPluginStorage'](arg1, arg2, arg3);
+}
+
+export function TryAcquireModalGuard() {
+  return window['go']['main']['PluginService']['TryAcquireModalGuard']();
 }

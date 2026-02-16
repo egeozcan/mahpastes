@@ -37,8 +37,8 @@ local function find_or_create_tag(name)
     return new_tag.id
 end
 
--- Format EXIF metadata into a readable text report
-local function format_metadata(info, meta, clip_info)
+-- Format EXIF metadata into a readable plain text report (used for copy/paste)
+local function format_metadata_plain(info, meta, clip_info)
     local lines = {}
     table.insert(lines, "=== Image Metadata ===")
     table.insert(lines, "")
@@ -147,14 +147,148 @@ local function format_metadata(info, meta, clip_info)
     return table.concat(lines, "\n")
 end
 
+-- Format EXIF metadata as markdown with tables (used for modal display)
+local function format_metadata_markdown(info, meta, clip_info)
+    local lines = {}
+
+    -- File info table
+    table.insert(lines, "## File Info")
+    table.insert(lines, "| Field | Value |")
+    table.insert(lines, "|-------|-------|")
+    if clip_info and clip_info.filename then
+        table.insert(lines, "| File | " .. clip_info.filename .. " |")
+    end
+    if info then
+        if info.width and info.height then
+            table.insert(lines, "| Dimensions | " .. info.width .. " x " .. info.height .. " |")
+        end
+        if info.format then
+            table.insert(lines, "| Format | " .. info.format .. " |")
+        end
+        if info.size then
+            local size_kb = math.floor(info.size / 1024)
+            if size_kb > 1024 then
+                table.insert(lines, "| Size | " .. string.format("%.1f", size_kb / 1024) .. " MB |")
+            else
+                table.insert(lines, "| Size | " .. size_kb .. " KB |")
+            end
+        end
+    end
+
+    if not meta then
+        table.insert(lines, "")
+        table.insert(lines, "*No EXIF data found.*")
+        return table.concat(lines, "\n")
+    end
+
+    local has_exif = false
+
+    -- Camera table
+    local has_camera = (meta.camera_make and meta.camera_make ~= "") or
+                       (meta.camera_model and meta.camera_model ~= "") or
+                       (meta.lens and meta.lens ~= "")
+    if has_camera then
+        has_exif = true
+        table.insert(lines, "")
+        table.insert(lines, "## Camera")
+        table.insert(lines, "| Field | Value |")
+        table.insert(lines, "|-------|-------|")
+        if meta.camera_make and meta.camera_make ~= "" then
+            table.insert(lines, "| Make | " .. meta.camera_make .. " |")
+        end
+        if meta.camera_model and meta.camera_model ~= "" then
+            table.insert(lines, "| Model | " .. meta.camera_model .. " |")
+        end
+        if meta.lens and meta.lens ~= "" then
+            table.insert(lines, "| Lens | " .. meta.lens .. " |")
+        end
+    end
+
+    -- Settings table
+    local has_settings = meta.iso or meta.aperture or meta.shutter_speed or meta.focal_length
+    if has_settings then
+        has_exif = true
+        table.insert(lines, "")
+        table.insert(lines, "## Settings")
+        table.insert(lines, "| Field | Value |")
+        table.insert(lines, "|-------|-------|")
+        if meta.iso then
+            table.insert(lines, "| ISO | " .. tostring(meta.iso) .. " |")
+        end
+        if meta.aperture then
+            table.insert(lines, "| Aperture | " .. tostring(meta.aperture) .. " |")
+        end
+        if meta.shutter_speed then
+            table.insert(lines, "| Shutter | " .. tostring(meta.shutter_speed) .. " |")
+        end
+        if meta.focal_length then
+            table.insert(lines, "| Focal Length | " .. tostring(meta.focal_length) .. " |")
+        end
+    end
+
+    -- Date section
+    if meta.date and meta.date ~= "" then
+        has_exif = true
+        table.insert(lines, "")
+        table.insert(lines, "## Date")
+        table.insert(lines, "**" .. meta.date .. "**")
+    end
+
+    -- Location table
+    if meta.gps and type(meta.gps) == "table" then
+        has_exif = true
+        table.insert(lines, "")
+        table.insert(lines, "## Location")
+        table.insert(lines, "| Field | Value |")
+        table.insert(lines, "|-------|-------|")
+        table.insert(lines, "| Latitude | " .. tostring(meta.gps.latitude) .. " |")
+        table.insert(lines, "| Longitude | " .. tostring(meta.gps.longitude) .. " |")
+    end
+
+    if not has_exif then
+        table.insert(lines, "")
+        table.insert(lines, "*No EXIF data found.*")
+    end
+
+    return table.concat(lines, "\n")
+end
+
 -- Handle UI action from lightbox or card menu
 function on_ui_action(action_id, clip_ids, options)
     if action_id ~= "view_exif" then
         return {success = false, error = "Unknown action: " .. action_id}
     end
 
+    -- Single clip: show modal
+    if #clip_ids == 1 then
+        local clip_id = clip_ids[1]
+        local clip_info = clips.get(clip_id)
+        local info = image.info(clip_id)
+        local meta = image.metadata(clip_id)
+
+        local md = format_metadata_markdown(info, meta, clip_info)
+        local plain = format_metadata_plain(info, meta, clip_info)
+
+        local original_name = (clip_info and clip_info.filename) or ("clip_" .. clip_id)
+        local name = original_name:match("^(.+)%.[^%.]+$") or original_name
+
+        return {
+            success = true,
+            modal = {
+                title = "Image Metadata",
+                content = md,
+                format = "markdown",
+                copy_data = plain,
+                paste_data = plain,
+                paste_name = name .. "_exif.txt",
+                paste_content_type = "text/plain",
+            },
+        }
+    end
+
+    -- Multiple clips: batch create text clips
     local clip_count = #clip_ids
-    local task_id = task.start("View EXIF (" .. clip_count .. " image" .. (clip_count > 1 and "s" or "") .. ")", clip_count)
+    local task_id = task.start("View EXIF (" .. clip_count .. " images)", clip_count)
 
     local last_clip_id = nil
     local errors = 0
@@ -162,26 +296,11 @@ function on_ui_action(action_id, clip_ids, options)
 
     for i, clip_id in ipairs(clip_ids) do
         local ok, err = pcall(function()
-            -- Get clip info
             local clip_info = clips.get(clip_id)
-
-            -- Get image info (dimensions, format, size)
             local info = image.info(clip_id)
-
-            -- Get EXIF metadata
             local meta = image.metadata(clip_id)
+            local report = format_metadata_plain(info, meta, clip_info)
 
-            -- Format into readable text
-            local report = format_metadata(info, meta, clip_info)
-
-            -- Determine if we found EXIF data
-            local has_exif = meta and (
-                (meta.camera_make and meta.camera_make ~= "") or
-                (meta.camera_model and meta.camera_model ~= "") or
-                (meta.date and meta.date ~= "")
-            )
-
-            -- Create text clip with the report
             local original_name = (clip_info and clip_info.filename) or ("clip_" .. clip_id)
             local name = original_name:match("^(.+)%.[^%.]+$") or original_name
             local report_name = name .. "_exif.txt"
@@ -196,12 +315,6 @@ function on_ui_action(action_id, clip_ids, options)
             end
 
             last_clip_id = new_clip.id
-
-            if has_exif then
-                toast.show("EXIF data extracted", "success")
-            else
-                toast.show("No EXIF data found", "info")
-            end
         end)
 
         if not ok then

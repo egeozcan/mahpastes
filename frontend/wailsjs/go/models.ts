@@ -500,10 +500,39 @@ export namespace main {
 
 export namespace plugin {
 	
+	export class ModalData {
+	    plugin_id: number;
+	    title: string;
+	    content: string;
+	    format: string;
+	    copy_data?: string;
+	    paste_data?: string;
+	    paste_data_base64?: boolean;
+	    paste_name?: string;
+	    paste_content_type?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ModalData(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.plugin_id = source["plugin_id"];
+	        this.title = source["title"];
+	        this.content = source["content"];
+	        this.format = source["format"];
+	        this.copy_data = source["copy_data"];
+	        this.paste_data = source["paste_data"];
+	        this.paste_data_base64 = source["paste_data_base64"];
+	        this.paste_name = source["paste_name"];
+	        this.paste_content_type = source["paste_content_type"];
+	    }
+	}
 	export class ActionResult {
 	    success: boolean;
 	    error?: string;
 	    result_clip_id?: number;
+	    modal?: ModalData;
 	
 	    static createFrom(source: any = {}) {
 	        return new ActionResult(source);
@@ -514,7 +543,26 @@ export namespace plugin {
 	        this.success = source["success"];
 	        this.error = source["error"];
 	        this.result_clip_id = source["result_clip_id"];
+	        this.modal = this.convertValues(source["modal"], ModalData);
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class Choice {
 	    value: string;
@@ -576,6 +624,7 @@ export namespace plugin {
 		    return a;
 		}
 	}
+	
 	export class SettingField {
 	    key: string;
 	    type: string;

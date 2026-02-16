@@ -249,6 +249,16 @@ export const selectors = {
     hiddenTagToggle: (name: string) => `[data-testid="hidden-tag-toggle-${name}"]`,
   },
 
+  // Plugin result modal
+  pluginResultModal: {
+    modal: '#plugin-result-modal',
+    title: '#plugin-result-title',
+    body: '#plugin-result-body',
+    closeButton: '#plugin-result-close',
+    copyButton: '#plugin-result-copy',
+    pasteButton: '#plugin-result-paste',
+  },
+
   // Backup
   backup: {
     createButton: '[data-testid="create-backup-btn"]',

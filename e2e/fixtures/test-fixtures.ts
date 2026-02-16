@@ -573,7 +573,7 @@ export class AppHelper {
       // All modals use opacity-0/pointer-events-none when closed
       const modalIds = [
         'confirm-dialog', 'restore-confirm-dialog', 'folder-modal',
-        'settings-modal', 'plugin-options-modal',
+        'settings-modal', 'plugin-options-modal', 'plugin-result-modal',
       ];
       for (const id of modalIds) {
         const el = document.getElementById(id);

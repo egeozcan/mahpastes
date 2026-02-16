@@ -222,6 +222,23 @@ func pluginToInfo(p *plugin.Plugin) *PluginInfo {
 	return info
 }
 
+// TryAcquireModalGuard attempts to acquire the app-wide modal guard for showing
+// a plugin result modal from the frontend. Returns true if acquired.
+func (s *PluginService) TryAcquireModalGuard() bool {
+	if s.app.pluginManager == nil {
+		return false
+	}
+	return s.app.pluginManager.TryAcquireModalGuard()
+}
+
+// IsPluginURLAllowed checks whether a URL is permitted by the plugin's network allowlist
+func (s *PluginService) IsPluginURLAllowed(pluginID int64, rawURL string, method string) bool {
+	if s.app.pluginManager == nil {
+		return false
+	}
+	return s.app.pluginManager.IsPluginURLAllowed(pluginID, rawURL, method)
+}
+
 // GetPluginStorage retrieves a value from a plugin's storage
 func (s *PluginService) GetPluginStorage(pluginID int64, key string) (string, error) {
 	if s.app.db == nil {

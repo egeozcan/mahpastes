@@ -290,6 +290,26 @@ func (s *Sandbox) CallUIAction(actionID string, clipIDs []int64, options map[str
 				}
 			}
 		})
+
+		// Check for nested modal table
+		if modalVal := tbl.RawGetString("modal"); modalVal != nil {
+			if modalTbl, ok := modalVal.(*lua.LTable); ok {
+				modalData := make(map[string]interface{})
+				modalTbl.ForEach(func(k, v lua.LValue) {
+					if key, ok := k.(lua.LString); ok {
+						switch val := v.(type) {
+						case lua.LNumber:
+							modalData[string(key)] = int64(val)
+						case lua.LString:
+							modalData[string(key)] = string(val)
+						case lua.LBool:
+							modalData[string(key)] = bool(val)
+						}
+					}
+				})
+				result["modal"] = modalData
+			}
+		}
 	}
 
 	return result, nil

@@ -896,3 +896,207 @@ input[type="range"].comparison-range::-webkit-slider-thumb {
     min-width: 3rem;
     text-align: right;
 }
+
+/* Plugin Result Modal - Markdown Content Styles */
+.plugin-md-content {
+    font-size: 0.8125rem;
+    line-height: 1.6;
+    color: #44403c;
+}
+
+.plugin-md-content h1 {
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: #1c1917;
+    margin-top: 1.5rem;
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid #e7e5e4;
+}
+
+.plugin-md-content h1:first-child {
+    margin-top: 0;
+}
+
+.plugin-md-content h2 {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: #292524;
+    margin-top: 1.25rem;
+    margin-bottom: 0.5rem;
+}
+
+.plugin-md-content h3 {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: #292524;
+    margin-top: 1rem;
+    margin-bottom: 0.375rem;
+}
+
+.plugin-md-content h4,
+.plugin-md-content h5,
+.plugin-md-content h6 {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #44403c;
+    margin-top: 0.75rem;
+    margin-bottom: 0.25rem;
+    text-transform: uppercase;
+    letter-spacing: 0.025em;
+}
+
+.plugin-md-content p {
+    margin-bottom: 0.75rem;
+}
+
+.plugin-md-content p:last-child {
+    margin-bottom: 0;
+}
+
+.plugin-md-content strong {
+    font-weight: 600;
+    color: #292524;
+}
+
+.plugin-md-content em {
+    font-style: italic;
+}
+
+.plugin-md-content del {
+    text-decoration: line-through;
+    color: #a8a29e;
+}
+
+.plugin-md-content a {
+    color: #57534e;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.plugin-md-content a:hover {
+    color: #292524;
+}
+
+.plugin-md-content code {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.75rem;
+    background: #f5f5f4;
+    border: 1px solid #e7e5e4;
+    border-radius: 0.25rem;
+    padding: 0.125rem 0.375rem;
+}
+
+.plugin-md-content pre {
+    background: #fafaf9;
+    border: 1px solid #e7e5e4;
+    border-radius: 0.375rem;
+    padding: 0.75rem 1rem;
+    overflow-x: auto;
+    margin-bottom: 0.75rem;
+}
+
+.plugin-md-content pre code {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: 0.6875rem;
+    line-height: 1.5;
+}
+
+.plugin-md-content blockquote {
+    border-left: 3px solid #d6d3d1;
+    padding-left: 0.75rem;
+    margin: 0.75rem 0;
+    color: #78716c;
+    font-style: italic;
+}
+
+.plugin-md-content ul,
+.plugin-md-content ol {
+    padding-left: 1.25rem;
+    margin-bottom: 0.75rem;
+}
+
+.plugin-md-content li {
+    margin-bottom: 0.25rem;
+}
+
+.plugin-md-content ul li {
+    list-style-type: disc;
+}
+
+.plugin-md-content ol li {
+    list-style-type: decimal;
+}
+
+.plugin-md-content hr {
+    border: none;
+    border-top: 1px solid #e7e5e4;
+    margin: 1rem 0;
+}
+
+.plugin-md-content img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 0.375rem;
+    margin: 0.5rem 0;
+}
+
+/* Table styles */
+.plugin-md-content table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 0.75rem;
+    font-size: 0.75rem;
+}
+
+.plugin-md-content thead th {
+    background: #fafaf9;
+    font-weight: 600;
+    text-align: left;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid #e7e5e4;
+    color: #292524;
+    text-transform: uppercase;
+    letter-spacing: 0.025em;
+    font-size: 0.6875rem;
+}
+
+.plugin-md-content tbody td {
+    padding: 0.375rem 0.75rem;
+    border: 1px solid #e7e5e4;
+    color: #44403c;
+}
+
+.plugin-md-content tbody tr:nth-child(even) {
+    background: #fafaf9;
+}
+
+/* Plain text format in result modal */
+.plugin-text-content {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.6875rem;
+    line-height: 1.4;
+    color: #44403c;
+    white-space: pre;
+    overflow-x: auto;
+    background: #fafaf9;
+    border: 1px solid #e7e5e4;
+    border-radius: 0.375rem;
+    padding: 0.75rem 1rem;
+}
+
+/* Image format in result modal */
+.plugin-image-content {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.plugin-image-content img {
+    max-width: 100%;
+    max-height: 50vh;
+    object-fit: contain;
+    border-radius: 0.375rem;
+}

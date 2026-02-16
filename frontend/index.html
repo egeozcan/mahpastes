@@ -918,6 +918,43 @@
         </div>
     </div>
 
+    <!-- Plugin Result Modal -->
+    <div id="plugin-result-modal" class="modal-backdrop opacity-0 pointer-events-none" role="dialog" aria-modal="true" aria-labelledby="plugin-result-title">
+        <div class="modal-content max-w-2xl">
+            <div class="modal-header">
+                <h3 id="plugin-result-title" class="text-sm font-semibold text-stone-800">Result</h3>
+                <button id="plugin-result-close" class="p-1 hover:bg-stone-100 rounded transition-colors" aria-label="Close">
+                    <svg class="w-4 h-4 text-stone-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+            <div id="plugin-result-body" class="modal-body overflow-y-auto" style="max-height: 60vh;">
+                <!-- Content rendered by JS -->
+            </div>
+            <div class="modal-footer">
+                <button id="plugin-result-copy" class="btn-secondary flex items-center gap-1.5">
+                    <svg class="w-3.5 h-3.5 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                            d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2"/>
+                    </svg>
+                    Copy to Clipboard
+                </button>
+                <button id="plugin-result-paste" class="btn-primary flex items-center gap-1.5">
+                    <svg class="w-3.5 h-3.5 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                            d="M12 4v16m8-8H4"/>
+                    </svg>
+                    Add as Paste
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Vendor libraries for plugin result rendering -->
+    <script src="vendor/marked.min.js"></script>
+    <script src="vendor/purify.min.js"></script>
+
     <!-- Scripts split for better organization -->
     <script src="js/utils.js"></script>
     <script src="js/wails-api.js"></script>
@@ -930,6 +967,7 @@
     <script src="js/watch.js"></script>
     <script src="js/settings.js"></script>
     <script src="js/plugins.js"></script>
+    <script src="js/modal-renderer.js"></script>
     <script src="js/task-queue.js"></script>
     <script src="js/tags.js"></script>
     <script src="js/app.js"></script>

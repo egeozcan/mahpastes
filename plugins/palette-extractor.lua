@@ -70,8 +70,64 @@ function on_ui_action(action_id, clip_ids, options)
     options = options or {}
     local count = options.count or 6
     local tag_colors = options.tag_colors or false
+
+    -- Single clip: show modal
+    if #clip_ids == 1 then
+        local clip_id = clip_ids[1]
+
+        local colors = image.dominant_colors(clip_id, count)
+        if not colors or #colors == 0 then
+            return {success = false, error = "Failed to extract colors"}
+        end
+
+        local svg = build_swatch_svg(colors)
+
+        -- Get original clip info for naming
+        local clip_info = clips.get(clip_id)
+        local original_name = (clip_info and clip_info.filename) or ("clip_" .. clip_id)
+        local name = original_name:match("^(.+)%.[^%.]+$") or original_name
+
+        -- Build markdown content: SVG as data URI image + hex color table
+        local md_lines = {}
+        table.insert(md_lines, "![Palette](data:image/svg+xml;base64," .. base64.encode(svg) .. ")")
+        table.insert(md_lines, "")
+        table.insert(md_lines, "| # | Color | Hex |")
+        table.insert(md_lines, "|---|-------|-----|")
+        for i, color in ipairs(colors) do
+            table.insert(md_lines, "| " .. i .. " | ![](data:image/svg+xml;base64," .. base64.encode('<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="16" height="16" fill="' .. color .. '"/></svg>') .. ") | `" .. color .. "` |")
+        end
+        local md = table.concat(md_lines, "\n")
+
+        -- copy_data: newline-separated hex codes
+        local copy_data = table.concat(colors, "\n")
+
+        -- Optionally tag the original clip with hex colors
+        if tag_colors then
+            for _, color in ipairs(colors) do
+                local tag_id = find_or_create_tag(color)
+                if tag_id then
+                    tags.add_to_clip(tag_id, clip_id)
+                end
+            end
+        end
+
+        return {
+            success = true,
+            modal = {
+                title = "Color Palette",
+                content = md,
+                format = "markdown",
+                copy_data = copy_data,
+                paste_data = svg,
+                paste_name = name .. "_palette.svg",
+                paste_content_type = "image/svg+xml",
+            },
+        }
+    end
+
+    -- Multiple clips: batch create palette clips
     local clip_count = #clip_ids
-    local task_id = task.start("Extract Palette (" .. clip_count .. " image" .. (clip_count > 1 and "s" or "") .. ")", clip_count)
+    local task_id = task.start("Extract Palette (" .. clip_count .. " images)", clip_count)
 
     local last_clip_id = nil
     local errors = 0
@@ -79,22 +135,18 @@ function on_ui_action(action_id, clip_ids, options)
 
     for i, clip_id in ipairs(clip_ids) do
         local ok, err = pcall(function()
-            -- Extract dominant colors
             local colors = image.dominant_colors(clip_id, count)
             if not colors or #colors == 0 then
                 error("Failed to extract colors")
             end
 
-            -- Build SVG swatch
             local svg = build_swatch_svg(colors)
 
-            -- Get original clip info for naming
             local clip_info = clips.get(clip_id)
             local original_name = (clip_info and clip_info.filename) or ("clip_" .. clip_id)
             local name = original_name:match("^(.+)%.[^%.]+$") or original_name
             local palette_name = name .. "_palette.svg"
 
-            -- Create palette clip (base64 encode SVG since image/* types are auto-detected as binary)
             local new_clip, create_err = clips.create({
                 data = base64.encode(svg),
                 content_type = "image/svg+xml",
@@ -106,7 +158,6 @@ function on_ui_action(action_id, clip_ids, options)
 
             last_clip_id = new_clip.id
 
-            -- Optionally tag the original clip with hex colors
             if tag_colors then
                 for _, color in ipairs(colors) do
                     local tag_id = find_or_create_tag(color)

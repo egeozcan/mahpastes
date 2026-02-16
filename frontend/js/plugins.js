@@ -541,9 +541,20 @@ document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
     e.preventDefault();
 
+    // Plugin result modal takes highest priority.
+    // stopImmediatePropagation so competing keydown handlers (e.g. lightbox)
+    // do not also fire on this Escape press.
+    const resultModal = document.getElementById('plugin-result-modal');
+    if (resultModal && !resultModal.classList.contains('opacity-0')) {
+        e.stopImmediatePropagation();
+        closePluginResultModal();
+        return;
+    }
+
     // Options dialog takes priority over plugins modal
     const optionsModal = document.getElementById('plugin-options-modal');
     if (optionsModal && !optionsModal.classList.contains('opacity-0')) {
+        e.stopImmediatePropagation();
         closePluginOptionsDialog();
         return;
     }
@@ -560,7 +571,15 @@ async function executePluginAction(pluginId, actionId, clipIds, options, isAsync
     try {
         const result = await window.go.main.PluginService.ExecutePluginAction(pluginId, actionId, clipIds, options || {});
         if (result && result.success) {
-            if (isAsync) {
+            if (result.modal) {
+                // Acquire modal guard so concurrent modal.show() calls are blocked
+                const acquired = await window.go.main.PluginService.TryAcquireModalGuard();
+                if (acquired) {
+                    showPluginResultModal(result.modal);
+                } else {
+                    showToast('Cannot show result — another modal is open', 'error');
+                }
+            } else if (isAsync) {
                 showToast('Processing started...');
             } else {
                 showToast('Action completed');
