@@ -274,7 +274,7 @@ This is required for CASCADE deletes to work on `clip_tags`, `plugin_permissions
 Single connection used throughout application lifetime:
 
 ```go
-db, err := sql.Open("sqlite3", dbPath)
+db, err := sql.Open("sqlite", dbPath)
 ```
 
 Closed on application shutdown:

@@ -134,7 +134,7 @@ func initDB() (*sql.DB, error) {
     dataDir, err := getDataDir()
 
     // Open SQLite database
-    db, err := sql.Open("sqlite3", dbPath)
+    db, err := sql.Open("sqlite", dbPath)
 
     // Enable WAL mode
     db.Exec("PRAGMA journal_mode=WAL")
@@ -379,7 +379,7 @@ func getDataDir() (string, error) {
 ```go
 require (
     github.com/wailsapp/wails/v2 v2.11.0
-    github.com/mattn/go-sqlite3 v1.14.22
+    modernc.org/sqlite v1.37.0
     github.com/fsnotify/fsnotify v1.7.0
     golang.design/x/clipboard v0.7.0
 )
