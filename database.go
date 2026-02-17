@@ -60,24 +60,17 @@ func initDB() (*sql.DB, error) {
 	dbPath := filepath.Join(dataDir, "clips.db")
 	log.Printf("Using database at: %s", dbPath)
 
-	db, err := sql.Open("sqlite", dbPath)
+	// Configure pragmas in the DSN so they are applied to every pooled
+	// connection, not just the first one (db.Exec("PRAGMA ...") only
+	// targets whichever connection the pool picks for that call).
+	dsn := dbPath +
+		"?_pragma=busy_timeout%3D5000" +
+		"&_pragma=journal_mode%3Dwal" +
+		"&_pragma=foreign_keys%3Don"
+
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open db: %w", err)
-	}
-
-	// Set busy timeout to 5s so concurrent writers wait instead of failing immediately
-	if _, err := db.Exec("PRAGMA busy_timeout = 5000"); err != nil {
-		log.Printf("Warning: Failed to set busy timeout: %v", err)
-	}
-
-	// Enable WAL mode for better concurrent access
-	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
-		log.Printf("Warning: Failed to enable WAL mode: %v", err)
-	}
-
-	// Enable foreign keys for CASCADE to work
-	if _, err := db.Exec("PRAGMA foreign_keys = ON"); err != nil {
-		log.Printf("Warning: Failed to enable foreign keys: %v", err)
 	}
 
 	createTableSQL := `
