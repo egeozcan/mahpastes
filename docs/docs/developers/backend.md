@@ -379,7 +379,7 @@ func getDataDir() (string, error) {
 ```go
 require (
     github.com/wailsapp/wails/v2 v2.11.0
-    modernc.org/sqlite v1.37.0
+    modernc.org/sqlite v1.45.0
     github.com/fsnotify/fsnotify v1.7.0
     golang.design/x/clipboard v0.7.0
 )

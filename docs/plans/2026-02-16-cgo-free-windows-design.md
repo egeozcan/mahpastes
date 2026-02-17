@@ -18,4 +18,4 @@ Replace `mattn/go-sqlite3` with `modernc.org/sqlite` on all platforms. This is a
 
 - Binary size increases ~10-15MB
 - Marginal performance difference (negligible for this app's workload)
-- Eliminates CGo requirement on all platforms, not just Windows
+- Eliminates CGo requirement for SQLite on all platforms (macOS still requires CGo for clipboard and native drag)
