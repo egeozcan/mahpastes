@@ -65,6 +65,11 @@ func initDB() (*sql.DB, error) {
 		return nil, fmt.Errorf("failed to open db: %w", err)
 	}
 
+	// Set busy timeout to 5s so concurrent writers wait instead of failing immediately
+	if _, err := db.Exec("PRAGMA busy_timeout = 5000"); err != nil {
+		log.Printf("Warning: Failed to set busy timeout: %v", err)
+	}
+
 	// Enable WAL mode for better concurrent access
 	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
 		log.Printf("Warning: Failed to enable WAL mode: %v", err)
