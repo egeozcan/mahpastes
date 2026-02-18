@@ -140,7 +140,10 @@ end
 function on_clip_created(data)
     local auto_upload = storage.get("auto_upload")
     if auto_upload ~= "true" then return end
-    upload_clip(data.id, true)
+    local ok, err = pcall(upload_clip, data.id, true)
+    if not ok then
+        log("mahresources auto-upload failed: " .. tostring(err))
+    end
 end
 
 -- Manual upload via card action
