@@ -19,6 +19,7 @@ test.describe('mahresources Plugin', () => {
   test.beforeEach(async ({ app }) => {
     await app.deleteAllPlugins();
     await app.deleteAllClips();
+    await app.deleteAllTags();
     pluginId = null;
   });
 
