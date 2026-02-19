@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"strings"
 
 	"go-clipboard/plugin"
 
@@ -56,6 +57,9 @@ type UIActionsResponse struct {
 // ActionResult is an alias for plugin.ActionResult to avoid duplication
 type ActionResult = plugin.ActionResult
 
+// PluginPreview is an alias for plugin.PluginPreview
+type PluginPreview = plugin.PluginPreview
+
 // GetPlugins returns all plugins
 func (s *PluginService) GetPlugins() ([]PluginInfo, error) {
 	if s.app.db == nil {
@@ -103,13 +107,9 @@ func (s *PluginService) GetPlugins() ([]PluginInfo, error) {
 	return plugins, nil
 }
 
-// ImportPlugin imports a plugin from a file path
-func (s *PluginService) ImportPlugin() (*PluginInfo, error) {
-	if s.app.pluginManager == nil {
-		return nil, fmt.Errorf("plugin manager not initialized")
-	}
-
-	// Open file dialog
+// ImportPlugin opens a file dialog and returns a preview for review.
+// The frontend should call ConfirmPluginInstall(path) after user approves.
+func (s *PluginService) ImportPlugin() (*PluginPreview, error) {
 	path, err := runtime.OpenFileDialog(s.app.ctx, runtime.OpenDialogOptions{
 		Title: "Select Plugin File",
 		Filters: []runtime.FileFilter{
@@ -123,12 +123,7 @@ func (s *PluginService) ImportPlugin() (*PluginInfo, error) {
 		return nil, nil // User cancelled
 	}
 
-	p, err := s.app.pluginManager.ImportPlugin(path)
-	if err != nil {
-		return nil, err
-	}
-
-	return pluginToInfo(p), nil
+	return plugin.PreviewFromFile(path)
 }
 
 // EnablePlugin enables a plugin
@@ -202,6 +197,38 @@ func (s *PluginService) RevokePluginPermission(pluginID int64, permType, path st
 		WHERE plugin_id = ? AND permission_type = ? AND path = ?
 	`, pluginID, permType, path)
 	return err
+}
+
+// PreviewPluginFromURL fetches a plugin URL and returns a preview for review
+func (s *PluginService) PreviewPluginFromURL(rawURL string) (*PluginPreview, error) {
+	return plugin.PreviewFromURL(rawURL)
+}
+
+// PreviewPluginFromPath reads a plugin file and returns a preview for review
+func (s *PluginService) PreviewPluginFromPath(path string) (*PluginPreview, error) {
+	return plugin.PreviewFromFile(path)
+}
+
+// ConfirmPluginInstall installs a plugin after user has reviewed permissions.
+// Source can be a URL (http:// or https://) or a local file path.
+func (s *PluginService) ConfirmPluginInstall(source string) (*PluginInfo, error) {
+	if s.app.pluginManager == nil {
+		return nil, fmt.Errorf("plugin manager not initialized")
+	}
+
+	var p *plugin.Plugin
+	var err error
+
+	if strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://") {
+		p, err = s.app.pluginManager.ImportPluginFromURL(source)
+	} else {
+		p, err = s.app.pluginManager.ImportPlugin(source)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return pluginToInfo(p), nil
 }
 
 // Helper function to convert plugin.Plugin to PluginInfo
