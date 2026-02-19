@@ -147,11 +147,21 @@ filesystem = {
 },
 ```
 
-Both default to `false`. Users are prompted to approve filesystem access on first use.
+Both default to `false`. Users are prompted to approve filesystem access on first use. Approving a parent directory covers all files and subdirectories within it. Approvals are persisted in the database across restarts.
 
 :::warning
 Filesystem access grants broad permissions. Only request what you need, and document why in your description.
 :::
+
+## Clipboard Permission
+
+Request access to write to the system clipboard:
+
+```lua
+clipboard = true,
+```
+
+Required for `utils.clipboard_write()`. Displayed in the permissions review during installation.
 
 ## Scheduled Tasks
 
@@ -360,7 +370,13 @@ The handler receives:
 - `clip_ids` (table) - Array of selected clip IDs
 - `options` (table) - User-provided option values (empty table if no options defined)
 
-It should return a table with `success` (boolean), optionally `error` (string), and optionally `result_clip_id` (number) to navigate to the result.
+It should return a table with:
+- `success` (boolean) — Whether the action succeeded
+- `error` (string, optional) — Error message on failure
+- `result_clip_id` (number, optional) — Navigate to the resulting clip
+- `modal` (table, optional) — Show a result modal with `title`, `content`, `format` (`"markdown"`, `"image"`, or `"text"`), plus optional `copy_data`, `paste_data`, `paste_data_base64`, `paste_name`, `paste_content_type`
+
+Only one modal can be open at a time across all plugins.
 
 ## Complete Example
 

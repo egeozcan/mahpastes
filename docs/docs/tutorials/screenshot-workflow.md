@@ -77,7 +77,7 @@ Make your screenshot more useful with annotations.
 
 Use rectangles to draw attention to specific areas:
 
-1. Press <span className="keyboard-key">R</span> for Rectangle tool
+1. Click the **Rectangle** tool in the toolbar
 2. Choose a visible color (red works well)
 3. Draw a rectangle around the area of interest
 
@@ -85,16 +85,16 @@ Use rectangles to draw attention to specific areas:
 
 Explain what you're highlighting:
 
-1. Press <span className="keyboard-key">T</span> for Text tool
+1. Click the **Text** tool in the toolbar
 2. Click near your highlight
-3. Type your label
+3. Type your label and press <span className="keyboard-key">Enter</span> to confirm
 4. Use contrasting colors for visibility
 
 ### Draw Arrows
 
 Point to specific elements (using Line tool):
 
-1. Press <span className="keyboard-key">L</span> for Line tool
+1. Click the **Line** tool in the toolbar
 2. Draw from label to target
 3. Add an arrowhead by drawing short angled lines
 
@@ -152,7 +152,7 @@ Set up automatic import for zero-friction capture.
 4. Auto-archive: Off (keep in main gallery)
 5. Save
 
-### Streamlined Workflow
+### The Result
 
 Now:
 1. Take screenshot (saves to disk)

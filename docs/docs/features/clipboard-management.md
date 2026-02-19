@@ -12,9 +12,9 @@ mahpastes handles a wide variety of content:
 
 | Type | Examples | How It's Displayed |
 |------|----------|-------------------|
-| **Images** | PNG, JPG, GIF, WebP, HEIC | Thumbnail preview |
+| **Images** | PNG, JPG, GIF, WebP, BMP, TIFF, SVG | Thumbnail preview |
 | **Text** | Plain text, notes | Text preview (first 500 chars) |
-| **Code** | Any programming language | Syntax-highlighted preview |
+| **Code** | Any programming language | Monospace text preview |
 | **JSON** | API responses, configs | Formatted JSON preview |
 | **HTML** | Web page snippets | HTML source preview |
 | **Files** | Any file type | Filename with type icon |
@@ -42,7 +42,6 @@ Drop files directly into the app:
 You can drop:
 - Single files
 - Multiple files at once
-- Folders (imports all files inside)
 
 ### With Expiration
 
@@ -56,7 +55,7 @@ When adding clips, you can set them to auto-delete:
    - **2 hours** — Longer temporary storage
 3. Paste as normal
 
-Clips with expiration show a clock icon with remaining time.
+Clips with expiration show a **Temp** badge on the card.
 
 ## Viewing Clips
 
@@ -72,18 +71,40 @@ Clips display in a responsive grid:
 
 ### Lightbox
 
-Click any image clip's preview to open it in a full-screen lightbox:
+Click any image clip's preview to open it in a full-screen lightbox.
 
-- View at full resolution with zoom (up to 4x via slider or pinch)
-- Navigate between images with arrow keys or swipe
-- Pan when zoomed in by clicking and dragging
-- Press <span className="keyboard-key">Esc</span> to close
+**Navigation:**
+- Arrow keys or arrow buttons to move between images
+- Swipe left/right on trackpad or touchscreen
+- Trackpad horizontal scroll with momentum detection
+
+**Zoom and pan:**
+- Slider in the bottom bar (1x to 4x)
+- Trackpad pinch to zoom
+- Touch pinch to zoom
+- Double-click to reset zoom to 1x
+- Click and drag to pan when zoomed in
+
+**Bottom bar:**
+- Position counter (e.g. "1/5"), filename, and image resolution
+- Zoom slider with percentage display
+- **Actions** menu with Copy Path, Copy File, Copy Contents, Save, Edit, Tags, Archive, Delete
+- Plugin action menu (if plugins define lightbox actions)
+
+**Keyboard shortcuts:**
+
+| Shortcut | Action |
+|----------|--------|
+| <span className="keyboard-key">Esc</span> | Close lightbox (closes open menus first) |
+| <span className="keyboard-key">Arrow Left</span> | Previous image |
+| <span className="keyboard-key">Arrow Right</span> | Next image |
+| <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">C</span> | Copy image contents to clipboard |
 
 ![Image lightbox](/img/screenshots/lightbox.png)
 
 ### Opening Content
 
-- **Images**: Click the preview to open in lightbox
+- **Images**: Click the preview to open in the lightbox
 - **Text/Code/JSON/HTML**: Click the preview to open in the text editor
 
 ### Content Detection
@@ -99,32 +120,24 @@ image/*        → Image viewer/editor
 
 ## Retrieving Clips
 
-### Copy Path
+### Context Menu
 
-For terminal workflows or apps that need file paths:
+Click the three-dot menu button on any clip card, or right-click anywhere on the card, to open the context menu. Available actions:
 
-1. Click the menu button (three dots) on any clip
-2. Select **Copy Path**
-3. mahpastes creates a temporary file and copies the absolute path to clipboard
+- **Copy Path** -- creates a temporary file and copies the absolute path to clipboard
+- **Copy File** -- copies the clip as a file to the system clipboard (macOS only, via NSPasteboard)
+- **Copy Contents** -- copies raw text or image data to the system clipboard (available for text/\*, application/json, and image/\* types)
+- **Save** -- opens a native save dialog to export the clip to disk
+- **Edit** -- opens the image editor or text editor
+- **Tags** -- opens the tag popover
+- **Archive** / **Restore** -- toggles archive state
+- **Delete** -- deletes the clip after confirmation
 
-Example use:
-```bash
-# After copying path
-cat /Users/you/Library/Application Support/mahpastes/clip_temp_files/42_screenshot.png
-```
+If plugins define card actions, those appear below a divider in the same menu.
 
 :::note Temporary Files
-Files created via "Copy Path" are stored in a temp directory and cleaned up when mahpastes exits. Don't rely on them for permanent storage.
+Files created via "Copy Path" are stored in a temp directory and cleaned up periodically (60-minute lease) and when mahpastes exits. Don't rely on them for permanent storage.
 :::
-
-### Save to Disk
-
-Export a clip as a permanent file:
-
-1. Click the menu button (three dots) on a clip
-2. Select **Save**
-3. Choose a save location in the dialog
-4. The file is saved with its original filename (or a generated one)
 
 ## Organizing Clips
 
@@ -132,9 +145,11 @@ Export a clip as a permanent file:
 
 Filter clips instantly:
 
-- Type in the search bar to filter by filename or content type
-- Search is case-insensitive
+- Type in the search bar to filter by filename and content type
+- Search is case-insensitive substring matching
 - Results update as you type
+- Filters only the currently visible cards (does not search clip contents)
+- Works in both the main gallery and archive views (whichever is active)
 
 ![Search filtering](/img/screenshots/search.png)
 
@@ -149,8 +164,11 @@ Move important clips to a separate space:
 
 Archived clips:
 - Don't appear in the main gallery
-- Are never auto-deleted (expiration is removed)
 - Can be unarchived at any time
+
+:::warning
+Archiving does **not** remove expiration. If a clip has an auto-delete timer, it will still expire even when archived.
+:::
 
 ### Delete
 
@@ -168,7 +186,7 @@ Deleted clips are permanently removed from the database.
 
 Supported formats:
 - PNG, JPG, JPEG, GIF
-- WebP, HEIC, BMP, TIFF
+- WebP, BMP, TIFF
 - SVG (displayed as image)
 
 When pasting from clipboard, images are typically captured as PNG.

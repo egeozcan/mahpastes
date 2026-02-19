@@ -165,7 +165,7 @@ end
 
 ### clips.create_from_url(url, options?)
 
-Downloads content from a URL and creates a new clip. The URL domain must be in the plugin's network permissions.
+Downloads content from a URL and creates a new clip. The URL domain must be in the plugin's network permissions. Redirects are validated against the same domain allowlist.
 
 **Parameters:**
 | Name | Type | Required | Description |
@@ -537,8 +537,10 @@ Plugin = {
 - Each domain must be explicitly declared
 - Wildcard subdomains are supported (e.g., `*.cdn.example.com` matches `v1.cdn.example.com`)
 - Allowed HTTP methods must be specified per domain
-- Redirects to unauthorized domains are blocked
-- HTTPS is enforced (HTTP requests are rejected for redirects)
+- Redirects are validated: each hop is checked against the domain allowlist, and HTTPS is enforced
+- Request timeout: 5 minutes
+- Max response size: 10MB
+- Rate limit: 100 requests per minute
 
 ### http.get(url, options?)
 
@@ -648,9 +650,10 @@ Filesystem access with user permission prompts.
 
 - Plugins must declare filesystem intent in their manifest
 - First access to a path triggers a user approval dialog
-- User can approve a directory (covers all files within)
-- Approvals are persisted and remembered
+- User can approve a directory (covers all files and subdirectories within)
+- Approvals are stored in the database and remembered across restarts
 - `fs.exists` only works within already-approved directories (no prompt, returns false for unapproved paths)
+- Rate limit: 50 filesystem operations per minute
 
 **Manifest declaration:**
 ```lua
@@ -793,26 +796,25 @@ toast.show("Processing...")  -- defaults to "info"
 
 Track progress of long-running operations. Tasks show a progress indicator in the UI.
 
-### task.start(name, total?)
+### task.start(name)
 
-Starts a new task and returns a task ID.
+Starts a new task and returns a task ID. Shows a progress bar in the UI.
 
 **Parameters:**
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | name | string | Yes | Display name for the task |
-| total | number | No | Total number of steps (default: 1) |
 
 **Returns:** Task ID (number)
 
 **Example:**
 ```lua
-local task_id = task.start("Processing images", 5)
+local task_id = task.start("Processing images")
 ```
 
 ---
 
-### task.progress(task_id, current)
+### task.progress(task_id, percentage, message?)
 
 Updates a task's progress.
 
@@ -820,7 +822,8 @@ Updates a task's progress.
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | task_id | number | Yes | Task ID from `task.start` |
-| current | number | Yes | Current step number |
+| percentage | number | Yes | Progress percentage (0-100) |
+| message | string | No | Status message |
 
 **Returns:** `true` on success, or `false, error_message`
 
@@ -828,13 +831,13 @@ Updates a task's progress.
 ```lua
 for i = 1, 5 do
   -- Process item...
-  task.progress(task_id, i)
+  task.progress(task_id, (i / 5) * 100, "Processing item " .. i)
 end
 ```
 
 ---
 
-### task.complete(task_id)
+### task.complete(task_id, message?)
 
 Marks a task as completed.
 
@@ -842,12 +845,13 @@ Marks a task as completed.
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | task_id | number | Yes | Task ID from `task.start` |
+| message | string | No | Completion message |
 
 **Returns:** `true` on success, or `false, error_message`
 
 **Example:**
 ```lua
-task.complete(task_id)
+task.complete(task_id, "Done!")
 ```
 
 ---
@@ -868,6 +872,8 @@ Marks a task as failed.
 ```lua
 task.fail(task_id, "API returned an error")
 ```
+
+Tasks are automatically cleaned up 5 minutes after completion or failure.
 
 ---
 
@@ -1074,7 +1080,7 @@ Returns dimensions and format of an image clip.
 |------|------|----------|-------------|
 | clip_id | number | Yes | Clip ID |
 
-**Returns:** Table with `width`, `height`, `format` fields, or `nil, error_message`
+**Returns:** Table with `width`, `height`, `format`, `size`, and `has_exif` fields, or `nil, error_message`
 
 ---
 
@@ -1087,8 +1093,9 @@ Resizes an image clip and creates a new clip with the result.
 |------|------|----------|-------------|
 | clip_id | number | Yes | Source clip ID |
 | opts | table | Yes | Resize options |
-| opts.width | number | No | Target width (0 to auto-scale) |
-| opts.height | number | No | Target height (0 to auto-scale) |
+| opts.width | number | No | Target width (0 to auto-scale). Max 10000. |
+| opts.height | number | No | Target height (0 to auto-scale). Max 10000. |
+| opts.fit | string | No | Fit mode: `"fill"` (default), `"contain"`, or `"cover"` |
 
 **Returns:** Table with `id` (new clip ID), or `nil, error_message`
 
@@ -1096,7 +1103,7 @@ Resizes an image clip and creates a new clip with the result.
 
 ### image.overlay_text(clip_id, opts)
 
-Draws text onto an image clip and creates a new clip.
+Draws text onto an image clip and creates a new clip. Uses the embedded IBM Plex Mono font.
 
 **Parameters:**
 | Name | Type | Required | Description |
@@ -1104,39 +1111,52 @@ Draws text onto an image clip and creates a new clip.
 | clip_id | number | Yes | Source clip ID |
 | opts | table | Yes | Text overlay options |
 | opts.text | string | Yes | Text to draw |
-| opts.x | number | No | X position |
-| opts.y | number | No | Y position |
+| opts.position | string | No | Named position: `"center"`, `"top"`, `"bottom"`, `"top-left"`, `"top-right"`, `"bottom-left"`, `"bottom-right"` |
+| opts.x | number | No | X position (overrides position) |
+| opts.y | number | No | Y position (overrides position) |
 | opts.size | number | No | Font size |
-| opts.color | string | No | Hex color (e.g., "#FF0000") |
+| opts.color | string | No | Hex color (e.g., `"#FF0000"`) |
+| opts.opacity | number | No | Text opacity (0.0 to 1.0) |
 
 **Returns:** Table with `id` (new clip ID), or `nil, error_message`
 
 ---
 
-### image.composite(clip_id, overlay_clip_id, opts)
+### image.composite(opts)
 
-Composites one image on top of another and creates a new clip.
+Creates a canvas and composites multiple image layers onto it. Up to 50 layers.
 
 **Parameters:**
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| clip_id | number | Yes | Base image clip ID |
-| overlay_clip_id | number | Yes | Overlay image clip ID |
-| opts | table | No | Composite options (position, opacity) |
+| opts | table | Yes | Composite options |
+| opts.width | number | Yes | Canvas width |
+| opts.height | number | Yes | Canvas height |
+| opts.layers | table | Yes | Array of layer objects (max 50) |
+
+**Layer object:**
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| clip_id | number | Yes | Image clip ID |
+| x | number | No | X offset on canvas |
+| y | number | No | Y offset on canvas |
+| width | number | No | Resize layer width |
+| height | number | No | Resize layer height |
 
 **Returns:** Table with `id` (new clip ID), or `nil, error_message`
 
 ---
 
-### image.dominant_colors(clip_id, n)
+### image.dominant_colors(clip_id, opts)
 
-Extracts the dominant colors from an image.
+Extracts dominant colors from an image using k-means clustering.
 
 **Parameters:**
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | clip_id | number | Yes | Clip ID |
-| n | number | No | Number of colors to return (default: 5) |
+| opts | table | No | Options |
+| opts.count | number | No | Number of colors to return (default: 5, max: 20) |
 
 **Returns:** Array of hex color strings, or `nil, error_message`
 
@@ -1144,34 +1164,38 @@ Extracts the dominant colors from an image.
 
 ### image.grayscale_pixels(clip_id, opts)
 
-Returns a downsampled grayscale pixel grid. Useful for perceptual hashing or image analysis.
+Returns a flat array of grayscale luminance values (0-255). Useful for ASCII art, perceptual hashing, or image analysis.
 
 **Parameters:**
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | clip_id | number | Yes | Clip ID |
-| opts | table | No | Options (e.g., target dimensions) |
+| opts | table | No | Options |
+| opts.width | number | No | Target sample width |
+| opts.height | number | No | Target sample height |
 
-**Returns:** Table of pixel values, or `nil, error_message`
+**Returns:** Table with `width`, `height`, and `pixels` (flat array of luminance values), or `nil, error_message`
+
+**Limit:** Max 1 million pixels (width * height).
 
 ---
 
 ### image.metadata(clip_id)
 
-Returns EXIF and other metadata from an image clip.
+Returns EXIF metadata from an image clip.
 
 **Parameters:**
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | clip_id | number | Yes | Clip ID |
 
-**Returns:** Table of metadata key-value pairs, or `nil, error_message`
+**Returns:** Table with fields like `camera_make`, `camera_model`, `lens`, `iso`, `aperture`, `shutter_speed`, `focal_length`, `date`, `gps_lat`, `gps_lon`. Missing fields are `nil`. Returns `nil, error_message` on failure.
 
 ---
 
 ### image.diff(clip_id1, clip_id2)
 
-Compares two images and returns a similarity score.
+Compares two images and returns a similarity score plus a visual diff image.
 
 **Parameters:**
 | Name | Type | Required | Description |
@@ -1179,7 +1203,13 @@ Compares two images and returns a similarity score.
 | clip_id1 | number | Yes | First image clip ID |
 | clip_id2 | number | Yes | Second image clip ID |
 
-**Returns:** Table with comparison results (e.g., `score`), or `nil, error_message`
+**Returns:** Table with `score` (0.0 to 1.0, where 1.0 is identical) and `diff_image` (base64-encoded PNG of the visual diff), or `nil, error_message`
+
+### Image Safety Limits
+
+All image operations enforce these limits:
+- **Decompression bomb guard:** max 100 megapixels per image
+- **Output size guard:** max 50MB base64-encoded PNG output
 
 ---
 
@@ -1195,16 +1225,18 @@ Opens a modal dialog showing plugin output. Supports markdown, plain text, and i
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | opts | table | Yes | Modal options |
-| opts.title | string | Yes | Modal title |
-| opts.content | string | Yes | Content to display |
+| opts.title | string | Yes | Modal title (max 200 characters) |
+| opts.content | string | Yes | Content to display (max 1MB) |
 | opts.format | string | No | `"markdown"` (default), `"text"`, or `"image"` |
-| opts.copy_data | string | No | Data placed on clipboard when user clicks Copy |
-| opts.paste_data | string | No | Data to create a new clip when user clicks Paste |
+| opts.copy_data | string | No | Data placed on clipboard when user clicks Copy (max 1MB) |
+| opts.paste_data | string | No | Data to create a new clip when user clicks Paste (max 10MB) |
 | opts.paste_data_base64 | boolean | No | If true, `paste_data` is base64-encoded binary |
 | opts.paste_name | string | No | Filename for the pasted clip |
 | opts.paste_content_type | string | No | MIME type for the pasted clip |
 
 **Returns:** `true` on success, or `false, error_message`
+
+Only one modal can be open at a time across all plugins. If another modal is already showing, `modal.show` returns `false`. Modals from async actions are queued and shown when the guard is released.
 
 **Example:**
 ```lua
@@ -1236,7 +1268,7 @@ Plugins operate within strict resource limits to ensure system stability:
 
 | Resource | Limit |
 |----------|-------|
-| Execution time | 30 seconds per handler |
+| Execution time | 30 seconds per handler, 5 minutes for async UI actions |
 | Memory | 50 MB per plugin |
 | HTTP requests | 100 per minute |
 | File operations | 50 per minute |
@@ -1245,6 +1277,12 @@ Plugins operate within strict resource limits to ensure system stability:
 | Clip data size | 10 MB maximum |
 | File read size | 50 MB maximum |
 | HTTP response size | 10 MB maximum |
+| HTTP request timeout | 5 minutes |
+| Modal title | 200 characters |
+| Modal content | 1 MB |
+| Modal paste_data | 10 MB |
+| Toast message | 200 characters |
+| Tag name | 50 characters |
 
 **Behavior when limits are exceeded:**
 

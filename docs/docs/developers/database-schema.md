@@ -174,6 +174,15 @@ CREATE TABLE plugins (
 | `error_count` | INTEGER | Number of runtime errors |
 | `created_at` | DATETIME | When plugin was installed |
 
+**Migration:**
+```sql
+ALTER TABLE plugins ADD COLUMN source_url TEXT DEFAULT ''
+```
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `source_url` | TEXT | URL the plugin was installed from (empty for local imports) |
+
 ### plugin_permissions
 
 Stores granted permissions for plugins.
@@ -227,6 +236,28 @@ CREATE TABLE plugin_storage (
 - Composite primary key on (plugin_id, key)
 - Cascading delete when plugin is removed
 
+### app_settings
+
+Application settings used by internal services (e.g., plugin update interval).
+
+```sql
+CREATE TABLE IF NOT EXISTS app_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+```
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `key` | TEXT | Setting name (primary key) |
+| `value` | TEXT | Setting value |
+
+**Current settings:**
+
+| Key | Values | Description |
+|-----|--------|-------------|
+| `plugin_update_interval` | "startup", "6h", "24h", "disabled" | How often to check for plugin updates |
+
 ## Schema Migrations
 
 Migrations are handled inline in `initDB()`:
@@ -240,42 +271,29 @@ db.Exec("ALTER TABLE clips ADD COLUMN is_archived INTEGER DEFAULT 0")
 db.Exec("ALTER TABLE clips ADD COLUMN expires_at DATETIME")
 db.Exec("ALTER TABLE watched_folders ADD COLUMN auto_tag_id INTEGER")
 db.Exec("ALTER TABLE plugin_permissions ADD COLUMN pending_reconfirm INTEGER DEFAULT 0")
+db.Exec("ALTER TABLE plugins ADD COLUMN source_url TEXT DEFAULT ''")
 ```
 
 Migrations use `ALTER TABLE` which silently fails if column exists.
 
 ## Database Configuration
 
-### WAL Mode
+### DSN-Based Pragmas
 
-Write-Ahead Logging enabled for better concurrency:
-
-```go
-db.Exec("PRAGMA journal_mode=WAL")
-```
-
-Benefits:
-- Better read/write concurrency
-- Faster writes
-- Crash recovery
-
-### Foreign Keys
-
-Foreign key constraints are enabled explicitly:
+All pragmas are set in the DSN string so they apply to every pooled connection:
 
 ```go
-db.Exec("PRAGMA foreign_keys = ON")
+dsn := dbPath + "?_busy_timeout=5000&_journal_mode=wal&_foreign_keys=on"
+db, err := sql.Open("sqlite", dsn)
 ```
 
-This is required for CASCADE deletes to work on `clip_tags`, `plugin_permissions`, and `plugin_storage`.
+| Pragma | Value | Purpose |
+|--------|-------|---------|
+| `busy_timeout` | 5000 | Wait up to 5 seconds when database is locked |
+| `journal_mode` | WAL | Write-Ahead Logging for better read/write concurrency |
+| `foreign_keys` | ON | Required for CASCADE deletes on `clip_tags`, `plugin_permissions`, `plugin_storage` |
 
-### Connection
-
-Single connection used throughout application lifetime:
-
-```go
-db, err := sql.Open("sqlite", dbPath)
-```
+Setting pragmas via DSN (not `db.Exec`) is important because `sql.Open` may use a connection pool. A `db.Exec("PRAGMA ...")` call only applies to one connection, while DSN-based pragmas apply to all connections the pool creates.
 
 Closed on application shutdown:
 

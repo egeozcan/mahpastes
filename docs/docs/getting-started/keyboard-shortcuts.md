@@ -13,7 +13,18 @@ These work anywhere in the application.
 | Shortcut | Action |
 |----------|--------|
 | <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">V</span> | Paste from system clipboard |
+| <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">C</span> | Copy (context-dependent, see below) |
 | <span className="keyboard-key">Esc</span> | Close current modal or dialog |
+
+### Cmd+C Behavior
+
+<span className="keyboard-key">Cmd</span> + <span className="keyboard-key">C</span> is context-dependent:
+
+| Context | Action |
+|---------|--------|
+| Lightbox open | Copies clip contents (raw image or text) to clipboard |
+| Clips selected in gallery | Copies selected clips as files to system clipboard |
+| Text selected / input focused | Standard browser copy (not intercepted) |
 
 ## Image Editor Shortcuts
 
@@ -39,7 +50,24 @@ When viewing an image in the lightbox:
 |----------|--------|
 | <span className="keyboard-key">←</span> | Previous image |
 | <span className="keyboard-key">→</span> | Next image |
-| <span className="keyboard-key">Esc</span> | Close lightbox |
+| <span className="keyboard-key">Esc</span> | Close open menu first, then close lightbox |
+| <span className="keyboard-key">Tab</span> / <span className="keyboard-key">Shift</span> + <span className="keyboard-key">Tab</span> | Cycle focus within lightbox buttons (focus trap) |
+
+### Lightbox Menus (File/Plugin)
+
+When a dropdown menu is open inside the lightbox:
+
+| Shortcut | Action |
+|----------|--------|
+| <span className="keyboard-key">↓</span> / <span className="keyboard-key">↑</span> | Navigate menu items |
+| <span className="keyboard-key">Esc</span> | Close menu |
+| <span className="keyboard-key">Tab</span> | Close menu |
+
+## Drop Zone
+
+| Shortcut | Action |
+|----------|--------|
+| <span className="keyboard-key">Enter</span> or <span className="keyboard-key">Space</span> | Open file picker (when drop zone is focused) |
 
 ## Selection
 
@@ -47,6 +75,26 @@ When viewing an image in the lightbox:
 |----------|--------|
 | Click checkbox | Add/remove clip from selection |
 | Select All checkbox | Toggle selection of all visible clips |
+
+## Plugin Modals
+
+| Shortcut | Action |
+|----------|--------|
+| <span className="keyboard-key">Esc</span> | Close result modal first, then options modal, then plugins modal |
+
+## Confirm Dialog
+
+| Shortcut | Action |
+|----------|--------|
+| <span className="keyboard-key">Tab</span> / <span className="keyboard-key">Shift</span> + <span className="keyboard-key">Tab</span> | Cycle focus within dialog (focus trap) |
+| <span className="keyboard-key">Esc</span> | Close dialog |
+
+## Text Placement (Editor)
+
+| Shortcut | Action |
+|----------|--------|
+| <span className="keyboard-key">Enter</span> | Confirm text placement |
+| <span className="keyboard-key">Esc</span> | Cancel text placement |
 
 ## Tips for Efficient Use
 

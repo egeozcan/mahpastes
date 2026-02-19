@@ -18,11 +18,13 @@ Set up watch folders to automatically capture files as they're created. No manua
 
 ### Basic Setup
 
-1. Click the **Watch Folders** button (gear icon)
+1. Click the **Watch** button in the header
 2. Click **Add Folder**
 3. Select the folder to watch
 4. Configure options
 5. Click **Save**
+
+You can also drag a folder from Finder and drop it onto the Watch view to add it.
 
 ### Configuration Options
 
@@ -32,6 +34,7 @@ Set up watch folders to automatically capture files as they're created. No manua
 | **Filter Presets** | Images, Documents, or Videos |
 | **Custom Regex** | Pattern to match filenames |
 | **Auto-Archive** | Move imports to archive automatically |
+| **Auto-Tag** | Automatically apply a tag to imported clips |
 | **Process Existing** | Import files already in folder |
 
 ## Common Configurations

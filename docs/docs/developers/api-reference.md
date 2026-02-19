@@ -836,10 +836,10 @@ Transfer operations handle dragging clips out of mahpastes into other apps. Acce
 Returns platform-specific capability flags for drag and clipboard operations.
 
 ```go
-func (s *TransferService) GetTransferCapabilities() (*TransferCapabilities, error)
+func (s *TransferService) GetTransferCapabilities() TransferCapabilities
 ```
 
-**Returns:** A capabilities object indicating which drag/clipboard features are available on the current platform.
+**Returns:** A capabilities value (not pointer, no error) indicating which drag/clipboard features are available on the current platform.
 
 ---
 
@@ -872,8 +872,12 @@ Returns the existing prepared transfer if available, or nil if the clip hasn't b
 Initiate a native OS drag operation for a prepared clip.
 
 ```go
-func (s *TransferService) StartNativeDragOut(req NativeDragRequest) error
+func (s *TransferService) StartNativeDragOut(req StartNativeDragRequest) (bool, error)
 ```
+
+**Parameters:** `StartNativeDragRequest` with `ClipID` and `AbsPath` fields.
+
+**Returns:** `bool` indicating whether the drag was accepted, and an error if the operation failed.
 
 On macOS, this triggers a native pasteboard drag with the file URI. The user sees the file "leave" the app and can drop it into Finder, Mail, Slack, or other apps.
 

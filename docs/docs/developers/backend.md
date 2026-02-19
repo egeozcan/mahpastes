@@ -133,11 +133,9 @@ func initDB() (*sql.DB, error) {
     // Get platform-specific data directory
     dataDir, err := getDataDir()
 
-    // Open SQLite database
-    db, err := sql.Open("sqlite", dbPath)
-
-    // Enable WAL mode
-    db.Exec("PRAGMA journal_mode=WAL")
+    // Open SQLite with pragmas in DSN for connection-pool safety
+    dsn := dbPath + "?_busy_timeout=5000&_journal_mode=wal&_foreign_keys=on"
+    db, err := sql.Open("sqlite", dsn)
 
     // Create/migrate tables
     db.Exec(createTableSQL)
@@ -145,6 +143,8 @@ func initDB() (*sql.DB, error) {
     return db, nil
 }
 ```
+
+Pragmas are set via the DSN string (not `db.Exec`) so they apply to all pooled connections.
 
 **Cleanup job:**
 ```go
@@ -246,6 +246,7 @@ type WatchedFolder struct {
     FilterRegex     string    `json:"filter_regex"`
     ProcessExisting bool      `json:"process_existing"`
     AutoArchive     bool      `json:"auto_archive"`
+    AutoTagID       *int64    `json:"auto_tag_id"`
     IsPaused        bool      `json:"is_paused"`
     CreatedAt       time.Time `json:"created_at"`
     Exists          bool      `json:"exists"`

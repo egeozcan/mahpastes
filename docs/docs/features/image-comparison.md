@@ -33,13 +33,14 @@ Smoothly transition between two images with opacity control.
 
 ### Slider Mode
 
-A movable divider reveals each image on its respective side.
+A vertical divider reveals each image on its respective side.
 
 **How it works:**
-- Drag the vertical or horizontal divider
-- Left/top shows the first image
-- Right/bottom shows the second image
-- The divider can be positioned anywhere
+- Drag the vertical divider left or right
+- Left side shows the first image, right side shows the second
+- Click anywhere in the comparison area to reposition the divider (not just the handle)
+- The position slider below also controls the divider
+- Touch drag is supported
 
 **Best for:**
 - Pixel-perfect comparisons
@@ -52,11 +53,11 @@ A movable divider reveals each image on its respective side.
 
 | Control | Action |
 |---------|--------|
-| **Zoom In** button | Zoom in (1.2x increments) |
-| **Zoom Out** button | Zoom out (1.2x increments) |
-| **Fit** button | Fit images to viewport |
+| **Zoom In** button | Multiply zoom by 1.2x (max 500%) |
+| **Zoom Out** button | Divide zoom by 1.2x (min 10%) |
+| **Fit** button | Fit images to viewport (capped at 100%) |
 
-The current zoom level is displayed as a percentage.
+The current zoom level is displayed as a percentage. Zoom is applied via CSS transform.
 
 ### Alignment
 
@@ -67,8 +68,8 @@ Position the images within the comparison viewport:
 ### Stretch
 
 When images have different sizes:
-- **Off**: Images maintain aspect ratio
-- **On**: Images stretch to fill the same area
+- **Off**: Images display at natural size with `object-fit: contain`
+- **On**: The bottom image is forced to 1000x1000px with `object-fit: fill`
 
 :::tip Comparing Different-Sized Images
 Enable Stretch mode when comparing images of different dimensions. This aligns them spatially for easier comparison.
@@ -123,10 +124,23 @@ Enable Stretch mode when comparing images of different dimensions. This aligns t
 6. Zoom into areas of interest
 7. Close when done
 
+## Defaults
+
+- Mode: Fade
+- Slider/opacity position: 50%
+- Alignment: Center / Middle
+- Stretch: Off
+
+## Closing
+
+Close the comparison modal by clicking the X button or clicking outside the comparison area. There is no keyboard shortcut to close the comparison modal.
+
 ## Limitations
 
 - Only two images can be compared at once
+- Slider mode has a vertical divider only (no horizontal split)
 - Images are compared visually only (no diff calculation)
+- No <span className="keyboard-key">Esc</span> key to close (use the X button or click outside)
 - Very large images may affect performance
 
 For advanced image differencing (pixel-level diff highlighting), consider specialized diff tools.

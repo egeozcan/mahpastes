@@ -45,7 +45,11 @@ Clips with expiration show a **Temp** badge in the top-left corner of the clip c
 
 ## Canceling Expiration
 
-Expiration can be canceled programmatically via the backend API (`CancelExpiration`), and archiving a clip also removes its expiration automatically.
+There is no UI button to cancel expiration. The `CancelExpiration` backend API exists but is not exposed in the interface.
+
+:::warning
+Archiving a clip does **not** cancel its expiration. The cleanup job deletes expired clips regardless of archive status.
+:::
 
 ## Automatic Cleanup
 
@@ -61,7 +65,10 @@ mahpastes runs a cleanup job that:
 
 - The clip content (image, text, etc.)
 - The database record
-- Any temporary files associated with the clip
+
+:::note
+The cleanup job only runs a SQL DELETE. It does not clean up temporary files or emit plugin events for expired clips. This differs from manual deletion, which cleans up temp files, orphaned tags, and emits `clip:deleted` plugin events.
+:::
 
 ### What Doesn't Get Deleted
 
@@ -104,9 +111,7 @@ To prevent clip accumulation:
 
 ## Interaction with Archive
 
-:::warning
-Archiving a clip does **not** remove its expiration. Archived clips with an expiration will still be auto-deleted when their time expires. If you want to keep an archived clip permanently, cancel its expiration first.
-:::
+Archiving does not affect expiration. Archived clips with an active timer will still be auto-deleted when their time expires.
 
 ## Tips
 
@@ -148,7 +153,7 @@ Currently fixed at 5/10/30 min and 2 hours. For longer temporary storage:
 
 ### Accidentally Deleted
 
-Auto-deleted clips cannot be recovered. If you need content:
-- Cancel expiration before it triggers
-- Archive important clips immediately
-- Use "Never" for anything you might need later
+Auto-deleted clips cannot be recovered. To avoid losing content:
+- Use "Never" expiration for anything you might need later
+- Archive important clips (but note this does not cancel expiration)
+- Create backups regularly

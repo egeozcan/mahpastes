@@ -436,6 +436,48 @@ end
 
 ---
 
+## Bundled Plugins
+
+mahpastes ships with several ready-to-use plugins in the `plugins/` directory. These demonstrate a range of capabilities and can be installed directly.
+
+### FAL.AI Image Processing
+
+AI-powered image processing via the fal.ai API. Provides lightbox and card actions for colorizing, upscaling (2x/4x), restoring, AI editing, and vectorizing images. Demonstrates async UI actions, task progress tracking, settings (API key), and `clips.create_from_url`.
+
+### mahresources Upload
+
+Automatically uploads new clips to a mahresources server instance. Supports manual upload via card action and auto-upload on `clip:created` with content type filtering. Demonstrates event handling, settings, and multipart HTTP upload.
+
+### Watermarker
+
+Adds text watermark overlays on images. Demonstrates `image.overlay_text` with configurable position, opacity, and font size via UI action options.
+
+### QR Code Generator
+
+Generates QR codes from text clips using an external API. Demonstrates `clips.create_from_url`, `utils.url_encode`, and `file_types`/`max_size` action filters.
+
+### Palette Extractor
+
+Extracts dominant colors from images and displays them as an SVG swatch in a modal. Can optionally create tags for each color. Demonstrates `image.dominant_colors`, `modal.show` with markdown format, and batch processing of multiple clips.
+
+### EXIF Viewer
+
+Displays EXIF metadata from images in a modal and auto-tags photos by camera model on `clip:created`. Demonstrates `image.info`, `image.metadata`, and modal with markdown tables.
+
+### ASCII Art Converter
+
+Converts images to ASCII art using `image.grayscale_pixels`. Displays results in a text-format modal with configurable output width.
+
+### Expiring Clips
+
+Adds time-based expiry to clips. Users can set expiry durations (1h, 6h, 24h, 7d, 30d) via card actions. A scheduled task (`check_expiry`, every 5 minutes) archives expired clips. Demonstrates schedules, storage for state persistence, `utils.time`, and multiple card actions.
+
+### Auto-Tagger
+
+Automatically tags clips based on content type and filename patterns. Demonstrates basic event handling with `clip:created` and the tags API.
+
+---
+
 ## Tips for Writing Plugins
 
 ### Start with Logging

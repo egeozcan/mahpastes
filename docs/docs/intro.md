@@ -46,13 +46,15 @@ sidebar_position: 1
 | Feature | Description |
 |---------|-------------|
 | **Paste Anything** | Images, text, code, JSON, HTML, and files |
-| **Drag & Drop** | Drop files directly into the app |
+| **Drag & Drop** | Drop files in or drag clips out to other apps |
 | **Auto-Delete** | Clips expire after 5, 10, 30 minutes, or 2 hours |
 | **Archive** | Keep important clips separate from active workspace |
+| **Lightbox** | Full-screen image viewer with zoom, pan, and navigation |
 | **Image Editor** | Annotate with brush, shapes, and text |
 | **Image Comparison** | Compare two images with fade or slider modes |
+| **Text Editor** | Edit text, code, JSON, and HTML clips directly |
 | **Watch Folders** | Automatically import files from folders |
-| **Bulk Actions** | Select multiple clips to archive, download, or delete |
+| **Bulk Actions** | Select multiple clips to copy, archive, download, or delete |
 | **Tags** | Color-coded labels to organize and filter clips |
 | **Plugins** | Extend functionality with Lua scripts |
 | **Backup & Restore** | Export all data to portable ZIP, restore anywhere |

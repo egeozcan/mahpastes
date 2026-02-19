@@ -60,6 +60,13 @@ app.go               Core application logic, API methods
 database.go          SQLite setup, schema, migrations
 watcher.go           Folder watching, file import
 backup.go            ZIP backup and restore
+clipboard_service.go Clipboard copy service (Wails-bound)
+clipboard_darwin.go  macOS clipboard via NSPasteboard (CGo)
+transfer_service.go  Drag-out preparation and native drag
+transfer_types.go    Transfer system type definitions
+app_transfer_helpers.go  Bridge between App and TempClipStore
+temp_clip_store.go   Leased temp file management
+native_drag_darwin.go    macOS native drag via CGo
 plugin_service.go    Plugin frontend API (separate struct for Wails binding limit)
 plugins.go           Plugin install/uninstall helpers
 plugin/              Lua plugin system
@@ -67,7 +74,7 @@ plugin/              Lua plugin system
 ├── manifest.go      Manifest parsing, validation
 ├── sandbox.go       Sandboxed Lua execution
 ├── scheduler.go     Scheduled/recurring plugin tasks
-└── api_*.go         Lua APIs (clips, tags, storage, http, fs, utils, task, toast)
+└── api_*.go         Lua APIs (clips, tags, storage, http, fs, utils, task, toast, image, modal)
 ```
 
 ### Frontend Components
@@ -86,6 +93,9 @@ frontend/
 │   ├── plugin-icons.js  Plugin icon rendering
 │   ├── task-queue.js    Plugin task progress UI
 │   ├── watch.js         Watch folders UI
+│   ├── transfer.js      Drag-out transfer state management
+│   ├── transfer-strategies.js  Platform-specific drag data adapters
+│   ├── modal-renderer.js       Plugin result modal rendering
 │   ├── utils.js         Shared utilities
 │   └── wails-api.js     Wails bindings wrapper
 └── css/

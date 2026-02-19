@@ -9,9 +9,8 @@ Keep important clips separate from your active workspace. The archive provides l
 ## Why Use Archive?
 
 - **Declutter**: Keep your main gallery focused on active work
-- **Protect**: Archived clips never expire (auto-delete is disabled)
 - **Organize**: Separate reference material from transient clips
-- **Find Later**: Search works in both gallery and archive
+- **Find Later**: Search works in the archive view just like in the main gallery
 
 ## Archiving Clips
 
@@ -55,8 +54,8 @@ The archive view shows:
 
 ### Expiration
 
-:::note
-Archiving a clip does **not** remove any existing expiration. If a clip has an auto-delete timer, it will still expire even when archived. The cleanup job runs regardless of archive status.
+:::warning
+Archiving a clip does **not** remove any existing expiration. If a clip has an auto-delete timer, it will still expire even when archived. The cleanup job runs regardless of archive status. To keep an archived clip permanently, cancel its expiration first.
 :::
 
 ### All Features Available
@@ -68,11 +67,13 @@ Archived clips support all operations:
 - Download
 - Delete
 
-### Search Across Both
+### Search
 
-The search bar filters:
-- Main gallery (when in gallery view)
-- Archive (when in archive view)
+The search bar filters whichever view is currently active:
+- Main gallery clips when in gallery view
+- Archived clips when in archive view
+
+It does not search across both simultaneously.
 
 ## Use Cases
 

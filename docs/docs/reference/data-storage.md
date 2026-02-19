@@ -16,15 +16,19 @@ The SQLite database contains all clips and settings.
 ~/Library/Application Support/mahpastes/clips.db
 ```
 
+The data directory can be overridden with the `MAHPASTES_DATA_DIR` environment variable. This is used for testing.
+
+The database uses WAL journal mode, a 5-second busy timeout, and foreign keys enabled. These pragmas are set via the DSN string for connection-pool safety.
+
 ### Temporary Files
 
-Files created via "Copy Path" are stored temporarily.
+Temp files are created for clipboard copy-as-file and drag-out transfers. Managed by `TempClipStore`.
 
 ```
 ~/Library/Application Support/mahpastes/clip_temp_files/
 ```
 
-Temporary files are cleaned up when mahpastes exits.
+Temp files have a 60-minute lease. A prune job runs every 10 minutes to remove stale and orphaned files. All temp files are also deleted on app exit.
 
 ## What's Stored
 
@@ -42,7 +46,8 @@ Temporary files are cleaned up when mahpastes exits.
 | Watch folders | Path and configuration |
 | Plugins | Filename, name, status, permissions |
 | Plugin storage | Plugin-scoped key-value data |
-| Settings | Key-value pairs |
+| Settings | Key-value pairs (e.g., hidden_tags, global_watch_paused) |
+| App settings | Internal service settings (e.g., plugin_update_interval) |
 
 ### File Sizes
 

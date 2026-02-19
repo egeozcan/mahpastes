@@ -54,15 +54,19 @@ Each plugin is a single `.lua` file containing:
 ### Sandboxed Execution
 
 Plugins run in a sandboxed Lua environment:
-- No access to system commands
-- Network requests restricted to declared domains
-- Filesystem access requires user approval
+- No access to system commands or dangerous globals (`dofile`, `loadfile`, `load`, `rawget`, `rawset`, etc.)
+- Network requests restricted to declared domains (100 requests/min, 10MB response limit)
+- Filesystem access requires user approval (50 ops/min, 50MB file size limit)
+- 30-second execution timeout per handler (5 minutes for async UI actions)
+- 50MB memory limit per plugin
+- Auto-disabled after 3 consecutive handler errors
 
 ### Permission Model
 
 Before a plugin can:
 - **Make HTTP requests** — Must declare allowed domains in manifest
 - **Read/write files** — Must declare intent; user approves specific folders
+- **Write to clipboard** — Must declare `clipboard = true` in manifest
 - **Access clips/tags** — Always allowed (core functionality)
 
 ## Example Use Cases

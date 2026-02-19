@@ -137,7 +137,7 @@ If using Apple Silicon (M1/M2/M3):
 
 **Solutions:**
 1. Ensure a tool is selected (check toolbar highlight)
-2. Try pressing keyboard shortcut (B for brush)
+2. Select a tool by clicking its button in the toolbar
 3. Check color isn't same as background
 4. Increase stroke width if very thin
 
@@ -201,8 +201,8 @@ If using Apple Silicon (M1/M2/M3):
 3. Database corruption (rare)
 
 **Prevention:**
-- Archive important clips (removes expiration)
-- Use longer expiration times
+- Use "Never" expiration for clips you want to keep
+- Archive important clips for long-term storage (note: archiving does not cancel expiration)
 - Regular backups
 
 ### Corrupted Database
@@ -217,6 +217,27 @@ If using Apple Silicon (M1/M2/M3):
    mv recovered.db clips.db
    ```
 3. Delete database and start fresh (last resort)
+
+## Transfer Issues
+
+### Drag-Out Not Working
+
+**Symptoms:** Can't drag clips out of mahpastes into other apps.
+
+**Solutions:**
+1. Drag-out is macOS only. Windows and Linux support is planned.
+2. Hover the grip handle on the clip card for at least 1 second to arm the drag.
+3. Wait for the handle to finish the preparation animation before dragging.
+4. If the handle shows a spinner, the temp file is still being prepared. Wait until it returns to the grip icon.
+
+### Copy File Not Working
+
+**Symptoms:** "Copy File" from the card menu doesn't paste a file in Finder.
+
+**Solutions:**
+1. Copy File uses macOS NSPasteboard. It is not supported on Linux.
+2. On Windows, it uses PowerShell. Ensure no policy blocks clipboard access.
+3. Try "Copy Contents" instead if you only need the raw data (text or image).
 
 ## Platform-Specific Issues
 

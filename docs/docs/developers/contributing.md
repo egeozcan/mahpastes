@@ -78,6 +78,12 @@ mahpastes/
 ├── database.go          # SQLite
 ├── watcher.go           # File watching
 ├── backup.go            # ZIP backup and restore
+├── clipboard_service.go # Clipboard copy service (Wails-bound)
+├── transfer_service.go  # Drag-out preparation and native drag
+├── transfer_types.go    # Transfer system type definitions
+├── app_transfer_helpers.go # Bridge between App and TempClipStore
+├── temp_clip_store.go   # Leased temp file management
+├── native_drag_darwin.go # macOS native drag via CGo
 ├── plugin_service.go    # Plugin frontend API
 ├── plugins.go           # Plugin helpers
 ├── plugin/              # Lua plugin system
@@ -203,6 +209,9 @@ Before submitting:
 - [ ] Lightbox navigation
 - [ ] Search filtering
 - [ ] Tag operations (create, assign, filter, hidden tags)
+- [ ] Drag-out transfer (drag clip to Finder/Slack/Mail on macOS)
+- [ ] Copy File to clipboard (via card menu)
+- [ ] Copy Contents to clipboard (via card menu)
 - [ ] Plugin management
 - [ ] Backup and restore
 

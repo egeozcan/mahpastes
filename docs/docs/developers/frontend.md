@@ -252,17 +252,13 @@ dropZone.addEventListener('drop', e => {
 
 ```javascript
 document.addEventListener('keydown', e => {
-    // Global shortcuts
-    if (e.key === 'Escape') {
-        closeLightbox();
-        closeModal();
-    }
+    // Cmd+C: context-dependent copy
+    // - Lightbox open: copy clip contents
+    // - Clips selected: copy as files
+    // - Text selected: standard browser copy (not intercepted)
 
-    // Editor shortcuts
-    if (editorOpen) {
-        if (e.key === 'b') setTool('brush');
-        // ...
-    }
+    // Editor shortcuts: Cmd+Z (undo), Cmd+Shift+Z (redo), Cmd+S (save), Escape (close)
+    // Lightbox shortcuts: Arrow keys (navigate), Escape (close menu, then lightbox)
 });
 ```
 

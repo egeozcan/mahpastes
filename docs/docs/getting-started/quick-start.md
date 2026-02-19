@@ -81,9 +81,9 @@ Clips can auto-delete after a set time. When pasting or uploading:
 2. Choose: **5 min**, **10 min**, **30 min**, or **2 hours**
 3. The clip will be automatically deleted after the time elapses
 
-To remove expiration from a clip:
-- Click the clock icon on the clip
-- Select **Cancel expiration**
+:::note
+There is no UI button to cancel expiration once set. Use "Never" expiration for clips you want to keep permanently.
+:::
 
 ## Using the Archive
 
@@ -113,23 +113,26 @@ Click the archive icon again to move a clip back to the main gallery.
    - **Circle** — Draw circles
    - **Text** — Add text annotations
    - **Eraser** — Erase annotations
-3. Click **Save** to create a new clip with your edits
+3. Click **Save As** to create a new clip with your edits
 
 ### Edit Text
 
 1. Click the edit button on a text clip
 2. Modify the content in the editor
-3. Click **Save** to apply changes
+3. Click **Save As** to create a new clip with the changes
 
 ## Bulk Operations
 
 Select multiple clips for batch operations:
 
-1. Hold <span className="keyboard-key">Shift</span> and click clips to select multiple
+1. Click the checkbox on each clip you want to select
 2. Use the bulk action bar that appears:
-   - **Archive All** — Move selected to archive
+   - **Copy** — Copy selected clips as files to system clipboard
+   - **Tag** — Add or remove tags from selected clips
+   - **Archive** — Move selected to archive
    - **Download** — Save as ZIP file
    - **Delete** — Remove all selected
+   - **Compare** — Compare two selected images side-by-side
 
 ## Keyboard Shortcuts
 
@@ -138,6 +141,7 @@ Essential shortcuts for power users:
 | Shortcut | Action |
 |----------|--------|
 | <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">V</span> | Paste from clipboard |
+| <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">C</span> | Copy clip contents (lightbox) or copy selected clips as files (gallery) |
 | <span className="keyboard-key">Esc</span> | Close modal/dialog |
 | <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">Z</span> | Undo (in editor) |
 | <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">Y</span> | Redo (in editor) |

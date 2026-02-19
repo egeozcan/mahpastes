@@ -47,7 +47,7 @@ Click any tag badge in the **filter bar** (below the search) to show only clips 
 
 - Click a tag to enable the filter
 - Click again to disable
-- Multiple tags: shows clips matching **any** selected tag
+- Multiple tags: shows clips matching **all** selected tags (AND logic)
 
 ![Tag filter dropdown](/img/screenshots/tags.png)
 

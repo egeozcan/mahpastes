@@ -216,12 +216,16 @@ After restore, clips should appear immediately. If not:
 ### Restore Process
 
 1. Backup validated (manifest check)
-2. Watch folders paused
-3. Existing data cleared (in transaction)
+2. Watch folders stopped
+3. Existing data cleared from all tables (in transaction)
 4. SQL statements executed
-5. Plugin files extracted
-6. Permissions marked for reconfirmation
+5. Plugin permissions marked for reconfirmation
+6. Watch folders marked as paused
 7. Transaction committed
+8. Transfer temp files cleared
+9. Plugin files extracted from backup
+10. Plugin manager reloaded
+11. Watch folders restarted
 
 ### Atomic Restore
 

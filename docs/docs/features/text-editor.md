@@ -8,10 +8,14 @@ Edit text and code clips directly within mahpastes. Modify content, fix typos, o
 
 ## Opening the Editor
 
-1. Click the menu button (three dots) on any text-based clip and select **Edit**, or click the text preview directly
-2. The editor opens with the full content loaded
+1. Click the menu button (three dots) on any text-based clip and select **Edit**
+2. The editor opens full-screen with a dark theme (dark background, light text)
 3. Make your changes
-4. Click **Save** to create a new clip with the changes
+4. Click **Save As** to create a new clip with the changes
+
+:::note
+Clicking a text preview in the gallery also opens the editor directly.
+:::
 
 Text-based clips include:
 - Plain text
@@ -58,6 +62,8 @@ Standard text editing operations work as expected:
 | <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">X</span> | Cut |
 | <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">Z</span> | Undo |
 | <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">Y</span> | Redo |
+| <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">S</span> | Save as new clip |
+| <span className="keyboard-key">Esc</span> | Close editor |
 
 ## Working with Different Content Types
 
@@ -108,7 +114,7 @@ Edit HTML source code directly.
 
 ### Save
 
-Click **Save** to create a new clip with your edits. The original clip is preserved unchanged, and the edited version is saved with `_edited` appended to the filename.
+Click **Save As** (or press <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">S</span>) to create a new clip with your edits. The original clip is preserved unchanged, and the edited version is saved with `_edited` appended to the filename.
 
 :::note Content Type
 The content type (text/plain, application/json, etc.) is preserved when saving.
@@ -116,7 +122,7 @@ The content type (text/plain, application/json, etc.) is preserved when saving.
 
 ### Cancel
 
-Click **Cancel** or press <span className="keyboard-key">Esc</span> to discard changes and close the editor.
+Click the close button (X) or press <span className="keyboard-key">Esc</span> to discard changes and close the editor.
 
 ## Use Cases
 
@@ -170,9 +176,10 @@ Click **Cancel** or press <span className="keyboard-key">Esc</span> to discard c
 
 ## Limitations
 
-- No syntax highlighting
+- No syntax highlighting (plain textarea, not a code editor)
 - No code completion
 - No line numbers
 - Single-file editing only
+- Spellcheck is disabled
 
 For complex code editing, use a dedicated code editor and paste the result into mahpastes.

@@ -29,6 +29,16 @@ When clips are selected:
 
 ## Available Bulk Actions
 
+### Copy
+
+Copy all selected clips as files to the system clipboard (macOS only):
+
+1. Select clips
+2. Click **Copy** in the action bar
+3. All selected clips are placed on the system clipboard as files
+
+You can also press <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">C</span> while clips are selected to trigger this action.
+
 ### Tag
 
 Apply or remove tags from all selected clips:
@@ -46,7 +56,7 @@ Compare two images side by side:
 2. The **Compare** button appears in the action bar
 3. Click to open the comparison modal
 
-This button only appears when exactly two image clips are selected.
+This button only appears when exactly two clips with `image/*` content types are selected.
 
 ### Archive
 

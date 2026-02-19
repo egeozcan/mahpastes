@@ -18,12 +18,14 @@ Supported drop targets include:
 
 ## How to Drag a Clip
 
-1. Hover over a clip card in the gallery
-2. Click and hold the drag handle
-3. Drag the clip to the target app
-4. Release to drop
+Each clip card has a grip icon (drag handle) on the left side. The drag handle goes through a preparation sequence:
 
-mahpastes creates a temporary file when the drag starts and hands it off to the operating system. The receiving app gets the file with the correct filename and content type.
+1. **Hover** over the drag handle -- a 1-second arming countdown begins (shown as a progress animation)
+2. **Preparing** -- the app fetches the clip data from the backend and writes a temporary file (shown as a spinner)
+3. **Ready** -- the handle returns to the grip icon, indicating the clip is ready to drag
+4. **Drag** -- click and hold the handle, drag to the target app, release to drop
+
+The preparation happens automatically on hover. If the clip was already prepared from a previous hover, the ready state is immediate.
 
 ## What Gets Transferred
 
@@ -49,11 +51,12 @@ On macOS, drag-out uses native pasteboard APIs to provide file URIs that work wi
 
 ## Temporary Files
 
-When you start dragging a clip, mahpastes writes the clip data to a temporary file. These temp files are:
+Temp files created for drag-out (and Copy Path/Copy File) are stored in `clip_temp_files/` inside the app's data directory. They are:
 
-- Stored in the app's data directory under `clip_temp_files/`
 - Reused if you drag the same clip again
-- Cleaned up when mahpastes exits
+- Given a 60-minute lease, after which they are pruned
+- Pruned every 10 minutes for stale or orphaned files
+- Fully cleaned up when mahpastes exits
 
 You don't need to manage these files manually.
 

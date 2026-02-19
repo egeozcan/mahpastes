@@ -6,7 +6,7 @@ sidebar_position: 2
 
 Add, configure, and manage plugins through the Settings panel.
 
-## Adding a Plugin
+## Adding a Plugin from File
 
 1. Open **Settings** (gear icon in header)
 2. Navigate to the **Plugins** tab
@@ -16,6 +16,25 @@ Add, configure, and manage plugins through the Settings panel.
 6. Click **Install**
 
 The plugin activates immediately after installation.
+
+## Installing from URL
+
+You can install plugins directly from a URL:
+
+1. Open **Settings** → **Plugins**
+2. Click the **link icon** to show the URL input
+3. Paste a URL pointing to a `.lua` plugin file
+4. Click **Install from URL**
+5. Review the plugin's name, version, permissions, and events
+6. Click **Confirm** to install
+
+URL-installed plugins remember their source URL, enabling automatic update checks.
+
+The plugin source is fetched, parsed, and cached before the review dialog appears. The cached copy is used for installation, so the remote source cannot change between your review and the actual install.
+
+:::note
+Only `http://` and `https://` URLs are supported. The plugin file must be under 1MB.
+:::
 
 ## Reviewing Permissions
 
@@ -31,7 +50,7 @@ Network Access:
   hooks.slack.com — POST
 ```
 
-Only listed domains with listed methods are allowed.
+Only listed domains with listed methods are allowed. Wildcard subdomains (e.g., `*.cdn.example.com`) may also appear.
 
 ### Filesystem Permissions
 
@@ -43,7 +62,15 @@ Filesystem Access:
   Write: Yes
 ```
 
-You'll approve specific folders the first time the plugin tries to access them.
+You'll approve specific folders the first time the plugin tries to access them. Approving a parent directory covers all files and subdirectories within it.
+
+### Clipboard Permission
+
+Shows if the plugin can write to your system clipboard:
+
+```
+Clipboard Access: Yes
+```
 
 ## Configuring Plugin Settings
 
@@ -107,13 +134,37 @@ This removes:
 Plugin settings and storage are deleted when you remove a plugin. Export any important data first.
 :::
 
+## Updating Plugins
+
+### Manual Updates
+
+For URL-installed plugins, click the **update** button next to the plugin to check for a new version.
+
+- If the update has **no permission changes**, it applies immediately.
+- If the update has **new or changed permissions** (network domains, filesystem, clipboard, events), you'll see a review dialog before confirming.
+- If the update fails to load, the previous version is automatically restored.
+
+### Automatic Update Checks
+
+Configure how often mahpastes checks for plugin updates:
+
+1. Open **Settings** → **Plugins**
+2. Find the **Update Check Interval** setting
+3. Choose an interval:
+   - **Startup only** — Check once when the app launches
+   - **Every 6 hours**
+   - **Every 24 hours**
+   - **Disabled** — Never check automatically
+
+When an update is available, a badge appears on the plugin card.
+
 ## Troubleshooting
 
 ### Plugin shows "Error" status
 
-The plugin failed 3 times in a row. Options:
+The plugin is auto-disabled after 3 consecutive handler errors. It stops receiving events and running scheduled tasks until you re-enable it. Options:
 - View logs to diagnose the issue
-- Disable and re-enable to retry
+- Disable and re-enable to reset the error counter and retry
 - Remove and reinstall if the plugin was updated
 
 ### Plugin not responding to events

@@ -343,11 +343,12 @@ end
 
 ### Plugin Error State
 
-If a plugin's handlers fail **3 consecutive times**, the plugin enters an error state:
+If a plugin's handlers fail **3 consecutive times**, the plugin is auto-disabled:
 
-- The plugin is marked with an error indicator in the UI
-- No further events are delivered to the plugin
-- The user must manually re-enable the plugin
+- The plugin is disabled and marked with an error indicator in the UI
+- No further events are delivered and scheduled tasks stop
+- The error counter resets on any successful handler execution
+- The user must manually re-enable the plugin to retry
 
 To avoid this:
 - Always use `pcall` for operations that might fail
