@@ -182,6 +182,17 @@ func initDB() (*sql.DB, error) {
 		log.Printf("Warning: Failed to create plugin_storage table: %v", err)
 	}
 
+	// Migrate: Add source_url column to plugins if it doesn't exist
+	_, _ = db.Exec("ALTER TABLE plugins ADD COLUMN source_url TEXT DEFAULT ''")
+
+	// Create app_settings table
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS app_settings (
+		key TEXT PRIMARY KEY,
+		value TEXT NOT NULL
+	)`); err != nil {
+		log.Printf("Warning: Failed to create app_settings table: %v", err)
+	}
+
 	return db, nil
 }
 

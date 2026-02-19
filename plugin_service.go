@@ -4,6 +4,9 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"go-clipboard/plugin"
 
@@ -56,6 +59,9 @@ type UIActionsResponse struct {
 // ActionResult is an alias for plugin.ActionResult to avoid duplication
 type ActionResult = plugin.ActionResult
 
+// PluginPreview is an alias for plugin.PluginPreview
+type PluginPreview = plugin.PluginPreview
+
 // GetPlugins returns all plugins
 func (s *PluginService) GetPlugins() ([]PluginInfo, error) {
 	if s.app.db == nil {
@@ -103,13 +109,9 @@ func (s *PluginService) GetPlugins() ([]PluginInfo, error) {
 	return plugins, nil
 }
 
-// ImportPlugin imports a plugin from a file path
-func (s *PluginService) ImportPlugin() (*PluginInfo, error) {
-	if s.app.pluginManager == nil {
-		return nil, fmt.Errorf("plugin manager not initialized")
-	}
-
-	// Open file dialog
+// ImportPlugin opens a file dialog and returns a preview for review.
+// The frontend should call ConfirmPluginInstall(path) after user approves.
+func (s *PluginService) ImportPlugin() (*PluginPreview, error) {
 	path, err := runtime.OpenFileDialog(s.app.ctx, runtime.OpenDialogOptions{
 		Title: "Select Plugin File",
 		Filters: []runtime.FileFilter{
@@ -123,12 +125,7 @@ func (s *PluginService) ImportPlugin() (*PluginInfo, error) {
 		return nil, nil // User cancelled
 	}
 
-	p, err := s.app.pluginManager.ImportPlugin(path)
-	if err != nil {
-		return nil, err
-	}
-
-	return pluginToInfo(p), nil
+	return plugin.PreviewFromFile(path)
 }
 
 // EnablePlugin enables a plugin
@@ -202,6 +199,38 @@ func (s *PluginService) RevokePluginPermission(pluginID int64, permType, path st
 		WHERE plugin_id = ? AND permission_type = ? AND path = ?
 	`, pluginID, permType, path)
 	return err
+}
+
+// PreviewPluginFromURL fetches a plugin URL and returns a preview for review
+func (s *PluginService) PreviewPluginFromURL(rawURL string) (*PluginPreview, error) {
+	return plugin.PreviewFromURL(rawURL)
+}
+
+// PreviewPluginFromPath reads a plugin file and returns a preview for review
+func (s *PluginService) PreviewPluginFromPath(path string) (*PluginPreview, error) {
+	return plugin.PreviewFromFile(path)
+}
+
+// ConfirmPluginInstall installs a plugin after user has reviewed permissions.
+// Source can be a URL (http:// or https://) or a local file path.
+func (s *PluginService) ConfirmPluginInstall(source string) (*PluginInfo, error) {
+	if s.app.pluginManager == nil {
+		return nil, fmt.Errorf("plugin manager not initialized")
+	}
+
+	var p *plugin.Plugin
+	var err error
+
+	if strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://") {
+		p, err = s.app.pluginManager.ImportPluginFromURL(source)
+	} else {
+		p, err = s.app.pluginManager.ImportPlugin(source)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return pluginToInfo(p), nil
 }
 
 // Helper function to convert plugin.Plugin to PluginInfo
@@ -379,4 +408,204 @@ func (s *PluginService) ExecutePluginAction(pluginID int64, actionID string, cli
 	}
 
 	return result, nil
+}
+
+// GetUpdateCheckInterval returns the current plugin update check interval setting.
+func (s *PluginService) GetUpdateCheckInterval() (string, error) {
+	if s.app.db == nil {
+		return "24h", nil
+	}
+	var value string
+	err := s.app.db.QueryRow("SELECT value FROM app_settings WHERE key = 'plugin_update_interval'").Scan(&value)
+	if err != nil {
+		return "24h", nil
+	}
+	return value, nil
+}
+
+// SetUpdateCheckInterval updates the plugin update check interval and restarts the checker.
+func (s *PluginService) SetUpdateCheckInterval(interval string) error {
+	valid := map[string]bool{"startup": true, "6h": true, "24h": true, "disabled": true}
+	if !valid[interval] {
+		return fmt.Errorf("invalid interval %q: must be startup, 6h, 24h, or disabled", interval)
+	}
+
+	if s.app.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+
+	_, err := s.app.db.Exec(`
+		INSERT INTO app_settings (key, value) VALUES ('plugin_update_interval', ?)
+		ON CONFLICT(key) DO UPDATE SET value = ?
+	`, interval, interval)
+	if err != nil {
+		return err
+	}
+
+	if s.app.pluginManager != nil {
+		uc := s.app.pluginManager.GetUpdateChecker()
+		if uc != nil {
+			if interval == "disabled" {
+				uc.Stop()
+			} else {
+				uc.Start(parseUpdateInterval(interval))
+			}
+		}
+	}
+
+	return nil
+}
+
+// CheckForUpdates triggers an immediate update check and returns results.
+func (s *PluginService) CheckForUpdates() ([]*plugin.PluginUpdateInfo, error) {
+	if s.app.pluginManager == nil {
+		return []*plugin.PluginUpdateInfo{}, nil
+	}
+	uc := s.app.pluginManager.GetUpdateChecker()
+	if uc == nil {
+		return []*plugin.PluginUpdateInfo{}, nil
+	}
+	uc.CheckAll()
+	return uc.GetUpdates(), nil
+}
+
+// UpdateResult represents the result of an update attempt.
+type UpdateResult struct {
+	Success     bool           `json:"success"`
+	NeedsReview bool           `json:"needs_review"`
+	Preview     *PluginPreview `json:"preview,omitempty"`
+	PluginInfo  *PluginInfo    `json:"plugin_info,omitempty"`
+	Error       string         `json:"error,omitempty"`
+}
+
+// UpdatePlugin fetches the latest version from the source URL, compares permissions,
+// and either applies the update or returns a preview for permission re-review.
+func (s *PluginService) UpdatePlugin(pluginID int64) (*UpdateResult, error) {
+	if s.app.pluginManager == nil {
+		return &UpdateResult{Error: "plugin manager not initialized"}, nil
+	}
+
+	var sourceURL, currentVersion string
+	err := s.app.db.QueryRow("SELECT source_url, version FROM plugins WHERE id = ?", pluginID).Scan(&sourceURL, &currentVersion)
+	if err != nil {
+		return &UpdateResult{Error: "plugin not found"}, nil
+	}
+	if sourceURL == "" {
+		return &UpdateResult{Error: "plugin was not installed from a URL"}, nil
+	}
+
+	source, err := plugin.FetchPluginSource(sourceURL)
+	if err != nil {
+		return &UpdateResult{Error: fmt.Sprintf("failed to fetch update: %v", err)}, nil
+	}
+
+	remoteManifest, err := plugin.ParseManifest(source)
+	if err != nil {
+		return &UpdateResult{Error: fmt.Sprintf("invalid remote plugin: %v", err)}, nil
+	}
+
+	// Get current manifest for permission comparison
+	s.app.pluginManager.RLock()
+	loaded, ok := s.app.pluginManager.GetPluginByID(pluginID)
+	s.app.pluginManager.RUnlock()
+
+	var currentManifest *plugin.Manifest
+	if ok && loaded.Manifest != nil {
+		currentManifest = loaded.Manifest
+	} else {
+		currentManifest = &plugin.Manifest{}
+	}
+
+	hasChanges := plugin.ManifestsHavePermissionChanges(currentManifest, remoteManifest)
+
+	if hasChanges {
+		preview := &PluginPreview{
+			Name:        remoteManifest.Name,
+			Version:     remoteManifest.Version,
+			Description: remoteManifest.Description,
+			Author:      remoteManifest.Author,
+			Network:     remoteManifest.Network,
+			Filesystem:  remoteManifest.Filesystem,
+			Clipboard:   remoteManifest.Clipboard,
+			Events:      remoteManifest.Events,
+			Source:      sourceURL,
+		}
+		s.app.pluginManager.StorePendingUpdate(pluginID, source)
+		return &UpdateResult{NeedsReview: true, Preview: preview}, nil
+	}
+
+	info, err := s.applyPluginUpdate(pluginID, source, remoteManifest, sourceURL)
+	if err != nil {
+		return &UpdateResult{Error: err.Error()}, nil
+	}
+
+	if uc := s.app.pluginManager.GetUpdateChecker(); uc != nil {
+		uc.ClearUpdate(pluginID)
+	}
+
+	return &UpdateResult{Success: true, PluginInfo: info}, nil
+}
+
+// ConfirmPluginUpdate applies a pending update after the user approves permission changes.
+func (s *PluginService) ConfirmPluginUpdate(pluginID int64) (*PluginInfo, error) {
+	if s.app.pluginManager == nil {
+		return nil, fmt.Errorf("plugin manager not initialized")
+	}
+
+	source := s.app.pluginManager.PopPendingUpdate(pluginID)
+	if source == "" {
+		return nil, fmt.Errorf("no pending update for plugin %d", pluginID)
+	}
+
+	manifest, err := plugin.ParseManifest(source)
+	if err != nil {
+		return nil, fmt.Errorf("invalid plugin source: %w", err)
+	}
+
+	var sourceURL string
+	s.app.db.QueryRow("SELECT source_url FROM plugins WHERE id = ?", pluginID).Scan(&sourceURL)
+
+	info, err := s.applyPluginUpdate(pluginID, source, manifest, sourceURL)
+	if err != nil {
+		return nil, err
+	}
+
+	if uc := s.app.pluginManager.GetUpdateChecker(); uc != nil {
+		uc.ClearUpdate(pluginID)
+	}
+
+	return info, nil
+}
+
+func (s *PluginService) applyPluginUpdate(pluginID int64, source string, manifest *plugin.Manifest, sourceURL string) (*PluginInfo, error) {
+	var filename string
+	err := s.app.db.QueryRow("SELECT filename FROM plugins WHERE id = ?", pluginID).Scan(&filename)
+	if err != nil {
+		return nil, fmt.Errorf("plugin not found: %w", err)
+	}
+
+	s.app.pluginManager.UnloadPlugin(pluginID)
+
+	destPath := filepath.Join(s.app.pluginManager.PluginsDir(), filename)
+	if err := os.WriteFile(destPath, []byte(source), 0644); err != nil {
+		return nil, fmt.Errorf("failed to write updated plugin: %w", err)
+	}
+
+	_, err = s.app.db.Exec(`
+		UPDATE plugins SET name = ?, version = ?, enabled = 1, status = 'enabled', error_count = 0, source_url = ?
+		WHERE id = ?
+	`, manifest.Name, manifest.Version, sourceURL, pluginID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update plugin record: %w", err)
+	}
+
+	p := &plugin.Plugin{
+		ID: pluginID, Filename: filename, Name: manifest.Name,
+		Version: manifest.Version, Enabled: true, Status: "enabled",
+	}
+	if err := s.app.pluginManager.LoadPluginPublic(p); err != nil {
+		return nil, fmt.Errorf("failed to reload plugin: %w", err)
+	}
+
+	return pluginToInfo(p), nil
 }

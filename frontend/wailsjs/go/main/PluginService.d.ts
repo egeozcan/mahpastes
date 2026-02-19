@@ -3,6 +3,12 @@
 import {plugin} from '../models';
 import {main} from '../models';
 
+export function CheckForUpdates():Promise<Array<plugin.PluginUpdateInfo>>;
+
+export function ConfirmPluginInstall(arg1:string):Promise<main.PluginInfo>;
+
+export function ConfirmPluginUpdate(arg1:number):Promise<main.PluginInfo>;
+
 export function DisablePlugin(arg1:number):Promise<void>;
 
 export function EnablePlugin(arg1:number):Promise<void>;
@@ -19,11 +25,17 @@ export function GetPluginUIActions():Promise<main.UIActionsResponse>;
 
 export function GetPlugins():Promise<Array<main.PluginInfo>>;
 
-export function ImportPlugin():Promise<main.PluginInfo>;
+export function GetUpdateCheckInterval():Promise<string>;
+
+export function ImportPlugin():Promise<plugin.PluginPreview>;
 
 export function ImportPluginFromPath(arg1:string):Promise<main.PluginInfo>;
 
 export function IsPluginURLAllowed(arg1:number,arg2:string,arg3:string):Promise<boolean>;
+
+export function PreviewPluginFromPath(arg1:string):Promise<plugin.PluginPreview>;
+
+export function PreviewPluginFromURL(arg1:string):Promise<plugin.PluginPreview>;
 
 export function RemovePlugin(arg1:number):Promise<void>;
 
@@ -31,4 +43,8 @@ export function RevokePluginPermission(arg1:number,arg2:string,arg3:string):Prom
 
 export function SetPluginStorage(arg1:number,arg2:string,arg3:string):Promise<void>;
 
+export function SetUpdateCheckInterval(arg1:string):Promise<void>;
+
 export function TryAcquireModalGuard():Promise<boolean>;
+
+export function UpdatePlugin(arg1:number):Promise<main.UpdateResult>;

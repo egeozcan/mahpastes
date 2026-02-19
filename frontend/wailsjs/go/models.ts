@@ -402,6 +402,44 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class UpdateResult {
+	    success: boolean;
+	    needs_review: boolean;
+	    preview?: plugin.PluginPreview;
+	    plugin_info?: PluginInfo;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new UpdateResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.success = source["success"];
+	        this.needs_review = source["needs_review"];
+	        this.preview = this.convertValues(source["preview"], plugin.PluginPreview);
+	        this.plugin_info = this.convertValues(source["plugin_info"], PluginInfo);
+	        this.error = source["error"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class WatchStatus {
 	    global_paused: boolean;
 	    active_count: number;
@@ -578,6 +616,20 @@ export namespace plugin {
 	        this.label = source["label"];
 	    }
 	}
+	export class FilesystemPerms {
+	    Read: boolean;
+	    Write: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new FilesystemPerms(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Read = source["Read"];
+	        this.Write = source["Write"];
+	    }
+	}
 	export class FormField {
 	    id: string;
 	    type: string;
@@ -625,6 +677,70 @@ export namespace plugin {
 		}
 	}
 	
+	export class PluginPreview {
+	    name: string;
+	    version: string;
+	    description: string;
+	    author: string;
+	    network: Record<string, Array<string>>;
+	    filesystem: FilesystemPerms;
+	    clipboard: boolean;
+	    events: string[];
+	    source: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new PluginPreview(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.version = source["version"];
+	        this.description = source["description"];
+	        this.author = source["author"];
+	        this.network = source["network"];
+	        this.filesystem = this.convertValues(source["filesystem"], FilesystemPerms);
+	        this.clipboard = source["clipboard"];
+	        this.events = source["events"];
+	        this.source = source["source"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class PluginUpdateInfo {
+	    plugin_id: number;
+	    current_version: string;
+	    new_version: string;
+	    has_permission_changes: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new PluginUpdateInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.plugin_id = source["plugin_id"];
+	        this.current_version = source["current_version"];
+	        this.new_version = source["new_version"];
+	        this.has_permission_changes = source["has_permission_changes"];
+	    }
+	}
 	export class SettingField {
 	    key: string;
 	    type: string;

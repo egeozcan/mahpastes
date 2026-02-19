@@ -574,6 +574,7 @@ export class AppHelper {
       const modalIds = [
         'confirm-dialog', 'restore-confirm-dialog', 'folder-modal',
         'settings-modal', 'plugin-options-modal', 'plugin-result-modal',
+        'plugin-review-modal',
       ];
       for (const id of modalIds) {
         const el = document.getElementById(id);
@@ -600,6 +601,10 @@ export class AppHelper {
 
       // Card menu dropdown (dynamically created)
       document.querySelector('.card-menu-dropdown')?.remove();
+
+      // Close plugin URL input container
+      const urlContainer = document.getElementById('plugin-url-container');
+      if (urlContainer) urlContainer.classList.add('hidden');
 
       // Lightbox plugin menu
       document.getElementById('lightbox-plugin-menu')?.classList.add('hidden');
@@ -1887,6 +1892,72 @@ export class AppHelper {
       const el = document.querySelector(selector);
       return !el || !el.classList.contains('active');
     }, selectors.pluginOptions.modal, { timeout: 5000 });
+  }
+
+  // ==================== Plugin Review & URL Install ====================
+
+  async isReviewModalOpen(): Promise<boolean> {
+    return this.page.evaluate(() => {
+      const el = document.querySelector('[data-testid="plugin-review-modal"]');
+      return el ? el.classList.contains('opacity-100') : false;
+    });
+  }
+
+  async approvePluginReview(): Promise<void> {
+    await this.page.locator('[data-testid="plugin-review-approve"]').click();
+    // Wait for modal to close
+    await this.page.waitForFunction(() => {
+      const el = document.querySelector('[data-testid="plugin-review-modal"]');
+      return el ? el.classList.contains('opacity-0') : true;
+    }, { timeout: 5000 });
+  }
+
+  async cancelPluginReview(): Promise<void> {
+    await this.page.locator('[data-testid="plugin-review-cancel"]').click();
+    await this.page.waitForFunction(() => {
+      const el = document.querySelector('[data-testid="plugin-review-modal"]');
+      return el ? el.classList.contains('opacity-0') : true;
+    }, { timeout: 5000 });
+  }
+
+  async getReviewPluginName(): Promise<string> {
+    return await this.page.locator('#plugin-review-name').textContent() ?? '';
+  }
+
+  async installPluginFromURL(url: string): Promise<void> {
+    await this.openPluginsModal();
+    await this.page.locator('[data-testid="install-url-btn"]').click();
+    await this.page.locator('[data-testid="plugin-url-input"]').waitFor({ state: 'visible', timeout: 5000 });
+    await this.page.locator('[data-testid="plugin-url-input"]').fill(url);
+    await this.page.locator('[data-testid="plugin-url-install-btn"]').click();
+  }
+
+  async previewPluginFromURL(url: string): Promise<any> {
+    return this.page.evaluate(async (u) => {
+      // @ts-ignore
+      return window.go.main.PluginService.PreviewPluginFromURL(u);
+    }, url);
+  }
+
+  async confirmPluginInstall(source: string): Promise<any> {
+    return this.page.evaluate(async (s) => {
+      // @ts-ignore
+      return window.go.main.PluginService.ConfirmPluginInstall(s);
+    }, source);
+  }
+
+  async getUpdateCheckInterval(): Promise<string> {
+    return this.page.evaluate(async () => {
+      // @ts-ignore
+      return window.go.main.PluginService.GetUpdateCheckInterval();
+    });
+  }
+
+  async setUpdateCheckInterval(interval: string): Promise<void> {
+    await this.page.evaluate(async (i) => {
+      // @ts-ignore
+      await window.go.main.PluginService.SetUpdateCheckInterval(i);
+    }, interval);
   }
 
   // ==================== Backup & Restore ====================
