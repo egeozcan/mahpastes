@@ -161,6 +161,14 @@ func (a *App) startup(ctx context.Context) {
 
 		// Emit startup event
 		pm.EmitEvent("app:startup", nil)
+
+		// Start plugin update checker
+		uc := plugin.NewUpdateChecker(a.ctx, a.db, pm)
+		pm.SetUpdateChecker(uc)
+		interval := a.getUpdateCheckInterval()
+		if interval != "disabled" {
+			uc.Start(parseUpdateInterval(interval))
+		}
 	}
 }
 
@@ -181,6 +189,28 @@ func (a *App) shutdown(ctx context.Context) {
 	}
 	// Clean up temp files
 	a.DeleteAllTempFiles()
+}
+
+func (a *App) getUpdateCheckInterval() string {
+	var value string
+	err := a.db.QueryRow("SELECT value FROM app_settings WHERE key = 'plugin_update_interval'").Scan(&value)
+	if err != nil {
+		return "24h"
+	}
+	return value
+}
+
+func parseUpdateInterval(interval string) time.Duration {
+	switch interval {
+	case "startup":
+		return 0
+	case "6h":
+		return 6 * time.Hour
+	case "24h":
+		return 24 * time.Hour
+	default:
+		return 24 * time.Hour
+	}
 }
 
 // initTempDir creates the directory for storing temporary files

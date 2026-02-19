@@ -128,6 +128,7 @@ type Manager struct {
 	pluginsDir       string
 	modalGuard       *modalGuard
 	pendingUpdates   map[int64]string
+	updateChecker    *UpdateChecker
 }
 
 // NewManager creates a new plugin manager
@@ -627,6 +628,11 @@ func (m *Manager) Shutdown() {
 	// Emit shutdown event
 	m.EmitEvent("app:shutdown", nil)
 
+	// Stop update checker
+	if m.updateChecker != nil {
+		m.updateChecker.Stop()
+	}
+
 	// Stop scheduler
 	m.scheduler.StopAll()
 
@@ -668,6 +674,32 @@ func (m *Manager) LoadPluginPublic(p *Plugin) error {
 // PluginsDir returns the plugins directory path.
 func (m *Manager) PluginsDir() string {
 	return m.pluginsDir
+}
+
+// GetUpdateChecker returns the update checker instance.
+func (m *Manager) GetUpdateChecker() *UpdateChecker {
+	return m.updateChecker
+}
+
+// SetUpdateChecker sets the update checker.
+func (m *Manager) SetUpdateChecker(uc *UpdateChecker) {
+	m.updateChecker = uc
+}
+
+// RLock locks the manager for reading.
+func (m *Manager) RLock() {
+	m.mu.RLock()
+}
+
+// RUnlock unlocks the manager read lock.
+func (m *Manager) RUnlock() {
+	m.mu.RUnlock()
+}
+
+// GetPluginByID returns a plugin by ID. Must be called with RLock held.
+func (m *Manager) GetPluginByID(id int64) (*Plugin, bool) {
+	p, ok := m.plugins[id]
+	return p, ok
 }
 
 // ExecuteUIAction calls a plugin's on_ui_action handler.
