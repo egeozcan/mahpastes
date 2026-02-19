@@ -66,6 +66,56 @@ type Plugin struct {
 	Sandbox  *Sandbox
 }
 
+// PluginPreview represents a parsed plugin manifest for review before install/update.
+type PluginPreview struct {
+	Name        string              `json:"name"`
+	Version     string              `json:"version"`
+	Description string              `json:"description"`
+	Author      string              `json:"author"`
+	Network     map[string][]string `json:"network"`
+	Filesystem  FilesystemPerms     `json:"filesystem"`
+	Clipboard   bool                `json:"clipboard"`
+	Events      []string            `json:"events"`
+	Source      string              `json:"source"`
+}
+
+// PreviewFromSource parses a plugin source string and returns a preview.
+func PreviewFromSource(source, sourcePath string) (*PluginPreview, error) {
+	manifest, err := ParseManifest(source)
+	if err != nil {
+		return nil, fmt.Errorf("invalid plugin: %w", err)
+	}
+	return &PluginPreview{
+		Name:        manifest.Name,
+		Version:     manifest.Version,
+		Description: manifest.Description,
+		Author:      manifest.Author,
+		Network:     manifest.Network,
+		Filesystem:  manifest.Filesystem,
+		Clipboard:   manifest.Clipboard,
+		Events:      manifest.Events,
+		Source:      sourcePath,
+	}, nil
+}
+
+// PreviewFromFile reads a plugin file and returns a preview.
+func PreviewFromFile(path string) (*PluginPreview, error) {
+	source, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read plugin file: %w", err)
+	}
+	return PreviewFromSource(string(source), path)
+}
+
+// PreviewFromURL fetches a plugin from a URL and returns a preview.
+func PreviewFromURL(rawURL string) (*PluginPreview, error) {
+	source, err := FetchPluginSource(rawURL)
+	if err != nil {
+		return nil, err
+	}
+	return PreviewFromSource(source, rawURL)
+}
+
 // Manager manages all plugins
 type Manager struct {
 	ctx              context.Context
