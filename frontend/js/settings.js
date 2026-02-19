@@ -8,6 +8,7 @@ const settingsSaveBtn = document.getElementById('settings-save');
 
 function openSettings() {
     renderHiddenTagsSettings();
+    loadUpdateInterval();
     settingsModal.classList.remove('opacity-0', 'pointer-events-none');
     settingsModal.classList.add('opacity-100');
     settingsModal.querySelector(':scope > div').classList.remove('scale-95');
@@ -236,4 +237,30 @@ async function toggleHiddenTag(tagId, hidden) {
         console.error('Error saving hidden tags:', error);
         showToast('Failed to save hidden tags setting.');
     }
+}
+
+// --- Plugin Update Interval ---
+const updateIntervalSelect = document.getElementById('update-interval-select');
+
+async function loadUpdateInterval() {
+    try {
+        const interval = await window.go.main.PluginService.GetUpdateCheckInterval();
+        if (updateIntervalSelect && interval) {
+            updateIntervalSelect.value = interval;
+        }
+    } catch (error) {
+        console.error('Failed to load update interval:', error);
+    }
+}
+
+if (updateIntervalSelect) {
+    updateIntervalSelect.addEventListener('change', async () => {
+        try {
+            await window.go.main.PluginService.SetUpdateCheckInterval(updateIntervalSelect.value);
+            showToast('Update check interval saved');
+        } catch (error) {
+            console.error('Failed to save update interval:', error);
+            showToast('Failed to save setting');
+        }
+    });
 }
