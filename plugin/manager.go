@@ -127,6 +127,7 @@ type Manager struct {
 	mu               sync.RWMutex
 	pluginsDir       string
 	modalGuard       *modalGuard
+	pendingUpdates   map[int64]string
 }
 
 // NewManager creates a new plugin manager
@@ -144,6 +145,7 @@ func NewManager(ctx context.Context, db *sql.DB, pluginsDir string) (*Manager, e
 		scheduler:        NewScheduler(),
 		pluginsDir:       pluginsDir,
 		modalGuard:       newModalGuard(ctx),
+		pendingUpdates:   make(map[int64]string),
 	}
 
 	return m, nil
@@ -393,15 +395,16 @@ func (m *Manager) ImportPlugin(sourcePath string) (*Plugin, error) {
 
 	// Insert into database
 	_, err = m.db.Exec(`
-		INSERT INTO plugins (filename, name, version, enabled, status)
-		VALUES (?, ?, ?, 1, 'enabled')
+		INSERT INTO plugins (filename, name, version, enabled, status, source_url)
+		VALUES (?, ?, ?, 1, 'enabled', ?)
 		ON CONFLICT(filename) DO UPDATE SET
 			name = excluded.name,
 			version = excluded.version,
 			enabled = 1,
 			status = 'enabled',
-			error_count = 0
-	`, filename, manifest.Name, manifest.Version)
+			error_count = 0,
+			source_url = excluded.source_url
+	`, filename, manifest.Name, manifest.Version, "")
 	if err != nil {
 		return nil, fmt.Errorf("failed to register plugin: %w", err)
 	}
@@ -428,6 +431,80 @@ func (m *Manager) ImportPlugin(sourcePath string) (*Plugin, error) {
 	}
 
 	return p, nil
+}
+
+// ImportPluginFromURL imports a plugin from a URL.
+// The URL is stored as source_url for future update checks.
+func (m *Manager) ImportPluginFromURL(rawURL string) (*Plugin, error) {
+	source, err := FetchPluginSource(rawURL)
+	if err != nil {
+		return nil, err
+	}
+
+	manifest, err := ParseManifest(source)
+	if err != nil {
+		return nil, fmt.Errorf("invalid plugin: %w", err)
+	}
+
+	filename := filenameFromURL(rawURL, manifest.Name)
+	destPath := filepath.Join(m.pluginsDir, filename)
+
+	if err := os.WriteFile(destPath, []byte(source), 0644); err != nil {
+		return nil, fmt.Errorf("failed to write plugin: %w", err)
+	}
+
+	_, err = m.db.Exec(`
+		INSERT INTO plugins (filename, name, version, enabled, status, source_url)
+		VALUES (?, ?, ?, 1, 'enabled', ?)
+		ON CONFLICT(filename) DO UPDATE SET
+			name = excluded.name,
+			version = excluded.version,
+			enabled = 1,
+			status = 'enabled',
+			error_count = 0,
+			source_url = excluded.source_url
+	`, filename, manifest.Name, manifest.Version, rawURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register plugin: %w", err)
+	}
+
+	var id int64
+	err = m.db.QueryRow("SELECT id FROM plugins WHERE filename = ?", filename).Scan(&id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get plugin ID: %w", err)
+	}
+
+	p := &Plugin{
+		ID:       id,
+		Filename: filename,
+		Name:     manifest.Name,
+		Version:  manifest.Version,
+		Enabled:  true,
+		Status:   "enabled",
+	}
+
+	if err := m.loadPlugin(p); err != nil {
+		return nil, fmt.Errorf("failed to load plugin: %w", err)
+	}
+
+	return p, nil
+}
+
+func filenameFromURL(rawURL, fallbackName string) string {
+	parsed, err := url.Parse(rawURL)
+	if err == nil {
+		base := filepath.Base(parsed.Path)
+		if strings.HasSuffix(base, ".lua") {
+			return base
+		}
+	}
+	safe := strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			return r
+		}
+		return '-'
+	}, fallbackName)
+	return strings.ToLower(safe) + ".lua"
 }
 
 // GetPlugins returns all plugins
@@ -565,6 +642,32 @@ func (m *Manager) Shutdown() {
 
 	m.plugins = make(map[int64]*Plugin)
 	m.eventSubscribers = make(map[string][]int64)
+}
+
+// StorePendingUpdate stores a pending update source for later confirmation.
+func (m *Manager) StorePendingUpdate(pluginID int64, source string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.pendingUpdates[pluginID] = source
+}
+
+// PopPendingUpdate retrieves and removes a pending update source.
+func (m *Manager) PopPendingUpdate(pluginID int64) string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	source := m.pendingUpdates[pluginID]
+	delete(m.pendingUpdates, pluginID)
+	return source
+}
+
+// LoadPluginPublic is a public wrapper around loadPlugin for use by PluginService.
+func (m *Manager) LoadPluginPublic(p *Plugin) error {
+	return m.loadPlugin(p)
+}
+
+// PluginsDir returns the plugins directory path.
+func (m *Manager) PluginsDir() string {
+	return m.pluginsDir
 }
 
 // ExecuteUIAction calls a plugin's on_ui_action handler.
