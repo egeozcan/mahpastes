@@ -11,6 +11,8 @@ const pluginsEmptyState = document.getElementById('plugins-empty-state');
 // State
 let pluginsCache = [];
 let expandedPluginId = null;
+let pluginUpdates = {}; // pluginID -> PluginUpdateInfo
+let showingURLInput = false;
 
 // --- Modal Open/Close ---
 function openPlugins() {
@@ -80,11 +82,16 @@ function createPluginCard(plugin) {
                         <div class="flex items-center gap-2">
                             <h3 class="text-sm font-medium text-stone-700 truncate">${escapeHTML(plugin.name)}</h3>
                             <span class="text-[10px] text-stone-400 font-mono">v${escapeHTML(plugin.version || '0.0.0')}</span>
+                            ${pluginUpdates[plugin.id] ? '<span class="text-[9px] text-amber-600 font-medium ml-1">Update available</span>' : ''}
                         </div>
                         ${plugin.author ? `<p class="text-[11px] text-stone-400 truncate">by ${escapeHTML(plugin.author)}</p>` : ''}
                     </div>
                 </div>
                 <div class="flex items-center gap-2">
+                    ${pluginUpdates[plugin.id] ? `<button data-action="update" data-testid="update-plugin-${plugin.id}"
+                        class="border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-[10px] font-medium py-1 px-2 rounded-md transition-colors">
+                        Update
+                    </button>` : ''}
                     <label class="relative inline-flex items-center cursor-pointer" data-action="toggle-enable">
                         <input type="checkbox" data-testid="plugin-toggle-${plugin.id}"
                                class="sr-only peer" ${plugin.enabled ? 'checked' : ''}>
@@ -170,6 +177,14 @@ function createPluginCard(plugin) {
         e.stopPropagation();
         removePlugin(plugin.id, plugin.name);
     });
+
+    const updateBtn = li.querySelector('[data-action="update"]');
+    if (updateBtn) {
+        updateBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            await updatePlugin(plugin.id, plugin.name);
+        });
+    }
 
     // Load permissions and settings if expanded
     if (isExpanded) {
@@ -478,17 +493,103 @@ async function togglePluginEnabled(pluginId, enabled) {
 // --- Import Plugin ---
 async function importPlugin() {
     try {
-        const result = await window.go.main.PluginService.ImportPlugin();
+        const preview = await window.go.main.PluginService.ImportPlugin();
+        if (!preview) return; // User cancelled file dialog
+
+        const approved = await showPluginReview(preview, 'install');
+        if (!approved) return;
+
+        const result = await window.go.main.PluginService.ConfirmPluginInstall(preview.source);
         if (result) {
-            showToast(`Imported: ${result.name}`);
+            showToast(`Installed: ${result.name}`);
             await loadPlugins();
             await loadPluginUIActions();
             loadClips();
         }
-        // null means user cancelled, no error
     } catch (error) {
         console.error('Failed to import plugin:', error);
         showToast('Failed to import plugin: ' + (error.message || 'Unknown error'));
+    }
+}
+
+async function installFromURL() {
+    const urlInput = document.getElementById('plugin-url-input');
+    const url = urlInput?.value?.trim();
+    if (!url) {
+        showToast('Please enter a URL');
+        return;
+    }
+
+    try {
+        const installBtn = document.getElementById('plugin-url-install-btn');
+        if (installBtn) {
+            installBtn.disabled = true;
+            installBtn.textContent = 'Fetching...';
+        }
+
+        const preview = await window.go.main.PluginService.PreviewPluginFromURL(url);
+        if (!preview) {
+            showToast('Failed to fetch plugin from URL');
+            return;
+        }
+
+        const approved = await showPluginReview(preview, 'install');
+        if (!approved) return;
+
+        const result = await window.go.main.PluginService.ConfirmPluginInstall(url);
+        if (result) {
+            showToast(`Installed: ${result.name}`);
+            hideURLInput();
+            await loadPlugins();
+            await loadPluginUIActions();
+            loadClips();
+        }
+    } catch (error) {
+        console.error('Failed to install from URL:', error);
+        showToast('Failed to install: ' + (error.message || 'Unknown error'));
+    } finally {
+        const installBtn = document.getElementById('plugin-url-install-btn');
+        if (installBtn) {
+            installBtn.disabled = false;
+            installBtn.textContent = 'Install';
+        }
+    }
+}
+
+function toggleURLInput() {
+    showingURLInput = !showingURLInput;
+    renderURLInput();
+}
+
+function hideURLInput() {
+    showingURLInput = false;
+    renderURLInput();
+}
+
+function renderURLInput() {
+    const container = document.getElementById('plugin-url-container');
+    if (!container) return;
+
+    if (showingURLInput) {
+        container.classList.remove('hidden');
+        container.innerHTML = `
+            <div class="flex gap-2 mt-2">
+                <input id="plugin-url-input" type="url" placeholder="https://example.com/plugin.lua"
+                    data-testid="plugin-url-input"
+                    class="flex-1 border border-stone-200 rounded-md text-xs bg-white px-2 py-1.5 placeholder-stone-400 focus:outline-none focus:border-stone-400 focus:ring-1 focus:ring-stone-400/20 transition-colors"
+                    autocomplete="off">
+                <button id="plugin-url-install-btn" data-testid="plugin-url-install-btn"
+                    class="bg-stone-800 hover:bg-stone-700 text-white text-xs font-medium py-1.5 px-3 rounded-md transition-colors whitespace-nowrap"
+                    onclick="installFromURL()">Install</button>
+            </div>
+        `;
+        container.querySelector('input')?.focus();
+        container.querySelector('input')?.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') installFromURL();
+        });
+    } else {
+        container.classList.add('hidden');
+        container.innerHTML = '';
     }
 }
 
@@ -509,6 +610,39 @@ function removePlugin(pluginId, pluginName) {
             showToast('Failed to remove plugin');
         }
     });
+}
+
+async function updatePlugin(pluginId, pluginName) {
+    try {
+        const result = await window.go.main.PluginService.UpdatePlugin(pluginId);
+
+        if (result.needs_review && result.preview) {
+            const plugin = pluginsCache.find(p => p.id === pluginId);
+            const currentVersion = plugin?.version || '?';
+            const approved = await showPluginReview(result.preview, 'update', currentVersion);
+            if (!approved) return;
+
+            const updated = await window.go.main.PluginService.ConfirmPluginUpdate(pluginId);
+            if (updated) {
+                showToast(`Updated ${pluginName} to v${updated.version}`);
+                delete pluginUpdates[pluginId];
+                await loadPlugins();
+                await loadPluginUIActions();
+                loadClips();
+            }
+        } else if (result.success && result.plugin_info) {
+            showToast(`Updated ${pluginName} to v${result.plugin_info.version}`);
+            delete pluginUpdates[pluginId];
+            await loadPlugins();
+            await loadPluginUIActions();
+            loadClips();
+        } else if (result.error) {
+            showToast(result.error, 'error');
+        }
+    } catch (error) {
+        console.error('Failed to update plugin:', error);
+        showToast('Failed to update plugin: ' + (error.message || 'Unknown error'));
+    }
 }
 
 // --- Revoke Permission ---
@@ -757,3 +891,16 @@ document.getElementById('plugin-options-form')?.addEventListener('submit', async
 document.getElementById('plugin-options-modal')?.addEventListener('click', (e) => {
     if (e.target.id === 'plugin-options-modal') closePluginOptionsDialog();
 });
+
+// Listen for plugin update events
+if (window.runtime && window.runtime.EventsOn) {
+    window.runtime.EventsOn('plugin:update_available', (info) => {
+        if (info && info.plugin_id) {
+            pluginUpdates[info.plugin_id] = info;
+            // Re-render if plugins modal is open
+            if (!pluginsModal.classList.contains('opacity-0')) {
+                renderPluginsList();
+            }
+        }
+    });
+}
