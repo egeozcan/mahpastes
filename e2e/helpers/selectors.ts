@@ -220,6 +220,33 @@ export const selectors = {
     expandToggle: '[data-action="toggle-expand"]',
   },
 
+  // Plugin review modal
+  pluginReview: {
+    modal: '[data-testid="plugin-review-modal"]',
+    cancelButton: '[data-testid="plugin-review-cancel"]',
+    approveButton: '[data-testid="plugin-review-approve"]',
+    name: '#plugin-review-name',
+    version: '#plugin-review-version',
+    warning: '#plugin-review-warning',
+    networkSection: '#plugin-review-network-section',
+    fsSection: '#plugin-review-fs-section',
+    clipboardSection: '#plugin-review-clipboard-section',
+    eventsSection: '#plugin-review-events-section',
+  },
+
+  // Plugin URL install
+  pluginURL: {
+    installButton: '[data-testid="install-url-btn"]',
+    input: '[data-testid="plugin-url-input"]',
+    submitButton: '[data-testid="plugin-url-install-btn"]',
+    container: '#plugin-url-container',
+  },
+
+  // Plugin update
+  pluginUpdate: {
+    button: (id: number) => `[data-testid="update-plugin-${id}"]`,
+  },
+
   // Plugin settings
   pluginSettings: {
     section: '[data-settings-section]',
@@ -247,6 +274,11 @@ export const selectors = {
     hiddenTagsList: '[data-testid="hidden-tags-list"]',
     hiddenTagRow: (name: string) => `[data-testid="hidden-tag-row-${name}"]`,
     hiddenTagToggle: (name: string) => `[data-testid="hidden-tag-toggle-${name}"]`,
+  },
+
+  // Settings - update interval
+  settingsUpdateInterval: {
+    select: '[data-testid="update-interval-select"]',
   },
 
   // Plugin result modal
