@@ -201,9 +201,22 @@ func (s *PluginService) RevokePluginPermission(pluginID int64, permType, path st
 	return err
 }
 
-// PreviewPluginFromURL fetches a plugin URL and returns a preview for review
+// PreviewPluginFromURL fetches a plugin URL and returns a preview for review.
+// The fetched content is cached so ConfirmPluginInstall uses the reviewed bytes.
 func (s *PluginService) PreviewPluginFromURL(rawURL string) (*PluginPreview, error) {
-	return plugin.PreviewFromURL(rawURL)
+	source, err := plugin.FetchPluginSource(rawURL)
+	if err != nil {
+		return nil, err
+	}
+	preview, err := plugin.PreviewFromSource(source, rawURL)
+	if err != nil {
+		return nil, err
+	}
+	// Cache the fetched content so ConfirmPluginInstall installs exactly what was reviewed
+	if s.app.pluginManager != nil {
+		s.app.pluginManager.StorePendingInstall(rawURL, source)
+	}
+	return preview, nil
 }
 
 // PreviewPluginFromPath reads a plugin file and returns a preview for review
@@ -213,6 +226,7 @@ func (s *PluginService) PreviewPluginFromPath(path string) (*PluginPreview, erro
 
 // ConfirmPluginInstall installs a plugin after user has reviewed permissions.
 // Source can be a URL (http:// or https://) or a local file path.
+// For URLs, installs the exact content that was previewed (not a re-fetch).
 func (s *PluginService) ConfirmPluginInstall(source string) (*PluginInfo, error) {
 	if s.app.pluginManager == nil {
 		return nil, fmt.Errorf("plugin manager not initialized")
@@ -222,7 +236,14 @@ func (s *PluginService) ConfirmPluginInstall(source string) (*PluginInfo, error)
 	var err error
 
 	if strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://") {
-		p, err = s.app.pluginManager.ImportPluginFromURL(source)
+		// Use cached content from preview to avoid TOCTOU: install exactly what was reviewed
+		cachedSource := s.app.pluginManager.PopPendingInstall(source)
+		if cachedSource != "" {
+			p, err = s.app.pluginManager.ImportPluginFromSource(cachedSource, source)
+		} else {
+			// Fallback: no cached content (e.g. called without preview), re-fetch
+			p, err = s.app.pluginManager.ImportPluginFromURL(source)
+		}
 	} else {
 		p, err = s.app.pluginManager.ImportPlugin(source)
 	}
@@ -504,6 +525,11 @@ func (s *PluginService) UpdatePlugin(pluginID int64) (*UpdateResult, error) {
 		return &UpdateResult{Error: fmt.Sprintf("invalid remote plugin: %v", err)}, nil
 	}
 
+	// Block downgrades and same-version "updates"
+	if !plugin.IsNewerVersion(currentVersion, remoteManifest.Version) {
+		return &UpdateResult{Error: fmt.Sprintf("remote version %s is not newer than installed %s", remoteManifest.Version, currentVersion)}, nil
+	}
+
 	// Get current manifest for permission comparison
 	s.app.pluginManager.RLock()
 	loaded, ok := s.app.pluginManager.GetPluginByID(pluginID)
@@ -584,27 +610,42 @@ func (s *PluginService) applyPluginUpdate(pluginID int64, source string, manifes
 		return nil, fmt.Errorf("plugin not found: %w", err)
 	}
 
-	s.app.pluginManager.UnloadPlugin(pluginID)
-
 	destPath := filepath.Join(s.app.pluginManager.PluginsDir(), filename)
+
+	// Backup original file for rollback
+	oldContent, readErr := os.ReadFile(destPath)
+
+	// Write new source to file first (before unloading)
 	if err := os.WriteFile(destPath, []byte(source), 0644); err != nil {
 		return nil, fmt.Errorf("failed to write updated plugin: %w", err)
 	}
 
-	_, err = s.app.db.Exec(`
-		UPDATE plugins SET name = ?, version = ?, enabled = 1, status = 'enabled', error_count = 0, source_url = ?
-		WHERE id = ?
-	`, manifest.Name, manifest.Version, sourceURL, pluginID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to update plugin record: %w", err)
-	}
+	// Now unload the old plugin and attempt reload
+	s.app.pluginManager.UnloadPlugin(pluginID)
 
 	p := &plugin.Plugin{
 		ID: pluginID, Filename: filename, Name: manifest.Name,
 		Version: manifest.Version, Enabled: true, Status: "enabled",
 	}
 	if err := s.app.pluginManager.LoadPluginPublic(p); err != nil {
-		return nil, fmt.Errorf("failed to reload plugin: %w", err)
+		// Rollback: restore old file and reload previous version
+		if readErr == nil {
+			_ = os.WriteFile(destPath, oldContent, 0644)
+			oldP := &plugin.Plugin{
+				ID: pluginID, Filename: filename, Enabled: true, Status: "enabled",
+			}
+			_ = s.app.pluginManager.LoadPluginPublic(oldP)
+		}
+		return nil, fmt.Errorf("failed to reload plugin (rolled back): %w", err)
+	}
+
+	// Plugin loaded successfully — now update DB
+	_, err = s.app.db.Exec(`
+		UPDATE plugins SET name = ?, version = ?, enabled = 1, status = 'enabled', error_count = 0, source_url = ?
+		WHERE id = ?
+	`, manifest.Name, manifest.Version, sourceURL, pluginID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update plugin record: %w", err)
 	}
 
 	return pluginToInfo(p), nil

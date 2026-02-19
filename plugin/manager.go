@@ -127,8 +127,9 @@ type Manager struct {
 	mu               sync.RWMutex
 	pluginsDir       string
 	modalGuard       *modalGuard
-	pendingUpdates   map[int64]string
-	updateChecker    *UpdateChecker
+	pendingUpdates  map[int64]string
+	pendingInstalls map[string]string // source URL/path -> fetched content
+	updateChecker   *UpdateChecker
 }
 
 // NewManager creates a new plugin manager
@@ -146,7 +147,8 @@ func NewManager(ctx context.Context, db *sql.DB, pluginsDir string) (*Manager, e
 		scheduler:        NewScheduler(),
 		pluginsDir:       pluginsDir,
 		modalGuard:       newModalGuard(ctx),
-		pendingUpdates:   make(map[int64]string),
+		pendingUpdates:  make(map[int64]string),
+		pendingInstalls: make(map[string]string),
 	}
 
 	return m, nil
@@ -491,6 +493,58 @@ func (m *Manager) ImportPluginFromURL(rawURL string) (*Plugin, error) {
 	return p, nil
 }
 
+// ImportPluginFromSource installs a plugin from already-fetched source content.
+// The sourceURL is stored for future update checks.
+func (m *Manager) ImportPluginFromSource(source, sourceURL string) (*Plugin, error) {
+	manifest, err := ParseManifest(source)
+	if err != nil {
+		return nil, fmt.Errorf("invalid plugin: %w", err)
+	}
+
+	filename := filenameFromURL(sourceURL, manifest.Name)
+	destPath := filepath.Join(m.pluginsDir, filename)
+
+	if err := os.WriteFile(destPath, []byte(source), 0644); err != nil {
+		return nil, fmt.Errorf("failed to write plugin: %w", err)
+	}
+
+	_, err = m.db.Exec(`
+		INSERT INTO plugins (filename, name, version, enabled, status, source_url)
+		VALUES (?, ?, ?, 1, 'enabled', ?)
+		ON CONFLICT(filename) DO UPDATE SET
+			name = excluded.name,
+			version = excluded.version,
+			enabled = 1,
+			status = 'enabled',
+			error_count = 0,
+			source_url = excluded.source_url
+	`, filename, manifest.Name, manifest.Version, sourceURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register plugin: %w", err)
+	}
+
+	var id int64
+	err = m.db.QueryRow("SELECT id FROM plugins WHERE filename = ?", filename).Scan(&id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get plugin ID: %w", err)
+	}
+
+	p := &Plugin{
+		ID:       id,
+		Filename: filename,
+		Name:     manifest.Name,
+		Version:  manifest.Version,
+		Enabled:  true,
+		Status:   "enabled",
+	}
+
+	if err := m.loadPlugin(p); err != nil {
+		return nil, fmt.Errorf("failed to load plugin: %w", err)
+	}
+
+	return p, nil
+}
+
 func filenameFromURL(rawURL, fallbackName string) string {
 	parsed, err := url.Parse(rawURL)
 	if err == nil {
@@ -664,6 +718,22 @@ func (m *Manager) PopPendingUpdate(pluginID int64) string {
 	source := m.pendingUpdates[pluginID]
 	delete(m.pendingUpdates, pluginID)
 	return source
+}
+
+// StorePendingInstall caches fetched plugin content keyed by source (URL or path).
+func (m *Manager) StorePendingInstall(source, content string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.pendingInstalls[source] = content
+}
+
+// PopPendingInstall retrieves and removes cached plugin content for a source.
+func (m *Manager) PopPendingInstall(source string) string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	content := m.pendingInstalls[source]
+	delete(m.pendingInstalls, source)
+	return content
 }
 
 // LoadPluginPublic is a public wrapper around loadPlugin for use by PluginService.
