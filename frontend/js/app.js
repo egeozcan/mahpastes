@@ -4,7 +4,6 @@ const drawerCloseBtn = document.getElementById('drawer-close-btn');
 const drawerOverlay = document.getElementById('drawer-overlay');
 const navDrawer = document.getElementById('nav-drawer');
 
-
 function openDrawer() {
     navDrawer.classList.remove('translate-x-full');
     drawerOverlay.classList.remove('opacity-0', 'pointer-events-none');
@@ -25,7 +24,7 @@ drawerOverlay.addEventListener('click', closeDrawer);
 
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !navDrawer.classList.contains('translate-x-full')) {
-        e.stopPropagation();
+        e.stopImmediatePropagation();
         closeDrawer();
     }
 });

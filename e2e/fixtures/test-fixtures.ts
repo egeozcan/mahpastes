@@ -81,10 +81,11 @@ export class AppHelper {
     const isOpen = await panel.evaluate((el) => !el.classList.contains('translate-x-full'));
     if (!isOpen) {
       await this.page.locator(selectors.header.drawerToggle).click();
-      await panel.evaluate((el) => el.classList.contains('translate-x-full') ? new Promise<void>(r => {
-        const obs = new MutationObserver(() => { if (!el.classList.contains('translate-x-full')) { obs.disconnect(); r(); } });
-        obs.observe(el, { attributes: true, attributeFilter: ['class'] });
-      }) : Promise.resolve());
+      await this.page.waitForFunction(
+        (sel) => !document.querySelector(sel)?.classList.contains('translate-x-full'),
+        selectors.drawer.panel,
+        { timeout: 5000 }
+      );
     }
   }
 

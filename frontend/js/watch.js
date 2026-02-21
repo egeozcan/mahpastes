@@ -7,6 +7,7 @@ let editingFolderId = null; // null = adding new, number = editing existing
 const toggleWatchViewBtn = document.getElementById('toggle-watch-view-btn');
 const watchBtnText = document.getElementById('watch-btn-text');
 const watchIndicator = document.getElementById('watch-indicator');
+const drawerWatchIndicator = document.getElementById('drawer-watch-indicator');
 const watchView = document.getElementById('watch-view');
 const watchFolderList = document.getElementById('watch-folder-list');
 const globalWatchToggle = document.getElementById('global-watch-toggle');
@@ -69,12 +70,10 @@ async function updateWatchIndicator() {
         const status = await window.go.main.App.GetWatchStatus();
         if (status.is_watching) {
             watchIndicator.classList.remove('hidden');
-            const dwi = document.getElementById('drawer-watch-indicator');
-            if (dwi) dwi.classList.remove('hidden');
+            if (drawerWatchIndicator) drawerWatchIndicator.classList.remove('hidden');
         } else {
             watchIndicator.classList.add('hidden');
-            const dwi = document.getElementById('drawer-watch-indicator');
-            if (dwi) dwi.classList.add('hidden');
+            if (drawerWatchIndicator) drawerWatchIndicator.classList.add('hidden');
         }
     } catch (error) {
         console.error('Failed to get watch status:', error);

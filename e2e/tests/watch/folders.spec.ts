@@ -136,9 +136,9 @@ test.describe('Watch Folders', () => {
       // Close watch view to check indicator
       await app.closeWatchView();
 
-      // Watch indicator should be visible on button
-      const indicator = app.page.locator(selectors.drawer.watchIndicator);
-      // Indicator visibility depends on implementation
+      // Watch indicator on hamburger button should be visible
+      const indicator = app.page.locator('#drawer-watch-indicator');
+      await expect(indicator).toBeVisible();
     });
   });
 
