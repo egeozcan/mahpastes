@@ -145,18 +145,43 @@ function renderCardMenu(clipId, button, clip) {
 function positionCardMenu(menu, button) {
     const buttonRect = button.getBoundingClientRect();
     const menuRect = menu.getBoundingClientRect();
+    const pad = 8;
+    const gap = 4;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
 
-    let top = buttonRect.bottom + 4;
+    // Horizontal: align right edge to button, clamp within viewport
     let left = buttonRect.right - menuRect.width;
+    if (left < pad) left = pad;
+    if (left + menuRect.width > vw - pad) left = vw - menuRect.width - pad;
 
-    // Ensure menu stays within viewport
-    if (left < 8) left = 8;
-    if (top + menuRect.height > window.innerHeight - 8) {
-        top = buttonRect.top - menuRect.height - 4;
+    // Vertical: prefer below, then above, then constrain with scroll
+    const spaceBelow = vh - buttonRect.bottom - gap - pad;
+    const spaceAbove = buttonRect.top - gap - pad;
+    let top;
+    let maxHeight = null;
+
+    if (spaceBelow >= menuRect.height) {
+        top = buttonRect.bottom + gap;
+    } else if (spaceAbove >= menuRect.height) {
+        top = buttonRect.top - menuRect.height - gap;
+    } else if (spaceBelow >= spaceAbove) {
+        // More room below — pin below button and scroll
+        top = buttonRect.bottom + gap;
+        maxHeight = spaceBelow;
+    } else {
+        // More room above — pin above with scroll
+        maxHeight = spaceAbove;
+        top = buttonRect.top - gap - maxHeight;
     }
 
     menu.style.top = `${top}px`;
     menu.style.left = `${left}px`;
+
+    if (maxHeight !== null) {
+        menu.style.maxHeight = `${maxHeight}px`;
+        menu.style.overflowY = 'auto';
+    }
 }
 
 // Setup keyboard navigation for menu
