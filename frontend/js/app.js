@@ -43,6 +43,8 @@ const gallery = document.getElementById('gallery');
 const deleteAllTempBtn = document.getElementById('delete-all-temp-btn');
 const toggleArchiveViewBtn = document.getElementById('toggle-archive-view-btn');
 const archiveBtnText = document.getElementById('archive-btn-text');
+const headerArchiveBtn = document.getElementById('header-archive-btn');
+const headerAddBtn = document.getElementById('header-add-btn');
 const bulkToolbar = document.getElementById('bulk-toolbar');
 const selectAllCheckbox = document.getElementById('select-all-checkbox');
 const selectedCountEl = document.getElementById('selected-count');
@@ -198,6 +200,8 @@ document.addEventListener('paste', e => {
 
 // Toggle Archive View
 toggleArchiveViewBtn.addEventListener('click', toggleViewMode);
+headerArchiveBtn.addEventListener('click', toggleViewMode);
+headerAddBtn.addEventListener('click', () => fileInput.click());
 
 // Confirm Dialog Listeners
 document.getElementById('confirm-yes-btn').addEventListener('click', () => {
