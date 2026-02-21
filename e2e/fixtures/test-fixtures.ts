@@ -665,6 +665,14 @@ export class AppHelper {
         archiveBtn.classList.add('border-stone-200', 'text-stone-600', 'hover:border-stone-300', 'hover:bg-stone-100');
       }
 
+      // Reset header archive button UI
+      const headerArchiveBtn = document.getElementById('header-archive-btn');
+      if (headerArchiveBtn) {
+        headerArchiveBtn.setAttribute('aria-pressed', 'false');
+        headerArchiveBtn.classList.remove('bg-stone-800', 'text-white', 'border-stone-800');
+        headerArchiveBtn.classList.add('border-stone-200', 'text-stone-500', 'hover:border-stone-300', 'hover:bg-stone-100');
+      }
+
       // Reset watch button UI (ID: toggle-watch-view-btn)
       const watchBtn = document.getElementById('toggle-watch-view-btn');
       if (watchBtn) {
@@ -1072,8 +1080,7 @@ export class AppHelper {
   }
 
   async toggleArchiveView(): Promise<void> {
-    await this.openDrawer();
-    await this.page.locator(selectors.drawer.archiveButton).click();
+    await this.page.locator(selectors.header.archiveButton).click();
     // Wait for gallery to re-render after view toggle
     await this.page.waitForFunction(() => (window as any).__appReady === true, { timeout: 5000 });
   }

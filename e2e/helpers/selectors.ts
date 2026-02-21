@@ -8,6 +8,8 @@ export const selectors = {
     title: 'header h1',
     searchInput: '#search-input',
     drawerToggle: '#drawer-toggle-btn',
+    addButton: '#header-add-btn',
+    archiveButton: '#header-archive-btn',
   },
 
   // Nav drawer
@@ -141,6 +143,7 @@ export const selectors = {
     folderCard: '#watch-folder-list > li',
     addFolderZone: '#add-folder-zone',
     addFolderButton: '#add-folder-btn',
+    backButton: '#watch-back-btn',
   },
 
   // Watch folder card
