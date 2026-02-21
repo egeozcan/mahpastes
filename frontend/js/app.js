@@ -1,3 +1,41 @@
+// --- Drawer ---
+const drawerToggleBtn = document.getElementById('drawer-toggle-btn');
+const drawerCloseBtn = document.getElementById('drawer-close-btn');
+const drawerOverlay = document.getElementById('drawer-overlay');
+const navDrawer = document.getElementById('nav-drawer');
+const drawerWatchIndicator = document.getElementById('drawer-watch-indicator');
+
+function openDrawer() {
+    navDrawer.classList.remove('translate-x-full');
+    drawerOverlay.classList.remove('opacity-0', 'pointer-events-none');
+    drawerOverlay.classList.add('opacity-100');
+    drawerToggleBtn.setAttribute('aria-expanded', 'true');
+}
+
+function closeDrawer() {
+    navDrawer.classList.add('translate-x-full');
+    drawerOverlay.classList.add('opacity-0', 'pointer-events-none');
+    drawerOverlay.classList.remove('opacity-100');
+    drawerToggleBtn.setAttribute('aria-expanded', 'false');
+}
+
+drawerToggleBtn.addEventListener('click', openDrawer);
+drawerCloseBtn.addEventListener('click', closeDrawer);
+drawerOverlay.addEventListener('click', closeDrawer);
+
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !navDrawer.classList.contains('translate-x-full')) {
+        closeDrawer();
+    }
+});
+
+// Close drawer when any nav button inside it is clicked
+navDrawer.addEventListener('click', (e) => {
+    if (e.target.closest('button[id]') && e.target.closest('button[id]') !== drawerCloseBtn) {
+        closeDrawer();
+    }
+});
+
 // --- Elements ---
 const dropZone = document.getElementById('drop-zone');
 const fileInput = document.getElementById('file-input');

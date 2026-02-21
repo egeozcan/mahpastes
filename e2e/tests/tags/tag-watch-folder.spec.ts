@@ -21,9 +21,7 @@ test.describe('Watch Folder Auto-Tagging', () => {
   test.describe('Auto-Tag Configuration', () => {
     test('should show auto-tag dropdown in watch folder modal', async ({ app }) => {
       // Open watch view
-      const watchBtn = app.page.locator('#toggle-watch-view-btn');
-      await watchBtn.click();
-      await app.page.waitForSelector('#watch-view:not(.hidden)');
+      await app.openWatchView();
 
       // Open folder modal directly (bypassing native dialog)
       await app.page.evaluate((testPath) => {
@@ -52,9 +50,7 @@ test.describe('Watch Folder Auto-Tagging', () => {
       await app.waitForReady();
 
       // Open watch view
-      const watchBtn = app.page.locator('#toggle-watch-view-btn');
-      await watchBtn.click();
-      await app.page.waitForSelector('#watch-view:not(.hidden)');
+      await app.openWatchView();
 
       // Directly open the folder modal with a test path (bypassing native dialog)
       await app.page.evaluate((testPath) => {
@@ -82,9 +78,7 @@ test.describe('Watch Folder Auto-Tagging', () => {
 
     test('should have None option as default', async ({ app }) => {
       // Open watch view
-      const watchBtn = app.page.locator('#toggle-watch-view-btn');
-      await watchBtn.click();
-      await app.page.waitForSelector('#watch-view:not(.hidden)');
+      await app.openWatchView();
 
       // Open folder modal directly (bypassing native dialog)
       await app.page.evaluate((testPath) => {

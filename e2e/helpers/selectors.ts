@@ -7,6 +7,14 @@ export const selectors = {
     root: 'header',
     title: 'header h1',
     searchInput: '#search-input',
+    drawerToggle: '#drawer-toggle-btn',
+  },
+
+  // Nav drawer
+  drawer: {
+    overlay: '#drawer-overlay',
+    panel: '#nav-drawer',
+    closeButton: '#drawer-close-btn',
     watchButton: '#toggle-watch-view-btn',
     watchIndicator: '#watch-indicator',
     archiveButton: '#toggle-archive-view-btn',
@@ -208,7 +216,7 @@ export const selectors = {
 
   // Plugins
   plugins: {
-    modalButton: '#open-plugins-btn',
+    modalButton: '#open-plugins-btn', // now inside drawer
     modal: '[data-testid="plugins-modal"]',
     closeButton: '#plugins-close',
     importButton: '[data-testid="import-plugin-btn"]',

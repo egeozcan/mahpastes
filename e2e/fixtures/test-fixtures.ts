@@ -74,6 +74,28 @@ export class AppHelper {
     });
   }
 
+  // ==================== Drawer ====================
+
+  async openDrawer(): Promise<void> {
+    const panel = this.page.locator(selectors.drawer.panel);
+    const isOpen = await panel.evaluate((el) => !el.classList.contains('translate-x-full'));
+    if (!isOpen) {
+      await this.page.locator(selectors.header.drawerToggle).click();
+      await panel.evaluate((el) => el.classList.contains('translate-x-full') ? new Promise<void>(r => {
+        const obs = new MutationObserver(() => { if (!el.classList.contains('translate-x-full')) { obs.disconnect(); r(); } });
+        obs.observe(el, { attributes: true, attributeFilter: ['class'] });
+      }) : Promise.resolve());
+    }
+  }
+
+  async closeDrawer(): Promise<void> {
+    const panel = this.page.locator(selectors.drawer.panel);
+    const isOpen = await panel.evaluate((el) => !el.classList.contains('translate-x-full'));
+    if (isOpen) {
+      await this.page.locator(selectors.drawer.closeButton).click();
+    }
+  }
+
   // ==================== Clip Operations ====================
 
   async uploadFile(filePath: string, expiration = 0): Promise<void> {
@@ -626,6 +648,17 @@ export class AppHelper {
         if (helpers.setViewingWatch) helpers.setViewingWatch(false);
       }
 
+      // Close nav drawer if open
+      const navDrawer = document.getElementById('nav-drawer');
+      if (navDrawer && !navDrawer.classList.contains('translate-x-full')) {
+        navDrawer.classList.add('translate-x-full');
+      }
+      const drawerOverlay = document.getElementById('drawer-overlay');
+      if (drawerOverlay) {
+        drawerOverlay.classList.add('opacity-0', 'pointer-events-none');
+        drawerOverlay.classList.remove('opacity-100');
+      }
+
       // Reset archive button UI (ID: toggle-archive-view-btn)
       const archiveBtn = document.getElementById('toggle-archive-view-btn');
       if (archiveBtn) {
@@ -899,7 +932,8 @@ export class AppHelper {
     // Check if already open
     const isOpen = await this.page.locator(selectors.watch.view).isVisible();
     if (!isOpen) {
-      await this.page.locator(selectors.header.watchButton).click();
+      await this.openDrawer();
+      await this.page.locator(selectors.drawer.watchButton).click();
       await this.page.waitForSelector(`${selectors.watch.view}:not(.hidden)`, { timeout: 5000 });
     }
   }
@@ -908,7 +942,8 @@ export class AppHelper {
     // Check if already closed
     const isOpen = await this.page.locator(selectors.watch.view).isVisible();
     if (isOpen) {
-      await this.page.locator(selectors.header.watchButton).click();
+      await this.openDrawer();
+      await this.page.locator(selectors.drawer.watchButton).click();
       // Wait for the view to have the hidden class
       await this.page.waitForFunction((selector) => {
         const el = document.querySelector(selector);
@@ -1041,13 +1076,14 @@ export class AppHelper {
   }
 
   async toggleArchiveView(): Promise<void> {
-    await this.page.locator(selectors.header.archiveButton).click();
+    await this.openDrawer();
+    await this.page.locator(selectors.drawer.archiveButton).click();
     // Wait for gallery to re-render after view toggle
     await this.page.waitForFunction(() => (window as any).__appReady === true, { timeout: 5000 });
   }
 
   async isArchiveViewActive(): Promise<boolean> {
-    const btn = this.page.locator(selectors.header.archiveButton);
+    const btn = this.page.locator(selectors.drawer.archiveButton);
     const pressed = await btn.getAttribute('aria-pressed');
     return pressed === 'true';
   }
@@ -1688,6 +1724,7 @@ export class AppHelper {
   // ==================== Plugins UI ====================
 
   async openPluginsModal(): Promise<void> {
+    await this.openDrawer();
     await this.page.locator(selectors.plugins.modalButton).click();
     await this.page.waitForSelector(`${selectors.plugins.modal}.opacity-100`, { timeout: 5000 });
     // Wait for plugin list to finish rendering (either list items appear or empty state becomes visible)
@@ -1963,7 +2000,8 @@ export class AppHelper {
   // ==================== Backup & Restore ====================
 
   async openSettingsModal(): Promise<void> {
-    await this.page.locator(selectors.header.settingsButton).click();
+    await this.openDrawer();
+    await this.page.locator(selectors.drawer.settingsButton).click();
     await this.page.waitForSelector(`${selectors.settings.modal}.opacity-100`, { timeout: 5000 });
   }
 
