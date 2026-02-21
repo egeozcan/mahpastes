@@ -658,6 +658,10 @@ export class AppHelper {
         drawerOverlay.classList.add('opacity-0', 'pointer-events-none');
         drawerOverlay.classList.remove('opacity-100');
       }
+      const drawerToggle = document.getElementById('drawer-toggle-btn');
+      if (drawerToggle) {
+        drawerToggle.setAttribute('aria-expanded', 'false');
+      }
 
       // Reset archive button UI (ID: toggle-archive-view-btn)
       const archiveBtn = document.getElementById('toggle-archive-view-btn');

@@ -69,10 +69,12 @@ async function updateWatchIndicator() {
         const status = await window.go.main.App.GetWatchStatus();
         if (status.is_watching) {
             watchIndicator.classList.remove('hidden');
-            if (drawerWatchIndicator) drawerWatchIndicator.classList.remove('hidden');
+            const dwi = document.getElementById('drawer-watch-indicator');
+            if (dwi) dwi.classList.remove('hidden');
         } else {
             watchIndicator.classList.add('hidden');
-            if (drawerWatchIndicator) drawerWatchIndicator.classList.add('hidden');
+            const dwi = document.getElementById('drawer-watch-indicator');
+            if (dwi) dwi.classList.add('hidden');
         }
     } catch (error) {
         console.error('Failed to get watch status:', error);

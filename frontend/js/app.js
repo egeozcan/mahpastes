@@ -3,7 +3,7 @@ const drawerToggleBtn = document.getElementById('drawer-toggle-btn');
 const drawerCloseBtn = document.getElementById('drawer-close-btn');
 const drawerOverlay = document.getElementById('drawer-overlay');
 const navDrawer = document.getElementById('nav-drawer');
-const drawerWatchIndicator = document.getElementById('drawer-watch-indicator');
+
 
 function openDrawer() {
     navDrawer.classList.remove('translate-x-full');
@@ -25,6 +25,7 @@ drawerOverlay.addEventListener('click', closeDrawer);
 
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !navDrawer.classList.contains('translate-x-full')) {
+        e.stopPropagation();
         closeDrawer();
     }
 });
