@@ -837,10 +837,16 @@ function toggleViewMode() {
         archiveBtnText.textContent = "Active";
         toggleArchiveViewBtn.classList.add('bg-stone-800', 'text-white', 'border-stone-800');
         toggleArchiveViewBtn.classList.remove('border-stone-200', 'text-stone-600', 'hover:border-stone-300', 'hover:bg-stone-100');
+        headerArchiveBtn.setAttribute('aria-pressed', 'true');
+        headerArchiveBtn.classList.add('bg-stone-800', 'text-white', 'border-stone-800');
+        headerArchiveBtn.classList.remove('border-stone-200', 'text-stone-500', 'hover:border-stone-300', 'hover:bg-stone-100');
     } else {
         archiveBtnText.textContent = "Archive";
         toggleArchiveViewBtn.classList.remove('bg-stone-800', 'text-white', 'border-stone-800');
         toggleArchiveViewBtn.classList.add('border-stone-200', 'text-stone-600', 'hover:border-stone-300', 'hover:bg-stone-100');
+        headerArchiveBtn.setAttribute('aria-pressed', 'false');
+        headerArchiveBtn.classList.remove('bg-stone-800', 'text-white', 'border-stone-800');
+        headerArchiveBtn.classList.add('border-stone-200', 'text-stone-500', 'hover:border-stone-300', 'hover:bg-stone-100');
     }
 
     // Ensure main view is visible
