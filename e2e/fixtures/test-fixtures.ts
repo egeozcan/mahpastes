@@ -43,7 +43,7 @@ export class AppHelper {
   async waitForReady(): Promise<void> {
     // Wait for the app to be fully loaded
     await this.page.waitForSelector(selectors.header.root);
-    await this.page.waitForSelector(selectors.upload.dropZone);
+    await this.page.waitForSelector(selectors.gallery.container);
     // Wait for Wails runtime to be available (indicates JS is fully initialized)
     await this.page.waitForFunction(() => {
       // @ts-ignore - Wails runtime
@@ -99,12 +99,7 @@ export class AppHelper {
 
   // ==================== Clip Operations ====================
 
-  async uploadFile(filePath: string, expiration = 0): Promise<void> {
-    // Set expiration before upload
-    if (expiration > 0) {
-      await this.page.selectOption(selectors.upload.expirationSelect, String(expiration));
-    }
-
+  async uploadFile(filePath: string): Promise<void> {
     // Upload via file input
     const fileInput = this.page.locator(selectors.upload.fileInput);
     await fileInput.setInputFiles(filePath);
@@ -113,11 +108,7 @@ export class AppHelper {
     await this.page.locator('#gallery > li').first().waitFor({ state: 'visible', timeout: 10000 });
   }
 
-  async uploadFiles(filePaths: string[], expiration = 0): Promise<void> {
-    if (expiration > 0) {
-      await this.page.selectOption(selectors.upload.expirationSelect, String(expiration));
-    }
-
+  async uploadFiles(filePaths: string[]): Promise<void> {
     const fileInput = this.page.locator(selectors.upload.fileInput);
     await fileInput.setInputFiles(filePaths);
 
@@ -126,8 +117,8 @@ export class AppHelper {
   }
 
   async pasteText(text: string): Promise<void> {
-    // Focus the drop zone and paste
-    await this.page.locator(selectors.upload.dropZone).focus();
+    // Focus the body and paste
+    await this.page.locator('body').focus();
     await this.page.evaluate((t) => {
       const event = new ClipboardEvent('paste', {
         clipboardData: new DataTransfer(),
@@ -684,11 +675,11 @@ export class AppHelper {
         watchBtn.classList.add('border-stone-200', 'text-stone-600', 'hover:bg-stone-100', 'hover:border-stone-300');
       }
 
-      // Reset upload section
-      const uploadSection = document.getElementById('upload-section');
-      if (uploadSection) {
-        uploadSection.classList.remove('opacity-50', 'pointer-events-none', 'hidden');
-        uploadSection.removeAttribute('aria-hidden');
+      // Reset drop overlay
+      const dropOverlay = document.getElementById('drop-overlay');
+      if (dropOverlay) {
+        dropOverlay.classList.add('opacity-0');
+        dropOverlay.classList.remove('opacity-100');
       }
 
       // Make sure gallery parent is visible
@@ -2082,7 +2073,7 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
 
     // Wait for full app initialization (only once per worker)
     await page.waitForSelector(selectors.header.root, { timeout: 30000 });
-    await page.waitForSelector(selectors.upload.dropZone, { timeout: 30000 });
+    await page.waitForSelector(selectors.gallery.container, { timeout: 30000 });
     await page.waitForFunction(
       () => typeof (window as any).go?.main?.App?.GetClips === 'function',
       { timeout: 30000 }

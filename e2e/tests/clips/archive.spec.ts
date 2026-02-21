@@ -135,11 +135,11 @@ test.describe('Clip Archive', () => {
   });
 
   test.describe('Archive with Expiration', () => {
-    test('should archive clip with expiration', async ({ app }) => {
+    test('should archive any clip', async ({ app }) => {
       const imagePath = await createTempFile(generateTestImage(), 'png');
       const filename = path.basename(imagePath);
 
-      await app.uploadFile(imagePath, 30);
+      await app.uploadFile(imagePath);
       await app.archiveClip(filename);
 
       await app.toggleArchiveView();

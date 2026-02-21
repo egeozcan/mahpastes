@@ -22,12 +22,10 @@ export const selectors = {
     settingsButton: '#open-settings-btn',
   },
 
-  // Upload zone
+  // Upload
   upload: {
-    dropZone: '#drop-zone',
     fileInput: '#file-input',
-    selectButton: '#file-select-btn',
-    expirationSelect: '#expiration-select',
+    dropOverlay: '#drop-overlay',
   },
 
   // Clip gallery

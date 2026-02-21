@@ -69,46 +69,6 @@ test.describe('Clip Upload', () => {
     });
   });
 
-  test.describe('Expiration Timer', () => {
-    test('should upload file with 5 minute expiration', async ({ app }) => {
-      const imagePath = await createTempFile(generateTestImage(), 'png');
-      const filename = path.basename(imagePath);
-
-      await app.uploadFile(imagePath, 5);
-
-      await app.expectClipVisible(filename);
-      // Check for expiration badge (shows "Temp" text)
-      const clip = await app.getClipByFilename(filename);
-      const badge = clip.locator('.absolute.top-2.left-2').first();
-      await expect(badge).toBeVisible();
-    });
-
-    test('should upload file with no expiration (default)', async ({ app }) => {
-      const imagePath = await createTempFile(generateTestImage(), 'png');
-      const filename = path.basename(imagePath);
-
-      await app.uploadFile(imagePath, 0);
-
-      await app.expectClipVisible(filename);
-    });
-
-    test('should upload file with 30 minute expiration', async ({ app }) => {
-      const imagePath = await createTempFile(generateTestImage(), 'png');
-
-      await app.uploadFile(imagePath, 30);
-
-      await app.expectClipCount(1);
-    });
-
-    test('should upload file with 2 hour expiration', async ({ app }) => {
-      const imagePath = await createTempFile(generateTestImage(), 'png');
-
-      await app.uploadFile(imagePath, 120);
-
-      await app.expectClipCount(1);
-    });
-  });
-
   test.describe('Paste from Clipboard', () => {
     test('should paste text content', async ({ app }) => {
       const text = generateTestText('paste-test');

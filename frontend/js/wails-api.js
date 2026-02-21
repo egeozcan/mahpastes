@@ -36,9 +36,9 @@ async function loadClips() {
     }
 }
 
-async function upload(files, expiration) {
+async function upload(files) {
     try {
-        await window.go.main.App.UploadFiles(files, expiration);
+        await window.go.main.App.UploadFiles(files, 0);
         showToast('Upload successful!');
         if (!isViewingArchive) {
             loadClips(); // Refresh gallery only if looking at active
@@ -70,17 +70,6 @@ async function toggleArchiveClip(id) {
     } catch (error) {
         console.error('Error toggling archive:', error);
         showToast('Failed to change archive status.');
-    }
-}
-
-async function cancelExpiration(id) {
-    try {
-        await window.go.main.App.CancelExpiration(id);
-        showToast('Clip is now permanent.');
-        loadClips();
-    } catch (error) {
-        console.error('Error cancelling expiration:', error);
-        showToast('Failed to cancel expiration.');
     }
 }
 

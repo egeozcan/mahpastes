@@ -236,7 +236,7 @@ test.describe('Error Handling', () => {
   test.describe('Clipboard Errors', () => {
     test('should handle paste when clipboard is empty', async ({ app }) => {
       // Attempt to trigger paste with empty content
-      await app.page.locator('#drop-zone').focus();
+      await app.page.locator('body').focus();
 
       // Simulate empty paste
       await app.page.evaluate(() => {

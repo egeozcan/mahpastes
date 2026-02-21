@@ -521,9 +521,11 @@ function setupDragHandle(handle, clipId) {
             e.dataTransfer.dropEffect = 'copy';
         }
         e.dataTransfer.effectAllowed = 'copy';
+        window.__internalDragActive = true;
     });
 
     handle.addEventListener('dragend', () => {
+        window.__internalDragActive = false;
         clearArmTimer();
         refreshMode();
     });
@@ -828,7 +830,6 @@ function toggleViewMode() {
         toggleWatchViewBtn.classList.add('border-stone-200', 'text-stone-600', 'hover:bg-stone-100', 'hover:border-stone-300');
         toggleWatchViewBtn.setAttribute('aria-pressed', 'false');
         watchView.classList.add('hidden');
-        uploadSection.classList.remove('hidden');
     }
 
     toggleArchiveViewBtn.setAttribute('aria-pressed', isViewingArchive);
@@ -836,14 +837,10 @@ function toggleViewMode() {
         archiveBtnText.textContent = "Active";
         toggleArchiveViewBtn.classList.add('bg-stone-800', 'text-white', 'border-stone-800');
         toggleArchiveViewBtn.classList.remove('border-stone-200', 'text-stone-600', 'hover:border-stone-300', 'hover:bg-stone-100');
-        uploadSection.classList.add('opacity-50', 'pointer-events-none'); // Disable upload in archive view
-        uploadSection.setAttribute('aria-hidden', 'true');
     } else {
         archiveBtnText.textContent = "Archive";
         toggleArchiveViewBtn.classList.remove('bg-stone-800', 'text-white', 'border-stone-800');
         toggleArchiveViewBtn.classList.add('border-stone-200', 'text-stone-600', 'hover:border-stone-300', 'hover:bg-stone-100');
-        uploadSection.classList.remove('opacity-50', 'pointer-events-none');
-        uploadSection.removeAttribute('aria-hidden');
     }
 
     // Ensure main view is visible

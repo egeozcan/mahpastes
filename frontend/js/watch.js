@@ -42,7 +42,6 @@ function toggleWatchView() {
         toggleWatchViewBtn.classList.add('bg-stone-800', 'text-white', 'border-stone-800', 'hover:bg-stone-700', 'hover:border-stone-700');
         toggleWatchViewBtn.classList.remove('border-stone-200', 'text-stone-600', 'hover:bg-stone-100', 'hover:border-stone-300');
 
-        uploadSection.classList.add('hidden');
         gallery.parentElement.classList.add('hidden');
         watchView.classList.remove('hidden');
 
@@ -53,7 +52,6 @@ function toggleWatchView() {
         toggleWatchViewBtn.classList.remove('bg-stone-800', 'text-white', 'border-stone-800', 'hover:bg-stone-700', 'hover:border-stone-700');
         toggleWatchViewBtn.classList.add('border-stone-200', 'text-stone-600', 'hover:bg-stone-100', 'hover:border-stone-300');
 
-        uploadSection.classList.remove('hidden');
         gallery.parentElement.classList.remove('hidden');
         watchView.classList.add('hidden');
     }

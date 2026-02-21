@@ -105,11 +105,11 @@ test.describe('Clip Delete', () => {
   });
 
   test.describe('Delete with Expiration', () => {
-    test('should be able to delete clip with expiration', async ({ app }) => {
+    test('should be able to delete any clip', async ({ app }) => {
       const imagePath = await createTempFile(generateTestImage(), 'png');
       const filename = path.basename(imagePath);
 
-      await app.uploadFile(imagePath, 30); // 30 minute expiration
+      await app.uploadFile(imagePath);
       await app.expectClipVisible(filename);
 
       await app.deleteClip(filename);

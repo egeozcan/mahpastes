@@ -37,15 +37,12 @@ navDrawer.addEventListener('click', (e) => {
 });
 
 // --- Elements ---
-const dropZone = document.getElementById('drop-zone');
 const fileInput = document.getElementById('file-input');
-const fileSelectBtn = document.getElementById('file-select-btn');
+const dropOverlay = document.getElementById('drop-overlay');
 const gallery = document.getElementById('gallery');
 const deleteAllTempBtn = document.getElementById('delete-all-temp-btn');
 const toggleArchiveViewBtn = document.getElementById('toggle-archive-view-btn');
 const archiveBtnText = document.getElementById('archive-btn-text');
-const uploadSection = document.getElementById('upload-section');
-const expirationSelect = document.getElementById('expiration-select');
 const bulkToolbar = document.getElementById('bulk-toolbar');
 const selectAllCheckbox = document.getElementById('select-all-checkbox');
 const selectedCountEl = document.getElementById('selected-count');
@@ -139,33 +136,46 @@ Object.assign(window.__testHelpers, {
 
 // --- Event Listeners ---
 
-// Drag and Drop
-['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-    dropZone.addEventListener(eventName, e => {
-        e.preventDefault();
-        e.stopPropagation();
-    }, false);
-});
+// Whole-app drag and drop
+let dragCounter = 0;
 
-['dragenter', 'dragover'].forEach(eventName => {
-    dropZone.addEventListener(eventName, () => {
-        dropZone.classList.add('border-blue-500', 'bg-blue-50');
-    }, false);
-});
+document.addEventListener('dragenter', e => {
+    e.preventDefault();
+    if (window.__internalDragActive) return;
+    dragCounter++;
+    if (dragCounter === 1) {
+        dropOverlay.classList.remove('opacity-0');
+        dropOverlay.classList.add('opacity-100');
+    }
+}, false);
 
-['dragleave', 'drop'].forEach(eventName => {
-    dropZone.addEventListener(eventName, () => {
-        dropZone.classList.remove('border-blue-500', 'bg-blue-50');
-    }, false);
-});
+document.addEventListener('dragover', e => {
+    e.preventDefault();
+}, false);
 
-dropZone.addEventListener('drop', e => {
-    const files = e.dataTransfer.files;
-    handleFiles(files);
-});
+document.addEventListener('dragleave', e => {
+    e.preventDefault();
+    if (window.__internalDragActive) return;
+    dragCounter--;
+    if (dragCounter <= 0) {
+        dragCounter = 0;
+        dropOverlay.classList.add('opacity-0');
+        dropOverlay.classList.remove('opacity-100');
+    }
+}, false);
 
-// File Select Button
-fileSelectBtn.addEventListener('click', () => fileInput.click());
+document.addEventListener('drop', e => {
+    e.preventDefault();
+    if (window.__internalDragActive) return;
+    dragCounter = 0;
+    dropOverlay.classList.add('opacity-0');
+    dropOverlay.classList.remove('opacity-100');
+    if (e.dataTransfer.files.length > 0) {
+        handleFiles(e.dataTransfer.files);
+    }
+}, false);
+
+// File input change
 fileInput.addEventListener('change', e => handleFiles(e.target.files));
 
 // Paste
@@ -295,14 +305,6 @@ document.addEventListener('keydown', (e) => {
 // All gesture listeners are centralized in modals.js for better cohesion
 initLightboxGestures();
 
-// Keyboard Handlers for Drop Zone
-dropZone.addEventListener('keydown', e => {
-    if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        fileInput.click();
-    }
-});
-
 // Focus Trap for Confirm Dialog
 function setupConfirmDialogFocusTrap() {
     const dialog = document.getElementById('confirm-dialog');
@@ -346,8 +348,7 @@ async function handleFiles(files) {
         fileDataArray.push(fileData);
     }
 
-    const expiration = parseInt(expirationSelect.value) || 0;
-    upload(fileDataArray, expiration);
+    upload(fileDataArray);
 }
 
 async function handleText(text) {
@@ -364,8 +365,7 @@ async function handleText(text) {
         data: base64
     };
 
-    const expiration = parseInt(expirationSelect.value) || 0;
-    upload([fileData], expiration);
+    upload([fileData]);
 }
 
 async function loadHiddenTags() {
