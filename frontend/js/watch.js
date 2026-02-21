@@ -15,6 +15,7 @@ const globalWatchLabel = document.getElementById('global-watch-label');
 const watchFolderCount = document.getElementById('watch-folder-count');
 const addFolderZone = document.getElementById('add-folder-zone');
 const addFolderBtn = document.getElementById('add-folder-btn');
+const watchBackBtn = document.getElementById('watch-back-btn');
 
 // Folder modal elements
 const folderModal = document.getElementById('folder-modal');
@@ -422,6 +423,7 @@ async function saveFolderConfig() {
 
 // --- Event Listeners ---
 toggleWatchViewBtn.addEventListener('click', toggleWatchView);
+watchBackBtn.addEventListener('click', toggleWatchView);
 globalWatchToggle.addEventListener('change', toggleGlobalPause);
 addFolderBtn.addEventListener('click', openAddFolderDialog);
 addFolderZone.addEventListener('click', (e) => {
