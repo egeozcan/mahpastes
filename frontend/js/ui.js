@@ -464,7 +464,6 @@ function setupDragHandle(handle, clipId) {
             e.preventDefault();
             clearArmTimer();
             startPrepare();
-            return;
         }
     });
 
@@ -565,7 +564,7 @@ async function createClipCard(clip, options = {}) {
         </div>
     `;
 
-    let previewHTML = '';
+    let previewHTML;
 
     if (clip.content_type.startsWith('image/')) {
         // For images, show loading placeholder initially
