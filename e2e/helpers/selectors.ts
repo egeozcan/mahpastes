@@ -309,6 +309,19 @@ export const selectors = {
     restoreConfirmYes: '#restore-confirm-yes',
     restoreBackupInfo: '#restore-backup-info',
   },
+
+  // Keyboard Shortcuts
+  shortcuts: {
+    cheatsheet: '[data-testid="shortcuts-cheatsheet"]',
+    cheatsheetClose: '#shortcuts-cheatsheet-close',
+    cheatsheetContent: '#shortcuts-cheatsheet-content',
+    settingsSection: '[data-testid="settings-shortcuts-section"]',
+    settingsList: '[data-testid="shortcuts-settings-list"]',
+    resetButton: '[data-testid="shortcuts-reset-btn"]',
+    shortcutRow: (id: string) => `[data-testid="shortcut-row-${id}"]`,
+    shortcutBadge: (id: string) => `[data-testid="shortcut-badge-${id}"]`,
+    focusedClip: '.clip-focused',
+  },
 } as const;
 
 export type Selectors = typeof selectors;

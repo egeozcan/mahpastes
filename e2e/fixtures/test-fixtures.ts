@@ -373,6 +373,25 @@ export class AppHelper {
       // Ignore
     }
 
+    // Cheat sheet
+    try {
+      const cheatsheetOpen = await this.page.evaluate(() => {
+        const el = document.getElementById('shortcuts-cheatsheet');
+        return el ? el.classList.contains('opacity-100') : false;
+      });
+      if (cheatsheetOpen) {
+        await this.page.evaluate(() => {
+          const el = document.getElementById('shortcuts-cheatsheet');
+          if (el) {
+            el.classList.remove('opacity-100');
+            el.classList.add('opacity-0', 'pointer-events-none');
+          }
+        });
+      }
+    } catch {
+      // Ignore
+    }
+
     // Plugin options modal uses .active class
     try {
       if (await this.isPluginOptionsModalOpen()) {
@@ -613,6 +632,16 @@ export class AppHelper {
       // Watch view uses .hidden class
       document.querySelector('#watch-view')?.classList.add('hidden');
 
+      // Shortcuts cheatsheet
+      const cheatsheet = document.getElementById('shortcuts-cheatsheet');
+      if (cheatsheet) {
+        cheatsheet.classList.remove('opacity-100');
+        cheatsheet.classList.add('opacity-0', 'pointer-events-none');
+      }
+
+      // Clear grid focus
+      document.querySelector('.clip-focused')?.classList.remove('clip-focused');
+
       // Card menu dropdown (dynamically created)
       document.querySelector('.card-menu-dropdown')?.remove();
 
@@ -638,6 +667,13 @@ export class AppHelper {
         if (helpers.setHiddenTags) helpers.setHiddenTags([]);
         if (helpers.setViewingArchive) helpers.setViewingArchive(false);
         if (helpers.setViewingWatch) helpers.setViewingWatch(false);
+
+        // Reset keyboard shortcut overrides to defaults
+        const sm = helpers.getShortcutManager ? helpers.getShortcutManager() : null;
+        if (sm) {
+          sm.resetAllToDefaults();
+          sm.clearFocus();
+        }
       }
 
       // Close nav drawer if open
@@ -2045,6 +2081,49 @@ export class AppHelper {
       // @ts-ignore
       return await window.go.main.ValidateBackup(path);
     }, backupPath);
+  }
+
+  // ==================== Keyboard Shortcuts ====================
+
+  async pressKey(key: string, modifiers?: { meta?: boolean; ctrl?: boolean; shift?: boolean; alt?: boolean }): Promise<void> {
+    const mods: string[] = [];
+    if (modifiers?.meta) mods.push('Meta');
+    if (modifiers?.ctrl) mods.push('Control');
+    if (modifiers?.shift) mods.push('Shift');
+    if (modifiers?.alt) mods.push('Alt');
+
+    const combo = [...mods, key].join('+');
+    await this.page.keyboard.press(combo);
+  }
+
+  async isCheatSheetOpen(): Promise<boolean> {
+    return this.page.evaluate(() => {
+      const el = document.getElementById('shortcuts-cheatsheet');
+      return el ? el.classList.contains('opacity-100') : false;
+    });
+  }
+
+  async openCheatSheet(): Promise<void> {
+    await this.page.keyboard.press('Shift+/');
+    await this.page.waitForSelector('[data-testid="shortcuts-cheatsheet"].opacity-100', { timeout: 5000 });
+  }
+
+  async closeCheatSheet(): Promise<void> {
+    await this.page.keyboard.press('Escape');
+    await this.page.waitForSelector('[data-testid="shortcuts-cheatsheet"].opacity-0', { timeout: 5000 });
+  }
+
+  async getFocusedClipIndex(): Promise<number> {
+    return this.page.evaluate(() => {
+      // @ts-ignore
+      return typeof ShortcutManager !== 'undefined' ? ShortcutManager.focusedClipIndex : -1;
+    });
+  }
+
+  async isFocusedClipVisible(): Promise<boolean> {
+    return this.page.evaluate(() => {
+      return !!document.querySelector('.clip-focused');
+    });
   }
 }
 
