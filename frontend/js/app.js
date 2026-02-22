@@ -648,6 +648,64 @@ window.addEventListener('load', async () => {
             }
         });
 
+        // Comparison
+        ShortcutManager.register({
+            id: 'compare-mode-fade', label: 'Fade Mode', category: 'comparison',
+            defaultKey: '1', context: 'comparison',
+            callback: () => { comparisonMode = 'fade'; comparisonRange.value = 50; updateComparisonView(); }
+        });
+        ShortcutManager.register({
+            id: 'compare-mode-slider', label: 'Slider Mode', category: 'comparison',
+            defaultKey: '2', context: 'comparison',
+            callback: () => { comparisonMode = 'slider'; comparisonRange.value = 50; updateComparisonView(); }
+        });
+        ShortcutManager.register({
+            id: 'compare-mode-diff', label: 'Diff Mode', category: 'comparison',
+            defaultKey: '3', context: 'comparison',
+            callback: () => { comparisonMode = 'diff'; comparisonRange.value = 30; updateComparisonView(); }
+        });
+        ShortcutManager.register({
+            id: 'compare-swap', label: 'Swap Images', category: 'comparison',
+            defaultKey: 's', context: 'comparison',
+            callback: () => swapComparisonImages()
+        });
+        ShortcutManager.register({
+            id: 'compare-zoom-in', label: 'Zoom In', category: 'comparison',
+            defaultKey: '+', context: 'comparison',
+            callback: () => { zoomLevel = Math.min(zoomLevel * 1.2, 5); updateComparisonView(); }
+        });
+        ShortcutManager.register({
+            id: 'compare-zoom-out', label: 'Zoom Out', category: 'comparison',
+            defaultKey: '-', context: 'comparison',
+            callback: () => { zoomLevel = Math.max(zoomLevel / 1.2, 0.1); updateComparisonView(); }
+        });
+        ShortcutManager.register({
+            id: 'compare-zoom-fit', label: 'Fit to Viewport', category: 'comparison',
+            defaultKey: '0', context: 'comparison',
+            callback: () => zoomFit()
+        });
+        ShortcutManager.register({
+            id: 'compare-range-left', label: 'Adjust Range Left', category: 'comparison',
+            defaultKey: 'ArrowLeft', context: 'comparison',
+            callback: () => {
+                comparisonRange.value = Math.max(0, parseInt(comparisonRange.value) - 5);
+                updateComparisonView();
+            }
+        });
+        ShortcutManager.register({
+            id: 'compare-range-right', label: 'Adjust Range Right', category: 'comparison',
+            defaultKey: 'ArrowRight', context: 'comparison',
+            callback: () => {
+                comparisonRange.value = Math.min(100, parseInt(comparisonRange.value) + 5);
+                updateComparisonView();
+            }
+        });
+        ShortcutManager.register({
+            id: 'compare-close', label: 'Close Comparison', category: 'comparison',
+            defaultKey: 'Escape', context: 'comparison',
+            callback: () => closeComparisonModal()
+        });
+
         // Initialize the shortcut manager (loads user overrides and starts listening)
         await ShortcutManager.init();
 
