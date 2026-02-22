@@ -943,11 +943,13 @@ export class AppHelper {
     await this.page.waitForSelector(`${selectors.comparison.modal}:not(.active)`);
   }
 
-  async setComparisonMode(mode: 'fade' | 'slider'): Promise<void> {
+  async setComparisonMode(mode: 'fade' | 'slider' | 'diff'): Promise<void> {
     if (mode === 'fade') {
       await this.page.locator(selectors.comparison.modeFade).click();
-    } else {
+    } else if (mode === 'slider') {
       await this.page.locator(selectors.comparison.modeSlider).click();
+    } else {
+      await this.page.locator(selectors.comparison.modeDiff).click();
     }
   }
 
@@ -964,6 +966,27 @@ export class AppHelper {
       const el = document.querySelector(selector);
       return el ? el.classList.contains('active') : false;
     }, selectors.comparison.modal);
+  }
+
+  async swapComparisonImages(): Promise<void> {
+    await this.page.locator(selectors.comparison.swapButton).click();
+  }
+
+  async getComparisonSimilarity(): Promise<string> {
+    return await this.page.locator(selectors.comparison.similarity).textContent() ?? '';
+  }
+
+  async getComparisonImageInfo(): Promise<string> {
+    return await this.page.locator(selectors.comparison.imageInfo).textContent() ?? '';
+  }
+
+  async isComparisonDiffVisible(): Promise<boolean> {
+    const img = this.page.locator(selectors.comparison.diffImage);
+    return !(await img.evaluate(el => el.classList.contains('hidden')));
+  }
+
+  async getComparisonRangeLabel(): Promise<string> {
+    return await this.page.locator(selectors.comparison.rangeLabel).textContent() ?? '';
   }
 
   // ==================== Watch Folders ====================
