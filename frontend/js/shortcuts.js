@@ -199,6 +199,17 @@ const ShortcutManager = (() => {
         const isEditable = tag === 'INPUT' || tag === 'TEXTAREA' || e.target.isContentEditable;
         if (isEditable && e.key !== 'Escape') return;
 
+        // Handle Escape for modal overlays that block all shortcut contexts.
+        // These modals cause getActiveContexts() to return [], so they can't be
+        // handled through the normal context-based dispatch.
+        if (e.key === 'Escape') {
+            if (closeTopModalOverlay()) {
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                return;
+            }
+        }
+
         // Don't interfere with selected text + browser copy
         if ((e.metaKey || e.ctrlKey) && e.key === 'c') {
             const selection = window.getSelection();
@@ -352,6 +363,7 @@ const ShortcutManager = (() => {
             await window.go.main.App.SetSetting('keyboard_shortcuts', JSON.stringify(userOverrides));
         } catch (err) {
             console.error('Failed to save keyboard shortcut overrides:', err);
+            if (typeof showToast === 'function') showToast('Failed to save shortcut', 'error');
         }
     }
 
@@ -483,6 +495,33 @@ const ShortcutManager = (() => {
                 if (typeof openSettings === 'function') openSettings();
             });
         }
+    }
+
+    // --- Modal Overlay Escape ---
+
+    function closeTopModalOverlay() {
+        // Plugin result modal takes highest priority
+        const resultModal = document.getElementById('plugin-result-modal');
+        if (resultModal && !resultModal.classList.contains('opacity-0')) {
+            if (typeof closePluginResultModal === 'function') closePluginResultModal();
+            return true;
+        }
+
+        // Plugin options dialog
+        const optionsModal = document.getElementById('plugin-options-modal');
+        if (optionsModal && !optionsModal.classList.contains('opacity-0')) {
+            if (typeof closePluginOptionsDialog === 'function') closePluginOptionsDialog();
+            return true;
+        }
+
+        // Plugins modal
+        const pluginsModal = document.querySelector('[data-testid="plugins-modal"]');
+        if (pluginsModal && !pluginsModal.classList.contains('opacity-0')) {
+            if (typeof closePlugins === 'function') closePlugins();
+            return true;
+        }
+
+        return false;
     }
 
     // --- Init ---

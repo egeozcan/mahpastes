@@ -670,33 +670,7 @@ pluginsModal.addEventListener('click', (e) => {
     if (e.target === pluginsModal) closePlugins();
 });
 
-// Close on escape - single handler for both plugin modals with correct priority
-document.addEventListener('keydown', (e) => {
-    if (e.key !== 'Escape') return;
-    e.preventDefault();
-
-    // Plugin result modal takes highest priority.
-    // stopImmediatePropagation so competing keydown handlers (e.g. lightbox)
-    // do not also fire on this Escape press.
-    const resultModal = document.getElementById('plugin-result-modal');
-    if (resultModal && !resultModal.classList.contains('opacity-0')) {
-        e.stopImmediatePropagation();
-        closePluginResultModal();
-        return;
-    }
-
-    // Options dialog takes priority over plugins modal
-    const optionsModal = document.getElementById('plugin-options-modal');
-    if (optionsModal && !optionsModal.classList.contains('opacity-0')) {
-        e.stopImmediatePropagation();
-        closePluginOptionsDialog();
-        return;
-    }
-
-    if (!pluginsModal.classList.contains('opacity-0')) {
-        closePlugins();
-    }
-});
+// Escape handling for plugin modals is unified in ShortcutManager (closeTopModalOverlay).
 
 // --- Execute Plugin Action ---
 // This function is called when a plugin action is triggered from card menu or lightbox.

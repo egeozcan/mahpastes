@@ -102,8 +102,6 @@ function escapeHTML(str) {
     });
 }
 
-// Alias for compatibility
-const escapeHtml = escapeHTML;
 
 function matchesMimePattern(contentType, fileTypes) {
     if (!fileTypes || fileTypes.length === 0) return true;

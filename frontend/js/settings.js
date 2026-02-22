@@ -207,7 +207,7 @@ function renderHiddenTagsSettings() {
         row.innerHTML = `
             <div class="flex items-center gap-2">
                 <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background-color: ${tag.color}"></span>
-                <span class="text-xs font-medium text-stone-700">${escapeHtml(tag.name)}</span>
+                <span class="text-xs font-medium text-stone-700">${escapeHTML(tag.name)}</span>
                 <span class="text-[10px] text-stone-400">${tag.count}</span>
             </div>
             <div class="relative inline-flex items-center cursor-pointer">
@@ -291,14 +291,14 @@ function renderShortcutsSettings() {
         if (!items || items.length === 0) continue;
 
         html += `<div class="mb-4">`;
-        html += `<h4 class="text-[10px] font-semibold text-stone-400 uppercase tracking-wider mb-1.5">${escapeHtml(ShortcutManager.CATEGORY_LABELS[cat] || cat)}</h4>`;
+        html += `<h4 class="text-[10px] font-semibold text-stone-400 uppercase tracking-wider mb-1.5">${escapeHTML(ShortcutManager.CATEGORY_LABELS[cat] || cat)}</h4>`;
 
         for (const item of items) {
             const combo = ShortcutManager.getEffectiveCombo(item.id);
             const display = ShortcutManager.comboToDisplay(combo);
             html += `<div class="flex items-center justify-between py-1.5 px-1 hover:bg-stone-50 rounded transition-colors" data-testid="shortcut-row-${item.id}">`;
-            html += `<span class="text-xs text-stone-700">${escapeHtml(item.label)}</span>`;
-            html += `<button class="shortcut-key-badge bg-stone-100 border border-stone-200 rounded px-2 py-0.5 text-[11px] font-mono text-stone-600 min-w-[28px] text-center hover:border-stone-400 hover:bg-stone-50 transition-colors cursor-pointer" data-action-id="${item.id}" data-testid="shortcut-badge-${item.id}">${escapeHtml(display)}</button>`;
+            html += `<span class="text-xs text-stone-700">${escapeHTML(item.label)}</span>`;
+            html += `<button class="shortcut-key-badge bg-stone-100 border border-stone-200 rounded px-2 py-0.5 text-[11px] font-mono text-stone-600 min-w-[28px] text-center hover:border-stone-400 hover:bg-stone-50 transition-colors cursor-pointer" data-action-id="${item.id}" data-testid="shortcut-badge-${item.id}">${escapeHTML(display)}</button>`;
             html += `</div>`;
         }
 
@@ -371,7 +371,7 @@ function showConflictWarning(actionId, combo, conflict) {
     warning.className = 'flex items-center justify-between gap-2 px-2 py-1.5 my-1 bg-amber-50 border border-amber-200 rounded-md';
     warning.innerHTML = `
         <span class="text-[11px] text-amber-700">
-            <strong>${escapeHtml(ShortcutManager.comboToDisplay(combo))}</strong> is used by "${escapeHtml(conflict.label)}"
+            <strong>${escapeHTML(ShortcutManager.comboToDisplay(combo))}</strong> is used by "${escapeHTML(conflict.label)}"
         </span>
         <span class="flex gap-1.5 flex-shrink-0">
             <button data-testid="shortcut-conflict-override" class="text-[11px] font-medium text-amber-800 hover:text-amber-900 bg-amber-100 hover:bg-amber-200 px-2 py-0.5 rounded transition-colors">Override</button>
