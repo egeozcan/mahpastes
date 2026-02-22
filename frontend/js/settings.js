@@ -9,6 +9,7 @@ const settingsSaveBtn = document.getElementById('settings-save');
 function openSettings() {
     renderHiddenTagsSettings();
     loadUpdateInterval();
+    renderShortcutsSettings();
     settingsModal.classList.remove('opacity-0', 'pointer-events-none');
     settingsModal.classList.add('opacity-100');
     settingsModal.querySelector(':scope > div').classList.remove('scale-95');
@@ -16,6 +17,7 @@ function openSettings() {
 }
 
 function closeSettings() {
+    stopRecording();
     settingsModal.classList.add('opacity-0', 'pointer-events-none');
     settingsModal.classList.remove('opacity-100');
     settingsModal.querySelector(':scope > div').classList.add('scale-95');
@@ -264,3 +266,121 @@ if (updateIntervalSelect) {
         }
     });
 }
+
+// --- Keyboard Shortcuts Settings ---
+
+let recordingActionId = null;
+let recordingKeydownHandler = null;
+
+function renderShortcutsSettings() {
+    const container = document.getElementById('shortcuts-settings-list');
+    if (!container || typeof ShortcutManager === 'undefined') return;
+
+    const groups = new Map();
+    for (const [id, action] of ShortcutManager.actions) {
+        const cat = action.category || 'other';
+        if (!groups.has(cat)) groups.set(cat, []);
+        groups.get(cat).push({ id, ...action });
+    }
+
+    const categoryOrder = ['navigation', 'gallery', 'clip', 'lightbox', 'bulk', 'system'];
+    const categoryLabels = {
+        navigation: 'Navigation',
+        gallery: 'Gallery',
+        clip: 'Clip Actions',
+        lightbox: 'Lightbox',
+        bulk: 'Bulk Actions',
+        system: 'System',
+    };
+
+    let html = '';
+
+    for (const cat of categoryOrder) {
+        const items = groups.get(cat);
+        if (!items || items.length === 0) continue;
+
+        html += `<div class="mb-4">`;
+        html += `<h4 class="text-[10px] font-semibold text-stone-400 uppercase tracking-wider mb-1.5">${escapeHtml(categoryLabels[cat] || cat)}</h4>`;
+
+        for (const item of items) {
+            const combo = ShortcutManager.getEffectiveCombo(item.id);
+            const display = ShortcutManager.comboToDisplay(combo);
+            html += `<div class="flex items-center justify-between py-1.5 px-1 hover:bg-stone-50 rounded transition-colors" data-testid="shortcut-row-${item.id}">`;
+            html += `<span class="text-xs text-stone-700">${escapeHtml(item.label)}</span>`;
+            html += `<button class="shortcut-key-badge bg-stone-100 border border-stone-200 rounded px-2 py-0.5 text-[11px] font-mono text-stone-600 min-w-[28px] text-center hover:border-stone-400 hover:bg-stone-50 transition-colors cursor-pointer" data-action-id="${item.id}" data-testid="shortcut-badge-${item.id}">${escapeHtml(display)}</button>`;
+            html += `</div>`;
+        }
+
+        html += `</div>`;
+    }
+
+    container.innerHTML = html;
+
+    // Add click handlers to badges
+    container.querySelectorAll('.shortcut-key-badge').forEach(badge => {
+        badge.addEventListener('click', () => startRecording(badge.dataset.actionId, badge));
+    });
+}
+
+function startRecording(actionId, badgeEl) {
+    // Cancel any existing recording
+    stopRecording();
+
+    recordingActionId = actionId;
+    badgeEl.textContent = '...';
+    badgeEl.classList.add('ring-2', 'ring-stone-400', 'animate-pulse');
+
+    recordingKeydownHandler = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+
+        // Escape cancels recording
+        if (e.key === 'Escape') {
+            stopRecording();
+            renderShortcutsSettings();
+            return;
+        }
+
+        // Ignore bare modifier presses
+        if (['Control', 'Meta', 'Shift', 'Alt'].includes(e.key)) return;
+
+        const combo = ShortcutManager.eventToCombo(e);
+        if (!combo) return;
+
+        // Check for conflict
+        const conflict = ShortcutManager.findConflict(recordingActionId, combo);
+        if (conflict) {
+            const proceed = confirm(`"${ShortcutManager.comboToDisplay(combo)}" is already used by "${conflict.label}". Override?`);
+            if (!proceed) {
+                stopRecording();
+                renderShortcutsSettings();
+                return;
+            }
+            // Remove the conflicting binding
+            ShortcutManager.setOverride(conflict.id, null);
+        }
+
+        ShortcutManager.setOverride(recordingActionId, combo);
+        stopRecording();
+        renderShortcutsSettings();
+    };
+
+    document.addEventListener('keydown', recordingKeydownHandler, true);
+}
+
+function stopRecording() {
+    if (recordingKeydownHandler) {
+        document.removeEventListener('keydown', recordingKeydownHandler, true);
+        recordingKeydownHandler = null;
+    }
+    recordingActionId = null;
+}
+
+// Wire up reset button
+document.getElementById('shortcuts-reset-btn')?.addEventListener('click', () => {
+    if (typeof ShortcutManager !== 'undefined') {
+        ShortcutManager.resetAllToDefaults();
+        renderShortcutsSettings();
+        if (typeof showToast === 'function') showToast('Shortcuts reset to defaults');
+    }
+});
