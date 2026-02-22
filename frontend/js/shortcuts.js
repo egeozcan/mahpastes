@@ -17,6 +17,17 @@ const ShortcutManager = (() => {
     // Whether the manager is initialized
     let initialized = false;
 
+    // Shared category ordering and labels (used by cheat sheet and settings)
+    const CATEGORY_ORDER = ['navigation', 'gallery', 'clip', 'lightbox', 'bulk', 'system'];
+    const CATEGORY_LABELS = {
+        navigation: 'Navigation',
+        gallery: 'Gallery',
+        clip: 'Clip Actions',
+        lightbox: 'Lightbox',
+        bulk: 'Bulk Actions',
+        system: 'System',
+    };
+
     // Platform detection (cached — never changes during session)
     const isMac = navigator.userAgentData
         ? navigator.userAgentData.platform === 'macOS'
@@ -428,24 +439,14 @@ const ShortcutManager = (() => {
             groups.get(cat).push({ id, ...action });
         }
 
-        const categoryOrder = ['navigation', 'gallery', 'clip', 'lightbox', 'bulk', 'system'];
-        const categoryLabels = {
-            navigation: 'Navigation',
-            gallery: 'Gallery',
-            clip: 'Clip Actions',
-            lightbox: 'Lightbox',
-            bulk: 'Bulk Actions',
-            system: 'System',
-        };
-
         let html = '<div class="grid grid-cols-1 sm:grid-cols-2 gap-6">';
 
-        for (const cat of categoryOrder) {
+        for (const cat of CATEGORY_ORDER) {
             const items = groups.get(cat);
             if (!items || items.length === 0) continue;
 
             html += `<div>`;
-            html += `<h3 class="text-[10px] font-semibold text-stone-400 uppercase tracking-wider mb-2">${escapeHTML(categoryLabels[cat] || cat)}</h3>`;
+            html += `<h3 class="text-[10px] font-semibold text-stone-400 uppercase tracking-wider mb-2">${escapeHTML(CATEGORY_LABELS[cat] || cat)}</h3>`;
             html += `<div class="space-y-1.5">`;
 
             for (const item of items) {
@@ -511,5 +512,7 @@ const ShortcutManager = (() => {
         get actions() { return actions; },
         get focusedClipIndex() { return focusedClipIndex; },
         get userOverrides() { return userOverrides; },
+        CATEGORY_ORDER,
+        CATEGORY_LABELS,
     };
 })();

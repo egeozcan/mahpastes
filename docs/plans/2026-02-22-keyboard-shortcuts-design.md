@@ -99,13 +99,12 @@ All shortcuts suppressed when focus is in `<input>`, `<textarea>`, or `[contente
 | Zoom in | `+` | lightbox |
 | Zoom out | `-` | lightbox |
 | Open editor | `e` | lightbox |
-| Compare images | `Mod+k` | lightbox |
 
 ### Bulk Actions (clips selected)
 
 | Action | Key | Context |
 |--------|-----|---------|
-| Bulk copy | `c` | bulk |
+| Bulk copy | `c` / `Mod+c` | bulk |
 | Bulk delete | `d` | bulk |
 | Bulk archive | `e` | bulk |
 | Bulk download | `Mod+d` | bulk |
@@ -123,7 +122,7 @@ All shortcuts suppressed when focus is in `<input>`, `<textarea>`, or `[contente
 - Visual focus indicator: `ring-2 ring-stone-400 ring-offset-2` outline + `scale-[1.02]` lift
 - Navigation reads computed grid layout (`getComputedStyle` → `grid-template-columns`) to determine column count
 - `ArrowRight` → next clip, `ArrowLeft` → previous, `ArrowDown` → same column next row, `ArrowUp` → same column previous row
-- Wraps at edges (right from last column → first column next row)
+- Clamps at edges (does not wrap — stays at boundary when navigating past the first or last clip)
 - Scrolls focused clip into view smoothly
 - Focus lost when modal opens, search is focused, or Escape pressed
 - Any arrow key when no clip focused → focus first visible clip
@@ -136,7 +135,7 @@ All shortcuts suppressed when focus is in `<input>`, `<textarea>`, or `[contente
 - Each row: action label (left), clickable `<kbd>` badge (right)
 - Badge styled: `bg-stone-100 border border-stone-200 rounded px-2 py-0.5 text-xs font-mono`
 - Click badge → recording mode (badge pulses, next keypress = new binding)
-- Conflict warning inline: "Already used by [action] — override?"
+- Conflict warning inline: amber banner below the row with "Override" / "Cancel" buttons
 - "Reset All to Defaults" button at bottom
 - Persistence: only overrides stored as JSON in `settings` table with key `"keyboard_shortcuts"`
 

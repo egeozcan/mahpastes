@@ -531,6 +531,11 @@ window.addEventListener('load', async () => {
             callback: () => bulkCopyFiles()
         });
         ShortcutManager.register({
+            id: 'bulk-copy-mod', label: 'Copy Selected (Mod)', category: 'bulk',
+            defaultKey: 'mod+c', context: 'bulk',
+            callback: () => bulkCopyFiles()
+        });
+        ShortcutManager.register({
             id: 'bulk-delete', label: 'Delete Selected', category: 'bulk',
             defaultKey: 'd', context: 'bulk',
             callback: () => bulkDelete()

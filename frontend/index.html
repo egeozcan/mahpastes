@@ -1090,13 +1090,13 @@
     </div>
 
     <!-- Shortcuts Cheat Sheet Overlay -->
-    <div id="shortcuts-cheatsheet"
+    <div id="shortcuts-cheatsheet" role="dialog" aria-modal="true" aria-label="Keyboard Shortcuts"
         class="fixed inset-0 z-[60] flex items-center justify-center p-8 bg-stone-900/80 backdrop-blur-sm transition-opacity duration-200 opacity-0 pointer-events-none"
         data-testid="shortcuts-cheatsheet">
         <div class="bg-stone-800 rounded-lg shadow-2xl max-w-lg w-full max-h-[80vh] overflow-y-auto border border-stone-700">
             <div class="p-5 border-b border-stone-700 flex justify-between items-center">
                 <h2 class="text-sm font-semibold text-stone-200">Keyboard Shortcuts</h2>
-                <button id="shortcuts-cheatsheet-close"
+                <button id="shortcuts-cheatsheet-close" aria-label="Close keyboard shortcuts"
                     class="p-1 hover:bg-stone-700 rounded-md transition-colors text-stone-400 hover:text-stone-200">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />

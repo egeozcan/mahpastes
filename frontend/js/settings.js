@@ -271,6 +271,7 @@ if (updateIntervalSelect) {
 
 let recordingActionId = null;
 let recordingKeydownHandler = null;
+let pendingConflict = null; // { actionId, combo, conflict }
 
 function renderShortcutsSettings() {
     const container = document.getElementById('shortcuts-settings-list');
@@ -283,24 +284,14 @@ function renderShortcutsSettings() {
         groups.get(cat).push({ id, ...action });
     }
 
-    const categoryOrder = ['navigation', 'gallery', 'clip', 'lightbox', 'bulk', 'system'];
-    const categoryLabels = {
-        navigation: 'Navigation',
-        gallery: 'Gallery',
-        clip: 'Clip Actions',
-        lightbox: 'Lightbox',
-        bulk: 'Bulk Actions',
-        system: 'System',
-    };
-
     let html = '';
 
-    for (const cat of categoryOrder) {
+    for (const cat of ShortcutManager.CATEGORY_ORDER) {
         const items = groups.get(cat);
         if (!items || items.length === 0) continue;
 
         html += `<div class="mb-4">`;
-        html += `<h4 class="text-[10px] font-semibold text-stone-400 uppercase tracking-wider mb-1.5">${escapeHtml(categoryLabels[cat] || cat)}</h4>`;
+        html += `<h4 class="text-[10px] font-semibold text-stone-400 uppercase tracking-wider mb-1.5">${escapeHtml(ShortcutManager.CATEGORY_LABELS[cat] || cat)}</h4>`;
 
         for (const item of items) {
             const combo = ShortcutManager.getEffectiveCombo(item.id);
@@ -323,8 +314,9 @@ function renderShortcutsSettings() {
 }
 
 function startRecording(actionId, badgeEl) {
-    // Cancel any existing recording
+    // Cancel any existing recording or conflict
     stopRecording();
+    dismissConflictWarning();
 
     recordingActionId = actionId;
     badgeEl.textContent = '...';
@@ -350,14 +342,11 @@ function startRecording(actionId, badgeEl) {
         // Check for conflict
         const conflict = ShortcutManager.findConflict(recordingActionId, combo);
         if (conflict) {
-            const proceed = confirm(`"${ShortcutManager.comboToDisplay(combo)}" is already used by "${conflict.label}". Override?`);
-            if (!proceed) {
-                stopRecording();
-                renderShortcutsSettings();
-                return;
-            }
-            // Remove the conflicting binding
-            ShortcutManager.setOverride(conflict.id, null);
+            // Pause recording and show inline conflict warning
+            stopRecording();
+            pendingConflict = { actionId, combo, conflict };
+            showConflictWarning(actionId, combo, conflict);
+            return;
         }
 
         ShortcutManager.setOverride(recordingActionId, combo);
@@ -366,6 +355,50 @@ function startRecording(actionId, badgeEl) {
     };
 
     document.addEventListener('keydown', recordingKeydownHandler, true);
+}
+
+function showConflictWarning(actionId, combo, conflict) {
+    const container = document.getElementById('shortcuts-settings-list');
+    if (!container) return;
+
+    // Find the row for this action and insert warning after it
+    const row = container.querySelector(`[data-testid="shortcut-row-${actionId}"]`);
+    if (!row) return;
+
+    const warning = document.createElement('div');
+    warning.id = 'shortcut-conflict-warning';
+    warning.dataset.testid = 'shortcut-conflict-warning';
+    warning.className = 'flex items-center justify-between gap-2 px-2 py-1.5 my-1 bg-amber-50 border border-amber-200 rounded-md';
+    warning.innerHTML = `
+        <span class="text-[11px] text-amber-700">
+            <strong>${escapeHtml(ShortcutManager.comboToDisplay(combo))}</strong> is used by "${escapeHtml(conflict.label)}"
+        </span>
+        <span class="flex gap-1.5 flex-shrink-0">
+            <button data-testid="shortcut-conflict-override" class="text-[11px] font-medium text-amber-800 hover:text-amber-900 bg-amber-100 hover:bg-amber-200 px-2 py-0.5 rounded transition-colors">Override</button>
+            <button data-testid="shortcut-conflict-cancel" class="text-[11px] font-medium text-stone-500 hover:text-stone-700 px-2 py-0.5 rounded transition-colors">Cancel</button>
+        </span>
+    `;
+
+    row.after(warning);
+
+    warning.querySelector('[data-testid="shortcut-conflict-override"]').addEventListener('click', () => {
+        if (!pendingConflict) return;
+        ShortcutManager.removeBinding(pendingConflict.conflict.id);
+        ShortcutManager.setOverride(pendingConflict.actionId, pendingConflict.combo);
+        pendingConflict = null;
+        renderShortcutsSettings();
+    });
+
+    warning.querySelector('[data-testid="shortcut-conflict-cancel"]').addEventListener('click', () => {
+        pendingConflict = null;
+        renderShortcutsSettings();
+    });
+}
+
+function dismissConflictWarning() {
+    pendingConflict = null;
+    const warning = document.getElementById('shortcut-conflict-warning');
+    if (warning) warning.remove();
 }
 
 function stopRecording() {
