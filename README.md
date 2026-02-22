@@ -2,26 +2,30 @@
 
 A local clipboard manager for macOS, Windows, and Linux. Store, organize, and quickly access your copied content.
 
-![mahpastes](build/appicon.png)
+<img src="build/appicon.png" alt="mahpastes logo" width="220" />
 
 ![mahpastes gallery](docs/static/img/screenshots/gallery.png)
+
+Documentation: https://egeozcan.github.io/mahpastes/
 
 ## Features
 
 - **Paste Anything** — Images, text, code, JSON, HTML, and files (paste or drag & drop)
-- **Auto-Delete** — Set clips to expire after 5, 10, 30 minutes, or 2 hours
+- **Fast Navigation** — Keyboard-first workflow with drawer + modal shortcuts and a built-in cheatsheet (`?`)
+- **Custom Shortcuts** — Rebind key mappings from **Settings > Shortcuts**
 - **Archive** — Keep important clips separate from your active workspace
-- **Tags** — Create, color-code, filter, and hide tags from the default view
+- **Tags** — Tag clips, filter by tag, and hide noisy tags from default gallery view
 - **Image Editor** — Annotate images with brush, shapes, and text tools
 - **Text Editor** — Edit text and code clips directly
-- **Image Comparison** — Compare two images with fade or slider modes
+- **Image Comparison** — Compare two images with fade, slider, or diff modes
 - **Bulk Actions** — Select multiple clips to tag, archive, download, or delete
 - **Search** — Filter clips by filename or type
 - **Watch Folders** — Auto-import files from monitored directories
-- **Plugin System** — Extend functionality with Lua-based plugins
+- **Plugin System** — Install and manage Lua plugins from the dedicated Plugins modal
 - **Backup & Restore** — Export and import all data as a ZIP archive
 - **Copy Path** — Create a temp file and copy its path to clipboard
 - **Export** — Save individual clips or download multiple as a ZIP
+- **Auto-Delete Engine** — Backend expiration support is implemented; per-clip expiration controls are being surfaced in UI
 
 ## Installation
 
@@ -33,7 +37,7 @@ Download the latest release from the [Releases](https://github.com/egeozcan/mahp
 
 #### Prerequisites
 
-- [Go](https://go.dev/dl/) 1.21+
+- [Go](https://go.dev/dl/) 1.24+
 - [Wails CLI](https://wails.io/docs/gettingstarted/installation)
 - [Node.js](https://nodejs.org/) 18+
 
@@ -95,6 +99,7 @@ make dev        # Start dev server with hot reload
 make build      # Clean production build
 make install    # Build, kill running app, install to /Applications, launch
 make test       # Run e2e tests
+make screenshots # Refresh documentation screenshots
 make help       # Show all targets
 ```
 
@@ -150,10 +155,19 @@ The database file is `clips.db`. Temporary files are stored in `clip_temp_files/
 
 ## Keyboard Shortcuts
 
+Shortcuts are configurable from **Settings > Shortcuts**.
+
 | Shortcut | Action |
 |----------|--------|
+| `?` | Open keyboard shortcut cheatsheet |
+| `M` | Open menu drawer |
+| `,` | Open settings |
+| `P` | Open plugins |
+| `A` | Toggle archive view |
+| `W` | Open watch view |
+| `/` | Focus search |
 | `Cmd/Ctrl + V` | Paste from clipboard |
-| `Escape` | Close modals |
+| `Escape` | Close modal, drawer, or cheatsheet |
 
 ### Image Editor
 
@@ -167,6 +181,8 @@ The database file is `clips.db`. Temporary files are stored in `clip_temp_files/
 | `E` | Eraser |
 | `Cmd/Ctrl + Z` | Undo |
 | `Cmd/Ctrl + Y` | Redo |
+
+Full shortcut reference: https://egeozcan.github.io/mahpastes/getting-started/keyboard-shortcuts
 
 ## License
 
