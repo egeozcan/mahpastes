@@ -976,6 +976,24 @@ function initLightboxGestures() {
     // Mouse drag for panning when zoomed (document-level for drag outside image)
     document.addEventListener('mousemove', handleLightboxMouseMove);
     document.addEventListener('mouseup', handleLightboxMouseUp);
+
+    // Tab focus trap for lightbox (not routed through ShortcutManager since Tab shouldn't be rebindable)
+    lightbox.addEventListener('keydown', (e) => {
+        if (e.key !== 'Tab') return;
+        if (!lightbox.classList.contains('active')) return;
+
+        const focusableElements = lightbox.querySelectorAll('button');
+        const first = focusableElements[0];
+        const last = focusableElements[focusableElements.length - 1];
+
+        if (e.shiftKey && document.activeElement === first) {
+            last.focus();
+            e.preventDefault();
+        } else if (!e.shiftKey && document.activeElement === last) {
+            first.focus();
+            e.preventDefault();
+        }
+    });
 }
 
 // --- Comparison Functions ---

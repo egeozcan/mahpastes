@@ -22,13 +22,6 @@ drawerToggleBtn.addEventListener('click', openDrawer);
 drawerCloseBtn.addEventListener('click', closeDrawer);
 drawerOverlay.addEventListener('click', closeDrawer);
 
-document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !navDrawer.classList.contains('translate-x-full')) {
-        e.stopImmediatePropagation();
-        closeDrawer();
-    }
-});
-
 // Close drawer when any nav button inside it is clicked
 navDrawer.addEventListener('click', (e) => {
     if (e.target.closest('button[id]') && e.target.closest('button[id]') !== drawerCloseBtn) {
@@ -128,6 +121,7 @@ Object.assign(window.__testHelpers, {
   setHiddenTags: (tags) => setHiddenTagsState(tags),
   getHiddenTags: () => getHiddenTags(),
   setViewingArchive: (val) => { isViewingArchive = val; },
+  getShortcutManager: () => typeof ShortcutManager !== 'undefined' ? ShortcutManager : null,
   // Expose loadClips function (defined in wails-api.js, but called here)
   loadClips: () => {
     if (typeof loadClips === 'function') {
@@ -264,47 +258,6 @@ lightboxNext.addEventListener('click', (e) => { e.stopPropagation(); showNextIma
 lightbox.addEventListener('click', (e) => {
     if (e.target === lightbox) closeLightbox();
 });
-document.addEventListener('keydown', handleLightboxKeydown);
-
-// Cmd+C / Ctrl+C shortcut for copy operations
-document.addEventListener('keydown', (e) => {
-    if (!(e.key === 'c' && (e.metaKey || e.ctrlKey))) return;
-    if (e.shiftKey || e.altKey) return;
-
-    // Priority 1: Lightbox open → copy image contents
-    if (lightbox.classList.contains('active')) {
-        e.preventDefault();
-        const clip = imageClips[currentLightboxIndex];
-        if (clip) copyClipContents(clip.id);
-        return;
-    }
-
-    // Don't interfere with text inputs (skip checkboxes/radios which don't use native copy)
-    const active = document.activeElement;
-    if (active && (active.tagName === 'TEXTAREA' || active.isContentEditable ||
-        (active.tagName === 'INPUT' && active.type !== 'checkbox' && active.type !== 'radio'))) {
-        return;
-    }
-
-    // Don't interfere if there's selected text on the page
-    const selection = window.getSelection();
-    if (selection && selection.toString().length > 0) {
-        return;
-    }
-
-    // Priority 2: Editor modal open → don't intercept
-    if (document.getElementById('editor-modal')?.classList.contains('active')) {
-        return;
-    }
-
-    // Priority 3: Clips selected in gallery → copy as files (only when clips are selected)
-    if (selectedIds.size > 0) {
-        e.preventDefault();
-        bulkCopyFiles();
-        return;
-    }
-});
-
 // Initialize lightbox gestures (touch, wheel, drag, zoom slider)
 // All gesture listeners are centralized in modals.js for better cohesion
 initLightboxGestures();
@@ -394,6 +347,303 @@ window.addEventListener('load', async () => {
         }
         await loadClips();
         setupEditorListeners();
+
+        // --- Register Keyboard Shortcuts ---
+
+        // System
+        ShortcutManager.register({
+            id: 'show-cheatsheet', label: 'Show Shortcuts', category: 'system',
+            defaultKey: 'shift+?', context: 'global',
+            callback: () => {
+                if (ShortcutManager.isCheatSheetOpen()) {
+                    ShortcutManager.closeCheatSheet();
+                } else {
+                    ShortcutManager.openCheatSheet();
+                }
+            }
+        });
+        ShortcutManager.register({
+            id: 'close-modal', label: 'Close / Dismiss', category: 'system',
+            defaultKey: 'Escape', context: 'global',
+            callback: () => {
+                if (ShortcutManager.isCheatSheetOpen()) {
+                    ShortcutManager.closeCheatSheet();
+                    return;
+                }
+                if (!navDrawer.classList.contains('translate-x-full')) {
+                    closeDrawer();
+                    return;
+                }
+            }
+        });
+
+        // Navigation
+        ShortcutManager.register({
+            id: 'focus-search', label: 'Focus Search', category: 'navigation',
+            defaultKey: '/', context: 'gallery',
+            callback: () => {
+                document.getElementById('search-input')?.focus();
+                ShortcutManager.clearFocus();
+            }
+        });
+        ShortcutManager.register({
+            id: 'toggle-archive', label: 'Toggle Archive View', category: 'navigation',
+            defaultKey: 'a', context: 'gallery',
+            callback: () => toggleViewMode()
+        });
+        ShortcutManager.register({
+            id: 'open-watch', label: 'Open Watch View', category: 'navigation',
+            defaultKey: 'w', context: 'gallery',
+            callback: () => { if (typeof toggleWatchView === 'function') toggleWatchView(); }
+        });
+        ShortcutManager.register({
+            id: 'open-settings', label: 'Open Settings', category: 'navigation',
+            defaultKey: ',', context: 'global',
+            callback: () => { if (typeof openSettings === 'function') openSettings(); }
+        });
+        ShortcutManager.register({
+            id: 'open-plugins', label: 'Open Plugins', category: 'navigation',
+            defaultKey: 'p', context: 'gallery',
+            callback: () => { if (typeof openPluginsModal === 'function') openPluginsModal(); }
+        });
+        ShortcutManager.register({
+            id: 'open-drawer', label: 'Open Menu', category: 'navigation',
+            defaultKey: 'm', context: 'global',
+            callback: () => openDrawer()
+        });
+
+        // Gallery
+        ShortcutManager.register({
+            id: 'upload-clip', label: 'Upload / Add Clip', category: 'gallery',
+            defaultKey: 'n', context: 'gallery',
+            callback: () => fileInput.click()
+        });
+        ShortcutManager.register({
+            id: 'select-all', label: 'Select All', category: 'gallery',
+            defaultKey: 'mod+a', context: 'gallery',
+            callback: () => toggleSelectAll()
+        });
+        ShortcutManager.register({
+            id: 'clear-temp', label: 'Clear Temp Files', category: 'gallery',
+            defaultKey: 'mod+shift+Delete', context: 'gallery',
+            callback: () => deleteAllTempFiles()
+        });
+
+        // Grid navigation
+        ShortcutManager.register({
+            id: 'grid-up', label: 'Navigate Up', category: 'gallery',
+            defaultKey: 'ArrowUp', context: 'gallery',
+            callback: () => ShortcutManager.navigateGrid('ArrowUp')
+        });
+        ShortcutManager.register({
+            id: 'grid-down', label: 'Navigate Down', category: 'gallery',
+            defaultKey: 'ArrowDown', context: 'gallery',
+            callback: () => ShortcutManager.navigateGrid('ArrowDown')
+        });
+        ShortcutManager.register({
+            id: 'grid-left', label: 'Navigate Left', category: 'gallery',
+            defaultKey: 'ArrowLeft', context: 'gallery',
+            callback: () => ShortcutManager.navigateGrid('ArrowLeft')
+        });
+        ShortcutManager.register({
+            id: 'grid-right', label: 'Navigate Right', category: 'gallery',
+            defaultKey: 'ArrowRight', context: 'gallery',
+            callback: () => ShortcutManager.navigateGrid('ArrowRight')
+        });
+
+        // Clip actions (when a clip has keyboard focus)
+        ShortcutManager.register({
+            id: 'clip-open', label: 'Open in Lightbox', category: 'clip',
+            defaultKey: 'Enter', context: 'clip',
+            callback: () => {
+                const clip = ShortcutManager.getFocusedClip();
+                if (!clip) return;
+                const viewBtn = clip.querySelector('[data-action="open-lightbox"]');
+                if (viewBtn) viewBtn.click();
+            }
+        });
+        ShortcutManager.register({
+            id: 'clip-copy', label: 'Copy Clip', category: 'clip',
+            defaultKey: 'c', context: 'clip',
+            callback: () => {
+                const id = ShortcutManager.getFocusedClipId();
+                if (id) copyFileToClipboard(id);
+            }
+        });
+        ShortcutManager.register({
+            id: 'clip-delete', label: 'Delete Clip', category: 'clip',
+            defaultKey: 'd', context: 'clip',
+            callback: () => {
+                const id = ShortcutManager.getFocusedClipId();
+                if (id) deleteClip(id);
+            }
+        });
+        ShortcutManager.register({
+            id: 'clip-archive', label: 'Archive / Unarchive', category: 'clip',
+            defaultKey: 'e', context: 'clip',
+            callback: () => {
+                const id = ShortcutManager.getFocusedClipId();
+                if (id) toggleArchiveClip(id);
+            }
+        });
+        ShortcutManager.register({
+            id: 'clip-download', label: 'Download Clip', category: 'clip',
+            defaultKey: 'mod+d', context: 'clip',
+            callback: () => {
+                const id = ShortcutManager.getFocusedClipId();
+                if (id) saveClipToFile(id);
+            }
+        });
+        ShortcutManager.register({
+            id: 'clip-tag', label: 'Tag Clip', category: 'clip',
+            defaultKey: 't', context: 'clip',
+            callback: () => {
+                const clip = ShortcutManager.getFocusedClip();
+                if (!clip) return;
+                const id = parseInt(clip.dataset.id, 10);
+                const tagBtn = clip.querySelector('[data-action="tags"]') || clip.querySelector('[data-action="menu"]');
+                if (tagBtn) openTagPopover(id, tagBtn);
+            }
+        });
+        ShortcutManager.register({
+            id: 'clip-select', label: 'Select / Deselect', category: 'clip',
+            defaultKey: 'Space', context: 'clip',
+            callback: () => {
+                const clip = ShortcutManager.getFocusedClip();
+                if (!clip) return;
+                const checkbox = clip.querySelector('.clip-checkbox');
+                if (checkbox) {
+                    checkbox.checked = !checkbox.checked;
+                    checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+            }
+        });
+
+        // Bulk actions
+        ShortcutManager.register({
+            id: 'bulk-clear', label: 'Clear Selection', category: 'bulk',
+            defaultKey: 'Escape', context: 'bulk',
+            callback: () => cancelSelection()
+        });
+        ShortcutManager.register({
+            id: 'bulk-copy', label: 'Copy Selected', category: 'bulk',
+            defaultKey: 'c', context: 'bulk',
+            callback: () => bulkCopyFiles()
+        });
+        ShortcutManager.register({
+            id: 'bulk-delete', label: 'Delete Selected', category: 'bulk',
+            defaultKey: 'd', context: 'bulk',
+            callback: () => bulkDelete()
+        });
+        ShortcutManager.register({
+            id: 'bulk-archive', label: 'Archive Selected', category: 'bulk',
+            defaultKey: 'e', context: 'bulk',
+            callback: () => bulkArchive()
+        });
+        ShortcutManager.register({
+            id: 'bulk-download', label: 'Download Selected', category: 'bulk',
+            defaultKey: 'mod+d', context: 'bulk',
+            callback: () => bulkDownload()
+        });
+        ShortcutManager.register({
+            id: 'bulk-tag', label: 'Tag Selected', category: 'bulk',
+            defaultKey: 't', context: 'bulk',
+            callback: () => {
+                const btn = document.getElementById('bulk-tag-btn');
+                if (btn) btn.click();
+            }
+        });
+
+        // Lightbox
+        ShortcutManager.register({
+            id: 'lightbox-close', label: 'Close Lightbox', category: 'lightbox',
+            defaultKey: 'Escape', context: 'lightbox',
+            callback: () => {
+                // Close any open menu first
+                const fileMenu = document.getElementById('lightbox-file-menu');
+                if (fileMenu) {
+                    closeLightboxFileMenu();
+                    const trigger = document.getElementById('lightbox-file-menu-trigger');
+                    if (trigger) trigger.focus();
+                    return;
+                }
+                const pluginMenu = document.getElementById('lightbox-plugin-menu');
+                if (pluginMenu) {
+                    closeLightboxPluginMenu();
+                    const trigger = document.getElementById('lightbox-plugin-menu-trigger');
+                    if (trigger) trigger.focus();
+                    return;
+                }
+                closeLightbox();
+            }
+        });
+        ShortcutManager.register({
+            id: 'lightbox-next', label: 'Next Image', category: 'lightbox',
+            defaultKey: 'ArrowRight', context: 'lightbox',
+            callback: () => showNextImage()
+        });
+        ShortcutManager.register({
+            id: 'lightbox-prev', label: 'Previous Image', category: 'lightbox',
+            defaultKey: 'ArrowLeft', context: 'lightbox',
+            callback: () => showPrevImage()
+        });
+        ShortcutManager.register({
+            id: 'lightbox-zoom-in', label: 'Zoom In', category: 'lightbox',
+            defaultKey: '+', context: 'lightbox',
+            callback: () => {
+                const slider = document.getElementById('lightbox-zoom-slider');
+                if (slider) {
+                    slider.value = Math.min(400, parseInt(slider.value) + 25);
+                    slider.dispatchEvent(new Event('input'));
+                }
+            }
+        });
+        ShortcutManager.register({
+            id: 'lightbox-zoom-out', label: 'Zoom Out', category: 'lightbox',
+            defaultKey: '-', context: 'lightbox',
+            callback: () => {
+                const slider = document.getElementById('lightbox-zoom-slider');
+                if (slider) {
+                    slider.value = Math.max(100, parseInt(slider.value) - 25);
+                    slider.dispatchEvent(new Event('input'));
+                }
+            }
+        });
+        ShortcutManager.register({
+            id: 'lightbox-edit', label: 'Open Editor', category: 'lightbox',
+            defaultKey: 'e', context: 'lightbox',
+            callback: () => {
+                const clip = imageClips[currentLightboxIndex];
+                if (clip && isEditableType(clip.content_type)) {
+                    closeLightbox();
+                    setTimeout(() => openEditor(clip.id), 350);
+                }
+            }
+        });
+        ShortcutManager.register({
+            id: 'lightbox-copy', label: 'Copy Image', category: 'lightbox',
+            defaultKey: 'mod+c', context: 'lightbox',
+            callback: () => {
+                const clip = imageClips[currentLightboxIndex];
+                if (clip) copyClipContents(clip.id);
+            }
+        });
+
+        // Initialize the shortcut manager (loads user overrides and starts listening)
+        await ShortcutManager.init();
+
+        // Cheat sheet close handlers
+        const cheatsheetClose = document.getElementById('shortcuts-cheatsheet-close');
+        const cheatsheetOverlay = document.getElementById('shortcuts-cheatsheet');
+        if (cheatsheetClose) {
+            cheatsheetClose.addEventListener('click', () => ShortcutManager.closeCheatSheet());
+        }
+        if (cheatsheetOverlay) {
+            cheatsheetOverlay.addEventListener('click', (e) => {
+                if (e.target === cheatsheetOverlay) ShortcutManager.closeCheatSheet();
+            });
+        }
+
     } catch (error) {
         console.error('Error during app initialization:', error);
     }
