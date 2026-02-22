@@ -18,12 +18,13 @@ const ShortcutManager = (() => {
     let initialized = false;
 
     // Shared category ordering and labels (used by cheat sheet and settings)
-    const CATEGORY_ORDER = ['navigation', 'gallery', 'clip', 'lightbox', 'bulk', 'system'];
+    const CATEGORY_ORDER = ['navigation', 'gallery', 'clip', 'lightbox', 'comparison', 'bulk', 'system'];
     const CATEGORY_LABELS = {
         navigation: 'Navigation',
         gallery: 'Gallery',
         clip: 'Clip Actions',
         lightbox: 'Lightbox',
+        comparison: 'Comparison',
         bulk: 'Bulk Actions',
         system: 'System',
     };
@@ -54,7 +55,10 @@ const ShortcutManager = (() => {
         // Don't fire shortcuts when a modal dialog that has its own key handling is open
         if (confirmDialog && confirmDialog.classList.contains('opacity-100')) return [];
         if (editorModal && editorModal.classList.contains('active')) return [];
-        if (comparisonModal && comparisonModal.classList.contains('active')) return [];
+        if (comparisonModal && comparisonModal.classList.contains('active')) {
+            contexts.push('comparison');
+            return contexts;
+        }
         if (settingsModal && !settingsModal.classList.contains('opacity-0')) return [];
         if (pluginsModal && !pluginsModal.classList.contains('opacity-0')) return [];
 
@@ -230,7 +234,7 @@ const ShortcutManager = (() => {
 
         // Check contexts in priority order (most specific first)
         // clip > bulk > lightbox > watch > gallery > global
-        const priority = ['clip', 'bulk', 'lightbox', 'watch', 'gallery', 'global'];
+        const priority = ['clip', 'bulk', 'lightbox', 'comparison', 'watch', 'gallery', 'global'];
 
         for (const ctx of priority) {
             if (!activeContexts.includes(ctx)) continue;
@@ -405,7 +409,7 @@ const ShortcutManager = (() => {
     function contextsOverlap(ctx1, ctx2) {
         if (ctx1 === ctx2) return true;
         const hierarchy = {
-            global: ['gallery', 'lightbox', 'watch', 'bulk', 'clip'],
+            global: ['gallery', 'lightbox', 'comparison', 'watch', 'bulk', 'clip'],
             gallery: ['clip', 'bulk'],
         };
         return (hierarchy[ctx1]?.includes(ctx2)) || (hierarchy[ctx2]?.includes(ctx1));
