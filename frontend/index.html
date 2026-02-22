@@ -83,6 +83,20 @@
                 + Add
             </button>
 
+            <!-- Expiration Dropdown -->
+            <select id="upload-expiry-select"
+                class="border border-stone-200 hover:border-stone-300 text-stone-500 text-xs font-medium py-2 px-2 rounded-md transition-colors bg-white focus:outline-none focus:border-stone-400 focus:ring-1 focus:ring-stone-400/20"
+                aria-label="Upload expiration"
+                style="--wails-draggable: no-drag"
+                title="Set expiration for new uploads">
+                <option value="0">No Expiry</option>
+                <option value="15">15m</option>
+                <option value="60">1h</option>
+                <option value="360">6h</option>
+                <option value="1440">24h</option>
+                <option value="10080">7d</option>
+            </select>
+
             <!-- Hamburger Menu Button -->
             <button id="drawer-toggle-btn"
                 class="relative border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-500 p-2 rounded-md transition-colors"
@@ -260,6 +274,22 @@
                             d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
                     </svg>
                     Tag
+                </button>
+                <button id="bulk-expiry-btn"
+                    class="flex items-center gap-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 px-3 py-1.5 rounded-md text-xs font-medium transition-colors">
+                    <svg class="w-4 h-4 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                            d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    Expire
+                </button>
+                <button id="bulk-cancel-expiry-btn"
+                    class="hidden flex items-center gap-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 px-3 py-1.5 rounded-md text-xs font-medium transition-colors">
+                    <svg class="w-4 h-4 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                            d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    Clear Expiry
                 </button>
                 <button id="bulk-copy-btn"
                     class="flex items-center gap-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 px-3 py-1.5 rounded-md text-xs font-medium transition-colors">

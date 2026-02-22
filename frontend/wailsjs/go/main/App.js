@@ -18,6 +18,10 @@ export function BulkArchive(arg1) {
   return window['go']['main']['App']['BulkArchive'](arg1);
 }
 
+export function BulkCancelExpiration(arg1) {
+  return window['go']['main']['App']['BulkCancelExpiration'](arg1);
+}
+
 export function BulkDelete(arg1) {
   return window['go']['main']['App']['BulkDelete'](arg1);
 }
@@ -28,6 +32,10 @@ export function BulkDownloadToFile(arg1) {
 
 export function BulkRemoveTag(arg1, arg2) {
   return window['go']['main']['App']['BulkRemoveTag'](arg1, arg2);
+}
+
+export function BulkSetExpiration(arg1, arg2) {
+  return window['go']['main']['App']['BulkSetExpiration'](arg1, arg2);
 }
 
 export function CancelExpiration(arg1) {
@@ -152,6 +160,10 @@ export function SaveClipToFile(arg1) {
 
 export function SelectFolder() {
   return window['go']['main']['App']['SelectFolder']();
+}
+
+export function SetExpiration(arg1, arg2) {
+  return window['go']['main']['App']['SetExpiration'](arg1, arg2);
 }
 
 export function SetFolderPaused(arg1, arg2) {

@@ -10,11 +10,15 @@ export function BulkAddTag(arg1:Array<number>,arg2:number):Promise<void>;
 
 export function BulkArchive(arg1:Array<number>):Promise<void>;
 
+export function BulkCancelExpiration(arg1:Array<number>):Promise<void>;
+
 export function BulkDelete(arg1:Array<number>):Promise<void>;
 
 export function BulkDownloadToFile(arg1:Array<number>):Promise<void>;
 
 export function BulkRemoveTag(arg1:Array<number>,arg2:number):Promise<void>;
+
+export function BulkSetExpiration(arg1:Array<number>,arg2:number):Promise<void>;
 
 export function CancelExpiration(arg1:number):Promise<void>;
 
@@ -77,6 +81,8 @@ export function RestoreBackup(arg1:string):Promise<void>;
 export function SaveClipToFile(arg1:number):Promise<void>;
 
 export function SelectFolder():Promise<string>;
+
+export function SetExpiration(arg1:number,arg2:number):Promise<void>;
 
 export function SetFolderPaused(arg1:number,arg2:boolean):Promise<void>;
 

@@ -66,6 +66,8 @@ export const selectors = {
     edit: '.card-menu-dropdown [data-action="edit"]',
     tags: '.card-menu-dropdown [data-action="tags"]',
     archive: '.card-menu-dropdown [data-action="archive"]',
+    setExpiration: '.card-menu-dropdown [data-action="set-expiration"]',
+    cancelExpiration: '.card-menu-dropdown [data-action="cancel-expiration"]',
     delete: '.card-menu-dropdown [data-action="delete"]',
     pluginAction: '.card-menu-dropdown [data-action="plugin"]',
     divider: '.card-menu-dropdown .card-menu-divider',
@@ -81,6 +83,15 @@ export const selectors = {
     downloadButton: '#bulk-download-btn',
     archiveButton: '#bulk-archive-btn',
     deleteButton: '#bulk-delete-btn',
+    expiryButton: '#bulk-expiry-btn',
+    cancelExpiryButton: '#bulk-cancel-expiry-btn',
+  },
+
+  // Expiration
+  expiration: {
+    popover: '.expiration-popover',
+    uploadSelect: '#upload-expiry-select',
+    badge: '.absolute.top-2.left-2',
   },
 
   // Lightbox

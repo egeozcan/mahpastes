@@ -711,6 +711,19 @@ func (a *App) CancelExpiration(id int64) error {
 	return nil
 }
 
+// SetExpiration sets the expiration for a clip
+func (a *App) SetExpiration(id int64, minutes int) error {
+	if minutes <= 0 {
+		return fmt.Errorf("expiration minutes must be positive")
+	}
+	expiresAt := time.Now().Add(time.Duration(minutes) * time.Minute)
+	_, err := a.db.Exec("UPDATE clips SET expires_at = ? WHERE id = ?", expiresAt, id)
+	if err != nil {
+		return fmt.Errorf("failed to set expiration: %w", err)
+	}
+	return nil
+}
+
 // --- Tag Methods ---
 
 // CreateTag creates a new tag with auto-assigned color
@@ -1074,6 +1087,54 @@ func (a *App) BulkArchive(ids []int64) error {
 	_, err := a.db.Exec(query, args...)
 	if err != nil {
 		return fmt.Errorf("failed to bulk archive: %w", err)
+	}
+	return nil
+}
+
+// BulkSetExpiration sets expiration on multiple clips
+func (a *App) BulkSetExpiration(ids []int64, minutes int) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	if minutes <= 0 {
+		return fmt.Errorf("expiration minutes must be positive")
+	}
+
+	expiresAt := time.Now().Add(time.Duration(minutes) * time.Minute)
+
+	placeholders := make([]string, len(ids))
+	args := make([]interface{}, len(ids)+1)
+	args[0] = expiresAt
+	for i, id := range ids {
+		placeholders[i] = "?"
+		args[i+1] = id
+	}
+
+	query := fmt.Sprintf("UPDATE clips SET expires_at = ? WHERE id IN (%s)", strings.Join(placeholders, ","))
+	_, err := a.db.Exec(query, args...)
+	if err != nil {
+		return fmt.Errorf("failed to bulk set expiration: %w", err)
+	}
+	return nil
+}
+
+// BulkCancelExpiration removes expiration from multiple clips
+func (a *App) BulkCancelExpiration(ids []int64) error {
+	if len(ids) == 0 {
+		return nil
+	}
+
+	placeholders := make([]string, len(ids))
+	args := make([]interface{}, len(ids))
+	for i, id := range ids {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+
+	query := fmt.Sprintf("UPDATE clips SET expires_at = NULL WHERE id IN (%s)", strings.Join(placeholders, ","))
+	_, err := a.db.Exec(query, args...)
+	if err != nil {
+		return fmt.Errorf("failed to bulk cancel expiration: %w", err)
 	}
 	return nil
 }

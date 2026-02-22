@@ -46,6 +46,8 @@ const bulkDownloadBtn = document.getElementById('bulk-download-btn');
 const bulkArchiveBtn = document.getElementById('bulk-archive-btn');
 const bulkArchiveText = document.getElementById('bulk-archive-text');
 const bulkDeleteBtn = document.getElementById('bulk-delete-btn');
+const bulkExpiryBtn = document.getElementById('bulk-expiry-btn');
+const bulkCancelExpiryBtn = document.getElementById('bulk-cancel-expiry-btn');
 const cancelSelectionBtn = document.getElementById('cancel-selection-btn');
 
 // Lightbox Elements
@@ -84,6 +86,12 @@ const comparisonSimilarity = document.getElementById('comparison-similarity');
 const comparisonImageInfo = document.getElementById('comparison-image-info');
 const comparisonLabelA = document.getElementById('comparison-label-a');
 const comparisonLabelB = document.getElementById('comparison-label-b');
+
+const uploadExpirySelect = document.getElementById('upload-expiry-select');
+
+function getUploadExpirationMinutes() {
+    return parseInt(uploadExpirySelect.value, 10) || 0;
+}
 
 // --- State ---
 let isViewingArchive = false;
@@ -230,6 +238,16 @@ bulkArchiveBtn.addEventListener('click', bulkArchive);
 bulkCopyBtn.addEventListener('click', bulkCopyFiles);
 bulkDownloadBtn.addEventListener('click', bulkDownload);
 bulkCompareBtn.addEventListener('click', openComparisonModal);
+bulkExpiryBtn.addEventListener('click', () => {
+    openExpirationPopover(null, bulkExpiryBtn, true);
+});
+bulkCancelExpiryBtn.addEventListener('click', bulkCancelExpiry);
+
+async function bulkCancelExpiry() {
+    if (selectedIds.size === 0) return;
+    await bulkCancelExpiration(Array.from(selectedIds));
+    selectedIds.clear();
+}
 
 // Comparison Listeners
 comparisonClose.addEventListener('click', closeComparisonModal);
@@ -573,6 +591,14 @@ window.addEventListener('load', async () => {
                 if (btn) btn.click();
             }
         });
+        ShortcutManager.register({
+            id: 'bulk-expire', label: 'Set Expiration', category: 'bulk',
+            defaultKey: 'x', context: 'bulk',
+            callback: () => {
+                const btn = document.getElementById('bulk-expiry-btn');
+                if (btn) btn.click();
+            }
+        });
 
         // Lightbox
         ShortcutManager.register({
@@ -735,6 +761,13 @@ window.addEventListener('load', async () => {
             }
         });
     }
+
+    // Auto-refresh clips when window regains focus (clears stale expired clips)
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible' && window.__appReady) {
+            loadClips();
+        }
+    });
 });
 
 // Close card menu when clicking outside
@@ -774,6 +807,15 @@ document.addEventListener('click', (e) => {
 
     if (!isMenuClick && !isTriggerClick) {
         closeLightboxFileMenu();
+    }
+});
+
+// Close expiration popover when clicking outside
+document.addEventListener('click', (e) => {
+    const popover = document.querySelector('.expiration-popover');
+    if (!popover) return;
+    if (!e.target.closest('.expiration-popover') && !e.target.closest('[data-action="set-expiration"]') && !e.target.closest('#bulk-expiry-btn')) {
+        closeExpirationPopover();
     }
 });
 

@@ -734,6 +734,10 @@ export class AppHelper {
       const searchInput = document.getElementById('search-input') as HTMLInputElement;
       if (searchInput) searchInput.value = '';
 
+      // Reset upload expiration dropdown to "No expiration"
+      const expirySelect = document.getElementById('upload-expiry-select') as HTMLSelectElement;
+      if (expirySelect) expirySelect.value = '0';
+
       // --- 4. Reload gallery and caches with clean state ---
 
       // @ts-ignore
@@ -2105,6 +2109,41 @@ export class AppHelper {
       // @ts-ignore
       return await window.go.main.ValidateBackup(path);
     }, backupPath);
+  }
+
+  // ==================== Expiration ====================
+
+  async setExpirationViaMenu(filename: string, preset: string): Promise<void> {
+    const clip = await this.getClipByFilename(filename);
+    await clip.hover();
+    await clip.locator(selectors.clipActions.menuTrigger).click();
+    await this.page.waitForSelector(selectors.cardMenu.dropdown);
+    await this.page.locator(selectors.cardMenu.setExpiration).click();
+    await this.page.waitForSelector(selectors.expiration.popover);
+    await this.page.locator(selectors.expiration.popover).locator('button', { hasText: preset }).click();
+  }
+
+  async cancelExpirationViaMenu(filename: string): Promise<void> {
+    const clip = await this.getClipByFilename(filename);
+    await clip.hover();
+    await clip.locator(selectors.clipActions.menuTrigger).click();
+    await this.page.waitForSelector(selectors.cardMenu.dropdown);
+    await this.page.locator(selectors.cardMenu.cancelExpiration).click();
+  }
+
+  async setUploadExpiration(preset: string): Promise<void> {
+    await this.page.locator(selectors.expiration.uploadSelect).selectOption(preset);
+  }
+
+  async expectClipHasExpirationBadge(filename: string): Promise<void> {
+    const clip = await this.getClipByFilename(filename);
+    await expect(clip.locator(selectors.expiration.badge)).toBeVisible();
+    await expect(clip.locator(selectors.expiration.badge)).toContainText('Temp');
+  }
+
+  async expectClipHasNoExpirationBadge(filename: string): Promise<void> {
+    const clip = await this.getClipByFilename(filename);
+    await expect(clip.locator(selectors.expiration.badge)).not.toBeVisible();
   }
 
   // ==================== Keyboard Shortcuts ====================

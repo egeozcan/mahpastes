@@ -12,23 +12,49 @@ Set clips to automatically delete after a specified time. Keep your clipboard cl
 2. A background job checks for expired clips every minute
 3. Expired clips are permanently deleted
 
-## Setting Expiration
+## Setting Expiration at Upload
 
-:::warning Not Yet Implemented in UI
-The backend supports per-clip expiration with presets (5, 10, 30, and 120 minutes), but the frontend does not expose this setting. All clips are currently created with no expiration. The backend API accepts an `expirationMinutes` parameter, so this feature may be surfaced in a future release.
-:::
+The upload area includes an **expiration dropdown** next to the upload button. Choose how long the clip should live:
 
-### Visual Indicator
+- **No Expiry** (default)
+- **15 minutes**
+- **1 hour**
+- **6 hours**
+- **24 hours**
+- **7 days**
 
-Clips with expiration show a **Temp** badge in the top-left corner of the clip card.
+The selected expiration applies to every clip uploaded until you change it.
+
+## Setting Expiration on Existing Clips
+
+Right-click a clip card to open the context menu and select **Set Expiration**. A popover appears with the same presets (15m, 1h, 6h, 24h, 7d). Choosing a preset sets the expiration relative to the current time.
 
 ## Canceling Expiration
 
-There is no UI button to cancel expiration. The `CancelExpiration` backend API exists but is not exposed in the interface.
+Right-click a clip that has an active expiration and select **Cancel Expiration** from the context menu. The clip reverts to no expiry and the Temp badge is removed.
 
 :::warning
 Archiving a clip does **not** cancel its expiration. The cleanup job deletes expired clips regardless of archive status.
 :::
+
+## Bulk Operations
+
+When multiple clips are selected, the bulk toolbar provides two expiration actions:
+
+- **Set Expiration** -- opens the preset popover and applies the chosen duration to all selected clips
+- **Clear Expiry** -- removes expiration from all selected clips
+
+You can also press **`x`** as a keyboard shortcut to open the Set Expiration popover for the current selection.
+
+## Visual Indicator
+
+Clips with an active expiration display an enhanced **Temp** badge in the top-left corner of the card. The badge includes the remaining time:
+
+- **Temp &middot; 23m** -- minutes remaining
+- **Temp &middot; 2h** -- hours remaining
+- **Temp &middot; 3d** -- days remaining
+
+The remaining time refreshes automatically when the app window regains focus, so the badge stays accurate even after switching away.
 
 ## Automatic Cleanup
 
@@ -51,16 +77,14 @@ The cleanup job only runs a SQL DELETE. It does not clean up temporary files or 
 
 ### What Doesn't Get Deleted
 
-- Clips with "Never" expiration (the default)
-- Clips where expiration was canceled via the API
+- Clips with no expiry (the default)
+- Clips where expiration was canceled via the context menu
 
 ## Use Cases
 
-Once the expiration UI is implemented, typical use cases will include:
-
-- **Sensitive content** -- passwords, tokens, or private data that auto-deletes after a few minutes
+- **Sensitive content** -- passwords, tokens, or private data that auto-deletes after 15 minutes
 - **Quick transfers** -- temporary clips that clean up on their own
-- **Work sessions** -- content relevant only during a session, set to expire after 2 hours
+- **Work sessions** -- content relevant only during a session, set to expire after a few hours
 
 ## Interaction with Archive
 
@@ -87,6 +111,6 @@ If a clip isn't deleted at expected time:
 ### Accidentally Deleted
 
 Auto-deleted clips cannot be recovered. To avoid losing content:
-- Use "Never" expiration for anything you might need later
+- Use no expiry for anything you might need later
 - Archive important clips (but note this does not cancel expiration)
 - Create backups regularly

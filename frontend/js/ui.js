@@ -40,6 +40,8 @@ function getMenuIcon(name) {
         'copy-file': '<path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>',
         'copy-contents': '<path stroke-linecap="round" stroke-linejoin="round" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2"/>',
         'delete': '<path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>',
+        'set-expiration': '<path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>',
+        'cancel-expiration': '<path stroke-linecap="round" stroke-linejoin="round" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"/>',
     };
     const path = icons[name];
     if (!path) return '';
@@ -76,6 +78,11 @@ function renderCardMenu(clipId, button, clip) {
     }
 
     builtInActions.push({ id: 'tags', label: 'Tags', icon: 'tags' });
+    if (clip.expires_at) {
+        builtInActions.push({ id: 'cancel-expiration', label: 'Cancel Expiration', icon: 'cancel-expiration' });
+    } else {
+        builtInActions.push({ id: 'set-expiration', label: 'Set Expiration', icon: 'set-expiration' });
+    }
     builtInActions.push({ id: 'archive', label: isViewingArchive ? 'Restore' : 'Archive', icon: isViewingArchive ? 'restore' : 'archive' });
     builtInActions.push({ id: 'delete', label: 'Delete', icon: 'delete', danger: true });
 
@@ -256,6 +263,17 @@ async function handleCardAction(action, clipId, triggerButton) {
                 openTagPopover(id, tagBtn || triggerButton);
             }
             break;
+        case 'set-expiration': {
+            const card = gallery.querySelector(`li[data-id="${clipId}"]`);
+            if (card) {
+                const menuBtn = card.querySelector('[data-action="menu"]');
+                openExpirationPopover(clipId, menuBtn || triggerButton);
+            }
+            break;
+        }
+        case 'cancel-expiration':
+            cancelExpiration(id);
+            break;
         case 'archive':
             toggleArchiveClip(id);
             break;
@@ -263,6 +281,76 @@ async function handleCardAction(action, clipId, triggerButton) {
             deleteClip(id);
             break;
     }
+}
+
+// Expiration preset popover
+const EXPIRATION_PRESETS = [
+    { label: '15m', minutes: 15 },
+    { label: '1h', minutes: 60 },
+    { label: '6h', minutes: 360 },
+    { label: '24h', minutes: 1440 },
+    { label: '7d', minutes: 10080 },
+];
+
+function openExpirationPopover(clipId, anchorElement, isBulk = false) {
+    closeExpirationPopover();
+
+    const popover = document.createElement('div');
+    popover.className = 'expiration-popover fixed bg-white rounded-lg shadow-xl border border-stone-200 p-2 z-[60]';
+    popover.setAttribute('role', 'menu');
+    popover.setAttribute('aria-label', 'Set expiration');
+
+    const row = document.createElement('div');
+    row.className = 'flex items-center gap-1.5';
+
+    EXPIRATION_PRESETS.forEach(preset => {
+        const btn = document.createElement('button');
+        btn.className = 'px-2.5 py-1.5 text-[11px] font-medium text-stone-600 bg-stone-100 hover:bg-stone-200 rounded-md transition-colors';
+        btn.textContent = preset.label;
+        btn.setAttribute('role', 'menuitem');
+        btn.addEventListener('click', () => {
+            closeExpirationPopover();
+            if (isBulk) {
+                bulkSetExpiration(Array.from(selectedIds), preset.minutes);
+                selectedIds.clear();
+            } else {
+                setExpiration(Number(clipId), preset.minutes);
+            }
+        });
+        row.appendChild(btn);
+    });
+
+    popover.appendChild(row);
+    document.body.appendChild(popover);
+    positionExpirationPopover(popover, anchorElement);
+}
+
+function positionExpirationPopover(popover, anchor) {
+    const rect = anchor.getBoundingClientRect();
+    const popoverRect = popover.getBoundingClientRect();
+    const pad = 8;
+
+    const spaceBelow = window.innerHeight - rect.bottom - pad;
+    let top;
+    if (spaceBelow >= popoverRect.height) {
+        top = rect.bottom + pad;
+    } else {
+        top = rect.top - popoverRect.height - pad;
+    }
+
+    let left = rect.left + (rect.width / 2) - (popoverRect.width / 2);
+    if (left < pad) left = pad;
+    if (left + popoverRect.width > window.innerWidth - pad) {
+        left = window.innerWidth - popoverRect.width - pad;
+    }
+
+    popover.style.left = `${left}px`;
+    popover.style.top = `${top}px`;
+}
+
+function closeExpirationPopover() {
+    const existing = document.querySelector('.expiration-popover');
+    if (existing) existing.remove();
 }
 
 function renderDragHandle(clipId) {
@@ -552,6 +640,9 @@ async function createClipCard(clip, options = {}) {
     card.dataset.filename = (clip.filename || '').toLowerCase();
     card.dataset.type = (clip.content_type || '').toLowerCase();
     card.dataset.size = clip.size || 0;
+    if (clip.expires_at) {
+        card.dataset.expiresAt = clip.expires_at;
+    }
     card.setAttribute('aria-label', `Clip: ${clip.filename || 'Pasted Content'}`);
 
     const checkboxHTML = `
@@ -599,8 +690,9 @@ async function createClipCard(clip, options = {}) {
 
     let expirationBadge = '';
     if (clip.expires_at) {
+        const remaining = formatTimeRemaining(clip.expires_at);
         expirationBadge = `<div class="absolute top-2 left-2 bg-stone-700 text-white text-[8px] font-semibold px-1.5 py-0.5 rounded z-20 uppercase tracking-wide">
-            Temp
+            Temp · ${remaining}
         </div>`;
     }
     const dragHandleHTML = renderDragHandle(clip.id);
@@ -779,6 +871,20 @@ function updateBulkToolbar() {
             }
         } else {
             bulkCompareBtn.classList.add('hidden');
+        }
+
+        // Show "Clear Expiry" if any selected clip has expiration
+        const bulkCancelExpiryBtn = document.getElementById('bulk-cancel-expiry-btn');
+        if (bulkCancelExpiryBtn) {
+            const anyExpiring = Array.from(selectedIds).some(id => {
+                const card = gallery.querySelector(`li[data-id="${id}"]`);
+                return card && card.dataset.expiresAt;
+            });
+            if (anyExpiring) {
+                bulkCancelExpiryBtn.classList.remove('hidden');
+            } else {
+                bulkCancelExpiryBtn.classList.add('hidden');
+            }
         }
     } else {
         bulkToolbar.classList.remove('translate-y-0', 'opacity-100', 'pointer-events-auto');

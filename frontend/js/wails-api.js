@@ -39,7 +39,8 @@ async function loadClips() {
 
 async function upload(files) {
     try {
-        await window.go.main.App.UploadFiles(files, 0);
+        const minutes = typeof getUploadExpirationMinutes === 'function' ? getUploadExpirationMinutes() : 0;
+        await window.go.main.App.UploadFiles(files, minutes);
         showToast('Upload successful!');
         if (!isViewingArchive) {
             loadClips(); // Refresh gallery only if looking at active
@@ -296,5 +297,51 @@ async function bulkRemoveTag(clipIds, tagId) {
     } catch (error) {
         console.error('Error in bulk remove tag:', error);
         showToast('Failed to remove tag from clips.');
+    }
+}
+
+// --- Expiration API functions ---
+
+async function setExpiration(id, minutes) {
+    try {
+        await window.go.main.App.SetExpiration(id, minutes);
+        showToast('Expiration set.');
+        loadClips();
+    } catch (error) {
+        console.error('Error setting expiration:', error);
+        showToast('Failed to set expiration.');
+    }
+}
+
+async function cancelExpiration(id) {
+    try {
+        await window.go.main.App.CancelExpiration(id);
+        showToast('Expiration canceled.');
+        loadClips();
+    } catch (error) {
+        console.error('Error canceling expiration:', error);
+        showToast('Failed to cancel expiration.');
+    }
+}
+
+async function bulkSetExpiration(ids, minutes) {
+    try {
+        await window.go.main.App.BulkSetExpiration(ids, minutes);
+        showToast(`Expiration set on ${ids.length} clips.`);
+        loadClips();
+    } catch (error) {
+        console.error('Error in bulk set expiration:', error);
+        showToast('Failed to set expiration.');
+    }
+}
+
+async function bulkCancelExpiration(ids) {
+    try {
+        await window.go.main.App.BulkCancelExpiration(ids);
+        showToast(`Expiration canceled on ${ids.length} clips.`);
+        loadClips();
+    } catch (error) {
+        console.error('Error in bulk cancel expiration:', error);
+        showToast('Failed to cancel expiration.');
     }
 }

@@ -120,6 +120,25 @@ function shouldShowPluginAction(action, clip) {
     return true;
 }
 
+// Format remaining time for expiration badge
+// Returns compact string like "23m", "2h", "3d"
+function formatTimeRemaining(expiresAt) {
+    const now = new Date();
+    const expires = new Date(expiresAt);
+    const diffMs = expires - now;
+
+    if (diffMs <= 0) return '0m';
+
+    const minutes = Math.ceil(diffMs / 60000);
+    if (minutes < 60) return `${minutes}m`;
+
+    const hours = Math.round(diffMs / 3600000);
+    if (hours < 24) return `${hours}h`;
+
+    const days = Math.round(diffMs / 86400000);
+    return `${days}d`;
+}
+
 function getFriendlyFileType(contentType, filename) {
     // Map of MIME types to friendly names
     const mimeMap = {
