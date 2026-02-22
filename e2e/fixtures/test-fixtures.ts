@@ -1560,6 +1560,7 @@ export class AppHelper {
   async toggleHiddenTagInSettings(tagName: string): Promise<void> {
     // The checkbox is sr-only, so click the parent label row instead
     const row = this.page.locator(`[data-testid="hidden-tag-row-${tagName}"]`);
+    await row.scrollIntoViewIfNeeded();
     await row.click();
   }
 

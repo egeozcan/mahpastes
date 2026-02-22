@@ -148,7 +148,9 @@ test.describe('Copy Actions', () => {
       await app.uploadFile(imagePath2);
 
       await app.selectClips([filename1, filename2]);
-      await app.page.keyboard.press('ControlOrMeta+c');
+      // Blur the checkbox so the shortcut engine doesn't suppress the key
+      await app.page.locator('body').click({ position: { x: 0, y: 0 } });
+      await app.page.keyboard.press('c');
       await app.expectToast('2 files copied to clipboard!');
     });
 
@@ -158,7 +160,9 @@ test.describe('Copy Actions', () => {
       await app.uploadFile(imagePath);
 
       await app.selectClip(filename);
-      await app.page.keyboard.press('ControlOrMeta+c');
+      // Blur the checkbox so the shortcut engine doesn't suppress the key
+      await app.page.locator('body').click({ position: { x: 0, y: 0 } });
+      await app.page.keyboard.press('c');
       await app.expectToast('1 file copied to clipboard!');
     });
   });

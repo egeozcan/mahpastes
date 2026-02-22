@@ -84,6 +84,15 @@ const ShortcutManager = (() => {
 
     // --- Key Combo Parsing ---
 
+    // Map unshifted keys to shifted equivalents (US layout).
+    // Some browsers (headless Chromium) report the raw key on Shift combos.
+    const SHIFT_KEY_MAP = {
+        '/': '?', '1': '!', '2': '@', '3': '#', '4': '$', '5': '%',
+        '6': '^', '7': '&', '8': '*', '9': '(', '0': ')', '-': '_',
+        '=': '+', '[': '{', ']': '}', '\\': '|', ';': ':', "'": '"',
+        ',': '<', '.': '>', '`': '~'
+    };
+
     function eventToCombo(e) {
         const parts = [];
         if (e.metaKey || e.ctrlKey) parts.push('mod');
@@ -93,6 +102,10 @@ const ShortcutManager = (() => {
         let key = e.key;
         // Normalize key names
         if (key === ' ') key = 'Space';
+        // Normalize shifted punctuation for headless browsers
+        if (e.shiftKey && key.length === 1 && SHIFT_KEY_MAP[key]) {
+            key = SHIFT_KEY_MAP[key];
+        }
         if (key.length === 1) key = key.toLowerCase();
 
         // Don't add modifier keys themselves as the key part

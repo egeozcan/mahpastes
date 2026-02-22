@@ -144,14 +144,21 @@ test.describe('Keyboard Shortcuts', () => {
       await app.uploadFile(imagePath1);
       await app.uploadFile(imagePath2);
 
-      await app.openLightbox(path.basename(imagePath2));
+      // Open the first image in the lightbox array (imagePath1 is oldest, at index 0)
+      await app.openLightbox(path.basename(imagePath1));
 
-      // Navigate to next image
+      // Ensure lightbox is fully active before pressing shortcut keys
+      await app.page.waitForSelector('#lightbox.active');
+
+      // Navigate to next image (ArrowRight goes from index 0 to index 1)
       await app.page.keyboard.press('ArrowRight');
 
-      // Verify we navigated (caption should change)
+      // Wait for lightbox to update after navigation
+      await app.page.waitForTimeout(300);
+
+      // Verify we navigated (caption should change to imagePath2)
       const caption = app.page.locator('#lightbox-caption');
-      await expect(caption).toContainText(path.basename(imagePath1));
+      await expect(caption).toContainText(path.basename(imagePath2));
     });
   });
 
@@ -173,6 +180,7 @@ test.describe('Keyboard Shortcuts', () => {
 
       // Click the badge for toggle-archive
       const badge = app.page.locator(selectors.shortcuts.shortcutBadge('toggle-archive'));
+      await badge.scrollIntoViewIfNeeded();
       await badge.click();
 
       // Badge should be in recording mode (shows "...")
@@ -202,12 +210,15 @@ test.describe('Keyboard Shortcuts', () => {
 
       // First rebind something
       const badge = app.page.locator(selectors.shortcuts.shortcutBadge('toggle-archive'));
+      await badge.scrollIntoViewIfNeeded();
       await badge.click();
       await app.page.keyboard.press('x');
       await expect(badge).toContainText('X');
 
       // Click reset
-      await app.page.locator(selectors.shortcuts.resetButton).click();
+      const resetBtn = app.page.locator(selectors.shortcuts.resetButton);
+      await resetBtn.scrollIntoViewIfNeeded();
+      await resetBtn.click();
 
       // Badge should show default again
       await expect(badge).toContainText('A');
