@@ -496,49 +496,6 @@ function updateLightboxNav() {
     lightboxNext.style.visibility = currentLightboxIndex < imageClips.length - 1 ? 'visible' : 'hidden';
 }
 
-function handleLightboxKeydown(e) {
-    if (!lightbox.classList.contains('active')) return;
-
-    if (e.key === 'Escape') {
-        e.preventDefault();
-        // Close any open menu first before closing lightbox
-        const fileMenu = document.getElementById('lightbox-file-menu');
-        if (fileMenu) {
-            closeLightboxFileMenu();
-            const trigger = document.getElementById('lightbox-file-menu-trigger');
-            if (trigger) trigger.focus();
-            return;
-        }
-        const pluginMenu = document.getElementById('lightbox-plugin-menu');
-        if (pluginMenu) {
-            closeLightboxPluginMenu();
-            const trigger = document.getElementById('lightbox-plugin-menu-trigger');
-            if (trigger) trigger.focus();
-            return;
-        }
-        closeLightbox();
-    } else if (e.key === 'ArrowRight') {
-        e.preventDefault();
-        showNextImage();
-    } else if (e.key === 'ArrowLeft') {
-        e.preventDefault();
-        showPrevImage();
-    } else if (e.key === 'Tab') {
-        // Focus trap logic
-        const focusableElements = lightbox.querySelectorAll('button');
-        const first = focusableElements[0];
-        const last = focusableElements[focusableElements.length - 1];
-
-        if (e.shiftKey && document.activeElement === first) {
-            last.focus();
-            e.preventDefault();
-        } else if (!e.shiftKey && document.activeElement === last) {
-            first.focus();
-            e.preventDefault();
-        }
-    }
-}
-
 // --- Plugin Menu in Lightbox ---
 
 // Render single trigger button for plugin actions in lightbox

@@ -616,7 +616,7 @@ window.addEventListener('load', async () => {
                 const clip = imageClips[currentLightboxIndex];
                 if (clip && isEditableType(clip.content_type)) {
                     closeLightbox();
-                    setTimeout(() => openEditor(clip.id), 350);
+                    setTimeout(() => openEditor(clip.id), LIGHTBOX_CLOSE_DELAY);
                 }
             }
         });
