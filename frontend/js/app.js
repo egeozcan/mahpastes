@@ -216,8 +216,8 @@ headerArchiveBtn.addEventListener('click', toggleViewMode);
 headerAddBtn.addEventListener('click', () => fileInput.click());
 
 // Confirm Dialog Listeners
-document.getElementById('confirm-yes-btn').addEventListener('click', () => {
-    if (confirmCallback) confirmCallback();
+document.getElementById('confirm-yes-btn').addEventListener('click', async () => {
+    if (confirmCallback) await confirmCallback();
     closeConfirmDialog();
 });
 

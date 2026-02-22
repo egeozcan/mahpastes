@@ -732,10 +732,10 @@ test.describe('Keyboard Shortcuts', () => {
       await expect(badge).toContainText('...');
 
       // Press a new key
-      await app.page.keyboard.press('x');
+      await app.page.keyboard.press('q');
 
       // Badge should now show the new key
-      await expect(badge).toContainText('X');
+      await expect(badge).toContainText('Q');
 
       // Close settings
       await app.closeSettingsModal();
@@ -746,7 +746,7 @@ test.describe('Keyboard Shortcuts', () => {
       await app.expectClipCount(1);
 
       await app.page.locator('body').click();
-      await app.page.keyboard.press('x');
+      await app.page.keyboard.press('q');
       await app.expectClipCount(0); // Switched to archive view
     });
 
@@ -757,8 +757,8 @@ test.describe('Keyboard Shortcuts', () => {
       const badge = app.page.locator(selectors.shortcuts.shortcutBadge('toggle-archive'));
       await badge.scrollIntoViewIfNeeded();
       await badge.click();
-      await app.page.keyboard.press('x');
-      await expect(badge).toContainText('X');
+      await app.page.keyboard.press('q');
+      await expect(badge).toContainText('Q');
 
       // Click reset
       const resetBtn = app.page.locator(selectors.shortcuts.resetButton);
@@ -918,7 +918,7 @@ test.describe('Keyboard Shortcuts', () => {
       const badge = app.page.locator(selectors.shortcuts.shortcutBadge('toggle-archive'));
       await badge.scrollIntoViewIfNeeded();
       await badge.click();
-      await app.page.keyboard.press('x');
+      await app.page.keyboard.press('q');
 
       // Click reset
       const resetBtn = app.page.locator(selectors.shortcuts.resetButton);
@@ -932,12 +932,12 @@ test.describe('Keyboard Shortcuts', () => {
     test('should persist rebinding after closing and reopening settings', async ({ app }) => {
       await app.openSettingsModal();
 
-      // Rebind toggle-archive to 'x'
+      // Rebind toggle-archive to 'q'
       const badge = app.page.locator(selectors.shortcuts.shortcutBadge('toggle-archive'));
       await badge.scrollIntoViewIfNeeded();
       await badge.click();
-      await app.page.keyboard.press('x');
-      await expect(badge).toContainText('X');
+      await app.page.keyboard.press('q');
+      await expect(badge).toContainText('Q');
 
       // Close and reopen settings
       await app.closeSettingsModal();
@@ -946,7 +946,7 @@ test.describe('Keyboard Shortcuts', () => {
       // Should still show 'X'
       const reopenedBadge = app.page.locator(selectors.shortcuts.shortcutBadge('toggle-archive'));
       await reopenedBadge.scrollIntoViewIfNeeded();
-      await expect(reopenedBadge).toContainText('X');
+      await expect(reopenedBadge).toContainText('Q');
     });
 
     test('should not accept bare modifier keys as shortcuts', async ({ app }) => {
@@ -973,12 +973,12 @@ test.describe('Keyboard Shortcuts', () => {
     test('should preserve rebinding when original key is pressed', async ({ app }) => {
       await app.openSettingsModal();
 
-      // Rebind toggle-archive from 'a' to 'x'
+      // Rebind toggle-archive from 'a' to 'q'
       const badge = app.page.locator(selectors.shortcuts.shortcutBadge('toggle-archive'));
       await badge.scrollIntoViewIfNeeded();
       await badge.click();
-      await app.page.keyboard.press('x');
-      await expect(badge).toContainText('X');
+      await app.page.keyboard.press('q');
+      await expect(badge).toContainText('Q');
 
       await app.closeSettingsModal();
 
@@ -991,19 +991,19 @@ test.describe('Keyboard Shortcuts', () => {
       await app.page.keyboard.press('a');
       await app.expectClipCount(1); // Still in active view
 
-      // New key 'x' should toggle archive
-      await app.page.keyboard.press('x');
+      // New key 'q' should toggle archive
+      await app.page.keyboard.press('q');
       await app.expectClipCount(0); // Switched to archive
     });
 
     test('should reflect rebinding in cheat sheet', async ({ app }) => {
       await app.openSettingsModal();
 
-      // Rebind toggle-archive to 'x'
+      // Rebind toggle-archive to 'q'
       const badge = app.page.locator(selectors.shortcuts.shortcutBadge('toggle-archive'));
       await badge.scrollIntoViewIfNeeded();
       await badge.click();
-      await app.page.keyboard.press('x');
+      await app.page.keyboard.press('q');
 
       await app.closeSettingsModal();
 
@@ -1014,7 +1014,7 @@ test.describe('Keyboard Shortcuts', () => {
 
       // The cheat sheet should show the new key 'X' for toggle archive
       const content = app.page.locator(selectors.shortcuts.cheatsheetContent);
-      await expect(content).toContainText('X');
+      await expect(content).toContainText('Q');
     });
   });
 
