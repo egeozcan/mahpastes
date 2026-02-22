@@ -60,6 +60,7 @@ const lightboxNext = document.getElementById('lightbox-next');
 const bulkCompareBtn = document.getElementById('bulk-compare-btn');
 const comparisonModal = document.getElementById('comparison-modal');
 const comparisonClose = document.getElementById('comparison-close');
+const comparisonViewport = document.getElementById('comparison-viewport');
 const comparisonContainer = document.getElementById('comparison-container');
 const comparisonImgBottom = document.getElementById('comparison-img-bottom');
 const comparisonImgTop = document.getElementById('comparison-img-top');

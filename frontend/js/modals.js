@@ -1074,8 +1074,8 @@ function updateComparisonView() {
     }
 
     // Alignment & Stretch
-    comparisonContainer.style.justifyContent = alignHSelect.value;
-    comparisonContainer.style.alignItems = alignVSelect.value;
+    comparisonViewport.style.justifyContent = alignHSelect.value;
+    comparisonViewport.style.alignItems = alignVSelect.value;
 
     if (isStretched) {
         comparisonContainer.style.width = '100%';
@@ -1092,12 +1092,12 @@ function updateComparisonView() {
     } else {
         comparisonContainer.style.width = '';
         comparisonContainer.style.height = '';
-        comparisonImgBottom.style.width = 'auto';
-        comparisonImgBottom.style.height = 'auto';
+        comparisonImgBottom.style.width = '';
+        comparisonImgBottom.style.height = '';
         comparisonImgBottom.style.objectFit = 'contain';
         comparisonImgTop.style.objectFit = 'contain';
-        comparisonImgDiff.style.width = 'auto';
-        comparisonImgDiff.style.height = 'auto';
+        comparisonImgDiff.style.width = '';
+        comparisonImgDiff.style.height = '';
         comparisonImgDiff.style.objectFit = 'contain';
         toggleStretchBtn.classList.remove('bg-stone-800', 'text-white');
         toggleStretchBtn.classList.add('bg-stone-100');
