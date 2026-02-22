@@ -8,6 +8,10 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 	"log"
 	"mime"
 	"os"
@@ -250,6 +254,12 @@ type ClipData struct {
 	ContentType string `json:"content_type"`
 	Data        string `json:"data"` // base64 encoded for binary, raw for text
 	Filename    string `json:"filename"`
+}
+
+// DiffResult returned by GetImageDiff
+type DiffResult struct {
+	Similarity  float64 `json:"similarity"`
+	DiffDataUrl string  `json:"diff_data_url"` // data:image/png;base64,...
 }
 
 // FileData for uploads - binary data as base64
@@ -1636,4 +1646,52 @@ func (a *App) SetHiddenTags(ids []int64) error {
 		return fmt.Errorf("failed to marshal hidden tags: %w", err)
 	}
 	return a.SetSetting("hidden_tags", string(data))
+}
+
+// GetImageDiff compares two image clips and returns a visual diff + similarity score.
+// threshold controls sensitivity (1-100, default 30).
+func (a *App) GetImageDiff(clipIdA, clipIdB int64, threshold int) (*DiffResult, error) {
+	if threshold < 1 {
+		threshold = 1
+	}
+	if threshold > 100 {
+		threshold = 100
+	}
+
+	loadImg := func(clipID int64) (image.Image, error) {
+		var data []byte
+		var contentType string
+		err := a.db.QueryRow("SELECT data, content_type FROM clips WHERE id = ?", clipID).Scan(&data, &contentType)
+		if err != nil {
+			return nil, fmt.Errorf("clip %d: %w", clipID, err)
+		}
+		if !strings.HasPrefix(contentType, "image/") {
+			return nil, fmt.Errorf("clip %d is not an image", clipID)
+		}
+		decoded, _, err := image.Decode(bytes.NewReader(data))
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode clip %d: %w", clipID, err)
+		}
+		return decoded, nil
+	}
+
+	imgA, err := loadImg(clipIdA)
+	if err != nil {
+		return nil, err
+	}
+	imgB, err := loadImg(clipIdB)
+	if err != nil {
+		return nil, err
+	}
+
+	diffImg, similarity := plugin.DiffImages(imgA, imgB, float64(threshold))
+	diffData, diffMime, err := plugin.EncodeImagePNG(diffImg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode diff: %w", err)
+	}
+
+	return &DiffResult{
+		Similarity:  similarity,
+		DiffDataUrl: fmt.Sprintf("data:%s;base64,%s", diffMime, diffData),
+	}, nil
 }

@@ -94,6 +94,10 @@ export function GetHiddenTags() {
   return window['go']['main']['App']['GetHiddenTags']();
 }
 
+export function GetImageDiff(arg1, arg2, arg3) {
+  return window['go']['main']['App']['GetImageDiff'](arg1, arg2, arg3);
+}
+
 export function GetSetting(arg1) {
   return window['go']['main']['App']['GetSetting'](arg1);
 }

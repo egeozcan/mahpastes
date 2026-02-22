@@ -128,8 +128,8 @@ func (img *ImageAPI) loadClipImageRaw(clipID int64) ([]byte, string, error) {
 // excessive memory in the VM.
 const maxEncodedOutputBytes = 50 * 1024 * 1024
 
-// encodeImagePNG encodes an image as PNG and returns base64 string
-func encodeImagePNG(im image.Image) (string, string, error) {
+// EncodeImagePNG encodes an image as PNG and returns base64 string
+func EncodeImagePNG(im image.Image) (string, string, error) {
 	var buf bytes.Buffer
 	if err := png.Encode(&buf, im); err != nil {
 		return "", "", fmt.Errorf("failed to encode PNG: %w", err)
@@ -332,7 +332,7 @@ func (img *ImageAPI) resize(L *lua.LState) int {
 		return 2
 	}
 
-	data, mime, err := encodeImagePNG(dst)
+	data, mime, err := EncodeImagePNG(dst)
 	if err != nil {
 		L.Push(lua.LNil)
 		L.Push(lua.LString(err.Error()))
@@ -492,7 +492,7 @@ func (img *ImageAPI) overlayText(L *lua.LState) int {
 	}
 	d.DrawString(text)
 
-	data, mime, err := encodeImagePNG(dst)
+	data, mime, err := EncodeImagePNG(dst)
 	if err != nil {
 		L.Push(lua.LNil)
 		L.Push(lua.LString(err.Error()))
@@ -648,7 +648,7 @@ func (img *ImageAPI) composite(L *lua.LState) int {
 		return 2
 	}
 
-	data, mime, err := encodeImagePNG(canvas)
+	data, mime, err := EncodeImagePNG(canvas)
 	if err != nil {
 		L.Push(lua.LNil)
 		L.Push(lua.LString(err.Error()))
@@ -928,6 +928,68 @@ func (img *ImageAPI) metadata(L *lua.LState) int {
 	return 1
 }
 
+// DiffImages compares two images pixel-by-pixel and returns a diff image + similarity score.
+// threshold controls sensitivity: lower = more differences shown (typical range 10-50, default 30).
+func DiffImages(imgA, imgB image.Image, threshold float64) (diffImg *image.RGBA, similarity float64) {
+	boundsA := imgA.Bounds()
+	w := boundsA.Dx()
+	h := boundsA.Dy()
+
+	if w > 2000 || h > 2000 {
+		scale := math.Min(2000.0/float64(w), 2000.0/float64(h))
+		w = int(math.Max(1, math.Round(float64(w)*scale)))
+		h = int(math.Max(1, math.Round(float64(h)*scale)))
+	}
+
+	var a, b *image.RGBA
+	if imgA.Bounds().Dx() != w || imgA.Bounds().Dy() != h {
+		a = resizeImage(imgA, w, h)
+	} else {
+		a = convertToRGBA(imgA)
+	}
+	if imgB.Bounds().Dx() != w || imgB.Bounds().Dy() != h {
+		b = resizeImage(imgB, w, h)
+	} else {
+		b = convertToRGBA(imgB)
+	}
+
+	diffImg = image.NewRGBA(image.Rect(0, 0, w, h))
+	totalDiff := 0.0
+	totalPixels := float64(w * h)
+
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			ra, ga, ba, _ := a.At(x, y).RGBA()
+			rb, gb, bb, _ := b.At(x, y).RGBA()
+
+			dr := math.Abs(float64(ra>>8) - float64(rb>>8))
+			dg := math.Abs(float64(ga>>8) - float64(gb>>8))
+			db := math.Abs(float64(ba>>8) - float64(bb>>8))
+
+			avgDiff := (dr + dg + db) / 3.0
+			totalDiff += avgDiff / 255.0
+
+			if avgDiff > threshold {
+				intensity := uint8(math.Min(255, avgDiff*3))
+				diffImg.SetRGBA(x, y, color.RGBA{R: intensity, G: 0, B: 0, A: 255})
+			} else {
+				diffImg.SetRGBA(x, y, color.RGBA{
+					R: uint8(ra >> 9),
+					G: uint8(ga >> 9),
+					B: uint8(ba >> 9),
+					A: 255,
+				})
+			}
+		}
+	}
+
+	similarity = 1.0 - (totalDiff / totalPixels)
+	if similarity < 0 {
+		similarity = 0
+	}
+	return diffImg, similarity
+}
+
 // diff compares two images and returns similarity score and diff image
 func (img *ImageAPI) diff(L *lua.LState) int {
 	clipIDA := L.CheckInt64(1)
@@ -947,72 +1009,9 @@ func (img *ImageAPI) diff(L *lua.LState) int {
 		return 2
 	}
 
-	// Resize both to image A's dimensions for consistent comparison.
-	// Image B is resized to match A so the diff is always relative to A's frame.
-	boundsA := imgA.Bounds()
-	w := boundsA.Dx()
-	h := boundsA.Dy()
+	diffImg, similarity := DiffImages(imgA, imgB, 30.0)
 
-	if w > 2000 || h > 2000 {
-		// Cap comparison size
-		scale := math.Min(2000.0/float64(w), 2000.0/float64(h))
-		w = int(math.Max(1, math.Round(float64(w)*scale)))
-		h = int(math.Max(1, math.Round(float64(h)*scale)))
-	}
-
-	var a, b *image.RGBA
-	if imgA.Bounds().Dx() != w || imgA.Bounds().Dy() != h {
-		a = resizeImage(imgA, w, h)
-	} else {
-		a = convertToRGBA(imgA)
-	}
-	if imgB.Bounds().Dx() != w || imgB.Bounds().Dy() != h {
-		b = resizeImage(imgB, w, h)
-	} else {
-		b = convertToRGBA(imgB)
-	}
-
-	diffImg := image.NewRGBA(image.Rect(0, 0, w, h))
-
-	totalDiff := 0.0
-	totalPixels := float64(w * h)
-	threshold := 30.0 // channel difference threshold for "visible diff"
-
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			ra, ga, ba, _ := a.At(x, y).RGBA()
-			rb, gb, bb, _ := b.At(x, y).RGBA()
-
-			dr := math.Abs(float64(ra>>8) - float64(rb>>8))
-			dg := math.Abs(float64(ga>>8) - float64(gb>>8))
-			db := math.Abs(float64(ba>>8) - float64(bb>>8))
-
-			avgDiff := (dr + dg + db) / 3.0
-			totalDiff += avgDiff / 255.0
-
-			if avgDiff > threshold {
-				// Red highlight for different pixels
-				intensity := uint8(math.Min(255, avgDiff*3))
-				diffImg.SetRGBA(x, y, color.RGBA{R: intensity, G: 0, B: 0, A: 255})
-			} else {
-				// Dimmed original for same pixels.
-				// >> 9 combines 16-to-8-bit conversion (>> 8) with halving (>> 1).
-				diffImg.SetRGBA(x, y, color.RGBA{
-					R: uint8(ra >> 9),
-					G: uint8(ga >> 9),
-					B: uint8(ba >> 9),
-					A: 255,
-				})
-			}
-		}
-	}
-
-	similarity := 1.0 - (totalDiff / totalPixels)
-	if similarity < 0 {
-		similarity = 0
-	}
-
-	diffData, diffMime, err := encodeImagePNG(diffImg)
+	diffData, diffMime, err := EncodeImagePNG(diffImg)
 	if err != nil {
 		L.Push(lua.LNil)
 		L.Push(lua.LString(err.Error()))

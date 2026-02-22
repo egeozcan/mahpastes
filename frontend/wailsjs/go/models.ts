@@ -144,6 +144,20 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class DiffResult {
+	    similarity: number;
+	    diff_data_url: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DiffResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.similarity = source["similarity"];
+	        this.diff_data_url = source["diff_data_url"];
+	    }
+	}
 	export class DragCapability {
 	    enabled: boolean;
 	    strategy: string;
