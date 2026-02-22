@@ -960,6 +960,8 @@ async function openComparisonModal() {
     if (selectedArray.length !== 2) return;
 
     lastFocusedElementBeforeComparison = document.activeElement;
+    comparisonClipIds = [...selectedArray];
+    diffCache.clear();
 
     // Load both images as base64
     try {
@@ -969,6 +971,7 @@ async function openComparisonModal() {
         ]);
         comparisonImgBottom.src = dataUrl1;
         comparisonImgTop.src = dataUrl2;
+        comparisonImgDiff.src = '';
     } catch (error) {
         console.error('Failed to load images for comparison:', error);
         return;
@@ -980,6 +983,20 @@ async function openComparisonModal() {
     isStretched = false;
     comparisonRange.value = 50;
 
+    // Show image info after images load
+    updateComparisonImageInfo();
+
+    // Ensure top image wrapper matches bottom image rendered size
+    if (!window._comparisonResizeObserver) {
+        window._comparisonResizeObserver = new ResizeObserver(() => {
+            if (comparisonMode !== 'diff') {
+                comparisonImgTopWrapper.style.width = comparisonImgBottom.offsetWidth + 'px';
+                comparisonImgTopWrapper.style.height = comparisonImgBottom.offsetHeight + 'px';
+            }
+        });
+    }
+    window._comparisonResizeObserver.observe(comparisonImgBottom);
+
     updateComparisonView();
     comparisonModal.classList.add('active');
     comparisonModal.focus();
@@ -987,9 +1004,17 @@ async function openComparisonModal() {
 
 function closeComparisonModal() {
     comparisonModal.classList.remove('active');
+    comparisonSimilarity.classList.add('hidden');
+    comparisonImageInfo.classList.add('hidden');
+    if (window._comparisonResizeObserver) {
+        window._comparisonResizeObserver.disconnect();
+    }
     setTimeout(() => {
         comparisonImgBottom.src = '';
         comparisonImgTop.src = '';
+        comparisonImgDiff.src = '';
+        diffCache.clear();
+        comparisonClipIds = [];
         if (lastFocusedElementBeforeComparison) {
             lastFocusedElementBeforeComparison.focus();
         }
@@ -999,28 +1024,53 @@ function closeComparisonModal() {
 function updateComparisonView() {
     const value = comparisonRange.value;
 
-    // Mode updates
-    if (comparisonMode === 'fade') {
-        modeFadeBtn.classList.add('bg-white', 'shadow-sm', 'text-stone-800');
-        modeFadeBtn.classList.remove('text-stone-500');
-        modeSliderBtn.classList.remove('bg-white', 'shadow-sm', 'text-stone-800');
-        modeSliderBtn.classList.add('text-stone-500');
+    // Mode button states
+    const modes = [
+        { btn: modeFadeBtn, mode: 'fade' },
+        { btn: modeSliderBtn, mode: 'slider' },
+        { btn: modeDiffBtn, mode: 'diff' },
+    ];
+    for (const { btn, mode } of modes) {
+        if (comparisonMode === mode) {
+            btn.classList.add('bg-white', 'shadow-sm', 'text-stone-800');
+            btn.classList.remove('text-stone-500');
+        } else {
+            btn.classList.remove('bg-white', 'shadow-sm', 'text-stone-800');
+            btn.classList.add('text-stone-500');
+        }
+    }
 
-        comparisonImgTopWrapper.style.clipPath = 'none';
-        comparisonImgTop.style.opacity = value / 100;
+    // Show/hide images based on mode
+    if (comparisonMode === 'diff') {
+        comparisonImgBottom.classList.add('hidden');
+        comparisonImgTopWrapper.classList.add('hidden');
+        comparisonImgDiff.classList.remove('hidden');
         comparisonSliderLine.classList.add('hidden');
-        comparisonRangeLabel.textContent = 'Opacity';
-    } else {
-        modeSliderBtn.classList.add('bg-white', 'shadow-sm', 'text-stone-800');
-        modeSliderBtn.classList.remove('text-stone-500');
-        modeFadeBtn.classList.remove('bg-white', 'shadow-sm', 'text-stone-800');
-        modeFadeBtn.classList.add('text-stone-500');
+        comparisonRangeLabel.textContent = 'Threshold';
+        comparisonLabelA.classList.add('hidden');
+        comparisonLabelB.classList.add('hidden');
 
-        comparisonImgTopWrapper.style.clipPath = `inset(0 ${100 - value}% 0 0)`;
-        comparisonImgTop.style.opacity = 1;
-        comparisonSliderLine.classList.remove('hidden');
-        comparisonSliderLine.style.left = `${value}%`;
-        comparisonRangeLabel.textContent = 'Position';
+        loadDiffImage();
+    } else {
+        comparisonImgBottom.classList.remove('hidden');
+        comparisonImgTopWrapper.classList.remove('hidden');
+        comparisonImgDiff.classList.add('hidden');
+        comparisonLabelA.classList.remove('hidden');
+        comparisonLabelB.classList.remove('hidden');
+        comparisonSimilarity.classList.add('hidden');
+
+        if (comparisonMode === 'fade') {
+            comparisonImgTopWrapper.style.clipPath = 'none';
+            comparisonImgTop.style.opacity = value / 100;
+            comparisonSliderLine.classList.add('hidden');
+            comparisonRangeLabel.textContent = 'Opacity';
+        } else {
+            comparisonImgTopWrapper.style.clipPath = `inset(0 ${100 - value}% 0 0)`;
+            comparisonImgTop.style.opacity = 1;
+            comparisonSliderLine.classList.remove('hidden');
+            comparisonSliderLine.style.left = `${value}%`;
+            comparisonRangeLabel.textContent = 'Position';
+        }
     }
 
     // Alignment & Stretch
@@ -1028,17 +1078,27 @@ function updateComparisonView() {
     comparisonContainer.style.alignItems = alignVSelect.value;
 
     if (isStretched) {
-        comparisonImgBottom.style.width = '1000px'; // Arbitrary large size
-        comparisonImgBottom.style.height = '1000px';
+        comparisonContainer.style.width = '100%';
+        comparisonContainer.style.height = '100%';
+        comparisonImgBottom.style.width = '100%';
+        comparisonImgBottom.style.height = '100%';
         comparisonImgBottom.style.objectFit = 'fill';
         comparisonImgTop.style.objectFit = 'fill';
+        comparisonImgDiff.style.width = '100%';
+        comparisonImgDiff.style.height = '100%';
+        comparisonImgDiff.style.objectFit = 'fill';
         toggleStretchBtn.classList.add('bg-stone-800', 'text-white');
         toggleStretchBtn.classList.remove('bg-stone-100');
     } else {
+        comparisonContainer.style.width = '';
+        comparisonContainer.style.height = '';
         comparisonImgBottom.style.width = 'auto';
         comparisonImgBottom.style.height = 'auto';
         comparisonImgBottom.style.objectFit = 'contain';
         comparisonImgTop.style.objectFit = 'contain';
+        comparisonImgDiff.style.width = 'auto';
+        comparisonImgDiff.style.height = 'auto';
+        comparisonImgDiff.style.objectFit = 'contain';
         toggleStretchBtn.classList.remove('bg-stone-800', 'text-white');
         toggleStretchBtn.classList.add('bg-stone-100');
     }
@@ -1046,6 +1106,98 @@ function updateComparisonView() {
     // Zoom
     comparisonContainer.style.transform = `scale(${zoomLevel})`;
     zoomLevelEl.textContent = `${Math.round(zoomLevel * 100)}%`;
+}
+
+function updateComparisonImageInfo() {
+    const imgA = comparisonImgBottom;
+    const imgB = comparisonImgTop;
+
+    function formatSize(bytes) {
+        if (bytes < 1024) return bytes + 'B';
+        if (bytes < 1048576) return (bytes / 1024).toFixed(1) + 'KB';
+        return (bytes / 1048576).toFixed(1) + 'MB';
+    }
+
+    function waitForLoad(img) {
+        return new Promise(resolve => {
+            if (img.naturalWidth > 0) return resolve();
+            img.addEventListener('load', resolve, { once: true });
+        });
+    }
+
+    Promise.all([waitForLoad(imgA), waitForLoad(imgB)]).then(() => {
+        const cards = comparisonClipIds.map(id =>
+            document.querySelector(`#gallery li[data-id="${id}"]`)
+        );
+        const typeA = cards[0]?.dataset.type?.split('/')[1]?.toUpperCase() || 'IMG';
+        const typeB = cards[1]?.dataset.type?.split('/')[1]?.toUpperCase() || 'IMG';
+
+        const sizeA = cards[0]?.dataset.size ? formatSize(parseInt(cards[0].dataset.size)) : '';
+        const sizeB = cards[1]?.dataset.size ? formatSize(parseInt(cards[1].dataset.size)) : '';
+
+        const infoA = `A: ${imgA.naturalWidth}\u00d7${imgA.naturalHeight} ${typeA}${sizeA ? ' ' + sizeA : ''}`;
+        const infoB = `B: ${imgB.naturalWidth}\u00d7${imgB.naturalHeight} ${typeB}${sizeB ? ' ' + sizeB : ''}`;
+
+        comparisonImageInfo.textContent = `${infoA}  \u2502  ${infoB}`;
+        comparisonImageInfo.classList.remove('hidden');
+
+        // Show warning icon if dimensions differ
+        const dimsDiffer = imgA.naturalWidth !== imgB.naturalWidth || imgA.naturalHeight !== imgB.naturalHeight;
+        if (dimsDiffer) {
+            comparisonImageInfo.textContent += ' \u26a0';
+        }
+    });
+}
+
+function swapComparisonImages() {
+    const tmpSrc = comparisonImgBottom.src;
+    comparisonImgBottom.src = comparisonImgTop.src;
+    comparisonImgTop.src = tmpSrc;
+
+    comparisonClipIds.reverse();
+
+    diffCache.clear();
+    if (comparisonMode === 'diff') {
+        loadDiffImage();
+    }
+
+    updateComparisonImageInfo();
+}
+
+async function loadDiffImage() {
+    const threshold = parseInt(comparisonRange.value);
+    const cacheKey = threshold;
+
+    if (diffCache.has(cacheKey)) {
+        const cached = diffCache.get(cacheKey);
+        comparisonImgDiff.src = cached.dataUrl;
+        comparisonSimilarity.textContent = `${(cached.similarity * 100).toFixed(1)}% similar`;
+        comparisonSimilarity.classList.remove('hidden');
+        return;
+    }
+
+    if (comparisonClipIds.length !== 2) return;
+
+    try {
+        const result = await window.go.main.App.GetImageDiff(
+            comparisonClipIds[0],
+            comparisonClipIds[1],
+            threshold
+        );
+        diffCache.set(cacheKey, {
+            dataUrl: result.diff_data_url,
+            similarity: result.similarity,
+        });
+        if (comparisonMode === 'diff') {
+            comparisonImgDiff.src = result.diff_data_url;
+            comparisonSimilarity.textContent = `${(result.similarity * 100).toFixed(1)}% similar`;
+            comparisonSimilarity.classList.remove('hidden');
+        }
+    } catch (error) {
+        console.error('Failed to load diff image:', error);
+        comparisonSimilarity.textContent = 'Diff failed';
+        comparisonSimilarity.classList.remove('hidden');
+    }
 }
 
 function zoomFit() {

@@ -551,6 +551,7 @@ async function createClipCard(clip, options = {}) {
     card.dataset.id = clip.id;
     card.dataset.filename = (clip.filename || '').toLowerCase();
     card.dataset.type = (clip.content_type || '').toLowerCase();
+    card.dataset.size = clip.size || 0;
     card.setAttribute('aria-label', `Clip: ${clip.filename || 'Pasted Content'}`);
 
     const checkboxHTML = `

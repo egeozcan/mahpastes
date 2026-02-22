@@ -76,6 +76,13 @@ const zoomInBtn = document.getElementById('zoom-in');
 const zoomOutBtn = document.getElementById('zoom-out');
 const zoomLevelEl = document.getElementById('zoom-level');
 const zoomFitBtn = document.getElementById('zoom-fit');
+const modeDiffBtn = document.getElementById('mode-diff');
+const comparisonImgDiff = document.getElementById('comparison-img-diff');
+const comparisonSwapBtn = document.getElementById('comparison-swap');
+const comparisonSimilarity = document.getElementById('comparison-similarity');
+const comparisonImageInfo = document.getElementById('comparison-image-info');
+const comparisonLabelA = document.getElementById('comparison-label-a');
+const comparisonLabelB = document.getElementById('comparison-label-b');
 
 // --- State ---
 let isViewingArchive = false;
@@ -88,6 +95,8 @@ let comparisonMode = 'fade';
 let zoomLevel = 1;
 let isStretched = false;
 let lastFocusedElementBeforeComparison = null;
+let comparisonClipIds = []; // [idA, idB] - track which clips are being compared
+let diffCache = new Map(); // Map<threshold, {dataUrl, similarity}> - cache diff results
 let lastFocusedElement = null; // For confirm dialog
 
 // Tag state
@@ -227,6 +236,8 @@ comparisonRange.addEventListener('input', updateComparisonView);
 
 modeFadeBtn.addEventListener('click', () => { comparisonMode = 'fade'; updateComparisonView(); });
 modeSliderBtn.addEventListener('click', () => { comparisonMode = 'slider'; updateComparisonView(); });
+modeDiffBtn.addEventListener('click', () => { comparisonMode = 'diff'; updateComparisonView(); });
+comparisonSwapBtn.addEventListener('click', swapComparisonImages);
 
 alignHSelect.addEventListener('change', updateComparisonView);
 alignVSelect.addEventListener('change', updateComparisonView);
