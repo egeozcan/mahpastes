@@ -4,7 +4,7 @@ sidebar_position: 2
 
 # Image Editor
 
-Annotate and modify images directly within mahpastes. Add highlights, shapes, text, and drawings without leaving the app.
+Annotate and modify images directly within mahpastes. Supports highlights, shapes, text, and freehand drawing.
 
 ## Opening the Editor
 
@@ -112,7 +112,7 @@ The eraser uses `destination-out` compositing. It erases all pixels it touches, 
 
 ### Color Picker
 
-Click the color swatch to open the browser's native color picker. Enter hex values or use the visual picker to choose any color.
+Click the color swatch to open the browser's native color picker. Enter hex values or use the visual picker to choose any color. The default brush color is blue (`#3b82f6`).
 
 ### Stroke Width
 

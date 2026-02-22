@@ -1,6 +1,6 @@
 # mahpastes
 
-A Wails desktop clipboard manager for macOS with image editing, comparison, and watch folder features.
+A Wails desktop clipboard manager for macOS, Windows, and Linux with image editing, comparison, and watch folder features.
 
 ## Tech Stack
 
@@ -60,6 +60,7 @@ Tests are organized by feature in `e2e/tests/`:
 - `plugins/` - Plugin system (install, events, APIs, scheduling)
 - `search/` - Filtering functionality
 - `screenshots/` - Documentation screenshot capture
+- `shortcuts/` - Keyboard shortcut tests
 - `tags/` - Tag CRUD, filtering, hidden tags
 - `watch/` - Watch folders feature
 
@@ -201,8 +202,10 @@ mahpastes/
 │   │   ├── modal-renderer.js # Plugin result modal rendering
 │   │   ├── modals.js     # All modal/lightbox/editor logic
 │   │   ├── plugin-icons.js # Plugin icon rendering
+│   │   ├── plugin-review.js # Plugin permission review UI
 │   │   ├── plugins.js    # Plugin management UI
 │   │   ├── settings.js   # Settings modal
+│   │   ├── shortcuts.js  # ShortcutManager for keyboard shortcut registration and context handling
 │   │   ├── tags.js       # Tag management UI
 │   │   ├── task-queue.js # Plugin task progress UI
 │   │   ├── transfer.js   # Drag-out transfer state management

@@ -4,7 +4,7 @@ sidebar_position: 6
 
 # Contributing
 
-Thank you for your interest in contributing to mahpastes! This guide will help you get started.
+This guide covers how to set up the development environment, make changes, and submit them.
 
 ## Development Setup
 
@@ -12,7 +12,7 @@ Thank you for your interest in contributing to mahpastes! This guide will help y
 
 | Tool | Version | Purpose |
 |------|---------|---------|
-| [Go](https://go.dev/dl/) | 1.21+ | Backend development |
+| [Go](https://go.dev/dl/) | 1.24+ | Backend development |
 | [Node.js](https://nodejs.org/) | 18+ | Frontend tooling |
 | [Wails CLI](https://wails.io/) | 2.x | Build and development |
 

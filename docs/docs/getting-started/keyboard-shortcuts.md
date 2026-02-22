@@ -4,17 +4,16 @@ sidebar_position: 3
 
 # Keyboard Shortcuts
 
-Complete reference for all keyboard shortcuts in mahpastes.
+Complete reference for all keyboard shortcuts in mahpastes. Press <span className="keyboard-key">?</span> at any time to open the built-in shortcut cheatsheet.
 
-## Global Shortcuts
-
-These work anywhere in the application.
+## System
 
 | Shortcut | Action |
 |----------|--------|
+| <span className="keyboard-key">?</span> | Show keyboard shortcut cheatsheet |
+| <span className="keyboard-key">Esc</span> | Close current modal, drawer, or cheatsheet |
 | <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">V</span> | Paste from system clipboard |
 | <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">C</span> | Copy (context-dependent, see below) |
-| <span className="keyboard-key">Esc</span> | Close current modal or dialog |
 
 ### Cmd+C Behavior
 
@@ -26,30 +25,66 @@ These work anywhere in the application.
 | Clips selected in gallery | Copies selected clips as files to system clipboard |
 | Text selected / input focused | Standard browser copy (not intercepted) |
 
-## Image Editor Shortcuts
-
-When the image editor is open:
+## Navigation
 
 | Shortcut | Action |
 |----------|--------|
-| <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">Z</span> | Undo last action |
-| <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">Y</span> | Redo undone action |
-| <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">Shift</span> + <span className="keyboard-key">Z</span> | Redo (alternative) |
-| <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">S</span> | Save as new clip |
-| <span className="keyboard-key">Esc</span> | Close editor |
+| <span className="keyboard-key">/</span> | Focus search |
+| <span className="keyboard-key">A</span> | Toggle archive view |
+| <span className="keyboard-key">W</span> | Open watch folders |
+| <span className="keyboard-key">,</span> | Open settings |
+| <span className="keyboard-key">P</span> | Open plugins |
+| <span className="keyboard-key">M</span> | Open menu drawer |
 
-:::tip Undo History
-The image editor maintains up to 50 undo steps. You can undo and redo freely without losing your work.
-:::
+## Gallery
 
-## Lightbox Shortcuts
+| Shortcut | Action |
+|----------|--------|
+| <span className="keyboard-key">N</span> | Upload / add clip |
+| <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">A</span> | Select all |
+| <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">Shift</span> + <span className="keyboard-key">Delete</span> | Clear temp files |
+| <span className="keyboard-key">↑</span> <span className="keyboard-key">↓</span> <span className="keyboard-key">←</span> <span className="keyboard-key">→</span> | Navigate gallery grid |
 
-When viewing an image in the lightbox:
+## Clip Actions
+
+When a clip card has keyboard focus:
+
+| Shortcut | Action |
+|----------|--------|
+| <span className="keyboard-key">Enter</span> | Open in lightbox |
+| <span className="keyboard-key">C</span> | Copy clip as file |
+| <span className="keyboard-key">D</span> | Delete clip |
+| <span className="keyboard-key">E</span> | Archive / unarchive |
+| <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">D</span> | Download clip |
+| <span className="keyboard-key">T</span> | Tag clip |
+| <span className="keyboard-key">Space</span> | Select / deselect |
+
+## Bulk Actions
+
+When clips are selected:
+
+| Shortcut | Action |
+|----------|--------|
+| <span className="keyboard-key">Esc</span> | Clear selection |
+| <span className="keyboard-key">C</span> | Copy selected as files |
+| <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">C</span> | Copy selected as files |
+| <span className="keyboard-key">D</span> | Delete selected |
+| <span className="keyboard-key">E</span> | Archive selected |
+| <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">D</span> | Download selected |
+| <span className="keyboard-key">T</span> | Tag selected |
+
+## Lightbox
+
+When viewing a clip in the lightbox:
 
 | Shortcut | Action |
 |----------|--------|
 | <span className="keyboard-key">←</span> | Previous image |
 | <span className="keyboard-key">→</span> | Next image |
+| <span className="keyboard-key">+</span> | Zoom in |
+| <span className="keyboard-key">-</span> | Zoom out |
+| <span className="keyboard-key">E</span> | Open editor |
+| <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">C</span> | Copy clip contents |
 | <span className="keyboard-key">Esc</span> | Close open menu first, then close lightbox |
 | <span className="keyboard-key">Tab</span> / <span className="keyboard-key">Shift</span> + <span className="keyboard-key">Tab</span> | Cycle focus within lightbox buttons (focus trap) |
 
@@ -63,31 +98,38 @@ When a dropdown menu is open inside the lightbox:
 | <span className="keyboard-key">Esc</span> | Close menu |
 | <span className="keyboard-key">Tab</span> | Close menu |
 
-## Drop Zone
+## Comparison Modal
+
+When the image comparison modal is open:
 
 | Shortcut | Action |
 |----------|--------|
-| <span className="keyboard-key">Enter</span> or <span className="keyboard-key">Space</span> | Open file picker (when drop zone is focused) |
+| <span className="keyboard-key">1</span> | Fade mode |
+| <span className="keyboard-key">2</span> | Slider mode |
+| <span className="keyboard-key">3</span> | Diff mode |
+| <span className="keyboard-key">S</span> | Swap images |
+| <span className="keyboard-key">+</span> | Zoom in |
+| <span className="keyboard-key">-</span> | Zoom out |
+| <span className="keyboard-key">0</span> | Fit to viewport |
+| <span className="keyboard-key">←</span> | Adjust range left |
+| <span className="keyboard-key">→</span> | Adjust range right |
+| <span className="keyboard-key">Esc</span> | Close comparison |
 
-## Selection
+## Image Editor
 
-| Shortcut | Action |
-|----------|--------|
-| Click checkbox | Add/remove clip from selection |
-| Select All checkbox | Toggle selection of all visible clips |
-
-## Plugin Modals
-
-| Shortcut | Action |
-|----------|--------|
-| <span className="keyboard-key">Esc</span> | Close result modal first, then options modal, then plugins modal |
-
-## Confirm Dialog
+When the image editor is open:
 
 | Shortcut | Action |
 |----------|--------|
-| <span className="keyboard-key">Tab</span> / <span className="keyboard-key">Shift</span> + <span className="keyboard-key">Tab</span> | Cycle focus within dialog (focus trap) |
-| <span className="keyboard-key">Esc</span> | Close dialog |
+| <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">Z</span> | Undo last action |
+| <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">Y</span> | Redo undone action |
+| <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">Shift</span> + <span className="keyboard-key">Z</span> | Redo (alternative) |
+| <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">S</span> | Save as new clip |
+| <span className="keyboard-key">Esc</span> | Close editor |
+
+:::tip Undo History
+The image editor maintains up to 50 undo steps.
+:::
 
 ## Text Placement (Editor)
 
@@ -96,7 +138,26 @@ When a dropdown menu is open inside the lightbox:
 | <span className="keyboard-key">Enter</span> | Confirm text placement |
 | <span className="keyboard-key">Esc</span> | Cancel text placement |
 
-## Tips for Efficient Use
+## Drop Zone
+
+| Shortcut | Action |
+|----------|--------|
+| <span className="keyboard-key">Enter</span> or <span className="keyboard-key">Space</span> | Open file picker (when drop zone is focused) |
+
+## Confirm Dialog
+
+| Shortcut | Action |
+|----------|--------|
+| <span className="keyboard-key">Tab</span> / <span className="keyboard-key">Shift</span> + <span className="keyboard-key">Tab</span> | Cycle focus within dialog (focus trap) |
+| <span className="keyboard-key">Esc</span> | Close dialog |
+
+## Plugin Modals
+
+| Shortcut | Action |
+|----------|--------|
+| <span className="keyboard-key">Esc</span> | Close result modal first, then options modal, then plugins modal |
+
+## Common Workflows
 
 ### Quick Workflow
 
@@ -118,6 +179,4 @@ When a dropdown menu is open inside the lightbox:
 
 ## Customization
 
-Currently, keyboard shortcuts cannot be customized. This feature may be added in a future release.
-
-If custom shortcuts are important to your workflow, please [open an issue](https://github.com/egeozcan/mahpastes/issues) on GitHub.
+Keyboard shortcuts cannot be customized. If this is important to your workflow, [open an issue](https://github.com/egeozcan/mahpastes/issues) on GitHub.

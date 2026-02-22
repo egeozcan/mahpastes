@@ -134,7 +134,10 @@ func initDB() (*sql.DB, error) {
     dataDir, err := getDataDir()
 
     // Open SQLite with pragmas in DSN for connection-pool safety
-    dsn := dbPath + "?_busy_timeout=5000&_journal_mode=wal&_foreign_keys=on"
+    dsn := dbPath +
+        "?_pragma=busy_timeout%3D5000" +
+        "&_pragma=journal_mode%3Dwal" +
+        "&_pragma=foreign_keys%3Don"
     db, err := sql.Open("sqlite", dsn)
 
     // Create/migrate tables

@@ -52,7 +52,7 @@ The only required field. Displayed in the plugin list and logs.
 
 ```lua
 Plugin = {
-    name = "My Awesome Plugin",
+    name = "My Plugin",
 }
 ```
 
@@ -96,10 +96,10 @@ events = {"app:startup", "clip:created", "clip:deleted"},
 |-------|------------------|-------------|
 | `app:startup` | `on_startup()` | None |
 | `app:shutdown` | `on_shutdown()` | None |
-| `clip:created` | `on_clip_created(clip)` | Clip object |
+| `clip:created` | `on_clip_created(clip)` | `{id, content_type, filename}` |
 | `clip:deleted` | `on_clip_deleted(clip_id)` | Clip ID (number) |
-| `clip:archived` | `on_clip_archived(clip)` | Clip object |
-| `clip:unarchived` | `on_clip_unarchived(clip)` | Clip object |
+| `clip:archived` | `on_clip_archived(data)` | `{id}` |
+| `clip:unarchived` | `on_clip_unarchived(data)` | `{id}` |
 | `watch:file_detected` | `on_watch_file_detected(data)` | File info |
 | `watch:import_complete` | `on_watch_import_complete(data)` | Import result |
 | `tag:created` | `on_tag_created(tag)` | Tag object |
@@ -223,6 +223,10 @@ settings = {
 | `description` | No | Help text shown below the input |
 | `default` | No | Default value if not set |
 | `options` | For `select` | Array of choices |
+
+:::note
+Settings support types `text`, `password`, `checkbox`, and `select`. The `range` type is only available for [option form fields](#option-form-fields) in UI actions, not for settings.
+:::
 
 ### Setting Types
 

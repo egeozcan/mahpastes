@@ -631,6 +631,41 @@ func (a *App) SetHiddenTags(ids []int64) error
 
 ---
 
+## Image Operations
+
+### GetImageDiff
+
+Compare two image clips and return a visual diff plus similarity score.
+
+```go
+func (a *App) GetImageDiff(clipIdA, clipIdB int64, threshold int) (*DiffResult, error)
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `clipIdA` | int64 | First image clip ID |
+| `clipIdB` | int64 | Second image clip ID |
+| `threshold` | int | Sensitivity (10-50, default 30). Lower = more sensitive |
+
+**Returns:**
+| Type | Description |
+|------|-------------|
+| `*DiffResult` | Diff result with similarity score and visual diff |
+| `error` | Error if either clip is not found or not an image |
+
+**DiffResult structure:**
+```go
+type DiffResult struct {
+    Similarity  float64 `json:"similarity"`
+    DiffDataUrl string  `json:"diff_data_url"` // data:image/png;base64,...
+}
+```
+
+`Similarity` ranges from 0.0 to 1.0 where 1.0 means identical images. `DiffDataUrl` contains a data URL with the visual diff as a PNG.
+
+---
+
 ## Settings Operations
 
 ### GetSetting

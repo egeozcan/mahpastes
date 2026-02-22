@@ -86,8 +86,6 @@ Fired when a new clip is added to the library.
 | `id` | number | Unique clip identifier |
 | `content_type` | string | MIME type (e.g., `"image/png"`, `"text/plain"`) |
 | `filename` | string | Original filename |
-| `created_at` | string | ISO 8601 timestamp |
-| `is_archived` | boolean | Archive status (always `false` for new clips) |
 
 ```lua
 function on_clip_created(clip)
@@ -95,7 +93,6 @@ function on_clip_created(clip)
     log("  ID: " .. clip.id)
     log("  File: " .. clip.filename)
     log("  Type: " .. clip.content_type)
-    log("  Created: " .. clip.created_at)
 
     -- Example: Auto-tag images
     if clip.content_type:match("^image/") then
@@ -127,20 +124,16 @@ end
 
 Fired when a clip is moved to the archive.
 
-**Payload:** Same as `clip:created`
+**Payload:**
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `id` | number | Unique clip identifier |
-| `content_type` | string | MIME type |
-| `filename` | string | Original filename |
-| `created_at` | string | ISO 8601 timestamp |
-| `is_archived` | boolean | Archive status (always `true`) |
 
 ```lua
-function on_clip_archived(clip)
-    log("Clip archived: " .. clip.filename)
-    storage.set("archived:" .. clip.id, utils.time())
+function on_clip_archived(data)
+    log("Clip archived: " .. tostring(data.id))
+    storage.set("archived:" .. data.id, utils.time())
 end
 ```
 
@@ -148,20 +141,16 @@ end
 
 Fired when a clip is restored from the archive.
 
-**Payload:** Same as `clip:created`
+**Payload:**
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `id` | number | Unique clip identifier |
-| `content_type` | string | MIME type |
-| `filename` | string | Original filename |
-| `created_at` | string | ISO 8601 timestamp |
-| `is_archived` | boolean | Archive status (always `false`) |
 
 ```lua
-function on_clip_unarchived(clip)
-    log("Clip restored: " .. clip.filename)
-    storage.delete("archived:" .. clip.id)
+function on_clip_unarchived(data)
+    log("Clip restored: " .. tostring(data.id))
+    storage.delete("archived:" .. data.id)
 end
 ```
 
@@ -516,9 +505,9 @@ function on_clip_deleted(clip_id)
     log("Clip deleted (total: " .. count .. ")")
 end
 
-function on_clip_archived(clip)
-    if not clip then return end
-    log("Archived: " .. (clip.filename or "unknown"))
+function on_clip_archived(data)
+    if not data then return end
+    log("Archived clip: " .. tostring(data.id))
 end
 
 function on_tag_added_to_clip(data)

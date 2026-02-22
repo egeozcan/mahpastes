@@ -4,11 +4,11 @@ sidebar_position: 1
 
 # Clipboard Management
 
-The core of mahpastes: capture, organize, and retrieve any content from your clipboard.
+Store, organize, and retrieve clipboard content.
 
 ## Supported Content Types
 
-mahpastes handles a wide variety of content:
+mahpastes handles these content types:
 
 | Type | Examples | How It's Displayed |
 |------|----------|-------------------|
@@ -23,7 +23,7 @@ mahpastes handles a wide variety of content:
 
 ### Paste from Clipboard
 
-The primary way to add content:
+The main way to add content:
 
 1. Copy something to your system clipboard (from any app)
 2. Focus the mahpastes window
@@ -43,19 +43,9 @@ You can drop:
 - Single files
 - Multiple files at once
 
-### With Expiration
+### Expiration
 
-When adding clips, you can set them to auto-delete:
-
-1. Before pasting, click the expiration dropdown
-2. Select a duration:
-   - **5 minutes** — Quick temporary clips
-   - **10 minutes** — Short-term storage
-   - **30 minutes** — Medium-term
-   - **2 hours** — Longer temporary storage
-3. Paste as normal
-
-Clips with expiration show a **Temp** badge on the card.
+The backend supports per-clip expiration (auto-delete after a set time), but the expiration UI is not yet implemented in the frontend. See [Auto-Delete](./auto-delete.md) for details.
 
 ## Viewing Clips
 
@@ -143,9 +133,9 @@ Files created via "Copy Path" are stored in a temp directory and cleaned up peri
 
 ### Search
 
-Filter clips instantly:
+Filter clips by filename and content type:
 
-- Type in the search bar to filter by filename and content type
+- Type in the search bar to filter
 - Search is case-insensitive substring matching
 - Results update as you type
 - Filters only the currently visible cards (does not search clip contents)
@@ -226,9 +216,9 @@ For non-text files:
 
 ### For Temporary Files
 
-1. Paste with expiration set (e.g., 5 min)
+1. Paste content you need briefly
 2. Use as needed
-3. Let mahpastes clean up automatically
+3. Delete manually when done (per-clip expiration UI is not yet available)
 
 ## Limits and Performance
 

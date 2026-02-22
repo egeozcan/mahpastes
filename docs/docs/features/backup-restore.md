@@ -4,7 +4,7 @@ sidebar_position: 10
 
 # Backup & Restore
 
-Create complete backups of your mahpastes data and restore them on any machine. Backups are version-independent and include all clips, tags, plugins, and settings.
+Back up your mahpastes data and restore it on any machine. Backups include all clips, tags, plugins, and settings.
 
 ## Overview
 
@@ -57,6 +57,10 @@ After restore:
 | Plugins | Lua files and plugin storage |
 | Watch folders | Paths and configurations (paused on restore) |
 | Settings | General preferences |
+
+:::note Two Settings Tables
+The database has two separate settings tables: `settings` (stores watch folder pause state) and `app_settings` (stores actual app configuration like preferences). Both are included in backups and restored together.
+:::
 
 ### Excluded from Backup
 

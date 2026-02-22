@@ -4,7 +4,7 @@ sidebar_position: 3
 
 # Image Comparison
 
-Compare two images side-by-side with interactive fade and slider modes. Perfect for before/after comparisons, design reviews, and spotting differences.
+Compare two images using fade, slider, and diff modes. Includes zoom, alignment controls, image info, and keyboard shortcuts.
 
 ## Starting a Comparison
 
@@ -18,7 +18,7 @@ Compare two images side-by-side with interactive fade and slider modes. Perfect 
 
 ### Fade Mode
 
-Smoothly transition between two images with opacity control.
+Transition between two images with opacity control.
 
 **How it works:**
 - A slider controls the blend between images
@@ -47,7 +47,29 @@ A vertical divider reveals each image on its respective side.
 - Spotting specific differences
 - Before/after views
 
+### Diff Mode
+
+Shows pixel-level differences between the two images.
+
+**How it works:**
+- Pixels that differ are highlighted; identical pixels are dimmed
+- A threshold slider (1--100) controls sensitivity -- lower values catch smaller differences
+- A similarity percentage score is displayed, showing how closely the images match
+
+**Best for:**
+- Finding subtle changes between revisions
+- Verifying that two images are identical
+- QA and regression testing of visual output
+
 ## Controls
+
+### Swap
+
+Click the **Swap** button (or press <span className="keyboard-key">S</span>) to swap the two comparison images. The first image becomes the second and vice versa.
+
+### Image Info
+
+Displays dimensions, file size, and content type for both images in the comparison header.
 
 ### Zoom
 
@@ -105,6 +127,20 @@ Enable Stretch mode when comparing images of different dimensions. This aligns t
 3. Switch between with fade mode
 4. Present to stakeholders
 
+## Keyboard Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| <span className="keyboard-key">1</span> | Fade Mode |
+| <span className="keyboard-key">2</span> | Slider Mode |
+| <span className="keyboard-key">3</span> | Diff Mode |
+| <span className="keyboard-key">S</span> | Swap Images |
+| <span className="keyboard-key">+</span> / <span className="keyboard-key">=</span> | Zoom In |
+| <span className="keyboard-key">-</span> | Zoom Out |
+| <span className="keyboard-key">0</span> | Fit to Viewport |
+| <span className="keyboard-key">←</span> / <span className="keyboard-key">→</span> | Adjust fade/slider/diff range |
+| <span className="keyboard-key">Esc</span> | Close Comparison |
+
 ## Tips
 
 ### Getting the Best Comparison
@@ -112,7 +148,7 @@ Enable Stretch mode when comparing images of different dimensions. This aligns t
 - **Same dimensions**: Crop images to the same size before importing
 - **Same position**: Screenshot the same area for accurate comparison
 - **High zoom**: Check fine details at high zoom levels
-- **Both modes**: Use fade for overview, slider for specifics
+- **All three modes**: Use fade for overview, slider for spatial inspection, diff for pixel-level analysis
 
 ### Common Workflow
 
@@ -121,8 +157,9 @@ Enable Stretch mode when comparing images of different dimensions. This aligns t
 3. Select both, click Compare
 4. Start with fade mode to see overall changes
 5. Switch to slider mode for precise inspection
-6. Zoom into areas of interest
-7. Close when done
+6. Use diff mode to find subtle pixel differences
+7. Zoom into areas of interest
+8. Close when done
 
 ## Defaults
 
@@ -133,14 +170,10 @@ Enable Stretch mode when comparing images of different dimensions. This aligns t
 
 ## Closing
 
-Close the comparison modal by clicking the X button or clicking outside the comparison area. There is no keyboard shortcut to close the comparison modal.
+Close the comparison modal by clicking the X button, clicking outside the comparison area, or pressing <span className="keyboard-key">Esc</span>.
 
 ## Limitations
 
 - Only two images can be compared at once
 - Slider mode has a vertical divider only (no horizontal split)
-- Images are compared visually only (no diff calculation)
-- No <span className="keyboard-key">Esc</span> key to close (use the X button or click outside)
 - Very large images may affect performance
-
-For advanced image differencing (pixel-level diff highlighting), consider specialized diff tools.
