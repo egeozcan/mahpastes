@@ -550,7 +550,7 @@ input[type="range"].lightbox-range::-moz-range-thumb:hover {
 }
 
 input[type="range"].comparison-range {
-    width: 140px;
+    width: 200px;
     height: 4px;
     background: #e7e5e4;
     border-radius: 2px;

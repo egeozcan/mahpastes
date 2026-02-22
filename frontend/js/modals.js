@@ -1001,20 +1001,20 @@ function updateComparisonView() {
 
     // Mode updates
     if (comparisonMode === 'fade') {
-        modeFadeBtn.classList.add('bg-white', 'shadow-sm', 'text-blue-600');
-        modeFadeBtn.classList.remove('text-gray-500');
-        modeSliderBtn.classList.remove('bg-white', 'shadow-sm', 'text-blue-600');
-        modeSliderBtn.classList.add('text-gray-500');
+        modeFadeBtn.classList.add('bg-white', 'shadow-sm', 'text-stone-800');
+        modeFadeBtn.classList.remove('text-stone-500');
+        modeSliderBtn.classList.remove('bg-white', 'shadow-sm', 'text-stone-800');
+        modeSliderBtn.classList.add('text-stone-500');
 
         comparisonImgTopWrapper.style.clipPath = 'none';
         comparisonImgTop.style.opacity = value / 100;
         comparisonSliderLine.classList.add('hidden');
         comparisonRangeLabel.textContent = 'Opacity';
     } else {
-        modeSliderBtn.classList.add('bg-white', 'shadow-sm', 'text-blue-600');
-        modeSliderBtn.classList.remove('text-gray-500');
-        modeFadeBtn.classList.remove('bg-white', 'shadow-sm', 'text-blue-600');
-        modeFadeBtn.classList.add('text-gray-500');
+        modeSliderBtn.classList.add('bg-white', 'shadow-sm', 'text-stone-800');
+        modeSliderBtn.classList.remove('text-stone-500');
+        modeFadeBtn.classList.remove('bg-white', 'shadow-sm', 'text-stone-800');
+        modeFadeBtn.classList.add('text-stone-500');
 
         comparisonImgTopWrapper.style.clipPath = `inset(0 ${100 - value}% 0 0)`;
         comparisonImgTop.style.opacity = 1;
@@ -1032,15 +1032,15 @@ function updateComparisonView() {
         comparisonImgBottom.style.height = '1000px';
         comparisonImgBottom.style.objectFit = 'fill';
         comparisonImgTop.style.objectFit = 'fill';
-        toggleStretchBtn.classList.add('bg-blue-600', 'text-white');
-        toggleStretchBtn.classList.remove('bg-gray-100');
+        toggleStretchBtn.classList.add('bg-stone-800', 'text-white');
+        toggleStretchBtn.classList.remove('bg-stone-100');
     } else {
         comparisonImgBottom.style.width = 'auto';
         comparisonImgBottom.style.height = 'auto';
         comparisonImgBottom.style.objectFit = 'contain';
         comparisonImgTop.style.objectFit = 'contain';
-        toggleStretchBtn.classList.remove('bg-blue-600', 'text-white');
-        toggleStretchBtn.classList.add('bg-gray-100');
+        toggleStretchBtn.classList.remove('bg-stone-800', 'text-white');
+        toggleStretchBtn.classList.add('bg-stone-100');
     }
 
     // Zoom
