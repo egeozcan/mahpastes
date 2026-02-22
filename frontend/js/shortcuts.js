@@ -17,6 +17,16 @@ const ShortcutManager = (() => {
     // Whether the manager is initialized
     let initialized = false;
 
+    // Platform detection (cached — never changes during session)
+    const isMac = navigator.userAgentData
+        ? navigator.userAgentData.platform === 'macOS'
+        : /Mac|iPhone|iPad/.test(navigator.userAgent);
+
+    // Cached DOM references (gallery is the main hot-path element)
+    function getGallery() {
+        return document.getElementById('gallery');
+    }
+
     // --- Context Detection ---
 
     function getActiveContexts() {
@@ -94,7 +104,6 @@ const ShortcutManager = (() => {
 
     function comboToDisplay(combo) {
         if (!combo) return '—';
-        const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
         return combo
             .split('+')
             .map(part => {
@@ -200,7 +209,7 @@ const ShortcutManager = (() => {
     // --- Grid Navigation ---
 
     function getGridColumnCount() {
-        const gallery = document.getElementById('gallery');
+        const gallery = getGallery();
         if (!gallery) return 1;
         const style = getComputedStyle(gallery);
         const columns = style.getPropertyValue('grid-template-columns');
@@ -209,13 +218,13 @@ const ShortcutManager = (() => {
     }
 
     function getVisibleClipCount() {
-        const gallery = document.getElementById('gallery');
+        const gallery = getGallery();
         if (!gallery) return 0;
         return gallery.querySelectorAll(':scope > li').length;
     }
 
     function setFocusedClipIndex(index) {
-        const gallery = document.getElementById('gallery');
+        const gallery = getGallery();
         if (!gallery) return;
 
         const clips = gallery.querySelectorAll(':scope > li');
@@ -277,7 +286,7 @@ const ShortcutManager = (() => {
 
     function getFocusedClip() {
         if (focusedClipIndex < 0) return null;
-        const gallery = document.getElementById('gallery');
+        const gallery = getGallery();
         if (!gallery) return null;
         const clips = gallery.querySelectorAll(':scope > li');
         if (focusedClipIndex >= clips.length) return null;
@@ -423,7 +432,7 @@ const ShortcutManager = (() => {
             if (!items || items.length === 0) continue;
 
             html += `<div>`;
-            html += `<h3 class="text-[10px] font-semibold text-stone-400 uppercase tracking-wider mb-2">${categoryLabels[cat] || cat}</h3>`;
+            html += `<h3 class="text-[10px] font-semibold text-stone-400 uppercase tracking-wider mb-2">${escapeHTML(categoryLabels[cat] || cat)}</h3>`;
             html += `<div class="space-y-1.5">`;
 
             for (const item of items) {
