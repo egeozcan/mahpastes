@@ -447,17 +447,32 @@
     <div id="comparison-modal" class="comparison-backdrop" role="dialog" aria-modal="true"
         aria-label="Image Comparison">
         <div class="comparison-header">
-            <h3 class="text-sm font-medium">Compare</h3>
-            <button id="comparison-close" class="p-1.5 hover:bg-white/10 rounded-md transition-colors"
-                aria-label="Close comparison">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12">
-                    </path>
-                </svg>
-            </button>
+            <div class="flex items-center gap-3">
+                <h3 class="text-sm font-medium">Compare</h3>
+                <span id="comparison-similarity" class="text-[10px] font-medium text-stone-400 hidden"></span>
+            </div>
+            <div class="flex items-center gap-2">
+                <span id="comparison-image-info" class="text-[10px] font-medium text-stone-500 hidden md:inline"></span>
+                <button id="comparison-swap" class="p-1.5 hover:bg-white/10 rounded-md transition-colors"
+                    aria-label="Swap images" title="Swap images (S)">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                            d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
+                    </svg>
+                </button>
+                <button id="comparison-close" class="p-1.5 hover:bg-white/10 rounded-md transition-colors"
+                    aria-label="Close comparison">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12">
+                        </path>
+                    </svg>
+                </button>
+            </div>
         </div>
 
         <div class="comparison-viewport">
+            <span id="comparison-label-a" class="absolute top-4 left-4 z-20 text-[10px] font-semibold text-white/60 bg-black/30 px-1.5 py-0.5 rounded pointer-events-none">A</span>
+            <span id="comparison-label-b" class="absolute top-4 right-4 z-20 text-[10px] font-semibold text-white/60 bg-black/30 px-1.5 py-0.5 rounded pointer-events-none">B</span>
             <div id="comparison-container" class="comparison-container">
                 <img id="comparison-img-bottom" src="" alt="Bottom Image" class="comparison-img">
                 <div id="comparison-img-top-wrapper" class="comparison-img-top overflow-hidden">
@@ -472,6 +487,7 @@
                         </svg>
                     </div>
                 </div>
+                <img id="comparison-img-diff" src="" alt="Diff Image" class="comparison-img hidden">
             </div>
         </div>
 
@@ -483,6 +499,9 @@
                         class="px-3 py-1 rounded text-xs font-medium transition-all bg-white shadow-sm text-stone-800">Fade</button>
                     <button id="mode-slider"
                         class="px-3 py-1 rounded text-xs font-medium transition-all text-stone-500 hover:text-stone-700">Slider</button>
+                    <button id="mode-diff"
+                        class="px-3 py-1 rounded text-xs font-medium transition-all text-stone-500 hover:text-stone-700"
+                        title="Diff mode (3)">Diff</button>
                 </div>
             </div>
 
