@@ -97,7 +97,7 @@ If using Apple Silicon (M1/M2/M3):
 **Symptoms:** Import notification shows but clip isn't visible.
 
 **Solutions:**
-1. Check Archive tab (if auto-archive enabled)
+1. Check Archive view (if auto-archive enabled)
 2. Refresh the gallery
 3. Check for errors in notifications
 

@@ -6,6 +6,8 @@ sidebar_position: 3
 
 Complete reference for all keyboard shortcuts in mahpastes. Press <span className="keyboard-key">?</span> at any time to open the built-in shortcut cheatsheet.
 
+![Keyboard shortcuts cheatsheet](/img/screenshots/shortcuts-cheatsheet.png)
+
 ## System
 
 | Shortcut | Action |
@@ -179,4 +181,12 @@ The image editor maintains up to 50 undo steps.
 
 ## Customization
 
-Keyboard shortcuts cannot be customized. If this is important to your workflow, [open an issue](https://github.com/egeozcan/mahpastes/issues) on GitHub.
+You can customize most shortcuts from **Menu Drawer → Settings → Keyboard Shortcuts**:
+
+1. Open the menu drawer with <span className="keyboard-key">M</span> (or click the menu button)
+2. Open **Settings**
+3. Scroll to **Keyboard Shortcuts**
+4. Click any shortcut key badge and press a new key combo
+5. Use **Reset All to Defaults** to revert all custom bindings
+
+![Keyboard shortcut settings](/img/screenshots/shortcuts-settings.png)

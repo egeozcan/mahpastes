@@ -18,7 +18,7 @@ Set up watch folders to automatically capture files as they're created. No manua
 
 ### Basic Setup
 
-1. Click the **Watch** button in the header
+1. Open the menu drawer and click **Watch**
 2. Click **Add Folder**
 3. Select the folder to watch
 4. Configure options
@@ -162,7 +162,7 @@ You can watch several folders simultaneously:
 
 Temporarily stop watching a specific folder:
 
-1. Open Watch Folders settings
+1. Open Watch view (menu drawer → **Watch**)
 2. Click the pause button for that folder
 3. The folder stops being watched
 4. Click again to resume
@@ -177,7 +177,7 @@ Stop all watching at once:
 
 ### Removing Watch Folders
 
-1. Open Watch Folders settings
+1. Open Watch view (menu drawer → **Watch**)
 2. Click the delete button for the folder
 3. Confirm removal
 

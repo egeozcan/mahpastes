@@ -1,11 +1,6 @@
 import { test, expect } from '../../fixtures/test-fixtures.js';
 import { selectors } from '../../helpers/selectors.js';
-import {
-  generateTestImage,
-  generateTestJSON,
-  generateTestText,
-  createTempFile,
-} from '../../helpers/test-data.js';
+import { generateTestImage } from '../../helpers/test-data.js';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import { fileURLToPath } from 'url';
@@ -22,28 +17,44 @@ test('capture documentation screenshots', async ({ app, tempDir }) => {
 
   // === Setup: populate gallery with clips and tags ===
 
-  const imageFiles: string[] = [];
-  const colors: [number, number, number][] = [
-    [41, 128, 185],   // blue
-    [231, 76, 60],    // red
-    [46, 204, 113],   // green
-    [155, 89, 182],   // purple
-    [241, 196, 15],   // yellow
-    [52, 73, 94],     // dark slate
+  const imageFixtures: Array<{ filename: string; color: [number, number, number] }> = [
+    { filename: 'homepage-before.png', color: [41, 128, 185] },
+    { filename: 'workflow-warning.png', color: [231, 76, 60] },
+    { filename: 'plugin-permissions.png', color: [46, 204, 113] },
+    { filename: 'comparison-baseline.png', color: [155, 89, 182] },
+    { filename: 'comparison-updated.png', color: [241, 196, 15] },
+    { filename: 'archive-reference.png', color: [52, 73, 94] },
   ];
 
-  for (const color of colors) {
-    const imgPath = await createTempFile(generateTestImage(640, 480, color), 'png');
+  const imageFiles: string[] = [];
+  for (const fixture of imageFixtures) {
+    const imgPath = path.join(tempDir, fixture.filename);
+    await fs.writeFile(imgPath, generateTestImage(640, 480, fixture.color));
     await app.uploadFile(imgPath);
-    imageFiles.push(path.basename(imgPath));
+    imageFiles.push(fixture.filename);
   }
 
-  // Upload text and JSON files
-  const textPath = await createTempFile(generateTestText('mahpastes-demo'), 'txt');
-  await app.uploadFile(textPath);
+  // Upload text and JSON files with deterministic names and meaningful content
+  const releaseNotesPath = path.join(tempDir, 'release-notes.txt');
+  const releaseNotesContent = [
+    'mahpastes release notes',
+    '',
+    '- Header actions moved to the menu drawer',
+    '- Keyboard shortcuts can now be customized',
+    '- Plugin install flow supports URL sources',
+  ].join('\n');
+  await fs.writeFile(releaseNotesPath, releaseNotesContent);
+  await app.uploadFile(releaseNotesPath);
 
-  const jsonPath = await createTempFile(generateTestJSON(), 'json');
-  await app.uploadFile(jsonPath);
+  const apiResponsePath = path.join(tempDir, 'api-response.json');
+  const apiResponseContent = JSON.stringify({
+    status: 'ok',
+    version: '2.1.0',
+    features: ['drawer_navigation', 'shortcut_customization', 'plugin_updates'],
+    updated_at: '2026-02-22T12:00:00Z',
+  }, null, 2);
+  await fs.writeFile(apiResponsePath, apiResponseContent);
+  await app.uploadFile(apiResponsePath);
 
   // Create tags and assign to clips
   await app.createTag('screenshots');
@@ -127,21 +138,12 @@ test('capture documentation screenshots', async ({ app, tempDir }) => {
   });
 
   // === 8. Text editor screenshot ===
-  // Text and image editing share the same #editor-modal; text shows #text-editor-view
-  await app.refreshClips();
-  const clips = app.page.locator(selectors.gallery.clipCard);
-  const clipCount = await clips.count();
-  for (let i = 0; i < clipCount; i++) {
-    const filename = await clips.nth(i).getAttribute('data-filename');
-    if (filename && (filename.endsWith('.json') || filename.endsWith('.txt'))) {
-      await app.editClip(filename);
-      await app.page.waitForSelector(`${selectors.editor.modal}.active`);
-      await app.page.waitForTimeout(300);
-      await app.page.screenshot({ path: path.join(SCREENSHOTS_DIR, 'text-editor.png') });
-      await app.closeImageEditor();
-      break;
-    }
-  }
+  await app.editClip('release-notes.txt');
+  await app.page.waitForSelector(`${selectors.editor.modal}.active`);
+  await expect(app.page.locator('#text-editor-view')).toBeVisible();
+  await app.page.waitForTimeout(300);
+  await app.page.screenshot({ path: path.join(SCREENSHOTS_DIR, 'text-editor.png') });
+  await app.closeImageEditor();
 
   // === 9. Bulk actions screenshot ===
   for (let i = 0; i < Math.min(4, imageFiles.length); i++) {
@@ -168,14 +170,43 @@ test('capture documentation screenshots', async ({ app, tempDir }) => {
 
   // === 11. Settings screenshot ===
   await app.openSettingsModal();
+  await expect(app.page.locator('[data-testid="create-backup-btn"]')).toBeVisible();
   await app.page.waitForTimeout(300);
   await app.page.screenshot({ path: path.join(SCREENSHOTS_DIR, 'settings.png') });
+
+  // === 11b. Shortcuts settings screenshot ===
+  const shortcutsSection = app.page.locator('#settings-shortcuts-section');
+  await shortcutsSection.scrollIntoViewIfNeeded();
+  await expect(app.page.locator('#shortcuts-settings-list .shortcut-key-badge').first()).toBeVisible();
+  await app.page.waitForTimeout(200);
+  await app.page.screenshot({ path: path.join(SCREENSHOTS_DIR, 'shortcuts-settings.png') });
   await app.closeSettingsModal();
 
+  // === 11c. Shortcuts cheatsheet screenshot ===
+  await app.openCheatSheet();
+  expect(await app.isCheatSheetOpen()).toBe(true);
+  await app.page.waitForSelector('[data-testid="shortcuts-cheatsheet"].opacity-100');
+  await app.page.waitForTimeout(200);
+  await app.page.screenshot({ path: path.join(SCREENSHOTS_DIR, 'shortcuts-cheatsheet.png') });
+  await app.closeCheatSheet();
+
   // === 12. Plugins screenshot ===
+  const pluginPath = path.resolve(__dirname, '../../fixtures/test-plugin.lua');
+  const importedPlugin = await app.importPluginFromPath(pluginPath);
+  expect(importedPlugin).not.toBeNull();
+
   await app.openPluginsModal();
+  const pluginCardCount = await app.getPluginCardCount();
+  expect(pluginCardCount).toBeGreaterThan(0);
   await app.page.waitForTimeout(300);
   await app.page.screenshot({ path: path.join(SCREENSHOTS_DIR, 'plugins.png') });
+
+  // === 12b. Expanded plugin details screenshot ===
+  const firstPluginCard = app.page.locator('[data-testid^="plugin-card-"]').first();
+  await firstPluginCard.locator('[data-action="toggle-expand"]').click();
+  await expect(firstPluginCard.locator('[data-section="details"]')).toBeVisible();
+  await app.page.waitForTimeout(200);
+  await app.page.screenshot({ path: path.join(SCREENSHOTS_DIR, 'plugins-details.png') });
   await app.closePluginsModal();
 
   // === 13. Archive screenshot ===

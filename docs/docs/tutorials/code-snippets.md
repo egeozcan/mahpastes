@@ -44,8 +44,8 @@ Example names:
 Keep valuable snippets in the archive:
 
 1. Find the snippet in the gallery
-2. Click the archive button
-3. Snippet moves to Archive tab
+2. Open the clip menu (three dots) and click **Archive**
+3. Snippet moves to Archive view
 
 Benefits:
 - Won't be accidentally deleted
@@ -70,7 +70,7 @@ Search tips:
 ### Copy and Paste
 
 1. Find your snippet
-2. Click the copy button (or double-click)
+2. Open the clip menu (three dots) and click **Copy Contents**
 3. Paste into your editor
 
 ### Modify Before Using
@@ -80,16 +80,17 @@ Often you need to customize a snippet:
 1. Click the edit button on the snippet
 2. Modify the code in the editor
 3. Either:
-   - Save changes (updates the stored snippet)
+   - Save with **Save As** (creates a new updated clip)
    - Copy the text and cancel (keeps original)
 
 ### Copy Path for CLI
 
 Some tools work better with file paths:
 
-1. Click the path icon
-2. Path is copied to clipboard
-3. Use in terminal:
+1. Open the clip menu (three dots)
+2. Click **Copy Path**
+3. Path is copied to clipboard
+4. Use in terminal:
 
 ```bash
 # View with syntax highlighting (if bat installed)

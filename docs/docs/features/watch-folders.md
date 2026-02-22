@@ -16,7 +16,7 @@ Watch folders monitor directories on your system:
 
 ## Setting Up a Watch Folder
 
-1. Click the **Watch Folders** button (or gear icon)
+1. Open the menu drawer and click **Watch**
 2. Click **Add Folder**
 3. Select a folder using the file picker
 4. Configure filter and options
@@ -96,7 +96,7 @@ When adding a new watch folder:
 
 #### Per-Folder
 
-1. Open Watch Folders settings
+1. Open Watch view (menu drawer → **Watch**)
 2. Toggle the pause button for a specific folder
 3. Paused folders stop importing (but remain configured)
 
@@ -108,14 +108,14 @@ When adding a new watch folder:
 
 ### Edit Configuration
 
-1. Open Watch Folders settings
-2. Click the edit button on a folder
+1. Open Watch view (menu drawer → **Watch**)
+2. Click the folder card you want to edit
 3. Modify filter or options
 4. Save changes
 
 ### Remove
 
-1. Open Watch Folders settings
+1. Open Watch view (menu drawer → **Watch**)
 2. Click the delete button on a folder
 3. Confirm removal
 

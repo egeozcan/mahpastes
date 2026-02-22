@@ -22,7 +22,7 @@ Create a file called `hello.lua`:
 Plugin = {
     name = "Hello World",
     version = "1.0.0",
-    description = "Logs a message when the app starts",
+    description = "Shows a toast when the app starts",
     author = "Your Name",
 
     -- Subscribe to app startup event
@@ -31,22 +31,22 @@ Plugin = {
 
 -- Handler: runs when app starts
 function on_startup()
-    log("Hello from my first plugin!")
+    toast.show("Hello from my first plugin!", "success")
 end
 ```
 
 ## Installing Your Plugin
 
-1. Open **Settings** → **Plugins**
-2. Click **Import Plugin**
-3. Select your `hello.lua` file
-4. Click **Install**
+1. Open the menu drawer
+2. Click **Plugins**
+3. Click **Import**
+4. Select your `hello.lua` file
+5. Click **Approve & Install**
 
 ## Verifying It Works
 
 1. Restart mahpastes (or disable/enable the plugin)
-2. Click the **log icon** next to your plugin
-3. You should see: `Hello from my first plugin!`
+2. You should see a toast: `Hello from my first plugin!`
 
 ## Adding Event Handlers
 
@@ -56,19 +56,18 @@ Let's extend the plugin to react when clips are created:
 Plugin = {
     name = "Hello World",
     version = "1.0.0",
-    description = "Logs messages for app and clip events",
+    description = "Shows toasts for app and clip events",
     author = "Your Name",
 
     events = {"app:startup", "clip:created"},
 }
 
 function on_startup()
-    log("Hello from my first plugin!")
+    toast.show("Hello from my first plugin!", "success")
 end
 
 function on_clip_created(clip)
-    log("New clip created: " .. clip.filename)
-    log("Content type: " .. clip.content_type)
+    toast.show("New clip created: " .. clip.filename, "info")
 end
 ```
 

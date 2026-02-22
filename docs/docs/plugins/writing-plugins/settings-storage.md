@@ -90,7 +90,7 @@ If you exceed these limits, `storage.set()` will return `false` with an error me
 
 ## User-Configurable Settings
 
-Settings allow users to configure your plugin through the UI. They appear in the plugin's settings panel when the user clicks the gear icon.
+Settings allow users to configure your plugin through the UI. They appear in the plugin details panel when the user opens the **Plugins** modal and expands the plugin card.
 
 ### Declaring Settings in Manifest
 

@@ -17,7 +17,7 @@ The backup system creates a portable ZIP file containing:
 
 ## Creating a Backup
 
-1. Click **Settings** (gear icon)
+1. Open the menu drawer and click **Settings**
 2. Find the **Backup & Restore** section
 3. Click **Create Backup**
 4. Choose a location and filename
@@ -33,7 +33,7 @@ The backup file is a standard ZIP with a `.zip` extension.
 Restoring replaces ALL current data. This cannot be undone.
 :::
 
-1. Click **Settings** (gear icon)
+1. Open the menu drawer and click **Settings**
 2. Find the **Backup & Restore** section
 3. Click **Restore from Backup**
 4. Select your backup file

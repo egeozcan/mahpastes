@@ -4,122 +4,83 @@ sidebar_position: 5
 
 # Tags
 
-Organize your clips with color-coded tags for quick filtering and categorization.
+Organize clips with color-coded tags for quick filtering and grouping.
 
-## What are Tags?
+## What Tags Do
 
-Tags are labels you can attach to any clip. Each tag has:
-- A **name** (e.g., "work", "screenshots", "reference")
-- A **color** automatically assigned from 8 options
-
-Use tags to:
+Tags are labels you can attach to clips. They help you:
 - Group related clips across content types
-- Filter the gallery to find clips quickly
-- Mark clips for specific projects or purposes
+- Filter the gallery to find items quickly
+- Keep long-running work organized
 
-## Creating Tags
+Each tag has:
+- A name (for example: `work`, `screenshots`, `reference`)
+- An automatically assigned color
 
-### From the Tag Manager
+## Creating and Assigning Tags
 
-1. Click the **Tags** button in the header
-2. Click **New Tag**
-3. Enter a name and press Enter
+### From a Clip
 
-Tags are assigned colors automatically in rotation: stone, red, amber, green, blue, violet, pink, cyan.
+1. Open a clip's three-dot menu
+2. Click **Tags**
+3. In the tag popover, check existing tags to assign/unassign
 
-### While Assigning to a Clip
+### Create a New Tag While Tagging
 
-1. Click the tag icon on any clip card
-2. Type a new tag name in the input field
-3. Press Enter to create and assign in one step
+1. Open the **Tags** popover for a clip
+2. Type a new name in **New tag name...**
+3. Press Enter or click **Add**
 
-## Assigning Tags to Clips
-
-1. Click the **tag icon** on a clip card
-2. Select existing tags from the dropdown
-3. Click a tag to toggle it on/off
-
-Tags appear as colored badges on the clip card.
-
-## Filtering by Tags
-
-Click any tag badge in the **filter bar** (below the search) to show only clips with that tag.
-
-- Click a tag to enable the filter
-- Click again to disable
-- Multiple tags: shows clips matching **all** selected tags (AND logic)
-
-![Tag filter dropdown](/img/screenshots/tags.png)
-
-## Managing Tags
-
-### Rename a Tag
-
-1. Open the Tag Manager
-2. Click the tag name
-3. Edit and press Enter
-
-### Change Tag Color
-
-1. Open the Tag Manager
-2. Click the color circle next to a tag
-3. Select a new color from the palette
-
-### Delete a Tag
-
-1. Open the Tag Manager
-2. Click the delete icon next to a tag
-3. Confirm deletion
-
-:::warning
-Deleting a tag removes it from all clips. This cannot be undone.
-:::
+The tag is created and immediately assigned.
 
 ## Bulk Tagging
 
-Apply or remove tags from multiple clips at once:
+Apply tags to many clips at once:
 
-1. Enter **selection mode** (click "Select" or press <kbd>Shift</kbd>)
-2. Click clips to select them
-3. Click **Tag** in the bulk actions bar
-4. Choose tags to add or remove
+1. Select clips with their checkboxes
+2. Click **Tag** in the bulk action bar
+3. Check or uncheck tags in the popover
 
-## Tag Colors
+## Filtering by Tags
 
-Tags cycle through 8 colors in order:
+Use the tag filter button next to search:
 
-| Color | Hex |
-|-------|-----|
-| Stone | `#78716C` |
-| Red | `#EF4444` |
-| Amber | `#F59E0B` |
-| Green | `#22C55E` |
-| Blue | `#3B82F6` |
-| Violet | `#8B5CF6` |
-| Pink | `#EC4899` |
-| Cyan | `#06B6D4` |
+1. Click the tag icon button in the header
+2. Check one or more tags in the dropdown
+3. The gallery updates immediately
 
-The color is assigned based on how many tags exist when you create one.
+Filter behavior:
+- Multiple selected tags use **AND** logic
+- Active filters appear as chips under the header
+- Click a chip's `x` to remove just that filter
+- Use **Clear all** to reset all tag filters
+
+![Tag filter dropdown](/img/screenshots/tags.png)
 
 ## Hidden Tags
 
-Hide specific tags from the main gallery so clips tagged with them don't appear unless you're actively filtering by that tag.
+Hide specific tags from the default gallery view.
 
-### Setting Up Hidden Tags
+### Configure Hidden Tags
 
-1. Open **Settings** (gear icon)
-2. Find the **Hidden Tags** section
-3. Toggle on any tags you want to hide
+1. Open the menu drawer
+2. Click **Settings**
+3. In **Hidden Tags**, enable tags you want hidden
 
-### How Hidden Tags Work
+How hidden tags work:
+- Clips with hidden tags are excluded from default gallery results
+- If you explicitly filter by a hidden tag, matching clips appear
+- Hidden tags are marked with an eye-slash indicator in the filter dropdown
 
-- Clips with hidden tags are excluded from the main gallery view
-- If you actively filter by a hidden tag, the clips will appear (the filter overrides the hidden setting)
-- Hidden tags show an eye-slash icon in the tag filter dropdown
-- Hidden tag settings are stored per-instance and persist across sessions
+## Tag Colors
 
-### Use Cases
+Tag colors are assigned automatically in a rotating palette when tags are created.
 
-- **Work/Personal separation**: Hide personal tags during work
-- **Archived projects**: Hide tags for completed projects without deleting them
-- **Sensitive content**: Keep tagged content out of the default view
+## Current Limitations
+
+There is no standalone tag-management screen for rename/recolor/delete actions.
+
+Today, tag management is done through assignment popovers:
+- Assign/unassign tags on clip cards or bulk selection
+- Create new tags from the same popover
+- Unused tags are removed automatically once no clips reference them

@@ -28,12 +28,14 @@ Keep important clips separate from your active workspace. The archive provides l
 
 ## Viewing the Archive
 
-Click the **Archive** button in the header. When active, the button toggles to show "Active" to switch back.
+Click the archive button in the header (box icon), or open the menu drawer and click **Archive**.
 
 The archive view shows:
 - All archived clips in a grid
 - Same display format as main gallery
 - Search and tag filters work here too
+
+![Archive view](/img/screenshots/archive.png)
 
 ## Unarchiving
 

@@ -233,7 +233,7 @@ end
 ### Configuration
 
 1. Install the plugin
-2. Click the gear icon next to the plugin
+2. Open the Plugins modal and expand the plugin card
 3. Enter your webhook URL:
    - **Slack:** `Get your webhook URL from Slack API`
    - **Discord:** `Get your webhook URL from Discord server settings`
@@ -420,7 +420,7 @@ end
 ### Configuration
 
 1. Install the plugin
-2. Click the gear icon next to the plugin
+2. Open the Plugins modal and expand the plugin card
 3. Configure:
    - **Delete clips older than:** Choose 7, 14, 30, 60, or 90 days
    - **Dry Run Mode:** Leave enabled initially to see what would be deleted

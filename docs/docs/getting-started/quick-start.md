@@ -35,11 +35,12 @@ The main window shows your clips in a grid layout:
 
 ### Clip Actions
 
-Hover over a clip to reveal action buttons:
+Open the clip context menu (three dots on each card) to access actions:
 
 | Button | Action |
 |--------|--------|
-| **Copy** | Copy content back to clipboard |
+| **Copy Contents** | Copy content back to clipboard |
+| **Copy File** | Copy the clip as a file to clipboard |
 | **Copy Path** | Create temp file and copy its path |
 | **Edit** | Open in image or text editor |
 | **Archive** | Move to archive |
@@ -52,16 +53,19 @@ Hover over a clip to reveal action buttons:
 
 ### Copy Back to Clipboard
 
-Click the **Copy** button or double-click a clip to copy it back to your system clipboard. You can then paste it anywhere.
+Use a clip's three-dot menu and click **Copy Contents**. You can then paste it anywhere.
+
+For images in the lightbox, <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">C</span> also copies the active clip contents.
 
 ### Copy Path
 
 Need to reference a file in terminal or another app? Use **Copy Path**:
 
-1. Click the path icon on any clip
-2. mahpastes creates a temporary file
-3. The file path is copied to your clipboard
-4. Paste the path wherever you need it
+1. Open the clip menu (three dots)
+2. Click **Copy Path**
+3. mahpastes creates a temporary file
+4. The file path is copied to your clipboard
+5. Paste the path wherever you need it
 
 Temp files are cleaned up when you quit mahpastes.
 
@@ -73,17 +77,11 @@ Use the search bar to filter clips:
 - Filter by type (images, text, etc.)
 - Results update instantly
 
-## Setting Expiration
+## Clip Expiration
 
-Clips can auto-delete after a set time. When pasting or uploading:
+Per-clip expiration (auto-delete timers) exists in the backend but is not currently exposed in the frontend UI.
 
-1. Click the expiration dropdown
-2. Choose: **5 min**, **10 min**, **30 min**, or **2 hours**
-3. The clip will be automatically deleted after the time elapses
-
-:::note
-There is no UI button to cancel expiration once set. Use "Never" expiration for clips you want to keep permanently.
-:::
+See [Auto-Delete](/features/auto-delete) for current behavior and limitations.
 
 ## Using the Archive
 
@@ -91,15 +89,15 @@ The archive keeps important clips separate from your active workspace.
 
 ### Archive a Clip
 
-Click the archive icon on any clip. It moves to the archive section.
+Open a clip's three-dot menu and click **Archive**. It moves to the archive section.
 
 ### View Archived Clips
 
-Click the **Archive** tab at the top of the window to see archived clips.
+Click the **Archive** button in the header, or open the menu drawer and click **Archive**, to see archived clips.
 
 ### Unarchive
 
-Click the archive icon again to move a clip back to the main gallery.
+In Archive view, open a clip's menu and click **Restore** to move it back to the main gallery.
 
 ## Editing Clips
 

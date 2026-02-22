@@ -4,178 +4,149 @@ sidebar_position: 2
 
 # Installing Plugins
 
-Add, configure, and manage plugins through the Settings panel.
+Add, configure, and manage plugins from the **Plugins** modal.
+
+## Open the Plugins Modal
+
+1. Open the menu drawer
+2. Click **Plugins**
+
+![Plugins modal](/img/screenshots/plugins.png)
 
 ## Adding a Plugin from File
 
-1. Open **Settings** (gear icon in header)
-2. Navigate to the **Plugins** tab
-3. Click **Import Plugin**
-4. Select a `.lua` file from your computer
-5. Review the permissions requested
-6. Click **Install**
+1. Open the **Plugins** modal
+2. Click **Import**
+3. Select a `.lua` file from your computer
+4. Review requested permissions
+5. Click **Approve & Install**
 
-The plugin activates immediately after installation.
+The plugin is installed and enabled immediately.
 
 ## Installing from URL
 
-You can install plugins directly from a URL:
+You can install plugins directly from an HTTP(S) URL:
 
-1. Open **Settings** → **Plugins**
-2. Click the **link icon** to show the URL input
-3. Paste a URL pointing to a `.lua` plugin file
-4. Click **Install from URL**
-5. Review the plugin's name, version, permissions, and events
-6. Click **Confirm** to install
+1. Open the **Plugins** modal
+2. Click **URL**
+3. Paste a URL that points to a `.lua` plugin file
+4. Click **Install**
+5. Review name, version, permissions, and events
+6. Click **Approve & Install**
 
-URL-installed plugins remember their source URL, enabling automatic update checks.
-
-The plugin source is fetched, parsed, and cached before the review dialog appears. The cached copy is used for installation, so the remote source cannot change between your review and the actual install.
+URL-installed plugins keep their source URL so they can be checked for updates.
 
 :::note
-Only `http://` and `https://` URLs are supported. The plugin file must be under 1MB.
+Only `http://` and `https://` URLs are supported. Plugin source files must be under 1MB.
 :::
 
 ## Reviewing Permissions
 
-Before installing, review what the plugin requests:
+Before install/update, review the permission summary:
 
-### Network Permissions
+### Network Access
 
-Shows which domains the plugin can contact:
+Shows allowed domains and methods (including wildcard subdomains if declared).
 
-```
-Network Access:
-  api.dropbox.com — GET, POST
-  hooks.slack.com — POST
-```
+### Filesystem Access
 
-Only listed domains with listed methods are allowed. Wildcard subdomains (e.g., `*.cdn.example.com`) may also appear.
+Shows whether the plugin requests read and/or write access.
 
-### Filesystem Permissions
+Folder-level access is approved when the plugin first attempts filesystem operations.
 
-Shows if the plugin wants to read or write files:
+### Clipboard Access
 
-```
-Filesystem Access:
-  Read: Yes
-  Write: Yes
-```
+Shows whether the plugin can write to system clipboard.
 
-You'll approve specific folders the first time the plugin tries to access them. Approving a parent directory covers all files and subdirectories within it.
+### Events
 
-### Clipboard Permission
-
-Shows if the plugin can write to your system clipboard:
-
-```
-Clipboard Access: Yes
-```
+Shows the event subscriptions declared by the plugin manifest.
 
 ## Configuring Plugin Settings
 
-Some plugins have configurable settings:
+If a plugin defines settings:
 
-1. Click the **gear icon** next to a plugin
-2. Fill in the settings form
-3. Click **Save**
+1. Open the **Plugins** modal
+2. Click the plugin card to expand details
+3. Edit fields in the **Settings** section
 
-Settings types include:
-- **Text** — Free-form input
-- **Password** — Hidden input (for API keys)
-- **Checkbox** — On/off toggle
-- **Select** — Dropdown choices
+Settings are saved automatically as you edit.
 
-## Enabling and Disabling
+![Expanded plugin details](/img/screenshots/plugins-details.png)
 
-Toggle a plugin on/off without removing it:
+## Enabling and Disabling Plugins
 
-1. Find the plugin in the list
-2. Click the **toggle switch**
+1. Open the **Plugins** modal
+2. Use the toggle switch on the plugin row
 
 Disabled plugins:
-- Don't respond to events
-- Don't run scheduled tasks
+- Do not respond to events
+- Do not run scheduled tasks
 - Keep their settings and permissions
 
-## Viewing Plugin Logs
+## Revoking Filesystem Permissions
 
-See what a plugin is doing:
+1. Expand a plugin card
+2. In **Permissions**, click **Revoke** next to a granted path
 
-1. Click the **log icon** next to a plugin
-2. View recent log entries
-
-Logs show:
-- Handler executions with timestamps
-- Errors and warnings
-- Custom `log()` messages from the plugin
-
-## Revoking Permissions
-
-Remove filesystem permissions granted to a plugin:
-
-1. Click the **permissions icon** next to a plugin
-2. View granted folder permissions
-3. Click **Revoke** next to any permission
-
-The plugin will need to request access again.
+The plugin must request access again the next time it needs that location.
 
 ## Removing a Plugin
 
-1. Click the **delete icon** next to a plugin
-2. Confirm removal
+1. Expand the plugin card
+2. Click **Remove Plugin**
+3. Confirm removal
 
-This removes:
-- The plugin code
-- All granted permissions
-- Plugin storage data
-
-:::note
-Plugin settings and storage are deleted when you remove a plugin. Export any important data first.
-:::
+Removal deletes:
+- Plugin code
+- Granted permissions
+- Plugin storage/settings data
 
 ## Updating Plugins
 
 ### Manual Updates
 
-For URL-installed plugins, click the **update** button next to the plugin to check for a new version.
+For URL-installed plugins, click **Update** on the plugin row.
 
-- If the update has **no permission changes**, it applies immediately.
-- If the update has **new or changed permissions** (network domains, filesystem, clipboard, events), you'll see a review dialog before confirming.
-- If the update fails to load, the previous version is automatically restored.
+- If no new permissions are required, update applies immediately
+- If permissions changed, a review dialog appears first
+- If update fails, the previous version is restored automatically
 
 ### Automatic Update Checks
 
-Configure how often mahpastes checks for plugin updates:
+Set the global update-check policy in Settings:
 
-1. Open **Settings** → **Plugins**
-2. Find the **Update Check Interval** setting
-3. Choose an interval:
-   - **Startup only** — Check once when the app launches
-   - **Every 6 hours**
-   - **Every 24 hours**
-   - **Disabled** — Never check automatically
+1. Open menu drawer
+2. Click **Settings**
+3. In **Plugin Updates**, choose an interval:
+   - On startup only
+   - Every 6 hours
+   - Every 24 hours
+   - Disabled
 
-When an update is available, a badge appears on the plugin card.
+When an update is available, an **Update available** label appears on the plugin row.
 
 ## Troubleshooting
 
-### Plugin shows "Error" status
+### Plugin shows error/disabled status
 
-The plugin is auto-disabled after 3 consecutive handler errors. It stops receiving events and running scheduled tasks until you re-enable it. Options:
-- View logs to diagnose the issue
-- Disable and re-enable to reset the error counter and retry
-- Remove and reinstall if the plugin was updated
+A plugin is auto-disabled after repeated handler failures.
+
+Try:
+- Re-enable the plugin after fixing settings
+- Update or reinstall the plugin
+- Remove the plugin if it is no longer maintained
 
 ### Plugin not responding to events
 
 Check that:
-- The plugin is enabled (toggle is on)
-- The plugin subscribes to that event (check plugin docs)
-- No errors in the plugin log
+- The plugin is enabled
+- The plugin actually subscribes to the event
+- Required permissions were approved
 
-### Filesystem prompts appearing repeatedly
+### Repeated filesystem prompts
 
-The plugin is accessing new folders. Either:
-- Approve the folders it needs
-- Check if the plugin is misconfigured
+The plugin is requesting new paths not previously approved.
+
+- Approve the needed folder(s)
+- Or adjust plugin settings so it targets expected directories only

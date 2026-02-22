@@ -17,6 +17,8 @@ Edit text and code clips directly within mahpastes. Modify content, fix typos, o
 Clicking a text preview in the gallery also opens the editor directly.
 :::
 
+![Text editor](/img/screenshots/text-editor.png)
+
 Text-based clips include:
 - Plain text
 - Code (any language)
