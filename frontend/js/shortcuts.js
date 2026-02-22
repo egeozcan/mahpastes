@@ -104,6 +104,9 @@ const ShortcutManager = (() => {
         ',': '<', '.': '>', '`': '~'
     };
 
+    // Set of shifted punctuation chars — shift is implicit in these characters
+    const SHIFTED_CHARS = new Set(Object.values(SHIFT_KEY_MAP));
+
     function eventToCombo(e) {
         const parts = [];
         if (e.metaKey || e.ctrlKey) parts.push('mod');
@@ -116,6 +119,12 @@ const ShortcutManager = (() => {
         // Normalize shifted punctuation for headless browsers
         if (e.shiftKey && key.length === 1 && SHIFT_KEY_MAP[key]) {
             key = SHIFT_KEY_MAP[key];
+        }
+        // Strip 'shift' for shifted punctuation chars (shift is implicit in the char).
+        // e.g. Shift+= produces '+', Shift+/ produces '?' — no need for explicit shift.
+        if (e.shiftKey && key.length === 1 && SHIFTED_CHARS.has(key)) {
+            const idx = parts.indexOf('shift');
+            if (idx !== -1) parts.splice(idx, 1);
         }
         if (key.length === 1) key = key.toLowerCase();
 

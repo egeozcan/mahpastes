@@ -353,7 +353,7 @@ window.addEventListener('load', async () => {
         // System
         ShortcutManager.register({
             id: 'show-cheatsheet', label: 'Show Shortcuts', category: 'system',
-            defaultKey: 'shift+?', context: 'global',
+            defaultKey: '?', context: 'global',
             callback: () => {
                 if (ShortcutManager.isCheatSheetOpen()) {
                     ShortcutManager.closeCheatSheet();
@@ -404,7 +404,7 @@ window.addEventListener('load', async () => {
         ShortcutManager.register({
             id: 'open-plugins', label: 'Open Plugins', category: 'navigation',
             defaultKey: 'p', context: 'gallery',
-            callback: () => { if (typeof openPluginsModal === 'function') openPluginsModal(); }
+            callback: () => { if (typeof openPlugins === 'function') openPlugins(); }
         });
         ShortcutManager.register({
             id: 'open-drawer', label: 'Open Menu', category: 'navigation',
@@ -421,7 +421,10 @@ window.addEventListener('load', async () => {
         ShortcutManager.register({
             id: 'select-all', label: 'Select All', category: 'gallery',
             defaultKey: 'mod+a', context: 'gallery',
-            callback: () => toggleSelectAll()
+            callback: () => {
+                selectAllCheckbox.checked = !selectAllCheckbox.checked;
+                toggleSelectAll();
+            }
         });
         ShortcutManager.register({
             id: 'clear-temp', label: 'Clear Temp Files', category: 'gallery',
