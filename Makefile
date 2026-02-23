@@ -1,8 +1,20 @@
-WAILS := ~/go/bin/wails
 APP_NAME := mahpastes
 BUILD_DIR := build/bin
-APP_BUNDLE := $(BUILD_DIR)/$(APP_NAME).app
-INSTALL_DIR := /Applications
+
+# OS detection
+ifeq ($(OS),Windows_NT)
+    WAILS := wails
+    APP_EXE := $(BUILD_DIR)/$(APP_NAME).exe
+    INSTALL_DIR := $(APPDATA)/$(APP_NAME)
+    PLUGIN_DIR := $(APPDATA)/$(APP_NAME)/plugins
+    SHELL := cmd.exe
+    .SHELLFLAGS := /c
+else
+    WAILS := ~/go/bin/wails
+    APP_BUNDLE := $(BUILD_DIR)/$(APP_NAME).app
+    INSTALL_DIR := /Applications
+    PLUGIN_DIR := $(HOME)/Library/Application Support/mahpastes/plugins
+endif
 
 .PHONY: dev build clean install uninstall bindings test screenshots
 
@@ -16,15 +28,37 @@ dev: ## Start development server with hot reload
 build: clean ## Production build (clean)
 	$(WAILS) build
 
+ifeq ($(OS),Windows_NT)
+clean: ## Remove build artifacts
+	if exist "$(subst /,\,$(BUILD_DIR))" rd /s /q "$(subst /,\,$(BUILD_DIR))"
+else
 clean: ## Remove build artifacts
 	rm -rf $(BUILD_DIR)
+endif
 
 bindings: ## Regenerate Wails frontend bindings after Go changes
 	$(WAILS) generate module
 
 ## Install
 
-install: build ## Build and install to /Applications (kills running instance)
+ifeq ($(OS),Windows_NT)
+install: build ## Build and install (kills running instance)
+	-taskkill /IM "$(APP_NAME).exe" /F 2>nul
+	timeout /t 1 /nobreak >nul
+	if not exist "$(INSTALL_DIR)" mkdir "$(INSTALL_DIR)"
+	copy "$(subst /,\,$(APP_EXE))" "$(INSTALL_DIR)\$(APP_NAME).exe"
+	@echo Installed to $(INSTALL_DIR)\$(APP_NAME).exe
+	if not exist "$(PLUGIN_DIR)" mkdir "$(PLUGIN_DIR)"
+	copy plugins\*.lua "$(PLUGIN_DIR)\"
+	@echo Updated bundled plugins
+	start "" "$(INSTALL_DIR)\$(APP_NAME).exe"
+
+uninstall: ## Remove installed app
+	-taskkill /IM "$(APP_NAME).exe" /F 2>nul
+	if exist "$(INSTALL_DIR)" rd /s /q "$(INSTALL_DIR)"
+	@echo Removed $(APP_NAME) from $(INSTALL_DIR)
+else
+install: build ## Build and install (kills running instance)
 	@pkill -f "$(APP_NAME).app/Contents/MacOS/$(APP_NAME)" 2>/dev/null || true
 	@sleep 1
 	rm -rf $(INSTALL_DIR)/$(APP_NAME).app
@@ -32,15 +66,16 @@ install: build ## Build and install to /Applications (kills running instance)
 	xattr -cr $(INSTALL_DIR)/$(APP_NAME).app
 	@echo "Installed to $(INSTALL_DIR)/$(APP_NAME).app"
 	@# Update bundled plugins
-	@mkdir -p "$(HOME)/Library/Application Support/mahpastes/plugins"
-	@cp plugins/*.lua "$(HOME)/Library/Application Support/mahpastes/plugins/"
+	@mkdir -p "$(PLUGIN_DIR)"
+	@cp plugins/*.lua "$(PLUGIN_DIR)/"
 	@echo "Updated bundled plugins"
 	open $(INSTALL_DIR)/$(APP_NAME).app
 
-uninstall: ## Remove from /Applications
+uninstall: ## Remove installed app
 	@pkill -f "$(APP_NAME).app/Contents/MacOS/$(APP_NAME)" 2>/dev/null || true
 	rm -rf $(INSTALL_DIR)/$(APP_NAME).app
 	@echo "Removed $(APP_NAME) from $(INSTALL_DIR)"
+endif
 
 ## Testing
 
@@ -58,7 +93,22 @@ screenshots: ## Capture documentation screenshots via Playwright
 
 ## Help
 
+ifeq ($(OS),Windows_NT)
+help: ## Show this help
+	@echo Available targets:
+	@echo   dev            Start development server with hot reload
+	@echo   build          Production build (clean)
+	@echo   clean          Remove build artifacts
+	@echo   install        Build and install (kills running instance)
+	@echo   uninstall      Remove installed app
+	@echo   bindings       Regenerate Wails frontend bindings after Go changes
+	@echo   test           Run e2e tests
+	@echo   test-headed    Run e2e tests with visible browser
+	@echo   test-debug     Run e2e tests with Playwright inspector
+	@echo   screenshots    Capture documentation screenshots via Playwright
+else
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-15s\033[0m %s\n", $$1, $$2}'
+endif
 
 .DEFAULT_GOAL := help
