@@ -4,8 +4,10 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"image"
@@ -41,6 +43,12 @@ type App struct {
 // NewApp creates a new App instance
 func NewApp() *App {
 	return &App{}
+}
+
+// computeContentHash returns the hex-encoded SHA-256 hash of data.
+func computeContentHash(data []byte) string {
+	hash := sha256.Sum256(data)
+	return hex.EncodeToString(hash[:])
 }
 
 // emitWatchError sends an error event to the frontend
@@ -566,8 +574,9 @@ func (a *App) UploadFileAndGetID(file FileData) (int64, error) {
 		}
 	}
 
-	result, err := a.db.Exec("INSERT INTO clips (content_type, data, filename) VALUES (?, ?, ?)",
-		contentType, data, file.Name)
+	contentHash := computeContentHash(data)
+	result, err := a.db.Exec("INSERT INTO clips (content_type, data, filename, content_hash) VALUES (?, ?, ?, ?)",
+		contentType, data, file.Name, contentHash)
 	if err != nil {
 		return 0, fmt.Errorf("failed to insert into db: %w", err)
 	}
@@ -575,6 +584,15 @@ func (a *App) UploadFileAndGetID(file FileData) (int64, error) {
 	id, err := result.LastInsertId()
 	if err != nil {
 		return 0, fmt.Errorf("failed to get inserted ID: %w", err)
+	}
+
+	var dupCount int
+	a.db.QueryRow("SELECT COUNT(*) FROM clips WHERE content_hash = ? AND id != ?", contentHash, id).Scan(&dupCount)
+	if dupCount > 0 {
+		runtime.EventsEmit(a.ctx, "clip:duplicate", map[string]interface{}{
+			"id":    id,
+			"count": dupCount,
+		})
 	}
 
 	return id, nil
@@ -612,20 +630,31 @@ func (a *App) UploadFiles(files []FileData, expirationMinutes int) error {
 			}
 		}
 
-		result, err := a.db.Exec("INSERT INTO clips (content_type, data, filename, expires_at) VALUES (?, ?, ?, ?)",
-			contentType, data, file.Name, expiresAt)
+		contentHash := computeContentHash(data)
+		result, err := a.db.Exec("INSERT INTO clips (content_type, data, filename, expires_at, content_hash) VALUES (?, ?, ?, ?, ?)",
+			contentType, data, file.Name, expiresAt, contentHash)
 		if err != nil {
 			log.Printf("Failed to insert into db: %v\n", err)
 			continue
 		}
 
+		clipID, _ := result.LastInsertId()
+
 		// Emit plugin event
 		if a.pluginManager != nil {
-			clipID, _ := result.LastInsertId()
 			a.pluginManager.EmitEvent("clip:created", map[string]interface{}{
 				"id":           clipID,
 				"content_type": contentType,
 				"filename":     file.Name,
+			})
+		}
+
+		var dupCount int
+		a.db.QueryRow("SELECT COUNT(*) FROM clips WHERE content_hash = ? AND id != ?", contentHash, clipID).Scan(&dupCount)
+		if dupCount > 0 {
+			runtime.EventsEmit(a.ctx, "clip:duplicate", map[string]interface{}{
+				"id":    clipID,
+				"count": dupCount,
 			})
 		}
 	}
