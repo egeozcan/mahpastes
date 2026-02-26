@@ -44,6 +44,7 @@ Plugin = {
                         choices = {
                             {value = "flux2", label = "FLUX.2 Turbo"},
                             {value = "flux2pro", label = "FLUX.2 Pro"},
+                            {value = "nanobanana2", label = "Nano Banana 2"},
                             {value = "flux1dev", label = "FLUX.1 Dev"},
                         }
                     },
@@ -85,6 +86,7 @@ local FAL_ENDPOINTS = {
     flux2 = "fal-ai/flux-2/turbo/edit",
     flux2pro = "fal-ai/flux-2-pro/edit",
     flux1dev = "fal-ai/flux/dev/image-to-image",
+    nanobanana2 = "fal-ai/nano-banana-2/edit",
     vectorize = "fal-ai/recraft/vectorize",
 }
 
@@ -139,6 +141,12 @@ local function build_request(action_id, data_uri, options)
                 num_inference_steps = 40,
                 guidance_scale = 3.5,
                 safety_tolerance = 5,
+            }
+        elseif model == "nanobanana2" then
+            return FAL_ENDPOINTS.nanobanana2, {
+                image_urls = {data_uri},
+                prompt = prompt,
+                safety_tolerance = 6,
             }
         else
             local endpoint = FAL_ENDPOINTS[model] or FAL_ENDPOINTS.flux2
