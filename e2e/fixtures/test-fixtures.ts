@@ -2155,10 +2155,6 @@ export class AppHelper {
     await this.page.locator(selectors.cardMenu.cancelExpiration).click();
   }
 
-  async setUploadExpiration(preset: string): Promise<void> {
-    await this.page.locator(selectors.expiration.uploadSelect).selectOption(preset);
-  }
-
   async expectClipHasExpirationBadge(filename: string): Promise<void> {
     const clip = await this.getClipByFilename(filename);
     await expect(clip.locator(selectors.expiration.badge)).toBeVisible();

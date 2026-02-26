@@ -91,7 +91,6 @@ export const selectors = {
   // Expiration
   expiration: {
     popover: '.expiration-popover',
-    uploadSelect: '#upload-expiry-select',
     badge: '.absolute.top-2.left-2',
   },
 
