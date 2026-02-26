@@ -709,6 +709,90 @@ func (a *App) DeleteClip(id int64) error {
 	return nil
 }
 
+// MergeDuplicates keeps the oldest clip with the given content_hash,
+// merges tags from all duplicates onto it, deletes the duplicates,
+// and updates the survivor's created_at to now.
+func (a *App) MergeDuplicates(clipID int64) error {
+	// Get the content_hash for this clip
+	var contentHash string
+	err := a.db.QueryRow("SELECT content_hash FROM clips WHERE id = ?", clipID).Scan(&contentHash)
+	if err != nil {
+		return fmt.Errorf("failed to get clip hash: %w", err)
+	}
+	if contentHash == "" {
+		return fmt.Errorf("clip has no content hash")
+	}
+
+	// Find all clips with same hash, ordered by id (oldest first)
+	rows, err := a.db.Query("SELECT id FROM clips WHERE content_hash = ? ORDER BY id ASC", contentHash)
+	if err != nil {
+		return fmt.Errorf("failed to find duplicates: %w", err)
+	}
+	var allIDs []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err == nil {
+			allIDs = append(allIDs, id)
+		}
+	}
+	rows.Close()
+
+	if len(allIDs) < 2 {
+		return nil // No duplicates
+	}
+
+	survivorID := allIDs[0] // Oldest
+	duplicateIDs := allIDs[1:]
+
+	tx, err := a.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Merge tags from all duplicates to survivor
+	for _, dupID := range duplicateIDs {
+		_, err := tx.Exec(`
+			INSERT OR IGNORE INTO clip_tags (clip_id, tag_id)
+			SELECT ?, tag_id FROM clip_tags WHERE clip_id = ?
+		`, survivorID, dupID)
+		if err != nil {
+			return fmt.Errorf("failed to merge tags from clip %d: %w", dupID, err)
+		}
+	}
+
+	// Delete clip_tags for duplicates
+	for _, dupID := range duplicateIDs {
+		tx.Exec("DELETE FROM clip_tags WHERE clip_id = ?", dupID)
+	}
+
+	// Delete duplicate clips
+	for _, dupID := range duplicateIDs {
+		tx.Exec("DELETE FROM clips WHERE id = ?", dupID)
+	}
+
+	// Update survivor's created_at to now (moves to top)
+	tx.Exec("UPDATE clips SET created_at = CURRENT_TIMESTAMP WHERE id = ?", survivorID)
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit merge: %w", err)
+	}
+
+	// Clean temp files for deleted clips
+	if err := a.deleteTempFilesForClipIDs(duplicateIDs); err != nil {
+		log.Printf("Warning: failed to clean temp files for merged clips: %v", err)
+	}
+
+	// Emit plugin events
+	if a.pluginManager != nil {
+		for _, dupID := range duplicateIDs {
+			a.pluginManager.EmitEvent("clip:deleted", dupID)
+		}
+	}
+
+	return nil
+}
+
 // ToggleArchive toggles the archived status of a clip
 func (a *App) ToggleArchive(id int64) error {
 	_, err := a.db.Exec("UPDATE clips SET is_archived = NOT is_archived WHERE id = ?", id)
