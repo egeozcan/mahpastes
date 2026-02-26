@@ -253,7 +253,8 @@ type ClipPreview struct {
 	Preview     string     `json:"preview"`
 	IsArchived  bool       `json:"is_archived"`
 	Tags        []Tag      `json:"tags"`
-	Size        int64      `json:"size"`
+	Size           int64      `json:"size"`
+	DuplicateCount int        `json:"duplicate_count"`
 }
 
 // ClipData for full clip retrieval
@@ -382,7 +383,8 @@ func (a *App) GetClips(archived bool, tagIDs []int64, hiddenTagIDs []int64) ([]C
 		args = append(args, archivedInt, len(tagIDs))
 
 		query = fmt.Sprintf(`
-		SELECT c.id, c.content_type, c.filename, c.created_at, c.expires_at, SUBSTR(c.data, 1, 500), c.is_archived, LENGTH(c.data)
+		SELECT c.id, c.content_type, c.filename, c.created_at, c.expires_at, SUBSTR(c.data, 1, 500), c.is_archived, LENGTH(c.data),
+		       (SELECT COUNT(*) FROM clips c2 WHERE c2.content_hash = c.content_hash AND c2.content_hash != '' AND c2.id != c.id)
 		FROM clips c
 		INNER JOIN clip_tags ct ON c.id = ct.clip_id%s
 		WHERE ct.tag_id IN (%s)
@@ -402,7 +404,8 @@ func (a *App) GetClips(archived bool, tagIDs []int64, hiddenTagIDs []int64) ([]C
 		args = append(args, archivedInt)
 
 		query = fmt.Sprintf(`
-		SELECT c.id, c.content_type, c.filename, c.created_at, c.expires_at, SUBSTR(c.data, 1, 500), c.is_archived, LENGTH(c.data)
+		SELECT c.id, c.content_type, c.filename, c.created_at, c.expires_at, SUBSTR(c.data, 1, 500), c.is_archived, LENGTH(c.data),
+		       (SELECT COUNT(*) FROM clips c2 WHERE c2.content_hash = c.content_hash AND c2.content_hash != '' AND c2.id != c.id)
 		FROM clips c
 		LEFT JOIN clip_tags ht ON c.id = ht.clip_id AND ht.tag_id IN (%s)
 		WHERE ht.clip_id IS NULL
@@ -414,10 +417,11 @@ func (a *App) GetClips(archived bool, tagIDs []int64, hiddenTagIDs []int64) ([]C
 		// No filters, no hidden tags - original simple query
 		args = append(args, archivedInt)
 		query = fmt.Sprintf(`
-		SELECT id, content_type, filename, created_at, expires_at, SUBSTR(data, 1, 500), is_archived, LENGTH(data)
-		FROM clips
-		WHERE is_archived = ? AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
-		ORDER BY created_at DESC
+		SELECT c.id, c.content_type, c.filename, c.created_at, c.expires_at, SUBSTR(c.data, 1, 500), c.is_archived, LENGTH(c.data),
+		       (SELECT COUNT(*) FROM clips c2 WHERE c2.content_hash = c.content_hash AND c2.content_hash != '' AND c2.id != c.id)
+		FROM clips c
+		WHERE c.is_archived = ? AND (c.expires_at IS NULL OR c.expires_at > CURRENT_TIMESTAMP)
+		ORDER BY c.created_at DESC
 		LIMIT %d`, defaultClipLimit)
 	}
 
@@ -436,7 +440,7 @@ func (a *App) GetClips(archived bool, tagIDs []int64, hiddenTagIDs []int64) ([]C
 		var previewData []byte
 		var isArchivedInt int
 
-		if err := rows.Scan(&clip.ID, &clip.ContentType, &filename, &clip.CreatedAt, &expiresAt, &previewData, &isArchivedInt, &clip.Size); err != nil {
+		if err := rows.Scan(&clip.ID, &clip.ContentType, &filename, &clip.CreatedAt, &expiresAt, &previewData, &isArchivedInt, &clip.Size, &clip.DuplicateCount); err != nil {
 			log.Printf("Failed to scan clip row: %v\n", err)
 			continue
 		}
