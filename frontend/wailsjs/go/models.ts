@@ -409,6 +409,7 @@ export namespace main {
 	export class UIActionsResponse {
 	    lightbox_buttons: PluginUIAction[];
 	    card_actions: PluginUIAction[];
+	    global_actions: PluginUIAction[];
 	
 	    static createFrom(source: any = {}) {
 	        return new UIActionsResponse(source);
@@ -418,6 +419,7 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.lightbox_buttons = this.convertValues(source["lightbox_buttons"], PluginUIAction);
 	        this.card_actions = this.convertValues(source["card_actions"], PluginUIAction);
+	        this.global_actions = this.convertValues(source["global_actions"], PluginUIAction);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
