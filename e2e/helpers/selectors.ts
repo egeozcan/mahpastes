@@ -22,6 +22,8 @@ export const selectors = {
     archiveButton: '#toggle-archive-view-btn',
     clearAllButton: '#delete-all-temp-btn',
     settingsButton: '#open-settings-btn',
+    pluginActionsContainer: '#drawer-plugin-actions',
+    pluginAction: '#drawer-plugin-actions [data-global-action]',
   },
 
   // Upload

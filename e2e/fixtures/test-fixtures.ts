@@ -1944,6 +1944,32 @@ export class AppHelper {
     await expect(pluginActions).toHaveCount(count);
   }
 
+  async expectDrawerPluginActionsVisible(): Promise<void> {
+    await this.openDrawer();
+    const container = this.page.locator(selectors.drawer.pluginActionsContainer);
+    await expect(container).toBeVisible();
+  }
+
+  async expectDrawerPluginActionsHidden(): Promise<void> {
+    await this.openDrawer();
+    const container = this.page.locator(selectors.drawer.pluginActionsContainer);
+    await expect(container).toBeHidden();
+  }
+
+  async expectDrawerPluginActionsCount(count: number): Promise<void> {
+    await this.openDrawer();
+    const actions = this.page.locator(selectors.drawer.pluginAction);
+    await expect(actions).toHaveCount(count);
+  }
+
+  async clickDrawerPluginAction(pluginId: number, actionId: string): Promise<void> {
+    await this.openDrawer();
+    const btn = this.page.locator(
+      `${selectors.drawer.pluginAction}[data-plugin-id="${pluginId}"][data-action-id="${actionId}"]`
+    );
+    await btn.click();
+  }
+
   async openLightboxPluginActions(): Promise<void> {
     const container = this.page.locator(selectors.lightbox.pluginActions);
     await expect(container).toBeVisible();
