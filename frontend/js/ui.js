@@ -45,6 +45,7 @@ function getMenuIcon(name) {
         'delete': '<path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>',
         'set-expiration': '<path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>',
         'cancel-expiration': '<path stroke-linecap="round" stroke-linejoin="round" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"/>',
+        'merge': '<path stroke-linecap="round" stroke-linejoin="round" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"/>',
     };
     const path = icons[name];
     if (!path) return '';
@@ -87,6 +88,9 @@ function renderCardMenu(clipId, button, clip) {
         builtInActions.push({ id: 'set-expiration', label: 'Set Expiration', icon: 'set-expiration' });
     }
     builtInActions.push({ id: 'archive', label: isViewingArchive ? 'Restore' : 'Archive', icon: isViewingArchive ? 'restore' : 'archive' });
+    if (clip.duplicate_count > 0) {
+        builtInActions.push({ id: 'merge-duplicates', label: 'Merge Duplicates', icon: 'merge' });
+    }
     builtInActions.push({ id: 'delete', label: 'Delete', icon: 'delete', danger: true });
 
     // Render built-in actions
@@ -279,6 +283,15 @@ async function handleCardAction(action, clipId, triggerButton) {
             break;
         case 'archive':
             toggleArchiveClip(id);
+            break;
+        case 'merge-duplicates':
+            try {
+                await window.go.main.App.MergeDuplicates(id);
+                showToast('Merged duplicates', 'success');
+                loadClips();
+            } catch (err) {
+                showToast('Failed to merge duplicates', 'error');
+            }
             break;
         case 'delete':
             deleteClip(id);
