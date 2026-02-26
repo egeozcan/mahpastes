@@ -10,7 +10,7 @@ function showConfirmDialog(title, message, callback) {
     const messageEl = document.getElementById('confirm-message');
 
     titleEl.textContent = title;
-    messageEl.textContent = message;
+    messageEl.innerHTML = message;
     confirmCallback = callback;
 
     dialog.classList.remove('opacity-0', 'pointer-events-none');

@@ -31,6 +31,7 @@ async function loadClips() {
             }
             gallery.innerHTML = `<p class="text-gray-500 col-span-full text-center">${emptyMsg}</p>`;
         }
+        if (typeof checkDuplicatesExist === 'function') checkDuplicatesExist();
     } catch (error) {
         console.error('Error loading clips:', error);
         gallery.innerHTML = '<p class="text-red-500 col-span-full text-center">Error loading clips.</p>';
