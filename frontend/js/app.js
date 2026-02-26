@@ -760,6 +760,10 @@ window.addEventListener('load', async () => {
                 showToast(data.message, data.type || 'info');
             }
         });
+
+        window.runtime.EventsOn("clip:duplicate", (data) => {
+            showToast(`Duplicate clip detected — ${data.count} other ${data.count === 1 ? 'copy' : 'copies'} exist`, 'info');
+        });
     }
 
     // Auto-refresh clips when window regains focus (clears stale expired clips)
