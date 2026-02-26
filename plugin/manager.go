@@ -933,5 +933,10 @@ func findUIAction(manifest *Manifest, actionID string) *UIAction {
 			return &manifest.UI.CardActions[i]
 		}
 	}
+	for i := range manifest.UI.GlobalActions {
+		if manifest.UI.GlobalActions[i].ID == actionID {
+			return &manifest.UI.GlobalActions[i]
+		}
+	}
 	return nil
 }
