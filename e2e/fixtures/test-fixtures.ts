@@ -1909,6 +1909,24 @@ export class AppHelper {
     await this.page.locator('.card-menu-dropdown').waitFor({ state: 'hidden', timeout: 5000 });
   }
 
+  async clickMergeDuplicatesInCardMenu(filename: string): Promise<void> {
+    await this.openCardMenu(filename);
+    await this.page.locator(selectors.cardMenu.mergeDuplicates).click();
+  }
+
+  async getDuplicateBadgeText(filename: string): Promise<string | null> {
+    const clip = await this.getClipByFilename(filename);
+    const badge = clip.locator(selectors.dedup.badge);
+    if (await badge.count() === 0) return null;
+    return badge.textContent();
+  }
+
+  async clickDeduplicateAll(): Promise<void> {
+    await this.openDrawer();
+    await this.page.locator(selectors.dedup.deduplicateBtn).waitFor({ state: 'visible', timeout: 5000 });
+    await this.page.locator(selectors.dedup.deduplicateBtn).click();
+  }
+
   async clickCardMenuPluginAction(pluginId: number, actionId: string): Promise<void> {
     const actionBtn = this.page.locator(
       `${selectors.cardMenu.dropdown} [data-action="plugin"][data-plugin-id="${pluginId}"][data-action-id="${actionId}"]`

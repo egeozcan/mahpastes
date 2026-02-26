@@ -69,6 +69,7 @@ export const selectors = {
     setExpiration: '.card-menu-dropdown [data-action="set-expiration"]',
     cancelExpiration: '.card-menu-dropdown [data-action="cancel-expiration"]',
     delete: '.card-menu-dropdown [data-action="delete"]',
+    mergeDuplicates: '.card-menu-dropdown [data-action="merge-duplicates"]',
     pluginAction: '.card-menu-dropdown [data-action="plugin"]',
     divider: '.card-menu-dropdown .card-menu-divider',
   },
@@ -328,6 +329,12 @@ export const selectors = {
     restoreConfirmCancel: '#restore-confirm-cancel',
     restoreConfirmYes: '#restore-confirm-yes',
     restoreBackupInfo: '#restore-backup-info',
+  },
+
+  // Deduplication
+  dedup: {
+    badge: '.dedup-badge',
+    deduplicateBtn: '#deduplicate-btn',
   },
 
   // Keyboard Shortcuts
