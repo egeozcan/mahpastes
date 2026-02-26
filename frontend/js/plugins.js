@@ -724,7 +724,11 @@ function openPluginOptionsDialog(action, clipIds) {
 
     // Set title
     const clipCount = clipIds.length;
-    title.textContent = `${action.label} - ${clipCount} ${clipCount === 1 ? 'clip' : 'clips'}`;
+    if (clipCount === 0) {
+        title.textContent = action.label;
+    } else {
+        title.textContent = `${action.label} - ${clipCount} ${clipCount === 1 ? 'clip' : 'clips'}`;
+    }
 
     // Render form fields
     form.innerHTML = '';

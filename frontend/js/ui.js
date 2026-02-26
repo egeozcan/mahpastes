@@ -26,9 +26,51 @@ async function loadPluginUIActions() {
         pluginUIActions = await window.go.main.PluginService.GetPluginUIActions();
     } catch (error) {
         console.error('Failed to load plugin UI actions:', error);
-        pluginUIActions = { card_actions: [], lightbox_buttons: [] };
+        pluginUIActions = { card_actions: [], lightbox_buttons: [], global_actions: [] };
     }
+    renderDrawerPluginActions();
     return pluginUIActions;
+}
+
+// Render global plugin actions in the hamburger menu drawer
+function renderDrawerPluginActions() {
+    const container = document.getElementById('drawer-plugin-actions');
+    if (!container) return;
+
+    // Remove old action buttons (keep the divider which is the first child)
+    while (container.children.length > 1) {
+        container.removeChild(container.lastChild);
+    }
+
+    const actions = pluginUIActions?.global_actions || [];
+    if (actions.length === 0) {
+        container.classList.add('hidden');
+        return;
+    }
+
+    container.classList.remove('hidden');
+
+    actions.forEach(action => {
+        const btn = document.createElement('button');
+        btn.className = 'border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-500 text-xs font-medium py-2.5 px-3 rounded-md transition-colors flex items-center w-full';
+        btn.dataset.globalAction = 'true';
+        btn.dataset.pluginId = action.plugin_id;
+        btn.dataset.actionId = action.id;
+        btn.dataset.hasOptions = action.options && action.options.length > 0 ? 'true' : 'false';
+        btn.dataset.isAsync = action.async ? 'true' : 'false';
+
+        let iconHtml = '';
+        if (typeof getPluginIcon === 'function') {
+            iconHtml = getPluginIcon(action.icon) || getPluginIcon('bolt') || '';
+        }
+        // Wrap icon in a span with same styling as drawer menu icons
+        if (iconHtml) {
+            iconHtml = iconHtml.replace('<svg ', '<svg class="w-4 h-4 mr-2 opacity-60" ');
+        }
+
+        btn.innerHTML = `${iconHtml}<span>${escapeHTML(action.label)}</span>`;
+        container.appendChild(btn);
+    });
 }
 
 // Get icon SVG for built-in menu actions

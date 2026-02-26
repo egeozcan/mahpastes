@@ -24,10 +24,36 @@ drawerOverlay.addEventListener('click', closeDrawer);
 
 // Close drawer when any nav button inside it is clicked
 navDrawer.addEventListener('click', (e) => {
+    const globalActionBtn = e.target.closest('[data-global-action]');
+    if (globalActionBtn) {
+        closeDrawer();
+        handleGlobalAction(globalActionBtn);
+        return;
+    }
     if (e.target.closest('button[id]') && e.target.closest('button[id]') !== drawerCloseBtn) {
         closeDrawer();
     }
 });
+
+// Handle a global plugin action click from the drawer
+function handleGlobalAction(btn) {
+    const pluginId = parseInt(btn.dataset.pluginId, 10);
+    const actionId = btn.dataset.actionId;
+    const hasOptions = btn.dataset.hasOptions === 'true';
+    const isAsync = btn.dataset.isAsync === 'true';
+
+    if (hasOptions) {
+        // Find the full action object from cache
+        const action = pluginUIActions?.global_actions?.find(
+            a => a.plugin_id === pluginId && a.id === actionId
+        );
+        if (action) {
+            openPluginOptionsDialog(action, []);
+        }
+    } else {
+        executePluginAction(pluginId, actionId, [], {}, isAsync);
+    }
+}
 
 // --- Elements ---
 const fileInput = document.getElementById('file-input');
