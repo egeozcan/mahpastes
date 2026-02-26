@@ -138,7 +138,7 @@ local function build_request(action_id, data_uri, options)
                 strength = strength,
                 num_inference_steps = 40,
                 guidance_scale = 3.5,
-                safety_tolerance = 6,
+                safety_tolerance = 5,
             }
         else
             local endpoint = FAL_ENDPOINTS[model] or FAL_ENDPOINTS.flux2
@@ -146,7 +146,7 @@ local function build_request(action_id, data_uri, options)
                 image_urls = {data_uri},
                 prompt = prompt,
                 guidance_scale = 2.5,
-                safety_tolerance = 6,
+                safety_tolerance = 5,
             }
         end
 
