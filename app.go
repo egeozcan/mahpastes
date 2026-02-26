@@ -257,6 +257,15 @@ type ClipPreview struct {
 	DuplicateCount int        `json:"duplicate_count"`
 }
 
+// DuplicateGroup represents a set of clips sharing the same content hash
+type DuplicateGroup struct {
+	ContentHash string `json:"content_hash"`
+	Filename    string `json:"filename"`
+	ContentType string `json:"content_type"`
+	Count       int    `json:"count"`
+	OldestID    int64  `json:"oldest_id"`
+}
+
 // ClipData for full clip retrieval
 type ClipData struct {
 	ID          int64  `json:"id"`
@@ -791,6 +800,58 @@ func (a *App) MergeDuplicates(clipID int64) error {
 	}
 
 	return nil
+}
+
+// GetDuplicateGroups returns all groups of clips that share the same content hash
+func (a *App) GetDuplicateGroups() ([]DuplicateGroup, error) {
+	rows, err := a.db.Query(`
+		SELECT content_hash, MIN(filename) as filename, MIN(content_type) as content_type, COUNT(*) as cnt, MIN(id) as oldest_id
+		FROM clips
+		WHERE content_hash != ''
+		GROUP BY content_hash
+		HAVING cnt > 1
+		ORDER BY cnt DESC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query duplicate groups: %w", err)
+	}
+	defer rows.Close()
+
+	var groups []DuplicateGroup
+	for rows.Next() {
+		var g DuplicateGroup
+		var filename sql.NullString
+		if err := rows.Scan(&g.ContentHash, &filename, &g.ContentType, &g.Count, &g.OldestID); err != nil {
+			log.Printf("Warning: failed to scan duplicate group: %v", err)
+			continue
+		}
+		g.Filename = filename.String
+		groups = append(groups, g)
+	}
+	if groups == nil {
+		groups = []DuplicateGroup{}
+	}
+	return groups, nil
+}
+
+// DeduplicateAll merges all duplicate groups, keeping the oldest clip in each group
+func (a *App) DeduplicateAll() (int, error) {
+	groups, err := a.GetDuplicateGroups()
+	if err != nil {
+		return 0, err
+	}
+
+	totalRemoved := 0
+	for _, group := range groups {
+		err := a.MergeDuplicates(group.OldestID)
+		if err != nil {
+			log.Printf("Warning: failed to merge group %s: %v", group.ContentHash, err)
+			continue
+		}
+		totalRemoved += group.Count - 1
+	}
+
+	return totalRemoved, nil
 }
 
 // ToggleArchive toggles the archived status of a clip
