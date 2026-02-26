@@ -163,6 +163,52 @@ test.describe('Bulk Selection', () => {
     });
   });
 
+  test.describe('Shift-Click Range Selection', () => {
+    test('should select all clips between first and shift-clicked clip', async ({ app }) => {
+      const files = await Promise.all([
+        createTempFile(generateTestImage(50, 50, [255, 0, 0]), 'png'),
+        createTempFile(generateTestImage(50, 50, [0, 255, 0]), 'png'),
+        createTempFile(generateTestImage(50, 50, [0, 0, 255]), 'png'),
+        createTempFile(generateTestImage(50, 50, [255, 255, 0]), 'png'),
+        createTempFile(generateTestImage(50, 50, [255, 0, 255]), 'png'),
+      ]);
+      const filenames = files.map((f) => path.basename(f));
+
+      await app.uploadFiles(files);
+      await app.expectClipCount(5);
+
+      // Select the first clip normally (newest = index 0 in gallery)
+      await app.selectClip(filenames[4]);
+
+      // Shift-click the last clip — should select all 5
+      await app.shiftSelectClip(filenames[0]);
+
+      expect(await app.getSelectedCount()).toBe(5);
+    });
+
+    test('should select range in the middle', async ({ app }) => {
+      const files = await Promise.all([
+        createTempFile(generateTestImage(50, 50, [255, 0, 0]), 'png'),
+        createTempFile(generateTestImage(50, 50, [0, 255, 0]), 'png'),
+        createTempFile(generateTestImage(50, 50, [0, 0, 255]), 'png'),
+        createTempFile(generateTestImage(50, 50, [255, 255, 0]), 'png'),
+      ]);
+      const filenames = files.map((f) => path.basename(f));
+
+      await app.uploadFiles(files);
+      await app.expectClipCount(4);
+
+      // Gallery order is newest first: filenames[3], filenames[2], filenames[1], filenames[0]
+      // Select the second clip (filenames[2] in gallery position 1)
+      await app.selectClip(filenames[2]);
+
+      // Shift-click the third clip (filenames[1] in gallery position 2) — should select 2
+      await app.shiftSelectClip(filenames[1]);
+
+      expect(await app.getSelectedCount()).toBe(2);
+    });
+  });
+
   test.describe('Selection Persistence', () => {
     test('should maintain selection after search', async ({ app }) => {
       const file1 = await createTempFile(generateTestText('searchable-text'), 'txt');

@@ -1,6 +1,9 @@
 // Image cache for base64 data
 const imageCache = new Map();
 
+// Track last checked checkbox for shift-click range selection
+let lastCheckedCheckbox = null;
+
 // Plugin UI actions cache
 let pluginUIActions = null;
 let dragPrepBusyCount = 0;
@@ -764,6 +767,27 @@ async function createClipCard(clip, options = {}) {
             card.classList.remove('has-checked');
         }
 
+        // Shift-click range selection
+        if (e.target.checked && checkbox._shiftEvent && lastCheckedCheckbox && lastCheckedCheckbox !== checkbox) {
+            const allCards = Array.from(gallery.querySelectorAll(':scope > li'));
+            const currentIndex = allCards.indexOf(card);
+            const lastIndex = allCards.indexOf(lastCheckedCheckbox.closest('li'));
+            if (currentIndex !== -1 && lastIndex !== -1) {
+                const start = Math.min(currentIndex, lastIndex);
+                const end = Math.max(currentIndex, lastIndex);
+                for (let i = start; i <= end; i++) {
+                    const cb = allCards[i].querySelector('.clip-checkbox');
+                    if (cb && !cb.checked) {
+                        cb.checked = true;
+                        const cbId = Number(cb.dataset.id);
+                        selectedIds.add(cbId);
+                        allCards[i].classList.add('has-checked');
+                    }
+                }
+            }
+        }
+        lastCheckedCheckbox = checkbox;
+
         // Sync Select All checkbox
         const allCheckboxes = Array.from(gallery.querySelectorAll('.clip-checkbox'));
         selectAllCheckbox.checked = allCheckboxes.length > 0 && allCheckboxes.every(cb => cb.checked);
@@ -771,8 +795,11 @@ async function createClipCard(clip, options = {}) {
         updateBulkToolbar();
     });
 
-    // Prevent lightbox trigger if clicking checkbox
-    checkbox.addEventListener('click', (e) => e.stopPropagation());
+    // Prevent lightbox trigger if clicking checkbox; track shift state for range selection
+    checkbox.addEventListener('click', (e) => {
+        e.stopPropagation();
+        checkbox._shiftEvent = e.shiftKey;
+    });
 
     // Lightbox trigger logic
     if (clip.content_type.startsWith('image/')) {
@@ -916,6 +943,7 @@ function toggleSelectAll() {
 
 function cancelSelection() {
     selectedIds.clear();
+    lastCheckedCheckbox = null;
     const checkboxes = gallery.querySelectorAll('.clip-checkbox');
     checkboxes.forEach(cb => {
         cb.checked = false;

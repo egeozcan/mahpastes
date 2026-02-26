@@ -786,6 +786,12 @@ export class AppHelper {
     }
   }
 
+  async shiftSelectClip(filename: string): Promise<void> {
+    const clip = await this.getClipByFilename(filename);
+    const checkbox = clip.locator(selectors.gallery.clipCheckbox);
+    await checkbox.click({ modifiers: ['Shift'] });
+  }
+
   async selectAll(): Promise<void> {
     // First select one clip to make bulk toolbar visible
     const firstClip = this.page.locator(selectors.gallery.clipCard).first();
