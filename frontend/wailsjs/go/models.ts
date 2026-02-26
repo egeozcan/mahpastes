@@ -108,6 +108,7 @@ export namespace main {
 	    is_archived: boolean;
 	    tags: Tag[];
 	    size: number;
+	    duplicate_count: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new ClipPreview(source);
@@ -124,6 +125,7 @@ export namespace main {
 	        this.is_archived = source["is_archived"];
 	        this.tags = this.convertValues(source["tags"], Tag);
 	        this.size = source["size"];
+	        this.duplicate_count = source["duplicate_count"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -172,6 +174,26 @@ export namespace main {
 	        this.enabled = source["enabled"];
 	        this.strategy = source["strategy"];
 	        this.reason = source["reason"];
+	    }
+	}
+	export class DuplicateGroup {
+	    content_hash: string;
+	    filename: string;
+	    content_type: string;
+	    count: number;
+	    oldest_id: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new DuplicateGroup(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.content_hash = source["content_hash"];
+	        this.filename = source["filename"];
+	        this.content_type = source["content_type"];
+	        this.count = source["count"];
+	        this.oldest_id = source["oldest_id"];
 	    }
 	}
 	export class FileData {

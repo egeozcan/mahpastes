@@ -62,6 +62,10 @@ export function CreateTempFile(arg1) {
   return window['go']['main']['App']['CreateTempFile'](arg1);
 }
 
+export function DeduplicateAll() {
+  return window['go']['main']['App']['DeduplicateAll']();
+}
+
 export function DeleteAllTempFiles() {
   return window['go']['main']['App']['DeleteAllTempFiles']();
 }
@@ -92,6 +96,10 @@ export function GetClipboardText() {
 
 export function GetClips(arg1, arg2, arg3) {
   return window['go']['main']['App']['GetClips'](arg1, arg2, arg3);
+}
+
+export function GetDuplicateGroups() {
+  return window['go']['main']['App']['GetDuplicateGroups']();
 }
 
 export function GetGlobalWatchPaused() {
@@ -128,6 +136,10 @@ export function GetWatchedFolders() {
 
 export function IsDirectory(arg1) {
   return window['go']['main']['App']['IsDirectory'](arg1);
+}
+
+export function MergeDuplicates(arg1) {
+  return window['go']['main']['App']['MergeDuplicates'](arg1);
 }
 
 export function ProcessExistingFilesInFolder(arg1) {

@@ -32,6 +32,8 @@ export function CreateTag(arg1:string):Promise<main.Tag>;
 
 export function CreateTempFile(arg1:number):Promise<string>;
 
+export function DeduplicateAll():Promise<number>;
+
 export function DeleteAllTempFiles():Promise<void>;
 
 export function DeleteClip(arg1:number):Promise<void>;
@@ -47,6 +49,8 @@ export function GetClipboardImage():Promise<string>;
 export function GetClipboardText():Promise<string>;
 
 export function GetClips(arg1:boolean,arg2:Array<number>,arg3:Array<number>):Promise<Array<main.ClipPreview>>;
+
+export function GetDuplicateGroups():Promise<Array<main.DuplicateGroup>>;
 
 export function GetGlobalWatchPaused():Promise<boolean>;
 
@@ -65,6 +69,8 @@ export function GetWatchedFolderByID(arg1:number):Promise<main.WatchedFolder>;
 export function GetWatchedFolders():Promise<Array<main.WatchedFolder>>;
 
 export function IsDirectory(arg1:string):Promise<boolean>;
+
+export function MergeDuplicates(arg1:number):Promise<void>;
 
 export function ProcessExistingFilesInFolder(arg1:number):Promise<void>;
 
