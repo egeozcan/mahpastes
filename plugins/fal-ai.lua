@@ -4,7 +4,7 @@
 Plugin = {
     name = "FAL.AI Image Processing",
     version = "1.0.0",
-    description = "AI-powered image processing using fal.ai - colorization, upscaling, restoration, and AI editing.",
+    description = "AI-powered image processing using fal.ai - text-to-image generation, colorization, upscaling, restoration, and AI editing.",
     author = "mahpastes",
 
     network = {
@@ -73,6 +73,32 @@ Plugin = {
                 }
             },
         },
+        global_actions = {
+            {id = "generate", label = "Generate Image", icon = "sparkles", async = true,
+                options = {
+                    {id = "prompt", type = "text", label = "Prompt", required = true},
+                    {id = "resolution", type = "select", label = "Resolution", default = "1K",
+                        choices = {
+                            {value = "0.5K", label = "0.5K"},
+                            {value = "1K", label = "1K"},
+                            {value = "2K", label = "2K"},
+                            {value = "4K", label = "4K"},
+                        }
+                    },
+                    {id = "aspect_ratio", type = "select", label = "Aspect Ratio", default = "1:1",
+                        choices = {
+                            {value = "1:1", label = "1:1"},
+                            {value = "16:9", label = "16:9"},
+                            {value = "9:16", label = "9:16"},
+                            {value = "4:3", label = "4:3"},
+                            {value = "3:4", label = "3:4"},
+                            {value = "3:2", label = "3:2"},
+                            {value = "2:3", label = "2:3"},
+                        }
+                    },
+                }
+            },
+        },
     },
 }
 
@@ -88,6 +114,7 @@ local FAL_ENDPOINTS = {
     flux1dev = "fal-ai/flux/dev/image-to-image",
     nanobanana2 = "fal-ai/nano-banana-2/edit",
     vectorize = "fal-ai/recraft/vectorize",
+    nanobanana2_generate = "fal-ai/nano-banana-2",
 }
 
 -- Build API request payload based on action and options
@@ -242,8 +269,79 @@ function on_ui_action(action_id, clip_ids, options)
         restore = "Restore",
         edit = "AI Edit",
         vectorize = "Vectorize",
+        generate = "Generate Image",
     }
     local action_name = action_names[action_id] or action_id
+
+    -- Handle text-to-image generation (no input clips required)
+    if action_id == "generate" then
+        local prompt = options.prompt or ""
+        if prompt == "" then
+            toast.show("Please enter a prompt.", "error")
+            return {success = false, error = "Prompt is required"}
+        end
+
+        local task_id = task.start("Generate Image", 1)
+        local last_clip_id = nil
+
+        local ok, err = pcall(function()
+            local payload = {
+                prompt = prompt,
+                resolution = options.resolution or "1K",
+                aspect_ratio = options.aspect_ratio or "1:1",
+                output_format = "jpeg",
+                safety_tolerance = 6,
+            }
+
+            local resp, http_err = http.post(
+                "https://fal.run/" .. FAL_ENDPOINTS.nanobanana2_generate,
+                {
+                    body = json.encode(payload),
+                    headers = {
+                        Authorization = "Key " .. api_key,
+                        ["Content-Type"] = "application/json",
+                    },
+                }
+            )
+            if not resp then
+                error("HTTP request failed: " .. (http_err or "unknown error"))
+            end
+            if resp.status ~= 200 then
+                error("API error (status " .. resp.status .. "): " .. (resp.body or ""))
+            end
+
+            local result = json.decode(resp.body)
+            if result.msg and result.msg ~= "" then
+                error(result.msg)
+            end
+
+            local result_url = get_result_url(result)
+            if not result_url then
+                error("No image URL in API response")
+            end
+
+            -- Build filename from truncated prompt
+            local safe_prompt = prompt:gsub("[^%w%s_-]", ""):gsub("%s+", "_"):sub(1, 40)
+            local filename = "generated_" .. safe_prompt .. ".jpg"
+
+            local new_clip, create_err = clips.create_from_url(result_url, {name = filename})
+            if not new_clip then
+                error("Failed to save result: " .. (create_err or "unknown error"))
+            end
+
+            last_clip_id = ensure_jpeg(new_clip.id)
+        end)
+
+        if ok then
+            task.progress(task_id, 1)
+            task.complete(task_id)
+            return {success = true, result_clip_id = last_clip_id or 0}
+        else
+            task.fail(task_id, tostring(err))
+            return {success = false, error = tostring(err)}
+        end
+    end
+
     local clip_count = #clip_ids
     local task_id = task.start(action_name .. " (" .. clip_count .. " image" .. (clip_count > 1 and "s" or "") .. ")", clip_count)
 
