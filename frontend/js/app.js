@@ -64,7 +64,7 @@ const deduplicateBtn = document.getElementById('deduplicate-btn');
 const toggleArchiveViewBtn = document.getElementById('toggle-archive-view-btn');
 const archiveBtnText = document.getElementById('archive-btn-text');
 const headerArchiveBtn = document.getElementById('header-archive-btn');
-const headerAddBtn = document.getElementById('header-add-btn');
+const headerAddBtn = document.getElementById('add-btn');
 const bulkToolbar = document.getElementById('bulk-toolbar');
 const selectAllCheckbox = document.getElementById('select-all-checkbox');
 const selectedCountEl = document.getElementById('selected-count');
@@ -114,10 +114,17 @@ const comparisonImageInfo = document.getElementById('comparison-image-info');
 const comparisonLabelA = document.getElementById('comparison-label-a');
 const comparisonLabelB = document.getElementById('comparison-label-b');
 
-const uploadExpirySelect = document.getElementById('upload-expiry-select');
+const uploadExpirySelect = document.getElementById('expiry-select');
+const clipCountEl = document.getElementById('clip-count');
 
 function getUploadExpirationMinutes() {
     return parseInt(uploadExpirySelect.value, 10) || 0;
+}
+
+function updateClipCount(count) {
+    if (clipCountEl) {
+        clipCountEl.textContent = count === 1 ? '1 clip' : `${count} clips`;
+    }
 }
 
 // --- State ---

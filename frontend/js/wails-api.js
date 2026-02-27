@@ -20,6 +20,7 @@ async function loadClips() {
             for (const clip of clips) {
                 await createClipCard(clip);
             }
+            updateClipCount(clips.length);
         } else {
             let emptyMsg;
             if (activeTagFilters.length > 0) {
@@ -30,6 +31,7 @@ async function loadClips() {
                 emptyMsg = 'No active clips. Paste or drop something!';
             }
             gallery.innerHTML = `<p class="text-gray-500 col-span-full text-center">${emptyMsg}</p>`;
+            updateClipCount(0);
         }
         if (typeof checkDuplicatesExist === 'function') checkDuplicatesExist();
     } catch (error) {
