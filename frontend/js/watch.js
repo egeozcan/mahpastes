@@ -493,6 +493,7 @@ function initWatchEvents() {
         if (emptyMsg) emptyMsg.remove();
 
         await createClipCard(clip, { prepend: true });
+        updateClipCount(gallery.querySelectorAll(':scope > li').length);
     });
 }
 
