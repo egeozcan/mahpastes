@@ -7,10 +7,11 @@ const taskQueue = {
 };
 
 // DOM Elements
-const queueBar = document.getElementById('task-queue-bar');
-const queueBarText = document.getElementById('queue-bar-text');
-const queueBarSpinner = document.getElementById('queue-bar-spinner');
-const queueBarError = document.getElementById('queue-bar-error');
+const loadingStatus = document.getElementById('loading-status');
+const loadingStatusText = document.getElementById('loading-status-text');
+const loadingSpinner = document.getElementById('loading-spinner');
+const loadingErrorIcon = document.getElementById('loading-error-icon');
+const clipCount = document.getElementById('clip-count');
 const queueModal = document.getElementById('queue-modal');
 const queueTaskList = document.getElementById('queue-task-list');
 
@@ -77,26 +78,20 @@ function handlePluginTaskFailed(data) {
     }
 }
 
-// Queue bar functions
+// Loading status functions
 function showQueueBar() {
-    if (queueBar && !taskQueue.isQueueBarVisible) {
-        queueBar.classList.remove('translate-y-full');
-        queueBar.classList.add('translate-y-0');
+    if (loadingStatus && !taskQueue.isQueueBarVisible) {
+        loadingStatus.classList.remove('hidden');
+        if (clipCount) clipCount.classList.remove('ml-auto');
         taskQueue.isQueueBarVisible = true;
-        // Add padding to main content so queue bar doesn't cover it
-        const main = document.querySelector('main');
-        if (main) main.style.paddingBottom = '3rem';
     }
 }
 
 function hideQueueBar() {
-    if (queueBar && taskQueue.isQueueBarVisible) {
-        queueBar.classList.add('translate-y-full');
-        queueBar.classList.remove('translate-y-0');
+    if (loadingStatus && taskQueue.isQueueBarVisible) {
+        loadingStatus.classList.add('hidden');
+        if (clipCount) clipCount.classList.add('ml-auto');
         taskQueue.isQueueBarVisible = false;
-        // Remove padding from main content
-        const main = document.querySelector('main');
-        if (main) main.style.paddingBottom = '';
     }
 }
 
@@ -115,28 +110,28 @@ function updateQueueBar() {
 
     // Toggle spinner/error icon based on whether tasks are running
     const isRunning = runningTasks.length > 0 || pendingTasks.length > 0;
-    if (queueBarSpinner && queueBarError) {
+    if (loadingSpinner && loadingErrorIcon) {
         if (isRunning) {
-            queueBarSpinner.classList.remove('hidden');
-            queueBarError.classList.add('hidden');
+            loadingSpinner.classList.remove('hidden');
+            loadingErrorIcon.classList.add('hidden');
         } else {
-            queueBarSpinner.classList.add('hidden');
-            queueBarError.classList.remove('hidden');
+            loadingSpinner.classList.add('hidden');
+            loadingErrorIcon.classList.remove('hidden');
         }
     }
 
-    if (queueBarText) {
+    if (loadingStatusText) {
         if (runningTasks.length > 0) {
             const task = runningTasks[0];
             if (runningTasks.length === 1) {
-                queueBarText.textContent = `${task.task_name}: ${task.progress}/${task.total}`;
+                loadingStatusText.textContent = `${task.task_name}: ${task.progress}/${task.total}`;
             } else {
-                queueBarText.textContent = `Processing ${runningTasks.length} tasks...`;
+                loadingStatusText.textContent = `Processing ${runningTasks.length} tasks...`;
             }
         } else if (failedTasks.length > 0) {
-            queueBarText.textContent = `${failedTasks.length} failed task${failedTasks.length > 1 ? 's' : ''}`;
+            loadingStatusText.textContent = `${failedTasks.length} failed task${failedTasks.length > 1 ? 's' : ''}`;
         } else if (pendingTasks.length > 0) {
-            queueBarText.textContent = `${pendingTasks.length} task${pendingTasks.length > 1 ? 's' : ''} in queue`;
+            loadingStatusText.textContent = `${pendingTasks.length} task${pendingTasks.length > 1 ? 's' : ''} in queue`;
         }
     }
 }
@@ -320,8 +315,8 @@ function clearCompletedTasksAction() {
 }
 
 // Event listeners
-if (queueBar) {
-    queueBar.addEventListener('click', openQueueModal);
+if (loadingStatus) {
+    loadingStatus.addEventListener('click', openQueueModal);
 }
 
 document.getElementById('queue-modal-close')?.addEventListener('click', closeQueueModal);
