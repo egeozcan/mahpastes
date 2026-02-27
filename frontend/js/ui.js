@@ -65,9 +65,10 @@ function renderDrawerPluginActions() {
         }
         // Wrap icon in a span with same styling as drawer menu icons
         if (iconHtml) {
-            iconHtml = iconHtml.replace('<svg ', '<svg class="w-4 h-4 mr-2 opacity-60" ');
+            iconHtml = iconHtml.replace('class="w-4 h-4"', 'class="w-4 h-4 mr-2 opacity-60"');
         }
 
+        btn.setAttribute('aria-label', action.label);
         btn.innerHTML = `${iconHtml}<span>${escapeHTML(action.label)}</span>`;
         container.appendChild(btn);
     });
