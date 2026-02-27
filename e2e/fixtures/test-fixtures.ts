@@ -735,7 +735,7 @@ export class AppHelper {
       if (searchInput) searchInput.value = '';
 
       // Reset upload expiration dropdown to "No expiration"
-      const expirySelect = document.getElementById('upload-expiry-select') as HTMLSelectElement;
+      const expirySelect = document.getElementById('expiry-select') as HTMLSelectElement;
       if (expirySelect) expirySelect.value = '0';
 
       // --- 4. Reload gallery and caches with clean state ---

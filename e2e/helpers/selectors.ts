@@ -8,8 +8,16 @@ export const selectors = {
     title: 'header h1',
     searchInput: '#search-input',
     drawerToggle: '#drawer-toggle-btn',
-    addButton: '#header-add-btn',
+    addButton: '#add-btn',
     archiveButton: '#header-archive-btn',
+  },
+
+  // Bottom bar
+  bottomBar: {
+    root: '#bottom-bar',
+    addButton: '#add-btn',
+    expirySelect: '#expiry-select',
+    clipCount: '#clip-count',
   },
 
   // Nav drawer
