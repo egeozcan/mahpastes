@@ -75,28 +75,6 @@
 
             </div>
 
-            <!-- Add File Button -->
-            <button id="header-add-btn"
-                class="border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-500 text-xs font-medium py-2 px-3 rounded-md transition-colors"
-                aria-label="Add files"
-                style="--wails-draggable: no-drag">
-                + Add
-            </button>
-
-            <!-- Expiration Dropdown -->
-            <select id="upload-expiry-select"
-                class="border border-stone-200 hover:border-stone-300 text-stone-500 text-xs font-medium py-2 px-2 rounded-md transition-colors bg-white focus:outline-none focus:border-stone-400 focus:ring-1 focus:ring-stone-400/20"
-                aria-label="Upload expiration"
-                style="--wails-draggable: no-drag"
-                title="Set expiration for new uploads">
-                <option value="0">No Expiry</option>
-                <option value="15">15m</option>
-                <option value="60">1h</option>
-                <option value="360">6h</option>
-                <option value="1440">24h</option>
-                <option value="10080">7d</option>
-            </select>
-
             <!-- Hamburger Menu Button -->
             <button id="drawer-toggle-btn"
                 class="relative border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-500 p-2 rounded-md transition-colors"
@@ -192,9 +170,6 @@
         </nav>
     </aside>
 
-    <!-- Hidden file input for uploads -->
-    <input type="file" id="file-input" class="hidden" multiple aria-hidden="true">
-
     <!-- Drop overlay (shown when dragging files over the app) -->
     <div id="drop-overlay" class="fixed inset-0 z-[200] bg-stone-50/90 backdrop-blur-sm flex items-center justify-center pointer-events-none opacity-0 transition-opacity duration-150">
         <div class="flex flex-col items-center gap-4">
@@ -209,7 +184,7 @@
     </div>
 
     <!-- Main Content -->
-    <main class="max-w-7xl mx-auto p-5">
+    <main class="max-w-7xl mx-auto p-5 pb-14">
 
         <!-- Watch View (hidden by default) -->
         <section id="watch-view" class="hidden mb-10" aria-labelledby="watch-heading">
@@ -257,7 +232,7 @@
         </section>
 
         <div id="bulk-toolbar" role="toolbar" aria-label="Bulk actions for selected clips"
-            class="fixed bottom-5 left-1/2 -translate-x-1/2 w-[90%] max-w-3xl bg-white/95 backdrop-blur-sm shadow-lg shadow-stone-200/50 rounded-lg p-3 flex flex-wrap items-center justify-between gap-3 z-50 pointer-events-none opacity-0 border border-stone-200 transition-all duration-200 translate-y-4">
+            class="fixed bottom-16 left-1/2 -translate-x-1/2 w-[90%] max-w-3xl bg-white/95 backdrop-blur-sm shadow-lg shadow-stone-200/50 rounded-lg p-3 flex flex-wrap items-center justify-between gap-3 z-50 pointer-events-none opacity-0 border border-stone-200 transition-all duration-200 translate-y-4">
             <div class="flex items-center gap-4">
                 <label class="flex items-center cursor-pointer group">
                     <input type="checkbox" id="select-all-checkbox"
@@ -352,9 +327,38 @@
 
     </main>
 
+    <!-- Bottom Bar -->
+    <input type="file" id="file-input" class="hidden" multiple aria-hidden="true">
+    <footer id="bottom-bar"
+        class="fixed bottom-0 left-0 right-0 z-40 bg-stone-50 border-t border-stone-200/60"
+        style="--wails-draggable: drag">
+        <div class="max-w-7xl mx-auto px-5 py-2.5 flex items-center gap-3">
+            <button id="add-btn"
+                class="border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-500 text-xs font-medium py-2 px-3 rounded-md transition-colors"
+                aria-label="Add files"
+                style="--wails-draggable: no-drag">
+                + Add
+            </button>
+            <select id="expiry-select"
+                class="border border-stone-200 hover:border-stone-300 text-stone-500 text-xs font-medium py-2 px-2 rounded-md transition-colors bg-white focus:outline-none focus:border-stone-400 focus:ring-1 focus:ring-stone-400/20"
+                aria-label="Upload expiration"
+                style="--wails-draggable: no-drag"
+                title="Set expiration for new uploads">
+                <option value="0">No Expiry</option>
+                <option value="15">15m</option>
+                <option value="60">1h</option>
+                <option value="360">6h</option>
+                <option value="1440">24h</option>
+                <option value="10080">7d</option>
+            </select>
+            <span id="clip-count" class="ml-auto text-xs font-medium text-stone-400"
+                style="--wails-draggable: no-drag"></span>
+        </div>
+    </footer>
+
     <!-- Toast Notification -->
     <div id="toast" role="status" aria-live="polite"
-        class="fixed bottom-4 right-4 bg-stone-800 text-white text-xs py-2.5 px-4 rounded-md shadow-lg transition-all translate-x-full opacity-0 z-[260]">
+        class="fixed bottom-16 right-4 bg-stone-800 text-white text-xs py-2.5 px-4 rounded-md shadow-lg transition-all translate-x-full opacity-0 z-[260]">
         <!-- Message will be set by JS -->
     </div>
 
@@ -1048,7 +1052,7 @@
 
     <!-- Task Queue Bar -->
     <div id="task-queue-bar"
-        class="fixed bottom-0 left-0 right-0 z-40 bg-stone-800 text-white px-4 py-2.5 flex items-center justify-between cursor-pointer transform translate-y-full transition-transform duration-300 shadow-lg">
+        class="fixed bottom-12 left-0 right-0 z-40 bg-stone-800 text-white px-4 py-2.5 flex items-center justify-between cursor-pointer transform translate-y-full transition-transform duration-300 shadow-lg">
         <div class="flex items-center gap-3">
             <svg id="queue-bar-spinner" class="animate-spin h-4 w-4 text-stone-300" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
