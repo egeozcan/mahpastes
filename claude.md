@@ -295,7 +295,7 @@ APIs are registered in `plugin/manager.go` when loading plugins. Each API module
 | `fs` | `api_fs.go` | read, write, list, exists (filesystem with permission prompts) |
 | `task` | `api_task.go` | start, progress, complete, fail (long-running task progress UI) |
 | `toast` | `api_toast.go` | show (display toast notifications) |
-| `image` | `api_image.go` | info, resize, overlay_text, composite, dominant_colors, grayscale_pixels, metadata, diff (Go-side image processing) |
+| `image` | `api_image.go` | info, resize, overlay_text, composite, dominant_colors, grayscale_pixels, metadata, diff, convert (Go-side image processing) |
 | `utils` | `api_utils.go` | time, sha256, hmac_sha256, url_encode, url_decode, clipboard_write (requires `clipboard = true` in manifest) |
 | `log` | `api_utils.go` | Global function for logging (not a module) |
 | `json` | `api_utils.go` | encode, decode |

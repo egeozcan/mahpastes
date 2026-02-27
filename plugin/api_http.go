@@ -17,8 +17,8 @@ const (
 	HTTPRequestsPerMinute = 100
 	// HTTPTimeout is the timeout for HTTP requests (5 min for long-running AI APIs)
 	HTTPTimeout = 5 * time.Minute
-	// HTTPMaxResponseSize is the maximum response body size (10MB)
-	HTTPMaxResponseSize = 10 * 1024 * 1024
+	// HTTPMaxResponseSize is the maximum response body size (50MB)
+	HTTPMaxResponseSize = 50 * 1024 * 1024
 )
 
 // HTTPAPI provides restricted HTTP access to plugins

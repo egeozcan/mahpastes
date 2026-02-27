@@ -179,7 +179,8 @@ local function get_result_url(result)
     return nil
 end
 
--- Generate output filename
+-- Generate output filename, preserving original extension
+-- (ensure_jpeg will rename to .jpg after successful conversion)
 local function generate_filename(original, action_id)
     local name = original:match("^(.+)%.[^%.]+$") or original
     local ext = original:match("%.([^%.]+)$") or "png"
@@ -187,6 +188,43 @@ local function generate_filename(original, action_id)
         ext = "svg"
     end
     return name .. "_" .. action_id .. "." .. ext
+end
+
+-- Convert a non-JPEG clip to JPEG, replacing the original clip.
+-- Returns the final clip ID (new JPEG clip or original if already JPEG/SVG).
+local function ensure_jpeg(clip_id)
+    local info = clips.get(clip_id)
+    if not info then return clip_id end
+
+    local ct = info.content_type or ""
+    -- Skip if already JPEG or if it's an SVG (vectorize output)
+    if ct == "image/jpeg" or ct == "image/svg+xml" then
+        return clip_id
+    end
+
+    local converted, conv_err = image.convert(clip_id, "jpeg")
+    if not converted then
+        log("JPEG conversion failed: " .. (conv_err or "unknown"))
+        return clip_id
+    end
+
+    -- Build JPEG filename from original
+    local orig_name = info.filename or ("clip_" .. clip_id)
+    local base = orig_name:match("^(.+)%.[^%.]+$") or orig_name
+    local jpeg_name = base .. ".jpg"
+
+    local new_clip, create_err = clips.create({
+        data = converted.data,
+        content_type = "image/jpeg",
+        filename = jpeg_name,
+    })
+    if not new_clip then
+        log("Failed to create JPEG clip: " .. (create_err or "unknown"))
+        return clip_id
+    end
+
+    clips.delete(clip_id)
+    return new_clip.id
 end
 
 -- Handle UI action from lightbox or card menu
@@ -273,18 +311,19 @@ function on_ui_action(action_id, clip_ids, options)
                 error("No image URL in API response")
             end
 
-            -- Generate filename from original clip
+            -- Download result and create new clip (use temporary name, will rename after conversion)
             local clip_info = clips.get(clip_id)
             local original_name = (clip_info and clip_info.filename) or ("clip_" .. clip_id .. ".png")
-            local filename = generate_filename(original_name, action_id)
+            local temp_filename = generate_filename(original_name, action_id)
 
-            -- Download result and create new clip
-            local new_clip, create_err = clips.create_from_url(result_url, {name = filename})
+            local new_clip, create_err = clips.create_from_url(result_url, {name = temp_filename})
             if not new_clip then
                 error("Failed to save result: " .. (create_err or "unknown error"))
             end
 
-            last_clip_id = new_clip.id
+            -- Convert to JPEG to reduce file size (fal.ai often returns large PNGs)
+            -- ensure_jpeg handles filename renaming to .jpg
+            last_clip_id = ensure_jpeg(new_clip.id)
         end)
 
         if not ok then

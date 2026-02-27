@@ -25,8 +25,8 @@ const maxContentTypeLength = 256
 var validMIMEType = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9!#$&\-^_.+]*\/[a-zA-Z0-9][a-zA-Z0-9!#$&\-^_.+]*$`)
 
 const (
-	// MaxClipDataSize is the maximum size of data a plugin can create (10MB)
-	MaxClipDataSize = 10 * 1024 * 1024
+	// MaxClipDataSize is the maximum size of data a plugin can create (50MB)
+	MaxClipDataSize = 50 * 1024 * 1024
 	// URLFetchTimeout is the timeout for downloading content from URLs
 	URLFetchTimeout = 60 * time.Second
 )
