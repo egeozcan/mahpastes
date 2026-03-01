@@ -1050,6 +1050,8 @@ export class AppHelper {
       await window.go.main.App.SetGlobalWatchPaused(isPaused);
       // @ts-ignore - Refresh watches to update state
       await window.go.main.App.RefreshWatches();
+      // @ts-ignore - Update the watch indicator in the UI
+      if (typeof updateWatchIndicator === 'function') await updateWatchIndicator();
     }, paused);
 
     // Update the UI checkbox to match
