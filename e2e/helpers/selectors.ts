@@ -80,8 +80,23 @@ export const selectors = {
     cancelExpiration: '.card-menu-dropdown [data-action="cancel-expiration"]',
     delete: '.card-menu-dropdown [data-action="delete"]',
     mergeDuplicates: '.card-menu-dropdown [data-action="merge-duplicates"]',
+    metadata: '.card-menu-dropdown [data-action="metadata"]',
     pluginAction: '.card-menu-dropdown [data-action="plugin"]',
     divider: '.card-menu-dropdown .card-menu-divider',
+  },
+
+  // Metadata modal
+  metadata: {
+    modal: '[data-testid="metadata-modal"]',
+    closeButton: '[data-testid="metadata-close"]',
+    list: '[data-testid="metadata-list"]',
+    addButton: '[data-testid="metadata-add"]',
+    saveButton: '[data-testid="metadata-save"]',
+    emptyState: '[data-testid="metadata-empty"]',
+    row: '[data-testid="metadata-row"]',
+    keyInput: '[data-testid="metadata-key"]',
+    valueInput: '[data-testid="metadata-value"]',
+    deleteRowButton: '[data-testid="metadata-delete-row"]',
   },
 
   // Bulk toolbar

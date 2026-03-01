@@ -2234,6 +2234,61 @@ export class AppHelper {
       return !!document.querySelector('.clip-focused');
     });
   }
+
+  // ==================== Metadata ====================
+
+  async openMetadataModal(clipFilename: string): Promise<void> {
+    const card = this.page.locator(selectors.gallery.clipCardByName(clipFilename));
+    await card.locator(selectors.clipActions.menuTrigger).click();
+    await this.page.locator(selectors.cardMenu.metadata).click();
+    await expect(this.page.locator(selectors.metadata.modal)).not.toHaveClass(/pointer-events-none/);
+  }
+
+  async closeMetadataModal(): Promise<void> {
+    await this.page.locator(selectors.metadata.closeButton).click();
+    await expect(this.page.locator(selectors.metadata.modal)).toHaveClass(/pointer-events-none/);
+  }
+
+  async addMetadataField(key: string, value: string): Promise<void> {
+    await this.page.locator(selectors.metadata.addButton).click();
+    const rows = this.page.locator(selectors.metadata.row);
+    const lastRow = rows.last();
+    await lastRow.locator(selectors.metadata.keyInput).fill(key);
+    await lastRow.locator(selectors.metadata.valueInput).fill(value);
+  }
+
+  async saveMetadata(): Promise<void> {
+    await this.page.locator(selectors.metadata.saveButton).click();
+    await expect(this.page.locator(selectors.metadata.modal)).toHaveClass(/pointer-events-none/);
+  }
+
+  async expectMetadataRow(key: string, value: string): Promise<void> {
+    const rows = this.page.locator(selectors.metadata.row);
+    const count = await rows.count();
+    let found = false;
+    for (let i = 0; i < count; i++) {
+      const rowKey = await rows.nth(i).locator(selectors.metadata.keyInput).inputValue();
+      const rowValue = await rows.nth(i).locator(selectors.metadata.valueInput).inputValue();
+      if (rowKey === key && rowValue === value) {
+        found = true;
+        break;
+      }
+    }
+    expect(found).toBe(true);
+  }
+
+  async expectMetadataEmpty(): Promise<void> {
+    await expect(this.page.locator(selectors.metadata.emptyState)).toBeVisible();
+  }
+
+  async expectMetadataRowCount(count: number): Promise<void> {
+    await expect(this.page.locator(selectors.metadata.row)).toHaveCount(count);
+  }
+
+  async deleteMetadataRow(index: number): Promise<void> {
+    const rows = this.page.locator(selectors.metadata.row);
+    await rows.nth(index).locator(selectors.metadata.deleteRowButton).click();
+  }
 }
 
 // Custom test fixtures
