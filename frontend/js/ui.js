@@ -234,6 +234,15 @@ function positionCardMenu(menu, button) {
         top = buttonRect.top - gap - maxHeight;
     }
 
+    // Final clamp: ensure menu never exceeds viewport bounds
+    if (top + menuRect.height > vh - pad) {
+        top = vh - menuRect.height - pad;
+    }
+    if (top < pad) {
+        top = pad;
+        maxHeight = vh - 2 * pad;
+    }
+
     menu.style.top = `${top}px`;
     menu.style.left = `${left}px`;
 

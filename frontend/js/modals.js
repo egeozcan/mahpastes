@@ -635,6 +635,14 @@ function positionLightboxPopupMenu(menu, trigger) {
         left = 8;
     }
 
+    // Clamp vertical to viewport
+    if (top + menuRect.height > window.innerHeight - 8) {
+        top = window.innerHeight - menuRect.height - 8;
+    }
+    if (top < 8) {
+        top = 8;
+    }
+
     menu.style.top = `${top}px`;
     menu.style.left = `${left}px`;
 }
