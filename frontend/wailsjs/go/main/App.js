@@ -74,12 +74,20 @@ export function DeleteClip(arg1) {
   return window['go']['main']['App']['DeleteClip'](arg1);
 }
 
+export function DeleteClipMetadata(arg1, arg2) {
+  return window['go']['main']['App']['DeleteClipMetadata'](arg1, arg2);
+}
+
 export function DeleteTag(arg1) {
   return window['go']['main']['App']['DeleteTag'](arg1);
 }
 
 export function GetClipData(arg1) {
   return window['go']['main']['App']['GetClipData'](arg1);
+}
+
+export function GetClipMetadata(arg1) {
+  return window['go']['main']['App']['GetClipMetadata'](arg1);
 }
 
 export function GetClipTags(arg1) {
@@ -172,6 +180,14 @@ export function SaveClipToFile(arg1) {
 
 export function SelectFolder() {
   return window['go']['main']['App']['SelectFolder']();
+}
+
+export function SetClipMetadata(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SetClipMetadata'](arg1, arg2, arg3);
+}
+
+export function SetClipMetadataBulk(arg1, arg2) {
+  return window['go']['main']['App']['SetClipMetadataBulk'](arg1, arg2);
 }
 
 export function SetExpiration(arg1, arg2) {

@@ -38,9 +38,13 @@ export function DeleteAllTempFiles():Promise<void>;
 
 export function DeleteClip(arg1:number):Promise<void>;
 
+export function DeleteClipMetadata(arg1:number,arg2:string):Promise<void>;
+
 export function DeleteTag(arg1:number):Promise<void>;
 
 export function GetClipData(arg1:number):Promise<main.ClipData>;
+
+export function GetClipMetadata(arg1:number):Promise<Record<string, string>>;
 
 export function GetClipTags(arg1:number):Promise<Array<main.Tag>>;
 
@@ -87,6 +91,10 @@ export function RestoreBackup(arg1:string):Promise<void>;
 export function SaveClipToFile(arg1:number):Promise<void>;
 
 export function SelectFolder():Promise<string>;
+
+export function SetClipMetadata(arg1:number,arg2:string,arg3:string):Promise<void>;
+
+export function SetClipMetadataBulk(arg1:number,arg2:Record<string, string>):Promise<void>;
 
 export function SetExpiration(arg1:number,arg2:number):Promise<void>;
 
