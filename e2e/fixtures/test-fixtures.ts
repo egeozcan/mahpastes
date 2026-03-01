@@ -2291,6 +2291,57 @@ export class AppHelper {
     const rows = this.page.locator(selectors.metadata.row);
     await rows.nth(index).locator(selectors.metadata.deleteRowButton).click();
   }
+
+  // ==================== Sort ====================
+
+  async openSortPopover(): Promise<void> {
+    await this.page.locator(selectors.sort.button).click();
+    await this.page.waitForSelector(selectors.sort.popover);
+  }
+
+  async closeSortPopover(): Promise<void> {
+    await this.page.locator('body').click({ position: { x: 0, y: 0 } });
+    await expect(this.page.locator(selectors.sort.popover)).toHaveCount(0);
+  }
+
+  async selectSort(field: string): Promise<void> {
+    await this.page.locator(selectors.sort.option(field)).click();
+    // Popover closes and clips reload
+    await expect(this.page.locator(selectors.sort.popover)).toHaveCount(0);
+  }
+
+  async getClipFilenames(): Promise<string[]> {
+    const cards = this.page.locator(selectors.gallery.clipCard);
+    const count = await cards.count();
+    const names: string[] = [];
+    for (let i = 0; i < count; i++) {
+      const title = await cards.nth(i).locator('.p-2\\.5 p').getAttribute('title');
+      names.push(title || '');
+    }
+    return names;
+  }
+
+  // ==================== System Metadata ====================
+
+  async expectSystemMetadataVisible(): Promise<void> {
+    await expect(this.page.locator(selectors.metadata.systemInfo)).toBeVisible();
+  }
+
+  async expectSystemMetadataRowCount(count: number): Promise<void> {
+    await expect(this.page.locator(selectors.metadata.systemRow)).toHaveCount(count);
+  }
+
+  async getSystemMetadataValue(label: string): Promise<string> {
+    const rows = this.page.locator(selectors.metadata.systemRow);
+    const count = await rows.count();
+    for (let i = 0; i < count; i++) {
+      const rowLabel = await rows.nth(i).locator('span').first().textContent();
+      if (rowLabel?.trim() === label) {
+        return (await rows.nth(i).locator('span').nth(1).textContent()) || '';
+      }
+    }
+    return '';
+  }
 }
 
 // Custom test fixtures

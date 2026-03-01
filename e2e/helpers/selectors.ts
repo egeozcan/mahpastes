@@ -97,6 +97,15 @@ export const selectors = {
     keyInput: '[data-testid="metadata-key"]',
     valueInput: '[data-testid="metadata-value"]',
     deleteRowButton: '[data-testid="metadata-delete-row"]',
+    systemInfo: '[data-testid="metadata-system-info"]',
+    systemRow: '[data-testid="metadata-system-row"]',
+  },
+
+  // Sort
+  sort: {
+    button: '[data-testid="sort-button"]',
+    popover: '[data-testid="sort-popover"]',
+    option: (field: string) => `[data-testid="sort-option-${field}"]`,
   },
 
   // Bulk toolbar
