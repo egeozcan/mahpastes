@@ -38,7 +38,14 @@ function renderSystemInfo(clipData) {
         const row = document.createElement('div');
         row.className = 'flex items-center gap-2 text-[11px]';
         row.dataset.testid = 'metadata-system-row';
-        row.innerHTML = `<span class="text-stone-400 font-medium w-20 flex-shrink-0">${label}</span><span class="text-stone-600 truncate">${value}</span>`;
+        const labelSpan = document.createElement('span');
+        labelSpan.className = 'text-stone-400 font-medium w-20 flex-shrink-0';
+        labelSpan.textContent = label;
+        const valueSpan = document.createElement('span');
+        valueSpan.className = 'text-stone-600 truncate';
+        valueSpan.textContent = value;
+        row.appendChild(labelSpan);
+        row.appendChild(valueSpan);
         metadataSystemInfo.appendChild(row);
     });
 }

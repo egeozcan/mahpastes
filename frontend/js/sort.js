@@ -54,6 +54,7 @@ function openSortPopover() {
 
     document.body.appendChild(popover);
     positionSortPopover(popover);
+    sortBtn.setAttribute('aria-expanded', 'true');
 }
 
 function positionSortPopover(popover) {
@@ -73,6 +74,7 @@ function positionSortPopover(popover) {
 function closeSortPopover() {
     const existing = document.querySelector('.sort-popover');
     if (existing) existing.remove();
+    sortBtn.setAttribute('aria-expanded', 'false');
 }
 
 sortBtn.addEventListener('click', (e) => {
@@ -91,6 +93,3 @@ document.addEventListener('click', (e) => {
     }
 });
 
-document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closeSortPopover();
-});
