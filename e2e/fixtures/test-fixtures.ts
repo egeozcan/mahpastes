@@ -2242,6 +2242,8 @@ export class AppHelper {
     await card.locator(selectors.clipActions.menuTrigger).click();
     await this.page.locator(selectors.cardMenu.metadata).click();
     await expect(this.page.locator(selectors.metadata.modal)).not.toHaveClass(/pointer-events-none/);
+    // Wait for metadata content to load (either rows or empty state)
+    await this.page.locator(`${selectors.metadata.row}, ${selectors.metadata.emptyState}`).first().waitFor({ state: 'attached', timeout: 5000 });
   }
 
   async closeMetadataModal(): Promise<void> {
@@ -2263,18 +2265,18 @@ export class AppHelper {
   }
 
   async expectMetadataRow(key: string, value: string): Promise<void> {
-    const rows = this.page.locator(selectors.metadata.row);
-    const count = await rows.count();
-    let found = false;
-    for (let i = 0; i < count; i++) {
-      const rowKey = await rows.nth(i).locator(selectors.metadata.keyInput).inputValue();
-      const rowValue = await rows.nth(i).locator(selectors.metadata.valueInput).inputValue();
-      if (rowKey === key && rowValue === value) {
-        found = true;
-        break;
+    await expect.poll(async () => {
+      const rows = this.page.locator(selectors.metadata.row);
+      const count = await rows.count();
+      for (let i = 0; i < count; i++) {
+        const rowKey = await rows.nth(i).locator(selectors.metadata.keyInput).inputValue();
+        const rowValue = await rows.nth(i).locator(selectors.metadata.valueInput).inputValue();
+        if (rowKey === key && rowValue === value) {
+          return true;
+        }
       }
-    }
-    expect(found).toBe(true);
+      return false;
+    }, { timeout: 5000 }).toBe(true);
   }
 
   async expectMetadataEmpty(): Promise<void> {
