@@ -1960,6 +1960,12 @@ func (a *App) GetClipMetadata(clipID int64) (map[string]string, error) {
 
 // SetClipMetadata sets a single metadata key-value pair on a clip (upsert)
 func (a *App) SetClipMetadata(clipID int64, key string, value string) error {
+	if len(key) > 256 {
+		return fmt.Errorf("metadata key too long (max 256 chars)")
+	}
+	if len(value) > 4096 {
+		return fmt.Errorf("metadata value too long (max 4096 chars)")
+	}
 	meta, err := a.GetClipMetadata(clipID)
 	if err != nil {
 		return err
@@ -1997,6 +2003,14 @@ func (a *App) DeleteClipMetadata(clipID int64, key string) error {
 func (a *App) SetClipMetadataBulk(clipID int64, metadata map[string]string) error {
 	if len(metadata) > 50 {
 		return fmt.Errorf("metadata limit exceeded (max 50 pairs, got %d)", len(metadata))
+	}
+	for k, v := range metadata {
+		if len(k) > 256 {
+			return fmt.Errorf("metadata key too long (max 256 chars)")
+		}
+		if len(v) > 4096 {
+			return fmt.Errorf("metadata value too long (max 4096 chars)")
+		}
 	}
 	raw, err := json.Marshal(metadata)
 	if err != nil {

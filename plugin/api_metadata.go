@@ -70,6 +70,16 @@ func (m *MetadataAPI) set(L *lua.LState) int {
 	clipID := L.CheckInt64(1)
 	key := L.CheckString(2)
 	value := L.CheckString(3)
+	if len(key) > 256 {
+		L.Push(lua.LFalse)
+		L.Push(lua.LString("metadata key too long (max 256 chars)"))
+		return 2
+	}
+	if len(value) > 4096 {
+		L.Push(lua.LFalse)
+		L.Push(lua.LString("metadata value too long (max 4096 chars)"))
+		return 2
+	}
 	meta, err := m.getMetadata(clipID)
 	if err != nil {
 		L.Push(lua.LFalse)
@@ -116,11 +126,26 @@ func (m *MetadataAPI) setBulk(L *lua.LState) int {
 	clipID := L.CheckInt64(1)
 	tbl := L.CheckTable(2)
 	meta := make(map[string]string)
+	var validationErr string
 	tbl.ForEach(func(k lua.LValue, v lua.LValue) {
 		if ks, ok := k.(lua.LString); ok {
-			meta[string(ks)] = v.String()
+			if len(string(ks)) > 256 {
+				validationErr = "metadata key too long (max 256 chars)"
+				return
+			}
+			vs := v.String()
+			if len(vs) > 4096 {
+				validationErr = "metadata value too long (max 4096 chars)"
+				return
+			}
+			meta[string(ks)] = vs
 		}
 	})
+	if validationErr != "" {
+		L.Push(lua.LFalse)
+		L.Push(lua.LString(validationErr))
+		return 2
+	}
 	if len(meta) > maxMetadataPairs {
 		L.Push(lua.LFalse)
 		L.Push(lua.LString(fmt.Sprintf("metadata limit exceeded (max %d pairs, got %d)", maxMetadataPairs, len(meta))))
