@@ -315,9 +315,17 @@ async function handleCardAction(action, clipId, triggerButton) {
                 openTagPopover(id, tagBtn || triggerButton);
             }
             break;
-        case 'metadata':
-            openMetadataModal(id);
+        case 'metadata': {
+            const card = gallery.querySelector(`li[data-id="${id}"]`);
+            const clipData = card ? {
+                filename: card.querySelector('.p-2\\.5 p')?.getAttribute('title') || '',
+                content_type: card.dataset.type || '',
+                size: Number(card.dataset.size) || 0,
+                created_at: card.dataset.createdAt || '',
+            } : null;
+            openMetadataModal(id, clipData);
             break;
+        }
         case 'set-expiration': {
             const card = gallery.querySelector(`li[data-id="${clipId}"]`);
             if (card) {
@@ -704,6 +712,7 @@ async function createClipCard(clip, options = {}) {
     card.dataset.filename = (clip.filename || '').toLowerCase();
     card.dataset.type = (clip.content_type || '').toLowerCase();
     card.dataset.size = clip.size || 0;
+    card.dataset.createdAt = clip.created_at || '';
     if (clip.expires_at) {
         card.dataset.expiresAt = clip.expires_at;
     }

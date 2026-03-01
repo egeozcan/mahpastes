@@ -5,16 +5,42 @@ const metadataCloseBtn = document.getElementById('metadata-close');
 const metadataList = document.getElementById('metadata-list');
 const metadataAddBtn = document.getElementById('metadata-add');
 const metadataSaveBtn = document.getElementById('metadata-save');
+const metadataSystemInfo = document.getElementById('metadata-system-info');
 
 let currentMetadataClipId = null;
 
-function openMetadataModal(clipId) {
+function openMetadataModal(clipId, clipData) {
     currentMetadataClipId = clipId;
     metadataModal.classList.remove('opacity-0', 'pointer-events-none');
     metadataModal.classList.add('opacity-100');
     metadataModal.querySelector(':scope > div').classList.remove('scale-95');
     metadataModal.querySelector(':scope > div').classList.add('scale-100');
+    renderSystemInfo(clipData);
     loadMetadata(clipId);
+}
+
+function renderSystemInfo(clipData) {
+    metadataSystemInfo.innerHTML = '';
+    if (!clipData) {
+        metadataSystemInfo.classList.add('hidden');
+        return;
+    }
+    metadataSystemInfo.classList.remove('hidden');
+
+    const fields = [
+        { label: 'Date added', value: clipData.created_at ? new Date(clipData.created_at).toLocaleString() : '—' },
+        { label: 'Filename', value: clipData.filename || '—' },
+        { label: 'Type', value: clipData.content_type || '—' },
+        { label: 'Size', value: formatFileSize(clipData.size) },
+    ];
+
+    fields.forEach(({ label, value }) => {
+        const row = document.createElement('div');
+        row.className = 'flex items-center gap-2 text-[11px]';
+        row.dataset.testid = 'metadata-system-row';
+        row.innerHTML = `<span class="text-stone-400 font-medium w-20 flex-shrink-0">${label}</span><span class="text-stone-600 truncate">${value}</span>`;
+        metadataSystemInfo.appendChild(row);
+    });
 }
 
 function closeMetadataModal() {
