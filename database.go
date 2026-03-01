@@ -95,6 +95,8 @@ func initDB() (*sql.DB, error) {
 	// Migrate: Add content_hash column for deduplication
 	_, _ = db.Exec("ALTER TABLE clips ADD COLUMN content_hash TEXT DEFAULT ''")
 	_, _ = db.Exec("CREATE INDEX IF NOT EXISTS idx_clips_content_hash ON clips(content_hash)")
+	// Migrate: Add metadata column for key-value metadata (JSON)
+	_, _ = db.Exec("ALTER TABLE clips ADD COLUMN metadata TEXT DEFAULT '{}'")
 
 	// Create settings table
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS settings (
