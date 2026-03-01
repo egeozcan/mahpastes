@@ -52,7 +52,7 @@ export function GetClipboardImage():Promise<string>;
 
 export function GetClipboardText():Promise<string>;
 
-export function GetClips(arg1:boolean,arg2:Array<number>,arg3:Array<number>):Promise<Array<main.ClipPreview>>;
+export function GetClips(arg1:boolean,arg2:Array<number>,arg3:Array<number>,arg4:string,arg5:string):Promise<Array<main.ClipPreview>>;
 
 export function GetDuplicateGroups():Promise<Array<main.DuplicateGroup>>;
 

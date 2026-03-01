@@ -102,8 +102,8 @@ export function GetClipboardText() {
   return window['go']['main']['App']['GetClipboardText']();
 }
 
-export function GetClips(arg1, arg2, arg3) {
-  return window['go']['main']['App']['GetClips'](arg1, arg2, arg3);
+export function GetClips(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['main']['App']['GetClips'](arg1, arg2, arg3, arg4, arg5);
 }
 
 export function GetDuplicateGroups() {

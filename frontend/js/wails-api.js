@@ -5,7 +5,7 @@ async function loadClips() {
     try {
         if (typeof ShortcutManager !== 'undefined') ShortcutManager.clearFocus();
         const effectiveHidden = getHiddenTags().filter(id => !activeTagFilters.includes(id));
-        const clips = await window.go.main.App.GetClips(isViewingArchive, activeTagFilters, effectiveHidden);
+        const clips = await window.go.main.App.GetClips(isViewingArchive, activeTagFilters, effectiveHidden, currentSortField, currentSortDir);
 
         if (typeof clearPreparedDragState === 'function') {
             clearPreparedDragState();

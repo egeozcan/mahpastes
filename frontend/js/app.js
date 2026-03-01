@@ -147,11 +147,24 @@ let allTags = [];
 let activeTagFilters = [];
 let hiddenTags = [];
 
+// Sort state
+let currentSortField = 'date';
+let currentSortDir = 'desc';
+
 // Accessors for hiddenTags — other files should use these instead of the variable directly
 function getHiddenTags() { return hiddenTags; }
 function setHiddenTagsState(tags) {
     hiddenTags.length = 0;
     hiddenTags.push(...tags);
+}
+
+// Sort setter — called from sort.js popover
+async function setSort(field, dir) {
+    currentSortField = field;
+    currentSortDir = dir;
+    await window.go.main.App.SetSetting('sort_field', field);
+    await window.go.main.App.SetSetting('sort_dir', dir);
+    await loadClips();
 }
 
 // App ready flag for testing
@@ -451,6 +464,15 @@ window.addEventListener('load', async () => {
         if (typeof initTransferCapabilities === 'function') {
             await initTransferCapabilities();
         }
+
+        // Load sort preferences
+        try {
+            const savedField = await window.go.main.App.GetSetting('sort_field');
+            const savedDir = await window.go.main.App.GetSetting('sort_dir');
+            if (['date', 'name', 'size', 'type'].includes(savedField)) currentSortField = savedField;
+            if (['asc', 'desc'].includes(savedDir)) currentSortDir = savedDir;
+        } catch (e) { /* use defaults */ }
+
         await loadClips();
         checkDuplicatesExist();
         setupEditorListeners();
