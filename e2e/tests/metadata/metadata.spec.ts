@@ -142,4 +142,38 @@ test.describe('Metadata', () => {
     await app.expectMetadataRow('valid-key', 'valid-value');
     await app.closeMetadataModal();
   });
+
+  test('should show system metadata rows', async ({ app }) => {
+    const imagePath = await createTempFile(generateTestImage(), 'png');
+    const filename = path.basename(imagePath);
+    await app.uploadFile(imagePath);
+    await app.expectClipCount(1);
+
+    await app.openMetadataModal(filename);
+    await app.expectSystemMetadataVisible();
+    await app.expectSystemMetadataRowCount(4);
+    await app.closeMetadataModal();
+  });
+
+  test('should show correct filename in system metadata', async ({ app }) => {
+    const imagePath = await createTempFile(generateTestImage(), 'png');
+    const filename = path.basename(imagePath);
+    await app.uploadFile(imagePath);
+
+    await app.openMetadataModal(filename);
+    const filenameValue = await app.getSystemMetadataValue('Filename');
+    expect(filenameValue).toBe(filename);
+    await app.closeMetadataModal();
+  });
+
+  test('should show correct content type in system metadata', async ({ app }) => {
+    const imagePath = await createTempFile(generateTestImage(), 'png');
+    const filename = path.basename(imagePath);
+    await app.uploadFile(imagePath);
+
+    await app.openMetadataModal(filename);
+    const typeValue = await app.getSystemMetadataValue('Type');
+    expect(typeValue).toBe('image/png');
+    await app.closeMetadataModal();
+  });
 });
