@@ -139,6 +139,14 @@ function formatTimeRemaining(expiresAt) {
     return `${days}d`;
 }
 
+function formatFileSize(bytes) {
+    if (!bytes || bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(i === 0 ? 0 : 1)) + ' ' + sizes[i];
+}
+
 function getFriendlyFileType(contentType, filename) {
     // Map of MIME types to friendly names
     const mimeMap = {
