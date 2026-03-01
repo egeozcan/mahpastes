@@ -77,6 +77,14 @@ Plugin = {
             {id = "generate", label = "Generate Image", icon = "sparkles", async = true,
                 options = {
                     {id = "prompt", type = "text", label = "Prompt", required = true},
+                    {id = "model", type = "select", label = "Model", default = "nanobanana2",
+                        choices = {
+                            {value = "nanobanana2", label = "Nano Banana 2"},
+                            {value = "imagen4", label = "Imagen 4"},
+                            {value = "imagen4_fast", label = "Imagen 4 Fast"},
+                            {value = "imagen4_ultra", label = "Imagen 4 Ultra"},
+                        }
+                    },
                     {id = "resolution", type = "select", label = "Resolution", default = "1K",
                         choices = {
                             {value = "0.5K", label = "0.5K"},
@@ -115,6 +123,9 @@ local FAL_ENDPOINTS = {
     nanobanana2 = "fal-ai/nano-banana-2/edit",
     vectorize = "fal-ai/recraft/vectorize",
     nanobanana2_generate = "fal-ai/nano-banana-2",
+    imagen4 = "fal-ai/imagen4/preview",
+    imagen4_fast = "fal-ai/imagen4/preview/fast",
+    imagen4_ultra = "fal-ai/imagen4/preview/ultra",
 }
 
 -- Build API request payload based on action and options
@@ -283,18 +294,36 @@ function on_ui_action(action_id, clip_ids, options)
 
         local task_id = task.start("Generate Image", 1)
         local last_clip_id = nil
+        local model = options.model or "nanobanana2"
 
         local ok, err = pcall(function()
+            local endpoint = FAL_ENDPOINTS[model] or FAL_ENDPOINTS.nanobanana2_generate
             local payload = {
                 prompt = prompt,
-                resolution = options.resolution or "1K",
                 aspect_ratio = options.aspect_ratio or "1:1",
                 output_format = "jpeg",
                 safety_tolerance = 6,
             }
 
+            -- Nano Banana 2 uses its own endpoint key and supports all resolutions
+            if model == "nanobanana2" then
+                endpoint = FAL_ENDPOINTS.nanobanana2_generate
+                payload.resolution = options.resolution or "1K"
+            -- Imagen 4 Fast has no resolution parameter
+            elseif model == "imagen4_fast" then
+                -- no resolution param
+            -- Imagen 4 Standard/Ultra support 1K and 2K only
+            else
+                local res = options.resolution or "1K"
+                if res == "1K" or res == "2K" then
+                    payload.resolution = res
+                else
+                    payload.resolution = "1K"
+                end
+            end
+
             local resp, http_err = http.post(
-                "https://fal.run/" .. FAL_ENDPOINTS.nanobanana2_generate,
+                "https://fal.run/" .. endpoint,
                 {
                     body = json.encode(payload),
                     headers = {
