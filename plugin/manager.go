@@ -238,6 +238,9 @@ func (m *Manager) loadPlugin(p *Plugin) error {
 	imageAPI := NewImageAPI(m.db)
 	imageAPI.Register(sandbox.GetState())
 
+	metadataAPI := NewMetadataAPI(m.db)
+	metadataAPI.Register(sandbox.GetState())
+
 	// Load the plugin source
 	if err := sandbox.LoadSource(string(source)); err != nil {
 		sandbox.Close()
