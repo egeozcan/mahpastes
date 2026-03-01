@@ -518,6 +518,13 @@ const ShortcutManager = (() => {
             return true;
         }
 
+        // Metadata modal
+        const metadataModal = document.getElementById('metadata-modal');
+        if (metadataModal && !metadataModal.classList.contains('opacity-0')) {
+            if (typeof closeMetadataModal === 'function') closeMetadataModal();
+            return true;
+        }
+
         // Plugins modal
         const pluginsModal = document.querySelector('[data-testid="plugins-modal"]');
         if (pluginsModal && !pluginsModal.classList.contains('opacity-0')) {

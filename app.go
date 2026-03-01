@@ -156,6 +156,8 @@ func (a *App) startup(ctx context.Context) {
 		log.Printf("Warning: Failed to initialize plugin manager: %v", err)
 	} else {
 		a.pluginManager = pm
+		// Wire metadata functions so plugin API delegates to App
+		pm.SetMetadataFuncs(a.GetClipMetadata, a.updateClipMetadata)
 		// Set up permission callback for filesystem access
 		pm.SetPermissionCallback(func(pluginName, permType, requestedPath string) string {
 			// Use Wails runtime dialog for folder selection
@@ -1958,45 +1960,67 @@ func (a *App) GetClipMetadata(clipID int64) (map[string]string, error) {
 	return meta, nil
 }
 
+// updateClipMetadata performs an atomic read-modify-write of clip metadata
+// inside a transaction. The modify function receives the current metadata and
+// mutates it in place; returning an error aborts the transaction.
+func (a *App) updateClipMetadata(clipID int64, modify func(meta map[string]string) error) error {
+	tx, err := a.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	var raw string
+	if err := tx.QueryRow("SELECT COALESCE(metadata, '{}') FROM clips WHERE id = ?", clipID).Scan(&raw); err != nil {
+		return fmt.Errorf("failed to read metadata: %w", err)
+	}
+	var meta map[string]string
+	if err := json.Unmarshal([]byte(raw), &meta); err != nil || meta == nil {
+		meta = map[string]string{}
+	}
+
+	if err := modify(meta); err != nil {
+		return err
+	}
+
+	encoded, err := json.Marshal(meta)
+	if err != nil {
+		return fmt.Errorf("failed to encode metadata: %w", err)
+	}
+	if _, err := tx.Exec("UPDATE clips SET metadata = ? WHERE id = ?", string(encoded), clipID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 // SetClipMetadata sets a single metadata key-value pair on a clip (upsert)
 func (a *App) SetClipMetadata(clipID int64, key string, value string) error {
+	if key == "" {
+		return fmt.Errorf("metadata key cannot be empty")
+	}
 	if len(key) > 256 {
 		return fmt.Errorf("metadata key too long (max 256 chars)")
 	}
 	if len(value) > 4096 {
 		return fmt.Errorf("metadata value too long (max 4096 chars)")
 	}
-	meta, err := a.GetClipMetadata(clipID)
-	if err != nil {
-		return err
-	}
-	if len(meta) >= 50 {
-		if _, exists := meta[key]; !exists {
-			return fmt.Errorf("metadata limit reached (max 50 pairs)")
+	return a.updateClipMetadata(clipID, func(meta map[string]string) error {
+		if len(meta) >= 50 {
+			if _, exists := meta[key]; !exists {
+				return fmt.Errorf("metadata limit reached (max 50 pairs)")
+			}
 		}
-	}
-	meta[key] = value
-	raw, err := json.Marshal(meta)
-	if err != nil {
-		return fmt.Errorf("failed to encode metadata: %w", err)
-	}
-	_, err = a.db.Exec("UPDATE clips SET metadata = ? WHERE id = ?", string(raw), clipID)
-	return err
+		meta[key] = value
+		return nil
+	})
 }
 
 // DeleteClipMetadata removes a single metadata key from a clip
 func (a *App) DeleteClipMetadata(clipID int64, key string) error {
-	meta, err := a.GetClipMetadata(clipID)
-	if err != nil {
-		return err
-	}
-	delete(meta, key)
-	raw, err := json.Marshal(meta)
-	if err != nil {
-		return fmt.Errorf("failed to encode metadata: %w", err)
-	}
-	_, err = a.db.Exec("UPDATE clips SET metadata = ? WHERE id = ?", string(raw), clipID)
-	return err
+	return a.updateClipMetadata(clipID, func(meta map[string]string) error {
+		delete(meta, key)
+		return nil
+	})
 }
 
 // SetClipMetadataBulk replaces all metadata on a clip
@@ -2005,6 +2029,9 @@ func (a *App) SetClipMetadataBulk(clipID int64, metadata map[string]string) erro
 		return fmt.Errorf("metadata limit exceeded (max 50 pairs, got %d)", len(metadata))
 	}
 	for k, v := range metadata {
+		if k == "" {
+			return fmt.Errorf("metadata key cannot be empty")
+		}
 		if len(k) > 256 {
 			return fmt.Errorf("metadata key too long (max 256 chars)")
 		}

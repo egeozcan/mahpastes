@@ -130,6 +130,8 @@ type Manager struct {
 	pendingUpdates  map[int64]string
 	pendingInstalls map[string]string // source URL/path -> fetched content
 	updateChecker   *UpdateChecker
+	metadataGet    MetadataGetFunc
+	metadataUpdate MetadataUpdateFunc
 }
 
 // NewManager creates a new plugin manager
@@ -152,6 +154,12 @@ func NewManager(ctx context.Context, db *sql.DB, pluginsDir string) (*Manager, e
 	}
 
 	return m, nil
+}
+
+// SetMetadataFuncs sets the metadata get/update functions used by the Lua API.
+func (m *Manager) SetMetadataFuncs(getFn MetadataGetFunc, updateFn MetadataUpdateFunc) {
+	m.metadataGet = getFn
+	m.metadataUpdate = updateFn
 }
 
 // SetPermissionCallback sets the callback for filesystem permission requests
@@ -238,7 +246,7 @@ func (m *Manager) loadPlugin(p *Plugin) error {
 	imageAPI := NewImageAPI(m.db)
 	imageAPI.Register(sandbox.GetState())
 
-	metadataAPI := NewMetadataAPI(m.db)
+	metadataAPI := NewMetadataAPI(m.metadataGet, m.metadataUpdate)
 	metadataAPI.Register(sandbox.GetState())
 
 	// Load the plugin source

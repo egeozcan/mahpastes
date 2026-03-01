@@ -1,8 +1,6 @@
 package plugin
 
 import (
-	"database/sql"
-	"encoding/json"
 	"fmt"
 	"log"
 
@@ -11,12 +9,19 @@ import (
 
 const maxMetadataPairs = 50
 
+// MetadataGetFunc retrieves all metadata for a clip.
+type MetadataGetFunc func(clipID int64) (map[string]string, error)
+
+// MetadataUpdateFunc performs an atomic read-modify-write of clip metadata.
+type MetadataUpdateFunc func(clipID int64, modify func(meta map[string]string) error) error
+
 type MetadataAPI struct {
-	db *sql.DB
+	getFn    MetadataGetFunc
+	updateFn MetadataUpdateFunc
 }
 
-func NewMetadataAPI(db *sql.DB) *MetadataAPI {
-	return &MetadataAPI{db: db}
+func NewMetadataAPI(getFn MetadataGetFunc, updateFn MetadataUpdateFunc) *MetadataAPI {
+	return &MetadataAPI{getFn: getFn, updateFn: updateFn}
 }
 
 func (m *MetadataAPI) Register(L *lua.LState) {
@@ -28,31 +33,9 @@ func (m *MetadataAPI) Register(L *lua.LState) {
 	L.SetGlobal("metadata", mod)
 }
 
-func (m *MetadataAPI) getMetadata(clipID int64) (map[string]string, error) {
-	var raw string
-	err := m.db.QueryRow("SELECT COALESCE(metadata, '{}') FROM clips WHERE id = ?", clipID).Scan(&raw)
-	if err != nil {
-		return nil, err
-	}
-	var meta map[string]string
-	if err := json.Unmarshal([]byte(raw), &meta); err != nil {
-		return map[string]string{}, nil
-	}
-	return meta, nil
-}
-
-func (m *MetadataAPI) saveMetadata(clipID int64, meta map[string]string) error {
-	raw, err := json.Marshal(meta)
-	if err != nil {
-		return err
-	}
-	_, err = m.db.Exec("UPDATE clips SET metadata = ? WHERE id = ?", string(raw), clipID)
-	return err
-}
-
 func (m *MetadataAPI) get(L *lua.LState) int {
 	clipID := L.CheckInt64(1)
-	meta, err := m.getMetadata(clipID)
+	meta, err := m.getFn(clipID)
 	if err != nil {
 		L.Push(lua.LNil)
 		L.Push(lua.LString(err.Error()))
@@ -70,6 +53,11 @@ func (m *MetadataAPI) set(L *lua.LState) int {
 	clipID := L.CheckInt64(1)
 	key := L.CheckString(2)
 	value := L.CheckString(3)
+	if key == "" {
+		L.Push(lua.LFalse)
+		L.Push(lua.LString("metadata key cannot be empty"))
+		return 2
+	}
 	if len(key) > 256 {
 		L.Push(lua.LFalse)
 		L.Push(lua.LString("metadata key too long (max 256 chars)"))
@@ -80,21 +68,16 @@ func (m *MetadataAPI) set(L *lua.LState) int {
 		L.Push(lua.LString("metadata value too long (max 4096 chars)"))
 		return 2
 	}
-	meta, err := m.getMetadata(clipID)
-	if err != nil {
-		L.Push(lua.LFalse)
-		L.Push(lua.LString(err.Error()))
-		return 2
-	}
-	if len(meta) >= maxMetadataPairs {
-		if _, exists := meta[key]; !exists {
-			L.Push(lua.LFalse)
-			L.Push(lua.LString(fmt.Sprintf("metadata limit reached (max %d pairs)", maxMetadataPairs)))
-			return 2
+	err := m.updateFn(clipID, func(meta map[string]string) error {
+		if len(meta) >= maxMetadataPairs {
+			if _, exists := meta[key]; !exists {
+				return fmt.Errorf("metadata limit reached (max %d pairs)", maxMetadataPairs)
+			}
 		}
-	}
-	meta[key] = value
-	if err := m.saveMetadata(clipID, meta); err != nil {
+		meta[key] = value
+		return nil
+	})
+	if err != nil {
 		L.Push(lua.LFalse)
 		L.Push(lua.LString(err.Error()))
 		return 2
@@ -106,14 +89,11 @@ func (m *MetadataAPI) set(L *lua.LState) int {
 func (m *MetadataAPI) del(L *lua.LState) int {
 	clipID := L.CheckInt64(1)
 	key := L.CheckString(2)
-	meta, err := m.getMetadata(clipID)
+	err := m.updateFn(clipID, func(meta map[string]string) error {
+		delete(meta, key)
+		return nil
+	})
 	if err != nil {
-		L.Push(lua.LFalse)
-		L.Push(lua.LString(err.Error()))
-		return 2
-	}
-	delete(meta, key)
-	if err := m.saveMetadata(clipID, meta); err != nil {
 		L.Push(lua.LFalse)
 		L.Push(lua.LString(err.Error()))
 		return 2
@@ -125,10 +105,17 @@ func (m *MetadataAPI) del(L *lua.LState) int {
 func (m *MetadataAPI) setBulk(L *lua.LState) int {
 	clipID := L.CheckInt64(1)
 	tbl := L.CheckTable(2)
-	meta := make(map[string]string)
+	newMeta := make(map[string]string)
 	var validationErr string
 	tbl.ForEach(func(k lua.LValue, v lua.LValue) {
+		if validationErr != "" {
+			return
+		}
 		if ks, ok := k.(lua.LString); ok {
+			if string(ks) == "" {
+				validationErr = "metadata key cannot be empty"
+				return
+			}
 			if len(string(ks)) > 256 {
 				validationErr = "metadata key too long (max 256 chars)"
 				return
@@ -138,7 +125,7 @@ func (m *MetadataAPI) setBulk(L *lua.LState) int {
 				validationErr = "metadata value too long (max 4096 chars)"
 				return
 			}
-			meta[string(ks)] = vs
+			newMeta[string(ks)] = vs
 		}
 	})
 	if validationErr != "" {
@@ -146,12 +133,22 @@ func (m *MetadataAPI) setBulk(L *lua.LState) int {
 		L.Push(lua.LString(validationErr))
 		return 2
 	}
-	if len(meta) > maxMetadataPairs {
+	if len(newMeta) > maxMetadataPairs {
 		L.Push(lua.LFalse)
-		L.Push(lua.LString(fmt.Sprintf("metadata limit exceeded (max %d pairs, got %d)", maxMetadataPairs, len(meta))))
+		L.Push(lua.LString(fmt.Sprintf("metadata limit exceeded (max %d pairs, got %d)", maxMetadataPairs, len(newMeta))))
 		return 2
 	}
-	if err := m.saveMetadata(clipID, meta); err != nil {
+	err := m.updateFn(clipID, func(meta map[string]string) error {
+		// Clear existing and replace with new
+		for k := range meta {
+			delete(meta, k)
+		}
+		for k, v := range newMeta {
+			meta[k] = v
+		}
+		return nil
+	})
+	if err != nil {
 		log.Printf("metadata.set_bulk: failed: %v", err)
 		L.Push(lua.LFalse)
 		L.Push(lua.LString(err.Error()))
