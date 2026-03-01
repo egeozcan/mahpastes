@@ -38,13 +38,13 @@ function openSortPopover() {
             btn.appendChild(dirIcon);
         }
 
-        btn.addEventListener('click', () => {
+        btn.addEventListener('click', async () => {
             if (isActive) {
                 // Toggle direction
-                setSort(id, currentSortDir === 'asc' ? 'desc' : 'asc');
+                await setSort(id, currentSortDir === 'asc' ? 'desc' : 'asc');
             } else {
                 // Switch field, default desc
-                setSort(id, 'desc');
+                await setSort(id, 'desc');
             }
             closeSortPopover();
         });

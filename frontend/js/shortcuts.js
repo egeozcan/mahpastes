@@ -532,6 +532,13 @@ const ShortcutManager = (() => {
             return true;
         }
 
+        // Sort popover
+        const sortPopover = document.querySelector('.sort-popover');
+        if (sortPopover) {
+            if (typeof closeSortPopover === 'function') closeSortPopover();
+            return true;
+        }
+
         return false;
     }
 

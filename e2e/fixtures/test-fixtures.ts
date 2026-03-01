@@ -150,7 +150,7 @@ export class AppHelper {
     // Query the database directly via Wails API to get accurate count
     return this.page.evaluate(async (isArchived) => {
       // @ts-ignore - Wails runtime
-      const clips = await window.go.main.App.GetClips(isArchived, [], []);
+      const clips = await window.go.main.App.GetClips(isArchived, [], [], "", "");
       return clips?.length || 0;
     }, archived);
   }
@@ -273,9 +273,9 @@ export class AppHelper {
   async deleteAllClips(): Promise<void> {
     await this.page.evaluate(async () => {
       // @ts-ignore - Wails runtime
-      const clips = await window.go.main.App.GetClips(false, [], []);
+      const clips = await window.go.main.App.GetClips(false, [], [], "", "");
       // @ts-ignore
-      const archivedClips = await window.go.main.App.GetClips(true, [], []);
+      const archivedClips = await window.go.main.App.GetClips(true, [], [], "", "");
       const allClips = [...clips, ...archivedClips];
 
       for (const clip of allClips) {
@@ -459,9 +459,9 @@ export class AppHelper {
       // Inline version without page reload (faster for cleanup)
       await this.page.evaluate(async () => {
         // @ts-ignore
-        const clips = await window.go.main.App.GetClips(false, [], []);
+        const clips = await window.go.main.App.GetClips(false, [], [], "", "");
         // @ts-ignore
-        const archivedClips = await window.go.main.App.GetClips(true, [], []);
+        const archivedClips = await window.go.main.App.GetClips(true, [], [], "", "");
         for (const clip of [...clips, ...archivedClips]) {
           try {
             // @ts-ignore
@@ -579,8 +579,8 @@ export class AppHelper {
       try {
         if (App?.GetClips) {
           const [clips, archived] = await Promise.all([
-            App.GetClips(false, [], []),
-            App.GetClips(true, [], []),
+            App.GetClips(false, [], [], "", ""),
+            App.GetClips(true, [], [], "", ""),
           ]);
           const all = [...(clips || []), ...(archived || [])];
           await Promise.all(all.map((c: any) => App.DeleteClip(c.id).catch(() => {})));
@@ -598,6 +598,14 @@ export class AppHelper {
       try {
         if (App?.SetHiddenTags) {
           await App.SetHiddenTags([]);
+        }
+      } catch {}
+
+      // Reset sort preferences to defaults
+      try {
+        if (App?.SetSetting) {
+          await App.SetSetting('sort_field', 'date');
+          await App.SetSetting('sort_dir', 'desc');
         }
       } catch {}
 
@@ -645,6 +653,9 @@ export class AppHelper {
       // Card menu dropdown (dynamically created)
       document.querySelector('.card-menu-dropdown')?.remove();
 
+      // Sort popover (dynamically created)
+      document.querySelector('.sort-popover')?.remove();
+
       // Close plugin URL input container
       const urlContainer = document.getElementById('plugin-url-container');
       if (urlContainer) urlContainer.classList.add('hidden');
@@ -667,6 +678,7 @@ export class AppHelper {
         if (helpers.setHiddenTags) helpers.setHiddenTags([]);
         if (helpers.setViewingArchive) helpers.setViewingArchive(false);
         if (helpers.setViewingWatch) helpers.setViewingWatch(false);
+        if (helpers.setSort) helpers.setSort('date', 'desc');
 
         // Reset keyboard shortcut overrides to defaults
         const sm = helpers.getShortcutManager ? helpers.getShortcutManager() : null;
@@ -1285,7 +1297,7 @@ export class AppHelper {
     await this.page.evaluate(async ({ filename, tag }) => {
       // Get clip ID by filename
       // @ts-ignore
-      const clips = await window.go.main.App.GetClips(false, [], []);
+      const clips = await window.go.main.App.GetClips(false, [], [], "", "");
       const clip = clips.find((c: any) =>
         c.filename?.toLowerCase().includes(filename.replace('.png', '').toLowerCase())
       );
@@ -1321,7 +1333,7 @@ export class AppHelper {
     await this.page.evaluate(async ({ filename, tag }) => {
       // Get clip ID by filename
       // @ts-ignore
-      const clips = await window.go.main.App.GetClips(false, [], []);
+      const clips = await window.go.main.App.GetClips(false, [], [], "", "");
       const clip = clips.find((c: any) =>
         c.filename?.toLowerCase().includes(filename.replace('.png', '').toLowerCase())
       );
@@ -2295,6 +2307,12 @@ export class AppHelper {
   // ==================== Sort ====================
 
   async openSortPopover(): Promise<void> {
+    // Close if already open (button toggles)
+    const popover = this.page.locator(selectors.sort.popover);
+    if (await popover.count() > 0) {
+      await this.page.locator(selectors.sort.button).click();
+      await expect(popover).toHaveCount(0);
+    }
     await this.page.locator(selectors.sort.button).click();
     await this.page.waitForSelector(selectors.sort.popover);
   }

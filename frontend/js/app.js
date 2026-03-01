@@ -186,6 +186,7 @@ Object.assign(window.__testHelpers, {
   setHiddenTags: (tags) => setHiddenTagsState(tags),
   getHiddenTags: () => getHiddenTags(),
   setViewingArchive: (val) => { isViewingArchive = val; },
+  setSort: (field, dir) => { currentSortField = field; currentSortDir = dir; },
   getShortcutManager: () => typeof ShortcutManager !== 'undefined' ? ShortcutManager : null,
   // Expose loadClips function (defined in wails-api.js, but called here)
   loadClips: () => {
