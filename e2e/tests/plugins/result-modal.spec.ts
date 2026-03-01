@@ -27,7 +27,7 @@ test.describe('Plugin Result Modal', () => {
 
       const clips = await app.page.evaluate(async () => {
         // @ts-ignore
-        return await window.go.main.App.GetClips(false, [], []);
+        return await window.go.main.App.GetClips(false, [], [], "", "");
       });
       const clipId = clips[0].id;
 
@@ -55,7 +55,7 @@ test.describe('Plugin Result Modal', () => {
 
       const clips = await app.page.evaluate(async () => {
         // @ts-ignore
-        return await window.go.main.App.GetClips(false, [], []);
+        return await window.go.main.App.GetClips(false, [], [], "", "");
       });
       const clipId = clips[0].id;
 
@@ -76,7 +76,7 @@ test.describe('Plugin Result Modal', () => {
 
       const clips = await app.page.evaluate(async () => {
         // @ts-ignore
-        return await window.go.main.App.GetClips(false, [], []);
+        return await window.go.main.App.GetClips(false, [], [], "", "");
       });
       const clipId = clips[0].id;
 
@@ -103,7 +103,7 @@ test.describe('Plugin Result Modal', () => {
 
       const clips = await app.page.evaluate(async () => {
         // @ts-ignore
-        return await window.go.main.App.GetClips(false, [], []);
+        return await window.go.main.App.GetClips(false, [], [], "", "");
       });
       const clipId = clips[0].id;
 
@@ -143,7 +143,7 @@ test.describe('Plugin Result Modal', () => {
 
       const clips = await app.page.evaluate(async () => {
         // @ts-ignore
-        return await window.go.main.App.GetClips(false, [], []);
+        return await window.go.main.App.GetClips(false, [], [], "", "");
       });
       const clipId = clips[0].id;
 

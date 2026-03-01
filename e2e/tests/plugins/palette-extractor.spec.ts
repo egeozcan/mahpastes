@@ -11,7 +11,7 @@ const TEST_PLUGINS_DIR = path.resolve(__dirname, '../../test-plugins');
 async function getClipIds(app: any): Promise<number[]> {
   return app.page.evaluate(async () => {
     // @ts-ignore
-    const clips = await window.go.main.App.GetClips(false, [], []);
+    const clips = await window.go.main.App.GetClips(false, [], [], "", "");
     return (clips || []).map((c: any) => c.id);
   });
 }
@@ -119,7 +119,7 @@ test.describe('Palette Extractor Plugin', () => {
 
     const clips = await app.page.evaluate(async () => {
       // @ts-ignore
-      return await window.go.main.App.GetClips(false, [], []);
+      return await window.go.main.App.GetClips(false, [], [], "", "");
     });
     const clipId = clips[0].id;
 
