@@ -344,11 +344,38 @@ var tagColors = []string{
 	"#06B6D4", // cyan
 }
 
+func sortColumn(field string) string {
+	switch field {
+	case "name":
+		return "c.filename"
+	case "size":
+		return "LENGTH(c.data)"
+	case "type":
+		return "c.content_type"
+	default:
+		return "c.created_at"
+	}
+}
+
 // GetClips retrieves a list of clips for the gallery, optionally filtered by tags
-func (a *App) GetClips(archived bool, tagIDs []int64, hiddenTagIDs []int64) ([]ClipPreview, error) {
+func (a *App) GetClips(archived bool, tagIDs []int64, hiddenTagIDs []int64, sortField string, sortDir string) ([]ClipPreview, error) {
 	archivedInt := 0
 	if archived {
 		archivedInt = 1
+	}
+
+	col := sortColumn(sortField)
+	dir := "DESC"
+	if sortDir == "asc" {
+		dir = "ASC"
+	}
+	orderClause := fmt.Sprintf("ORDER BY %s %s", col, dir)
+	if col != "c.created_at" {
+		orderClause += ", c.created_at DESC, c.id DESC"
+	} else if dir == "DESC" {
+		orderClause += ", c.id DESC"
+	} else {
+		orderClause += ", c.id ASC"
 	}
 
 	// Compute effective hidden tags (remove any that are in active filters)
@@ -406,8 +433,8 @@ func (a *App) GetClips(archived bool, tagIDs []int64, hiddenTagIDs []int64) ([]C
 		  AND (c.expires_at IS NULL OR c.expires_at > CURRENT_TIMESTAMP)%s
 		GROUP BY c.id
 		HAVING COUNT(DISTINCT ct.tag_id) = ?
-		ORDER BY c.created_at DESC
-		LIMIT %d`, hiddenJoin, strings.Join(tagPlaceholders, ","), hiddenWhere, defaultClipLimit)
+		%s
+		LIMIT %d`, hiddenJoin, strings.Join(tagPlaceholders, ","), hiddenWhere, orderClause, defaultClipLimit)
 	} else if len(effectiveHidden) > 0 {
 		// No tag filters but has hidden tags - use LEFT JOIN anti-join
 		hiddenPlaceholders := make([]string, len(effectiveHidden))
@@ -425,8 +452,8 @@ func (a *App) GetClips(archived bool, tagIDs []int64, hiddenTagIDs []int64) ([]C
 		WHERE ht.clip_id IS NULL
 		  AND c.is_archived = ?
 		  AND (c.expires_at IS NULL OR c.expires_at > CURRENT_TIMESTAMP)
-		ORDER BY c.created_at DESC
-		LIMIT %d`, strings.Join(hiddenPlaceholders, ","), defaultClipLimit)
+		%s
+		LIMIT %d`, strings.Join(hiddenPlaceholders, ","), orderClause, defaultClipLimit)
 	} else {
 		// No filters, no hidden tags - original simple query
 		args = append(args, archivedInt)
@@ -435,8 +462,8 @@ func (a *App) GetClips(archived bool, tagIDs []int64, hiddenTagIDs []int64) ([]C
 		       (SELECT COUNT(*) FROM clips c2 WHERE c2.content_hash = c.content_hash AND c2.content_hash != '' AND c2.id != c.id)
 		FROM clips c
 		WHERE c.is_archived = ? AND (c.expires_at IS NULL OR c.expires_at > CURRENT_TIMESTAMP)
-		ORDER BY c.created_at DESC
-		LIMIT %d`, defaultClipLimit)
+		%s
+		LIMIT %d`, orderClause, defaultClipLimit)
 	}
 
 	rows, err := a.db.Query(query, args...)
