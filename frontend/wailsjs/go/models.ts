@@ -109,7 +109,6 @@ export namespace main {
 	    tags: Tag[];
 	    size: number;
 	    duplicate_count: number;
-	    metadata: Record<string, string>;
 	
 	    static createFrom(source: any = {}) {
 	        return new ClipPreview(source);
@@ -127,7 +126,6 @@ export namespace main {
 	        this.tags = this.convertValues(source["tags"], Tag);
 	        this.size = source["size"];
 	        this.duplicate_count = source["duplicate_count"];
-	        this.metadata = source["metadata"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

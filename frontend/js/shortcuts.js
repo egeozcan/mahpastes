@@ -64,7 +64,7 @@ const ShortcutManager = (() => {
 
         // Check for any other open modal (plugin options, plugin review, folder modal, etc.)
         const openModals = ['plugin-options-modal', 'plugin-result-modal', 'plugin-review-modal',
-                            'folder-modal', 'restore-confirm-dialog', 'text-editor-modal'];
+                            'folder-modal', 'restore-confirm-dialog', 'text-editor-modal', 'metadata-modal'];
         for (const id of openModals) {
             const modal = document.getElementById(id);
             if (modal && (modal.classList.contains('opacity-100') || modal.classList.contains('active') ||

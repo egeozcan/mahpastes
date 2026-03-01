@@ -42,10 +42,12 @@ async function loadMetadata(clipId) {
 }
 
 function renderEmptyState() {
-    metadataList.innerHTML = `
-        <p data-testid="metadata-empty" class="text-xs text-stone-400 text-center py-4">
-            No metadata. Click 'Add Field' to get started.
-        </p>`;
+    metadataList.textContent = '';
+    const p = document.createElement('p');
+    p.dataset.testid = 'metadata-empty';
+    p.className = 'text-xs text-stone-400 text-center py-4';
+    p.textContent = "No metadata. Click 'Add Field' to get started.";
+    metadataList.appendChild(p);
 }
 
 function renderMetadataRow(key, value) {
@@ -62,6 +64,7 @@ function renderMetadataRow(key, value) {
     keyInput.value = key;
     keyInput.placeholder = 'Key';
     keyInput.dataset.testid = 'metadata-key';
+    keyInput.maxLength = 256;
     keyInput.className = 'flex-[2] block border border-stone-200 rounded-md text-xs bg-white placeholder-stone-400 focus:outline-none focus:border-stone-400 focus:ring-1 focus:ring-stone-400/20 transition-colors py-1.5 px-2';
 
     const valueInput = document.createElement('input');
@@ -69,10 +72,12 @@ function renderMetadataRow(key, value) {
     valueInput.value = value;
     valueInput.placeholder = 'Value';
     valueInput.dataset.testid = 'metadata-value';
+    valueInput.maxLength = 4096;
     valueInput.className = 'flex-[3] block border border-stone-200 rounded-md text-xs bg-white placeholder-stone-400 focus:outline-none focus:border-stone-400 focus:ring-1 focus:ring-stone-400/20 transition-colors py-1.5 px-2';
 
     const deleteBtn = document.createElement('button');
     deleteBtn.dataset.testid = 'metadata-delete-row';
+    deleteBtn.setAttribute('aria-label', 'Remove metadata field');
     deleteBtn.className = 'p-1 text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded transition-colors flex-shrink-0';
     deleteBtn.innerHTML = `<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12"></path>
@@ -100,21 +105,36 @@ async function saveMetadata() {
 
     const rows = metadataList.querySelectorAll('[data-testid="metadata-row"]');
     const meta = {};
+    const seenKeys = new Set();
     let hasDuplicate = false;
 
+    // Clear previous highlights
     rows.forEach(row => {
-        const key = row.querySelector('[data-testid="metadata-key"]').value.trim();
+        row.querySelector('[data-testid="metadata-key"]').classList.remove('border-red-400', 'bg-red-50');
+    });
+
+    rows.forEach(row => {
+        const keyInput = row.querySelector('[data-testid="metadata-key"]');
+        const key = keyInput.value.trim();
         const value = row.querySelector('[data-testid="metadata-value"]').value;
         if (key) {
-            if (meta.hasOwnProperty(key)) {
+            if (seenKeys.has(key)) {
                 hasDuplicate = true;
+                keyInput.classList.add('border-red-400', 'bg-red-50');
+                // Also highlight the first occurrence
+                rows.forEach(r => {
+                    const k = r.querySelector('[data-testid="metadata-key"]');
+                    if (k.value.trim() === key) k.classList.add('border-red-400', 'bg-red-50');
+                });
             }
+            seenKeys.add(key);
             meta[key] = value;
         }
     });
 
     if (hasDuplicate) {
-        showToast('Duplicate keys found — last value wins', 'error');
+        showToast('Duplicate keys found — please use unique keys', 'error');
+        return;
     }
 
     try {

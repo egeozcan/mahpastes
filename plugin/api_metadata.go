@@ -3,6 +3,7 @@ package plugin
 import (
 	"fmt"
 	"log"
+	"unicode/utf8"
 
 	lua "github.com/yuin/gopher-lua"
 )
@@ -58,12 +59,12 @@ func (m *MetadataAPI) set(L *lua.LState) int {
 		L.Push(lua.LString("metadata key cannot be empty"))
 		return 2
 	}
-	if len(key) > 256 {
+	if utf8.RuneCountInString(key) > 256 {
 		L.Push(lua.LFalse)
 		L.Push(lua.LString("metadata key too long (max 256 chars)"))
 		return 2
 	}
-	if len(value) > 4096 {
+	if utf8.RuneCountInString(value) > 4096 {
 		L.Push(lua.LFalse)
 		L.Push(lua.LString("metadata value too long (max 4096 chars)"))
 		return 2
@@ -111,22 +112,25 @@ func (m *MetadataAPI) setBulk(L *lua.LState) int {
 		if validationErr != "" {
 			return
 		}
-		if ks, ok := k.(lua.LString); ok {
-			if string(ks) == "" {
-				validationErr = "metadata key cannot be empty"
-				return
-			}
-			if len(string(ks)) > 256 {
-				validationErr = "metadata key too long (max 256 chars)"
-				return
-			}
-			vs := v.String()
-			if len(vs) > 4096 {
-				validationErr = "metadata value too long (max 4096 chars)"
-				return
-			}
-			newMeta[string(ks)] = vs
+		ks, ok := k.(lua.LString)
+		if !ok {
+			validationErr = "metadata keys must be strings"
+			return
 		}
+		if string(ks) == "" {
+			validationErr = "metadata key cannot be empty"
+			return
+		}
+		if utf8.RuneCountInString(string(ks)) > 256 {
+			validationErr = "metadata key too long (max 256 chars)"
+			return
+		}
+		vs := v.String()
+		if utf8.RuneCountInString(vs) > 4096 {
+			validationErr = "metadata value too long (max 4096 chars)"
+			return
+		}
+		newMeta[string(ks)] = vs
 	})
 	if validationErr != "" {
 		L.Push(lua.LFalse)

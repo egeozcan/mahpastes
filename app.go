@@ -21,6 +21,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"go-clipboard/plugin"
 
@@ -28,6 +29,8 @@ import (
 	"golang.design/x/clipboard"
 	_ "golang.org/x/image/webp"
 )
+
+const maxMetadataPairs = 50
 
 // App struct holds the application state
 type App struct {
@@ -71,12 +74,11 @@ func (a *App) getClipPreview(id int64) (*ClipPreview, error) {
 	var expiresAt sql.NullTime
 	var previewData []byte
 	var isArchivedInt int
-	var metadataRaw string
 
 	err := a.db.QueryRow(`
-		SELECT id, content_type, filename, created_at, expires_at, SUBSTR(data, 1, 500), is_archived, LENGTH(data), COALESCE(metadata, '{}')
+		SELECT id, content_type, filename, created_at, expires_at, SUBSTR(data, 1, 500), is_archived, LENGTH(data)
 		FROM clips WHERE id = ?`, id).Scan(
-		&clip.ID, &clip.ContentType, &filename, &clip.CreatedAt, &expiresAt, &previewData, &isArchivedInt, &clip.Size, &metadataRaw)
+		&clip.ID, &clip.ContentType, &filename, &clip.CreatedAt, &expiresAt, &previewData, &isArchivedInt, &clip.Size)
 	if err != nil {
 		return nil, err
 	}
@@ -93,9 +95,6 @@ func (a *App) getClipPreview(id int64) (*ClipPreview, error) {
 	clip.Tags, _ = a.GetClipTags(id)
 	if clip.Tags == nil {
 		clip.Tags = []Tag{}
-	}
-	if err := json.Unmarshal([]byte(metadataRaw), &clip.Metadata); err != nil || clip.Metadata == nil {
-		clip.Metadata = map[string]string{}
 	}
 	return &clip, nil
 }
@@ -259,9 +258,8 @@ type ClipPreview struct {
 	Preview     string     `json:"preview"`
 	IsArchived  bool       `json:"is_archived"`
 	Tags        []Tag      `json:"tags"`
-	Size           int64             `json:"size"`
-	DuplicateCount int               `json:"duplicate_count"`
-	Metadata       map[string]string `json:"metadata"`
+	Size           int64  `json:"size"`
+	DuplicateCount int    `json:"duplicate_count"`
 }
 
 // DuplicateGroup represents a set of clips sharing the same content hash
@@ -399,7 +397,7 @@ func (a *App) GetClips(archived bool, tagIDs []int64, hiddenTagIDs []int64) ([]C
 		args = append(args, archivedInt, len(tagIDs))
 
 		query = fmt.Sprintf(`
-		SELECT c.id, c.content_type, c.filename, c.created_at, c.expires_at, SUBSTR(c.data, 1, 500), c.is_archived, LENGTH(c.data), COALESCE(c.metadata, '{}'),
+		SELECT c.id, c.content_type, c.filename, c.created_at, c.expires_at, SUBSTR(c.data, 1, 500), c.is_archived, LENGTH(c.data),
 		       (SELECT COUNT(*) FROM clips c2 WHERE c2.content_hash = c.content_hash AND c2.content_hash != '' AND c2.id != c.id)
 		FROM clips c
 		INNER JOIN clip_tags ct ON c.id = ct.clip_id%s
@@ -420,7 +418,7 @@ func (a *App) GetClips(archived bool, tagIDs []int64, hiddenTagIDs []int64) ([]C
 		args = append(args, archivedInt)
 
 		query = fmt.Sprintf(`
-		SELECT c.id, c.content_type, c.filename, c.created_at, c.expires_at, SUBSTR(c.data, 1, 500), c.is_archived, LENGTH(c.data), COALESCE(c.metadata, '{}'),
+		SELECT c.id, c.content_type, c.filename, c.created_at, c.expires_at, SUBSTR(c.data, 1, 500), c.is_archived, LENGTH(c.data),
 		       (SELECT COUNT(*) FROM clips c2 WHERE c2.content_hash = c.content_hash AND c2.content_hash != '' AND c2.id != c.id)
 		FROM clips c
 		LEFT JOIN clip_tags ht ON c.id = ht.clip_id AND ht.tag_id IN (%s)
@@ -433,7 +431,7 @@ func (a *App) GetClips(archived bool, tagIDs []int64, hiddenTagIDs []int64) ([]C
 		// No filters, no hidden tags - original simple query
 		args = append(args, archivedInt)
 		query = fmt.Sprintf(`
-		SELECT c.id, c.content_type, c.filename, c.created_at, c.expires_at, SUBSTR(c.data, 1, 500), c.is_archived, LENGTH(c.data), COALESCE(c.metadata, '{}'),
+		SELECT c.id, c.content_type, c.filename, c.created_at, c.expires_at, SUBSTR(c.data, 1, 500), c.is_archived, LENGTH(c.data),
 		       (SELECT COUNT(*) FROM clips c2 WHERE c2.content_hash = c.content_hash AND c2.content_hash != '' AND c2.id != c.id)
 		FROM clips c
 		WHERE c.is_archived = ? AND (c.expires_at IS NULL OR c.expires_at > CURRENT_TIMESTAMP)
@@ -455,9 +453,8 @@ func (a *App) GetClips(archived bool, tagIDs []int64, hiddenTagIDs []int64) ([]C
 		var expiresAt sql.NullTime
 		var previewData []byte
 		var isArchivedInt int
-		var metadataRaw string
 
-		if err := rows.Scan(&clip.ID, &clip.ContentType, &filename, &clip.CreatedAt, &expiresAt, &previewData, &isArchivedInt, &clip.Size, &metadataRaw, &clip.DuplicateCount); err != nil {
+		if err := rows.Scan(&clip.ID, &clip.ContentType, &filename, &clip.CreatedAt, &expiresAt, &previewData, &isArchivedInt, &clip.Size, &clip.DuplicateCount); err != nil {
 			log.Printf("Failed to scan clip row: %v\n", err)
 			continue
 		}
@@ -476,9 +473,6 @@ func (a *App) GetClips(archived bool, tagIDs []int64, hiddenTagIDs []int64) ([]C
 		}
 
 		clip.Tags = []Tag{} // Initialize empty, will be filled by batch query
-		if err := json.Unmarshal([]byte(metadataRaw), &clip.Metadata); err != nil || clip.Metadata == nil {
-			clip.Metadata = map[string]string{}
-		}
 		clips = append(clips, clip)
 		clipIDs = append(clipIDs, clip.ID)
 	}
@@ -1998,16 +1992,16 @@ func (a *App) SetClipMetadata(clipID int64, key string, value string) error {
 	if key == "" {
 		return fmt.Errorf("metadata key cannot be empty")
 	}
-	if len(key) > 256 {
+	if utf8.RuneCountInString(key) > 256 {
 		return fmt.Errorf("metadata key too long (max 256 chars)")
 	}
-	if len(value) > 4096 {
+	if utf8.RuneCountInString(value) > 4096 {
 		return fmt.Errorf("metadata value too long (max 4096 chars)")
 	}
 	return a.updateClipMetadata(clipID, func(meta map[string]string) error {
-		if len(meta) >= 50 {
+		if len(meta) >= maxMetadataPairs {
 			if _, exists := meta[key]; !exists {
-				return fmt.Errorf("metadata limit reached (max 50 pairs)")
+				return fmt.Errorf("metadata limit reached (max %d pairs)", maxMetadataPairs)
 			}
 		}
 		meta[key] = value
@@ -2025,24 +2019,27 @@ func (a *App) DeleteClipMetadata(clipID int64, key string) error {
 
 // SetClipMetadataBulk replaces all metadata on a clip
 func (a *App) SetClipMetadataBulk(clipID int64, metadata map[string]string) error {
-	if len(metadata) > 50 {
-		return fmt.Errorf("metadata limit exceeded (max 50 pairs, got %d)", len(metadata))
+	if len(metadata) > maxMetadataPairs {
+		return fmt.Errorf("metadata limit exceeded (max %d pairs, got %d)", maxMetadataPairs, len(metadata))
 	}
 	for k, v := range metadata {
 		if k == "" {
 			return fmt.Errorf("metadata key cannot be empty")
 		}
-		if len(k) > 256 {
+		if utf8.RuneCountInString(k) > 256 {
 			return fmt.Errorf("metadata key too long (max 256 chars)")
 		}
-		if len(v) > 4096 {
+		if utf8.RuneCountInString(v) > 4096 {
 			return fmt.Errorf("metadata value too long (max 4096 chars)")
 		}
 	}
-	raw, err := json.Marshal(metadata)
-	if err != nil {
-		return fmt.Errorf("failed to encode metadata: %w", err)
-	}
-	_, err = a.db.Exec("UPDATE clips SET metadata = ? WHERE id = ?", string(raw), clipID)
-	return err
+	return a.updateClipMetadata(clipID, func(meta map[string]string) error {
+		for k := range meta {
+			delete(meta, k)
+		}
+		for k, v := range metadata {
+			meta[k] = v
+		}
+		return nil
+	})
 }
