@@ -2,7 +2,8 @@ let transferCapabilities = {
     drag_out: {
         enabled: false,
         strategy: '',
-        reason: 'Transfer service is unavailable'
+        reason: 'Transfer service is unavailable',
+        native_drag: false
     },
     clipboard_file: false
 };
@@ -51,7 +52,8 @@ async function initTransferCapabilities() {
             drag_out: {
                 enabled: false,
                 strategy: '',
-                reason: 'Transfer capability lookup failed'
+                reason: 'Transfer capability lookup failed',
+                native_drag: false
             },
             clipboard_file: false
         };
@@ -64,7 +66,8 @@ function canDragOut() {
 }
 
 function canUseNativeDragOut() {
-    if (!canDragOut()) {
+    const caps = getEffectiveTransferCapabilities();
+    if (!caps.drag_out?.enabled || !caps.drag_out?.native_drag) {
         return false;
     }
     const service = window.go?.main?.TransferService;

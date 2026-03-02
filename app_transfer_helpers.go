@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 )
 
 func (a *App) prepareClipTransferItem(clipID int64, channel string) (*PreparedTransferItem, error) {
@@ -23,6 +24,7 @@ func (a *App) prepareClipTransferItem(clipID int64, channel string) (*PreparedTr
 		ClipID:         prepared.ClipID,
 		AbsPath:        prepared.AbsPath,
 		FileURL:        fileURLFromAbsPath(prepared.AbsPath),
+		TransferURL:    "/transfer/" + filepath.Base(prepared.AbsPath),
 		Filename:       prepared.Filename,
 		ContentType:    prepared.ContentType,
 		LeaseExpiresAt: prepared.LeaseExpiresAt,
@@ -50,6 +52,7 @@ func (a *App) lookupPreparedClipTransferItem(clipID int64, channel string) (*Pre
 		ClipID:         prepared.ClipID,
 		AbsPath:        prepared.AbsPath,
 		FileURL:        fileURLFromAbsPath(prepared.AbsPath),
+		TransferURL:    "/transfer/" + filepath.Base(prepared.AbsPath),
 		Filename:       prepared.Filename,
 		ContentType:    prepared.ContentType,
 		LeaseExpiresAt: prepared.LeaseExpiresAt,

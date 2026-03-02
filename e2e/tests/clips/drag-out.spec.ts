@@ -223,7 +223,7 @@ test.describe('Drag Out', () => {
       });
       el.dispatchEvent(dragEvent);
       const plain = dt.getData('text/plain');
-      const filename = plain.split('/').pop() || '';
+      const filename = plain.split(/[/\\]/).pop() || '';
       const match = filename.match(/^(\d+)(?:_|\.|$)/);
       return {
         filename,

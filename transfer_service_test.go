@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"testing"
 	"time"
@@ -14,11 +15,12 @@ func TestBuildTransferCapabilitiesMatrix(t *testing.T) {
 		dragEnabled    bool
 		expectStrategy string
 		expectReason   bool
+		nativeDrag     bool
 	}{
-		{goos: "darwin", dragEnabled: true, expectStrategy: "file-uri-v1", expectReason: false},
-		{goos: "windows", dragEnabled: false, expectStrategy: "windows-filedrop-v1", expectReason: true},
-		{goos: "linux", dragEnabled: false, expectStrategy: "linux-fileuri-v1", expectReason: true},
-		{goos: "freebsd", dragEnabled: false, expectStrategy: "", expectReason: true},
+		{goos: "darwin", dragEnabled: true, expectStrategy: "file-uri-v1", expectReason: false, nativeDrag: true},
+		{goos: "windows", dragEnabled: true, expectStrategy: "file-uri-v1", expectReason: false, nativeDrag: false},
+		{goos: "linux", dragEnabled: false, expectStrategy: "linux-fileuri-v1", expectReason: true, nativeDrag: false},
+		{goos: "freebsd", dragEnabled: false, expectStrategy: "", expectReason: true, nativeDrag: false},
 	}
 
 	for _, tc := range tests {
@@ -32,6 +34,9 @@ func TestBuildTransferCapabilitiesMatrix(t *testing.T) {
 			}
 			if tc.expectReason && caps.DragOut.Reason == "" {
 				t.Fatalf("expected non-empty reason for %s", tc.goos)
+			}
+			if caps.DragOut.NativeDrag != tc.nativeDrag {
+				t.Fatalf("native_drag mismatch: got %v want %v", caps.DragOut.NativeDrag, tc.nativeDrag)
 			}
 		})
 	}
@@ -82,6 +87,11 @@ func TestPrepareClipForTransferReturnsDescriptor(t *testing.T) {
 		t.Fatalf("expected prepared path basename to include clip id, got %q", filepath.Base(item.AbsPath))
 	}
 
+	expectedTransferURL := "/transfer/" + filepath.Base(item.AbsPath)
+	if item.TransferURL != expectedTransferURL {
+		t.Fatalf("transfer_url mismatch: got %q want %q", item.TransferURL, expectedTransferURL)
+	}
+
 	now := time.Now()
 	if item.LeaseExpiresAt.Before(now.Add(55*time.Minute)) || item.LeaseExpiresAt.After(now.Add(65*time.Minute)) {
 		t.Fatalf("unexpected lease expiry: %v", item.LeaseExpiresAt)
@@ -106,6 +116,11 @@ func TestPrepareClipForTransferMissingClip(t *testing.T) {
 }
 
 func TestStartNativeDragOutRequiresInput(t *testing.T) {
+	caps := buildTransferCapabilities(goruntime.GOOS)
+	if !caps.DragOut.NativeDrag {
+		t.Skip("native drag not supported on this platform")
+	}
+
 	service := NewTransferService(&App{})
 
 	ok, err := service.StartNativeDragOut(StartNativeDragRequest{})
@@ -121,6 +136,11 @@ func TestStartNativeDragOutRequiresInput(t *testing.T) {
 }
 
 func TestStartNativeDragOutRejectsRelativePath(t *testing.T) {
+	caps := buildTransferCapabilities(goruntime.GOOS)
+	if !caps.DragOut.NativeDrag {
+		t.Skip("native drag not supported on this platform")
+	}
+
 	service := NewTransferService(&App{})
 
 	ok, err := service.StartNativeDragOut(StartNativeDragRequest{
@@ -134,6 +154,28 @@ func TestStartNativeDragOutRejectsRelativePath(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "abs_path must be absolute") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestFileURLFromAbsPath(t *testing.T) {
+	tests := []struct {
+		name   string
+		input  string
+		expect string
+	}{
+		{name: "unix path", input: "/tmp/file.png", expect: "file:///tmp/file.png"},
+		{name: "windows drive path", input: "C:/Users/test/file.png", expect: "file:///C:/Users/test/file.png"},
+		{name: "windows path with spaces", input: "C:/Users/My User/file.png", expect: "file:///C:/Users/My%20User/file.png"},
+		{name: "unix path with spaces", input: "/tmp/my files/test.png", expect: "file:///tmp/my%20files/test.png"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := fileURLFromAbsPath(tc.input)
+			if got != tc.expect {
+				t.Fatalf("fileURLFromAbsPath(%q) = %q, want %q", tc.input, got, tc.expect)
+			}
+		})
 	}
 }
 
@@ -180,5 +222,8 @@ func TestGetExistingPreparedClipForTransfer(t *testing.T) {
 	}
 	if !strings.HasPrefix(found.FileURL, "file://") {
 		t.Fatalf("expected file url, got %q", found.FileURL)
+	}
+	if !strings.HasPrefix(found.TransferURL, "/transfer/") {
+		t.Fatalf("expected transfer url starting with /transfer/, got %q", found.TransferURL)
 	}
 }

@@ -38,15 +38,15 @@ func buildTransferCapabilities(goos string) TransferCapabilities {
 	switch goos {
 	case "darwin":
 		caps.DragOut = DragCapability{
-			Enabled:  true,
-			Strategy: "file-uri-v1",
-			Reason:   "",
+			Enabled:    true,
+			Strategy:   "file-uri-v1",
+			NativeDrag: true,
 		}
 	case "windows":
 		caps.DragOut = DragCapability{
-			Enabled:  false,
-			Strategy: "windows-filedrop-v1",
-			Reason:   "planned for a future release",
+			Enabled:    true,
+			Strategy:   "file-uri-v1",
+			NativeDrag: false,
 		}
 	case "linux":
 		caps.DragOut = DragCapability{
@@ -85,6 +85,11 @@ func (s *TransferService) GetExistingPreparedClipForTransfer(req PrepareTransfer
 // StartNativeDragOut starts a native OS file drag operation when supported.
 // It prefers req.AbsPath and falls back to preparing the clip from req.ClipID.
 func (s *TransferService) StartNativeDragOut(req StartNativeDragRequest) (bool, error) {
+	caps := buildTransferCapabilities(goruntime.GOOS)
+	if !caps.DragOut.NativeDrag {
+		return false, fmt.Errorf("native drag is not supported on this platform")
+	}
+
 	absPath := strings.TrimSpace(req.AbsPath)
 
 	resolvePathFromClip := func() (string, error) {
@@ -125,6 +130,10 @@ func (s *TransferService) StartNativeDragOut(req StartNativeDragRequest) (bool, 
 }
 
 func fileURLFromAbsPath(absPath string) string {
-	u := &url.URL{Scheme: "file", Path: filepath.ToSlash(absPath)}
+	p := filepath.ToSlash(absPath)
+	if len(p) > 0 && p[0] != '/' {
+		p = "/" + p
+	}
+	u := &url.URL{Scheme: "file", Path: p}
 	return u.String()
 }

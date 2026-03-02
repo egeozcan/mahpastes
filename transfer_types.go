@@ -10,9 +10,10 @@ type TransferCapabilities struct {
 
 // DragCapability describes outbound drag support for the current platform.
 type DragCapability struct {
-	Enabled  bool   `json:"enabled"`
-	Strategy string `json:"strategy"`
-	Reason   string `json:"reason"`
+	Enabled    bool   `json:"enabled"`
+	Strategy   string `json:"strategy"`
+	Reason     string `json:"reason"`
+	NativeDrag bool   `json:"native_drag"`
 }
 
 // PrepareTransferRequest describes a request to prepare a clip for transfer.
@@ -32,6 +33,7 @@ type PreparedTransferItem struct {
 	ClipID         int64     `json:"clip_id"`
 	AbsPath        string    `json:"abs_path"`
 	FileURL        string    `json:"file_url"`
+	TransferURL    string    `json:"transfer_url"`
 	Filename       string    `json:"filename"`
 	ContentType    string    `json:"content_type"`
 	LeaseExpiresAt time.Time `json:"lease_expires_at"`

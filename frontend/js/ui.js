@@ -366,8 +366,10 @@ function renderDragHandle(clipId) {
                 tabindex="0"
                 aria-label="Drag clip to another app"
                 title="Drag to another app">
-            <svg class="clip-drag-icon-grip w-3 h-3" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" aria-hidden="true">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M8 5h.01M8 12h.01M8 19h.01M16 5h.01M16 12h.01M16 19h.01" />
+            <svg class="clip-drag-icon-grip w-3 h-3" viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="8" cy="5" r="1.5" fill="currentColor"/><circle cx="16" cy="5" r="1.5" fill="currentColor"/>
+                <circle cx="8" cy="12" r="1.5" fill="currentColor"/><circle cx="16" cy="12" r="1.5" fill="currentColor"/>
+                <circle cx="8" cy="19" r="1.5" fill="currentColor"/><circle cx="16" cy="19" r="1.5" fill="currentColor"/>
             </svg>
             <svg class="clip-drag-icon-progress w-3 h-3 hidden" viewBox="0 0 24 24" aria-hidden="true">
                 <circle class="clip-drag-progress-track" cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"></circle>
