@@ -165,7 +165,7 @@ function renderCardMenu(clipId, button, clip) {
         if (action.id === 'archive' && action.label === 'Restore') {
             tooltip = 'Move back from archive';
         }
-        if (tooltip) item.setAttribute('data-tooltip', tooltip);
+        if (tooltip) item.title = tooltip;
         menu.appendChild(item);
     });
 

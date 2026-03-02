@@ -802,7 +802,7 @@ function openLightboxFileMenu(trigger) {
         if (action.id === 'archive' && isViewingArchive) {
             tooltip = 'Move back from archive';
         }
-        if (tooltip) item.setAttribute('data-tooltip', tooltip);
+        if (tooltip) item.title = tooltip;
 
         item.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -821,7 +821,7 @@ function openLightboxFileMenu(trigger) {
     deleteItem.setAttribute('role', 'menuitem');
     deleteItem.dataset.action = 'delete';
     deleteItem.innerHTML = `${getMenuIcon('delete')}<span>Delete</span>`;
-    deleteItem.setAttribute('data-tooltip', lightboxFileMenuTooltips['delete']);
+    deleteItem.title = lightboxFileMenuTooltips['delete'];
     deleteItem.addEventListener('click', (e) => {
         e.stopPropagation();
         closeLightboxFileMenu();
