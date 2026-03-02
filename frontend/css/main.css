@@ -374,6 +374,16 @@ body.drag-preparing * {
     margin-left: 8px;
 }
 
+/* Disable tooltips inside dropdown menus (items already have text labels) */
+.card-menu-dropdown [data-tooltip]::before,
+.card-menu-dropdown [data-tooltip]::after,
+.lightbox-file-menu [data-tooltip]::before,
+.lightbox-file-menu [data-tooltip]::after,
+.lightbox-plugin-menu [data-tooltip]::before,
+.lightbox-plugin-menu [data-tooltip]::after {
+    display: none !important;
+}
+
 /* Disable tooltips globally */
 body.tooltips-disabled [data-tooltip]::before,
 body.tooltips-disabled [data-tooltip]::after {
