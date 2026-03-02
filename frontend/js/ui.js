@@ -96,6 +96,21 @@ function getMenuIcon(name) {
     return `<svg class="card-menu-icon" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">${path}</svg>`;
 }
 
+const cardMenuTooltips = {
+    'copy-path': 'Create a temp file and copy its path to clipboard',
+    'copy-file': 'Place file on clipboard for pasting into other apps',
+    'copy-contents': 'Copy the raw text or data to clipboard',
+    'save-file': 'Save a copy to your Downloads folder',
+    'edit': 'Open in the built-in image editor for annotation',
+    'tags': 'Add or remove tags',
+    'metadata': 'View and edit file metadata',
+    'set-expiration': 'Schedule auto-deletion after a time period',
+    'cancel-expiration': 'Cancel the scheduled auto-deletion',
+    'archive': 'Move to archive without deleting',
+    'merge-duplicates': 'Find clips with identical content and merge them',
+    'delete': 'Permanently delete -- this cannot be undone',
+};
+
 // Render card menu dropdown
 function renderCardMenu(clipId, button, clip) {
     // Close any existing menu
@@ -146,6 +161,11 @@ function renderCardMenu(clipId, button, clip) {
         item.dataset.action = action.id;
         item.dataset.clipId = clipId;
         item.innerHTML = `${getMenuIcon(action.icon)}<span>${action.label}</span>`;
+        let tooltip = cardMenuTooltips[action.id];
+        if (action.id === 'archive' && action.label === 'Restore') {
+            tooltip = 'Move back from archive';
+        }
+        if (tooltip) item.setAttribute('data-tooltip', tooltip);
         menu.appendChild(item);
     });
 
@@ -446,7 +466,7 @@ function renderDragHandle(clipId) {
                 role="button"
                 tabindex="0"
                 aria-label="Drag clip to another app"
-                title="Drag to another app">
+                data-tooltip="Creates a temp file -- drag into another app to export">
             <svg class="clip-drag-icon-grip w-3 h-3" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" aria-hidden="true">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M8 5h.01M8 12h.01M8 19h.01M16 5h.01M16 12h.01M16 19h.01" />
             </svg>
@@ -800,7 +820,8 @@ async function createClipCard(clip, options = {}) {
                             data-id="${clip.id}"
                             aria-label="Actions"
                             aria-haspopup="true"
-                            aria-expanded="false">
+                            aria-expanded="false"
+                            data-tooltip="More actions for this clip">
                         <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 12.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 18.75a.75.75 0 110-1.5.75.75 0 010 1.5z" />
                         </svg>

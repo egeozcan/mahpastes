@@ -532,6 +532,7 @@ async function renderLightboxPluginButtons() {
 
     const chevronSvg = '<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5"/></svg>';
     btn.innerHTML = `<span>${escapeHTML(triggerLabel)}</span>${chevronSvg}`;
+    btn.setAttribute('data-tooltip', 'Run plugin actions on this clip');
 
     btn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -731,6 +732,7 @@ function renderLightboxFileActions() {
     // Three-dot icon + "Actions" label
     const dotsSvg = '<svg fill="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>';
     btn.innerHTML = `${dotsSvg}<span>Actions</span>`;
+    btn.setAttribute('data-tooltip', 'File operations and management');
 
     btn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -744,6 +746,17 @@ function renderLightboxFileActions() {
 
     container.appendChild(btn);
 }
+
+const lightboxFileMenuTooltips = {
+    'copy-path': 'Create a temp file and copy its path to clipboard',
+    'copy-file': 'Place file on clipboard for pasting into other apps',
+    'copy-contents': 'Copy the raw text or data to clipboard',
+    'save-file': 'Save a copy to your Downloads folder',
+    'edit': 'Open in the built-in image editor for annotation',
+    'tags': 'Add or remove tags',
+    'archive': 'Move to archive without deleting',
+    'delete': 'Permanently delete -- this cannot be undone',
+};
 
 function openLightboxFileMenu(trigger) {
     closeLightboxFileMenu(true);
@@ -785,6 +798,11 @@ function openLightboxFileMenu(trigger) {
         item.setAttribute('role', 'menuitem');
         item.dataset.action = action.id;
         item.innerHTML = `${getMenuIcon(action.icon)}<span>${action.label}</span>`;
+        let tooltip = lightboxFileMenuTooltips[action.id];
+        if (action.id === 'archive' && isViewingArchive) {
+            tooltip = 'Move back from archive';
+        }
+        if (tooltip) item.setAttribute('data-tooltip', tooltip);
 
         item.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -803,6 +821,7 @@ function openLightboxFileMenu(trigger) {
     deleteItem.setAttribute('role', 'menuitem');
     deleteItem.dataset.action = 'delete';
     deleteItem.innerHTML = `${getMenuIcon('delete')}<span>Delete</span>`;
+    deleteItem.setAttribute('data-tooltip', lightboxFileMenuTooltips['delete']);
     deleteItem.addEventListener('click', (e) => {
         e.stopPropagation();
         closeLightboxFileMenu();
