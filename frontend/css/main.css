@@ -1,8 +1,14 @@
+/* Prevent horizontal scroll from tooltips/absolute elements */
+html {
+    overflow-x: clip;
+}
+
 /* Typography */
 body {
     font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    overflow-x: clip;
 }
 
 /* Minimal scrollbar */
