@@ -370,6 +370,16 @@ export const selectors = {
     deduplicateBtn: '#deduplicate-btn',
   },
 
+  // Tooltips
+  tooltips: {
+    anyTooltip: '[data-tooltip]',
+    headerTagFilter: '#tag-filter-btn[data-tooltip]',
+    headerArchive: '#header-archive-btn[data-tooltip]',
+    headerSort: '#sort-btn[data-tooltip]',
+    headerMenu: '#drawer-toggle-btn[data-tooltip]',
+    settingsToggle: '[data-testid="tooltips-toggle"]',
+  },
+
   // Keyboard Shortcuts
   shortcuts: {
     cheatsheet: '[data-testid="shortcuts-cheatsheet"]',
