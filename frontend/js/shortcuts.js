@@ -64,7 +64,7 @@ const ShortcutManager = (() => {
 
         // Check for any other open modal (plugin options, plugin review, folder modal, etc.)
         const openModals = ['plugin-options-modal', 'plugin-result-modal', 'plugin-review-modal',
-                            'folder-modal', 'restore-confirm-dialog', 'text-editor-modal'];
+                            'folder-modal', 'restore-confirm-dialog', 'text-editor-modal', 'metadata-modal'];
         for (const id of openModals) {
             const modal = document.getElementById(id);
             if (modal && (modal.classList.contains('opacity-100') || modal.classList.contains('active') ||
@@ -518,10 +518,24 @@ const ShortcutManager = (() => {
             return true;
         }
 
+        // Metadata modal
+        const metadataModal = document.getElementById('metadata-modal');
+        if (metadataModal && !metadataModal.classList.contains('opacity-0')) {
+            if (typeof closeMetadataModal === 'function') closeMetadataModal();
+            return true;
+        }
+
         // Plugins modal
         const pluginsModal = document.querySelector('[data-testid="plugins-modal"]');
         if (pluginsModal && !pluginsModal.classList.contains('opacity-0')) {
             if (typeof closePlugins === 'function') closePlugins();
+            return true;
+        }
+
+        // Sort popover
+        const sortPopover = document.querySelector('.sort-popover');
+        if (sortPopover) {
+            if (typeof closeSortPopover === 'function') closeSortPopover();
             return true;
         }
 

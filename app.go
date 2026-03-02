@@ -4,8 +4,10 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"image"
@@ -19,6 +21,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"go-clipboard/plugin"
 
@@ -26,6 +29,8 @@ import (
 	"golang.design/x/clipboard"
 	_ "golang.org/x/image/webp"
 )
+
+const maxMetadataPairs = 50
 
 // App struct holds the application state
 type App struct {
@@ -41,6 +46,12 @@ type App struct {
 // NewApp creates a new App instance
 func NewApp() *App {
 	return &App{}
+}
+
+// computeContentHash returns the hex-encoded SHA-256 hash of data.
+func computeContentHash(data []byte) string {
+	hash := sha256.Sum256(data)
+	return hex.EncodeToString(hash[:])
 }
 
 // emitWatchError sends an error event to the frontend
@@ -144,6 +155,8 @@ func (a *App) startup(ctx context.Context) {
 		log.Printf("Warning: Failed to initialize plugin manager: %v", err)
 	} else {
 		a.pluginManager = pm
+		// Wire metadata functions so plugin API delegates to App
+		pm.SetMetadataFuncs(a.GetClipMetadata, a.updateClipMetadata)
 		// Set up permission callback for filesystem access
 		pm.SetPermissionCallback(func(pluginName, permType, requestedPath string) string {
 			// Use Wails runtime dialog for folder selection
@@ -245,7 +258,17 @@ type ClipPreview struct {
 	Preview     string     `json:"preview"`
 	IsArchived  bool       `json:"is_archived"`
 	Tags        []Tag      `json:"tags"`
-	Size        int64      `json:"size"`
+	Size           int64  `json:"size"`
+	DuplicateCount int    `json:"duplicate_count"`
+}
+
+// DuplicateGroup represents a set of clips sharing the same content hash
+type DuplicateGroup struct {
+	ContentHash string `json:"content_hash"`
+	Filename    string `json:"filename"`
+	ContentType string `json:"content_type"`
+	Count       int    `json:"count"`
+	OldestID    int64  `json:"oldest_id"`
 }
 
 // ClipData for full clip retrieval
@@ -321,11 +344,38 @@ var tagColors = []string{
 	"#06B6D4", // cyan
 }
 
+func sortColumn(field string) string {
+	switch field {
+	case "name":
+		return "c.filename"
+	case "size":
+		return "LENGTH(c.data)"
+	case "type":
+		return "c.content_type"
+	default:
+		return "c.created_at"
+	}
+}
+
 // GetClips retrieves a list of clips for the gallery, optionally filtered by tags
-func (a *App) GetClips(archived bool, tagIDs []int64, hiddenTagIDs []int64) ([]ClipPreview, error) {
+func (a *App) GetClips(archived bool, tagIDs []int64, hiddenTagIDs []int64, sortField string, sortDir string) ([]ClipPreview, error) {
 	archivedInt := 0
 	if archived {
 		archivedInt = 1
+	}
+
+	col := sortColumn(sortField)
+	dir := "DESC"
+	if sortDir == "asc" {
+		dir = "ASC"
+	}
+	orderClause := fmt.Sprintf("ORDER BY %s %s", col, dir)
+	if col != "c.created_at" {
+		orderClause += ", c.created_at DESC, c.id DESC"
+	} else if dir == "DESC" {
+		orderClause += ", c.id DESC"
+	} else {
+		orderClause += ", c.id ASC"
 	}
 
 	// Compute effective hidden tags (remove any that are in active filters)
@@ -374,7 +424,8 @@ func (a *App) GetClips(archived bool, tagIDs []int64, hiddenTagIDs []int64) ([]C
 		args = append(args, archivedInt, len(tagIDs))
 
 		query = fmt.Sprintf(`
-		SELECT c.id, c.content_type, c.filename, c.created_at, c.expires_at, SUBSTR(c.data, 1, 500), c.is_archived, LENGTH(c.data)
+		SELECT c.id, c.content_type, c.filename, c.created_at, c.expires_at, SUBSTR(c.data, 1, 500), c.is_archived, LENGTH(c.data),
+		       (SELECT COUNT(*) FROM clips c2 WHERE c2.content_hash = c.content_hash AND c2.content_hash != '' AND c2.id != c.id)
 		FROM clips c
 		INNER JOIN clip_tags ct ON c.id = ct.clip_id%s
 		WHERE ct.tag_id IN (%s)
@@ -382,8 +433,8 @@ func (a *App) GetClips(archived bool, tagIDs []int64, hiddenTagIDs []int64) ([]C
 		  AND (c.expires_at IS NULL OR c.expires_at > CURRENT_TIMESTAMP)%s
 		GROUP BY c.id
 		HAVING COUNT(DISTINCT ct.tag_id) = ?
-		ORDER BY c.created_at DESC
-		LIMIT %d`, hiddenJoin, strings.Join(tagPlaceholders, ","), hiddenWhere, defaultClipLimit)
+		%s
+		LIMIT %d`, hiddenJoin, strings.Join(tagPlaceholders, ","), hiddenWhere, orderClause, defaultClipLimit)
 	} else if len(effectiveHidden) > 0 {
 		// No tag filters but has hidden tags - use LEFT JOIN anti-join
 		hiddenPlaceholders := make([]string, len(effectiveHidden))
@@ -394,23 +445,25 @@ func (a *App) GetClips(archived bool, tagIDs []int64, hiddenTagIDs []int64) ([]C
 		args = append(args, archivedInt)
 
 		query = fmt.Sprintf(`
-		SELECT c.id, c.content_type, c.filename, c.created_at, c.expires_at, SUBSTR(c.data, 1, 500), c.is_archived, LENGTH(c.data)
+		SELECT c.id, c.content_type, c.filename, c.created_at, c.expires_at, SUBSTR(c.data, 1, 500), c.is_archived, LENGTH(c.data),
+		       (SELECT COUNT(*) FROM clips c2 WHERE c2.content_hash = c.content_hash AND c2.content_hash != '' AND c2.id != c.id)
 		FROM clips c
 		LEFT JOIN clip_tags ht ON c.id = ht.clip_id AND ht.tag_id IN (%s)
 		WHERE ht.clip_id IS NULL
 		  AND c.is_archived = ?
 		  AND (c.expires_at IS NULL OR c.expires_at > CURRENT_TIMESTAMP)
-		ORDER BY c.created_at DESC
-		LIMIT %d`, strings.Join(hiddenPlaceholders, ","), defaultClipLimit)
+		%s
+		LIMIT %d`, strings.Join(hiddenPlaceholders, ","), orderClause, defaultClipLimit)
 	} else {
 		// No filters, no hidden tags - original simple query
 		args = append(args, archivedInt)
 		query = fmt.Sprintf(`
-		SELECT id, content_type, filename, created_at, expires_at, SUBSTR(data, 1, 500), is_archived, LENGTH(data)
-		FROM clips
-		WHERE is_archived = ? AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
-		ORDER BY created_at DESC
-		LIMIT %d`, defaultClipLimit)
+		SELECT c.id, c.content_type, c.filename, c.created_at, c.expires_at, SUBSTR(c.data, 1, 500), c.is_archived, LENGTH(c.data),
+		       (SELECT COUNT(*) FROM clips c2 WHERE c2.content_hash = c.content_hash AND c2.content_hash != '' AND c2.id != c.id)
+		FROM clips c
+		WHERE c.is_archived = ? AND (c.expires_at IS NULL OR c.expires_at > CURRENT_TIMESTAMP)
+		%s
+		LIMIT %d`, orderClause, defaultClipLimit)
 	}
 
 	rows, err := a.db.Query(query, args...)
@@ -428,7 +481,7 @@ func (a *App) GetClips(archived bool, tagIDs []int64, hiddenTagIDs []int64) ([]C
 		var previewData []byte
 		var isArchivedInt int
 
-		if err := rows.Scan(&clip.ID, &clip.ContentType, &filename, &clip.CreatedAt, &expiresAt, &previewData, &isArchivedInt, &clip.Size); err != nil {
+		if err := rows.Scan(&clip.ID, &clip.ContentType, &filename, &clip.CreatedAt, &expiresAt, &previewData, &isArchivedInt, &clip.Size, &clip.DuplicateCount); err != nil {
 			log.Printf("Failed to scan clip row: %v\n", err)
 			continue
 		}
@@ -566,8 +619,9 @@ func (a *App) UploadFileAndGetID(file FileData) (int64, error) {
 		}
 	}
 
-	result, err := a.db.Exec("INSERT INTO clips (content_type, data, filename) VALUES (?, ?, ?)",
-		contentType, data, file.Name)
+	contentHash := computeContentHash(data)
+	result, err := a.db.Exec("INSERT INTO clips (content_type, data, filename, content_hash) VALUES (?, ?, ?, ?)",
+		contentType, data, file.Name, contentHash)
 	if err != nil {
 		return 0, fmt.Errorf("failed to insert into db: %w", err)
 	}
@@ -575,6 +629,15 @@ func (a *App) UploadFileAndGetID(file FileData) (int64, error) {
 	id, err := result.LastInsertId()
 	if err != nil {
 		return 0, fmt.Errorf("failed to get inserted ID: %w", err)
+	}
+
+	var dupCount int
+	a.db.QueryRow("SELECT COUNT(*) FROM clips WHERE content_hash = ? AND id != ?", contentHash, id).Scan(&dupCount)
+	if dupCount > 0 {
+		runtime.EventsEmit(a.ctx, "clip:duplicate", map[string]interface{}{
+			"id":    id,
+			"count": dupCount,
+		})
 	}
 
 	return id, nil
@@ -612,20 +675,31 @@ func (a *App) UploadFiles(files []FileData, expirationMinutes int) error {
 			}
 		}
 
-		result, err := a.db.Exec("INSERT INTO clips (content_type, data, filename, expires_at) VALUES (?, ?, ?, ?)",
-			contentType, data, file.Name, expiresAt)
+		contentHash := computeContentHash(data)
+		result, err := a.db.Exec("INSERT INTO clips (content_type, data, filename, expires_at, content_hash) VALUES (?, ?, ?, ?, ?)",
+			contentType, data, file.Name, expiresAt, contentHash)
 		if err != nil {
 			log.Printf("Failed to insert into db: %v\n", err)
 			continue
 		}
 
+		clipID, _ := result.LastInsertId()
+
 		// Emit plugin event
 		if a.pluginManager != nil {
-			clipID, _ := result.LastInsertId()
 			a.pluginManager.EmitEvent("clip:created", map[string]interface{}{
 				"id":           clipID,
 				"content_type": contentType,
 				"filename":     file.Name,
+			})
+		}
+
+		var dupCount int
+		a.db.QueryRow("SELECT COUNT(*) FROM clips WHERE content_hash = ? AND id != ?", contentHash, clipID).Scan(&dupCount)
+		if dupCount > 0 {
+			runtime.EventsEmit(a.ctx, "clip:duplicate", map[string]interface{}{
+				"id":    clipID,
+				"count": dupCount,
 			})
 		}
 	}
@@ -674,6 +748,142 @@ func (a *App) DeleteClip(id int64) error {
 		a.pluginManager.EmitEvent("clip:deleted", id)
 	}
 	return nil
+}
+
+// MergeDuplicates keeps the oldest clip with the given content_hash,
+// merges tags from all duplicates onto it, deletes the duplicates,
+// and updates the survivor's created_at to now.
+func (a *App) MergeDuplicates(clipID int64) error {
+	// Get the content_hash for this clip
+	var contentHash string
+	err := a.db.QueryRow("SELECT content_hash FROM clips WHERE id = ?", clipID).Scan(&contentHash)
+	if err != nil {
+		return fmt.Errorf("failed to get clip hash: %w", err)
+	}
+	if contentHash == "" {
+		return fmt.Errorf("clip has no content hash")
+	}
+
+	// Find all clips with same hash, ordered by id (oldest first)
+	rows, err := a.db.Query("SELECT id FROM clips WHERE content_hash = ? ORDER BY id ASC", contentHash)
+	if err != nil {
+		return fmt.Errorf("failed to find duplicates: %w", err)
+	}
+	var allIDs []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err == nil {
+			allIDs = append(allIDs, id)
+		}
+	}
+	rows.Close()
+
+	if len(allIDs) < 2 {
+		return nil // No duplicates
+	}
+
+	survivorID := allIDs[0] // Oldest
+	duplicateIDs := allIDs[1:]
+
+	tx, err := a.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Merge tags from all duplicates to survivor
+	for _, dupID := range duplicateIDs {
+		_, err := tx.Exec(`
+			INSERT OR IGNORE INTO clip_tags (clip_id, tag_id)
+			SELECT ?, tag_id FROM clip_tags WHERE clip_id = ?
+		`, survivorID, dupID)
+		if err != nil {
+			return fmt.Errorf("failed to merge tags from clip %d: %w", dupID, err)
+		}
+	}
+
+	// Delete clip_tags for duplicates
+	for _, dupID := range duplicateIDs {
+		tx.Exec("DELETE FROM clip_tags WHERE clip_id = ?", dupID)
+	}
+
+	// Delete duplicate clips
+	for _, dupID := range duplicateIDs {
+		tx.Exec("DELETE FROM clips WHERE id = ?", dupID)
+	}
+
+	// Update survivor's created_at to now (moves to top)
+	tx.Exec("UPDATE clips SET created_at = CURRENT_TIMESTAMP WHERE id = ?", survivorID)
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit merge: %w", err)
+	}
+
+	// Clean temp files for deleted clips
+	if err := a.deleteTempFilesForClipIDs(duplicateIDs); err != nil {
+		log.Printf("Warning: failed to clean temp files for merged clips: %v", err)
+	}
+
+	// Emit plugin events
+	if a.pluginManager != nil {
+		for _, dupID := range duplicateIDs {
+			a.pluginManager.EmitEvent("clip:deleted", dupID)
+		}
+	}
+
+	return nil
+}
+
+// GetDuplicateGroups returns all groups of clips that share the same content hash
+func (a *App) GetDuplicateGroups() ([]DuplicateGroup, error) {
+	rows, err := a.db.Query(`
+		SELECT content_hash, MIN(filename) as filename, MIN(content_type) as content_type, COUNT(*) as cnt, MIN(id) as oldest_id
+		FROM clips
+		WHERE content_hash != ''
+		GROUP BY content_hash
+		HAVING cnt > 1
+		ORDER BY cnt DESC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query duplicate groups: %w", err)
+	}
+	defer rows.Close()
+
+	var groups []DuplicateGroup
+	for rows.Next() {
+		var g DuplicateGroup
+		var filename sql.NullString
+		if err := rows.Scan(&g.ContentHash, &filename, &g.ContentType, &g.Count, &g.OldestID); err != nil {
+			log.Printf("Warning: failed to scan duplicate group: %v", err)
+			continue
+		}
+		g.Filename = filename.String
+		groups = append(groups, g)
+	}
+	if groups == nil {
+		groups = []DuplicateGroup{}
+	}
+	return groups, nil
+}
+
+// DeduplicateAll merges all duplicate groups, keeping the oldest clip in each group
+func (a *App) DeduplicateAll() (int, error) {
+	groups, err := a.GetDuplicateGroups()
+	if err != nil {
+		return 0, err
+	}
+
+	totalRemoved := 0
+	for _, group := range groups {
+		err := a.MergeDuplicates(group.OldestID)
+		if err != nil {
+			log.Printf("Warning: failed to merge group %s: %v", group.ContentHash, err)
+			continue
+		}
+		totalRemoved += group.Count - 1
+	}
+
+	return totalRemoved, nil
 }
 
 // ToggleArchive toggles the archived status of a clip
@@ -1755,4 +1965,108 @@ func (a *App) GetImageDiff(clipIdA, clipIdB int64, threshold int) (*DiffResult, 
 		Similarity:  similarity,
 		DiffDataUrl: fmt.Sprintf("data:%s;base64,%s", diffMime, diffData),
 	}, nil
+}
+
+// GetClipMetadata returns all metadata key-value pairs for a clip
+func (a *App) GetClipMetadata(clipID int64) (map[string]string, error) {
+	var raw string
+	err := a.db.QueryRow("SELECT COALESCE(metadata, '{}') FROM clips WHERE id = ?", clipID).Scan(&raw)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get metadata: %w", err)
+	}
+	var meta map[string]string
+	if err := json.Unmarshal([]byte(raw), &meta); err != nil {
+		return map[string]string{}, nil
+	}
+	return meta, nil
+}
+
+// updateClipMetadata performs an atomic read-modify-write of clip metadata
+// inside a transaction. The modify function receives the current metadata and
+// mutates it in place; returning an error aborts the transaction.
+func (a *App) updateClipMetadata(clipID int64, modify func(meta map[string]string) error) error {
+	tx, err := a.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	var raw string
+	if err := tx.QueryRow("SELECT COALESCE(metadata, '{}') FROM clips WHERE id = ?", clipID).Scan(&raw); err != nil {
+		return fmt.Errorf("failed to read metadata: %w", err)
+	}
+	var meta map[string]string
+	if err := json.Unmarshal([]byte(raw), &meta); err != nil || meta == nil {
+		meta = map[string]string{}
+	}
+
+	if err := modify(meta); err != nil {
+		return err
+	}
+
+	encoded, err := json.Marshal(meta)
+	if err != nil {
+		return fmt.Errorf("failed to encode metadata: %w", err)
+	}
+	if _, err := tx.Exec("UPDATE clips SET metadata = ? WHERE id = ?", string(encoded), clipID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// SetClipMetadata sets a single metadata key-value pair on a clip (upsert)
+func (a *App) SetClipMetadata(clipID int64, key string, value string) error {
+	if key == "" {
+		return fmt.Errorf("metadata key cannot be empty")
+	}
+	if utf8.RuneCountInString(key) > 256 {
+		return fmt.Errorf("metadata key too long (max 256 chars)")
+	}
+	if utf8.RuneCountInString(value) > 4096 {
+		return fmt.Errorf("metadata value too long (max 4096 chars)")
+	}
+	return a.updateClipMetadata(clipID, func(meta map[string]string) error {
+		if len(meta) >= maxMetadataPairs {
+			if _, exists := meta[key]; !exists {
+				return fmt.Errorf("metadata limit reached (max %d pairs)", maxMetadataPairs)
+			}
+		}
+		meta[key] = value
+		return nil
+	})
+}
+
+// DeleteClipMetadata removes a single metadata key from a clip
+func (a *App) DeleteClipMetadata(clipID int64, key string) error {
+	return a.updateClipMetadata(clipID, func(meta map[string]string) error {
+		delete(meta, key)
+		return nil
+	})
+}
+
+// SetClipMetadataBulk replaces all metadata on a clip
+func (a *App) SetClipMetadataBulk(clipID int64, metadata map[string]string) error {
+	if len(metadata) > maxMetadataPairs {
+		return fmt.Errorf("metadata limit exceeded (max %d pairs, got %d)", maxMetadataPairs, len(metadata))
+	}
+	for k, v := range metadata {
+		if k == "" {
+			return fmt.Errorf("metadata key cannot be empty")
+		}
+		if utf8.RuneCountInString(k) > 256 {
+			return fmt.Errorf("metadata key too long (max 256 chars)")
+		}
+		if utf8.RuneCountInString(v) > 4096 {
+			return fmt.Errorf("metadata value too long (max 4096 chars)")
+		}
+	}
+	return a.updateClipMetadata(clipID, func(meta map[string]string) error {
+		for k := range meta {
+			delete(meta, k)
+		}
+		for k, v := range metadata {
+			meta[k] = v
+		}
+		return nil
+	})
 }

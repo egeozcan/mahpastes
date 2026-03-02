@@ -54,6 +54,7 @@ type PluginUIAction struct {
 type UIActionsResponse struct {
 	LightboxButtons []PluginUIAction `json:"lightbox_buttons"`
 	CardActions     []PluginUIAction `json:"card_actions"`
+	GlobalActions   []PluginUIAction `json:"global_actions"`
 }
 
 // ActionResult is an alias for plugin.ActionResult to avoid duplication
@@ -369,12 +370,14 @@ func (s *PluginService) GetPluginUIActions() (*UIActionsResponse, error) {
 		return &UIActionsResponse{
 			LightboxButtons: []PluginUIAction{},
 			CardActions:     []PluginUIAction{},
+			GlobalActions:   []PluginUIAction{},
 		}, nil
 	}
 
 	response := &UIActionsResponse{
 		LightboxButtons: []PluginUIAction{},
 		CardActions:     []PluginUIAction{},
+		GlobalActions:   []PluginUIAction{},
 	}
 
 	plugins := s.app.pluginManager.GetPlugins()
@@ -410,6 +413,19 @@ func (s *PluginService) GetPluginUIActions() (*UIActionsResponse, error) {
 				Options:    action.Options,
 				FileTypes:  action.FileTypes,
 				MaxSize:    action.MaxSize,
+			})
+		}
+
+		// Add global actions
+		for _, action := range p.Manifest.UI.GlobalActions {
+			response.GlobalActions = append(response.GlobalActions, PluginUIAction{
+				PluginID:   p.ID,
+				PluginName: p.Name,
+				ID:         action.ID,
+				Label:      action.Label,
+				Icon:       action.Icon,
+				Async:      action.Async,
+				Options:    action.Options,
 			})
 		}
 	}

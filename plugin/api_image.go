@@ -10,7 +10,7 @@ import (
 	"image/color"
 	"image/draw"
 	_ "image/gif"
-	_ "image/jpeg"
+	"image/jpeg"
 	"image/png"
 	"math"
 	"math/rand"
@@ -60,6 +60,7 @@ func (img *ImageAPI) Register(L *lua.LState) {
 	imageMod.RawSetString("grayscale_pixels", L.NewFunction(img.grayscalePixels))
 	imageMod.RawSetString("metadata", L.NewFunction(img.metadata))
 	imageMod.RawSetString("diff", L.NewFunction(img.diff))
+	imageMod.RawSetString("convert", L.NewFunction(img.convert))
 
 	L.SetGlobal("image", imageMod)
 }
@@ -99,7 +100,7 @@ func (img *ImageAPI) loadClipImage(clipID int64) (image.Image, string, error) {
 }
 
 // loadClipImageRaw loads raw bytes from the database.
-// Note: the primary size protection is the 10MB MaxClipDataSize insert limit in api_clips.go.
+// Note: the primary size protection is the 50MB MaxClipDataSize insert limit in api_clips.go.
 // The 100MB check below is a defense-in-depth guard against direct DB edits or future changes.
 func (img *ImageAPI) loadClipImageRaw(clipID int64) ([]byte, string, error) {
 	var data []byte
@@ -130,15 +131,33 @@ const maxEncodedOutputBytes = 50 * 1024 * 1024
 
 // EncodeImagePNG encodes an image as PNG and returns base64 string
 func EncodeImagePNG(im image.Image) (string, string, error) {
+	return EncodeImage(im, "png", 0)
+}
+
+// EncodeImage encodes an image in the given format and returns base64 string.
+// Supported formats: "png", "jpeg", "jpg". Quality (1-100) applies to JPEG only.
+func EncodeImage(im image.Image, format string, quality int) (string, string, error) {
 	var buf bytes.Buffer
-	if err := png.Encode(&buf, im); err != nil {
-		return "", "", fmt.Errorf("failed to encode PNG: %w", err)
+	var mimeType string
+	switch format {
+	case "png":
+		if err := png.Encode(&buf, im); err != nil {
+			return "", "", fmt.Errorf("failed to encode PNG: %w", err)
+		}
+		mimeType = "image/png"
+	case "jpeg", "jpg":
+		if err := jpeg.Encode(&buf, im, &jpeg.Options{Quality: quality}); err != nil {
+			return "", "", fmt.Errorf("failed to encode JPEG: %w", err)
+		}
+		mimeType = "image/jpeg"
+	default:
+		return "", "", fmt.Errorf("unsupported format %q (valid: png, jpeg, jpg)", format)
 	}
 	encoded := base64.StdEncoding.EncodeToString(buf.Bytes())
 	if len(encoded) > maxEncodedOutputBytes {
 		return "", "", fmt.Errorf("encoded image too large (%d bytes, max %d)", len(encoded), maxEncodedOutputBytes)
 	}
-	return encoded, "image/png", nil
+	return encoded, mimeType, nil
 }
 
 // parseHexColor parses "#RGB", "#RRGGBB", or "#RRGGBBAA" to color.RGBA.
@@ -924,6 +943,49 @@ func (img *ImageAPI) metadata(L *lua.LState) int {
 		result.RawSetString("gps", gps)
 	}
 
+	L.Push(result)
+	return 1
+}
+
+// convert re-encodes a clip image in a different format (png, jpeg, jpg)
+func (img *ImageAPI) convert(L *lua.LState) int {
+	clipID := L.CheckInt64(1)
+	format := L.CheckString(2)
+
+	quality := 85
+	if L.GetTop() >= 3 {
+		if opts, ok := L.Get(3).(*lua.LTable); ok {
+			if q := opts.RawGetString("quality"); q != lua.LNil {
+				if num, ok := q.(lua.LNumber); ok {
+					quality = int(num)
+					if quality < 1 {
+						quality = 1
+					}
+					if quality > 100 {
+						quality = 100
+					}
+				}
+			}
+		}
+	}
+
+	src, _, err := img.loadClipImage(clipID)
+	if err != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	data, mimeType, err := EncodeImage(src, format, quality)
+	if err != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	result := L.NewTable()
+	result.RawSetString("data", lua.LString(data))
+	result.RawSetString("mime_type", lua.LString(mimeType))
 	L.Push(result)
 	return 1
 }

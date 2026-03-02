@@ -150,7 +150,7 @@ export class AppHelper {
     // Query the database directly via Wails API to get accurate count
     return this.page.evaluate(async (isArchived) => {
       // @ts-ignore - Wails runtime
-      const clips = await window.go.main.App.GetClips(isArchived, [], []);
+      const clips = await window.go.main.App.GetClips(isArchived, [], [], "", "");
       return clips?.length || 0;
     }, archived);
   }
@@ -273,9 +273,9 @@ export class AppHelper {
   async deleteAllClips(): Promise<void> {
     await this.page.evaluate(async () => {
       // @ts-ignore - Wails runtime
-      const clips = await window.go.main.App.GetClips(false, [], []);
+      const clips = await window.go.main.App.GetClips(false, [], [], "", "");
       // @ts-ignore
-      const archivedClips = await window.go.main.App.GetClips(true, [], []);
+      const archivedClips = await window.go.main.App.GetClips(true, [], [], "", "");
       const allClips = [...clips, ...archivedClips];
 
       for (const clip of allClips) {
@@ -459,9 +459,9 @@ export class AppHelper {
       // Inline version without page reload (faster for cleanup)
       await this.page.evaluate(async () => {
         // @ts-ignore
-        const clips = await window.go.main.App.GetClips(false, [], []);
+        const clips = await window.go.main.App.GetClips(false, [], [], "", "");
         // @ts-ignore
-        const archivedClips = await window.go.main.App.GetClips(true, [], []);
+        const archivedClips = await window.go.main.App.GetClips(true, [], [], "", "");
         for (const clip of [...clips, ...archivedClips]) {
           try {
             // @ts-ignore
@@ -579,8 +579,8 @@ export class AppHelper {
       try {
         if (App?.GetClips) {
           const [clips, archived] = await Promise.all([
-            App.GetClips(false, [], []),
-            App.GetClips(true, [], []),
+            App.GetClips(false, [], [], "", ""),
+            App.GetClips(true, [], [], "", ""),
           ]);
           const all = [...(clips || []), ...(archived || [])];
           await Promise.all(all.map((c: any) => App.DeleteClip(c.id).catch(() => {})));
@@ -598,6 +598,14 @@ export class AppHelper {
       try {
         if (App?.SetHiddenTags) {
           await App.SetHiddenTags([]);
+        }
+      } catch {}
+
+      // Reset sort preferences to defaults
+      try {
+        if (App?.SetSetting) {
+          await App.SetSetting('sort_field', 'date');
+          await App.SetSetting('sort_dir', 'desc');
         }
       } catch {}
 
@@ -645,6 +653,9 @@ export class AppHelper {
       // Card menu dropdown (dynamically created)
       document.querySelector('.card-menu-dropdown')?.remove();
 
+      // Sort popover (dynamically created)
+      document.querySelector('.sort-popover')?.remove();
+
       // Close plugin URL input container
       const urlContainer = document.getElementById('plugin-url-container');
       if (urlContainer) urlContainer.classList.add('hidden');
@@ -667,6 +678,7 @@ export class AppHelper {
         if (helpers.setHiddenTags) helpers.setHiddenTags([]);
         if (helpers.setViewingArchive) helpers.setViewingArchive(false);
         if (helpers.setViewingWatch) helpers.setViewingWatch(false);
+        if (helpers.setSort) helpers.setSort('date', 'desc');
 
         // Reset keyboard shortcut overrides to defaults
         const sm = helpers.getShortcutManager ? helpers.getShortcutManager() : null;
@@ -735,7 +747,7 @@ export class AppHelper {
       if (searchInput) searchInput.value = '';
 
       // Reset upload expiration dropdown to "No expiration"
-      const expirySelect = document.getElementById('upload-expiry-select') as HTMLSelectElement;
+      const expirySelect = document.getElementById('expiry-select') as HTMLSelectElement;
       if (expirySelect) expirySelect.value = '0';
 
       // --- 4. Reload gallery and caches with clean state ---
@@ -784,6 +796,12 @@ export class AppHelper {
     for (const filename of filenames) {
       await this.selectClip(filename);
     }
+  }
+
+  async shiftSelectClip(filename: string): Promise<void> {
+    const clip = await this.getClipByFilename(filename);
+    const checkbox = clip.locator(selectors.gallery.clipCheckbox);
+    await checkbox.click({ modifiers: ['Shift'] });
   }
 
   async selectAll(): Promise<void> {
@@ -1032,6 +1050,8 @@ export class AppHelper {
       await window.go.main.App.SetGlobalWatchPaused(isPaused);
       // @ts-ignore - Refresh watches to update state
       await window.go.main.App.RefreshWatches();
+      // @ts-ignore - Update the watch indicator in the UI
+      if (typeof updateWatchIndicator === 'function') await updateWatchIndicator();
     }, paused);
 
     // Update the UI checkbox to match
@@ -1279,7 +1299,7 @@ export class AppHelper {
     await this.page.evaluate(async ({ filename, tag }) => {
       // Get clip ID by filename
       // @ts-ignore
-      const clips = await window.go.main.App.GetClips(false, [], []);
+      const clips = await window.go.main.App.GetClips(false, [], [], "", "");
       const clip = clips.find((c: any) =>
         c.filename?.toLowerCase().includes(filename.replace('.png', '').toLowerCase())
       );
@@ -1315,7 +1335,7 @@ export class AppHelper {
     await this.page.evaluate(async ({ filename, tag }) => {
       // Get clip ID by filename
       // @ts-ignore
-      const clips = await window.go.main.App.GetClips(false, [], []);
+      const clips = await window.go.main.App.GetClips(false, [], [], "", "");
       const clip = clips.find((c: any) =>
         c.filename?.toLowerCase().includes(filename.replace('.png', '').toLowerCase())
       );
@@ -1903,6 +1923,24 @@ export class AppHelper {
     await this.page.locator('.card-menu-dropdown').waitFor({ state: 'hidden', timeout: 5000 });
   }
 
+  async clickMergeDuplicatesInCardMenu(filename: string): Promise<void> {
+    await this.openCardMenu(filename);
+    await this.page.locator(selectors.cardMenu.mergeDuplicates).click();
+  }
+
+  async getDuplicateBadgeText(filename: string): Promise<string | null> {
+    const clip = await this.getClipByFilename(filename);
+    const badge = clip.locator(selectors.dedup.badge);
+    if (await badge.count() === 0) return null;
+    return badge.textContent();
+  }
+
+  async clickDeduplicateAll(): Promise<void> {
+    await this.openDrawer();
+    await this.page.locator(selectors.dedup.deduplicateBtn).waitFor({ state: 'visible', timeout: 5000 });
+    await this.page.locator(selectors.dedup.deduplicateBtn).click();
+  }
+
   async clickCardMenuPluginAction(pluginId: number, actionId: string): Promise<void> {
     const actionBtn = this.page.locator(
       `${selectors.cardMenu.dropdown} [data-action="plugin"][data-plugin-id="${pluginId}"][data-action-id="${actionId}"]`
@@ -1918,6 +1956,32 @@ export class AppHelper {
   async expectCardMenuPluginActionsCount(count: number): Promise<void> {
     const pluginActions = this.page.locator(selectors.cardMenu.pluginAction);
     await expect(pluginActions).toHaveCount(count);
+  }
+
+  async expectDrawerPluginActionsVisible(): Promise<void> {
+    await this.openDrawer();
+    const container = this.page.locator(selectors.drawer.pluginActionsContainer);
+    await expect(container).toBeVisible();
+  }
+
+  async expectDrawerPluginActionsHidden(): Promise<void> {
+    await this.openDrawer();
+    const container = this.page.locator(selectors.drawer.pluginActionsContainer);
+    await expect(container).toBeHidden();
+  }
+
+  async expectDrawerPluginActionsCount(count: number): Promise<void> {
+    await this.openDrawer();
+    const actions = this.page.locator(selectors.drawer.pluginAction);
+    await expect(actions).toHaveCount(count);
+  }
+
+  async clickDrawerPluginAction(pluginId: number, actionId: string): Promise<void> {
+    await this.openDrawer();
+    const btn = this.page.locator(
+      `${selectors.drawer.pluginAction}[data-plugin-id="${pluginId}"][data-action-id="${actionId}"]`
+    );
+    await btn.click();
   }
 
   async openLightboxPluginActions(): Promise<void> {
@@ -2131,10 +2195,6 @@ export class AppHelper {
     await this.page.locator(selectors.cardMenu.cancelExpiration).click();
   }
 
-  async setUploadExpiration(preset: string): Promise<void> {
-    await this.page.locator(selectors.expiration.uploadSelect).selectOption(preset);
-  }
-
   async expectClipHasExpirationBadge(filename: string): Promise<void> {
     const clip = await this.getClipByFilename(filename);
     await expect(clip.locator(selectors.expiration.badge)).toBeVisible();
@@ -2187,6 +2247,120 @@ export class AppHelper {
     return this.page.evaluate(() => {
       return !!document.querySelector('.clip-focused');
     });
+  }
+
+  // ==================== Metadata ====================
+
+  async openMetadataModal(clipFilename: string): Promise<void> {
+    const card = this.page.locator(selectors.gallery.clipCardByName(clipFilename));
+    await card.locator(selectors.clipActions.menuTrigger).click();
+    await this.page.locator(selectors.cardMenu.metadata).click();
+    await expect(this.page.locator(selectors.metadata.modal)).not.toHaveClass(/pointer-events-none/);
+    // Wait for metadata content to load (either rows or empty state)
+    await this.page.locator(`${selectors.metadata.row}, ${selectors.metadata.emptyState}`).first().waitFor({ state: 'attached', timeout: 5000 });
+  }
+
+  async closeMetadataModal(): Promise<void> {
+    await this.page.locator(selectors.metadata.closeButton).click();
+    await expect(this.page.locator(selectors.metadata.modal)).toHaveClass(/pointer-events-none/);
+  }
+
+  async addMetadataField(key: string, value: string): Promise<void> {
+    await this.page.locator(selectors.metadata.addButton).click();
+    const rows = this.page.locator(selectors.metadata.row);
+    const lastRow = rows.last();
+    await lastRow.locator(selectors.metadata.keyInput).fill(key);
+    await lastRow.locator(selectors.metadata.valueInput).fill(value);
+  }
+
+  async saveMetadata(): Promise<void> {
+    await this.page.locator(selectors.metadata.saveButton).click();
+    await expect(this.page.locator(selectors.metadata.modal)).toHaveClass(/pointer-events-none/);
+  }
+
+  async expectMetadataRow(key: string, value: string): Promise<void> {
+    await expect.poll(async () => {
+      const rows = this.page.locator(selectors.metadata.row);
+      const count = await rows.count();
+      for (let i = 0; i < count; i++) {
+        const rowKey = await rows.nth(i).locator(selectors.metadata.keyInput).inputValue();
+        const rowValue = await rows.nth(i).locator(selectors.metadata.valueInput).inputValue();
+        if (rowKey === key && rowValue === value) {
+          return true;
+        }
+      }
+      return false;
+    }, { timeout: 5000 }).toBe(true);
+  }
+
+  async expectMetadataEmpty(): Promise<void> {
+    await expect(this.page.locator(selectors.metadata.emptyState)).toBeVisible();
+  }
+
+  async expectMetadataRowCount(count: number): Promise<void> {
+    await expect(this.page.locator(selectors.metadata.row)).toHaveCount(count);
+  }
+
+  async deleteMetadataRow(index: number): Promise<void> {
+    const rows = this.page.locator(selectors.metadata.row);
+    await rows.nth(index).locator(selectors.metadata.deleteRowButton).click();
+  }
+
+  // ==================== Sort ====================
+
+  async openSortPopover(): Promise<void> {
+    // Close if already open (button toggles)
+    const popover = this.page.locator(selectors.sort.popover);
+    if (await popover.count() > 0) {
+      await this.page.locator(selectors.sort.button).click();
+      await expect(popover).toHaveCount(0);
+    }
+    await this.page.locator(selectors.sort.button).click();
+    await this.page.waitForSelector(selectors.sort.popover);
+  }
+
+  async closeSortPopover(): Promise<void> {
+    await this.page.locator('body').click({ position: { x: 0, y: 0 } });
+    await expect(this.page.locator(selectors.sort.popover)).toHaveCount(0);
+  }
+
+  async selectSort(field: string): Promise<void> {
+    await this.page.locator(selectors.sort.option(field)).click();
+    // Popover closes and clips reload
+    await expect(this.page.locator(selectors.sort.popover)).toHaveCount(0);
+  }
+
+  async getClipFilenames(): Promise<string[]> {
+    const cards = this.page.locator(selectors.gallery.clipCard);
+    const count = await cards.count();
+    const names: string[] = [];
+    for (let i = 0; i < count; i++) {
+      const title = await cards.nth(i).locator('.p-2\\.5 p').getAttribute('title');
+      names.push(title || '');
+    }
+    return names;
+  }
+
+  // ==================== System Metadata ====================
+
+  async expectSystemMetadataVisible(): Promise<void> {
+    await expect(this.page.locator(selectors.metadata.systemInfo)).toBeVisible();
+  }
+
+  async expectSystemMetadataRowCount(count: number): Promise<void> {
+    await expect(this.page.locator(selectors.metadata.systemRow)).toHaveCount(count);
+  }
+
+  async getSystemMetadataValue(label: string): Promise<string> {
+    const rows = this.page.locator(selectors.metadata.systemRow);
+    const count = await rows.count();
+    for (let i = 0; i < count; i++) {
+      const rowLabel = await rows.nth(i).locator('span').first().textContent();
+      if (rowLabel?.trim() === label) {
+        return (await rows.nth(i).locator('span').nth(1).textContent()) || '';
+      }
+    }
+    return '';
   }
 }
 

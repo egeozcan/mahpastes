@@ -93,7 +93,7 @@ test.describe('Backup & Restore', () => {
       // Verify data was restored by checking via API (more reliable than UI)
       const clipsAfterRestore = await app.page.evaluate(async () => {
         // @ts-ignore - Wails runtime
-        return await window.go.main.App.GetClips(false, [], []);
+        return await window.go.main.App.GetClips(false, [], [], "", "");
       });
       expect(clipsAfterRestore.length).toBe(1);
 
@@ -135,7 +135,7 @@ test.describe('Backup & Restore', () => {
       // Verify data was restored by checking via API (more reliable than UI)
       const clipsAfterRestore = await app.page.evaluate(async () => {
         // @ts-ignore - Wails runtime
-        return await window.go.main.App.GetClips(false, [], []);
+        return await window.go.main.App.GetClips(false, [], [], "", "");
       });
       expect(clipsAfterRestore.length).toBe(1);
 
@@ -178,7 +178,7 @@ test.describe('Backup & Restore', () => {
       // Verify data was restored by checking via API (more reliable than UI)
       const clipsAfterRestore = await app.page.evaluate(async () => {
         // @ts-ignore - Wails runtime
-        return await window.go.main.App.GetClips(false, [], []);
+        return await window.go.main.App.GetClips(false, [], [], "", "");
       });
       expect(clipsAfterRestore.length).toBe(1);
 
@@ -237,7 +237,7 @@ test.describe('Backup & Restore', () => {
       // Get the clip data before backup
       const clipsBefore = await app.page.evaluate(async () => {
         // @ts-ignore - Wails runtime
-        return await window.go.main.App.GetClips(false, [], []);
+        return await window.go.main.App.GetClips(false, [], [], "", "");
       });
       const clipIdBefore = clipsBefore[0].id;
 
@@ -267,7 +267,7 @@ test.describe('Backup & Restore', () => {
       // Get the restored clip content directly via API (no need to reload page)
       const clipsAfter = await app.page.evaluate(async () => {
         // @ts-ignore - Wails runtime
-        return await window.go.main.App.GetClips(false, [], []);
+        return await window.go.main.App.GetClips(false, [], [], "", "");
       });
       expect(clipsAfter.length).toBe(1);
 
@@ -290,7 +290,7 @@ test.describe('Backup & Restore', () => {
       // Get clip info before
       const clipsBefore = await app.page.evaluate(async () => {
         // @ts-ignore - Wails runtime
-        return await window.go.main.App.GetClips(false, [], []);
+        return await window.go.main.App.GetClips(false, [], [], "", "");
       });
       const clipBefore = clipsBefore[0];
 
@@ -313,7 +313,7 @@ test.describe('Backup & Restore', () => {
       // Get the restored clip info directly via API (no need to reload page)
       const clipsAfter = await app.page.evaluate(async () => {
         // @ts-ignore - Wails runtime
-        return await window.go.main.App.GetClips(false, [], []);
+        return await window.go.main.App.GetClips(false, [], [], "", "");
       });
       expect(clipsAfter.length).toBe(1);
 

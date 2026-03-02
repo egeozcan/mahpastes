@@ -5,7 +5,7 @@ async function loadClips() {
     try {
         if (typeof ShortcutManager !== 'undefined') ShortcutManager.clearFocus();
         const effectiveHidden = getHiddenTags().filter(id => !activeTagFilters.includes(id));
-        const clips = await window.go.main.App.GetClips(isViewingArchive, activeTagFilters, effectiveHidden);
+        const clips = await window.go.main.App.GetClips(isViewingArchive, activeTagFilters, effectiveHidden, currentSortField, currentSortDir);
 
         if (typeof clearPreparedDragState === 'function') {
             clearPreparedDragState();
@@ -20,6 +20,7 @@ async function loadClips() {
             for (const clip of clips) {
                 await createClipCard(clip);
             }
+            updateClipCount(clips.length);
         } else {
             let emptyMsg;
             if (activeTagFilters.length > 0) {
@@ -30,7 +31,9 @@ async function loadClips() {
                 emptyMsg = 'No active clips. Paste or drop something!';
             }
             gallery.innerHTML = `<p class="text-gray-500 col-span-full text-center">${emptyMsg}</p>`;
+            updateClipCount(0);
         }
+        if (typeof checkDuplicatesExist === 'function') checkDuplicatesExist();
     } catch (error) {
         console.error('Error loading clips:', error);
         gallery.innerHTML = '<p class="text-red-500 col-span-full text-center">Error loading clips.</p>';

@@ -62,6 +62,10 @@ export function CreateTempFile(arg1) {
   return window['go']['main']['App']['CreateTempFile'](arg1);
 }
 
+export function DeduplicateAll() {
+  return window['go']['main']['App']['DeduplicateAll']();
+}
+
 export function DeleteAllTempFiles() {
   return window['go']['main']['App']['DeleteAllTempFiles']();
 }
@@ -70,12 +74,20 @@ export function DeleteClip(arg1) {
   return window['go']['main']['App']['DeleteClip'](arg1);
 }
 
+export function DeleteClipMetadata(arg1, arg2) {
+  return window['go']['main']['App']['DeleteClipMetadata'](arg1, arg2);
+}
+
 export function DeleteTag(arg1) {
   return window['go']['main']['App']['DeleteTag'](arg1);
 }
 
 export function GetClipData(arg1) {
   return window['go']['main']['App']['GetClipData'](arg1);
+}
+
+export function GetClipMetadata(arg1) {
+  return window['go']['main']['App']['GetClipMetadata'](arg1);
 }
 
 export function GetClipTags(arg1) {
@@ -90,8 +102,12 @@ export function GetClipboardText() {
   return window['go']['main']['App']['GetClipboardText']();
 }
 
-export function GetClips(arg1, arg2, arg3) {
-  return window['go']['main']['App']['GetClips'](arg1, arg2, arg3);
+export function GetClips(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['main']['App']['GetClips'](arg1, arg2, arg3, arg4, arg5);
+}
+
+export function GetDuplicateGroups() {
+  return window['go']['main']['App']['GetDuplicateGroups']();
 }
 
 export function GetGlobalWatchPaused() {
@@ -130,6 +146,10 @@ export function IsDirectory(arg1) {
   return window['go']['main']['App']['IsDirectory'](arg1);
 }
 
+export function MergeDuplicates(arg1) {
+  return window['go']['main']['App']['MergeDuplicates'](arg1);
+}
+
 export function ProcessExistingFilesInFolder(arg1) {
   return window['go']['main']['App']['ProcessExistingFilesInFolder'](arg1);
 }
@@ -160,6 +180,14 @@ export function SaveClipToFile(arg1) {
 
 export function SelectFolder() {
   return window['go']['main']['App']['SelectFolder']();
+}
+
+export function SetClipMetadata(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SetClipMetadata'](arg1, arg2, arg3);
+}
+
+export function SetClipMetadataBulk(arg1, arg2) {
+  return window['go']['main']['App']['SetClipMetadataBulk'](arg1, arg2);
 }
 
 export function SetExpiration(arg1, arg2) {

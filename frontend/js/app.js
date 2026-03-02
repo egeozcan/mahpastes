@@ -24,20 +24,47 @@ drawerOverlay.addEventListener('click', closeDrawer);
 
 // Close drawer when any nav button inside it is clicked
 navDrawer.addEventListener('click', (e) => {
+    const globalActionBtn = e.target.closest('[data-global-action]');
+    if (globalActionBtn) {
+        closeDrawer();
+        handleGlobalAction(globalActionBtn);
+        return;
+    }
     if (e.target.closest('button[id]') && e.target.closest('button[id]') !== drawerCloseBtn) {
         closeDrawer();
     }
 });
+
+// Handle a global plugin action click from the drawer
+function handleGlobalAction(btn) {
+    const pluginId = parseInt(btn.dataset.pluginId, 10);
+    const actionId = btn.dataset.actionId;
+    const hasOptions = btn.dataset.hasOptions === 'true';
+    const isAsync = btn.dataset.isAsync === 'true';
+
+    if (hasOptions) {
+        // Find the full action object from cache
+        const action = pluginUIActions?.global_actions?.find(
+            a => a.plugin_id === pluginId && a.id === actionId
+        );
+        if (action) {
+            openPluginOptionsDialog(action, []);
+        }
+    } else {
+        executePluginAction(pluginId, actionId, [], {}, isAsync);
+    }
+}
 
 // --- Elements ---
 const fileInput = document.getElementById('file-input');
 const dropOverlay = document.getElementById('drop-overlay');
 const gallery = document.getElementById('gallery');
 const deleteAllTempBtn = document.getElementById('delete-all-temp-btn');
+const deduplicateBtn = document.getElementById('deduplicate-btn');
 const toggleArchiveViewBtn = document.getElementById('toggle-archive-view-btn');
 const archiveBtnText = document.getElementById('archive-btn-text');
 const headerArchiveBtn = document.getElementById('header-archive-btn');
-const headerAddBtn = document.getElementById('header-add-btn');
+const headerAddBtn = document.getElementById('add-btn');
 const bulkToolbar = document.getElementById('bulk-toolbar');
 const selectAllCheckbox = document.getElementById('select-all-checkbox');
 const selectedCountEl = document.getElementById('selected-count');
@@ -87,10 +114,17 @@ const comparisonImageInfo = document.getElementById('comparison-image-info');
 const comparisonLabelA = document.getElementById('comparison-label-a');
 const comparisonLabelB = document.getElementById('comparison-label-b');
 
-const uploadExpirySelect = document.getElementById('upload-expiry-select');
+const uploadExpirySelect = document.getElementById('expiry-select');
+const clipCountEl = document.getElementById('clip-count');
 
 function getUploadExpirationMinutes() {
     return parseInt(uploadExpirySelect.value, 10) || 0;
+}
+
+function updateClipCount(count) {
+    if (clipCountEl) {
+        clipCountEl.textContent = count === 1 ? '1 clip' : `${count} clips`;
+    }
 }
 
 // --- State ---
@@ -113,11 +147,24 @@ let allTags = [];
 let activeTagFilters = [];
 let hiddenTags = [];
 
+// Sort state
+let currentSortField = 'date';
+let currentSortDir = 'desc';
+
 // Accessors for hiddenTags — other files should use these instead of the variable directly
 function getHiddenTags() { return hiddenTags; }
 function setHiddenTagsState(tags) {
     hiddenTags.length = 0;
     hiddenTags.push(...tags);
+}
+
+// Sort setter — called from sort.js popover
+async function setSort(field, dir) {
+    currentSortField = field;
+    currentSortDir = dir;
+    await window.go.main.App.SetSetting('sort_field', field);
+    await window.go.main.App.SetSetting('sort_dir', dir);
+    await loadClips();
 }
 
 // App ready flag for testing
@@ -139,6 +186,7 @@ Object.assign(window.__testHelpers, {
   setHiddenTags: (tags) => setHiddenTagsState(tags),
   getHiddenTags: () => getHiddenTags(),
   setViewingArchive: (val) => { isViewingArchive = val; },
+  setSort: (field, dir) => { currentSortField = field; currentSortDir = dir; },
   getShortcutManager: () => typeof ShortcutManager !== 'undefined' ? ShortcutManager : null,
   // Expose loadClips function (defined in wails-api.js, but called here)
   loadClips: () => {
@@ -229,6 +277,48 @@ document.getElementById('confirm-dialog').addEventListener('click', (e) => {
 
 // Delete All Temp Files
 deleteAllTempBtn.addEventListener('click', deleteAllTempFiles);
+
+// Deduplicate
+deduplicateBtn.addEventListener('click', async () => {
+    try {
+        const groups = await window.go.main.App.GetDuplicateGroups();
+        if (!groups || groups.length === 0) {
+            showToast('No duplicates found');
+            return;
+        }
+
+        const totalRemoved = groups.reduce((sum, g) => sum + (g.count - 1), 0);
+        const listHTML = groups.map(g =>
+            `<span class="block text-left">&middot; ${escapeHTML(g.filename || 'Untitled')} — ${g.count} copies (oldest kept, ${g.count - 1} removed)</span>`
+        ).join('');
+
+        const message = `<span class="block mb-2">${groups.length} duplicate group${groups.length > 1 ? 's' : ''} found:</span>` +
+            `<span class="block text-[10px] text-stone-400 mb-2 max-h-40 overflow-y-auto">${listHTML}</span>` +
+            `<span class="block">Tags will be merged. ${totalRemoved} clip${totalRemoved > 1 ? 's' : ''} will be removed.</span>`;
+
+        showConfirmDialog('Deduplicate All', message, async () => {
+            try {
+                const removed = await window.go.main.App.DeduplicateAll();
+                showToast(`Deduplicated: removed ${removed} clip${removed !== 1 ? 's' : ''}`, 'success');
+                loadClips();
+                checkDuplicatesExist();
+            } catch (err) {
+                showToast('Failed to deduplicate', 'error');
+            }
+        });
+    } catch (err) {
+        showToast('Failed to check duplicates', 'error');
+    }
+});
+
+async function checkDuplicatesExist() {
+    try {
+        const groups = await window.go.main.App.GetDuplicateGroups();
+        deduplicateBtn.style.display = (groups && groups.length > 0) ? '' : 'none';
+    } catch (e) {
+        deduplicateBtn.style.display = 'none';
+    }
+}
 
 // Bulk Action Listeners
 selectAllCheckbox.addEventListener('change', toggleSelectAll);
@@ -375,7 +465,17 @@ window.addEventListener('load', async () => {
         if (typeof initTransferCapabilities === 'function') {
             await initTransferCapabilities();
         }
+
+        // Load sort preferences
+        try {
+            const savedField = await window.go.main.App.GetSetting('sort_field');
+            const savedDir = await window.go.main.App.GetSetting('sort_dir');
+            if (['date', 'name', 'size', 'type'].includes(savedField)) currentSortField = savedField;
+            if (['asc', 'desc'].includes(savedDir)) currentSortDir = savedDir;
+        } catch (e) { /* use defaults */ }
+
         await loadClips();
+        checkDuplicatesExist();
         setupEditorListeners();
 
         // --- Register Keyboard Shortcuts ---
@@ -759,6 +859,10 @@ window.addEventListener('load', async () => {
             if (data && data.message) {
                 showToast(data.message, data.type || 'info');
             }
+        });
+
+        window.runtime.EventsOn("clip:duplicate", (data) => {
+            showToast(`Duplicate clip detected — ${data.count} other ${data.count === 1 ? 'copy' : 'copies'} exist`, 'info');
         });
     }
 

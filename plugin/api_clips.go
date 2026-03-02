@@ -1,8 +1,10 @@
 package plugin
 
 import (
+	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"log"
@@ -23,8 +25,8 @@ const maxContentTypeLength = 256
 var validMIMEType = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9!#$&\-^_.+]*\/[a-zA-Z0-9][a-zA-Z0-9!#$&\-^_.+]*$`)
 
 const (
-	// MaxClipDataSize is the maximum size of data a plugin can create (10MB)
-	MaxClipDataSize = 10 * 1024 * 1024
+	// MaxClipDataSize is the maximum size of data a plugin can create (50MB)
+	MaxClipDataSize = 50 * 1024 * 1024
 	// URLFetchTimeout is the timeout for downloading content from URLs
 	URLFetchTimeout = 60 * time.Second
 )
@@ -279,9 +281,11 @@ func (c *ClipsAPI) create(L *lua.LState) int {
 		data = []byte(dataStr)
 	}
 
+	hash := sha256.Sum256(data)
+	contentHash := hex.EncodeToString(hash[:])
 	result, err := c.db.Exec(
-		"INSERT INTO clips (content_type, data, filename) VALUES (?, ?, ?)",
-		contentType, data, filename,
+		"INSERT INTO clips (content_type, data, filename, content_hash) VALUES (?, ?, ?, ?)",
+		contentType, data, filename, contentHash,
 	)
 	if err != nil {
 		L.Push(lua.LNil)
@@ -451,9 +455,11 @@ func (c *ClipsAPI) createFromURL(L *lua.LState) int {
 	}
 
 	// Insert into database
+	hash := sha256.Sum256(data)
+	contentHash := hex.EncodeToString(hash[:])
 	result, err := c.db.Exec(
-		"INSERT INTO clips (content_type, data, filename) VALUES (?, ?, ?)",
-		contentType, data, filename,
+		"INSERT INTO clips (content_type, data, filename, content_hash) VALUES (?, ?, ?, ?)",
+		contentType, data, filename, contentHash,
 	)
 	if err != nil {
 		L.Push(lua.LNil)

@@ -32,13 +32,19 @@ export function CreateTag(arg1:string):Promise<main.Tag>;
 
 export function CreateTempFile(arg1:number):Promise<string>;
 
+export function DeduplicateAll():Promise<number>;
+
 export function DeleteAllTempFiles():Promise<void>;
 
 export function DeleteClip(arg1:number):Promise<void>;
 
+export function DeleteClipMetadata(arg1:number,arg2:string):Promise<void>;
+
 export function DeleteTag(arg1:number):Promise<void>;
 
 export function GetClipData(arg1:number):Promise<main.ClipData>;
+
+export function GetClipMetadata(arg1:number):Promise<Record<string, string>>;
 
 export function GetClipTags(arg1:number):Promise<Array<main.Tag>>;
 
@@ -46,7 +52,9 @@ export function GetClipboardImage():Promise<string>;
 
 export function GetClipboardText():Promise<string>;
 
-export function GetClips(arg1:boolean,arg2:Array<number>,arg3:Array<number>):Promise<Array<main.ClipPreview>>;
+export function GetClips(arg1:boolean,arg2:Array<number>,arg3:Array<number>,arg4:string,arg5:string):Promise<Array<main.ClipPreview>>;
+
+export function GetDuplicateGroups():Promise<Array<main.DuplicateGroup>>;
 
 export function GetGlobalWatchPaused():Promise<boolean>;
 
@@ -66,6 +74,8 @@ export function GetWatchedFolders():Promise<Array<main.WatchedFolder>>;
 
 export function IsDirectory(arg1:string):Promise<boolean>;
 
+export function MergeDuplicates(arg1:number):Promise<void>;
+
 export function ProcessExistingFilesInFolder(arg1:number):Promise<void>;
 
 export function ReadFileFromPath(arg1:string):Promise<main.FileData>;
@@ -81,6 +91,10 @@ export function RestoreBackup(arg1:string):Promise<void>;
 export function SaveClipToFile(arg1:number):Promise<void>;
 
 export function SelectFolder():Promise<string>;
+
+export function SetClipMetadata(arg1:number,arg2:string,arg3:string):Promise<void>;
+
+export function SetClipMetadataBulk(arg1:number,arg2:Record<string, string>):Promise<void>;
 
 export function SetExpiration(arg1:number,arg2:number):Promise<void>;
 

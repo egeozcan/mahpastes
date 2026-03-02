@@ -260,7 +260,7 @@ The app has a Lua-based plugin system that allows extending functionality.
 
 ### Wails Method Binding Limit
 
-**CRITICAL**: Wails has a ~49 method limit per bound struct. Multiple services exist as separate structs to stay under this limit:
+**NOTE**: Wails was previously believed to have a ~49 method limit per bound struct, but the App struct currently has 66+ methods and all bind correctly. Multiple services exist as separate structs for organizational clarity:
 - `PluginService` in `plugin_service.go` - Plugin-related APIs (TryAcquireModalGuard, IsPluginURLAllowed, GetPluginUIActions, ExecutePluginAction, ImportPluginFromPath, GetPluginPermissions, RevokePluginPermission, GetPluginStorage, SetPluginStorage, GetAllPluginStorage, etc.)
 - `ClipboardService` in `clipboard_service.go` - Clipboard copy operations
 - `TransferService` in `transfer_service.go` - Drag-out/transfer operations
@@ -295,7 +295,7 @@ APIs are registered in `plugin/manager.go` when loading plugins. Each API module
 | `fs` | `api_fs.go` | read, write, list, exists (filesystem with permission prompts) |
 | `task` | `api_task.go` | start, progress, complete, fail (long-running task progress UI) |
 | `toast` | `api_toast.go` | show (display toast notifications) |
-| `image` | `api_image.go` | info, resize, overlay_text, composite, dominant_colors, grayscale_pixels, metadata, diff (Go-side image processing) |
+| `image` | `api_image.go` | info, resize, overlay_text, composite, dominant_colors, grayscale_pixels, metadata, diff, convert (Go-side image processing) |
 | `utils` | `api_utils.go` | time, sha256, hmac_sha256, url_encode, url_decode, clipboard_write (requires `clipboard = true` in manifest) |
 | `log` | `api_utils.go` | Global function for logging (not a module) |
 | `json` | `api_utils.go` | encode, decode |

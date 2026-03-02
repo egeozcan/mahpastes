@@ -1,7 +1,9 @@
 package main
 
 import (
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"os"
@@ -90,6 +92,11 @@ func initDB() (*sql.DB, error) {
 	_, _ = db.Exec("ALTER TABLE clips ADD COLUMN is_archived INTEGER DEFAULT 0")
 	// Migrate: Add expires_at column if it doesn't exist
 	_, _ = db.Exec("ALTER TABLE clips ADD COLUMN expires_at DATETIME")
+	// Migrate: Add content_hash column for deduplication
+	_, _ = db.Exec("ALTER TABLE clips ADD COLUMN content_hash TEXT DEFAULT ''")
+	_, _ = db.Exec("CREATE INDEX IF NOT EXISTS idx_clips_content_hash ON clips(content_hash)")
+	// Migrate: Add metadata column for key-value metadata (JSON)
+	_, _ = db.Exec("ALTER TABLE clips ADD COLUMN metadata TEXT DEFAULT '{}'")
 
 	// Create settings table
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS settings (
@@ -193,7 +200,48 @@ func initDB() (*sql.DB, error) {
 		log.Printf("Warning: Failed to create app_settings table: %v", err)
 	}
 
+	// Backfill content hashes for existing clips that don't have one
+	backfillContentHashes(db)
+
 	return db, nil
+}
+
+// backfillContentHashes computes SHA-256 hashes for any clips missing a content_hash.
+// This runs on startup after migrations so that existing clips get hashes for deduplication.
+func backfillContentHashes(db *sql.DB) {
+	rows, err := db.Query("SELECT id, data FROM clips WHERE content_hash = ''")
+	if err != nil {
+		log.Printf("Warning: Failed to query clips for hash backfill: %v", err)
+		return
+	}
+	defer rows.Close()
+
+	updated := 0
+	for rows.Next() {
+		var id int64
+		var data []byte
+		if err := rows.Scan(&id, &data); err != nil {
+			log.Printf("Warning: Failed to scan clip %d for hash backfill: %v", id, err)
+			continue
+		}
+
+		hash := sha256.Sum256(data)
+		hashHex := hex.EncodeToString(hash[:])
+
+		if _, err := db.Exec("UPDATE clips SET content_hash = ? WHERE id = ?", hashHex, id); err != nil {
+			log.Printf("Warning: Failed to update content_hash for clip %d: %v", id, err)
+			continue
+		}
+		updated++
+	}
+
+	if err := rows.Err(); err != nil {
+		log.Printf("Warning: Error during hash backfill iteration: %v", err)
+	}
+
+	if updated > 0 {
+		log.Printf("Backfilled content_hash for %d clips", updated)
+	}
 }
 
 // startCleanupJob deletes expired clips every minute

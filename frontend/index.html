@@ -37,7 +37,7 @@
                 <div class="relative">
                     <button id="tag-filter-btn" data-testid="tag-filter-button"
                         class="relative border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-500 p-2 rounded-md transition-colors"
-                        aria-label="Filter by tags">
+                        aria-label="Filter by tags" data-tooltip="Filter clips by tag (F)">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                                 d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
@@ -65,7 +65,7 @@
                 <!-- Archive Toggle Button -->
                 <button id="header-archive-btn"
                     class="relative border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-500 p-2 rounded-md transition-colors"
-                    aria-label="Toggle archive view" aria-pressed="false"
+                    aria-label="Toggle archive view" aria-pressed="false" data-tooltip="Show archived clips (A)"
                     style="--wails-draggable: no-drag">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
@@ -73,34 +73,23 @@
                     </svg>
                 </button>
 
+                <!-- Sort Button -->
+                <div class="relative">
+                    <button id="sort-btn" data-testid="sort-button"
+                        class="relative border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-500 p-2 rounded-md transition-colors"
+                        aria-label="Sort clips" aria-haspopup="true" aria-expanded="false" data-tooltip="Change sort order">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M3 7.5L7.5 3m0 0L12 7.5M7.5 3v13.5m13.5 0L16.5 21m0 0L12 16.5m4.5 4.5V7.5" />
+                        </svg>
+                    </button>
+                </div>
+
             </div>
-
-            <!-- Add File Button -->
-            <button id="header-add-btn"
-                class="border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-500 text-xs font-medium py-2 px-3 rounded-md transition-colors"
-                aria-label="Add files"
-                style="--wails-draggable: no-drag">
-                + Add
-            </button>
-
-            <!-- Expiration Dropdown -->
-            <select id="upload-expiry-select"
-                class="border border-stone-200 hover:border-stone-300 text-stone-500 text-xs font-medium py-2 px-2 rounded-md transition-colors bg-white focus:outline-none focus:border-stone-400 focus:ring-1 focus:ring-stone-400/20"
-                aria-label="Upload expiration"
-                style="--wails-draggable: no-drag"
-                title="Set expiration for new uploads">
-                <option value="0">No Expiry</option>
-                <option value="15">15m</option>
-                <option value="60">1h</option>
-                <option value="360">6h</option>
-                <option value="1440">24h</option>
-                <option value="10080">7d</option>
-            </select>
 
             <!-- Hamburger Menu Button -->
             <button id="drawer-toggle-btn"
                 class="relative border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-500 p-2 rounded-md transition-colors"
-                aria-label="Open menu" aria-expanded="false" aria-controls="nav-drawer"
+                aria-label="Open menu" aria-expanded="false" aria-controls="nav-drawer" data-tooltip="Open navigation menu"
                 style="--wails-draggable: no-drag">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 6h16M4 12h16M4 18h16" />
@@ -123,7 +112,7 @@
         class="fixed top-0 right-0 h-full w-64 bg-white border-l border-stone-200 shadow-xl z-[56] transform translate-x-full transition-transform duration-200">
         <div class="p-5 border-b border-stone-100 flex justify-between items-center">
             <span class="text-xs font-semibold text-stone-400 uppercase tracking-wide">Menu</span>
-            <button id="drawer-close-btn" class="p-1 hover:bg-stone-100 rounded-md transition-colors" aria-label="Close menu">
+            <button id="drawer-close-btn" class="p-1 hover:bg-stone-100 rounded-md transition-colors" aria-label="Close menu" data-tooltip="Close menu">
                 <svg class="w-4 h-4 text-stone-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12" />
                 </svg>
@@ -132,7 +121,7 @@
         <nav class="p-3 flex flex-col gap-1" aria-label="Global Actions">
             <button id="toggle-watch-view-btn"
                 class="relative border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-xs font-medium py-2.5 px-3 rounded-md transition-colors flex items-center w-full"
-                aria-pressed="false">
+                aria-pressed="false" data-tooltip="Monitor folders and auto-import new files">
                 <svg class="w-4 h-4 mr-2 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                         d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
@@ -144,7 +133,7 @@
             </button>
             <button id="toggle-archive-view-btn"
                 class="border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-xs font-medium py-2.5 px-3 rounded-md transition-colors flex items-center w-full"
-                aria-pressed="false">
+                aria-pressed="false" data-tooltip="View archived clips">
                 <svg class="w-4 h-4 mr-2 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                         d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"></path>
@@ -152,16 +141,27 @@
                 <span id="archive-btn-text">Archive</span>
             </button>
             <button id="delete-all-temp-btn"
-                class="border border-stone-200 hover:border-red-300 hover:bg-red-50 text-stone-500 hover:text-red-600 text-xs font-medium py-2.5 px-3 rounded-md transition-colors flex items-center w-full">
+                class="border border-stone-200 hover:border-red-300 hover:bg-red-50 text-stone-500 hover:text-red-600 text-xs font-medium py-2.5 px-3 rounded-md transition-colors flex items-center w-full"
+                data-tooltip="Remove all clips that were marked temporary">
                 <svg class="w-4 h-4 mr-2 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                         d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                 </svg>
-                Clear All
+                Clear Temporary Files
             </button>
             <div class="my-1 border-t border-stone-100"></div>
+            <button id="deduplicate-btn"
+                class="border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-500 text-xs font-medium py-2.5 px-3 rounded-md transition-colors flex items-center w-full"
+                style="display: none;" data-tooltip="Scan library for identical files and merge them">
+                <svg class="w-4 h-4 mr-2 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                        d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
+                </svg>
+                Deduplicate
+            </button>
             <button id="open-settings-btn"
-                class="border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-500 text-xs font-medium py-2.5 px-3 rounded-md transition-colors flex items-center w-full">
+                class="border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-500 text-xs font-medium py-2.5 px-3 rounded-md transition-colors flex items-center w-full"
+                data-tooltip="Configure app preferences">
                 <svg class="w-4 h-4 mr-2 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                         d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
@@ -170,18 +170,19 @@
                 Settings
             </button>
             <button id="open-plugins-btn"
-                class="border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-500 text-xs font-medium py-2.5 px-3 rounded-md transition-colors flex items-center w-full">
+                class="border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-500 text-xs font-medium py-2.5 px-3 rounded-md transition-colors flex items-center w-full"
+                data-tooltip="Manage installed plugins">
                 <svg class="w-4 h-4 mr-2 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                         d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z" />
                 </svg>
                 Plugins
             </button>
+            <div id="drawer-plugin-actions" class="hidden">
+                <div class="my-1 border-t border-stone-100"></div>
+            </div>
         </nav>
     </aside>
-
-    <!-- Hidden file input for uploads -->
-    <input type="file" id="file-input" class="hidden" multiple aria-hidden="true">
 
     <!-- Drop overlay (shown when dragging files over the app) -->
     <div id="drop-overlay" class="fixed inset-0 z-[200] bg-stone-50/90 backdrop-blur-sm flex items-center justify-center pointer-events-none opacity-0 transition-opacity duration-150">
@@ -197,7 +198,7 @@
     </div>
 
     <!-- Main Content -->
-    <main class="max-w-7xl mx-auto p-5">
+    <main class="max-w-7xl mx-auto p-5 pb-14">
 
         <!-- Watch View (hidden by default) -->
         <section id="watch-view" class="hidden mb-10" aria-labelledby="watch-heading">
@@ -216,7 +217,7 @@
             <!-- Global controls -->
             <div class="flex items-center justify-between mb-6 pb-4 border-b border-stone-200">
                 <div class="flex items-center gap-3">
-                    <label class="relative inline-flex items-center cursor-pointer">
+                    <label class="relative inline-flex items-center cursor-pointer" data-tooltip="Master switch for all folder watchers">
                         <input type="checkbox" id="global-watch-toggle" class="sr-only peer">
                         <div class="w-9 h-5 bg-stone-300 peer-focus:ring-2 peer-focus:ring-stone-400/30 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500"></div>
                     </label>
@@ -237,7 +238,8 @@
                 class="border border-dashed border-stone-300 rounded-lg p-8 text-center cursor-pointer transition-all hover:border-stone-400 hover:bg-stone-50/50 focus:outline-none focus:ring-2 focus:ring-stone-400/30">
                 <p class="text-sm text-stone-500 mb-3">Drop a folder here or</p>
                 <button id="add-folder-btn"
-                    class="bg-stone-800 hover:bg-stone-700 text-white text-xs font-medium py-2 px-4 rounded-md transition-colors">
+                    class="bg-stone-800 hover:bg-stone-700 text-white text-xs font-medium py-2 px-4 rounded-md transition-colors"
+                    data-tooltip="Pick a folder to monitor for new files">
                     + Add Folder
                 </button>
                 <p class="text-[10px] text-stone-400 mt-3">Files in subfolders are not watched</p>
@@ -245,7 +247,7 @@
         </section>
 
         <div id="bulk-toolbar" role="toolbar" aria-label="Bulk actions for selected clips"
-            class="fixed bottom-5 left-1/2 -translate-x-1/2 w-[90%] max-w-3xl bg-white/95 backdrop-blur-sm shadow-lg shadow-stone-200/50 rounded-lg p-3 flex flex-wrap items-center justify-between gap-3 z-50 pointer-events-none opacity-0 border border-stone-200 transition-all duration-200 translate-y-4">
+            class="fixed bottom-16 left-1/2 -translate-x-1/2 w-[90%] max-w-3xl bg-white/95 backdrop-blur-sm shadow-lg shadow-stone-200/50 rounded-lg p-3 flex flex-wrap items-center justify-between gap-3 z-50 pointer-events-none opacity-0 border border-stone-200 transition-all duration-200 translate-y-4">
             <div class="flex items-center gap-4">
                 <label class="flex items-center cursor-pointer group">
                     <input type="checkbox" id="select-all-checkbox"
@@ -259,7 +261,8 @@
 
             <div class="flex items-center gap-2">
                 <button id="bulk-compare-btn"
-                    class="hidden flex items-center gap-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 px-3 py-1.5 rounded-md text-xs font-medium transition-colors">
+                    class="hidden flex items-center gap-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 px-3 py-1.5 rounded-md text-xs font-medium transition-colors"
+                    data-tooltip="Open selected images in side-by-side comparison view">
                     <svg class="w-4 h-4 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                             d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
@@ -268,7 +271,7 @@
                 </button>
                 <button id="bulk-tag-btn"
                     class="flex items-center gap-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 px-3 py-1.5 rounded-md text-xs font-medium transition-colors"
-                    data-tag-btn>
+                    data-tag-btn data-tooltip="Add a tag to selected clips">
                     <svg class="w-4 h-4 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                             d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
@@ -276,7 +279,8 @@
                     Tag
                 </button>
                 <button id="bulk-expiry-btn"
-                    class="flex items-center gap-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 px-3 py-1.5 rounded-md text-xs font-medium transition-colors">
+                    class="flex items-center gap-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 px-3 py-1.5 rounded-md text-xs font-medium transition-colors"
+                    data-tooltip="Set expiration on selected clips">
                     <svg class="w-4 h-4 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                             d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -284,7 +288,8 @@
                     Expire
                 </button>
                 <button id="bulk-cancel-expiry-btn"
-                    class="hidden flex items-center gap-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 px-3 py-1.5 rounded-md text-xs font-medium transition-colors">
+                    class="hidden flex items-center gap-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 px-3 py-1.5 rounded-md text-xs font-medium transition-colors"
+                    data-tooltip="Remove expiration from selected clips">
                     <svg class="w-4 h-4 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                             d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -292,7 +297,8 @@
                     Clear Expiry
                 </button>
                 <button id="bulk-copy-btn"
-                    class="flex items-center gap-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 px-3 py-1.5 rounded-md text-xs font-medium transition-colors">
+                    class="flex items-center gap-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 px-3 py-1.5 rounded-md text-xs font-medium transition-colors"
+                    data-tooltip="Copy selected files to clipboard for pasting">
                     <svg class="w-4 h-4 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                             d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" />
@@ -300,7 +306,8 @@
                     Copy
                 </button>
                 <button id="bulk-download-btn"
-                    class="flex items-center gap-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 px-3 py-1.5 rounded-md text-xs font-medium transition-colors">
+                    class="flex items-center gap-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 px-3 py-1.5 rounded-md text-xs font-medium transition-colors"
+                    data-tooltip="Save selected files to your Downloads folder">
                     <svg class="w-4 h-4 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                             d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
@@ -308,7 +315,8 @@
                     Download
                 </button>
                 <button id="bulk-archive-btn"
-                    class="flex items-center gap-1.5 bg-stone-800 hover:bg-stone-700 text-white px-3 py-1.5 rounded-md text-xs font-medium transition-colors">
+                    class="flex items-center gap-1.5 bg-stone-800 hover:bg-stone-700 text-white px-3 py-1.5 rounded-md text-xs font-medium transition-colors"
+                    data-tooltip="Archive selected clips">
                     <svg class="w-4 h-4 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                             d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4">
@@ -317,7 +325,8 @@
                     <span id="bulk-archive-text">Archive</span>
                 </button>
                 <button id="bulk-delete-btn"
-                    class="flex items-center gap-1.5 bg-stone-100 hover:bg-red-50 text-stone-600 hover:text-red-600 px-3 py-1.5 rounded-md text-xs font-medium transition-colors">
+                    class="flex items-center gap-1.5 bg-stone-100 hover:bg-red-50 text-stone-600 hover:text-red-600 px-3 py-1.5 rounded-md text-xs font-medium transition-colors"
+                    data-tooltip="Permanently delete selected -- cannot be undone">
                     <svg class="w-4 h-4 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                             d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16">
@@ -326,7 +335,8 @@
                     Delete
                 </button>
                 <button id="cancel-selection-btn"
-                    class="text-stone-400 hover:text-stone-600 text-xs font-medium px-2 py-1.5 transition-colors">Cancel</button>
+                    class="text-stone-400 hover:text-stone-600 text-xs font-medium px-2 py-1.5 transition-colors"
+                    data-tooltip="Deselect all clips">Cancel</button>
             </div>
         </div>
 
@@ -340,9 +350,49 @@
 
     </main>
 
+    <!-- Bottom Bar -->
+    <input type="file" id="file-input" class="hidden" multiple aria-hidden="true">
+    <footer id="bottom-bar"
+        class="fixed bottom-0 left-0 right-0 z-40 bg-stone-50 border-t border-stone-200/60"
+        style="--wails-draggable: drag">
+        <div class="max-w-7xl mx-auto px-5 py-2.5 flex items-center gap-3">
+            <button id="add-btn"
+                class="border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-500 text-xs font-medium py-2 px-3 rounded-md transition-colors"
+                aria-label="Add files" data-tooltip="Upload files to your library"
+                style="--wails-draggable: no-drag">
+                + Add
+            </button>
+            <select id="expiry-select"
+                class="border border-stone-200 hover:border-stone-300 text-stone-500 text-xs font-medium py-2 px-2 rounded-md transition-colors bg-white focus:outline-none focus:border-stone-400 focus:ring-1 focus:ring-stone-400/20"
+                aria-label="Upload expiration"
+                style="--wails-draggable: no-drag"
+                data-tooltip="New uploads will auto-delete after this duration">
+                <option value="0">No Expiry</option>
+                <option value="15">15m</option>
+                <option value="60">1h</option>
+                <option value="360">6h</option>
+                <option value="1440">24h</option>
+                <option value="10080">7d</option>
+            </select>
+            <span id="loading-status" class="hidden ml-auto flex items-center gap-2 text-xs font-medium text-stone-500 cursor-pointer"
+                style="--wails-draggable: no-drag">
+                <svg id="loading-spinner" class="animate-spin h-3 w-3 text-stone-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <svg id="loading-error-icon" class="hidden h-3 w-3 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                </svg>
+                <span id="loading-status-text"></span>
+            </span>
+            <span id="clip-count" class="ml-auto text-xs font-medium text-stone-400"
+                style="--wails-draggable: no-drag"></span>
+        </div>
+    </footer>
+
     <!-- Toast Notification -->
     <div id="toast" role="status" aria-live="polite"
-        class="fixed bottom-4 right-4 bg-stone-800 text-white text-xs py-2.5 px-4 rounded-md shadow-lg transition-all translate-x-full opacity-0 z-[260]">
+        class="fixed bottom-16 right-4 bg-stone-800 text-white text-xs py-2.5 px-4 rounded-md shadow-lg transition-all translate-x-full opacity-0 z-[260]">
         <!-- Message will be set by JS -->
     </div>
 
@@ -434,14 +484,14 @@
     <!-- Lightbox -->
     <div id="lightbox" class="lightbox-backdrop" role="dialog" aria-modal="true" aria-label="Image Lightbox"
         tabindex="-1">
-        <button id="lightbox-close" class="lightbox-close" aria-label="Close lightbox">
+        <button id="lightbox-close" class="lightbox-close" aria-label="Close lightbox" data-tooltip="Close viewer (Esc)">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"
                 xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12"></path>
             </svg>
         </button>
 
-        <button id="lightbox-prev" class="lightbox-nav lightbox-nav-prev" aria-label="Previous image">
+        <button id="lightbox-prev" class="lightbox-nav lightbox-nav-prev" aria-label="Previous image" data-tooltip="Previous clip (Left)">
             <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"
                 xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 19l-7-7 7-7"></path>
@@ -453,7 +503,7 @@
             <p id="lightbox-caption" class="lightbox-caption"></p>
         </div>
 
-        <button id="lightbox-next" class="lightbox-nav lightbox-nav-next" aria-label="Next image">
+        <button id="lightbox-next" class="lightbox-nav lightbox-nav-next" aria-label="Next image" data-tooltip="Next clip (Right)">
             <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"
                 xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5l7 7-7 7"></path>
@@ -468,7 +518,7 @@
             <div id="lightbox-file-actions" class="lightbox-file-actions">
                 <!-- File action menu rendered by JS -->
             </div>
-            <div class="lightbox-zoom-control">
+            <div class="lightbox-zoom-control" data-tooltip="Adjust zoom level">
                 <input type="range" id="lightbox-zoom-slider" class="lightbox-range" min="100" max="400" value="100">
                 <span id="lightbox-zoom-info" class="lightbox-zoom-info">100%</span>
             </div>
@@ -484,14 +534,14 @@
             <div class="flex items-center gap-2">
                 <span id="comparison-image-info" class="text-[10px] font-medium text-stone-500 hidden md:inline"></span>
                 <button id="comparison-swap" class="p-1.5 hover:bg-white/10 rounded-md transition-colors"
-                    aria-label="Swap images" title="Swap images (S)">
+                    aria-label="Swap images" data-tooltip="Swap left and right images (S)">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                             d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
                     </svg>
                 </button>
                 <button id="comparison-close" class="p-1.5 hover:bg-white/10 rounded-md transition-colors"
-                    aria-label="Close comparison">
+                    aria-label="Close comparison" data-tooltip="Close comparison (Esc)">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12">
                         </path>
@@ -526,12 +576,14 @@
                 <span class="control-label">Mode</span>
                 <div class="flex bg-stone-100 p-0.5 rounded-md">
                     <button id="mode-fade"
-                        class="px-3 py-1 rounded text-xs font-medium transition-all bg-white shadow-sm text-stone-800">Fade</button>
+                        class="px-3 py-1 rounded text-xs font-medium transition-all bg-white shadow-sm text-stone-800"
+                        data-tooltip="Crossfade opacity between both images (1)">Fade</button>
                     <button id="mode-slider"
-                        class="px-3 py-1 rounded text-xs font-medium transition-all text-stone-500 hover:text-stone-700">Slider</button>
+                        class="px-3 py-1 rounded text-xs font-medium transition-all text-stone-500 hover:text-stone-700"
+                        data-tooltip="Drag a divider to reveal each image (2)">Slider</button>
                     <button id="mode-diff"
                         class="px-3 py-1 rounded text-xs font-medium transition-all text-stone-500 hover:text-stone-700"
-                        title="Diff mode (3)">Diff</button>
+                        data-tooltip="Compute and highlight pixel-level differences (3)">Diff</button>
                 </div>
             </div>
 
@@ -558,7 +610,8 @@
                         <option value="end">Bottom</option>
                     </select>
                     <button id="toggle-stretch"
-                        class="text-xs font-medium px-2 py-1.5 bg-stone-100 rounded-md hover:bg-stone-200 transition-colors">Stretch</button>
+                        class="text-xs font-medium px-2 py-1.5 bg-stone-100 rounded-md hover:bg-stone-200 transition-colors"
+                        data-tooltip="Scale images to fill the view area">Stretch</button>
                 </div>
             </div>
 
@@ -567,19 +620,22 @@
             <div class="control-group">
                 <span class="control-label">Zoom</span>
                 <div class="flex items-center gap-2">
-                    <button id="zoom-out" class="p-1.5 bg-stone-100 rounded-md hover:bg-stone-200 transition-colors">
+                    <button id="zoom-out" class="p-1.5 bg-stone-100 rounded-md hover:bg-stone-200 transition-colors"
+                        data-tooltip="Zoom out (-)">
                         <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4" />
                         </svg>
                     </button>
                     <span id="zoom-level" class="text-xs font-medium text-stone-600 min-w-[2.5rem] text-center">100%</span>
-                    <button id="zoom-in" class="p-1.5 bg-stone-100 rounded-md hover:bg-stone-200 transition-colors">
+                    <button id="zoom-in" class="p-1.5 bg-stone-100 rounded-md hover:bg-stone-200 transition-colors"
+                        data-tooltip="Zoom in (+)">
                         <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
                         </svg>
                     </button>
                     <button id="zoom-fit"
-                        class="text-xs font-medium px-2 py-1.5 bg-stone-800 text-white rounded-md hover:bg-stone-700 transition-colors">Fit</button>
+                        class="text-xs font-medium px-2 py-1.5 bg-stone-800 text-white rounded-md hover:bg-stone-700 transition-colors"
+                        data-tooltip="Fit image to view (0)">Fit</button>
                 </div>
             </div>
         </div>
@@ -596,7 +652,8 @@
                         class="px-2.5 py-1.5 bg-white/10 border border-white/20 rounded-md text-white text-xs focus:outline-none focus:ring-1 focus:ring-white/30"
                         placeholder="filename.ext">
                     <button id="editor-save"
-                        class="px-3 py-1.5 bg-white text-stone-800 text-xs font-medium rounded-md hover:bg-stone-100 transition-colors flex items-center gap-1.5">
+                        class="px-3 py-1.5 bg-white text-stone-800 text-xs font-medium rounded-md hover:bg-stone-100 transition-colors flex items-center gap-1.5"
+                        data-tooltip="Save edits as a new clip in your library">
                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                 d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4">
@@ -605,7 +662,7 @@
                         Save As
                     </button>
                     <button id="editor-close" class="p-1.5 hover:bg-white/10 rounded-md transition-colors"
-                        aria-label="Close editor">
+                        aria-label="Close editor" data-tooltip="Discard all edits and close editor (Esc)">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                                 d="M6 18L18 6M6 6l12 12"></path>
@@ -626,37 +683,37 @@
                 <!-- Toolbar -->
                 <div class="editor-toolbar">
                     <div class="flex items-center gap-1">
-                        <button class="editor-tool-btn active" data-tool="brush" title="Brush (B)">
+                        <button class="editor-tool-btn active" data-tool="brush" data-tooltip="Freehand brush (B)">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                                     d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z">
                                 </path>
                             </svg>
                         </button>
-                        <button class="editor-tool-btn" data-tool="line" title="Line (L)">
+                        <button class="editor-tool-btn" data-tool="line" data-tooltip="Draw straight line (L)">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 20L20 4">
                                 </path>
                             </svg>
                         </button>
-                        <button class="editor-tool-btn" data-tool="rectangle" title="Rectangle (R)">
+                        <button class="editor-tool-btn" data-tool="rectangle" data-tooltip="Draw rectangle (R)">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                                     d="M4 6a2 2 0 012-2h12a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V6z"></path>
                             </svg>
                         </button>
-                        <button class="editor-tool-btn" data-tool="circle" title="Circle (C)">
+                        <button class="editor-tool-btn" data-tool="circle" data-tooltip="Draw circle (C)">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <circle cx="12" cy="12" r="9" stroke-width="1.5" fill="none"></circle>
                             </svg>
                         </button>
-                        <button class="editor-tool-btn" data-tool="text" title="Text (T)">
+                        <button class="editor-tool-btn" data-tool="text" data-tooltip="Add text annotation (T)">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                                     d="M4 6h16M12 6v14M8 6v2m8-2v2"></path>
                             </svg>
                         </button>
-                        <button class="editor-tool-btn" data-tool="eraser" title="Eraser (E)">
+                        <button class="editor-tool-btn" data-tool="eraser" data-tooltip="Erase drawn content (E)">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                                     d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16">
@@ -689,14 +746,14 @@
 
                     <div class="flex items-center gap-1">
                         <button id="editor-undo" class="p-1.5 bg-stone-100 hover:bg-stone-200 rounded-md transition-colors"
-                            title="Undo (Ctrl+Z)">
+                            data-tooltip="Undo last action (Ctrl+Z)">
                             <svg class="w-4 h-4 text-stone-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                                     d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"></path>
                             </svg>
                         </button>
                         <button id="editor-redo" class="p-1.5 bg-stone-100 hover:bg-stone-200 rounded-md transition-colors"
-                            title="Redo (Ctrl+Y)">
+                            data-tooltip="Redo last action (Ctrl+Y)">
                             <svg class="w-4 h-4 text-stone-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                                     d="M21 10h-10a8 8 0 00-8 8v2M21 10l-6 6m6-6l-6-6"></path>
@@ -809,13 +866,44 @@
         </div>
     </div>
 
+    <!-- Metadata Modal -->
+    <div id="metadata-modal" data-testid="metadata-modal" role="dialog" aria-modal="true" aria-labelledby="metadata-modal-title"
+        class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm transition-opacity duration-200 opacity-0 pointer-events-none">
+        <div class="bg-white rounded-lg shadow-xl max-w-md w-full overflow-hidden transform transition-transform duration-200 scale-95">
+            <div class="p-5 border-b border-stone-100 flex justify-between items-center">
+                <h2 id="metadata-modal-title" class="text-sm font-semibold text-stone-800">Metadata</h2>
+                <button id="metadata-close" data-testid="metadata-close" class="p-1 hover:bg-stone-100 rounded-md transition-colors" data-tooltip="Close">
+                    <svg class="w-5 h-5 text-stone-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+            <div id="metadata-system-info" data-testid="metadata-system-info" class="px-5 pt-4 pb-3 bg-stone-50 border-b border-stone-100 space-y-1.5">
+                <!-- System metadata rows inserted by JS -->
+            </div>
+            <div id="metadata-list" data-testid="metadata-list" class="p-5 space-y-2 overflow-y-auto max-h-[50vh] min-h-[80px]">
+                <!-- Rows inserted by JS -->
+            </div>
+            <div class="bg-stone-50 px-5 py-3 flex justify-between border-t border-stone-100">
+                <button id="metadata-add" data-testid="metadata-add"
+                    class="border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-xs font-medium py-2 px-3 rounded-md transition-colors">
+                    Add Field
+                </button>
+                <button id="metadata-save" data-testid="metadata-save"
+                    class="bg-stone-800 hover:bg-stone-700 text-white text-xs font-medium py-2.5 px-5 rounded-md transition-colors">
+                    Save
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Settings Modal -->
     <div id="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-modal-title"
         class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm transition-opacity duration-200 opacity-0 pointer-events-none">
         <div class="bg-white rounded-lg shadow-xl max-w-md w-full overflow-hidden transform transition-transform duration-200 scale-95">
             <div class="p-5 border-b border-stone-100 flex justify-between items-center">
                 <h2 id="settings-modal-title" class="text-sm font-semibold text-stone-800">Settings</h2>
-                <button id="settings-close" class="p-1 hover:bg-stone-100 rounded-md transition-colors">
+                <button id="settings-close" class="p-1 hover:bg-stone-100 rounded-md transition-colors" data-tooltip="Close">
                     <svg class="w-5 h-5 text-stone-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12"></path>
                     </svg>
@@ -900,6 +988,25 @@
                         Reset All to Defaults
                     </button>
                 </div>
+                <!-- Tooltips -->
+                <div class="pt-4 border-t border-stone-100">
+                    <h3 class="text-xs font-semibold text-stone-600 uppercase tracking-wider mb-3 flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                        Tooltips
+                    </h3>
+                    <p class="text-[11px] text-stone-500 mb-3">
+                        Show helpful descriptions when hovering over buttons and actions.
+                    </p>
+                    <label class="flex items-center gap-3 cursor-pointer" data-testid="tooltips-toggle-label">
+                        <div class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" id="tooltips-toggle" data-testid="tooltips-toggle" class="sr-only peer" checked>
+                            <div class="w-9 h-5 bg-stone-300 peer-focus:ring-2 peer-focus:ring-stone-400/30 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-stone-800"></div>
+                        </div>
+                        <span class="text-xs font-medium text-stone-700">Show tooltips on hover</span>
+                    </label>
+                </div>
             </div>
             <div class="bg-stone-50 px-5 py-3 flex justify-end border-t border-stone-100">
                 <button id="settings-save"
@@ -933,7 +1040,7 @@
                         </svg>
                         Import
                     </button>
-                    <button id="plugins-close" class="p-1 hover:bg-stone-100 rounded-md transition-colors">
+                    <button id="plugins-close" class="p-1 hover:bg-stone-100 rounded-md transition-colors" data-tooltip="Close">
                         <svg class="w-5 h-5 text-stone-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12"></path>
                         </svg>
@@ -1034,34 +1141,13 @@
         </div>
     </div>
 
-    <!-- Task Queue Bar -->
-    <div id="task-queue-bar"
-        class="fixed bottom-0 left-0 right-0 z-40 bg-stone-800 text-white px-4 py-2.5 flex items-center justify-between cursor-pointer transform translate-y-full transition-transform duration-300 shadow-lg">
-        <div class="flex items-center gap-3">
-            <svg id="queue-bar-spinner" class="animate-spin h-4 w-4 text-stone-300" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
-            <svg id="queue-bar-error" class="hidden h-4 w-4 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
-            </svg>
-            <span id="queue-bar-text" class="text-sm font-medium text-stone-100">Processing...</span>
-        </div>
-        <div class="flex items-center gap-2 text-stone-400">
-            <span class="text-xs">Click to view</span>
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"></path>
-            </svg>
-        </div>
-    </div>
-
     <!-- Task Queue Modal -->
     <div id="queue-modal" role="dialog" aria-modal="true"
         class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm transition-opacity duration-200 opacity-0 pointer-events-none">
         <div class="bg-white rounded-lg shadow-xl max-w-lg w-full max-h-[80vh] flex flex-col overflow-hidden transform transition-transform duration-200 scale-95">
             <div class="p-4 border-b border-stone-100 flex justify-between items-center">
                 <h2 class="text-sm font-semibold text-stone-800">Background Tasks</h2>
-                <button id="queue-modal-close" class="p-1 hover:bg-stone-100 rounded-md transition-colors">
+                <button id="queue-modal-close" class="p-1 hover:bg-stone-100 rounded-md transition-colors" data-tooltip="Close">
                     <svg class="w-5 h-5 text-stone-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12"></path>
                     </svg>
@@ -1089,7 +1175,7 @@
         <div class="modal-content max-w-md">
             <div class="modal-header">
                 <h3 id="plugin-options-title" class="text-sm font-semibold text-stone-800">Action Options</h3>
-                <button id="plugin-options-close" class="p-1 hover:bg-stone-100 rounded transition-colors" aria-label="Close">
+                <button id="plugin-options-close" class="p-1 hover:bg-stone-100 rounded transition-colors" aria-label="Close" data-tooltip="Close">
                     <svg class="w-4 h-4 text-stone-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12"/>
                     </svg>
@@ -1110,7 +1196,7 @@
         <div class="modal-content max-w-2xl">
             <div class="modal-header">
                 <h3 id="plugin-result-title" class="text-sm font-semibold text-stone-800">Result</h3>
-                <button id="plugin-result-close" class="p-1 hover:bg-stone-100 rounded transition-colors" aria-label="Close">
+                <button id="plugin-result-close" class="p-1 hover:bg-stone-100 rounded transition-colors" aria-label="Close" data-tooltip="Close">
                     <svg class="w-4 h-4 text-stone-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12"/>
                     </svg>
@@ -1146,7 +1232,8 @@
             <div class="p-5 border-b border-stone-700 flex justify-between items-center">
                 <h2 class="text-sm font-semibold text-stone-200">Keyboard Shortcuts</h2>
                 <button id="shortcuts-cheatsheet-close" aria-label="Close keyboard shortcuts"
-                    class="p-1 hover:bg-stone-700 rounded-md transition-colors text-stone-400 hover:text-stone-200">
+                    class="p-1 hover:bg-stone-700 rounded-md transition-colors text-stone-400 hover:text-stone-200"
+                    data-tooltip="Close">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
                     </svg>
@@ -1163,6 +1250,7 @@
     <script src="vendor/purify.min.js"></script>
 
     <!-- Scripts split for better organization -->
+    <script src="js/tooltips.js"></script>
     <script src="js/utils.js"></script>
     <script src="js/wails-api.js"></script>
     <script src="js/shortcuts.js"></script>
@@ -1178,8 +1266,10 @@
     <script src="js/plugin-review.js"></script>
     <script src="js/modal-renderer.js"></script>
     <script src="js/task-queue.js"></script>
+    <script src="js/metadata.js"></script>
     <script src="js/tags.js"></script>
     <script src="js/app.js"></script>
+    <script src="js/sort.js"></script>
 </body>
 
 </html>

@@ -10,7 +10,7 @@ function showConfirmDialog(title, message, callback) {
     const messageEl = document.getElementById('confirm-message');
 
     titleEl.textContent = title;
-    messageEl.textContent = message;
+    messageEl.innerHTML = message;
     confirmCallback = callback;
 
     dialog.classList.remove('opacity-0', 'pointer-events-none');
@@ -137,6 +137,14 @@ function formatTimeRemaining(expiresAt) {
 
     const days = Math.round(diffMs / 86400000);
     return `${days}d`;
+}
+
+function formatFileSize(bytes) {
+    if (!bytes || bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(i === 0 ? 0 : 1)) + ' ' + sizes[i];
 }
 
 function getFriendlyFileType(contentType, filename) {

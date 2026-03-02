@@ -1,6 +1,9 @@
 // Image cache for base64 data
 const imageCache = new Map();
 
+// Track last checked checkbox for shift-click range selection
+let lastCheckedCheckbox = null;
+
 // Plugin UI actions cache
 let pluginUIActions = null;
 let dragPrepBusyCount = 0;
@@ -23,9 +26,52 @@ async function loadPluginUIActions() {
         pluginUIActions = await window.go.main.PluginService.GetPluginUIActions();
     } catch (error) {
         console.error('Failed to load plugin UI actions:', error);
-        pluginUIActions = { card_actions: [], lightbox_buttons: [] };
+        pluginUIActions = { card_actions: [], lightbox_buttons: [], global_actions: [] };
     }
+    renderDrawerPluginActions();
     return pluginUIActions;
+}
+
+// Render global plugin actions in the hamburger menu drawer
+function renderDrawerPluginActions() {
+    const container = document.getElementById('drawer-plugin-actions');
+    if (!container) return;
+
+    // Remove old action buttons (keep the divider which is the first child)
+    while (container.children.length > 1) {
+        container.removeChild(container.lastChild);
+    }
+
+    const actions = pluginUIActions?.global_actions || [];
+    if (actions.length === 0) {
+        container.classList.add('hidden');
+        return;
+    }
+
+    container.classList.remove('hidden');
+
+    actions.forEach(action => {
+        const btn = document.createElement('button');
+        btn.className = 'border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-500 text-xs font-medium py-2.5 px-3 rounded-md transition-colors flex items-center w-full';
+        btn.dataset.globalAction = 'true';
+        btn.dataset.pluginId = action.plugin_id;
+        btn.dataset.actionId = action.id;
+        btn.dataset.hasOptions = action.options && action.options.length > 0 ? 'true' : 'false';
+        btn.dataset.isAsync = action.async ? 'true' : 'false';
+
+        let iconHtml = '';
+        if (typeof getPluginIcon === 'function') {
+            iconHtml = getPluginIcon(action.icon) || getPluginIcon('bolt') || '';
+        }
+        // Wrap icon in a span with same styling as drawer menu icons
+        if (iconHtml) {
+            iconHtml = iconHtml.replace('class="w-4 h-4"', 'class="w-4 h-4 mr-2 opacity-60"');
+        }
+
+        btn.setAttribute('aria-label', action.label);
+        btn.innerHTML = `${iconHtml}<span>${escapeHTML(action.label)}</span>`;
+        container.appendChild(btn);
+    });
 }
 
 // Get icon SVG for built-in menu actions
@@ -35,6 +81,7 @@ function getMenuIcon(name) {
         'save': '<path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>',
         'edit': '<path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>',
         'tags': '<path stroke-linecap="round" stroke-linejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/>',
+        'metadata': '<path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>',
         'archive': '<path stroke-linecap="round" stroke-linejoin="round" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/>',
         'restore': '<path stroke-linecap="round" stroke-linejoin="round" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"/>',
         'copy-file': '<path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>',
@@ -42,11 +89,27 @@ function getMenuIcon(name) {
         'delete': '<path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>',
         'set-expiration': '<path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>',
         'cancel-expiration': '<path stroke-linecap="round" stroke-linejoin="round" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"/>',
+        'merge': '<path stroke-linecap="round" stroke-linejoin="round" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"/>',
     };
     const path = icons[name];
     if (!path) return '';
     return `<svg class="card-menu-icon" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">${path}</svg>`;
 }
+
+const cardMenuTooltips = {
+    'copy-path': 'Create a temp file and copy its path to clipboard',
+    'copy-file': 'Place file on clipboard for pasting into other apps',
+    'copy-contents': 'Copy the raw text or data to clipboard',
+    'save-file': 'Save a copy to your Downloads folder',
+    'edit': 'Open in the built-in image editor for annotation',
+    'tags': 'Add or remove tags',
+    'metadata': 'View and edit file metadata',
+    'set-expiration': 'Schedule auto-deletion after a time period',
+    'cancel-expiration': 'Cancel the scheduled auto-deletion',
+    'archive': 'Move to archive without deleting',
+    'merge-duplicates': 'Find clips with identical content and merge them',
+    'delete': 'Permanently delete -- this cannot be undone',
+};
 
 // Render card menu dropdown
 function renderCardMenu(clipId, button, clip) {
@@ -78,12 +141,16 @@ function renderCardMenu(clipId, button, clip) {
     }
 
     builtInActions.push({ id: 'tags', label: 'Tags', icon: 'tags' });
+    builtInActions.push({ id: 'metadata', label: 'Metadata', icon: 'metadata' });
     if (clip.expires_at) {
         builtInActions.push({ id: 'cancel-expiration', label: 'Cancel Expiration', icon: 'cancel-expiration' });
     } else {
         builtInActions.push({ id: 'set-expiration', label: 'Set Expiration', icon: 'set-expiration' });
     }
     builtInActions.push({ id: 'archive', label: isViewingArchive ? 'Restore' : 'Archive', icon: isViewingArchive ? 'restore' : 'archive' });
+    if (clip.duplicate_count > 0) {
+        builtInActions.push({ id: 'merge-duplicates', label: 'Merge Duplicates', icon: 'merge' });
+    }
     builtInActions.push({ id: 'delete', label: 'Delete', icon: 'delete', danger: true });
 
     // Render built-in actions
@@ -94,6 +161,11 @@ function renderCardMenu(clipId, button, clip) {
         item.dataset.action = action.id;
         item.dataset.clipId = clipId;
         item.innerHTML = `${getMenuIcon(action.icon)}<span>${action.label}</span>`;
+        let tooltip = cardMenuTooltips[action.id];
+        if (action.id === 'archive' && action.label === 'Restore') {
+            tooltip = 'Move back from archive';
+        }
+        if (tooltip) item.title = tooltip;
         menu.appendChild(item);
     });
 
@@ -182,6 +254,15 @@ function positionCardMenu(menu, button) {
         top = buttonRect.top - gap - maxHeight;
     }
 
+    // Final clamp: ensure menu never exceeds viewport bounds
+    if (top + menuRect.height > vh - pad) {
+        top = vh - menuRect.height - pad;
+    }
+    if (top < pad) {
+        top = pad;
+        maxHeight = vh - 2 * pad;
+    }
+
     menu.style.top = `${top}px`;
     menu.style.left = `${left}px`;
 
@@ -263,6 +344,17 @@ async function handleCardAction(action, clipId, triggerButton) {
                 openTagPopover(id, tagBtn || triggerButton);
             }
             break;
+        case 'metadata': {
+            const card = gallery.querySelector(`li[data-id="${id}"]`);
+            const clipData = card ? {
+                filename: card.querySelector('.p-2\\.5 p')?.getAttribute('title') || '',
+                content_type: card.dataset.type || '',
+                size: Number(card.dataset.size) || 0,
+                created_at: card.dataset.createdAt || '',
+            } : null;
+            openMetadataModal(id, clipData);
+            break;
+        }
         case 'set-expiration': {
             const card = gallery.querySelector(`li[data-id="${clipId}"]`);
             if (card) {
@@ -276,6 +368,15 @@ async function handleCardAction(action, clipId, triggerButton) {
             break;
         case 'archive':
             toggleArchiveClip(id);
+            break;
+        case 'merge-duplicates':
+            try {
+                await window.go.main.App.MergeDuplicates(id);
+                showToast('Merged duplicates', 'success');
+                loadClips();
+            } catch (err) {
+                showToast('Failed to merge duplicates', 'error');
+            }
             break;
         case 'delete':
             deleteClip(id);
@@ -365,11 +466,9 @@ function renderDragHandle(clipId) {
                 role="button"
                 tabindex="0"
                 aria-label="Drag clip to another app"
-                title="Drag to another app">
-            <svg class="clip-drag-icon-grip w-3 h-3" viewBox="0 0 24 24" aria-hidden="true">
-                <circle cx="8" cy="5" r="1.5" fill="currentColor"/><circle cx="16" cy="5" r="1.5" fill="currentColor"/>
-                <circle cx="8" cy="12" r="1.5" fill="currentColor"/><circle cx="16" cy="12" r="1.5" fill="currentColor"/>
-                <circle cx="8" cy="19" r="1.5" fill="currentColor"/><circle cx="16" cy="19" r="1.5" fill="currentColor"/>
+                data-tooltip="Creates a temp file -- drag into another app to export">
+            <svg class="clip-drag-icon-grip w-3 h-3" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M8 5h.01M8 12h.01M8 19h.01M16 5h.01M16 12h.01M16 19h.01" />
             </svg>
             <svg class="clip-drag-icon-progress w-3 h-3 hidden" viewBox="0 0 24 24" aria-hidden="true">
                 <circle class="clip-drag-progress-track" cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"></circle>
@@ -642,6 +741,7 @@ async function createClipCard(clip, options = {}) {
     card.dataset.filename = (clip.filename || '').toLowerCase();
     card.dataset.type = (clip.content_type || '').toLowerCase();
     card.dataset.size = clip.size || 0;
+    card.dataset.createdAt = clip.created_at || '';
     if (clip.expires_at) {
         card.dataset.expiresAt = clip.expires_at;
     }
@@ -712,7 +812,7 @@ async function createClipCard(clip, options = {}) {
                 ${escapeHTML(clip.filename) || '<span class="text-stone-400 font-normal">Pasted</span>'}
             </p>
             <div class="flex justify-between items-center">
-                <span class="text-[9px] font-medium text-stone-400 uppercase tracking-wide">${getFriendlyFileType(clip.content_type, clip.filename)}</span>
+                <div class="flex items-center gap-1.5"><span class="text-[9px] font-medium text-stone-400 uppercase tracking-wide">${getFriendlyFileType(clip.content_type, clip.filename)}</span>${clip.duplicate_count > 0 ? `<span class="dedup-badge text-[9px] font-medium text-stone-400 bg-stone-100 border border-stone-200 rounded px-1">${clip.duplicate_count + 1} copies</span>` : ''}</div>
                 <div class="flex items-center gap-1">
                     ${dragHandleHTML}
                     <button class="card-menu-trigger p-1 text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded transition-colors"
@@ -720,7 +820,8 @@ async function createClipCard(clip, options = {}) {
                             data-id="${clip.id}"
                             aria-label="Actions"
                             aria-haspopup="true"
-                            aria-expanded="false">
+                            aria-expanded="false"
+                            data-tooltip="More actions for this clip">
                         <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 12.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 18.75a.75.75 0 110-1.5.75.75 0 010 1.5z" />
                         </svg>
@@ -766,6 +867,27 @@ async function createClipCard(clip, options = {}) {
             card.classList.remove('has-checked');
         }
 
+        // Shift-click range selection
+        if (e.target.checked && checkbox._shiftEvent && lastCheckedCheckbox && lastCheckedCheckbox !== checkbox) {
+            const allCards = Array.from(gallery.querySelectorAll(':scope > li'));
+            const currentIndex = allCards.indexOf(card);
+            const lastIndex = allCards.indexOf(lastCheckedCheckbox.closest('li'));
+            if (currentIndex !== -1 && lastIndex !== -1) {
+                const start = Math.min(currentIndex, lastIndex);
+                const end = Math.max(currentIndex, lastIndex);
+                for (let i = start; i <= end; i++) {
+                    const cb = allCards[i].querySelector('.clip-checkbox');
+                    if (cb && !cb.checked) {
+                        cb.checked = true;
+                        const cbId = Number(cb.dataset.id);
+                        selectedIds.add(cbId);
+                        allCards[i].classList.add('has-checked');
+                    }
+                }
+            }
+        }
+        lastCheckedCheckbox = checkbox;
+
         // Sync Select All checkbox
         const allCheckboxes = Array.from(gallery.querySelectorAll('.clip-checkbox'));
         selectAllCheckbox.checked = allCheckboxes.length > 0 && allCheckboxes.every(cb => cb.checked);
@@ -773,8 +895,11 @@ async function createClipCard(clip, options = {}) {
         updateBulkToolbar();
     });
 
-    // Prevent lightbox trigger if clicking checkbox
-    checkbox.addEventListener('click', (e) => e.stopPropagation());
+    // Prevent lightbox trigger if clicking checkbox; track shift state for range selection
+    checkbox.addEventListener('click', (e) => {
+        e.stopPropagation();
+        checkbox._shiftEvent = e.shiftKey;
+    });
 
     // Lightbox trigger logic
     if (clip.content_type.startsWith('image/')) {
@@ -918,6 +1043,7 @@ function toggleSelectAll() {
 
 function cancelSelection() {
     selectedIds.clear();
+    lastCheckedCheckbox = null;
     const checkboxes = gallery.querySelectorAll('.clip-checkbox');
     checkboxes.forEach(cb => {
         cb.checked = false;

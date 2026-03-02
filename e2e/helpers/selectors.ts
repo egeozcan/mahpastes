@@ -8,8 +8,16 @@ export const selectors = {
     title: 'header h1',
     searchInput: '#search-input',
     drawerToggle: '#drawer-toggle-btn',
-    addButton: '#header-add-btn',
+    addButton: '#add-btn',
     archiveButton: '#header-archive-btn',
+  },
+
+  // Bottom bar
+  bottomBar: {
+    root: '#bottom-bar',
+    addButton: '#add-btn',
+    expirySelect: '#expiry-select',
+    clipCount: '#clip-count',
   },
 
   // Nav drawer
@@ -22,6 +30,8 @@ export const selectors = {
     archiveButton: '#toggle-archive-view-btn',
     clearAllButton: '#delete-all-temp-btn',
     settingsButton: '#open-settings-btn',
+    pluginActionsContainer: '#drawer-plugin-actions',
+    pluginAction: '#drawer-plugin-actions [data-global-action]',
   },
 
   // Upload
@@ -69,8 +79,33 @@ export const selectors = {
     setExpiration: '.card-menu-dropdown [data-action="set-expiration"]',
     cancelExpiration: '.card-menu-dropdown [data-action="cancel-expiration"]',
     delete: '.card-menu-dropdown [data-action="delete"]',
+    mergeDuplicates: '.card-menu-dropdown [data-action="merge-duplicates"]',
+    metadata: '.card-menu-dropdown [data-action="metadata"]',
     pluginAction: '.card-menu-dropdown [data-action="plugin"]',
     divider: '.card-menu-dropdown .card-menu-divider',
+  },
+
+  // Metadata modal
+  metadata: {
+    modal: '[data-testid="metadata-modal"]',
+    closeButton: '[data-testid="metadata-close"]',
+    list: '[data-testid="metadata-list"]',
+    addButton: '[data-testid="metadata-add"]',
+    saveButton: '[data-testid="metadata-save"]',
+    emptyState: '[data-testid="metadata-empty"]',
+    row: '[data-testid="metadata-row"]',
+    keyInput: '[data-testid="metadata-key"]',
+    valueInput: '[data-testid="metadata-value"]',
+    deleteRowButton: '[data-testid="metadata-delete-row"]',
+    systemInfo: '[data-testid="metadata-system-info"]',
+    systemRow: '[data-testid="metadata-system-row"]',
+  },
+
+  // Sort
+  sort: {
+    button: '[data-testid="sort-button"]',
+    popover: '[data-testid="sort-popover"]',
+    option: (field: string) => `[data-testid="sort-option-${field}"]`,
   },
 
   // Bulk toolbar
@@ -90,7 +125,6 @@ export const selectors = {
   // Expiration
   expiration: {
     popover: '.expiration-popover',
-    uploadSelect: '#upload-expiry-select',
     badge: '.absolute.top-2.left-2',
   },
 
@@ -328,6 +362,22 @@ export const selectors = {
     restoreConfirmCancel: '#restore-confirm-cancel',
     restoreConfirmYes: '#restore-confirm-yes',
     restoreBackupInfo: '#restore-backup-info',
+  },
+
+  // Deduplication
+  dedup: {
+    badge: '.dedup-badge',
+    deduplicateBtn: '#deduplicate-btn',
+  },
+
+  // Tooltips
+  tooltips: {
+    anyTooltip: '[data-tooltip]',
+    headerTagFilter: '#tag-filter-btn[data-tooltip]',
+    headerArchive: '#header-archive-btn[data-tooltip]',
+    headerSort: '#sort-btn[data-tooltip]',
+    headerMenu: '#drawer-toggle-btn[data-tooltip]',
+    settingsToggle: '[data-testid="tooltips-toggle"]',
   },
 
   // Keyboard Shortcuts

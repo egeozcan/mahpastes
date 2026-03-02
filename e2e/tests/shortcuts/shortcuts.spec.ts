@@ -510,8 +510,9 @@ test.describe('Keyboard Shortcuts', () => {
       await app.uploadFile(imagePath1);
       await app.uploadFile(imagePath2);
 
-      // Open the first image in the lightbox array (imagePath1 is oldest, at index 0)
-      await app.openLightbox(path.basename(imagePath1));
+      // Default sort is "date desc", so imagePath2 (newest) is at index 0
+      // Open imagePath2 (index 0) and navigate right to imagePath1 (index 1)
+      await app.openLightbox(path.basename(imagePath2));
 
       // Ensure lightbox is fully active before pressing shortcut keys
       await app.page.waitForSelector('#lightbox.active');
@@ -522,9 +523,9 @@ test.describe('Keyboard Shortcuts', () => {
       // Wait for lightbox to update after navigation
       await app.page.waitForTimeout(300);
 
-      // Verify we navigated (caption should change to imagePath2)
+      // Verify we navigated (caption should change to imagePath1)
       const caption = app.page.locator('#lightbox-caption');
-      await expect(caption).toContainText(path.basename(imagePath2));
+      await expect(caption).toContainText(path.basename(imagePath1));
     });
 
     test('should navigate to previous image with ArrowLeft in lightbox', async ({ app }) => {
@@ -533,8 +534,9 @@ test.describe('Keyboard Shortcuts', () => {
       await app.uploadFile(imagePath1);
       await app.uploadFile(imagePath2);
 
-      // Open the second image
-      await app.openLightbox(path.basename(imagePath2));
+      // Default sort is "date desc", so imagePath2 is at index 0, imagePath1 at index 1
+      // Open imagePath1 (index 1) and navigate left to imagePath2 (index 0)
+      await app.openLightbox(path.basename(imagePath1));
       await app.page.waitForSelector('#lightbox.active');
 
       // Navigate to previous image
@@ -543,7 +545,7 @@ test.describe('Keyboard Shortcuts', () => {
 
       // Verify we navigated back
       const caption = app.page.locator('#lightbox-caption');
-      await expect(caption).toContainText(path.basename(imagePath1));
+      await expect(caption).toContainText(path.basename(imagePath2));
     });
 
     test('should zoom in with "+" key in lightbox', async ({ app }) => {

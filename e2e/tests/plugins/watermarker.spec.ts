@@ -13,7 +13,7 @@ async function waitForClipIds(app: any, expectedCount: number): Promise<number[]
   await expect.poll(async () => {
     clipIds = await app.page.evaluate(async () => {
       // @ts-ignore
-      const clips = await window.go.main.App.GetClips(false, [], []);
+      const clips = await window.go.main.App.GetClips(false, [], [], "", "");
       return (clips || []).map((c: any) => c.id);
     });
     return clipIds.length;
@@ -114,7 +114,7 @@ test.describe('Watermarker Plugin', () => {
 
     const clips = await app.page.evaluate(async () => {
       // @ts-ignore
-      return await window.go.main.App.GetClips(false, [], []);
+      return await window.go.main.App.GetClips(false, [], [], "", "");
     });
 
     // Execute without text (async action runs in background)

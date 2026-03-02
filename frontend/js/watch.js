@@ -161,7 +161,7 @@ function createWatchFolderCard(folder) {
         </div>
         <div class="flex items-center gap-1">
             <button class="p-2 text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded-md transition-colors"
-                    data-action="toggle-pause" title="${folder.is_paused ? 'Resume' : 'Pause'}">
+                    data-action="toggle-pause" data-tooltip="${folder.is_paused ? 'Resume watching this folder' : 'Pause watching this folder'}">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     ${folder.is_paused
                         ? '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>'
@@ -170,7 +170,7 @@ function createWatchFolderCard(folder) {
                 </svg>
             </button>
             <button class="p-2 text-stone-400 hover:text-red-500 hover:bg-red-50 rounded-md transition-colors"
-                    data-action="remove" title="Remove">
+                    data-action="remove" data-tooltip="Stop watching this folder and remove it from the list">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12"></path>
                 </svg>
@@ -493,6 +493,7 @@ function initWatchEvents() {
         if (emptyMsg) emptyMsg.remove();
 
         await createClipCard(clip, { prepend: true });
+        updateClipCount(gallery.querySelectorAll(':scope > li').length);
     });
 }
 

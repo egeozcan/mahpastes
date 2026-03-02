@@ -130,6 +130,8 @@ type Manager struct {
 	pendingUpdates  map[int64]string
 	pendingInstalls map[string]string // source URL/path -> fetched content
 	updateChecker   *UpdateChecker
+	metadataGet    MetadataGetFunc
+	metadataUpdate MetadataUpdateFunc
 }
 
 // NewManager creates a new plugin manager
@@ -152,6 +154,12 @@ func NewManager(ctx context.Context, db *sql.DB, pluginsDir string) (*Manager, e
 	}
 
 	return m, nil
+}
+
+// SetMetadataFuncs sets the metadata get/update functions used by the Lua API.
+func (m *Manager) SetMetadataFuncs(getFn MetadataGetFunc, updateFn MetadataUpdateFunc) {
+	m.metadataGet = getFn
+	m.metadataUpdate = updateFn
 }
 
 // SetPermissionCallback sets the callback for filesystem permission requests
@@ -237,6 +245,9 @@ func (m *Manager) loadPlugin(p *Plugin) error {
 
 	imageAPI := NewImageAPI(m.db)
 	imageAPI.Register(sandbox.GetState())
+
+	metadataAPI := NewMetadataAPI(m.metadataGet, m.metadataUpdate)
+	metadataAPI.Register(sandbox.GetState())
 
 	// Load the plugin source
 	if err := sandbox.LoadSource(string(source)); err != nil {
@@ -931,6 +942,11 @@ func findUIAction(manifest *Manifest, actionID string) *UIAction {
 	for i := range manifest.UI.CardActions {
 		if manifest.UI.CardActions[i].ID == actionID {
 			return &manifest.UI.CardActions[i]
+		}
+	}
+	for i := range manifest.UI.GlobalActions {
+		if manifest.UI.GlobalActions[i].ID == actionID {
+			return &manifest.UI.GlobalActions[i]
 		}
 	}
 	return nil

@@ -10,6 +10,7 @@ function openSettings() {
     renderHiddenTagsSettings();
     loadUpdateInterval();
     renderShortcutsSettings();
+    loadTooltipToggle();
     settingsModal.classList.remove('opacity-0', 'pointer-events-none');
     settingsModal.classList.add('opacity-100');
     settingsModal.querySelector(':scope > div').classList.remove('scale-95');
@@ -417,3 +418,27 @@ document.getElementById('shortcuts-reset-btn')?.addEventListener('click', () => 
         if (typeof showToast === 'function') showToast('Shortcuts reset to defaults');
     }
 });
+
+// --- Tooltips Toggle ---
+const tooltipsToggle = document.getElementById('tooltips-toggle');
+
+async function loadTooltipToggle() {
+    try {
+        const val = await window.go.main.App.GetSetting('tooltips_enabled');
+        if (val === 'false') {
+            tooltipsToggle.checked = false;
+        } else {
+            tooltipsToggle.checked = true;
+        }
+    } catch (e) {
+        tooltipsToggle.checked = true; // default enabled
+    }
+}
+
+if (tooltipsToggle) {
+    tooltipsToggle.addEventListener('change', () => {
+        if (typeof window.toggleTooltips === 'function') {
+            window.toggleTooltips(tooltipsToggle.checked);
+        }
+    });
+}

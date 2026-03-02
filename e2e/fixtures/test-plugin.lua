@@ -29,6 +29,15 @@ Plugin = {
       {id = "test_image_only", label = "Test Image Only", icon = "sparkles", file_types = {"image/*"}},
       {id = "test_text_only", label = "Test Text Only", icon = "sparkles", file_types = {"text/*"}},
     },
+    global_actions = {
+      {id = "test_global_simple", label = "Test Global Simple", icon = "sparkles"},
+      {id = "test_global_options", label = "Test Global Options", icon = "pencil",
+        options = {
+          {id = "name", type = "text", label = "Name", required = true, default = "test"},
+        }
+      },
+      {id = "test_global_async", label = "Test Global Async", icon = "refresh", async = true},
+    },
   },
 }
 
@@ -39,12 +48,47 @@ local VALID_ACTIONS = {
   test_bulk = true,
   test_image_only = true,
   test_text_only = true,
+  test_global_simple = true,
+  test_global_options = true,
+  test_global_async = true,
 }
 
 function on_ui_action(action_id, clip_ids, options)
   -- Validate action ID
   if not VALID_ACTIONS[action_id] then
     return { success = false, error = "Unknown action: " .. tostring(action_id) }
+  end
+
+  -- Handle global actions (no clip_ids)
+  if action_id == "test_global_simple" then
+    local new_clip = clips.create({
+      name = "global_simple_result.txt",
+      data = "global action executed",
+      mime_type = "text/plain",
+    })
+    return {result_clip_id = new_clip.id}
+  end
+
+  if action_id == "test_global_options" then
+    local name = options.name or "unnamed"
+    local new_clip = clips.create({
+      name = name .. ".txt",
+      data = "global action with name: " .. name,
+      mime_type = "text/plain",
+    })
+    return {result_clip_id = new_clip.id}
+  end
+
+  if action_id == "test_global_async" then
+    local task_id = task.start("Global Async", 1)
+    local new_clip = clips.create({
+      name = "global_async_result.txt",
+      data = "async global action executed",
+      mime_type = "text/plain",
+    })
+    task.progress(task_id, 1)
+    task.complete(task_id)
+    return {result_clip_id = new_clip.id}
   end
 
   local settings_json = storage.get("settings") or "{}"

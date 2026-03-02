@@ -108,6 +108,7 @@ export namespace main {
 	    is_archived: boolean;
 	    tags: Tag[];
 	    size: number;
+	    duplicate_count: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new ClipPreview(source);
@@ -124,6 +125,7 @@ export namespace main {
 	        this.is_archived = source["is_archived"];
 	        this.tags = this.convertValues(source["tags"], Tag);
 	        this.size = source["size"];
+	        this.duplicate_count = source["duplicate_count"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -174,6 +176,26 @@ export namespace main {
 	        this.strategy = source["strategy"];
 	        this.reason = source["reason"];
 	        this.native_drag = source["native_drag"];
+	    }
+	}
+	export class DuplicateGroup {
+	    content_hash: string;
+	    filename: string;
+	    content_type: string;
+	    count: number;
+	    oldest_id: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new DuplicateGroup(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.content_hash = source["content_hash"];
+	        this.filename = source["filename"];
+	        this.content_type = source["content_type"];
+	        this.count = source["count"];
+	        this.oldest_id = source["oldest_id"];
 	    }
 	}
 	export class FileData {
@@ -391,6 +413,7 @@ export namespace main {
 	export class UIActionsResponse {
 	    lightbox_buttons: PluginUIAction[];
 	    card_actions: PluginUIAction[];
+	    global_actions: PluginUIAction[];
 	
 	    static createFrom(source: any = {}) {
 	        return new UIActionsResponse(source);
@@ -400,6 +423,7 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.lightbox_buttons = this.convertValues(source["lightbox_buttons"], PluginUIAction);
 	        this.card_actions = this.convertValues(source["card_actions"], PluginUIAction);
+	        this.global_actions = this.convertValues(source["global_actions"], PluginUIAction);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
