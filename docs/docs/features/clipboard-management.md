@@ -205,6 +205,8 @@ For non-text files:
 
 Control the order of clips in the gallery using the sort popover in the bottom bar.
 
+![Sort popover](/img/screenshots/sort-popover.png)
+
 | Sort Field | Description |
 |------------|-------------|
 | **Date** | Creation timestamp (default) |

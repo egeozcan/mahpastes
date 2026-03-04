@@ -33,6 +33,10 @@ The main window shows your clips in a grid layout:
 
 ![Gallery view](/img/screenshots/gallery.png)
 
+The bottom bar shows the clip count, sort options, and expiry dropdown for new uploads.
+
+![Bottom bar](/img/screenshots/bottom-bar.png)
+
 ### Clip Actions
 
 Open the clip context menu (three dots on each card) to access actions:
@@ -93,7 +97,9 @@ Open a clip's three-dot menu and click **Archive**. It moves to the archive sect
 
 ### View Archived Clips
 
-Click the **Archive** button in the header, or open the menu drawer and click **Archive**, to see archived clips.
+Click the **Archive** button in the header, or open the menu drawer (<span className="keyboard-key">M</span>) and click **Archive**, to see archived clips.
+
+![Menu drawer](/img/screenshots/menu-drawer.png)
 
 ### Unarchive
 
