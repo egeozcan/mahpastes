@@ -12,9 +12,11 @@ mahpastes stores all data locally on your machine. Nothing is sent to the cloud.
 
 The SQLite database contains all clips and settings.
 
-```
-~/Library/Application Support/mahpastes/clips.db
-```
+| Platform | Path |
+|----------|------|
+| **macOS** | `~/Library/Application Support/mahpastes/clips.db` |
+| **Windows** | `%APPDATA%\mahpastes\clips.db` |
+| **Linux** | `~/.config/mahpastes/clips.db` |
 
 The data directory can be overridden with the `MAHPASTES_DATA_DIR` environment variable. This is used for testing.
 
@@ -24,9 +26,11 @@ The database uses WAL journal mode, a 5-second busy timeout, and foreign keys en
 
 Temp files are created for clipboard copy-as-file and drag-out transfers. Managed by `TempClipStore`.
 
-```
-~/Library/Application Support/mahpastes/clip_temp_files/
-```
+| Platform | Path |
+|----------|------|
+| **macOS** | `~/Library/Application Support/mahpastes/clip_temp_files/` |
+| **Windows** | `%APPDATA%\mahpastes\clip_temp_files\` |
+| **Linux** | `~/.config/mahpastes/clip_temp_files/` |
 
 Temp files have a 60-minute lease. A prune job runs every 10 minutes to remove stale and orphaned files. All temp files are also deleted on app exit.
 

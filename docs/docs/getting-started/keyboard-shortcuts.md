@@ -74,6 +74,7 @@ When clips are selected:
 | <span className="keyboard-key">E</span> | Archive selected |
 | <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">D</span> | Download selected |
 | <span className="keyboard-key">T</span> | Tag selected |
+| <span className="keyboard-key">X</span> | Set expiration |
 
 ## Lightbox
 

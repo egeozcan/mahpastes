@@ -45,7 +45,7 @@ You can drop:
 
 ### Expiration
 
-The backend supports per-clip expiration (auto-delete after a set time), but the expiration UI is not yet implemented in the frontend. See [Auto-Delete](./auto-delete.md) for details.
+Set per-clip expiration when uploading (dropdown in the bottom bar) or on existing clips via the context menu. See [Auto-Delete](./auto-delete.md) for details.
 
 ## Viewing Clips
 
@@ -115,11 +115,14 @@ image/*        → Image viewer/editor
 Click the three-dot menu button on any clip card, or right-click anywhere on the card, to open the context menu. Available actions:
 
 - **Copy Path** -- creates a temporary file and copies the absolute path to clipboard
-- **Copy File** -- copies the clip as a file to the system clipboard (macOS only, via NSPasteboard)
+- **Copy File** -- copies the clip as a file to the system clipboard (macOS via NSPasteboard, Windows via PowerShell)
 - **Copy Contents** -- copies raw text or image data to the system clipboard (available for text/\*, application/json, and image/\* types)
 - **Save** -- opens a native save dialog to export the clip to disk
 - **Edit** -- opens the image editor or text editor
 - **Tags** -- opens the tag popover
+- **Set Expiration** -- opens expiration preset popover (shown when clip has no expiry)
+- **Cancel Expiration** -- removes expiration (shown when clip has an active expiry)
+- **Metadata** -- opens the metadata modal for viewing and editing key-value pairs
 - **Archive** / **Restore** -- toggles archive state
 - **Delete** -- deletes the clip after confirmation
 
@@ -217,8 +220,21 @@ For non-text files:
 ### For Temporary Files
 
 1. Paste content you need briefly
-2. Use as needed
-3. Delete manually when done (per-clip expiration UI is not yet available)
+2. Set an expiration via the context menu or the bottom bar dropdown
+3. The clip auto-deletes when the timer runs out
+
+## Sorting
+
+Control the order of clips in the gallery using the sort popover in the bottom bar.
+
+| Sort Field | Description |
+|------------|-------------|
+| **Date** | Creation timestamp (default) |
+| **Name** | Filename, alphabetical |
+| **Size** | Clip data size in bytes |
+| **Type** | Content MIME type |
+
+Click the active sort field to toggle between ascending and descending. Click a different field to switch to it. The sort preference (field and direction) is persisted to the settings table and restored on app launch. A secondary tiebreaker of `created_at` + `id` keeps the order stable.
 
 ## Limits and Performance
 

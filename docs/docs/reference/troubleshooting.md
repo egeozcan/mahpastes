@@ -225,7 +225,7 @@ If using Apple Silicon (M1/M2/M3):
 **Symptoms:** Can't drag clips out of mahpastes into other apps.
 
 **Solutions:**
-1. Drag-out is macOS only. Windows and Linux support is planned.
+1. Drag-out is supported on macOS and Windows. Linux support is planned.
 2. Hover the grip handle on the clip card for at least 1 second to arm the drag.
 3. Wait for the handle to finish the preparation animation before dragging.
 4. If the handle shows a spinner, the temp file is still being prepared. Wait until it returns to the grip icon.
@@ -235,8 +235,8 @@ If using Apple Silicon (M1/M2/M3):
 **Symptoms:** "Copy File" from the card menu doesn't paste a file in Finder.
 
 **Solutions:**
-1. Copy File uses macOS NSPasteboard. It is not supported on Linux.
-2. On Windows, it uses PowerShell. Ensure no policy blocks clipboard access.
+1. Copy File is supported on macOS (NSPasteboard) and Windows (PowerShell). Not supported on Linux.
+2. On Windows, ensure no policy blocks PowerShell clipboard access.
 3. Try "Copy Contents" instead if you only need the raw data (text or image).
 
 ## Platform-Specific Issues

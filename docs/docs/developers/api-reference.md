@@ -13,7 +13,7 @@ Complete reference for all Go functions exposed to the frontend via Wails bindin
 Retrieve a list of clips for the gallery.
 
 ```go
-func (a *App) GetClips(archived bool, tagIDs []int64, hiddenTagIDs []int64) ([]ClipPreview, error)
+func (a *App) GetClips(archived bool, tagIDs []int64, hiddenTagIDs []int64, sortField string, sortDir string) ([]ClipPreview, error)
 ```
 
 **Parameters:**
@@ -22,6 +22,8 @@ func (a *App) GetClips(archived bool, tagIDs []int64, hiddenTagIDs []int64) ([]C
 | `archived` | bool | true for archived clips, false for active |
 | `tagIDs` | []int64 | Tag IDs to filter by (AND logic - clip must have ALL tags). Empty for no filter |
 | `hiddenTagIDs` | []int64 | Tag IDs whose clips should be excluded. Empty for no hiding |
+| `sortField` | string | Sort field: `"date"`, `"name"`, `"size"`, or `"type"` |
+| `sortDir` | string | Sort direction: `"asc"` or `"desc"` |
 
 **Returns:**
 | Type | Description |
@@ -46,10 +48,10 @@ type ClipPreview struct {
 
 **JavaScript usage:**
 ```javascript
-const clips = await GetClips(false, [], []);      // Active clips, no filters
-const archived = await GetClips(true, [], []);     // Archived clips
-const tagged = await GetClips(false, [1, 2], []);  // Clips with tags 1 AND 2
-const filtered = await GetClips(false, [], [3]);   // Active clips, hide tag 3
+const clips = await GetClips(false, [], [], 'date', 'desc');      // Active clips, newest first
+const archived = await GetClips(true, [], [], 'date', 'desc');     // Archived clips
+const tagged = await GetClips(false, [1, 2], [], 'name', 'asc');   // Clips with tags 1 AND 2, sorted by name
+const filtered = await GetClips(false, [], [3], 'date', 'desc');   // Active clips, hide tag 3
 ```
 
 ---
@@ -196,6 +198,118 @@ func (a *App) BulkDownloadToFile(ids []int64) error
 ```
 
 Opens a native save dialog. Returns nil if user cancels.
+
+---
+
+### SetExpiration
+
+Set an expiration time on a clip.
+
+```go
+func (a *App) SetExpiration(id int64, minutes int) error
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `id` | int64 | Clip ID |
+| `minutes` | int | Minutes from now until auto-delete |
+
+---
+
+### BulkSetExpiration
+
+Set expiration on multiple clips.
+
+```go
+func (a *App) BulkSetExpiration(ids []int64, minutes int) error
+```
+
+---
+
+### BulkCancelExpiration
+
+Remove expiration from multiple clips.
+
+```go
+func (a *App) BulkCancelExpiration(ids []int64) error
+```
+
+---
+
+### GetClipMetadata
+
+Get all metadata key-value pairs for a clip.
+
+```go
+func (a *App) GetClipMetadata(id int64) (map[string]string, error)
+```
+
+---
+
+### SetClipMetadata
+
+Set a single metadata key-value pair on a clip.
+
+```go
+func (a *App) SetClipMetadata(id int64, key string, value string) error
+```
+
+Limits: key max 256 chars, value max 4096 chars, max 50 pairs per clip.
+
+---
+
+### DeleteClipMetadata
+
+Delete a single metadata key from a clip.
+
+```go
+func (a *App) DeleteClipMetadata(id int64, key string) error
+```
+
+---
+
+### SetClipMetadataBulk
+
+Atomically replace all metadata on a clip.
+
+```go
+func (a *App) SetClipMetadataBulk(id int64, metadata map[string]string) error
+```
+
+---
+
+### GetDuplicateGroups
+
+Get groups of clips that share the same content hash.
+
+```go
+func (a *App) GetDuplicateGroups() ([]DuplicateGroup, error)
+```
+
+Returns groups where two or more clips have the same SHA-256 content hash.
+
+---
+
+### MergeDuplicates
+
+Merge a group of duplicate clips, keeping the oldest.
+
+```go
+func (a *App) MergeDuplicates(ids []int64) error
+```
+
+Keeps the clip with the lowest ID, merges tags from all duplicates onto it (INSERT OR IGNORE), deletes the rest, and bumps the survivor's `created_at` to now.
+
+---
+
+### DeduplicateAll
+
+Merge all duplicate groups at once.
+
+```go
+func (a *App) DeduplicateAll() error
+```
 
 ---
 

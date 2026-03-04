@@ -79,9 +79,9 @@ Use the search bar to filter clips:
 
 ## Clip Expiration
 
-Per-clip expiration (auto-delete timers) exists in the backend but is not currently exposed in the frontend UI.
+Set per-clip expiration at upload time using the bottom bar dropdown, or on existing clips via the context menu. Presets: 15 minutes, 1 hour, 6 hours, 24 hours, 7 days.
 
-See [Auto-Delete](/features/auto-delete) for current behavior and limitations.
+See [Auto-Delete](/features/auto-delete) for details.
 
 ## Using the Archive
 

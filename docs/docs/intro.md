@@ -5,7 +5,7 @@ sidebar_position: 1
 
 # Welcome to mahpastes
 
-**mahpastes** is a local clipboard manager for macOS. Store, organize, and quickly access your copied content without sending data to the cloud.
+**mahpastes** is a local clipboard manager for macOS and Windows. Store, organize, and quickly access your copied content without sending data to the cloud.
 
 ## Why mahpastes?
 
@@ -47,7 +47,7 @@ sidebar_position: 1
 |---------|-------------|
 | **Paste Anything** | Images, text, code, JSON, HTML, and files |
 | **Drag & Drop** | Drop files in or drag clips out to other apps |
-| **Auto-Delete** | Clips expire after 5, 10, 30 minutes, or 2 hours |
+| **Auto-Delete** | Clips expire after 15 minutes, 1 hour, 6 hours, 24 hours, or 7 days |
 | **Archive** | Keep important clips separate from active workspace |
 | **Lightbox** | Full-screen image viewer with zoom, pan, and navigation |
 | **Image Editor** | Annotate with brush, shapes, and text |
@@ -56,6 +56,10 @@ sidebar_position: 1
 | **Watch Folders** | Automatically import files from folders |
 | **Bulk Actions** | Select multiple clips to copy, archive, download, or delete |
 | **Tags** | Color-coded labels to organize and filter clips |
+| **Clip Metadata** | Attach key-value pairs to any clip |
+| **Duplicate Detection** | SHA-256 content hashing with merge support |
+| **Sorting** | Sort gallery by date, name, size, or type |
+| **Keyboard Shortcuts** | Customizable shortcuts for all actions |
 | **Plugins** | Extend functionality with Lua scripts |
 | **Backup & Restore** | Export all data to portable ZIP, restore anywhere |
 
@@ -72,7 +76,11 @@ All data is stored locally in a SQLite database. Nothing leaves your machine.
 
 ## System Requirements
 
-- **macOS** 10.15 (Catalina) or later
+| Platform | Minimum Version | Notes |
+|----------|----------------|-------|
+| **macOS** | 10.15 (Catalina) or later | Full support including native drag-out and clipboard file copy |
+| **Windows** | 10 or later | Full support including drag-out (OLE) and clipboard file copy (PowerShell) |
+| **Linux** | Experimental | Core app works; clipboard file copy and drag-out not supported |
 
 ## Get Help
 

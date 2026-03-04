@@ -269,8 +269,8 @@ document.addEventListener('keydown', e => {
 ```javascript
 import { GetClips, UploadFiles } from '../wailsjs/go/main/App';
 
-// GetClips takes archived flag, tag filter IDs, and hidden tag IDs
-const clips = await GetClips(false, [], []);
+// GetClips takes archived flag, tag filter IDs, hidden tag IDs, sort field, and sort direction
+const clips = await GetClips(false, [], [], 'date', 'desc');
 
 // With parameters
 await UploadFiles(fileDataArray, expirationMinutes);

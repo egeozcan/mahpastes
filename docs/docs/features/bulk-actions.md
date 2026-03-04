@@ -31,7 +31,7 @@ When clips are selected:
 
 ### Copy
 
-Copy all selected clips as files to the system clipboard (macOS only):
+Copy all selected clips as files to the system clipboard (macOS and Windows):
 
 1. Select clips
 2. Click **Copy** in the action bar
@@ -81,6 +81,23 @@ ZIP file contents:
 - Each clip as a separate file
 - Filenames: `id_originalname.ext` or `clip_id.ext`
 - Preserves original file formats
+
+### Set Expiration
+
+Apply an expiration to all selected clips:
+
+1. Select clips
+2. Click **Set Expiration** in the action bar (or press <span className="keyboard-key">X</span>)
+3. Choose a preset (15m, 1h, 6h, 24h, 7d)
+4. The expiration is applied to all selected clips
+
+### Clear Expiry
+
+Remove expiration from all selected clips:
+
+1. Select clips that have active expirations
+2. Click **Clear Expiry** in the action bar
+3. All selected clips revert to no expiry
 
 ### Delete
 

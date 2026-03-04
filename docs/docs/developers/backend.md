@@ -46,13 +46,15 @@ Initializes and runs the Wails application:
 func main() {
     app := NewApp()
     pluginService := NewPluginService(app)
+    clipboardService := NewClipboardService(app)
+    transferService := NewTransferService(app)
 
     err := wails.Run(&options.App{
         Title:  "mahpastes",
         Width:  1280,
         Height: 800,
         // ... configuration
-        Bind: []interface{}{app, pluginService},
+        Bind: []interface{}{app, pluginService, clipboardService, transferService},
         OnStartup: app.startup,
         OnShutdown: app.shutdown,
     })
@@ -88,7 +90,7 @@ func (a *App) shutdown(ctx context.Context)  // Cleanup on exit
 
 **Clip operations:**
 ```go
-func (a *App) GetClips(archived bool, tagIDs []int64, hiddenTagIDs []int64) ([]ClipPreview, error)
+func (a *App) GetClips(archived bool, tagIDs []int64, hiddenTagIDs []int64, sortField string, sortDir string) ([]ClipPreview, error)
 func (a *App) GetClipData(id int64) (*ClipData, error)
 func (a *App) UploadFiles(files []FileData, expMins int) error
 func (a *App) DeleteClip(id int64) error

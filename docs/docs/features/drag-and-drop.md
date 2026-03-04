@@ -41,13 +41,13 @@ The file keeps its original filename. If the clip was pasted without a filename,
 
 ## Platform Support
 
-| Platform | Status |
-|----------|--------|
-| **macOS** | Fully supported |
-| **Windows** | Planned |
-| **Linux** | Planned |
+| Platform | Status | Mechanism |
+|----------|--------|-----------|
+| **macOS** | Fully supported | NSView.dragFile (CGo) + `file://` URI via DataTransfer |
+| **Windows** | Fully supported | OLE DoDragDrop (COM) + HTTP transfer URL via DataTransfer |
+| **Linux** | Planned | Not yet supported |
 
-On macOS, drag-out uses native pasteboard APIs to provide file URIs that work with all standard macOS apps.
+On macOS, drag-out uses native pasteboard APIs to provide file URIs that work with all standard macOS apps. On Windows, drag-out uses OLE DoDragDrop with HTTP transfer URLs.
 
 ## Temporary Files
 

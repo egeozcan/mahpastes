@@ -245,8 +245,8 @@ JavaScript calls Go functions via Wails bindings:
 // Generated bindings in wailsjs/go/main/App.js
 import { GetClips, UploadFiles } from '../wailsjs/go/main/App';
 
-// Usage - GetClips takes archived flag, tag filter IDs, and hidden tag IDs
-const clips = await GetClips(false, [], []);
+// GetClips takes archived flag, tag filter IDs, hidden tag IDs, sort field, and sort direction
+const clips = await GetClips(false, [], [], 'date', 'desc');
 ```
 
 ### Backend → Frontend
