@@ -108,7 +108,7 @@ Restoring to older versions:
 - New features' data is ignored
 - May show warnings for unknown data
 
-### Best Practice
+### Tips
 
 - Keep backups from major versions
 - Test restore on a fresh install if switching versions

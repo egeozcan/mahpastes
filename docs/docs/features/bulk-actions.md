@@ -37,7 +37,7 @@ Copy all selected clips as files to the system clipboard (macOS and Windows):
 2. Click **Copy** in the action bar
 3. All selected clips are placed on the system clipboard as files
 
-You can also press <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">C</span> while clips are selected to trigger this action.
+Press <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">C</span> while clips are selected as an alternative.
 
 ### Tag
 
@@ -46,7 +46,7 @@ Apply or remove tags from all selected clips:
 1. Select clips
 2. Click **Tag** in the action bar
 3. Check or uncheck tags in the popover
-4. You can also create a new tag and apply it immediately
+4. Create a new tag and apply it immediately from the same popover
 
 ### Compare
 
@@ -112,108 +112,12 @@ Remove all selected clips permanently:
 Bulk delete cannot be undone. Make sure you've selected the right clips before confirming.
 :::
 
-## Use Cases
-
-### Cleanup Session
-
-After a work session, clean up temporary clips:
-
-1. Select all clips from the session
-2. Archive important ones
-3. Delete the rest
-
-### Export Collection
-
-Export a set of related clips:
-
-1. Select all clips to export
-2. Click Download
-3. Save the ZIP file
-4. Share or backup the collection
-
-### Organize by Moving to Archive
-
-Move a batch of clips to archive:
-
-1. Select completed work
-2. Archive All
-3. Main gallery stays focused
-
-### Mass Delete
-
-Remove many clips at once:
-
-1. Select clips to remove
-2. Delete All
-3. Confirm once
-
-## Workflow Examples
-
-### End of Day Cleanup
-
-1. Review main gallery
-2. Select temporary clips using checkboxes
-3. Click Delete
-4. Select clips worth keeping
-5. Click Archive
-6. Gallery is clean for tomorrow
-
-### Project Export
-
-1. Work on a project, collecting clips
-2. When done, select all project clips
-3. Download as ZIP
-4. Archive the clips
-5. ZIP file ready to share
-
-### Clearing Old Content
-
-1. Sort or filter for old clips
-2. Select clips to remove
-3. Delete All
-4. Free up storage space
-
 ## Tips
 
-### Efficient Selection
-
-- Use checkboxes on each clip to select
-- Use Select All to select all visible clips
-- Click Cancel to clear all selections
-
-### Before Deleting
-
-- Double-check your selection
-- Consider archiving instead of deleting
-- Remember: delete is permanent
-
-### Large Exports
-
-For many large clips:
-- ZIP creation may take a moment
-- Large ZIPs may take time to save
-- Storage space needed for ZIP file
-
-## Best Practices
-
-### Regular Maintenance
-
-- Weekly bulk cleanup
-- Archive valuable content
-- Delete transient clips
-- Keep gallery manageable
-
-### Selective Operations
-
-- Don't select more than needed
-- Review selection before acting
-- Use filters to find related clips first
-
-### Backup Strategy
-
-- Periodically export important clips
-- Save ZIPs to backup location
-- Archive originals in mahpastes
+- Use Select All to select all visible clips, Cancel to clear
+- Double-check your selection before deleting -- delete is permanent
+- Consider archiving instead of deleting if you might need clips later
+- For large exports, ZIP creation may take a moment
 
 ## Related
 

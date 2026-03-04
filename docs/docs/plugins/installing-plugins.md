@@ -25,7 +25,7 @@ The plugin is installed and enabled immediately.
 
 ## Installing from URL
 
-You can install plugins directly from an HTTP(S) URL:
+Install plugins directly from an HTTP(S) URL:
 
 1. Open the **Plugins** modal
 2. Click **URL**

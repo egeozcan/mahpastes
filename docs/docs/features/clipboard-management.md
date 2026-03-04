@@ -39,7 +39,7 @@ Drop files directly into the app:
 2. Drag them onto the mahpastes window
 3. Release to import
 
-You can drop:
+Supported drop types:
 - Single files
 - Multiple files at once
 
@@ -200,28 +200,6 @@ For non-text files:
 - Stored as binary blobs
 - Displayed with appropriate icons
 - Full file preserved for export
-
-## Best Practices
-
-### For Screenshots
-
-1. Take screenshot (system shortcut)
-2. Paste into mahpastes immediately
-3. Add annotations if needed
-4. Copy path for terminal use or copy back to clipboard
-
-### For Code Snippets
-
-1. Copy code from your editor
-2. Paste into mahpastes
-3. Archive important snippets for later
-4. Use search to find them quickly
-
-### For Temporary Files
-
-1. Paste content you need briefly
-2. Set an expiration via the context menu or the bottom bar dropdown
-3. The clip auto-deletes when the timer runs out
 
 ## Sorting
 

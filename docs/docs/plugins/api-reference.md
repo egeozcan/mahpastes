@@ -1409,15 +1409,6 @@ Plugins operate within strict resource limits to ensure system stability:
 
 ## Error Handling
 
-## Related
-
-- [Plugin Manifest](./writing-plugins/plugin-manifest) -- declare permissions and UI actions
-- [Event Handling](./writing-plugins/event-handling) -- subscribe to app events
-
----
-
-## Error Handling
-
 Most API functions return errors as a second value:
 
 ```lua
@@ -1455,3 +1446,8 @@ if resp.status ~= 200 then
   return
 end
 ```
+
+## Related
+
+- [Plugin Manifest](./writing-plugins/plugin-manifest) -- declare permissions and UI actions
+- [Event Handling](./writing-plugins/event-handling) -- subscribe to app events

@@ -4,7 +4,7 @@ sidebar_position: 1
 
 # Screenshot Workflow
 
-Learn how to capture, annotate, and share screenshots efficiently using mahpastes.
+Capture, annotate, and share screenshots using mahpastes.
 
 ## The Complete Workflow
 
@@ -171,7 +171,7 @@ No manual paste required.
 - Use appropriate zoom level
 - Consider dark/light mode
 
-### Annotation Best Practices
+### Annotation Tips
 
 - Use bright, contrasting colors
 - Keep text brief

@@ -24,7 +24,7 @@ Use mahpastes as a personal code snippet library. Store, organize, and reuse cod
 
 The code is saved as a text clip.
 
-### Best Practices for Saving
+### Tips for Saving
 
 **Use descriptive paste context**: When you paste, the clip is named `pasted_text.txt`. For better organization, consider:
 

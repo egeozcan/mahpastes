@@ -170,7 +170,7 @@ The saved image is always PNG, regardless of the original format.
 
 Click **Cancel** (X button) or press <span className="keyboard-key">Esc</span> to discard changes and close the editor.
 
-## Tips and Best Practices
+## Tips
 
 ### Visibility
 

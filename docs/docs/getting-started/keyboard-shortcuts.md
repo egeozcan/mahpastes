@@ -182,7 +182,7 @@ The image editor maintains up to 50 undo steps.
 
 ## Customization
 
-You can customize most shortcuts from **Menu Drawer → Settings → Keyboard Shortcuts**:
+Customize shortcuts from **Menu Drawer → Settings → Keyboard Shortcuts**:
 
 1. Open the menu drawer with <span className="keyboard-key">M</span> (or click the menu button)
 2. Open **Settings**

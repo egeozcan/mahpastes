@@ -50,7 +50,7 @@ end
 
 ## Adding Event Handlers
 
-Let's extend the plugin to react when clips are created:
+Extend the plugin to react when clips are created:
 
 ```lua
 Plugin = {

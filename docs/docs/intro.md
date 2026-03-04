@@ -12,7 +12,7 @@ sidebar_position: 1
 - **Privacy first** — All data stays on your machine
 - **Universal clipboard** — Store images, text, code, JSON, HTML, and files
 - **Built-in editing** — Annotate images and edit text without leaving the app
-- **Smart organization** — Archive important clips, auto-delete temporary ones
+- **Archive and auto-delete** — Archive important clips, auto-delete temporary ones
 - **Watch folders** — Automatically import files from designated folders
 
 ## Quick Links
@@ -28,7 +28,7 @@ sidebar_position: 1
   <div className="col col--4">
     <div className="feature-card">
       <h3>Features</h3>
-      <p>Explore clipboard management, image editing, and more.</p>
+      <p>Clipboard management, image editing, tags, and more.</p>
       <a href="/features/clipboard-management">View features →</a>
     </div>
   </div>

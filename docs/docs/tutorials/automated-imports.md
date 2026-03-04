@@ -24,7 +24,7 @@ Set up watch folders to automatically capture files as they're created. No manua
 4. Configure options
 5. Click **Save**
 
-You can also drag a folder from Finder and drop it onto the Watch view to add it.
+Drag a folder from Finder and drop it onto the Watch view to add it as an alternative.
 
 ### Configuration Options
 
@@ -149,7 +149,7 @@ For case-insensitive matching:
 
 ### Adding Multiple Folders
 
-You can watch several folders simultaneously:
+Watch several folders simultaneously:
 
 1. Screenshots folder → Images preset
 2. Downloads folder → PDFs only
@@ -231,7 +231,7 @@ If import fails:
 2. Download documents normally
 3. PDFs auto-import and archive
 4. Other downloads stay in Downloads
-5. Find PDFs easily in mahpastes Archive
+5. Find PDFs in mahpastes Archive
 
 ## Tips
 

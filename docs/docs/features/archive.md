@@ -150,26 +150,12 @@ Keep in main gallery:
 3. Delete unused clips
 4. Keep both views manageable
 
-## Best Practices
+## Tips
 
 ### Naming
 
-If possible, provide meaningful filenames when importing:
-- `api-response-template.json`
-- `login-button-screenshot.png`
-- `sql-query-users.txt`
-
-Good names make archive search more effective.
-
-### Organization
-
-Think of archive as long-term storage:
-- Main gallery = desktop (active work)
-- Archive = filing cabinet (reference)
+Provide meaningful filenames when importing (e.g., `api-response-template.json`). Good names make archive search more effective.
 
 ### Cleanup
 
-Even archive needs occasional cleanup:
-- Review old archived clips
-- Delete truly outdated content
-- Keep archive searchable and relevant
+Review old archived clips periodically and delete truly outdated content.

@@ -44,7 +44,7 @@ When multiple clips are selected, the bulk toolbar provides two expiration actio
 - **Set Expiration** -- opens the preset popover and applies the chosen duration to all selected clips
 - **Clear Expiry** -- removes expiration from all selected clips
 
-You can also press **`x`** as a keyboard shortcut to open the Set Expiration popover for the current selection.
+Press <span className="keyboard-key">X</span> as a keyboard shortcut to open the Set Expiration popover for the current selection.
 
 ## Visual Indicator
 

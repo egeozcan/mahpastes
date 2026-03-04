@@ -53,7 +53,7 @@ Open the clip context menu (three dots on each card) to access actions:
 
 ### Copy Back to Clipboard
 
-Use a clip's three-dot menu and click **Copy Contents**. You can then paste it anywhere.
+Use a clip's three-dot menu and click **Copy Contents**, then paste it anywhere.
 
 For images in the lightbox, <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">C</span> also copies the active clip contents.
 
@@ -153,4 +153,4 @@ Now that you know the basics:
 
 - Set up [Watch Folders](/features/watch-folders) for automatic imports
 - Learn about [Image Comparison](/features/image-comparison)
-- Explore the full [Features guide](/features/clipboard-management)
+- Read the full [Features guide](/features/clipboard-management)
