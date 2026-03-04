@@ -93,6 +93,8 @@ screenshots: ## Capture documentation screenshots via Playwright
 
 ## Help
 
+# NOTE: The Windows help target lists targets manually because grep/awk are
+# unavailable in cmd.exe. Keep this list in sync when adding new targets.
 ifeq ($(OS),Windows_NT)
 help: ## Show this help
 	@echo Available targets:

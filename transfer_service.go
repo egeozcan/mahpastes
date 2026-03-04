@@ -43,6 +43,9 @@ func buildTransferCapabilities(goos string) TransferCapabilities {
 			NativeDrag: true,
 		}
 	case "windows":
+		// Strategy is "file-uri-v1" (same adapter as macOS), but on Windows the
+		// DownloadURL payload uses an HTTP transfer_url instead of a file:// URI
+		// because Chromium's DownloadURL rejects file:// with a network error.
 		caps.DragOut = DragCapability{
 			Enabled:    true,
 			Strategy:   "file-uri-v1",

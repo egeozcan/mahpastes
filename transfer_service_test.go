@@ -56,6 +56,7 @@ func TestPrepareClipForTransferReturnsDescriptor(t *testing.T) {
 		db:      db,
 		tempDir: tempDir,
 	}
+	app.transferHandler = &TransferFileHandler{app: app}
 	app.tempStore = NewTempClipStore(db, tempDir, defaultTempLeaseTTL, defaultTempPruneInterval)
 	service := NewTransferService(app)
 
@@ -87,9 +88,16 @@ func TestPrepareClipForTransferReturnsDescriptor(t *testing.T) {
 		t.Fatalf("expected prepared path basename to include clip id, got %q", filepath.Base(item.AbsPath))
 	}
 
-	expectedTransferURL := "/transfer/" + filepath.Base(item.AbsPath)
-	if item.TransferURL != expectedTransferURL {
-		t.Fatalf("transfer_url mismatch: got %q want %q", item.TransferURL, expectedTransferURL)
+	if !strings.HasPrefix(item.TransferURL, "/transfer/") {
+		t.Fatalf("transfer_url should start with /transfer/, got %q", item.TransferURL)
+	}
+	if !strings.HasSuffix(item.TransferURL, "/"+filepath.Base(item.AbsPath)) {
+		t.Fatalf("transfer_url should end with filename, got %q", item.TransferURL)
+	}
+	// Token-based URL should have 3 segments: /transfer/{token}/{filename}
+	parts := strings.Split(strings.TrimPrefix(item.TransferURL, "/transfer/"), "/")
+	if len(parts) != 2 || len(parts[0]) != 32 {
+		t.Fatalf("transfer_url should contain a 32-char token, got %q", item.TransferURL)
 	}
 
 	now := time.Now()
@@ -193,6 +201,7 @@ func TestGetExistingPreparedClipForTransfer(t *testing.T) {
 		db:      db,
 		tempDir: tempDir,
 	}
+	app.transferHandler = &TransferFileHandler{app: app}
 	app.tempStore = NewTempClipStore(db, tempDir, defaultTempLeaseTTL, defaultTempPruneInterval)
 	service := NewTransferService(app)
 
@@ -223,7 +232,7 @@ func TestGetExistingPreparedClipForTransfer(t *testing.T) {
 	if !strings.HasPrefix(found.FileURL, "file://") {
 		t.Fatalf("expected file url, got %q", found.FileURL)
 	}
-	if !strings.HasPrefix(found.TransferURL, "/transfer/") {
-		t.Fatalf("expected transfer url starting with /transfer/, got %q", found.TransferURL)
+	if !strings.HasPrefix(found.TransferURL, "/transfer/") || !strings.Contains(found.TransferURL[len("/transfer/"):], "/") {
+		t.Fatalf("expected token-based transfer url, got %q", found.TransferURL)
 	}
 }

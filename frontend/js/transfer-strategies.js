@@ -12,7 +12,8 @@ const transferStrategyAdapters = {
 
             // For DownloadURL, prefer the HTTP transfer URL when available.
             // Chromium's DownloadURL needs a real HTTP URL to produce CF_HDROP on Windows;
-            // file:/// URIs fail with a network error.
+            // file:/// URIs fail with a network error. The transfer URL includes a
+            // one-time token for authorization (e.g. /transfer/{token}/{filename}).
             const downloadUrl = preparedItem.transfer_url
                 ? `${location.origin}${preparedItem.transfer_url}`
                 : fileUrl;

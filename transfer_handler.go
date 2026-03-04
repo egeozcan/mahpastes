@@ -1,17 +1,42 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 // TransferFileHandler serves prepared temp files over HTTP so that Chromium's
 // DownloadURL DataTransfer type can produce CF_HDROP on Windows.
+// Each transfer URL includes a random token to prevent local enumeration attacks.
 type TransferFileHandler struct {
-	app *App
+	app    *App
+	mu     sync.RWMutex
+	tokens map[string]string // token → filename
+}
+
+// RegisterToken stores a one-time token that authorizes access to a specific temp file.
+func (h *TransferFileHandler) RegisterToken(token, filename string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.tokens == nil {
+		h.tokens = make(map[string]string)
+	}
+	h.tokens[token] = filename
+}
+
+// generateTransferToken creates a random hex token for transfer URL authorization.
+func generateTransferToken() (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
 }
 
 func (h *TransferFileHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -27,10 +52,28 @@ func (h *TransferFileHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	filename := strings.TrimPrefix(r.URL.Path, prefix)
+	// URL format: /transfer/{token}/{filename}
+	rest := strings.TrimPrefix(r.URL.Path, prefix)
+	slashIdx := strings.Index(rest, "/")
+	if slashIdx < 1 {
+		http.NotFound(w, r)
+		return
+	}
+	token := rest[:slashIdx]
+	filename := rest[slashIdx+1:]
+
 	// Sanitize: only allow the base name (no path traversal)
 	filename = filepath.Base(filename)
 	if filename == "." || filename == ".." || filename == "" {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Validate the token
+	h.mu.RLock()
+	authorized, ok := h.tokens[token]
+	h.mu.RUnlock()
+	if !ok || authorized != filename {
 		http.NotFound(w, r)
 		return
 	}
@@ -69,7 +112,7 @@ func (h *TransferFileHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		ct = "application/octet-stream"
 	}
 	w.Header().Set("Content-Type", ct)
-	w.Header().Set("Content-Disposition", "attachment; filename=\""+filename+"\"")
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": filename}))
 
 	http.ServeContent(w, r, filename, info.ModTime(), f)
 }
