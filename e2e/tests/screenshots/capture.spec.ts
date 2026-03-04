@@ -83,6 +83,23 @@ test('capture documentation screenshots', async ({ app, tempDir }) => {
   await app.page.waitForTimeout(500);
   await app.page.screenshot({ path: path.join(SCREENSHOTS_DIR, 'gallery.png') });
 
+  // === 1b. Bottom bar screenshot ===
+  // The bottom bar is always visible at the bottom of the page with add button, expiry dropdown, clip count
+  const bottomBar = app.page.locator(selectors.bottomBar.root);
+  await expect(bottomBar).toBeVisible();
+  await app.page.waitForTimeout(200);
+  await app.page.screenshot({ path: path.join(SCREENSHOTS_DIR, 'bottom-bar.png') });
+
+  // === 1c. Sort popover screenshot ===
+  // Click the sort button in the header to open the sort options popover
+  await app.page.locator(selectors.sort.button).click();
+  await app.page.waitForSelector(selectors.sort.popover);
+  await app.page.waitForTimeout(200);
+  await app.page.screenshot({ path: path.join(SCREENSHOTS_DIR, 'sort-popover.png') });
+  // Close sort popover by clicking elsewhere
+  await app.page.locator('body').click({ position: { x: 10, y: 10 } });
+  await app.page.waitForTimeout(100);
+
   // === 2. Search screenshot ===
   await app.search('png');
   await app.page.waitForTimeout(300);
@@ -94,6 +111,33 @@ test('capture documentation screenshots', async ({ app, tempDir }) => {
   await app.page.waitForTimeout(200);
   await app.page.screenshot({ path: path.join(SCREENSHOTS_DIR, 'card-menu.png') });
   await app.closeCardMenu();
+
+  // === 3b. Metadata modal screenshot ===
+  // Set some metadata on the first clip via API, then open the metadata modal
+  await app.page.evaluate(async (filename) => {
+    // @ts-ignore
+    const clips = await window.go.main.App.GetClips(false, [], [], '', '');
+    const clip = clips.find((c: any) =>
+      c.filename?.toLowerCase().includes(filename.replace('.png', '').toLowerCase())
+    );
+    if (clip) {
+      // @ts-ignore
+      await window.go.main.App.SetClipMetadata(clip.id, 'project', 'website-redesign');
+      // @ts-ignore
+      await window.go.main.App.SetClipMetadata(clip.id, 'author', 'design-team');
+      // @ts-ignore
+      await window.go.main.App.SetClipMetadata(clip.id, 'status', 'approved');
+    }
+  }, imageFiles[0]);
+  // Open card menu and click metadata
+  await app.openCardMenu(imageFiles[0]);
+  await app.page.locator(selectors.cardMenu.metadata).click();
+  await app.page.waitForSelector(`${selectors.metadata.modal}.opacity-100`);
+  await app.page.waitForTimeout(300);
+  await app.page.screenshot({ path: path.join(SCREENSHOTS_DIR, 'metadata-modal.png') });
+  // Close metadata modal
+  await app.page.locator(selectors.metadata.closeButton).click();
+  await app.page.waitForTimeout(200);
 
   // === 4. Tags filter screenshot ===
   await app.openTagFilterDropdown();
@@ -209,7 +253,25 @@ test('capture documentation screenshots', async ({ app, tempDir }) => {
   await app.page.screenshot({ path: path.join(SCREENSHOTS_DIR, 'plugins-details.png') });
   await app.closePluginsModal();
 
-  // === 13. Archive screenshot ===
+  // === 13. Menu drawer screenshot ===
+  await app.openDrawer();
+  await app.page.waitForTimeout(300);
+  await app.page.screenshot({ path: path.join(SCREENSHOTS_DIR, 'menu-drawer.png') });
+  await app.closeDrawer();
+
+  // === 14. Deduplication screenshot ===
+  // Upload a duplicate of the first image to trigger duplicate detection
+  const duplicatePath = path.join(tempDir, 'homepage-before-copy.png');
+  await fs.copyFile(path.join(tempDir, imageFiles[0]), duplicatePath);
+  await app.uploadFile(duplicatePath);
+  await app.refreshClips();
+  // Wait for duplicate detection to run (checkDuplicatesExist is called during loadClips)
+  await app.page.waitForTimeout(500);
+  // Verify the duplicate badge appears
+  await app.page.waitForSelector(selectors.dedup.badge, { timeout: 5000 });
+  await app.page.screenshot({ path: path.join(SCREENSHOTS_DIR, 'deduplication.png') });
+
+  // === 15. Archive screenshot ===
   await app.archiveClip(imageFiles[0]);
   await app.refreshClips();
   await app.archiveClip(imageFiles[1]);

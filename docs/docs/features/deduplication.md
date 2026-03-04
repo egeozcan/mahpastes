@@ -15,6 +15,8 @@ mahpastes computes a SHA-256 content hash for every clip at upload time. Clips w
 
 ## Visual Indicators
 
+![Duplicate detection badges on clip cards](/img/screenshots/deduplication.png)
+
 - Clip cards show a **duplicate count** badge when duplicates exist
 - A toast notification appears when uploading content that already exists
 

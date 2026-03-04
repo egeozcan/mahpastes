@@ -6,6 +6,8 @@ sidebar_position: 5.5
 
 Attach arbitrary key-value pairs to any clip. Metadata is stored as a JSON column on the clips table and backed up with your data.
 
+![Metadata modal](/img/screenshots/metadata-modal.png)
+
 ## Adding Metadata
 
 1. Right-click a clip card (or click the three-dot menu)
