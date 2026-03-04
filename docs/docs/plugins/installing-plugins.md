@@ -150,3 +150,8 @@ The plugin is requesting new paths not previously approved.
 
 - Approve the needed folder(s)
 - Or adjust plugin settings so it targets expected directories only
+
+## Related
+
+- [Plugins Overview](./overview) -- what plugins can do
+- [Writing Plugins](./writing-plugins/getting-started) -- create your own plugins

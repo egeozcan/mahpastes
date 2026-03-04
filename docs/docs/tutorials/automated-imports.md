@@ -304,3 +304,7 @@ If overwhelmed by imports:
 2. Enable auto-archive
 3. Reduce number of watched folders
 4. Create dedicated import folders
+
+## Related
+
+- [Watch Folders](../features/watch-folders.md) -- full feature reference

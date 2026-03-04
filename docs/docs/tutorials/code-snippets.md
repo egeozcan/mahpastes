@@ -247,3 +247,8 @@ Use mahpastes for:
 - Quick capture of useful code
 - Cross-project code storage
 - Temporary code storage during development
+
+## Related
+
+- [Archive](../features/archive.md) -- store important snippets long-term
+- [Tags](../features/tags.md) -- organize snippets by language or project

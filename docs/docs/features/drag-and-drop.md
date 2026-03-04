@@ -65,3 +65,8 @@ You don't need to manage these files manually.
 - Drag images directly into email compose windows to attach them
 - Drag text clips into editors to insert the content
 - Drag multiple clips by selecting them first with bulk select, then using bulk actions to copy or download
+
+## Related
+
+- [Clipboard Management](./clipboard-management.md) -- other ways to retrieve clips
+- [Bulk Actions](./bulk-actions.md) -- copy or download multiple clips
