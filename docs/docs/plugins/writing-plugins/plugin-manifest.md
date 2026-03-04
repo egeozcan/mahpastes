@@ -382,6 +382,47 @@ It should return a table with:
 
 Only one modal can be open at a time across all plugins.
 
+## Global Actions
+
+Plugins can also define actions that appear in the navigation drawer (hamburger menu) and are not tied to any specific clip.
+
+```lua
+ui = {
+    global_actions = {
+        {id = "generate_report", label = "Generate Report", icon = "chart"},
+        {id = "sync_all", label = "Sync All", icon = "cloud", async = true,
+            options = {
+                {id = "mode", type = "select", label = "Mode",
+                    choices = {
+                        {value = "full", label = "Full Sync"},
+                        {value = "incremental", label = "Incremental"},
+                    }
+                },
+            }
+        },
+    },
+},
+```
+
+Global actions use the same `UIAction` structure as `lightbox_buttons` and `card_actions` (same fields: `id`, `label`, `icon`, `async`, `options`). The `file_types` and `max_size` fields are ignored since no clip is selected.
+
+When a user clicks a global action, the drawer closes and `on_ui_action` is called with an empty `clip_ids` table. If the action defines `options`, the options dialog opens first.
+
+```lua
+function on_ui_action(action_id, clip_ids, options)
+    if action_id == "generate_report" then
+        -- clip_ids is empty for global actions
+        local all = clips.list()
+        modal.show({
+            title = "Report",
+            content = "Total clips: " .. #all,
+            format = "markdown",
+        })
+        return {success = true}
+    end
+end
+```
+
 ## Complete Example
 
 Here's a full manifest for a cloud sync plugin:
