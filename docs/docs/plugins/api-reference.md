@@ -1067,6 +1067,93 @@ Requires `clipboard = true` in the plugin manifest.
 
 ---
 
+## metadata
+
+Read and write key-value metadata on clips.
+
+### metadata.get(clip_id)
+
+Returns all metadata key-value pairs for a clip.
+
+**Parameters:**
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| clip_id | number | Yes | Clip ID |
+
+**Returns:** Table of key-value string pairs, or `nil, error_message`
+
+**Example:**
+```lua
+local meta = metadata.get(123)
+if meta then
+  for key, value in pairs(meta) do
+    log(key .. " = " .. value)
+  end
+end
+```
+
+---
+
+### metadata.set(clip_id, key, value)
+
+Sets a single metadata key-value pair on a clip.
+
+**Parameters:**
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| clip_id | number | Yes | Clip ID |
+| key | string | Yes | Metadata key (max 256 characters) |
+| value | string | Yes | Metadata value (max 4096 characters) |
+
+**Returns:** `true` on success, or `false, error_message`
+
+**Limits:** Max 50 key-value pairs per clip.
+
+**Example:**
+```lua
+metadata.set(123, "source", "screenshot")
+metadata.set(123, "project", "docs")
+```
+
+---
+
+### metadata.delete(clip_id, key)
+
+Removes a single metadata key from a clip.
+
+**Parameters:**
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| clip_id | number | Yes | Clip ID |
+| key | string | Yes | Metadata key to remove |
+
+**Returns:** `true` on success, or `false, error_message`
+
+---
+
+### metadata.set_bulk(clip_id, table)
+
+Atomically replaces all metadata on a clip with the provided table.
+
+**Parameters:**
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| clip_id | number | Yes | Clip ID |
+| table | table | Yes | Key-value pairs to set (replaces all existing metadata) |
+
+**Returns:** `true` on success, or `false, error_message`
+
+**Example:**
+```lua
+metadata.set_bulk(123, {
+  source = "camera",
+  project = "photos",
+  rating = "5",
+})
+```
+
+---
+
 ## image
 
 Go-side image processing functions. These operate on clip data directly by clip ID, so you don't need to decode image bytes in Lua.
@@ -1084,26 +1171,26 @@ Returns dimensions and format of an image clip.
 
 ---
 
-### image.resize(clip_id, opts)
+### image.resize(clip_id, width, height, opts?)
 
-Resizes an image clip and creates a new clip with the result.
+Resizes an image clip and returns the result as raw data.
 
 **Parameters:**
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | clip_id | number | Yes | Source clip ID |
-| opts | table | Yes | Resize options |
-| opts.width | number | No | Target width (0 to auto-scale). Max 10000. |
-| opts.height | number | No | Target height (0 to auto-scale). Max 10000. |
+| width | number | Yes | Target width (0 to auto-scale). Max 10000. |
+| height | number | Yes | Target height (0 to auto-scale). Max 10000. |
+| opts | table | No | Options |
 | opts.fit | string | No | Fit mode: `"fill"` (default), `"contain"`, or `"cover"` |
 
-**Returns:** Table with `id` (new clip ID), or `nil, error_message`
+**Returns:** Table with `data` (base64-encoded image) and `mime_type`, or `nil, error_message`
 
 ---
 
 ### image.overlay_text(clip_id, opts)
 
-Draws text onto an image clip and creates a new clip. Uses the embedded IBM Plex Mono font.
+Draws text onto an image clip. Uses the embedded IBM Plex Mono font.
 
 **Parameters:**
 | Name | Type | Required | Description |
@@ -1118,7 +1205,7 @@ Draws text onto an image clip and creates a new clip. Uses the embedded IBM Plex
 | opts.color | string | No | Hex color (e.g., `"#FF0000"`) |
 | opts.opacity | number | No | Text opacity (0.0 to 1.0) |
 
-**Returns:** Table with `id` (new clip ID), or `nil, error_message`
+**Returns:** Table with `data` (base64-encoded image) and `mime_type`, or `nil, error_message`
 
 ---
 
@@ -1143,11 +1230,40 @@ Creates a canvas and composites multiple image layers onto it. Up to 50 layers.
 | width | number | No | Resize layer width |
 | height | number | No | Resize layer height |
 
-**Returns:** Table with `id` (new clip ID), or `nil, error_message`
+**Returns:** Table with `data` (base64-encoded image) and `mime_type`, or `nil, error_message`
 
 ---
 
-### image.dominant_colors(clip_id, opts)
+### image.convert(clip_id, format, quality?)
+
+Converts an image clip to a different format.
+
+**Parameters:**
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| clip_id | number | Yes | Source clip ID |
+| format | string | Yes | Target format: `"png"`, `"jpeg"`, or `"jpg"` |
+| quality | number | No | JPEG quality (1-100). Only applies to JPEG output. |
+
+**Returns:** Table with `data` (base64-encoded image) and `mime_type`, or `nil, error_message`
+
+**Example:**
+```lua
+-- Convert PNG to JPEG at 85% quality
+local result = image.convert(123, "jpeg", 85)
+if result then
+  clips.create({
+    data = result.data,
+    data_encoding = "base64",
+    content_type = result.mime_type,
+    filename = "converted.jpg",
+  })
+end
+```
+
+---
+
+### image.dominant_colors(clip_id, count?)
 
 Extracts dominant colors from an image using k-means clustering.
 
@@ -1155,14 +1271,13 @@ Extracts dominant colors from an image using k-means clustering.
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | clip_id | number | Yes | Clip ID |
-| opts | table | No | Options |
-| opts.count | number | No | Number of colors to return (default: 5, max: 20) |
+| count | number | No | Number of colors to return (default: 5, max: 20) |
 
 **Returns:** Array of hex color strings, or `nil, error_message`
 
 ---
 
-### image.grayscale_pixels(clip_id, opts)
+### image.grayscale_pixels(clip_id, width, height)
 
 Returns a flat array of grayscale luminance values (0-255). Useful for ASCII art, perceptual hashing, or image analysis.
 
@@ -1170,9 +1285,8 @@ Returns a flat array of grayscale luminance values (0-255). Useful for ASCII art
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | clip_id | number | Yes | Clip ID |
-| opts | table | No | Options |
-| opts.width | number | No | Target sample width |
-| opts.height | number | No | Target sample height |
+| width | number | Yes | Target sample width |
+| height | number | Yes | Target sample height |
 
 **Returns:** Table with `width`, `height`, and `pixels` (flat array of luminance values), or `nil, error_message`
 
@@ -1203,7 +1317,7 @@ Compares two images and returns a similarity score plus a visual diff image.
 | clip_id1 | number | Yes | First image clip ID |
 | clip_id2 | number | Yes | Second image clip ID |
 
-**Returns:** Table with `score` (0.0 to 1.0, where 1.0 is identical) and `diff_image` (base64-encoded PNG of the visual diff), or `nil, error_message`
+**Returns:** Table with `similarity` (0.0 to 1.0, where 1.0 is identical), `diff_data` (base64-encoded PNG of the visual diff), and `diff_mime_type`, or `nil, error_message`
 
 ### Image Safety Limits
 

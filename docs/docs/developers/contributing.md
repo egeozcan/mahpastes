@@ -92,7 +92,7 @@ mahpastes/
 ├── wails.json           # Wails config
 ├── frontend/
 │   ├── index.html       # Main UI
-│   ├── js/              # JavaScript modules (12 files)
+│   ├── js/              # JavaScript modules (~20 files)
 │   ├── css/             # Styles
 │   └── package.json     # Frontend deps
 ├── e2e/                 # Playwright tests
@@ -127,7 +127,7 @@ mahpastes/
    }
    ```
 
-   **Note:** Wails has a ~49 method limit per bound struct. Plugin APIs go in `PluginService` (not `App`) to work around this.
+   **Note:** The App struct currently has 66+ methods and all bind correctly. Multiple services (`PluginService`, `ClipboardService`, `TransferService`) exist as separate structs for organizational clarity, not because of a binding limit.
 
 2. Regenerate bindings: `make bindings`
 

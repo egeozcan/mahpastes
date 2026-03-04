@@ -20,7 +20,9 @@ CREATE TABLE clips (
     filename TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     is_archived INTEGER DEFAULT 0,
-    expires_at DATETIME
+    expires_at DATETIME,
+    content_hash TEXT DEFAULT '',
+    metadata TEXT DEFAULT '{}'
 );
 ```
 
@@ -33,10 +35,12 @@ CREATE TABLE clips (
 | `created_at` | DATETIME | Timestamp of creation |
 | `is_archived` | INTEGER | 0 = active, 1 = archived |
 | `expires_at` | DATETIME | Auto-delete timestamp (nullable) |
+| `content_hash` | TEXT | SHA-256 hash for duplicate detection (empty string default) |
+| `metadata` | TEXT | JSON object of user-defined key-value pairs |
 
 **Indexes:**
 - Primary key on `id`
-- (No additional indexes currently)
+- Index on `content_hash` for duplicate group queries
 
 ### watched_folders
 
@@ -272,6 +276,9 @@ db.Exec("ALTER TABLE clips ADD COLUMN expires_at DATETIME")
 db.Exec("ALTER TABLE watched_folders ADD COLUMN auto_tag_id INTEGER")
 db.Exec("ALTER TABLE plugin_permissions ADD COLUMN pending_reconfirm INTEGER DEFAULT 0")
 db.Exec("ALTER TABLE plugins ADD COLUMN source_url TEXT DEFAULT ''")
+db.Exec("ALTER TABLE clips ADD COLUMN content_hash TEXT DEFAULT ''")
+db.Exec("ALTER TABLE clips ADD COLUMN metadata TEXT DEFAULT '{}'")
+db.Exec("CREATE INDEX IF NOT EXISTS idx_clips_content_hash ON clips(content_hash)")
 ```
 
 Migrations use `ALTER TABLE` which silently fails if column exists.

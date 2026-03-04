@@ -34,12 +34,19 @@ frontend/
 │   ├── transfer.js      Drag-out transfer state management
 │   ├── transfer-strategies.js  Platform-specific drag data adapters
 │   ├── modal-renderer.js       Plugin result modal rendering
+│   ├── metadata.js      Clip metadata UI
+│   ├── sort.js          Gallery sorting controls
+│   ├── tooltips.js      Tooltip management
+│   ├── shortcuts.js     Keyboard shortcut registration and context handling
+│   ├── plugin-review.js Plugin permission review UI
 │   ├── utils.js         Shared utilities
 │   └── wails-api.js     Wails bindings wrapper
 └── wailsjs/
-    ├── go/main/App.js           Generated App bindings
-    ├── go/main/PluginService.js Generated PluginService bindings
-    └── runtime/runtime.js       Wails runtime
+    ├── go/main/App.js               Generated App bindings
+    ├── go/main/PluginService.js     Generated PluginService bindings
+    ├── go/main/ClipboardService.js  Generated ClipboardService bindings
+    ├── go/main/TransferService.js   Generated TransferService bindings
+    └── runtime/runtime.js           Wails runtime
 ```
 
 ## Module Overview
