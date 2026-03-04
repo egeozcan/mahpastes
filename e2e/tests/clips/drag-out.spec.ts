@@ -177,7 +177,9 @@ test.describe('Drag Out', () => {
 
     expect(result.allowed).toBe(true);
     expect(result.uriList.startsWith('file://')).toBeTruthy();
-    expect(result.downloadURL).toContain(result.uriList);
+    // DownloadURL uses HTTP transfer URL on macOS/Windows (for CF_HDROP),
+    // so it won't contain the file:// URI. Just verify it has the filename.
+    expect(result.downloadURL).toContain(filename);
     expect(result.plain).toContain('clip_temp_files');
   });
 
