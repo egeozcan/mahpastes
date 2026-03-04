@@ -24,6 +24,10 @@ func main() {
 	clipboardService := NewClipboardService(app)
 	transferService := NewTransferService(app)
 
+	// Create the transfer file handler and store it on the app for token registration.
+	transferHandler := &TransferFileHandler{app: app}
+	app.transferHandler = transferHandler
+
 	// Create application with options
 	err := wails.Run(&options.App{
 		Title:     "mahpastes",
@@ -32,7 +36,8 @@ func main() {
 		MinWidth:  800,
 		MinHeight: 600,
 		AssetServer: &assetserver.Options{
-			Assets: assets,
+			Assets:  assets,
+			Handler: transferHandler,
 		},
 		BackgroundColour: &options.RGBA{R: 248, G: 250, B: 252, A: 1},
 		OnStartup:        app.startup,

@@ -3,7 +3,23 @@ package main
 import (
 	"errors"
 	"fmt"
+	"log"
+	"path/filepath"
 )
+
+func (a *App) generateTransferURL(absPath string) string {
+	filename := filepath.Base(absPath)
+	if a.transferHandler == nil {
+		return "/transfer/" + filename
+	}
+	token, err := generateTransferToken()
+	if err != nil {
+		log.Printf("Failed to generate transfer token: %v", err)
+		return "/transfer/" + filename
+	}
+	a.transferHandler.RegisterToken(token, filename)
+	return "/transfer/" + token + "/" + filename
+}
 
 func (a *App) prepareClipTransferItem(clipID int64, channel string) (*PreparedTransferItem, error) {
 	if a.tempStore == nil {
@@ -23,6 +39,7 @@ func (a *App) prepareClipTransferItem(clipID int64, channel string) (*PreparedTr
 		ClipID:         prepared.ClipID,
 		AbsPath:        prepared.AbsPath,
 		FileURL:        fileURLFromAbsPath(prepared.AbsPath),
+		TransferURL:    a.generateTransferURL(prepared.AbsPath),
 		Filename:       prepared.Filename,
 		ContentType:    prepared.ContentType,
 		LeaseExpiresAt: prepared.LeaseExpiresAt,
@@ -50,6 +67,7 @@ func (a *App) lookupPreparedClipTransferItem(clipID int64, channel string) (*Pre
 		ClipID:         prepared.ClipID,
 		AbsPath:        prepared.AbsPath,
 		FileURL:        fileURLFromAbsPath(prepared.AbsPath),
+		TransferURL:    a.generateTransferURL(prepared.AbsPath),
 		Filename:       prepared.Filename,
 		ContentType:    prepared.ContentType,
 		LeaseExpiresAt: prepared.LeaseExpiresAt,

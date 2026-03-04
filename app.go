@@ -34,13 +34,14 @@ const maxMetadataPairs = 50
 
 // App struct holds the application state
 type App struct {
-	ctx            context.Context
-	db             *sql.DB
-	tempDir        string
-	tempStore      *TempClipStore
-	mu             sync.Mutex
-	watcherManager *WatcherManager
-	pluginManager  *plugin.Manager
+	ctx             context.Context
+	db              *sql.DB
+	tempDir         string
+	tempStore       *TempClipStore
+	transferHandler *TransferFileHandler
+	mu              sync.Mutex
+	watcherManager  *WatcherManager
+	pluginManager   *plugin.Manager
 }
 
 // NewApp creates a new App instance

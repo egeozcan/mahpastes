@@ -164,6 +164,7 @@ export namespace main {
 	    enabled: boolean;
 	    strategy: string;
 	    reason: string;
+	    native_drag: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new DragCapability(source);
@@ -174,6 +175,7 @@ export namespace main {
 	        this.enabled = source["enabled"];
 	        this.strategy = source["strategy"];
 	        this.reason = source["reason"];
+	        this.native_drag = source["native_drag"];
 	    }
 	}
 	export class DuplicateGroup {
@@ -322,6 +324,7 @@ export namespace main {
 	    clip_id: number;
 	    abs_path: string;
 	    file_url: string;
+	    transfer_url: string;
 	    filename: string;
 	    content_type: string;
 	    // Go type: time
@@ -336,6 +339,7 @@ export namespace main {
 	        this.clip_id = source["clip_id"];
 	        this.abs_path = source["abs_path"];
 	        this.file_url = source["file_url"];
+	        this.transfer_url = source["transfer_url"];
 	        this.filename = source["filename"];
 	        this.content_type = source["content_type"];
 	        this.lease_expires_at = this.convertValues(source["lease_expires_at"], null);

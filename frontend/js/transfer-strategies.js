@@ -10,6 +10,14 @@ const transferStrategyAdapters = {
             const filename = preparedItem.filename || 'clip';
             const absPath = preparedItem.abs_path || '';
 
+            // For DownloadURL, prefer the HTTP transfer URL when available.
+            // Chromium's DownloadURL needs a real HTTP URL to produce CF_HDROP on Windows;
+            // file:/// URIs fail with a network error. The transfer URL includes a
+            // one-time token for authorization (e.g. /transfer/{token}/{filename}).
+            const downloadUrl = preparedItem.transfer_url
+                ? `${location.origin}${preparedItem.transfer_url}`
+                : fileUrl;
+
             // Populate multiple types for better app compatibility across WebView engines.
             // Some targets inspect URI types, others inspect plain text or DownloadURL.
             const textPayload = absPath || fileUrl;
@@ -18,7 +26,7 @@ const transferStrategyAdapters = {
                 ['URL', fileUrl],
                 ['text', fileUrl],
                 ['text/plain', textPayload],
-                ['DownloadURL', `${contentType}:${filename}:${fileUrl}`],
+                ['DownloadURL', `${contentType}:${filename}:${downloadUrl}`],
                 ['public.url', fileUrl],
                 ['public.file-url', fileUrl],
             ];
@@ -39,13 +47,6 @@ const transferStrategyAdapters = {
                 console.warn('Drag payload write failed for all transfer types');
             }
             return writes > 0;
-        }
-    },
-
-    // Placeholder for future Windows-specific outbound drag support.
-    'windows-filedrop-v1': {
-        setDragData() {
-            return false;
         }
     },
 
