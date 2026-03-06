@@ -22,6 +22,8 @@ export function BulkSetExpiration(arg1:Array<number>,arg2:number):Promise<void>;
 
 export function CancelExpiration(arg1:number):Promise<void>;
 
+export function ChooseApplication():Promise<string>;
+
 export function ConfirmRestoreBackup(arg1:string):Promise<void>;
 
 export function CopyToClipboard(arg1:string):Promise<void>;
@@ -75,6 +77,10 @@ export function GetWatchedFolders():Promise<Array<main.WatchedFolder>>;
 export function IsDirectory(arg1:string):Promise<boolean>;
 
 export function MergeDuplicates(arg1:number):Promise<void>;
+
+export function OpenClipWithApp(arg1:number,arg2:string):Promise<void>;
+
+export function OpenClipWithDefaultApp(arg1:number):Promise<void>;
 
 export function ProcessExistingFilesInFolder(arg1:number):Promise<void>;
 

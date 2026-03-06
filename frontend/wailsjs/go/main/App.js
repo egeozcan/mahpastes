@@ -42,6 +42,10 @@ export function CancelExpiration(arg1) {
   return window['go']['main']['App']['CancelExpiration'](arg1);
 }
 
+export function ChooseApplication() {
+  return window['go']['main']['App']['ChooseApplication']();
+}
+
 export function ConfirmRestoreBackup(arg1) {
   return window['go']['main']['App']['ConfirmRestoreBackup'](arg1);
 }
@@ -148,6 +152,14 @@ export function IsDirectory(arg1) {
 
 export function MergeDuplicates(arg1) {
   return window['go']['main']['App']['MergeDuplicates'](arg1);
+}
+
+export function OpenClipWithApp(arg1, arg2) {
+  return window['go']['main']['App']['OpenClipWithApp'](arg1, arg2);
+}
+
+export function OpenClipWithDefaultApp(arg1) {
+  return window['go']['main']['App']['OpenClipWithDefaultApp'](arg1);
 }
 
 export function ProcessExistingFilesInFolder(arg1) {
