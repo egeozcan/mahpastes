@@ -47,17 +47,22 @@ test.describe('Tooltips', () => {
 
   test('card menu items have tooltips', async ({ app }) => {
     const imagePath = await createTempFile(generateTestImage(), 'png');
+    const filename = path.basename(imagePath);
     await app.uploadFile(imagePath);
     await app.expectClipCount(1);
 
-    const menuTrigger = app.page.locator('[data-action="menu"]').first();
-    await menuTrigger.click();
+    // Check top-level menu item tooltip (delete is still top-level)
+    await app.openCardMenu(filename);
+    const deleteItem = app.page.locator('.card-menu-item[data-action="delete"]');
+    await expect(deleteItem).toHaveAttribute('title', /permanently delete/i);
+
+    // Hover copy submenu to check submenu item tooltip
+    const copyTrigger = app.page.locator(selectors.cardMenu.copyTrigger);
+    await copyTrigger.hover();
+    await app.page.locator(selectors.cardMenu.submenu).waitFor({ state: 'visible', timeout: 3000 });
 
     const copyPathItem = app.page.locator('.card-menu-item[data-action="copy-path"]');
     await expect(copyPathItem).toHaveAttribute('title');
-
-    const deleteItem = app.page.locator('.card-menu-item[data-action="delete"]');
-    await expect(deleteItem).toHaveAttribute('title', /permanently delete/i);
   });
 
   test('tooltips can be disabled via settings toggle', async ({ app }) => {

@@ -62,8 +62,8 @@ test.describe('Plugin UI Extensions', () => {
       const menu = app.page.locator(selectors.cardMenu.dropdown);
       await expect(menu).toBeVisible();
 
-      // Verify built-in actions
-      await expect(app.page.locator(selectors.cardMenu.copyPath)).toBeVisible();
+      // Verify built-in actions (copy is now a submenu trigger, delete is top-level)
+      await expect(app.page.locator(selectors.cardMenu.copyTrigger)).toBeVisible();
       await expect(app.page.locator(selectors.cardMenu.delete)).toBeVisible();
     });
 
@@ -96,17 +96,18 @@ test.describe('Plugin UI Extensions', () => {
       const imagePath = await createTempFile(generateTestImage(), 'png');
       await app.uploadFile(imagePath);
 
-      // Open menu
-      await app.openCardMenu(path.basename(imagePath));
+      // Open menu and hover Plugins submenu
+      await app.hoverPluginsSubmenu(path.basename(imagePath));
 
-      // Verify plugin actions appear
-      const menu = app.page.locator(selectors.cardMenu.dropdown);
-      const pluginItems = menu.locator('[data-action="plugin"]');
+      // Verify plugin actions appear in submenu
+      const pluginItems = app.page.locator(selectors.cardMenu.pluginAction);
       await expect(pluginItems.first()).toBeVisible();
 
-      // Should show divider before plugin actions
-      const divider = menu.locator('.card-menu-divider');
-      await expect(divider).toBeVisible();
+      // Should show divider before Plugins trigger in main menu
+      // There are now 2 dividers (after Open With, before Plugins) — check the last one
+      const menu = app.page.locator(selectors.cardMenu.dropdown);
+      const dividers = menu.locator(':scope > .card-menu-divider');
+      await expect(dividers.last()).toBeVisible();
     });
 
     test('should not show plugin actions in menu when no plugins enabled', async ({ app }) => {
@@ -117,10 +118,9 @@ test.describe('Plugin UI Extensions', () => {
       // Open menu
       await app.openCardMenu(path.basename(imagePath));
 
-      // Verify no plugin actions
-      const menu = app.page.locator(selectors.cardMenu.dropdown);
-      const pluginItems = menu.locator('[data-action="plugin"]');
-      await expect(pluginItems).toHaveCount(0);
+      // Verify no Plugins submenu trigger when no plugins are enabled
+      const pluginsTrigger = app.page.locator(selectors.cardMenu.pluginsTrigger);
+      await expect(pluginsTrigger).toHaveCount(0);
     });
   });
 

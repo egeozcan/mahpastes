@@ -248,12 +248,8 @@ export class AppHelper {
   }
 
   async copyClipPath(filename: string): Promise<void> {
-    const clip = await this.getClipByFilename(filename);
-    await clip.hover();
-    // Open the card menu
-    await clip.locator(selectors.clipActions.menuTrigger).click();
-    // Wait for menu to appear
-    await this.page.waitForSelector(selectors.cardMenu.dropdown);
+    // Open card menu and hover copy submenu to reveal copy actions
+    await this.hoverCopySubmenu(filename);
     // Click copy path
     await this.page.locator(selectors.cardMenu.copyPath).click();
   }
@@ -1923,6 +1919,20 @@ export class AppHelper {
     await this.page.locator('.card-menu-dropdown').waitFor({ state: 'hidden', timeout: 5000 });
   }
 
+  async hoverCopySubmenu(filename: string): Promise<void> {
+    await this.openCardMenu(filename);
+    const trigger = this.page.locator(selectors.cardMenu.copyTrigger);
+    await trigger.hover();
+    await this.page.locator(selectors.cardMenu.submenu).waitFor({ state: 'visible', timeout: 3000 });
+  }
+
+  async hoverPluginsSubmenu(filename: string): Promise<void> {
+    await this.openCardMenu(filename);
+    const trigger = this.page.locator(selectors.cardMenu.pluginsTrigger);
+    await trigger.hover();
+    await this.page.locator(selectors.cardMenu.submenu).waitFor({ state: 'visible', timeout: 3000 });
+  }
+
   async clickMergeDuplicatesInCardMenu(filename: string): Promise<void> {
     await this.openCardMenu(filename);
     await this.page.locator(selectors.cardMenu.mergeDuplicates).click();
@@ -1943,7 +1953,7 @@ export class AppHelper {
 
   async clickCardMenuPluginAction(pluginId: number, actionId: string): Promise<void> {
     const actionBtn = this.page.locator(
-      `${selectors.cardMenu.dropdown} [data-action="plugin"][data-plugin-id="${pluginId}"][data-action-id="${actionId}"]`
+      `.card-menu-submenu [data-action="plugin"][data-plugin-id="${pluginId}"][data-action-id="${actionId}"]`
     );
     await actionBtn.click();
   }

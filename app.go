@@ -1448,6 +1448,29 @@ func (a *App) CreateTempFile(id int64) (string, error) {
 	return item.AbsPath, nil
 }
 
+// OpenClipWithDefaultApp opens a clip file with the system default application
+func (a *App) OpenClipWithDefaultApp(id int64) error {
+	item, err := a.prepareClipTransferItem(id, "open_default")
+	if err != nil {
+		return err
+	}
+	return openFileWithDefaultApp(item.AbsPath)
+}
+
+// OpenClipWithApp opens a clip file with a specific application
+func (a *App) OpenClipWithApp(id int64, appPath string) error {
+	item, err := a.prepareClipTransferItem(id, "open_with")
+	if err != nil {
+		return err
+	}
+	return openFileWithApp(item.AbsPath, appPath)
+}
+
+// ChooseApplication opens a file dialog to select an application
+func (a *App) ChooseApplication() (string, error) {
+	return chooseApplicationDialog(a.ctx)
+}
+
 // DeleteAllTempFiles deletes all files from the temp directory
 func (a *App) DeleteAllTempFiles() error {
 	if a.tempStore == nil {

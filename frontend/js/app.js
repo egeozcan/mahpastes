@@ -651,6 +651,19 @@ window.addEventListener('load', async () => {
                 }
             }
         });
+        ShortcutManager.register({
+            id: 'clip-context-menu', label: 'Open Context Menu', category: 'clip',
+            defaultKey: 'mod+Enter', context: 'clip',
+            callback: () => {
+                const focused = document.querySelector('.clip-focused');
+                if (!focused) return;
+                const clipId = focused.dataset.id;
+                const menuBtn = focused.querySelector('[data-action="menu"]');
+                if (menuBtn && clipId) {
+                    menuBtn.click();
+                }
+            }
+        });
 
         // Bulk actions
         ShortcutManager.register({
@@ -706,9 +719,8 @@ window.addEventListener('load', async () => {
             defaultKey: 'Escape', context: 'lightbox',
             callback: () => {
                 // Close any open menu first
-                const fileMenu = document.getElementById('lightbox-file-menu');
-                if (fileMenu) {
-                    closeLightboxFileMenu();
+                if (ContextMenu.isOpen()) {
+                    ContextMenu.close();
                     const trigger = document.getElementById('lightbox-file-menu-trigger');
                     if (trigger) trigger.focus();
                     return;
@@ -898,19 +910,6 @@ document.addEventListener('click', (e) => {
 
     if (!isMenuClick && !isTriggerClick) {
         closeLightboxPluginMenu();
-    }
-});
-
-// Close lightbox file menu when clicking outside
-document.addEventListener('click', (e) => {
-    const menu = document.getElementById('lightbox-file-menu');
-    if (!menu) return;
-
-    const isMenuClick = e.target.closest('#lightbox-file-menu');
-    const isTriggerClick = e.target.closest('#lightbox-file-menu-trigger');
-
-    if (!isMenuClick && !isTriggerClick) {
-        closeLightboxFileMenu();
     }
 });
 

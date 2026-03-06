@@ -69,9 +69,14 @@ export const selectors = {
   // Card menu dropdown
   cardMenu: {
     dropdown: '.card-menu-dropdown',
-    copyPath: '.card-menu-dropdown [data-action="copy-path"]',
-    copyFile: '.card-menu-dropdown [data-action="copy-file"]',
-    copyContents: '.card-menu-dropdown [data-action="copy-contents"]',
+    open: '.card-menu-dropdown [data-action="open"]',
+    openWith: '.card-menu-dropdown [data-action="open-with"]',
+    copyTrigger: '[data-submenu="copy"]',
+    pluginsTrigger: '[data-submenu="plugins"]',
+    submenu: '.card-menu-submenu',
+    copyPath: '.card-menu-submenu [data-action="copy-path"]',
+    copyFile: '.card-menu-submenu [data-action="copy-file"]',
+    copyContents: '.card-menu-submenu [data-action="copy-contents"]',
     save: '.card-menu-dropdown [data-action="save-file"]',
     edit: '.card-menu-dropdown [data-action="edit"]',
     tags: '.card-menu-dropdown [data-action="tags"]',
@@ -81,7 +86,7 @@ export const selectors = {
     delete: '.card-menu-dropdown [data-action="delete"]',
     mergeDuplicates: '.card-menu-dropdown [data-action="merge-duplicates"]',
     metadata: '.card-menu-dropdown [data-action="metadata"]',
-    pluginAction: '.card-menu-dropdown [data-action="plugin"]',
+    pluginAction: '.card-menu-submenu [data-action="plugin"]',
     divider: '.card-menu-dropdown .card-menu-divider',
   },
 

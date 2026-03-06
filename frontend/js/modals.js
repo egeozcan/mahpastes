@@ -736,8 +736,7 @@ function renderLightboxFileActions() {
 
     btn.addEventListener('click', (e) => {
         e.stopPropagation();
-        const menu = document.getElementById('lightbox-file-menu');
-        if (menu) {
+        if (ContextMenu.isOpen()) {
             closeLightboxFileMenu();
         } else {
             openLightboxFileMenu(btn);
@@ -747,149 +746,52 @@ function renderLightboxFileActions() {
     container.appendChild(btn);
 }
 
-const lightboxFileMenuTooltips = {
-    'copy-path': 'Create a temp file and copy its path to clipboard',
-    'copy-file': 'Place file on clipboard for pasting into other apps',
-    'copy-contents': 'Copy the raw text or data to clipboard',
-    'save-file': 'Save a copy to your Downloads folder',
-    'edit': 'Open in the built-in image editor for annotation',
-    'tags': 'Add or remove tags',
-    'archive': 'Move to archive without deleting',
-    'delete': 'Permanently delete -- this cannot be undone',
-};
-
 function openLightboxFileMenu(trigger) {
-    closeLightboxFileMenu(true);
-
     const clip = imageClips[currentLightboxIndex];
     if (!clip) return;
 
-    const menu = document.createElement('div');
-    menu.id = 'lightbox-file-menu';
-    menu.className = 'lightbox-file-menu';
-    menu.setAttribute('role', 'menu');
-
-    const ct = clip.content_type || '';
-    const actions = [
-        { id: 'copy-path', label: 'Copy Path', icon: 'copy-path' },
-        { id: 'copy-file', label: 'Copy File', icon: 'copy-file' },
-    ];
-
-    if (ct.startsWith('text/') || ct === 'application/json' || ct.startsWith('image/')) {
-        actions.push({ id: 'copy-contents', label: 'Copy Contents', icon: 'copy-contents' });
-    }
-
-    actions.push({ id: 'save-file', label: 'Save', icon: 'save' });
-
-    if (isEditableType(ct)) {
-        actions.push({ id: 'edit', label: 'Edit', icon: 'edit' });
-    }
-
-    actions.push({ id: 'tags', label: 'Tags', icon: 'tags' });
-    actions.push({ id: 'archive', label: isViewingArchive ? 'Restore' : 'Archive', icon: isViewingArchive ? 'restore' : 'archive' });
-
-    // Divider before delete
-    const divider = document.createElement('div');
-    divider.className = 'lightbox-file-menu-divider';
-
-    for (const action of actions) {
-        const item = document.createElement('button');
-        item.className = 'lightbox-file-menu-item';
-        item.setAttribute('role', 'menuitem');
-        item.dataset.action = action.id;
-        item.innerHTML = `${getMenuIcon(action.icon)}<span>${action.label}</span>`;
-        let tooltip = lightboxFileMenuTooltips[action.id];
-        if (action.id === 'archive' && isViewingArchive) {
-            tooltip = 'Move back from archive';
-        }
-        if (tooltip) item.title = tooltip;
-
-        item.addEventListener('click', (e) => {
-            e.stopPropagation();
-            closeLightboxFileMenu();
-            handleLightboxFileAction(action.id);
-        });
-
-        menu.appendChild(item);
-    }
-
-    menu.appendChild(divider);
-
-    // Delete action (danger)
-    const deleteItem = document.createElement('button');
-    deleteItem.className = 'lightbox-file-menu-item lightbox-file-menu-item-danger';
-    deleteItem.setAttribute('role', 'menuitem');
-    deleteItem.dataset.action = 'delete';
-    deleteItem.innerHTML = `${getMenuIcon('delete')}<span>Delete</span>`;
-    deleteItem.title = lightboxFileMenuTooltips['delete'];
-    deleteItem.addEventListener('click', (e) => {
-        e.stopPropagation();
-        closeLightboxFileMenu();
-        handleLightboxFileAction('delete');
-    });
-    menu.appendChild(deleteItem);
-
-    document.body.appendChild(menu);
-    positionLightboxPopupMenu(menu, trigger);
-
-    // Keyboard navigation
-    const items = menu.querySelectorAll('.lightbox-file-menu-item');
-    menu.addEventListener('keydown', (e) => {
-        const focused = document.activeElement;
-        const itemArray = Array.from(items);
-        const idx = itemArray.indexOf(focused);
-
-        if (e.key === 'ArrowDown') {
-            e.preventDefault();
-            const next = idx < itemArray.length - 1 ? idx + 1 : 0;
-            itemArray[next].focus();
-        } else if (e.key === 'ArrowUp') {
-            e.preventDefault();
-            const prev = idx > 0 ? idx - 1 : itemArray.length - 1;
-            itemArray[prev].focus();
-        } else if (e.key === 'Escape') {
-            e.preventDefault();
-            e.stopPropagation();
-            closeLightboxFileMenu();
-            trigger.focus();
-        } else if (e.key === 'Tab') {
-            e.preventDefault();
-            closeLightboxFileMenu();
+    const items = buildMenuItemList(clip);
+    ContextMenu.open(items, clip.id, trigger, (action, clipId, item) => {
+        if (action === 'plugin') {
+            handlePluginCardAction({
+                action: 'plugin',
+                pluginId: item.dataset.pluginId,
+                actionId: item.dataset.actionId,
+                clipId: clipId,
+                hasOptions: item.dataset.hasOptions,
+            });
+        } else {
+            handleLightboxFileAction(action);
         }
     });
-
-    // Animate in
-    requestAnimationFrame(() => {
-        menu.classList.add('active');
-    });
-
-    trigger.setAttribute('aria-expanded', 'true');
-    items[0]?.focus();
 }
 
-function closeLightboxFileMenu(immediate) {
-    const menu = document.getElementById('lightbox-file-menu');
-    if (!menu) return;
-
-    const trigger = document.getElementById('lightbox-file-menu-trigger');
-    if (trigger) trigger.setAttribute('aria-expanded', 'false');
-
-    if (immediate) {
-        menu.remove();
-        return;
-    }
-
-    menu.classList.remove('active');
-    setTimeout(() => {
-        menu.remove();
-    }, 150);
+function closeLightboxFileMenu(skipFocus) {
+    ContextMenu.close();
 }
 
-function handleLightboxFileAction(action) {
+async function handleLightboxFileAction(action) {
     const clip = imageClips[currentLightboxIndex];
     if (!clip) return;
 
     switch (action) {
+        case 'open':
+            try {
+                await window.go.main.App.OpenClipWithDefaultApp(clip.id);
+            } catch (err) {
+                showToast('Failed to open clip.');
+            }
+            break;
+        case 'open-with':
+            try {
+                const appPath = await window.go.main.App.ChooseApplication();
+                if (appPath) {
+                    await window.go.main.App.OpenClipWithApp(clip.id, appPath);
+                }
+            } catch (err) {
+                showToast('Failed to open clip.');
+            }
+            break;
         case 'copy-path':
             saveTempFile(clip.id);
             break;
@@ -911,9 +813,34 @@ function handleLightboxFileAction(action) {
             openTagPopover(clip.id, trigger);
             break;
         }
+        case 'metadata':
+            openMetadataModal(clip.id, {
+                filename: clip.filename || '',
+                content_type: clip.content_type || '',
+                size: clip.size || 0,
+                created_at: clip.created_at || '',
+            });
+            break;
+        case 'set-expiration': {
+            const trigger = document.getElementById('lightbox-file-menu-trigger');
+            openExpirationPopover(clip.id, trigger);
+            break;
+        }
+        case 'cancel-expiration':
+            cancelExpiration(clip.id);
+            break;
         case 'archive':
             closeLightbox();
             toggleArchiveClip(clip.id);
+            break;
+        case 'merge-duplicates':
+            try {
+                await window.go.main.App.MergeDuplicates(clip.id);
+                showToast('Merged duplicates', 'success');
+                loadClips();
+            } catch (err) {
+                showToast('Failed to merge duplicates', 'error');
+            }
             break;
         case 'delete':
             closeLightbox();

@@ -198,6 +198,9 @@ const ShortcutManager = (() => {
     function handleKeydown(e) {
         if (!initialized) return;
 
+        // Don't intercept keys when a context menu is open — it has its own keyboard handler
+        if (typeof ContextMenu !== 'undefined' && ContextMenu.isOpen()) return;
+
         // Input guard: suppress shortcuts when typing in form fields (except Escape)
         const tag = e.target.tagName;
         const isEditable = tag === 'INPUT' || tag === 'TEXTAREA' || e.target.isContentEditable;

@@ -90,6 +90,10 @@ function getMenuIcon(name) {
         'set-expiration': '<path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>',
         'cancel-expiration': '<path stroke-linecap="round" stroke-linejoin="round" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"/>',
         'merge': '<path stroke-linecap="round" stroke-linejoin="round" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"/>',
+        'open': '<path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25"/>',
+        'open-with': '<path stroke-linecap="round" stroke-linejoin="round" d="M3.75 9.776c.112-.017.227-.026.344-.026h15.812c.117 0 .232.009.344.026m-16.5 0a2.25 2.25 0 00-1.883 2.542l.857 6a2.25 2.25 0 002.227 1.932H19.05a2.25 2.25 0 002.227-1.932l.857-6a2.25 2.25 0 00-1.883-2.542m-16.5 0V6A2.25 2.25 0 016 3.75h3.879a1.5 1.5 0 011.06.44l2.122 2.12a1.5 1.5 0 001.06.44H18A2.25 2.25 0 0120.25 9v.776"/>',
+        'copy': '<path stroke-linecap="round" stroke-linejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 01-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 011.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 00-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 01-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 00-3.375-3.375h-1.5a1.125 1.125 0 01-1.125-1.125v-1.5a3.375 3.375 0 00-3.375-3.375H9.75"/>',
+        'plugins': '<path stroke-linecap="round" stroke-linejoin="round" d="M14.25 6.087c0-.355.186-.676.401-.959.221-.29.349-.634.349-1.003 0-1.036-1.007-1.875-2.25-1.875s-2.25.84-2.25 1.875c0 .369.128.713.349 1.003.215.283.401.604.401.959v0a.64.64 0 01-.657.643 48.39 48.39 0 01-4.163-.3c.186 1.613.293 3.25.315 4.907a.656.656 0 01-.658.663v0c-.355 0-.676-.186-.959-.401a1.647 1.647 0 00-1.003-.349c-1.036 0-1.875 1.007-1.875 2.25s.84 2.25 1.875 2.25c.369 0 .713-.128 1.003-.349.283-.215.604-.401.959-.401v0c.31 0 .555.26.532.57a48.039 48.039 0 01-.642 5.056c1.518.19 3.058.309 4.616.354a.64.64 0 00.657-.643v0c0-.355-.186-.676-.401-.959a1.647 1.647 0 01-.349-1.003c0-1.035 1.008-1.875 2.25-1.875 1.243 0 2.25.84 2.25 1.875 0 .369-.128.713-.349 1.003-.215.283-.401.604-.401.959v0c0 .333.277.599.61.58a48.1 48.1 0 005.427-.63 48.05 48.05 0 00.582-4.717.532.532 0 00-.533-.57v0c-.355 0-.676.186-.959.401-.29.221-.634.349-1.003.349-1.035 0-1.875-1.007-1.875-2.25s.84-2.25 1.875-2.25c.37 0 .713.128 1.003.349.283.215.604.401.959.401v0a.656.656 0 00.658-.663 48.422 48.422 0 00-.37-5.36c-1.886.342-3.81.574-5.766.689a.578.578 0 01-.61-.58v0z"/>',
     };
     const path = icons[name];
     if (!path) return '';
@@ -97,6 +101,8 @@ function getMenuIcon(name) {
 }
 
 const cardMenuTooltips = {
+    'open': 'Open with your default application',
+    'open-with': 'Choose an application to open this clip',
     'copy-path': 'Create a temp file and copy its path to clipboard',
     'copy-file': 'Place file on clipboard for pasting into other apps',
     'copy-contents': 'Copy the raw text or data to clipboard',
@@ -111,208 +117,140 @@ const cardMenuTooltips = {
     'delete': 'Permanently delete -- this cannot be undone',
 };
 
-// Render card menu dropdown
-function renderCardMenu(clipId, button, clip) {
-    // Close any existing menu
-    closeCardMenu();
-
-    const menu = document.createElement('div');
-    menu.className = 'card-menu-dropdown fixed';
-    menu.setAttribute('role', 'menu');
-    menu.setAttribute('aria-label', 'Clip actions');
-    menu.dataset.clipId = clipId;
-
-    // Built-in actions
+// Build the menu item list for ContextMenu.open()
+function buildMenuItemList(clip) {
     const ct = clip.content_type || '';
-    const builtInActions = [
-        { id: 'copy-path', label: 'Copy Path', icon: 'copy-path' },
-        { id: 'copy-file', label: 'Copy File', icon: 'copy-file' },
+    const items = [];
+
+    // Open actions (top of menu)
+    items.push({ id: 'open', label: 'Open', iconHtml: getMenuIcon('open'), tooltip: cardMenuTooltips['open'] });
+    items.push({ id: 'open-with', label: 'Open With\u2026', iconHtml: getMenuIcon('open-with'), tooltip: cardMenuTooltips['open-with'] });
+
+    items.push({ type: 'divider' });
+
+    // Copy submenu
+    const copyChildren = [
+        { id: 'copy-path', label: 'Path', iconHtml: getMenuIcon('copy-path'), tooltip: cardMenuTooltips['copy-path'] },
+        { id: 'copy-file', label: 'File', iconHtml: getMenuIcon('copy-file'), tooltip: cardMenuTooltips['copy-file'] },
     ];
-
     if (ct.startsWith('text/') || ct === 'application/json' || ct.startsWith('image/')) {
-        builtInActions.push({ id: 'copy-contents', label: 'Copy Contents', icon: 'copy-contents' });
+        copyChildren.push({ id: 'copy-contents', label: 'Contents', iconHtml: getMenuIcon('copy-contents'), tooltip: cardMenuTooltips['copy-contents'] });
     }
+    items.push({ type: 'submenu', label: 'Copy', iconHtml: getMenuIcon('copy'), submenuId: 'copy', children: copyChildren });
 
-    builtInActions.push({ id: 'save-file', label: 'Save', icon: 'save' });
+    items.push({ id: 'save-file', label: 'Save', iconHtml: getMenuIcon('save'), tooltip: cardMenuTooltips['save-file'] });
 
-    // Add edit option for editable types
     if (isEditableType(ct)) {
-        builtInActions.push({ id: 'edit', label: 'Edit', icon: 'edit' });
+        items.push({ id: 'edit', label: 'Edit', iconHtml: getMenuIcon('edit'), tooltip: cardMenuTooltips['edit'] });
     }
 
-    builtInActions.push({ id: 'tags', label: 'Tags', icon: 'tags' });
-    builtInActions.push({ id: 'metadata', label: 'Metadata', icon: 'metadata' });
+    items.push({ id: 'tags', label: 'Tags', iconHtml: getMenuIcon('tags'), tooltip: cardMenuTooltips['tags'] });
+    items.push({ id: 'metadata', label: 'Metadata', iconHtml: getMenuIcon('metadata'), tooltip: cardMenuTooltips['metadata'] });
+
     if (clip.expires_at) {
-        builtInActions.push({ id: 'cancel-expiration', label: 'Cancel Expiration', icon: 'cancel-expiration' });
+        items.push({ id: 'cancel-expiration', label: 'Cancel Expiration', iconHtml: getMenuIcon('cancel-expiration'), tooltip: cardMenuTooltips['cancel-expiration'] });
     } else {
-        builtInActions.push({ id: 'set-expiration', label: 'Set Expiration', icon: 'set-expiration' });
+        items.push({ id: 'set-expiration', label: 'Set Expiration', iconHtml: getMenuIcon('set-expiration'), tooltip: cardMenuTooltips['set-expiration'] });
     }
-    builtInActions.push({ id: 'archive', label: isViewingArchive ? 'Restore' : 'Archive', icon: isViewingArchive ? 'restore' : 'archive' });
-    if (clip.duplicate_count > 0) {
-        builtInActions.push({ id: 'merge-duplicates', label: 'Merge Duplicates', icon: 'merge' });
-    }
-    builtInActions.push({ id: 'delete', label: 'Delete', icon: 'delete', danger: true });
 
-    // Render built-in actions
-    builtInActions.forEach(action => {
-        const item = document.createElement('button');
-        item.className = `card-menu-item${action.danger ? ' card-menu-item-danger' : ''}`;
-        item.setAttribute('role', 'menuitem');
-        item.dataset.action = action.id;
-        item.dataset.clipId = clipId;
-        item.innerHTML = `${getMenuIcon(action.icon)}<span>${action.label}</span>`;
-        let tooltip = cardMenuTooltips[action.id];
-        if (action.id === 'archive' && action.label === 'Restore') {
-            tooltip = 'Move back from archive';
-        }
-        if (tooltip) item.title = tooltip;
-        menu.appendChild(item);
+    items.push({
+        id: 'archive',
+        label: isViewingArchive ? 'Restore' : 'Archive',
+        iconHtml: getMenuIcon(isViewingArchive ? 'restore' : 'archive'),
+        tooltip: isViewingArchive ? 'Move back from archive' : cardMenuTooltips['archive'],
     });
 
-    // Add plugin actions if any
+    if (clip.duplicate_count > 0) {
+        items.push({ id: 'merge-duplicates', label: 'Merge Duplicates', iconHtml: getMenuIcon('merge'), tooltip: cardMenuTooltips['merge-duplicates'] });
+    }
+
+    items.push({ id: 'delete', label: 'Delete', iconHtml: getMenuIcon('delete'), danger: true, tooltip: cardMenuTooltips['delete'] });
+
+    // Plugin actions submenu
     if (pluginUIActions && pluginUIActions.card_actions && pluginUIActions.card_actions.length > 0) {
         const applicableActions = pluginUIActions.card_actions.filter(action =>
             shouldShowPluginAction(action, clip)
         );
-
         if (applicableActions.length > 0) {
-            // Add divider
-            const divider = document.createElement('hr');
-            divider.className = 'card-menu-divider';
-            menu.appendChild(divider);
-
-            // Render plugin actions
-            applicableActions.forEach(action => {
-                const item = document.createElement('button');
-                item.className = 'card-menu-item';
-                item.setAttribute('role', 'menuitem');
-                item.dataset.action = 'plugin';
-                item.dataset.pluginId = action.plugin_id;
-                item.dataset.actionId = action.id;
-                item.dataset.clipId = clipId;
-                item.dataset.hasOptions = action.options && action.options.length > 0 ? 'true' : 'false';
-
-                let iconHtml = '';
-                if (typeof getPluginIcon === 'function') {
-                    iconHtml = getPluginIcon(action.icon) || getPluginIcon('bolt') || '';
-                }
-
-                item.innerHTML = `${iconHtml}<span>${escapeHTML(action.label)}</span>`;
-                menu.appendChild(item);
-            });
+            items.push({ type: 'divider' });
+            const pluginChildren = applicableActions.map(action => ({
+                id: 'plugin',
+                label: escapeHTML(action.label),
+                pluginId: action.plugin_id,
+                actionId: action.id,
+                hasOptions: action.options && action.options.length > 0,
+                iconHtml: typeof getPluginIcon === 'function'
+                    ? (getPluginIcon(action.icon) || getPluginIcon('bolt') || '')
+                    : '',
+            }));
+            items.push({ type: 'submenu', label: 'Plugins', iconHtml: getMenuIcon('plugins'), submenuId: 'plugins', children: pluginChildren });
         }
     }
 
-    // Position the menu
-    document.body.appendChild(menu);
-    positionCardMenu(menu, button);
-
-    // Setup keyboard navigation
-    setupMenuKeyboard(menu);
-
-    // Update button state
-    button.setAttribute('aria-expanded', 'true');
-
-    // Focus first item
-    const firstItem = menu.querySelector('[role="menuitem"]');
-    if (firstItem) firstItem.focus();
-
-    return menu;
+    return items;
 }
 
-// Position the menu relative to the button
-function positionCardMenu(menu, button) {
-    const buttonRect = button.getBoundingClientRect();
-    const menuRect = menu.getBoundingClientRect();
-    const pad = 8;
-    const gap = 4;
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
+// Handle plugin card action dispatch (extracted from app.js event delegation)
+function handlePluginCardAction(dataset) {
+    const pluginId = Number(dataset.pluginId);
+    const actionId = dataset.actionId;
+    const clipId = dataset.clipId;
+    const hasOptions = dataset.hasOptions === 'true';
 
-    // Horizontal: align right edge to button, clamp within viewport
-    let left = buttonRect.right - menuRect.width;
-    if (left < pad) left = pad;
-    if (left + menuRect.width > vw - pad) left = vw - menuRect.width - pad;
+    // Verify plugin UI actions are loaded
+    if (!pluginUIActions || !pluginUIActions.card_actions) {
+        console.error('Plugin UI actions not loaded');
+        if (typeof showToast === 'function') {
+            showToast('Plugin actions not available. Try refreshing the page.', 'error');
+        }
+        return;
+    }
 
-    // Vertical: prefer below, then above, then constrain with scroll
-    const spaceBelow = vh - buttonRect.bottom - gap - pad;
-    const spaceAbove = buttonRect.top - gap - pad;
-    let top;
-    let maxHeight = null;
-
-    if (spaceBelow >= menuRect.height) {
-        top = buttonRect.bottom + gap;
-    } else if (spaceAbove >= menuRect.height) {
-        top = buttonRect.top - menuRect.height - gap;
-    } else if (spaceBelow >= spaceAbove) {
-        // More room below — pin below button and scroll
-        top = buttonRect.bottom + gap;
-        maxHeight = spaceBelow;
+    if (hasOptions && typeof openPluginOptionsDialog === 'function') {
+        const pluginAction = pluginUIActions.card_actions.find(
+            a => a.plugin_id === pluginId && a.id === actionId
+        );
+        if (pluginAction) {
+            openPluginOptionsDialog(pluginAction, [Number(clipId)]);
+        } else {
+            console.error('Could not find plugin action:', pluginId, actionId);
+            if (typeof showToast === 'function') {
+                showToast('Plugin action not found', 'error');
+            }
+        }
+    } else if (typeof executePluginAction === 'function') {
+        const pluginAction = pluginUIActions.card_actions.find(
+            a => a.plugin_id === pluginId && a.id === actionId
+        );
+        executePluginAction(pluginId, actionId, [Number(clipId)], {}, pluginAction && pluginAction.async);
     } else {
-        // More room above — pin above with scroll
-        maxHeight = spaceAbove;
-        top = buttonRect.top - gap - maxHeight;
-    }
-
-    // Final clamp: ensure menu never exceeds viewport bounds
-    if (top + menuRect.height > vh - pad) {
-        top = vh - menuRect.height - pad;
-    }
-    if (top < pad) {
-        top = pad;
-        maxHeight = vh - 2 * pad;
-    }
-
-    menu.style.top = `${top}px`;
-    menu.style.left = `${left}px`;
-
-    if (maxHeight !== null) {
-        menu.style.maxHeight = `${maxHeight}px`;
-        menu.style.overflowY = 'auto';
+        console.error('Plugin action handler not available');
+        if (typeof showToast === 'function') {
+            showToast('Plugin system not initialized', 'error');
+        }
     }
 }
 
-// Setup keyboard navigation for menu
-function setupMenuKeyboard(menu) {
-    const items = Array.from(menu.querySelectorAll('[role="menuitem"]'));
-    let currentIndex = 0;
-
-    menu.addEventListener('keydown', (e) => {
-        switch (e.key) {
-            case 'ArrowDown':
-                e.preventDefault();
-                currentIndex = (currentIndex + 1) % items.length;
-                items[currentIndex].focus();
-                break;
-            case 'ArrowUp':
-                e.preventDefault();
-                currentIndex = (currentIndex - 1 + items.length) % items.length;
-                items[currentIndex].focus();
-                break;
-            case 'Escape':
-                e.preventDefault();
-                closeCardMenu();
-                break;
-            case 'Tab':
-                e.preventDefault();
-                closeCardMenu();
-                break;
+// Render card menu dropdown via ContextMenu
+function renderCardMenu(clipId, button, clip) {
+    const items = buildMenuItemList(clip);
+    return ContextMenu.open(items, clipId, button, (action, id, item) => {
+        if (action === 'plugin') {
+            handlePluginCardAction({
+                pluginId: item.dataset.pluginId,
+                actionId: item.dataset.actionId,
+                clipId: id,
+                hasOptions: item.dataset.hasOptions,
+            });
+        } else {
+            handleCardAction(action, id, button);
         }
     });
 }
 
 // Close any open card menu
 function closeCardMenu() {
-    const existingMenu = document.querySelector('.card-menu-dropdown');
-    if (existingMenu) {
-        // Reset the trigger button state
-        const clipId = existingMenu.dataset.clipId;
-        const triggerBtn = document.querySelector(`[data-action="menu"][data-id="${clipId}"]`);
-        if (triggerBtn) {
-            triggerBtn.setAttribute('aria-expanded', 'false');
-        }
-        existingMenu.remove();
-    }
+    ContextMenu.close();
 }
 
 // Handle built-in card actions
@@ -321,6 +259,23 @@ async function handleCardAction(action, clipId, triggerButton) {
     const id = Number(clipId);
 
     switch (action) {
+        case 'open':
+            try {
+                await window.go.main.App.OpenClipWithDefaultApp(id);
+            } catch (err) {
+                showToast('Failed to open clip.');
+            }
+            break;
+        case 'open-with':
+            try {
+                const appPath = await window.go.main.App.ChooseApplication();
+                if (appPath) {
+                    await window.go.main.App.OpenClipWithApp(id, appPath);
+                }
+            } catch (err) {
+                showToast('Failed to open clip.');
+            }
+            break;
         case 'copy-path':
             saveTempFile(id);
             break;

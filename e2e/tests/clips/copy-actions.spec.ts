@@ -14,7 +14,7 @@ test.describe('Copy Actions', () => {
       const filename = path.basename(imagePath);
       await app.uploadFile(imagePath);
 
-      await app.openCardMenu(filename);
+      await app.hoverCopySubmenu(filename);
       const copyFileBtn = app.page.locator(selectors.cardMenu.copyFile);
       await expect(copyFileBtn).toBeVisible();
     });
@@ -24,7 +24,7 @@ test.describe('Copy Actions', () => {
       const filename = path.basename(textPath);
       await app.uploadFile(textPath);
 
-      await app.openCardMenu(filename);
+      await app.hoverCopySubmenu(filename);
       const copyFileBtn = app.page.locator(selectors.cardMenu.copyFile);
       await expect(copyFileBtn).toBeVisible();
     });
@@ -34,7 +34,7 @@ test.describe('Copy Actions', () => {
       const filename = path.basename(imagePath);
       await app.uploadFile(imagePath);
 
-      await app.openCardMenu(filename);
+      await app.hoverCopySubmenu(filename);
       await app.page.locator(selectors.cardMenu.copyFile).click();
       await app.expectToast('File copied to clipboard!');
     });
@@ -54,7 +54,7 @@ test.describe('Copy Actions', () => {
         }
       }, clipId);
 
-      await app.openCardMenu(filename);
+      await app.hoverCopySubmenu(filename);
       await app.page.locator(selectors.cardMenu.copyFile).click();
       const toast = app.page.locator(selectors.toast.message);
       await expect(toast).toBeVisible();
@@ -68,7 +68,7 @@ test.describe('Copy Actions', () => {
       const filename = path.basename(textPath);
       await app.uploadFile(textPath);
 
-      await app.openCardMenu(filename);
+      await app.hoverCopySubmenu(filename);
       const copyContentsBtn = app.page.locator(selectors.cardMenu.copyContents);
       await expect(copyContentsBtn).toBeVisible();
     });
@@ -78,7 +78,7 @@ test.describe('Copy Actions', () => {
       const filename = path.basename(imagePath);
       await app.uploadFile(imagePath);
 
-      await app.openCardMenu(filename);
+      await app.hoverCopySubmenu(filename);
       const copyContentsBtn = app.page.locator(selectors.cardMenu.copyContents);
       await expect(copyContentsBtn).toBeVisible();
     });
@@ -90,7 +90,7 @@ test.describe('Copy Actions', () => {
       const filename = path.basename(pdfPath);
       await app.uploadFile(pdfPath);
 
-      await app.openCardMenu(filename);
+      await app.hoverCopySubmenu(filename);
       const copyContentsBtn = app.page.locator(selectors.cardMenu.copyContents);
       await expect(copyContentsBtn).not.toBeVisible();
     });
@@ -100,7 +100,7 @@ test.describe('Copy Actions', () => {
       const filename = path.basename(textPath);
       await app.uploadFile(textPath);
 
-      await app.openCardMenu(filename);
+      await app.hoverCopySubmenu(filename);
       await app.page.locator(selectors.cardMenu.copyContents).click();
       await app.expectToast('Contents copied to clipboard!');
     });
@@ -115,14 +115,19 @@ test.describe('Copy Actions', () => {
       // Open lightbox
       await app.openLightbox(filename);
 
-      // Open the file actions menu
+      // Open the file actions menu (now uses shared ContextMenu)
       const trigger = app.page.locator('#lightbox-file-menu-trigger');
       await trigger.click();
-      await app.page.locator('#lightbox-file-menu').waitFor({ state: 'visible', timeout: 5000 });
+      await app.page.locator(selectors.cardMenu.dropdown).waitFor({ state: 'visible', timeout: 5000 });
 
-      // Verify both actions are present
-      const copyFileBtn = app.page.locator('#lightbox-file-menu [data-action="copy-file"]');
-      const copyContentsBtn = app.page.locator('#lightbox-file-menu [data-action="copy-contents"]');
+      // Open Copy submenu via dispatchEvent since the lightbox backdrop intercepts pointer events
+      const copyTrigger = app.page.locator(selectors.cardMenu.copyTrigger);
+      await copyTrigger.dispatchEvent('mouseenter');
+      await app.page.locator(selectors.cardMenu.submenu).waitFor({ state: 'visible', timeout: 3000 });
+
+      // Verify both actions are present in the submenu
+      const copyFileBtn = app.page.locator(selectors.cardMenu.copyFile);
+      const copyContentsBtn = app.page.locator(selectors.cardMenu.copyContents);
       await expect(copyFileBtn).toBeVisible();
       await expect(copyContentsBtn).toBeVisible();
     });
