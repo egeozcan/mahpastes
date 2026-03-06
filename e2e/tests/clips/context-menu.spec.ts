@@ -119,8 +119,13 @@ test.describe('Context Menu Keyboard Navigation', () => {
         ShortcutManager.setFocusedClipIndex(0);
       }
     });
-    await app.page.locator(selectors.shortcuts.focusedClip).waitFor({ state: 'visible', timeout: 5000 });
+    const focusedClip = app.page.locator(selectors.shortcuts.focusedClip);
+    await focusedClip.waitFor({ state: 'visible', timeout: 5000 });
+    // Ensure the menu trigger button is rendered inside the focused card
+    await focusedClip.locator('[data-action="menu"]').waitFor({ state: 'attached', timeout: 3000 });
 
+    // Click the page body to ensure Playwright has keyboard focus on the page
+    await app.page.locator('body').click({ position: { x: 400, y: 400 } });
     await app.page.keyboard.press('ControlOrMeta+Enter');
 
     const menu = app.page.locator(selectors.cardMenu.dropdown);

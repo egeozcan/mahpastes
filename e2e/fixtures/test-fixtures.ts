@@ -406,6 +406,18 @@ export class AppHelper {
     } catch {
       // Ignore
     }
+
+    // Context menu (card menu / lightbox file menu)
+    try {
+      await this.page.evaluate(() => {
+        // @ts-ignore - ContextMenu is global
+        if (typeof ContextMenu !== 'undefined' && ContextMenu.isOpen()) {
+          ContextMenu.close();
+        }
+      });
+    } catch {
+      // Ignore
+    }
   }
 
   private async deleteAllPluginsSafe(): Promise<void> {
