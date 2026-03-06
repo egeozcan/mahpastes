@@ -1457,8 +1457,13 @@ func (a *App) OpenClipWithDefaultApp(id int64) error {
 	return openFileWithDefaultApp(item.AbsPath)
 }
 
-// OpenClipWithApp opens a clip file with a specific application
+// OpenClipWithApp opens a clip file with a specific application.
+// appPath must come from ChooseApplication (file dialog) — it is validated
+// to be a real application path (.app on macOS, .exe on Windows).
 func (a *App) OpenClipWithApp(id int64, appPath string) error {
+	if appPath == "" {
+		return fmt.Errorf("application path is required")
+	}
 	item, err := a.prepareClipTransferItem(id, "open_with")
 	if err != nil {
 		return err

@@ -750,6 +750,8 @@ function openLightboxFileMenu(trigger) {
     const clip = imageClips[currentLightboxIndex];
     if (!clip) return;
 
+    // buildMenuItemList is shared with the card menu — the lightbox intentionally
+    // shows the full set of actions (metadata, expiration, merge, etc.) for parity.
     const items = buildMenuItemList(clip);
     ContextMenu.open(items, clip.id, trigger, (action, clipId, item) => {
         if (action === 'plugin') {
@@ -766,7 +768,7 @@ function openLightboxFileMenu(trigger) {
     });
 }
 
-function closeLightboxFileMenu(skipFocus) {
+function closeLightboxFileMenu() {
     ContextMenu.close();
 }
 

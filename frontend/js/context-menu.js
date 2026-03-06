@@ -10,6 +10,9 @@ const ContextMenu = (() => {
     let onActionCallback = null;
     let currentClipId = null;
 
+    // Maps submenu trigger elements to their children data
+    const submenuChildrenMap = new WeakMap();
+
     // --- DOM Creation ---
 
     function createMenuItem(item) {
@@ -57,8 +60,7 @@ const ContextMenu = (() => {
         const arrowPart = '<span class="card-menu-arrow">\u25B8</span>';
         btn.innerHTML = iconPart + labelPart + arrowPart;
 
-        // Store children data for later submenu creation
-        btn._submenuChildren = item.children || [];
+        submenuChildrenMap.set(btn, item.children || []);
 
         return btn;
     }
@@ -175,7 +177,7 @@ const ContextMenu = (() => {
 
         closeSubmenu();
 
-        const children = triggerEl._submenuChildren;
+        const children = submenuChildrenMap.get(triggerEl);
         if (!children || children.length === 0) return;
 
         const panel = createSubmenuPanel(children);
@@ -299,15 +301,9 @@ const ContextMenu = (() => {
 
     function focusNextItem(items, currentIndex, direction) {
         if (items.length === 0) return -1;
-        let idx = currentIndex;
-        // Move in the given direction, skipping dividers (non-menuitem elements are already excluded)
-        for (let i = 0; i < items.length; i++) {
-            idx = (idx + direction + items.length) % items.length;
-            // All entries in items are [role="menuitem"], so just focus
-            items[idx].focus();
-            return idx;
-        }
-        return currentIndex;
+        const idx = (currentIndex + direction + items.length) % items.length;
+        items[idx].focus();
+        return idx;
     }
 
     function setupKeyboard(menu) {

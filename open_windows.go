@@ -19,7 +19,7 @@ func openFileWithDefaultApp(path string) error {
 }
 
 func openFileWithApp(filePath, appPath string) error {
-	cmd := exec.Command("cmd", "/c", "start", "", appPath, filePath)
+	cmd := exec.Command(appPath, filePath)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to open file with app: %w: %s", err, string(out))
 	}
