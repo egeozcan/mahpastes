@@ -212,6 +212,45 @@ test('capture documentation screenshots', async ({ app, tempDir }) => {
   await app.page.screenshot({ path: path.join(SCREENSHOTS_DIR, 'watch-folders.png') });
   await app.closeWatchView();
 
+  // === 10b. Serve view screenshot ===
+  await app.switchToServeView();
+  // Add a tag to the serve list so the view isn't empty
+  await app.page.evaluate(async () => {
+    // @ts-ignore - Wails runtime
+    const tags = await window.go.main.App.GetTags();
+    if (tags && tags.length > 0) {
+      // @ts-ignore - access configuredEntries from serve.js
+      if (typeof configuredEntries !== 'undefined') {
+        const t = tags[0];
+        configuredEntries.set(t.id, { tag_id: t.id, tag_name: t.name, bind_all: false });
+        if (tags.length > 1) {
+          const t2 = tags[1];
+          configuredEntries.set(t2.id, { tag_id: t2.id, tag_name: t2.name, bind_all: false });
+        }
+      }
+      // @ts-ignore
+      if (typeof loadServeStatus === 'function') await loadServeStatus();
+    }
+  });
+  await app.page.waitForTimeout(300);
+  await app.page.screenshot({ path: path.join(SCREENSHOTS_DIR, 'serve-view.png') });
+  // Switch back to clips view
+  await app.page.evaluate(() => {
+    // @ts-ignore
+    if (window.__testHelpers?.switchView) window.__testHelpers.switchView('clips');
+  });
+  await app.page.waitForTimeout(200);
+
+  // === 10c. API settings modal screenshot ===
+  await app.openDrawer();
+  await app.page.locator('#open-api-btn').click();
+  await app.page.waitForSelector('[data-testid="api-modal"].opacity-100', { timeout: 5000 });
+  await app.page.waitForTimeout(300);
+  await app.page.screenshot({ path: path.join(SCREENSHOTS_DIR, 'api-settings.png') });
+  // Close API modal
+  await app.page.locator('#api-modal-close').click();
+  await app.page.waitForTimeout(200);
+
   // === 11. Settings screenshot ===
   await app.openSettingsModal();
   await expect(app.page.locator('[data-testid="create-backup-btn"]')).toBeVisible();
