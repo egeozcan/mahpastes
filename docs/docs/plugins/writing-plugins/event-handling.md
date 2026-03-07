@@ -4,7 +4,7 @@ sidebar_position: 3
 
 # Event Handling
 
-Events are the primary way plugins interact with mahpastes. When something happens in the app, plugins that subscribe to that event receive a notification with relevant data.
+Events are the primary way plugins react to what happens in mahpastes.
 
 ## How Events Work
 
@@ -366,7 +366,7 @@ end
 
 ### Keep Handlers Fast
 
-Event handlers block the main thread. Keep them under 100ms when possible.
+Event handlers block the main thread. Keep them under 100ms.
 
 ```lua
 -- BAD: Blocking network call

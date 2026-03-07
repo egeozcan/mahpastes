@@ -5,7 +5,7 @@ sidebar_position: 1
 
 # Welcome to mahpastes
 
-**mahpastes** is a local clipboard manager for macOS, Windows, and Linux. Store, organize, and quickly access your copied content without sending data to the cloud.
+**mahpastes** is a local clipboard manager for macOS, Windows, and Linux. Store, organize, and access your copied content without sending data to the cloud.
 
 ## Why mahpastes?
 

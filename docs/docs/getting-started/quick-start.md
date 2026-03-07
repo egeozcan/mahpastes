@@ -155,8 +155,6 @@ See all shortcuts in [Keyboard Shortcuts](/getting-started/keyboard-shortcuts).
 
 ## What's Next?
 
-Now that you know the basics:
-
 - Set up [Watch Folders](/features/watch-folders) for automatic imports
 - Learn about [Image Comparison](/features/image-comparison)
 - Read the full [Features guide](/features/clipboard-management)

@@ -29,7 +29,7 @@ The main way to add content:
 2. Focus the mahpastes window
 3. Press <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">V</span>
 
-mahpastes automatically detects the content type and stores it appropriately.
+mahpastes detects the content type and stores it.
 
 ### Drag and Drop
 
@@ -99,7 +99,7 @@ Click any image clip's preview to open it in a full-screen lightbox.
 
 ### Content Detection
 
-mahpastes automatically categorizes content:
+mahpastes categorizes content by MIME type:
 
 ```
 text/plain     → Plain text editor
@@ -196,7 +196,7 @@ mahpastes distinguishes between:
 - **HTML**: Content starting with `<!DOCTYPE html`
 - **JSON**: Valid JSON objects or arrays
 
-Detection happens automatically when you paste.
+Detection happens on paste.
 
 ### Binary Files
 
