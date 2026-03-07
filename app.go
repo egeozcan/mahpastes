@@ -41,6 +41,8 @@ type App struct {
 	transferHandler *TransferFileHandler
 	mu              sync.Mutex
 	watcherManager  *WatcherManager
+	serveManager    *ServeManager
+	apiManager      *APIManager
 	pluginManager   *plugin.Manager
 }
 
@@ -148,6 +150,12 @@ func (a *App) startup(ctx context.Context) {
 		}
 	}
 
+	// Initialize serve manager
+	a.serveManager = NewServeManager(a)
+
+	// Initialize API manager
+	a.apiManager = NewAPIManager(a)
+
 	// Initialize plugin manager
 	dataDir, _ := getDataDir()
 	pluginsDir := filepath.Join(dataDir, "plugins")
@@ -195,6 +203,16 @@ func (a *App) shutdown(ctx context.Context) {
 	// Shutdown plugins first
 	if a.pluginManager != nil {
 		a.pluginManager.Shutdown()
+	}
+
+	// Stop API server
+	if a.apiManager != nil {
+		a.apiManager.Stop()
+	}
+
+	// Stop all serving
+	if a.serveManager != nil {
+		a.serveManager.StopAll()
 	}
 
 	// Stop watcher

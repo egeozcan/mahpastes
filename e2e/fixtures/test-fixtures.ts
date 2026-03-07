@@ -341,11 +341,15 @@ export class AppHelper {
       // Ignore
     }
 
-    // Watch view uses hidden class (visible when NOT hidden)
+    // Reset watch/serve views back to clips via switchView
     try {
-      if (await this.isWatchViewOpen()) {
-        await this.closeWatchView();
-      }
+      await this.page.evaluate(() => {
+        // @ts-ignore
+        if (window.__testHelpers?.switchView) {
+          // @ts-ignore
+          window.__testHelpers.switchView('clips');
+        }
+      });
     } catch {
       // Ignore
     }
@@ -729,14 +733,15 @@ export class AppHelper {
         headerArchiveBtn.classList.add('border-stone-200', 'text-stone-500', 'hover:border-stone-300', 'hover:bg-stone-100');
       }
 
-      // Reset watch button UI (ID: toggle-watch-view-btn)
-      const watchBtn = document.getElementById('toggle-watch-view-btn');
-      if (watchBtn) {
-        watchBtn.setAttribute('aria-pressed', 'false');
-        const watchBtnText = document.getElementById('watch-btn-text');
-        if (watchBtnText) watchBtnText.textContent = 'Watch';
-        watchBtn.classList.remove('bg-stone-800', 'text-white', 'border-stone-800', 'hover:bg-stone-700', 'hover:border-stone-700');
-        watchBtn.classList.add('border-stone-200', 'text-stone-600', 'hover:bg-stone-100', 'hover:border-stone-300');
+      // Reset view tabs to clips view
+      // @ts-ignore
+      if (window.__testHelpers?.switchView) {
+        // @ts-ignore
+        window.__testHelpers.switchView('clips');
+      } else {
+        // Fallback: click the clips tab directly
+        const clipsTab = document.getElementById('view-tab-clips');
+        if (clipsTab) clipsTab.click();
       }
 
       // Reset drop overlay
@@ -1036,8 +1041,7 @@ export class AppHelper {
     const isOpen = await this.page.locator(selectors.watch.view).isVisible();
     if (isOpen) {
       await this.openDrawer();
-      await this.page.locator(selectors.drawer.watchButton).click();
-      // Wait for the view to have the hidden class
+      await this.page.locator(selectors.viewTabs.clips).click();
       await this.page.waitForFunction((selector) => {
         const el = document.querySelector(selector);
         return el?.classList.contains('hidden');
@@ -2383,6 +2387,57 @@ export class AppHelper {
       }
     }
     return '';
+  }
+
+  // ==================== Serve ====================
+
+  async switchToServeView(): Promise<void> {
+    await this.openDrawer();
+    await this.page.click(selectors.viewTabs.serve);
+    await this.page.waitForSelector(selectors.serve.view, { state: 'visible', timeout: 5000 });
+  }
+
+  async startServingTag(tagName: string): Promise<{ port: number; url: string }> {
+    return this.page.evaluate(async (name: string) => {
+      // @ts-ignore - Wails runtime
+      const tags = await window.go.main.App.GetTags();
+      const tag = tags.find((t: any) => t.name === name);
+      if (!tag) throw new Error(`Tag "${name}" not found`);
+      // @ts-ignore - Wails runtime
+      const port = await window.go.main.ServeService.GetRandomPort();
+      // @ts-ignore - Wails runtime
+      const info = await window.go.main.ServeService.StartServing(tag.id, port, false);
+      return { port: info.port, url: info.url };
+    }, tagName);
+  }
+
+  async stopServingTag(tagName: string): Promise<void> {
+    await this.page.evaluate(async (name: string) => {
+      // @ts-ignore - Wails runtime
+      const tags = await window.go.main.App.GetTags();
+      const tag = tags.find((t: any) => t.name === name);
+      if (!tag) throw new Error(`Tag "${name}" not found`);
+      // @ts-ignore - Wails runtime
+      await window.go.main.ServeService.StopServing(tag.id);
+    }, tagName);
+  }
+
+  async getServeStatus(): Promise<any[]> {
+    return this.page.evaluate(async () => {
+      // @ts-ignore - Wails runtime
+      const result = await window.go.main.ServeService.GetServeStatus();
+      return result || [];
+    });
+  }
+
+  async stopAllServers(): Promise<void> {
+    const statuses = await this.getServeStatus();
+    for (const s of statuses) {
+      await this.page.evaluate(async (tagId: number) => {
+        // @ts-ignore - Wails runtime
+        await window.go.main.ServeService.StopServing(tagId);
+      }, s.tag_id);
+    }
   }
 }
 

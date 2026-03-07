@@ -1,5 +1,86 @@
 export namespace main {
 	
+	export class APIKeyInfo {
+	    id: number;
+	    name: string;
+	    key_prefix: string;
+	    role: string;
+	    scoped_tag_id?: number;
+	    scoped_tag_name: string;
+	    is_revoked: boolean;
+	    created_at: string;
+	    last_used_at?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new APIKeyInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.key_prefix = source["key_prefix"];
+	        this.role = source["role"];
+	        this.scoped_tag_id = source["scoped_tag_id"];
+	        this.scoped_tag_name = source["scoped_tag_name"];
+	        this.is_revoked = source["is_revoked"];
+	        this.created_at = source["created_at"];
+	        this.last_used_at = source["last_used_at"];
+	    }
+	}
+	export class APIKeyCreateResult {
+	    key: string;
+	    info: APIKeyInfo;
+	
+	    static createFrom(source: any = {}) {
+	        return new APIKeyCreateResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.key = source["key"];
+	        this.info = this.convertValues(source["info"], APIKeyInfo);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	export class APIStatus {
+	    running: boolean;
+	    port: number;
+	    bind_all: boolean;
+	    url: string;
+	    request_count: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new APIStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.running = source["running"];
+	        this.port = source["port"];
+	        this.bind_all = source["bind_all"];
+	        this.url = source["url"];
+	        this.request_count = source["request_count"];
+	    }
+	}
 	export class BackupSummary {
 	    clips: number;
 	    tags: number;
@@ -362,6 +443,30 @@ export namespace main {
 		    }
 		    return a;
 		}
+	}
+	export class ServeInfo {
+	    tag_id: number;
+	    tag_name: string;
+	    port: number;
+	    bind_all: boolean;
+	    url: string;
+	    running: boolean;
+	    request_count: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ServeInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.tag_id = source["tag_id"];
+	        this.tag_name = source["tag_name"];
+	        this.port = source["port"];
+	        this.bind_all = source["bind_all"];
+	        this.url = source["url"];
+	        this.running = source["running"];
+	        this.request_count = source["request_count"];
+	    }
 	}
 	export class StartNativeDragRequest {
 	    clip_id: number;

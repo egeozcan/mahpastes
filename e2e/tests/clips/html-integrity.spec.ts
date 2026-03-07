@@ -393,7 +393,7 @@ test.describe('HTML Integrity', () => {
           return checkElement(drawer, {
             requiredChildren: [
               '#drawer-close-btn',
-              '#toggle-watch-view-btn',
+              '#view-tab-watch',
               '#toggle-archive-view-btn',
               '#open-settings-btn',
               '#open-plugins-btn',

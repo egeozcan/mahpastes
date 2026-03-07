@@ -18,7 +18,7 @@
     <!-- Header -->
     <header class="bg-stone-50 border-b border-stone-200/60 sticky top-0 z-50" style="padding-top: 0.8rem; --wails-draggable: drag">
         <div class="max-w-7xl mx-auto px-5 py-3 flex flex-col md:flex-row justify-between items-center gap-3">
-            <h1 class="text-sm font-semibold text-stone-500 tracking-wide uppercase">mahpastes</h1>
+            <h1 id="logo-btn" class="text-sm font-semibold text-stone-500 tracking-wide uppercase cursor-pointer hover:text-stone-700 transition-colors" style="--wails-draggable: no-drag">mahpastes</h1>
 
             <div class="flex-1 max-w-md w-full flex items-center gap-2" style="--wails-draggable: no-drag">
                 <div class="flex-1 relative">
@@ -94,7 +94,7 @@
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 6h16M4 12h16M4 18h16" />
                 </svg>
-                <span id="drawer-watch-indicator" class="hidden absolute -top-1 -right-1 w-2.5 h-2.5 bg-emerald-500 rounded-full border-2 border-stone-50"></span>
+                <span id="drawer-activity-indicator" class="hidden absolute -top-1 -right-1 w-2.5 h-2.5 bg-emerald-500 rounded-full border-2 border-stone-50"></span>
             </button>
         </div>
 
@@ -118,19 +118,43 @@
                 </svg>
             </button>
         </div>
+        <!-- View Toggle Strip -->
+        <div class="px-3 pt-3 pb-1">
+            <div class="flex rounded-lg border border-stone-200 overflow-hidden" role="tablist" aria-label="View switcher">
+                <button id="view-tab-clips" role="tab" aria-selected="true"
+                    class="flex-1 flex flex-col items-center gap-1 py-3 bg-stone-800 text-white transition-colors"
+                    data-view="clips">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                            d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+                    </svg>
+                    <span class="text-[10px] font-medium">Clips</span>
+                </button>
+                <button id="view-tab-watch" role="tab" aria-selected="false"
+                    class="relative flex-1 flex flex-col items-center gap-1 py-3 text-stone-400 hover:bg-stone-100 transition-colors"
+                    data-view="watch">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                            d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                            d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                    </svg>
+                    <span class="text-[10px] font-medium">Watch</span>
+                    <span id="watch-indicator" class="hidden absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-emerald-500 rounded-full border-2 border-white"></span>
+                </button>
+                <button id="view-tab-serve" role="tab" aria-selected="false"
+                    class="relative flex-1 flex flex-col items-center gap-1 py-3 text-stone-400 hover:bg-stone-100 transition-colors"
+                    data-view="serve">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                            d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
+                    </svg>
+                    <span class="text-[10px] font-medium">Serve</span>
+                    <span id="serve-indicator" class="hidden absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-emerald-500 rounded-full border-2 border-white"></span>
+                </button>
+            </div>
+        </div>
         <nav class="p-3 flex flex-col gap-1" aria-label="Global Actions">
-            <button id="toggle-watch-view-btn"
-                class="relative border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-xs font-medium py-2.5 px-3 rounded-md transition-colors flex items-center w-full"
-                aria-pressed="false" data-tooltip="Monitor folders and auto-import new files">
-                <svg class="w-4 h-4 mr-2 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
-                        d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
-                        d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
-                </svg>
-                <span id="watch-btn-text">Watch</span>
-                <span id="watch-indicator" class="hidden absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-emerald-500 rounded-full border-2 border-white"></span>
-            </button>
             <button id="toggle-archive-view-btn"
                 class="border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-xs font-medium py-2.5 px-3 rounded-md transition-colors flex items-center w-full"
                 aria-pressed="false" data-tooltip="View archived clips">
@@ -168,6 +192,15 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                 </svg>
                 Settings
+            </button>
+            <button id="open-api-btn"
+                class="border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-500 text-xs font-medium py-2.5 px-3 rounded-md transition-colors flex items-center w-full"
+                data-tooltip="REST API settings and key management">
+                <svg class="w-4 h-4 mr-2 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                        d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                API
             </button>
             <button id="open-plugins-btn"
                 class="border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-500 text-xs font-medium py-2.5 px-3 rounded-md transition-colors flex items-center w-full"
@@ -243,6 +276,37 @@
                     + Add Folder
                 </button>
                 <p class="text-[10px] text-stone-400 mt-3">Files in subfolders are not watched</p>
+            </div>
+        </section>
+
+        <!-- Serve View (hidden by default) -->
+        <section id="serve-view" class="hidden mb-10" aria-labelledby="serve-heading">
+            <h2 id="serve-heading" class="sr-only">Serve Tags</h2>
+
+            <!-- Back to Pastes -->
+            <button id="serve-back-btn"
+                class="text-xs font-medium text-stone-500 hover:text-stone-700 transition-colors flex items-center gap-1.5 mb-4"
+                style="--wails-draggable: no-drag">
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 19l-7-7 7-7"></path>
+                </svg>
+                Back to Pastes
+            </button>
+
+            <!-- Server list -->
+            <ul id="serve-list" class="space-y-3 mb-6">
+                <!-- Server cards inserted by JS -->
+            </ul>
+
+            <!-- Add serve button -->
+            <div id="add-serve-zone"
+                class="border border-dashed border-stone-300 rounded-lg p-8 text-center transition-all hover:border-stone-400 hover:bg-stone-50/50">
+                <p class="text-sm text-stone-500 mb-3">Pick a tag to serve its files over HTTP</p>
+                <button id="add-serve-btn"
+                    class="bg-stone-800 hover:bg-stone-700 text-white text-xs font-medium py-2 px-4 rounded-md transition-colors"
+                    data-tooltip="Start serving a tag's files">
+                    + Serve a Tag
+                </button>
             </div>
         </section>
 
@@ -1224,6 +1288,133 @@
         </div>
     </div>
 
+    <!-- API Settings Modal -->
+    <div id="api-modal" role="dialog" aria-modal="true" aria-labelledby="api-modal-title"
+        data-testid="api-modal"
+        class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm transition-opacity duration-200 opacity-0 pointer-events-none">
+        <div class="bg-white rounded-lg shadow-xl max-w-lg w-full max-h-[80vh] flex flex-col overflow-hidden transform transition-transform duration-200 scale-95">
+            <div class="p-5 border-b border-stone-100 flex justify-between items-center">
+                <h2 id="api-modal-title" class="text-sm font-semibold text-stone-800">REST API</h2>
+                <button id="api-modal-close" class="p-1 hover:bg-stone-100 rounded-md transition-colors" data-tooltip="Close">
+                    <svg class="w-5 h-5 text-stone-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+            <div class="flex-1 overflow-y-auto p-5 space-y-5">
+
+                <!-- Server Controls -->
+                <section>
+                    <h3 class="text-[10px] font-semibold uppercase tracking-wide text-stone-400 mb-3">Server</h3>
+                    <div class="flex items-center gap-3 mb-3">
+                        <div class="flex-1">
+                            <label class="block text-[10px] font-medium text-stone-500 mb-1">Port</label>
+                            <input type="number" id="api-port-input" value="8484"
+                                class="block w-full border border-stone-200 rounded-md text-sm bg-white placeholder-stone-400 focus:outline-none focus:border-stone-400 focus:ring-1 focus:ring-stone-400/20 transition-colors px-2.5 py-1.5"
+                                data-testid="api-port-input">
+                        </div>
+                        <div class="flex items-center gap-2 pt-4">
+                            <label class="relative inline-flex items-center cursor-pointer" data-tooltip="Bind to all interfaces (0.0.0.0) for network access">
+                                <input type="checkbox" id="api-bind-toggle" class="sr-only peer" data-testid="api-bind-toggle">
+                                <div class="w-9 h-5 bg-stone-300 peer-focus:ring-2 peer-focus:ring-stone-400/30 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-stone-800"></div>
+                            </label>
+                            <span class="text-[10px] font-medium text-stone-500">Network</span>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <button id="api-toggle-btn" data-testid="api-toggle-btn"
+                            class="bg-stone-800 hover:bg-stone-700 text-white text-xs font-medium py-2 px-4 rounded-md transition-colors">
+                            Start Server
+                        </button>
+                        <div id="api-status-line" class="flex items-center gap-2 text-xs text-stone-400">
+                            <span id="api-status-text">Stopped</span>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- API Keys -->
+                <section>
+                    <div class="flex items-center justify-between mb-3">
+                        <h3 class="text-[10px] font-semibold uppercase tracking-wide text-stone-400">API Keys</h3>
+                        <button id="api-show-create-btn" data-testid="api-show-create-btn"
+                            class="border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-xs font-medium py-1 px-2.5 rounded-md transition-colors">
+                            + New Key
+                        </button>
+                    </div>
+
+                    <!-- Create Key Form (hidden by default) -->
+                    <div id="api-create-form" class="hidden mb-3 p-3 border border-stone-200 rounded-md bg-stone-50 space-y-2.5"
+                        data-testid="api-create-form">
+                        <div>
+                            <label class="block text-[10px] font-medium text-stone-500 mb-1">Name</label>
+                            <input type="text" id="api-key-name" placeholder="e.g. CI pipeline"
+                                class="block w-full border border-stone-200 rounded-md text-sm bg-white placeholder-stone-400 focus:outline-none focus:border-stone-400 focus:ring-1 focus:ring-stone-400/20 transition-colors px-2.5 py-1.5"
+                                data-testid="api-key-name">
+                        </div>
+                        <div class="flex gap-2.5">
+                            <div class="flex-1">
+                                <label class="block text-[10px] font-medium text-stone-500 mb-1">Role</label>
+                                <select id="api-key-role"
+                                    class="block w-full border border-stone-200 rounded-md text-sm bg-white focus:outline-none focus:border-stone-400 focus:ring-1 focus:ring-stone-400/20 transition-colors px-2.5 py-1.5"
+                                    data-testid="api-key-role">
+                                    <option value="viewer">Viewer</option>
+                                    <option value="editor" selected>Editor</option>
+                                    <option value="admin">Admin</option>
+                                </select>
+                            </div>
+                            <div class="flex-1">
+                                <label class="block text-[10px] font-medium text-stone-500 mb-1">Tag Scope</label>
+                                <select id="api-key-scope"
+                                    class="block w-full border border-stone-200 rounded-md text-sm bg-white focus:outline-none focus:border-stone-400 focus:ring-1 focus:ring-stone-400/20 transition-colors px-2.5 py-1.5"
+                                    data-testid="api-key-scope">
+                                    <option value="0">All tags</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="flex gap-2 pt-1">
+                            <button id="api-create-key-btn" data-testid="api-create-key-btn"
+                                class="bg-stone-800 hover:bg-stone-700 text-white text-xs font-medium py-1.5 px-3 rounded-md transition-colors">
+                                Create Key
+                            </button>
+                            <button id="api-cancel-create-btn"
+                                class="border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-xs font-medium py-1.5 px-3 rounded-md transition-colors">
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Key Reveal (hidden by default) -->
+                    <div id="api-key-reveal" class="hidden mb-3 p-3 border border-stone-200 rounded-md bg-stone-50 space-y-2"
+                        data-testid="api-key-reveal">
+                        <p class="text-[10px] font-semibold text-stone-500 uppercase tracking-wide">New Key Created — Copy It Now</p>
+                        <div class="flex items-center gap-2">
+                            <code id="api-key-reveal-value"
+                                class="flex-1 text-xs bg-white border border-stone-200 rounded px-2.5 py-1.5 font-mono text-stone-800 select-all break-all"></code>
+                            <button id="api-key-copy-btn"
+                                class="p-1.5 text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded transition-colors"
+                                data-tooltip="Copy to clipboard">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                                        d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                </svg>
+                            </button>
+                        </div>
+                        <p class="text-[10px] text-stone-400">This key will not be shown again.</p>
+                        <button id="api-key-reveal-close"
+                            class="border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-xs font-medium py-1 px-2.5 rounded-md transition-colors">
+                            Done
+                        </button>
+                    </div>
+
+                    <!-- Key List -->
+                    <div id="api-keys-list" class="space-y-2" data-testid="api-keys-list">
+                        <p class="text-xs text-stone-400">No API keys yet.</p>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </div>
+
     <!-- Shortcuts Cheat Sheet Overlay -->
     <div id="shortcuts-cheatsheet" role="dialog" aria-modal="true" aria-label="Keyboard Shortcuts"
         class="fixed inset-0 z-[60] flex items-center justify-center p-8 bg-stone-900/80 backdrop-blur-sm transition-opacity duration-200 opacity-0 pointer-events-none"
@@ -1262,6 +1453,7 @@
     <script src="js/modals.js"></script>
     <script src="js/editor.js"></script>
     <script src="js/watch.js"></script>
+    <script src="js/serve.js"></script>
     <script src="js/settings.js"></script>
     <script src="js/plugins.js"></script>
     <script src="js/plugin-review.js"></script>
@@ -1269,6 +1461,7 @@
     <script src="js/task-queue.js"></script>
     <script src="js/metadata.js"></script>
     <script src="js/tags.js"></script>
+    <script src="js/api-settings.js"></script>
     <script src="js/app.js"></script>
     <script src="js/sort.js"></script>
 </body>

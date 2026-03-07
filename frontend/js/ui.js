@@ -1012,14 +1012,9 @@ function cancelSelection() {
 function toggleViewMode() {
     isViewingArchive = !isViewingArchive;
 
-    // Hide watch view if open
-    if (isViewingWatch) {
-        isViewingWatch = false;
-        watchBtnText.textContent = 'Watch';
-        toggleWatchViewBtn.classList.remove('bg-stone-800', 'text-white', 'border-stone-800', 'hover:bg-stone-700', 'hover:border-stone-700');
-        toggleWatchViewBtn.classList.add('border-stone-200', 'text-stone-600', 'hover:bg-stone-100', 'hover:border-stone-300');
-        toggleWatchViewBtn.setAttribute('aria-pressed', 'false');
-        watchView.classList.add('hidden');
+    // Return to clips view if not already there
+    if (currentView !== 'clips') {
+        switchView('clips');
     }
 
     toggleArchiveViewBtn.setAttribute('aria-pressed', isViewingArchive);

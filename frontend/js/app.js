@@ -524,7 +524,12 @@ window.addEventListener('load', async () => {
         ShortcutManager.register({
             id: 'open-watch', label: 'Open Watch View', category: 'navigation',
             defaultKey: 'w', context: 'gallery',
-            callback: () => { if (typeof toggleWatchView === 'function') toggleWatchView(); }
+            callback: () => { if (typeof switchView === 'function') switchView(currentView === 'watch' ? 'clips' : 'watch'); }
+        });
+        ShortcutManager.register({
+            id: 'open-serve', label: 'Open Serve View', category: 'navigation',
+            defaultKey: 's', context: 'gallery',
+            callback: () => { if (typeof switchView === 'function') switchView(currentView === 'serve' ? 'clips' : 'serve'); }
         });
         ShortcutManager.register({
             id: 'open-settings', label: 'Open Settings', category: 'navigation',

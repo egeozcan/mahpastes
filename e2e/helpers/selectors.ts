@@ -25,7 +25,7 @@ export const selectors = {
     overlay: '#drawer-overlay',
     panel: '#nav-drawer',
     closeButton: '#drawer-close-btn',
-    watchButton: '#toggle-watch-view-btn',
+    watchButton: '#view-tab-watch',
     watchIndicator: '#watch-indicator',
     archiveButton: '#toggle-archive-view-btn',
     clearAllButton: '#delete-all-temp-btn',
@@ -203,6 +203,24 @@ export const selectors = {
     addFolderZone: '#add-folder-zone',
     addFolderButton: '#add-folder-btn',
     backButton: '#watch-back-btn',
+  },
+
+  // View tabs (3-way toggle in drawer)
+  viewTabs: {
+    clips: '#view-tab-clips',
+    watch: '#view-tab-watch',
+    serve: '#view-tab-serve',
+  },
+
+  // Serve view
+  serve: {
+    view: '#serve-view',
+    list: '#serve-list',
+    backBtn: '#serve-back-btn',
+    addBtn: '#add-serve-btn',
+    tagPicker: '#serve-tag-picker',
+    toggleBtn: '.serve-toggle-btn',
+    urlCopy: '.serve-url-copy',
   },
 
   // Watch folder card

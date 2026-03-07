@@ -200,6 +200,22 @@ func initDB() (*sql.DB, error) {
 		log.Printf("Warning: Failed to create app_settings table: %v", err)
 	}
 
+	// Create api_keys table
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS api_keys (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		name TEXT NOT NULL,
+		key_hash TEXT NOT NULL UNIQUE,
+		key_prefix TEXT NOT NULL,
+		role TEXT NOT NULL DEFAULT 'viewer',
+		scoped_tag_id INTEGER,
+		is_revoked INTEGER DEFAULT 0,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		last_used_at DATETIME,
+		FOREIGN KEY (scoped_tag_id) REFERENCES tags(id) ON DELETE CASCADE
+	)`); err != nil {
+		log.Printf("Warning: Failed to create api_keys table: %v", err)
+	}
+
 	// Backfill content hashes for existing clips that don't have one
 	backfillContentHashes(db)
 

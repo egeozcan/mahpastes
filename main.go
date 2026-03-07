@@ -23,6 +23,8 @@ func main() {
 	pluginService := NewPluginService(app)
 	clipboardService := NewClipboardService(app)
 	transferService := NewTransferService(app)
+	serveService := NewServeService(app)
+	apiService := NewAPIService(app)
 
 	// Create the transfer file handler and store it on the app for token registration.
 	transferHandler := &TransferFileHandler{app: app}
@@ -51,6 +53,8 @@ func main() {
 			pluginService,
 			clipboardService,
 			transferService,
+			serveService,
+			apiService,
 		},
 		Mac: &mac.Options{
 			TitleBar: &mac.TitleBar{

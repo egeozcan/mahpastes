@@ -4,10 +4,9 @@ let watchFolders = [];
 let editingFolderId = null; // null = adding new, number = editing existing
 
 // --- Elements ---
-const toggleWatchViewBtn = document.getElementById('toggle-watch-view-btn');
-const watchBtnText = document.getElementById('watch-btn-text');
 const watchIndicator = document.getElementById('watch-indicator');
-const drawerWatchIndicator = document.getElementById('drawer-watch-indicator');
+// drawer-watch-indicator was replaced by drawer-activity-indicator (shared with serve)
+
 const watchView = document.getElementById('watch-view');
 const watchFolderList = document.getElementById('watch-folder-list');
 const globalWatchToggle = document.getElementById('global-watch-toggle');
@@ -34,27 +33,10 @@ const folderModalSave = document.getElementById('folder-modal-save');
 
 // --- View Toggle ---
 function toggleWatchView() {
-    isViewingWatch = !isViewingWatch;
-    toggleWatchViewBtn.setAttribute('aria-pressed', isViewingWatch);
-
-    if (isViewingWatch) {
-        // Switch to watch view - use dark button style
-        watchBtnText.textContent = 'Clips';
-        toggleWatchViewBtn.classList.add('bg-stone-800', 'text-white', 'border-stone-800', 'hover:bg-stone-700', 'hover:border-stone-700');
-        toggleWatchViewBtn.classList.remove('border-stone-200', 'text-stone-600', 'hover:bg-stone-100', 'hover:border-stone-300');
-
-        gallery.parentElement.classList.add('hidden');
-        watchView.classList.remove('hidden');
-
-        loadWatchFolders();
+    if (currentView === 'watch') {
+        switchView('clips');
     } else {
-        // Switch back to clips view - restore light button style
-        watchBtnText.textContent = 'Watch';
-        toggleWatchViewBtn.classList.remove('bg-stone-800', 'text-white', 'border-stone-800', 'hover:bg-stone-700', 'hover:border-stone-700');
-        toggleWatchViewBtn.classList.add('border-stone-200', 'text-stone-600', 'hover:bg-stone-100', 'hover:border-stone-300');
-
-        gallery.parentElement.classList.remove('hidden');
-        watchView.classList.add('hidden');
+        switchView('watch');
     }
 }
 
@@ -69,11 +51,11 @@ async function updateWatchIndicator() {
         const status = await window.go.main.App.GetWatchStatus();
         if (status.is_watching) {
             watchIndicator.classList.remove('hidden');
-            if (drawerWatchIndicator) drawerWatchIndicator.classList.remove('hidden');
         } else {
             watchIndicator.classList.add('hidden');
-            if (drawerWatchIndicator) drawerWatchIndicator.classList.add('hidden');
         }
+        // Update shared hamburger indicator (watch OR serve active)
+        if (typeof updateDrawerActivityIndicator === 'function') updateDrawerActivityIndicator();
     } catch (error) {
         console.error('Failed to get watch status:', error);
     }
@@ -422,8 +404,7 @@ async function saveFolderConfig() {
 }
 
 // --- Event Listeners ---
-toggleWatchViewBtn.addEventListener('click', toggleWatchView);
-watchBackBtn.addEventListener('click', toggleWatchView);
+watchBackBtn.addEventListener('click', () => switchView('clips'));
 globalWatchToggle.addEventListener('change', toggleGlobalPause);
 addFolderBtn.addEventListener('click', openAddFolderDialog);
 addFolderZone.addEventListener('click', (e) => {
