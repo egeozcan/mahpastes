@@ -30,6 +30,8 @@ const sidebars = {
         'features/deduplication',
         'features/backup-restore',
         'features/drag-and-drop',
+        'features/tag-serve',
+        'features/rest-api',
       ],
     },
     {
