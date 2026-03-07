@@ -421,7 +421,8 @@ function renderDragHandle(clipId) {
                 role="button"
                 tabindex="0"
                 aria-label="Drag clip to another app"
-                data-tooltip="Creates a temp file -- drag into another app to export">
+                data-tooltip="Creates a temp file -- drag into another app to export"
+                data-tooltip-pos="above">
             <svg class="clip-drag-icon-grip w-3 h-3" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" aria-hidden="true">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M8 5h.01M8 12h.01M8 19h.01M16 5h.01M16 12h.01M16 19h.01" />
             </svg>
@@ -776,7 +777,8 @@ async function createClipCard(clip, options = {}) {
                             aria-label="Actions"
                             aria-haspopup="true"
                             aria-expanded="false"
-                            data-tooltip="More actions for this clip">
+                            data-tooltip="More actions for this clip"
+                            data-tooltip-pos="above">
                         <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 12.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 18.75a.75.75 0 110-1.5.75.75 0 010 1.5z" />
                         </svg>
