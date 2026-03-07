@@ -51,7 +51,7 @@ Set per-clip expiration when uploading (dropdown in the bottom bar) or on existi
 
 ### Gallery View
 
-Clips display in a responsive grid:
+Clips display in a grid:
 
 - **Large thumbnails** for images
 - **Text previews** for text-based content
@@ -78,7 +78,7 @@ Click any image clip's preview to open it in a full-screen lightbox.
 **Bottom bar:**
 - Position counter (e.g. "1/5"), filename, and image resolution
 - Zoom slider with percentage display
-- **Actions** menu with Copy Path, Copy File, Copy Contents, Save, Edit, Tags, Archive, Delete
+- **Actions** menu with Open, Open With, Copy (Path / File / Contents), Save, Edit, Tags, Metadata, Set Expiration / Cancel Expiration, Merge Duplicates (if duplicates exist), Archive, Delete
 - Plugin action menu (if plugins define lightbox actions)
 
 **Keyboard shortcuts:**
@@ -112,21 +112,25 @@ image/*        → Image viewer/editor
 
 ### Context Menu
 
-Click the three-dot menu button on any clip card, or right-click anywhere on the card, to open the context menu. Available actions:
+Click the three-dot menu button on any clip card, or right-click anywhere on the card, to open the context menu. The menu uses submenus to group related actions. Available actions:
 
-- **Copy Path** -- creates a temporary file and copies the absolute path to clipboard
-- **Copy File** -- copies the clip as a file to the system clipboard (macOS via NSPasteboard, Windows via PowerShell)
-- **Copy Contents** -- copies raw text or image data to the system clipboard (available for text/\*, application/json, and image/\* types)
+- **Open** -- opens the clip with the system default application
+- **Open With** -- opens a file dialog to choose an application
+- **Copy** (submenu) -- expands to show **Path**, **File**, and **Contents**
+  - **Path** -- creates a temporary file and copies the absolute path to clipboard
+  - **File** -- copies the clip as a file to the system clipboard (macOS via NSPasteboard, Windows via PowerShell)
+  - **Contents** -- copies raw text or image data to the system clipboard (available for text/\*, application/json, and image/\* types)
 - **Save** -- opens a native save dialog to export the clip to disk
-- **Edit** -- opens the image editor or text editor
+- **Edit** -- opens the image editor or text editor (shown for editable types)
 - **Tags** -- opens the tag popover
+- **Metadata** -- opens the metadata modal for viewing and editing key-value pairs
 - **Set Expiration** -- opens expiration preset popover (shown when clip has no expiry)
 - **Cancel Expiration** -- removes expiration (shown when clip has an active expiry)
-- **Metadata** -- opens the metadata modal for viewing and editing key-value pairs
 - **Archive** / **Restore** -- toggles archive state
+- **Merge Duplicates** -- merges duplicate clips (shown when duplicates exist)
 - **Delete** -- deletes the clip after confirmation
 
-If plugins define card actions, those appear below a divider in the same menu.
+If plugins define card actions, they appear in a **Plugins** submenu below a divider.
 
 :::note Temporary Files
 Files created via "Copy Path" are stored in a temp directory and cleaned up periodically (60-minute lease) and when mahpastes exits. Don't rely on them for permanent storage.

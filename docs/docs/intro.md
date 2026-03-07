@@ -5,7 +5,7 @@ sidebar_position: 1
 
 # Welcome to mahpastes
 
-**mahpastes** is a local clipboard manager for macOS and Windows. Store, organize, and quickly access your copied content without sending data to the cloud.
+**mahpastes** is a local clipboard manager for macOS, Windows, and Linux. Store, organize, and quickly access your copied content without sending data to the cloud.
 
 ## Why mahpastes?
 
@@ -62,6 +62,9 @@ sidebar_position: 1
 | **Keyboard Shortcuts** | Customizable shortcuts for all actions |
 | **Plugins** | Extend functionality with Lua scripts |
 | **Backup & Restore** | Export all data to portable ZIP, restore anywhere |
+| **Tag Serve** | Start HTTP servers per tag to serve clips as browsable file listings |
+| **REST API** | Authenticated JSON API with role-based access control |
+| **Open With** | Open clips in external applications |
 
 ## How It Works
 

@@ -53,7 +53,7 @@ Shows pixel-level differences between the two images.
 
 **How it works:**
 - Pixels that differ are highlighted; identical pixels are dimmed
-- A threshold slider (1--100) controls sensitivity -- lower values catch smaller differences
+- A threshold slider (0--100) controls sensitivity -- lower values catch smaller differences (values below 1 are clamped to 1 by the backend)
 - A similarity percentage score is displayed, showing how closely the images match
 
 **Best for:**
@@ -91,7 +91,7 @@ Position the images within the comparison viewport:
 
 When images have different sizes:
 - **Off**: Images display at natural size with `object-fit: contain`
-- **On**: The bottom image is forced to 1000x1000px with `object-fit: fill`
+- **On**: Images are stretched to 100% of the container width and height with `object-fit: fill`
 
 :::tip Comparing Different-Sized Images
 Enable Stretch mode when comparing images of different dimensions. This aligns them spatially for easier comparison.

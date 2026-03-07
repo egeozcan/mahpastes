@@ -48,7 +48,7 @@ Open the clip context menu (three dots on each card) to access actions:
 | **Copy Path** | Create temp file and copy its path |
 | **Edit** | Open in image or text editor |
 | **Archive** | Move to archive |
-| **Download** | Save to disk |
+| **Save** | Save to disk |
 | **Delete** | Remove permanently |
 
 ![Clip card menu](/img/screenshots/card-menu.png)

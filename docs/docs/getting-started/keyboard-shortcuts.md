@@ -37,6 +37,7 @@ Complete reference for all keyboard shortcuts in mahpastes. Press <span classNam
 | <span className="keyboard-key">,</span> | Open settings |
 | <span className="keyboard-key">P</span> | Open plugins |
 | <span className="keyboard-key">M</span> | Open menu drawer |
+| <span className="keyboard-key">S</span> | Open Serve View |
 
 ## Gallery
 

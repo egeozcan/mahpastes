@@ -96,7 +96,7 @@ function on_clip_created(clip)
 
     -- Example: Auto-tag images
     if clip.content_type:match("^image/") then
-        tags.add_to_clip(clip.id, get_or_create_tag("images"))
+        tags.add_to_clip(get_or_create_tag("images"), clip.id)
     end
 end
 ```
@@ -194,7 +194,7 @@ function on_watch_import_complete(data)
     local folder_tags = storage.get("folder_tags:" .. data.folder_id)
     if folder_tags then
         for _, tag_id in ipairs(folder_tags) do
-            tags.add_to_clip(data.clip_id, tag_id)
+            tags.add_to_clip(tag_id, data.clip_id)
         end
     end
 end

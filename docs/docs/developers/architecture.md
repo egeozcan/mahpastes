@@ -69,6 +69,10 @@ temp_clip_store.go   Leased temp file management
 native_drag_darwin.go    macOS native drag via CGo
 plugin_service.go    Plugin frontend API (separate struct for Wails binding limit)
 plugins.go           Plugin install/uninstall helpers
+serve_manager.go     Tag serve HTTP server management
+serve_service.go     Serve service (Wails-bound)
+api_manager.go       REST API server and key management
+api_service.go       API service (Wails-bound)
 plugin/              Lua plugin system
 ├── manager.go       Plugin lifecycle, event dispatch
 ├── manifest.go      Manifest parsing, validation
@@ -102,7 +106,9 @@ frontend/
 │   ├── shortcuts.js     Keyboard shortcut registration and context handling
 │   ├── plugin-review.js Plugin permission review UI
 │   ├── utils.js         Shared utilities
-│   └── wails-api.js     Wails bindings wrapper
+│   ├── wails-api.js     Wails bindings wrapper
+│   ├── serve.js         Tag serve view UI
+│   └── api-settings.js  REST API settings modal
 └── css/
     ├── main.css         Global styles, scrollbars, form styling
     └── modals.css       Modal-specific styles
