@@ -1046,11 +1046,6 @@ func (am *APIManager) handleListServers(w http.ResponseWriter, r *http.Request) 
 func (am *APIManager) handleStartServer(w http.ResponseWriter, r *http.Request) {
 	keyCtx := getKeyContext(r)
 
-	if keyCtx.ScopedTagID > 0 {
-		am.jsonError(w, http.StatusForbidden, "tag-scoped keys cannot manage serve")
-		return
-	}
-
 	var body struct {
 		TagID   int64 `json:"tag_id"`
 		Port    int   `json:"port"`
@@ -1063,6 +1058,12 @@ func (am *APIManager) handleStartServer(w http.ResponseWriter, r *http.Request) 
 
 	if body.TagID == 0 {
 		am.jsonError(w, http.StatusBadRequest, "tag_id is required")
+		return
+	}
+
+	// Tag-scoped keys can only start servers for their scoped tag.
+	if keyCtx.ScopedTagID > 0 && body.TagID != keyCtx.ScopedTagID {
+		am.jsonError(w, http.StatusForbidden, "tag-scoped key can only manage serve for its scoped tag")
 		return
 	}
 
@@ -1105,14 +1106,15 @@ func (am *APIManager) handleStartServer(w http.ResponseWriter, r *http.Request) 
 func (am *APIManager) handleStopServer(w http.ResponseWriter, r *http.Request) {
 	keyCtx := getKeyContext(r)
 
-	if keyCtx.ScopedTagID > 0 {
-		am.jsonError(w, http.StatusForbidden, "tag-scoped keys cannot manage serve")
-		return
-	}
-
 	tagID, err := parseIntParam(r.PathValue("tagId"))
 	if err != nil {
 		am.jsonError(w, http.StatusBadRequest, "invalid tag id")
+		return
+	}
+
+	// Tag-scoped keys can only stop servers for their scoped tag.
+	if keyCtx.ScopedTagID > 0 && tagID != keyCtx.ScopedTagID {
+		am.jsonError(w, http.StatusForbidden, "tag-scoped key can only manage serve for its scoped tag")
 		return
 	}
 

@@ -290,7 +290,7 @@ func TestHandleStartServerRequiresAdmin(t *testing.T) {
 		t.Fatalf("failed to insert tags: %v", err)
 	}
 
-	// Tag-scoped editor key gets 403 from the handler's own scope check.
+	// Tag-scoped editor key gets 403 from requireRole.
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/serve", strings.NewReader(`{"tag_id":1}`))
 	req = req.WithContext(context.WithValue(req.Context(), apiKeyContextKey, &apiKeyContext{
 		KeyID:       1,
@@ -299,7 +299,7 @@ func TestHandleStartServerRequiresAdmin(t *testing.T) {
 	}))
 	rec := httptest.NewRecorder()
 
-	manager.handleStartServer(rec, req)
+	manager.requireRole("admin", manager.handleStartServer)(rec, req)
 
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("expected 403 for scoped editor, got %d with body %q", rec.Code, rec.Body.String())
@@ -330,6 +330,129 @@ func TestHandleStartServerRequiresAdmin(t *testing.T) {
 	t.Cleanup(func() {
 		_ = app.serveManager.StopServing(2)
 	})
+}
+
+func TestHandleStartServerScopedAdminCanStartOwnTag(t *testing.T) {
+	db := newServerTestDB(t)
+	app := &App{db: db}
+	app.serveManager = NewServeManager(app)
+	manager := NewAPIManager(app)
+
+	if _, err := db.Exec(`INSERT INTO tags (id, name, color) VALUES (1, 'scoped', '#111111'), (2, 'other', '#222222')`); err != nil {
+		t.Fatalf("failed to insert tags: %v", err)
+	}
+
+	// Tag-scoped admin can start server for their scoped tag.
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/serve", strings.NewReader(`{"tag_id":1}`))
+	req = req.WithContext(context.WithValue(req.Context(), apiKeyContextKey, &apiKeyContext{
+		KeyID:       1,
+		Role:        "admin",
+		ScopedTagID: 1,
+	}))
+	rec := httptest.NewRecorder()
+
+	manager.handleStartServer(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201 for scoped admin starting own tag, got %d with body %q", rec.Code, rec.Body.String())
+	}
+
+	t.Cleanup(func() {
+		_ = app.serveManager.StopServing(1)
+	})
+}
+
+func TestHandleStartServerScopedAdminCannotStartOtherTag(t *testing.T) {
+	db := newServerTestDB(t)
+	app := &App{db: db}
+	app.serveManager = NewServeManager(app)
+	manager := NewAPIManager(app)
+
+	if _, err := db.Exec(`INSERT INTO tags (id, name, color) VALUES (1, 'scoped', '#111111'), (2, 'other', '#222222')`); err != nil {
+		t.Fatalf("failed to insert tags: %v", err)
+	}
+
+	// Tag-scoped admin cannot start server for a different tag.
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/serve", strings.NewReader(`{"tag_id":2}`))
+	req = req.WithContext(context.WithValue(req.Context(), apiKeyContextKey, &apiKeyContext{
+		KeyID:       1,
+		Role:        "admin",
+		ScopedTagID: 1,
+	}))
+	rec := httptest.NewRecorder()
+
+	manager.handleStartServer(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for scoped admin starting other tag, got %d with body %q", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandleStopServerScopedAdminCanStopOwnTag(t *testing.T) {
+	db := newServerTestDB(t)
+	app := &App{db: db}
+	app.serveManager = NewServeManager(app)
+	manager := NewAPIManager(app)
+
+	if _, err := db.Exec(`INSERT INTO tags (id, name, color) VALUES (1, 'scoped', '#111111')`); err != nil {
+		t.Fatalf("failed to insert tag: %v", err)
+	}
+
+	// Start a server first.
+	if _, err := app.serveManager.StartServing(1, 0, false); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+
+	// Tag-scoped admin can stop server for their scoped tag.
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/serve/1", nil)
+	req.SetPathValue("tagId", "1")
+	req = req.WithContext(context.WithValue(req.Context(), apiKeyContextKey, &apiKeyContext{
+		KeyID:       1,
+		Role:        "admin",
+		ScopedTagID: 1,
+	}))
+	rec := httptest.NewRecorder()
+
+	manager.handleStopServer(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected 204 for scoped admin stopping own tag, got %d with body %q", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandleStopServerScopedAdminCannotStopOtherTag(t *testing.T) {
+	db := newServerTestDB(t)
+	app := &App{db: db}
+	app.serveManager = NewServeManager(app)
+	manager := NewAPIManager(app)
+
+	if _, err := db.Exec(`INSERT INTO tags (id, name, color) VALUES (1, 'scoped', '#111111'), (2, 'other', '#222222')`); err != nil {
+		t.Fatalf("failed to insert tags: %v", err)
+	}
+
+	// Start a server for tag 2.
+	if _, err := app.serveManager.StartServing(2, 0, false); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = app.serveManager.StopServing(2)
+	})
+
+	// Tag-scoped admin cannot stop server for a different tag.
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/serve/2", nil)
+	req.SetPathValue("tagId", "2")
+	req = req.WithContext(context.WithValue(req.Context(), apiKeyContextKey, &apiKeyContext{
+		KeyID:       1,
+		Role:        "admin",
+		ScopedTagID: 1,
+	}))
+	rec := httptest.NewRecorder()
+
+	manager.handleStopServer(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for scoped admin stopping other tag, got %d with body %q", rec.Code, rec.Body.String())
+	}
 }
 
 func TestHandleStartServerAutoPort(t *testing.T) {
