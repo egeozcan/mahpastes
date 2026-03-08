@@ -107,6 +107,30 @@ All endpoints are prefixed with `/api/v1`.
 | `PUT` | `/clips/{id}/tags/{tagId}` | editor | Add a tag to a clip |
 | `DELETE` | `/clips/{id}/tags/{tagId}` | editor | Remove a tag from a clip |
 
+### Serve (Tag Hosting)
+
+| Method | Path | Min Role | Description |
+|--------|------|----------|-------------|
+| `GET` | `/serve` | viewer | List running tag servers |
+| `POST` | `/serve` | admin | Start serving a tag |
+| `DELETE` | `/serve/{tagId}` | admin | Stop serving a tag |
+
+`POST /api/v1/serve` accepts a JSON body:
+
+```json
+{
+  "tag_id": 5,
+  "port": 0,
+  "bind_all": false
+}
+```
+
+- `port`: Set to `0` (or omit) to auto-assign an available port
+- `bind_all`: Bind to `0.0.0.0` instead of `127.0.0.1`
+- Returns `201` with `ServeInfo` on success
+- Returns `409` if the tag is already being served or the port is unavailable
+- Tag-scoped keys cannot start or stop servers (returns `403`), but can list servers filtered to their tag
+
 ## Query Parameters
 
 `GET /api/v1/clips` supports:

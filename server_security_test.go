@@ -279,3 +279,218 @@ func TestServeManagerDirectoryListingEncodesReservedCharactersInLinks(t *testing
 		t.Fatalf("expected served file body to round-trip, got %q", body)
 	}
 }
+
+func TestHandleStartServerRequiresAdmin(t *testing.T) {
+	db := newServerTestDB(t)
+	app := &App{db: db}
+	app.serveManager = NewServeManager(app)
+	manager := NewAPIManager(app)
+
+	if _, err := db.Exec(`INSERT INTO tags (id, name, color) VALUES (1, 'test', '#111111'), (2, 'other', '#222222')`); err != nil {
+		t.Fatalf("failed to insert tags: %v", err)
+	}
+
+	// Tag-scoped editor key gets 403 from the handler's own scope check.
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/serve", strings.NewReader(`{"tag_id":1}`))
+	req = req.WithContext(context.WithValue(req.Context(), apiKeyContextKey, &apiKeyContext{
+		KeyID:       1,
+		Role:        "editor",
+		ScopedTagID: 1,
+	}))
+	rec := httptest.NewRecorder()
+
+	manager.handleStartServer(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for scoped editor, got %d with body %q", rec.Code, rec.Body.String())
+	}
+
+	// Admin can start successfully.
+	req2 := httptest.NewRequest(http.MethodPost, "/api/v1/serve", strings.NewReader(`{"tag_id":2}`))
+	req2 = req2.WithContext(context.WithValue(req2.Context(), apiKeyContextKey, &apiKeyContext{
+		KeyID: 2,
+		Role:  "admin",
+	}))
+	rec2 := httptest.NewRecorder()
+
+	manager.handleStartServer(rec2, req2)
+
+	if rec2.Code != http.StatusCreated {
+		t.Fatalf("expected 201 for admin, got %d with body %q", rec2.Code, rec2.Body.String())
+	}
+
+	var info ServeInfo
+	if err := json.Unmarshal(rec2.Body.Bytes(), &info); err != nil {
+		t.Fatalf("expected JSON response, got error: %v", err)
+	}
+	if info.TagID != 2 {
+		t.Fatalf("expected tag_id 2, got %d", info.TagID)
+	}
+
+	t.Cleanup(func() {
+		_ = app.serveManager.StopServing(2)
+	})
+}
+
+func TestHandleStartServerAutoPort(t *testing.T) {
+	db := newServerTestDB(t)
+	app := &App{db: db}
+	app.serveManager = NewServeManager(app)
+	manager := NewAPIManager(app)
+
+	if _, err := db.Exec(`INSERT INTO tags (id, name, color) VALUES (2, 'auto', '#222222')`); err != nil {
+		t.Fatalf("failed to insert tag: %v", err)
+	}
+
+	// port 0 or omitted → auto-assign
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/serve", strings.NewReader(`{"tag_id":2,"port":0}`))
+	req = req.WithContext(context.WithValue(req.Context(), apiKeyContextKey, &apiKeyContext{
+		KeyID: 1,
+		Role:  "admin",
+	}))
+	rec := httptest.NewRecorder()
+
+	manager.handleStartServer(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d with body %q", rec.Code, rec.Body.String())
+	}
+
+	var info ServeInfo
+	if err := json.Unmarshal(rec.Body.Bytes(), &info); err != nil {
+		t.Fatalf("expected JSON response, got error: %v", err)
+	}
+	if info.Port == 0 {
+		t.Fatalf("expected auto-assigned port, got 0")
+	}
+
+	t.Cleanup(func() {
+		_ = app.serveManager.StopServing(2)
+	})
+}
+
+func TestHandleStartServerAlreadyServing(t *testing.T) {
+	db := newServerTestDB(t)
+	app := &App{db: db}
+	app.serveManager = NewServeManager(app)
+	manager := NewAPIManager(app)
+
+	if _, err := db.Exec(`INSERT INTO tags (id, name, color) VALUES (3, 'dup', '#333333')`); err != nil {
+		t.Fatalf("failed to insert tag: %v", err)
+	}
+
+	// Start first
+	req1 := httptest.NewRequest(http.MethodPost, "/api/v1/serve", strings.NewReader(`{"tag_id":3}`))
+	req1 = req1.WithContext(context.WithValue(req1.Context(), apiKeyContextKey, &apiKeyContext{
+		KeyID: 1,
+		Role:  "admin",
+	}))
+	rec1 := httptest.NewRecorder()
+	manager.handleStartServer(rec1, req1)
+
+	if rec1.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", rec1.Code)
+	}
+	t.Cleanup(func() {
+		_ = app.serveManager.StopServing(3)
+	})
+
+	// Start again → 409
+	req2 := httptest.NewRequest(http.MethodPost, "/api/v1/serve", strings.NewReader(`{"tag_id":3}`))
+	req2 = req2.WithContext(context.WithValue(req2.Context(), apiKeyContextKey, &apiKeyContext{
+		KeyID: 1,
+		Role:  "admin",
+	}))
+	rec2 := httptest.NewRecorder()
+	manager.handleStartServer(rec2, req2)
+
+	if rec2.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d with body %q", rec2.Code, rec2.Body.String())
+	}
+}
+
+func TestHandleStopServerNotRunning(t *testing.T) {
+	db := newServerTestDB(t)
+	app := &App{db: db}
+	app.serveManager = NewServeManager(app)
+	manager := NewAPIManager(app)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/serve/99", nil)
+	req.SetPathValue("tagId", "99")
+	req = req.WithContext(context.WithValue(req.Context(), apiKeyContextKey, &apiKeyContext{
+		KeyID: 1,
+		Role:  "admin",
+	}))
+	rec := httptest.NewRecorder()
+
+	manager.handleStopServer(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d with body %q", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandleListServersTagScoped(t *testing.T) {
+	db := newServerTestDB(t)
+	app := &App{db: db}
+	app.serveManager = NewServeManager(app)
+	manager := NewAPIManager(app)
+
+	if _, err := db.Exec(`INSERT INTO tags (id, name, color) VALUES (10, 'a', '#aaaaaa'), (11, 'b', '#bbbbbb')`); err != nil {
+		t.Fatalf("failed to insert tags: %v", err)
+	}
+
+	// Start two servers
+	if _, err := app.serveManager.StartServing(10, 0, false); err != nil {
+		t.Fatalf("failed to start server for tag 10: %v", err)
+	}
+	if _, err := app.serveManager.StartServing(11, 0, false); err != nil {
+		t.Fatalf("failed to start server for tag 11: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = app.serveManager.StopServing(10)
+		_ = app.serveManager.StopServing(11)
+	})
+
+	// Unscoped admin sees both
+	req1 := httptest.NewRequest(http.MethodGet, "/api/v1/serve", nil)
+	req1 = req1.WithContext(context.WithValue(req1.Context(), apiKeyContextKey, &apiKeyContext{
+		KeyID: 1,
+		Role:  "admin",
+	}))
+	rec1 := httptest.NewRecorder()
+	manager.handleListServers(rec1, req1)
+
+	var result1 struct {
+		Servers []ServeInfo `json:"servers"`
+	}
+	if err := json.Unmarshal(rec1.Body.Bytes(), &result1); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+	if len(result1.Servers) != 2 {
+		t.Fatalf("expected 2 servers, got %d", len(result1.Servers))
+	}
+
+	// Tag-scoped key (tag 10) sees only tag 10
+	req2 := httptest.NewRequest(http.MethodGet, "/api/v1/serve", nil)
+	req2 = req2.WithContext(context.WithValue(req2.Context(), apiKeyContextKey, &apiKeyContext{
+		KeyID:       2,
+		Role:        "viewer",
+		ScopedTagID: 10,
+	}))
+	rec2 := httptest.NewRecorder()
+	manager.handleListServers(rec2, req2)
+
+	var result2 struct {
+		Servers []ServeInfo `json:"servers"`
+	}
+	if err := json.Unmarshal(rec2.Body.Bytes(), &result2); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+	if len(result2.Servers) != 1 {
+		t.Fatalf("expected 1 server for scoped key, got %d", len(result2.Servers))
+	}
+	if result2.Servers[0].TagID != 10 {
+		t.Fatalf("expected scoped server for tag 10, got tag %d", result2.Servers[0].TagID)
+	}
+}

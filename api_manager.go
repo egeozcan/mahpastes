@@ -111,6 +111,9 @@ func (am *APIManager) Start(port int, bindAll bool) (APIStatus, error) {
 	mux.HandleFunc("DELETE /api/v1/tags/{id}", am.authMiddleware(am.requireRole("admin", am.handleDeleteTag)))
 	mux.HandleFunc("PUT /api/v1/clips/{id}/tags/{tagId}", am.authMiddleware(am.requireRole("editor", am.handleAddTagToClip)))
 	mux.HandleFunc("DELETE /api/v1/clips/{id}/tags/{tagId}", am.authMiddleware(am.requireRole("editor", am.handleRemoveTagFromClip)))
+	mux.HandleFunc("GET /api/v1/serve", am.authMiddleware(am.requireRole("viewer", am.handleListServers)))
+	mux.HandleFunc("POST /api/v1/serve", am.authMiddleware(am.requireRole("admin", am.handleStartServer)))
+	mux.HandleFunc("DELETE /api/v1/serve/{tagId}", am.authMiddleware(am.requireRole("admin", am.handleStopServer)))
 
 	handler := am.corsMiddleware(mux)
 
@@ -1005,6 +1008,125 @@ func (am *APIManager) handleRemoveTagFromClip(w http.ResponseWriter, r *http.Req
 
 	if err := am.app.RemoveTagFromClip(clipID, tagID); err != nil {
 		am.jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- Serve Handlers ---
+
+func (am *APIManager) handleListServers(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+
+	if am.app.serveManager == nil {
+		am.jsonOK(w, map[string][]ServeInfo{"servers": {}})
+		return
+	}
+
+	servers := am.app.serveManager.GetStatus()
+
+	// Tag-scoped keys only see servers for their scoped tag.
+	if keyCtx.ScopedTagID > 0 {
+		filtered := []ServeInfo{}
+		for _, s := range servers {
+			if s.TagID == keyCtx.ScopedTagID {
+				filtered = append(filtered, s)
+			}
+		}
+		servers = filtered
+	}
+
+	if servers == nil {
+		servers = []ServeInfo{}
+	}
+	am.jsonOK(w, map[string][]ServeInfo{"servers": servers})
+}
+
+func (am *APIManager) handleStartServer(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+
+	if keyCtx.ScopedTagID > 0 {
+		am.jsonError(w, http.StatusForbidden, "tag-scoped keys cannot manage serve")
+		return
+	}
+
+	var body struct {
+		TagID   int64 `json:"tag_id"`
+		Port    int   `json:"port"`
+		BindAll bool  `json:"bind_all"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	if body.TagID == 0 {
+		am.jsonError(w, http.StatusBadRequest, "tag_id is required")
+		return
+	}
+
+	if am.app.serveManager == nil {
+		am.jsonError(w, http.StatusInternalServerError, "serve manager not initialized")
+		return
+	}
+
+	// Auto-assign port if 0.
+	port := body.Port
+	if port == 0 {
+		p, err := GetRandomPort()
+		if err != nil {
+			am.jsonError(w, http.StatusInternalServerError, "failed to find available port")
+			return
+		}
+		port = p
+	}
+
+	info, err := am.app.serveManager.StartServing(body.TagID, port, body.BindAll)
+	if err != nil {
+		msg := err.Error()
+		if strings.Contains(msg, "already being served") {
+			am.jsonError(w, http.StatusConflict, msg)
+			return
+		}
+		if strings.Contains(msg, "unavailable") {
+			am.jsonError(w, http.StatusConflict, msg)
+			return
+		}
+		am.jsonError(w, http.StatusBadRequest, msg)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(info)
+}
+
+func (am *APIManager) handleStopServer(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+
+	if keyCtx.ScopedTagID > 0 {
+		am.jsonError(w, http.StatusForbidden, "tag-scoped keys cannot manage serve")
+		return
+	}
+
+	tagID, err := parseIntParam(r.PathValue("tagId"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid tag id")
+		return
+	}
+
+	if am.app.serveManager == nil {
+		am.jsonError(w, http.StatusNotFound, "no server running for this tag")
+		return
+	}
+
+	if err := am.app.serveManager.StopServing(tagID); err != nil {
+		if strings.Contains(err.Error(), "no server running") {
+			am.jsonError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		am.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
