@@ -43,7 +43,7 @@ export const selectors = {
   // Clip gallery
   gallery: {
     container: '#gallery',
-    clipCard: '#gallery > li',
+    clipCard: '#gallery > li:not([data-folder])',
     clipCardByName: (name: string) => `#gallery > li[data-filename="${name.toLowerCase()}"]`,
     clipCardById: (id: string) => `#gallery > li[data-id="${id}"]`,
     clipCheckbox: '.clip-checkbox',

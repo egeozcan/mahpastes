@@ -994,6 +994,11 @@ func (am *APIManager) handleUpdateTag(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if keyCtx.ScopedTagID > 0 && !am.isTagInScope(body.Name, keyCtx.ScopedTagID) {
+		am.jsonError(w, http.StatusForbidden, "tag-scoped key can only rename tags within its scope")
+		return
+	}
+
 	if err := am.app.UpdateTag(id, body.Name, body.Color); err != nil {
 		am.jsonError(w, http.StatusBadRequest, err.Error())
 		return

@@ -93,7 +93,7 @@ func TestIsDescendantOf(t *testing.T) {
 		{"photos/vacation", "photos", true},
 		{"photos/vacation/2024", "photos", true},
 		{"photos/vacation/2024", "photos/vacation", true},
-		{"photos", "photos", false},          // self is not descendant
+		{"photos", "photos", false},           // self is not descendant
 		{"photos2/vacation", "photos", false}, // different prefix
 		{"photography", "photos", false},      // "photography" != "photos/..."
 		{"", "photos", false},
@@ -117,10 +117,10 @@ func TestIsImmediateChildOf(t *testing.T) {
 
 		// Normal parent
 		{"photos/vacation", "photos", true},
-		{"photos/vacation/2024", "photos", false},     // grandchild, not immediate
+		{"photos/vacation/2024", "photos", false}, // grandchild, not immediate
 		{"photos/vacation/2024", "photos/vacation", true},
-		{"photos", "photos", false},                    // self
-		{"photography", "photos", false},               // different prefix
+		{"photos", "photos", false},      // self
+		{"photography", "photos", false}, // different prefix
 		{"photos2/vacation", "photos", false},
 
 		// Edge cases
@@ -686,6 +686,45 @@ func TestUpdateTagCascadesRenameNoFalsePositive(t *testing.T) {
 	err = app.db.QueryRow("SELECT name FROM tags WHERE name = ?", "working").Scan(&name)
 	if err != nil {
 		t.Error("'working' should still exist — it is not a descendant of 'work'")
+	}
+}
+
+func TestUpdateTagRollsBackOnDescendantConflict(t *testing.T) {
+	app, cleanup := setupTestDBWithTags(t)
+	defer cleanup()
+
+	_, err := app.CreateTag("work/client1")
+	if err != nil {
+		t.Fatalf("CreateTag(work/client1): %v", err)
+	}
+	_, err = app.CreateTag("job/client1")
+	if err != nil {
+		t.Fatalf("CreateTag(job/client1): %v", err)
+	}
+
+	var workID int64
+	err = app.db.QueryRow("SELECT id FROM tags WHERE name = ?", "work").Scan(&workID)
+	if err != nil {
+		t.Fatalf("failed to find 'work' tag: %v", err)
+	}
+
+	err = app.UpdateTag(workID, "job", "#aaa")
+	if err == nil {
+		t.Fatal("expected rename conflict error, got nil")
+	}
+
+	for _, want := range []string{"work", "work/client1", "job", "job/client1"} {
+		var count int
+		if err := app.db.QueryRow("SELECT COUNT(*) FROM tags WHERE name = ?", want).Scan(&count); err != nil {
+			t.Fatalf("failed to count tag %q: %v", want, err)
+		}
+		expected := 1
+		if want == "job" {
+			expected = 1
+		}
+		if count != expected {
+			t.Fatalf("tag %q count = %d, want %d", want, count, expected)
+		}
 	}
 }
 

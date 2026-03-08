@@ -40,6 +40,21 @@ test.describe('Folder Mode', () => {
     await app.expectFolderVisible('client2');
   });
 
+  test('nested folder keeps clips tagged to the current folder visible', async ({ app }) => {
+    await app.createTag('work/client1/projectABC');
+    const imagePath = await createTempFile(generateTestImage(), 'png');
+    const filename = path.basename(imagePath);
+    await app.uploadFile(imagePath);
+    await app.addTagToClip(filename, 'work/client1');
+
+    await app.toggleFolderMode();
+    await app.clickFolder('work');
+    await app.clickFolder('client1');
+
+    await app.expectFolderVisible('projectABC');
+    await app.expectClipVisible(filename);
+  });
+
   test('folder mode shows directly-tagged clips alongside folders', async ({ app }) => {
     await app.createTag('work/client1');
     const imagePath = await createTempFile(generateTestImage(), 'png');

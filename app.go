@@ -296,16 +296,16 @@ func (a *App) initTempDir() error {
 
 // ClipPreview is the struct for JSON responses in the gallery
 type ClipPreview struct {
-	ID          int64      `json:"id"`
-	ContentType string     `json:"content_type"`
-	Filename    string     `json:"filename"`
-	CreatedAt   time.Time  `json:"created_at"`
-	ExpiresAt   *time.Time `json:"expires_at"`
-	Preview     string     `json:"preview"`
-	IsArchived  bool       `json:"is_archived"`
-	Tags        []Tag      `json:"tags"`
-	Size           int64  `json:"size"`
-	DuplicateCount int    `json:"duplicate_count"`
+	ID             int64      `json:"id"`
+	ContentType    string     `json:"content_type"`
+	Filename       string     `json:"filename"`
+	CreatedAt      time.Time  `json:"created_at"`
+	ExpiresAt      *time.Time `json:"expires_at"`
+	Preview        string     `json:"preview"`
+	IsArchived     bool       `json:"is_archived"`
+	Tags           []Tag      `json:"tags"`
+	Size           int64      `json:"size"`
+	DuplicateCount int        `json:"duplicate_count"`
 }
 
 // DuplicateGroup represents a set of clips sharing the same content hash
@@ -1137,14 +1137,20 @@ func (a *App) UpdateTag(id int64, name, color string) error {
 		return fmt.Errorf("tag name too long (max %d characters)", maxTagNameLength)
 	}
 
+	tx, err := a.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
 	// Fetch the old name so we can cascade rename descendants
 	var oldName string
-	err := a.db.QueryRow("SELECT name FROM tags WHERE id = ?", id).Scan(&oldName)
+	err = tx.QueryRow("SELECT name FROM tags WHERE id = ?", id).Scan(&oldName)
 	if err != nil {
 		return fmt.Errorf("tag not found")
 	}
 
-	_, err = a.db.Exec("UPDATE tags SET name = ?, color = ? WHERE id = ?", name, color, id)
+	_, err = tx.Exec("UPDATE tags SET name = ?, color = ? WHERE id = ?", name, color, id)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			return fmt.Errorf("tag name already exists: %s", name)
@@ -1156,11 +1162,18 @@ func (a *App) UpdateTag(id int64, name, color string) error {
 	if oldName != name {
 		oldPrefix := oldName + "/"
 		newPrefix := name + "/"
-		_, err = a.db.Exec(`UPDATE tags SET name = ? || SUBSTR(name, ?) WHERE name LIKE ?`,
+		_, err = tx.Exec(`UPDATE tags SET name = ? || SUBSTR(name, ?) WHERE name LIKE ?`,
 			newPrefix, len(oldPrefix)+1, oldPrefix+"%")
 		if err != nil {
+			if strings.Contains(err.Error(), "UNIQUE") {
+				return fmt.Errorf("tag rename conflicts with an existing tag")
+			}
 			return fmt.Errorf("failed to rename descendant tags: %w", err)
 		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit tag update: %w", err)
 	}
 
 	// Emit plugin event

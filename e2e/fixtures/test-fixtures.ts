@@ -1116,7 +1116,9 @@ export class AppHelper {
     // Refresh UI by toggling watch view
     await this.closeWatchView();
     await this.openWatchView();
-    await expect(this.page.locator('#watch-folder-list > li')).not.toHaveCount(0, { timeout: 5000 });
+    const cards = this.page.locator('#watch-folder-list > li');
+    await expect(cards).not.toHaveCount(0, { timeout: 5000 });
+    await expect(cards.first().locator('.truncate')).toBeVisible({ timeout: 5000 });
   }
 
   async removeWatchFolder(folderPath: string): Promise<void> {
@@ -1379,6 +1381,22 @@ export class AppHelper {
   }
 
   async openTagFilterDropdown(): Promise<void> {
+    await this.page.evaluate(async () => {
+      // Keep frontend test state in sync when tags were created directly via backend APIs.
+      // @ts-ignore - Wails runtime
+      const tags = await window.go.main.App.GetTags();
+      // @ts-ignore
+      if (window.__testHelpers?.setAllTags) {
+        // @ts-ignore
+        window.__testHelpers.setAllTags(tags);
+      }
+      // @ts-ignore
+      if (typeof renderTagFilterDropdown === 'function') {
+        // @ts-ignore
+        renderTagFilterDropdown();
+      }
+    });
+
     const dropdown = this.page.locator(selectors.tags.filterDropdown);
     const isVisible = await dropdown.evaluate(el => !el.classList.contains('hidden'));
     if (!isVisible) {

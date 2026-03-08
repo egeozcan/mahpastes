@@ -1174,6 +1174,41 @@ func TestScopedKeyCannotUpdateOutOfScopeTag(t *testing.T) {
 	}
 }
 
+func TestScopedKeyCannotRenameTagOutsideScope(t *testing.T) {
+	db := newServerTestDB(t)
+	app := &App{db: db}
+	manager := NewAPIManager(app)
+
+	if _, err := db.Exec(`INSERT INTO tags (id, name, color) VALUES
+		(1, 'work', '#111111'),
+		(2, 'work/client1', '#222222')`); err != nil {
+		t.Fatalf("failed to insert tags: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/tags/2", strings.NewReader(`{"name":"personal/client1","color":"#ff0000"}`))
+	req.SetPathValue("id", "2")
+	req = req.WithContext(context.WithValue(req.Context(), apiKeyContextKey, &apiKeyContext{
+		KeyID:       1,
+		Role:        "admin",
+		ScopedTagID: 1,
+	}))
+	rec := httptest.NewRecorder()
+
+	manager.handleUpdateTag(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for rename outside scope, got %d with body %q", rec.Code, rec.Body.String())
+	}
+
+	var name string
+	if err := db.QueryRow("SELECT name FROM tags WHERE id = 2").Scan(&name); err != nil {
+		t.Fatalf("failed to read tag after rejected rename: %v", err)
+	}
+	if name != "work/client1" {
+		t.Fatalf("tag name changed despite rejection: got %q", name)
+	}
+}
+
 func TestScopedKeyCanDeleteSubtag(t *testing.T) {
 	db := newServerTestDB(t)
 	app := &App{db: db}

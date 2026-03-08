@@ -8,8 +8,10 @@ async function loadClips() {
 
         let clips;
         if (isFolderMode() && activeTagFilters.length > 0) {
-            // In folder mode with active filters, show only directly-tagged clips
-            clips = await window.go.main.App.GetClipsDirect(isViewingArchive, activeTagFilters, effectiveHidden, currentSortField, currentSortDir);
+            // Breadcrumbs keep the full folder path, but clip loading at a folder
+            // level should match only that exact tag.
+            const currentFolderTagId = activeTagFilters[activeTagFilters.length - 1];
+            clips = await window.go.main.App.GetClipsDirect(isViewingArchive, [currentFolderTagId], effectiveHidden, currentSortField, currentSortDir);
         } else {
             clips = await window.go.main.App.GetClips(isViewingArchive, activeTagFilters, effectiveHidden, currentSortField, currentSortDir);
         }
