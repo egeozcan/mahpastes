@@ -1,4 +1,6 @@
 import { test, expect } from '../../fixtures/test-fixtures';
+import { createTempFile, generateTestImage } from '../../helpers/test-data';
+import path from 'path';
 
 test.describe('Subtag CRUD', () => {
   test.afterEach(async ({ app }) => {
@@ -55,5 +57,22 @@ test.describe('Subtag CRUD', () => {
     await app.createTag('work/client1');
     const tags = await app.getAllTags();
     expect(tags.map(t => t.name)).toContain('work');
+  });
+
+  test('subtag is not auto-deleted when removed from last clip', async ({ app }) => {
+    await app.createTag('work/client1');
+    const imagePath = await createTempFile(generateTestImage(), 'png');
+    const filename = path.basename(imagePath);
+    await app.uploadFile(imagePath);
+    await app.addTagToClip(filename, 'work/client1');
+
+    // Remove the subtag from the clip
+    await app.removeTagFromClip(filename, 'work/client1');
+
+    // Subtag should still exist (not auto-deleted)
+    const tags = await app.getAllTags();
+    const names = tags.map(t => t.name);
+    expect(names).toContain('work/client1');
+    expect(names).toContain('work');
   });
 });

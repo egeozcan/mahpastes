@@ -67,6 +67,53 @@ test.describe('Folder Mode', () => {
     await app.expectClipCount(1);
   });
 
+  test('root level only shows untagged clips', async ({ app }) => {
+    // Create a tag and a tagged clip
+    await app.createTag('photos');
+    const taggedPath = await createTempFile(generateTestImage(100, 100, 'blue'), 'png');
+    const taggedName = path.basename(taggedPath);
+    await app.uploadFile(taggedPath);
+    await app.addTagToClip(taggedName, 'photos');
+
+    // Create an untagged clip
+    const untaggedPath = await createTempFile(generateTestImage(100, 100, 'red'), 'png');
+    const untaggedName = path.basename(untaggedPath);
+    await app.uploadFile(untaggedPath);
+
+    await app.toggleFolderMode();
+
+    // Should see the folder for "photos" and only the untagged clip
+    await app.expectFolderVisible('photos');
+    await app.expectClipVisible(untaggedName);
+    await app.expectClipNotVisible(taggedName);
+  });
+
+  test('clips tagged with subtag do not appear in parent folder', async ({ app }) => {
+    // Create parent and child tags
+    await app.createTag('work/client1');
+
+    // Create a clip tagged with the subtag only
+    const subtag_path = await createTempFile(generateTestImage(100, 100, 'green'), 'png');
+    const subtagName = path.basename(subtag_path);
+    await app.uploadFile(subtag_path);
+    await app.addTagToClip(subtagName, 'work/client1');
+
+    // Create a clip tagged directly with the parent
+    const parentPath = await createTempFile(generateTestImage(100, 100, 'yellow'), 'png');
+    const parentName = path.basename(parentPath);
+    await app.uploadFile(parentPath);
+    await app.addTagToClip(parentName, 'work');
+
+    await app.toggleFolderMode();
+    await app.clickFolder('work');
+
+    // Should see the client1 subfolder and the directly-tagged clip
+    await app.expectFolderVisible('client1');
+    await app.expectClipVisible(parentName);
+    // Should NOT see the clip that's only tagged with work/client1
+    await app.expectClipNotVisible(subtagName);
+  });
+
   test('exiting folder mode preserves tag filters', async ({ app }) => {
     await app.createTag('work/client1');
     const imagePath = await createTempFile(generateTestImage(), 'png');

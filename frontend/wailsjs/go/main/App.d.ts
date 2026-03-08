@@ -64,6 +64,8 @@ export function GetDescendantClipCount(arg1:number):Promise<number>;
 
 export function GetDuplicateGroups():Promise<Array<main.DuplicateGroup>>;
 
+export function GetFolderClips(arg1:boolean,arg2:number,arg3:Array<number>,arg4:string,arg5:string):Promise<Array<main.ClipPreview>>;
+
 export function GetGlobalWatchPaused():Promise<boolean>;
 
 export function GetHiddenTags():Promise<Array<number>>;
@@ -75,6 +77,8 @@ export function GetSetting(arg1:string):Promise<string>;
 export function GetTags():Promise<Array<main.Tag>>;
 
 export function GetTopLevelTags():Promise<Array<main.Tag>>;
+
+export function GetUntaggedClips(arg1:boolean,arg2:Array<number>,arg3:string,arg4:string):Promise<Array<main.ClipPreview>>;
 
 export function GetWatchStatus():Promise<main.WatchStatus>;
 

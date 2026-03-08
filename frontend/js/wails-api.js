@@ -4,14 +4,31 @@
 async function loadClips() {
     try {
         if (typeof ShortcutManager !== 'undefined') ShortcutManager.clearFocus();
-        const effectiveHidden = getHiddenTags().filter(id => !activeTagFilters.includes(id));
+        // Build set of filter IDs + their ancestors so hidden parent tags
+        // are revealed when filtering by a subtag.
+        const revealedIds = new Set(activeTagFilters);
+        for (const filterId of activeTagFilters) {
+            const tag = allTags.find(t => t.id === filterId);
+            if (tag) {
+                let parentName = getParentTagName(tag.name);
+                while (parentName) {
+                    const parentTag = allTags.find(t => t.name === parentName);
+                    if (parentTag) revealedIds.add(parentTag.id);
+                    parentName = getParentTagName(parentName);
+                }
+            }
+        }
+        const effectiveHidden = getHiddenTags().filter(id => !revealedIds.has(id));
 
         let clips;
         if (isFolderMode() && activeTagFilters.length > 0) {
-            // Breadcrumbs keep the full folder path, but clip loading at a folder
-            // level should match only that exact tag.
+            // Show clips tagged directly with this folder's tag, excluding clips
+            // that also have a descendant tag (those belong in subfolders).
             const currentFolderTagId = activeTagFilters[activeTagFilters.length - 1];
-            clips = await window.go.main.App.GetClipsDirect(isViewingArchive, [currentFolderTagId], effectiveHidden, currentSortField, currentSortDir);
+            clips = await window.go.main.App.GetFolderClips(isViewingArchive, currentFolderTagId, effectiveHidden, currentSortField, currentSortDir);
+        } else if (isFolderMode()) {
+            // Root level folder mode: only show untagged clips alongside folder cards
+            clips = await window.go.main.App.GetUntaggedClips(isViewingArchive, effectiveHidden, currentSortField, currentSortDir);
         } else {
             clips = await window.go.main.App.GetClips(isViewingArchive, activeTagFilters, effectiveHidden, currentSortField, currentSortDir);
         }
@@ -355,6 +372,15 @@ async function getClipsDirect(archived, tagIds, hiddenTagIds, sortField, sortDir
         return await window.go.main.App.GetClipsDirect(archived, tagIds, hiddenTagIds, sortField, sortDir);
     } catch (error) {
         console.error('Error loading clips direct:', error);
+        return [];
+    }
+}
+
+async function getUntaggedClips(archived, hiddenTagIds, sortField, sortDir) {
+    try {
+        return await window.go.main.App.GetUntaggedClips(archived, hiddenTagIds, sortField, sortDir);
+    } catch (error) {
+        console.error('Error loading untagged clips:', error);
         return [];
     }
 }

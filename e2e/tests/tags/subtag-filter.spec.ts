@@ -40,6 +40,32 @@ test.describe('Subtag Filtering', () => {
     await app.expectClipCount(0);
   });
 
+  test('filtering by subtag of hidden parent reveals clips', async ({ app }) => {
+    await app.createTag('work/client1');
+    const imagePath = await createTempFile(generateTestImage(), 'png');
+    await app.uploadFile(imagePath);
+    await app.addTagToClip(path.basename(imagePath), 'work/client1');
+
+    // Hide the parent tag
+    await app.setHiddenTags(['work']);
+    await app.refreshClips();
+    await app.expectClipCount(0);
+
+    // Filter by subtag — should reveal the clip despite parent being hidden
+    await app.filterByTag('work/client1');
+    await app.expectClipCount(1);
+  });
+
+  test('subtags of hidden parent are visible in filter dropdown', async ({ app }) => {
+    await app.createTag('work/client1');
+    await app.setHiddenTags(['work']);
+    await app.openTagFilterDropdown();
+    // Subtag should still be visible (dimmed but accessible)
+    const subtag = app.page.locator('[data-testid="tag-checkbox-work/client1"]');
+    await expect(subtag).toBeVisible();
+    await app.closeTagFilterDropdown();
+  });
+
   test('card tag pills show short names', async ({ app }) => {
     await app.createTag('work/client1');
     const imagePath = await createTempFile(generateTestImage(), 'png');

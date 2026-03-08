@@ -412,7 +412,27 @@ func (a *App) GetClipsDirect(archived bool, tagIDs []int64, hiddenTagIDs []int64
 	return a.getClipsInternal(archived, tagIDs, hiddenTagIDs, sortField, sortDir, false)
 }
 
-func (a *App) getClipsInternal(archived bool, tagIDs []int64, hiddenTagIDs []int64, sortField string, sortDir string, expandFilters bool) ([]ClipPreview, error) {
+// GetFolderClips returns clips tagged with the given tag but NOT tagged with any
+// descendant of that tag. Used by folder mode so clips appear only at their
+// deepest folder level.
+func (a *App) GetFolderClips(archived bool, tagID int64, hiddenTagIDs []int64, sortField string, sortDir string) ([]ClipPreview, error) {
+	descendantIDs, err := a.getDescendantTagIDs(tagID)
+	if err != nil {
+		return nil, err
+	}
+	// Merge descendant IDs into hidden list so they act as exclusions
+	excludeIDs := make([]int64, 0, len(hiddenTagIDs)+len(descendantIDs))
+	excludeIDs = append(excludeIDs, hiddenTagIDs...)
+	excludeIDs = append(excludeIDs, descendantIDs...)
+	return a.getClipsInternal(archived, []int64{tagID}, excludeIDs, sortField, sortDir, false)
+}
+
+// GetUntaggedClips returns clips that have no tags at all.
+func (a *App) GetUntaggedClips(archived bool, hiddenTagIDs []int64, sortField string, sortDir string) ([]ClipPreview, error) {
+	return a.getClipsInternal(archived, nil, hiddenTagIDs, sortField, sortDir, false, true)
+}
+
+func (a *App) getClipsInternal(archived bool, tagIDs []int64, hiddenTagIDs []int64, sortField string, sortDir string, expandFilters bool, untaggedOnly ...bool) ([]ClipPreview, error) {
 	archivedInt := 0
 	if archived {
 		archivedInt = 1
@@ -464,7 +484,22 @@ func (a *App) getClipsInternal(archived bool, tagIDs []int64, hiddenTagIDs []int
 		filterGroups = append(filterGroups, group)
 	}
 
-	// Compute effective hidden tags: remove any that are in active filters (or their descendants)
+	// Also mark ancestors of active filter tags so they are not hidden.
+	// This ensures filtering by a subtag of a hidden parent reveals clips correctly.
+	for _, tagID := range tagIDs {
+		var tagName string
+		if err := a.db.QueryRow("SELECT name FROM tags WHERE id = ?", tagID).Scan(&tagName); err != nil {
+			continue
+		}
+		for _, ancestor := range getAncestorTagNames(tagName) {
+			var ancestorID int64
+			if err := a.db.QueryRow("SELECT id FROM tags WHERE name = ?", ancestor).Scan(&ancestorID); err == nil {
+				allFilterIDs[ancestorID] = true
+			}
+		}
+	}
+
+	// Compute effective hidden tags: remove any that are in active filters, their descendants, or their ancestors
 	effectiveHidden := make([]int64, 0)
 	for _, id := range expandedHidden {
 		if !allFilterIDs[id] {
@@ -474,6 +509,12 @@ func (a *App) getClipsInternal(archived bool, tagIDs []int64, hiddenTagIDs []int
 
 	var query string
 	var args []interface{}
+
+	wantUntagged := len(untaggedOnly) > 0 && untaggedOnly[0]
+	untaggedClause := ""
+	if wantUntagged {
+		untaggedClause = "\n\t\t  AND NOT EXISTS (SELECT 1 FROM clip_tags ct2 WHERE ct2.clip_id = c.id)"
+	}
 
 	selectCols := `c.id, c.content_type, c.filename, c.created_at, c.expires_at, SUBSTR(c.data, 1, 500), c.is_archived, LENGTH(c.data),
 		       (SELECT COUNT(*) FROM clips c2 WHERE c2.content_hash = c.content_hash AND c2.content_hash != '' AND c2.id != c.id)`
@@ -511,11 +552,11 @@ func (a *App) getClipsInternal(archived bool, tagIDs []int64, hiddenTagIDs []int
 		query = fmt.Sprintf(`
 		SELECT %s
 		FROM clips c
-		WHERE %s%s
+		WHERE %s%s%s
 		  AND c.is_archived = ?
 		  AND (c.expires_at IS NULL OR c.expires_at > CURRENT_TIMESTAMP)
 		%s
-		LIMIT %d`, selectCols, strings.Join(existsClauses, "\n\t\t  AND "), hiddenClause, orderClause, defaultClipLimit)
+		LIMIT %d`, selectCols, strings.Join(existsClauses, "\n\t\t  AND "), hiddenClause, untaggedClause, orderClause, defaultClipLimit)
 	} else if len(effectiveHidden) > 0 {
 		// No tag filters but has hidden tags - use NOT EXISTS anti-join
 		hiddenPlaceholders := make([]string, len(effectiveHidden))
@@ -528,20 +569,20 @@ func (a *App) getClipsInternal(archived bool, tagIDs []int64, hiddenTagIDs []int
 		query = fmt.Sprintf(`
 		SELECT %s
 		FROM clips c
-		WHERE NOT EXISTS (SELECT 1 FROM clip_tags ct WHERE ct.clip_id = c.id AND ct.tag_id IN (%s))
+		WHERE NOT EXISTS (SELECT 1 FROM clip_tags ct WHERE ct.clip_id = c.id AND ct.tag_id IN (%s))%s
 		  AND c.is_archived = ?
 		  AND (c.expires_at IS NULL OR c.expires_at > CURRENT_TIMESTAMP)
 		%s
-		LIMIT %d`, selectCols, strings.Join(hiddenPlaceholders, ","), orderClause, defaultClipLimit)
+		LIMIT %d`, selectCols, strings.Join(hiddenPlaceholders, ","), untaggedClause, orderClause, defaultClipLimit)
 	} else {
 		// No filters, no hidden tags - original simple query
 		args = append(args, archivedInt)
 		query = fmt.Sprintf(`
 		SELECT %s
 		FROM clips c
-		WHERE c.is_archived = ? AND (c.expires_at IS NULL OR c.expires_at > CURRENT_TIMESTAMP)
+		WHERE c.is_archived = ?%s AND (c.expires_at IS NULL OR c.expires_at > CURRENT_TIMESTAMP)
 		%s
-		LIMIT %d`, selectCols, orderClause, defaultClipLimit)
+		LIMIT %d`, selectCols, untaggedClause, orderClause, defaultClipLimit)
 	}
 
 	rows, err := a.db.Query(query, args...)
@@ -1269,23 +1310,28 @@ func (a *App) RemoveTagFromClip(clipID, tagID int64) error {
 	return nil
 }
 
-// deleteTagIfOrphaned deletes a tag if it has no associated clips
+// deleteTagIfOrphaned deletes a tag if it has no associated clips.
+// Subtags (names containing '/') are never auto-deleted — they were
+// intentionally created as part of a hierarchy.
 func (a *App) deleteTagIfOrphaned(tagID int64) {
-	var count int
-	err := a.db.QueryRow("SELECT COUNT(*) FROM clip_tags WHERE tag_id = ?", tagID).Scan(&count)
+	var tagName string
+	err := a.db.QueryRow("SELECT name FROM tags WHERE id = ?", tagID).Scan(&tagName)
 	if err != nil {
 		return
 	}
-	if count > 0 {
+
+	// Never auto-delete hierarchical tags (subtags or parents of subtags)
+	if strings.Contains(tagName, "/") {
+		return
+	}
+
+	var count int
+	err = a.db.QueryRow("SELECT COUNT(*) FROM clip_tags WHERE tag_id = ?", tagID).Scan(&count)
+	if err != nil || count > 0 {
 		return
 	}
 
 	// Check if this tag has children — don't delete a parent with descendants
-	var tagName string
-	err = a.db.QueryRow("SELECT name FROM tags WHERE id = ?", tagID).Scan(&tagName)
-	if err != nil {
-		return
-	}
 	var childCount int
 	a.db.QueryRow("SELECT COUNT(*) FROM tags WHERE name LIKE ?", tagName+"/%").Scan(&childCount)
 	if childCount > 0 {

@@ -126,6 +126,10 @@ export function GetDuplicateGroups() {
   return window['go']['main']['App']['GetDuplicateGroups']();
 }
 
+export function GetFolderClips(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['main']['App']['GetFolderClips'](arg1, arg2, arg3, arg4, arg5);
+}
+
 export function GetGlobalWatchPaused() {
   return window['go']['main']['App']['GetGlobalWatchPaused']();
 }
@@ -148,6 +152,10 @@ export function GetTags() {
 
 export function GetTopLevelTags() {
   return window['go']['main']['App']['GetTopLevelTags']();
+}
+
+export function GetUntaggedClips(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['GetUntaggedClips'](arg1, arg2, arg3, arg4);
 }
 
 export function GetWatchStatus() {

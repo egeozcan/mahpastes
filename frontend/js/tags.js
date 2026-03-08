@@ -44,10 +44,10 @@ function renderTagFilterDropdown() {
     const tree = buildTagTree(allTags);
     const hiddenTagIds = getHiddenTags();
 
-    function renderNode(node, depth) {
+    function renderNode(node, depth, parentHidden) {
         const { tag, children } = node;
         const isActive = activeTagFilters.includes(tag.id);
-        const isHidden = hiddenTagIds.includes(tag.id);
+        const isHidden = hiddenTagIds.includes(tag.id) || parentHidden;
         const displayName = depth === 0 ? tag.name : getShortTagName(tag.name);
 
         const item = document.createElement('label');
@@ -69,16 +69,15 @@ function renderTagFilterDropdown() {
         item.querySelector('input').addEventListener('change', () => toggleTagFilter(tag.id));
         tagFilterList.appendChild(item);
 
-        // Render children (skip if parent is hidden)
-        if (!isHidden) {
-            for (const child of children) {
-                renderNode(child, depth + 1);
-            }
+        // Always render children — even for hidden parents, subtags should remain
+        // accessible in the dropdown (they inherit the dimmed style).
+        for (const child of children) {
+            renderNode(child, depth + 1, isHidden);
         }
     }
 
     for (const root of tree) {
-        renderNode(root, 0);
+        renderNode(root, 0, false);
     }
 }
 
@@ -370,7 +369,7 @@ async function renderTagPopoverList(clipId) {
     }
 
     for (const root of tree) {
-        renderNode(root, 0);
+        renderNode(root, 0, false);
     }
 }
 
