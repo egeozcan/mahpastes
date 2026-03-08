@@ -44,6 +44,8 @@ export function DeleteClipMetadata(arg1:number,arg2:string):Promise<void>;
 
 export function DeleteTag(arg1:number):Promise<void>;
 
+export function GetChildTags(arg1:number):Promise<Array<main.Tag>>;
+
 export function GetClipData(arg1:number):Promise<main.ClipData>;
 
 export function GetClipMetadata(arg1:number):Promise<Record<string, string>>;
@@ -56,6 +58,10 @@ export function GetClipboardText():Promise<string>;
 
 export function GetClips(arg1:boolean,arg2:Array<number>,arg3:Array<number>,arg4:string,arg5:string):Promise<Array<main.ClipPreview>>;
 
+export function GetClipsDirect(arg1:boolean,arg2:Array<number>,arg3:Array<number>,arg4:string,arg5:string):Promise<Array<main.ClipPreview>>;
+
+export function GetDescendantClipCount(arg1:number):Promise<number>;
+
 export function GetDuplicateGroups():Promise<Array<main.DuplicateGroup>>;
 
 export function GetGlobalWatchPaused():Promise<boolean>;
@@ -67,6 +73,8 @@ export function GetImageDiff(arg1:number,arg2:number,arg3:number):Promise<main.D
 export function GetSetting(arg1:string):Promise<string>;
 
 export function GetTags():Promise<Array<main.Tag>>;
+
+export function GetTopLevelTags():Promise<Array<main.Tag>>;
 
 export function GetWatchStatus():Promise<main.WatchStatus>;
 

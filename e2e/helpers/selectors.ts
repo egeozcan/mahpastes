@@ -285,6 +285,9 @@ export const selectors = {
     bulkTagButton: '#bulk-tag-btn',
     clipTagsContainer: '.clip-tags',
     cardTagButton: '[data-action="tags"]',
+    // Folder mode
+    folderModeButton: '[data-testid="folder-mode-button"]',
+    folderCard: (name: string) => `[data-testid="folder-card-${name}"]`,
   },
 
   // Watch folder auto-tag

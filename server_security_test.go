@@ -553,6 +553,243 @@ func TestHandleStopServerNotRunning(t *testing.T) {
 	}
 }
 
+func TestServeManagerSubtagDirectories(t *testing.T) {
+	db := newServerTestDB(t)
+	app := &App{db: db}
+	manager := NewServeManager(app)
+
+	// Create tags: "work", "work/client1", "work/client2", "work/client1/projectA".
+	if _, err := db.Exec(`INSERT INTO tags (id, name, color) VALUES
+		(1, 'work', '#111111'),
+		(2, 'work/client1', '#222222'),
+		(3, 'work/client2', '#333333'),
+		(4, 'work/client1/projectA', '#444444')`); err != nil {
+		t.Fatalf("failed to insert tags: %v", err)
+	}
+
+	// Create clips: one in work, one in work/client1, one in work/client1/projectA.
+	if _, err := db.Exec(`INSERT INTO clips (id, content_type, data, filename) VALUES
+		(10, 'text/plain', 'root file', 'readme.txt'),
+		(11, 'application/pdf', 'report data', 'report.pdf'),
+		(12, 'text/plain', 'project spec', 'spec.txt')`); err != nil {
+		t.Fatalf("failed to insert clips: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO clip_tags (clip_id, tag_id) VALUES
+		(10, 1),
+		(11, 2),
+		(12, 4)`); err != nil {
+		t.Fatalf("failed to insert clip_tags: %v", err)
+	}
+
+	handler := manager.makeHandler(&tagServer{tagID: 1, tagName: "work"})
+
+	t.Run("root listing includes files and subtag folders as JSON", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.Header.Set("Accept", "application/json")
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", rec.Code)
+		}
+
+		var entries []directoryEntry
+		if err := json.Unmarshal(rec.Body.Bytes(), &entries); err != nil {
+			t.Fatalf("failed to parse JSON: %v", err)
+		}
+
+		// Expect 2 directories (client1, client2) + 1 file (readme.txt).
+		if len(entries) != 3 {
+			t.Fatalf("expected 3 entries, got %d: %+v", len(entries), entries)
+		}
+
+		// Directories should come first.
+		dirCount := 0
+		for _, e := range entries {
+			if e.Type == "directory" {
+				dirCount++
+			}
+		}
+		if dirCount != 2 {
+			t.Fatalf("expected 2 directory entries, got %d", dirCount)
+		}
+
+		// Check that directories are listed before files.
+		if entries[0].Type != "directory" || entries[1].Type != "directory" {
+			t.Fatalf("expected directories before files, got %+v", entries)
+		}
+		if entries[2].Type != "file" || entries[2].Name != "readme.txt" {
+			t.Fatalf("expected file readme.txt, got %+v", entries[2])
+		}
+	})
+
+	t.Run("root HTML listing shows folder icons", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+
+		body := rec.Body.String()
+		if !strings.Contains(body, "client1/") {
+			t.Fatalf("expected client1/ folder in HTML listing, got %q", body)
+		}
+		if !strings.Contains(body, "client2/") {
+			t.Fatalf("expected client2/ folder in HTML listing, got %q", body)
+		}
+		if !strings.Contains(body, "folder") {
+			t.Fatalf("expected 'folder' type in HTML listing, got %q", body)
+		}
+		if !strings.Contains(body, "readme.txt") {
+			t.Fatalf("expected readme.txt in HTML listing, got %q", body)
+		}
+	})
+
+	t.Run("subtag directory listing at /client1/", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/client1/", nil)
+		req.Header.Set("Accept", "application/json")
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", rec.Code)
+		}
+
+		var entries []directoryEntry
+		if err := json.Unmarshal(rec.Body.Bytes(), &entries); err != nil {
+			t.Fatalf("failed to parse JSON: %v", err)
+		}
+
+		// Expect 1 directory (projectA) + 1 file (report.pdf).
+		if len(entries) != 2 {
+			t.Fatalf("expected 2 entries, got %d: %+v", len(entries), entries)
+		}
+		if entries[0].Type != "directory" || entries[0].Name != "projectA" {
+			t.Fatalf("expected directory projectA, got %+v", entries[0])
+		}
+		if entries[1].Type != "file" || entries[1].Name != "report.pdf" {
+			t.Fatalf("expected file report.pdf, got %+v", entries[1])
+		}
+	})
+
+	t.Run("serve file from subtag", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/client1/report.pdf", nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", rec.Code)
+		}
+		if body := rec.Body.String(); body != "report data" {
+			t.Fatalf("expected 'report data', got %q", body)
+		}
+	})
+
+	t.Run("serve file from deep subtag", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/client1/projectA/spec.txt", nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", rec.Code)
+		}
+		if body := rec.Body.String(); body != "project spec" {
+			t.Fatalf("expected 'project spec', got %q", body)
+		}
+	})
+
+	t.Run("subtag without trailing slash redirects", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/client1", nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusMovedPermanently {
+			t.Fatalf("expected 301 redirect, got %d", rec.Code)
+		}
+		loc := rec.Header().Get("Location")
+		if loc != "/client1/" {
+			t.Fatalf("expected redirect to /client1/, got %q", loc)
+		}
+	})
+
+	t.Run("nonexistent path returns 404", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/nonexistent/file.txt", nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("expected 404, got %d", rec.Code)
+		}
+	})
+
+	t.Run("file in root not found in subtag", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/client1/readme.txt", nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("expected 404 (readme.txt is in root, not client1), got %d", rec.Code)
+		}
+	})
+}
+
+func TestServeManagerSubtagIndexHtmlScoping(t *testing.T) {
+	db := newServerTestDB(t)
+	app := &App{db: db}
+	manager := NewServeManager(app)
+
+	// Create tags.
+	if _, err := db.Exec(`INSERT INTO tags (id, name, color) VALUES
+		(1, 'site', '#111111'),
+		(2, 'site/blog', '#222222')`); err != nil {
+		t.Fatalf("failed to insert tags: %v", err)
+	}
+
+	// Root has an index.html, subtag does not.
+	if _, err := db.Exec(`INSERT INTO clips (id, content_type, data, filename) VALUES
+		(10, 'text/html', '<h1>Root</h1>', 'index.html'),
+		(11, 'text/plain', 'blog post', 'post.txt')`); err != nil {
+		t.Fatalf("failed to insert clips: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO clip_tags (clip_id, tag_id) VALUES
+		(10, 1),
+		(11, 2)`); err != nil {
+		t.Fatalf("failed to insert clip_tags: %v", err)
+	}
+
+	handler := manager.makeHandler(&tagServer{tagID: 1, tagName: "site"})
+
+	t.Run("root serves index.html", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", rec.Code)
+		}
+		if body := rec.Body.String(); body != "<h1>Root</h1>" {
+			t.Fatalf("expected root index.html content, got %q", body)
+		}
+	})
+
+	t.Run("subtag without index.html shows listing", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/blog/", nil)
+		req.Header.Set("Accept", "application/json")
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", rec.Code)
+		}
+
+		var entries []directoryEntry
+		if err := json.Unmarshal(rec.Body.Bytes(), &entries); err != nil {
+			t.Fatalf("failed to parse JSON: %v", err)
+		}
+		if len(entries) != 1 || entries[0].Name != "post.txt" {
+			t.Fatalf("expected listing with post.txt, got %+v", entries)
+		}
+	})
+}
+
 func TestHandleListServersTagScoped(t *testing.T) {
 	db := newServerTestDB(t)
 	app := &App{db: db}
@@ -615,5 +852,440 @@ func TestHandleListServersTagScoped(t *testing.T) {
 	}
 	if result2.Servers[0].TagID != 10 {
 		t.Fatalf("expected scoped server for tag 10, got tag %d", result2.Servers[0].TagID)
+	}
+}
+
+// --- Subtag scope expansion tests ---
+
+func TestScopedKeyCanAccessClipInSubtag(t *testing.T) {
+	db := newServerTestDB(t)
+	app := &App{db: db}
+	manager := NewAPIManager(app)
+
+	// Create parent and child tags
+	if _, err := db.Exec(`INSERT INTO tags (id, name, color) VALUES (1, 'work', '#111111'), (2, 'work/client1', '#222222')`); err != nil {
+		t.Fatalf("failed to insert tags: %v", err)
+	}
+	// Create clip tagged with the subtag
+	if _, err := db.Exec(`INSERT INTO clips (id, content_type, data, filename) VALUES (10, 'text/plain', 'data', 'file.txt')`); err != nil {
+		t.Fatalf("failed to insert clip: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO clip_tags (clip_id, tag_id) VALUES (10, 2)`); err != nil {
+		t.Fatalf("failed to insert clip_tag: %v", err)
+	}
+
+	keyCtx := &apiKeyContext{KeyID: 1, Role: "viewer", ScopedTagID: 1}
+	err := manager.enforceTagScope(keyCtx, 10)
+	if err != nil {
+		t.Fatalf("expected clip in subtag to be accessible, got error: %v", err)
+	}
+}
+
+func TestScopedKeyCannotAccessClipOutsideScope(t *testing.T) {
+	db := newServerTestDB(t)
+	app := &App{db: db}
+	manager := NewAPIManager(app)
+
+	if _, err := db.Exec(`INSERT INTO tags (id, name, color) VALUES (1, 'work', '#111111'), (2, 'personal', '#222222')`); err != nil {
+		t.Fatalf("failed to insert tags: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO clips (id, content_type, data, filename) VALUES (10, 'text/plain', 'data', 'file.txt')`); err != nil {
+		t.Fatalf("failed to insert clip: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO clip_tags (clip_id, tag_id) VALUES (10, 2)`); err != nil {
+		t.Fatalf("failed to insert clip_tag: %v", err)
+	}
+
+	keyCtx := &apiKeyContext{KeyID: 1, Role: "viewer", ScopedTagID: 1}
+	err := manager.enforceTagScope(keyCtx, 10)
+	if err == nil {
+		t.Fatalf("expected clip outside scope to be denied")
+	}
+}
+
+func TestScopedKeyCanCreateSubtag(t *testing.T) {
+	db := newServerTestDB(t)
+	app := &App{db: db}
+	manager := NewAPIManager(app)
+
+	if _, err := db.Exec(`INSERT INTO tags (id, name, color) VALUES (1, 'work', '#111111')`); err != nil {
+		t.Fatalf("failed to insert tag: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/tags", strings.NewReader(`{"name":"work/client1"}`))
+	req = req.WithContext(context.WithValue(req.Context(), apiKeyContextKey, &apiKeyContext{
+		KeyID:       1,
+		Role:        "admin",
+		ScopedTagID: 1,
+	}))
+	rec := httptest.NewRecorder()
+
+	manager.handleCreateTag(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201 for subtag creation, got %d with body %q", rec.Code, rec.Body.String())
+	}
+
+	var tag Tag
+	if err := json.Unmarshal(rec.Body.Bytes(), &tag); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+	if tag.Name != "work/client1" {
+		t.Fatalf("expected tag name 'work/client1', got %q", tag.Name)
+	}
+}
+
+func TestScopedKeyCannotCreateOutsideScope(t *testing.T) {
+	db := newServerTestDB(t)
+	app := &App{db: db}
+	manager := NewAPIManager(app)
+
+	if _, err := db.Exec(`INSERT INTO tags (id, name, color) VALUES (1, 'work', '#111111')`); err != nil {
+		t.Fatalf("failed to insert tag: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/tags", strings.NewReader(`{"name":"personal/stuff"}`))
+	req = req.WithContext(context.WithValue(req.Context(), apiKeyContextKey, &apiKeyContext{
+		KeyID:       1,
+		Role:        "admin",
+		ScopedTagID: 1,
+	}))
+	rec := httptest.NewRecorder()
+
+	manager.handleCreateTag(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for out-of-scope tag creation, got %d with body %q", rec.Code, rec.Body.String())
+	}
+}
+
+func TestScopedKeyListTagsReturnsSubtree(t *testing.T) {
+	db := newServerTestDB(t)
+	app := &App{db: db}
+	manager := NewAPIManager(app)
+
+	if _, err := db.Exec(`INSERT INTO tags (id, name, color) VALUES
+		(1, 'work', '#111111'),
+		(2, 'work/client1', '#222222'),
+		(3, 'work/client2', '#333333'),
+		(4, 'personal', '#444444')`); err != nil {
+		t.Fatalf("failed to insert tags: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/tags", nil)
+	req = req.WithContext(context.WithValue(req.Context(), apiKeyContextKey, &apiKeyContext{
+		KeyID:       1,
+		Role:        "viewer",
+		ScopedTagID: 1,
+	}))
+	rec := httptest.NewRecorder()
+
+	manager.handleListTags(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	var tags []Tag
+	if err := json.Unmarshal(rec.Body.Bytes(), &tags); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+
+	// Should return work, work/client1, work/client2 but NOT personal
+	if len(tags) != 3 {
+		t.Fatalf("expected 3 tags in subtree, got %d: %+v", len(tags), tags)
+	}
+
+	names := map[string]bool{}
+	for _, tag := range tags {
+		names[tag.Name] = true
+	}
+	for _, expected := range []string{"work", "work/client1", "work/client2"} {
+		if !names[expected] {
+			t.Fatalf("expected tag %q in results, got %+v", expected, tags)
+		}
+	}
+	if names["personal"] {
+		t.Fatalf("did not expect 'personal' tag in scoped results")
+	}
+}
+
+func TestScopedKeyCanAddSubtagToClip(t *testing.T) {
+	db := newServerTestDB(t)
+	app := &App{db: db}
+	manager := NewAPIManager(app)
+
+	if _, err := db.Exec(`INSERT INTO tags (id, name, color) VALUES
+		(1, 'work', '#111111'),
+		(2, 'work/client1', '#222222')`); err != nil {
+		t.Fatalf("failed to insert tags: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO clips (id, content_type, data, filename) VALUES (10, 'text/plain', 'data', 'file.txt')`); err != nil {
+		t.Fatalf("failed to insert clip: %v", err)
+	}
+	// Clip is tagged with 'work' (in scope)
+	if _, err := db.Exec(`INSERT INTO clip_tags (clip_id, tag_id) VALUES (10, 1)`); err != nil {
+		t.Fatalf("failed to insert clip_tag: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/clips/10/tags/2", nil)
+	req.SetPathValue("id", "10")
+	req.SetPathValue("tagId", "2")
+	req = req.WithContext(context.WithValue(req.Context(), apiKeyContextKey, &apiKeyContext{
+		KeyID:       1,
+		Role:        "editor",
+		ScopedTagID: 1,
+	}))
+	rec := httptest.NewRecorder()
+
+	manager.handleAddTagToClip(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected 204 for adding subtag to clip, got %d with body %q", rec.Code, rec.Body.String())
+	}
+
+	// Verify the tag was actually added
+	var count int
+	db.QueryRow("SELECT COUNT(*) FROM clip_tags WHERE clip_id = 10 AND tag_id = 2").Scan(&count)
+	if count != 1 {
+		t.Fatalf("expected subtag to be added to clip, got count %d", count)
+	}
+}
+
+func TestScopedKeyCannotAddOutOfScopeTagToClip(t *testing.T) {
+	db := newServerTestDB(t)
+	app := &App{db: db}
+	manager := NewAPIManager(app)
+
+	if _, err := db.Exec(`INSERT INTO tags (id, name, color) VALUES
+		(1, 'work', '#111111'),
+		(2, 'personal', '#222222')`); err != nil {
+		t.Fatalf("failed to insert tags: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO clips (id, content_type, data, filename) VALUES (10, 'text/plain', 'data', 'file.txt')`); err != nil {
+		t.Fatalf("failed to insert clip: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO clip_tags (clip_id, tag_id) VALUES (10, 1)`); err != nil {
+		t.Fatalf("failed to insert clip_tag: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/clips/10/tags/2", nil)
+	req.SetPathValue("id", "10")
+	req.SetPathValue("tagId", "2")
+	req = req.WithContext(context.WithValue(req.Context(), apiKeyContextKey, &apiKeyContext{
+		KeyID:       1,
+		Role:        "editor",
+		ScopedTagID: 1,
+	}))
+	rec := httptest.NewRecorder()
+
+	manager.handleAddTagToClip(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for out-of-scope tag, got %d with body %q", rec.Code, rec.Body.String())
+	}
+}
+
+func TestScopedKeyCanRemoveSubtagFromClip(t *testing.T) {
+	db := newServerTestDB(t)
+	app := &App{db: db}
+	manager := NewAPIManager(app)
+
+	if _, err := db.Exec(`INSERT INTO tags (id, name, color) VALUES
+		(1, 'work', '#111111'),
+		(2, 'work/client1', '#222222')`); err != nil {
+		t.Fatalf("failed to insert tags: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO clips (id, content_type, data, filename) VALUES (10, 'text/plain', 'data', 'file.txt')`); err != nil {
+		t.Fatalf("failed to insert clip: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO clip_tags (clip_id, tag_id) VALUES (10, 1), (10, 2)`); err != nil {
+		t.Fatalf("failed to insert clip_tags: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/clips/10/tags/2", nil)
+	req.SetPathValue("id", "10")
+	req.SetPathValue("tagId", "2")
+	req = req.WithContext(context.WithValue(req.Context(), apiKeyContextKey, &apiKeyContext{
+		KeyID:       1,
+		Role:        "editor",
+		ScopedTagID: 1,
+	}))
+	rec := httptest.NewRecorder()
+
+	manager.handleRemoveTagFromClip(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected 204 for removing subtag from clip, got %d with body %q", rec.Code, rec.Body.String())
+	}
+}
+
+func TestScopedKeyCanUpdateSubtag(t *testing.T) {
+	db := newServerTestDB(t)
+	app := &App{db: db}
+	manager := NewAPIManager(app)
+
+	if _, err := db.Exec(`INSERT INTO tags (id, name, color) VALUES
+		(1, 'work', '#111111'),
+		(2, 'work/client1', '#222222')`); err != nil {
+		t.Fatalf("failed to insert tags: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/tags/2", strings.NewReader(`{"name":"work/client1","color":"#ff0000"}`))
+	req.SetPathValue("id", "2")
+	req = req.WithContext(context.WithValue(req.Context(), apiKeyContextKey, &apiKeyContext{
+		KeyID:       1,
+		Role:        "admin",
+		ScopedTagID: 1,
+	}))
+	rec := httptest.NewRecorder()
+
+	manager.handleUpdateTag(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected 204 for updating subtag, got %d with body %q", rec.Code, rec.Body.String())
+	}
+}
+
+func TestScopedKeyCannotUpdateOutOfScopeTag(t *testing.T) {
+	db := newServerTestDB(t)
+	app := &App{db: db}
+	manager := NewAPIManager(app)
+
+	if _, err := db.Exec(`INSERT INTO tags (id, name, color) VALUES
+		(1, 'work', '#111111'),
+		(2, 'personal', '#222222')`); err != nil {
+		t.Fatalf("failed to insert tags: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/tags/2", strings.NewReader(`{"name":"personal","color":"#ff0000"}`))
+	req.SetPathValue("id", "2")
+	req = req.WithContext(context.WithValue(req.Context(), apiKeyContextKey, &apiKeyContext{
+		KeyID:       1,
+		Role:        "admin",
+		ScopedTagID: 1,
+	}))
+	rec := httptest.NewRecorder()
+
+	manager.handleUpdateTag(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for out-of-scope tag update, got %d with body %q", rec.Code, rec.Body.String())
+	}
+}
+
+func TestScopedKeyCanDeleteSubtag(t *testing.T) {
+	db := newServerTestDB(t)
+	app := &App{db: db}
+	manager := NewAPIManager(app)
+
+	if _, err := db.Exec(`INSERT INTO tags (id, name, color) VALUES
+		(1, 'work', '#111111'),
+		(2, 'work/client1', '#222222')`); err != nil {
+		t.Fatalf("failed to insert tags: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/tags/2", nil)
+	req.SetPathValue("id", "2")
+	req = req.WithContext(context.WithValue(req.Context(), apiKeyContextKey, &apiKeyContext{
+		KeyID:       1,
+		Role:        "admin",
+		ScopedTagID: 1,
+	}))
+	rec := httptest.NewRecorder()
+
+	manager.handleDeleteTag(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected 204 for deleting subtag, got %d with body %q", rec.Code, rec.Body.String())
+	}
+}
+
+func TestScopedKeyCannotDeleteOutOfScopeTag(t *testing.T) {
+	db := newServerTestDB(t)
+	app := &App{db: db}
+	manager := NewAPIManager(app)
+
+	if _, err := db.Exec(`INSERT INTO tags (id, name, color) VALUES
+		(1, 'work', '#111111'),
+		(2, 'personal', '#222222')`); err != nil {
+		t.Fatalf("failed to insert tags: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/tags/2", nil)
+	req.SetPathValue("id", "2")
+	req = req.WithContext(context.WithValue(req.Context(), apiKeyContextKey, &apiKeyContext{
+		KeyID:       1,
+		Role:        "admin",
+		ScopedTagID: 1,
+	}))
+	rec := httptest.NewRecorder()
+
+	manager.handleDeleteTag(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for out-of-scope tag deletion, got %d with body %q", rec.Code, rec.Body.String())
+	}
+}
+
+func TestScopedKeyListClipsIncludesSubtree(t *testing.T) {
+	db := newServerTestDB(t)
+	app := &App{db: db}
+	manager := NewAPIManager(app)
+
+	if _, err := db.Exec(`INSERT INTO tags (id, name, color) VALUES
+		(1, 'work', '#111111'),
+		(2, 'work/client1', '#222222'),
+		(3, 'personal', '#333333')`); err != nil {
+		t.Fatalf("failed to insert tags: %v", err)
+	}
+
+	// Clip 10 tagged with 'work', clip 11 tagged with 'work/client1', clip 12 tagged with 'personal'
+	if _, err := db.Exec(`INSERT INTO clips (id, content_type, data, filename) VALUES
+		(10, 'text/plain', 'a', 'a.txt'),
+		(11, 'text/plain', 'b', 'b.txt'),
+		(12, 'text/plain', 'c', 'c.txt')`); err != nil {
+		t.Fatalf("failed to insert clips: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO clip_tags (clip_id, tag_id) VALUES (10, 1), (11, 2), (12, 3)`); err != nil {
+		t.Fatalf("failed to insert clip_tags: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/clips", nil)
+	req = req.WithContext(context.WithValue(req.Context(), apiKeyContextKey, &apiKeyContext{
+		KeyID:       1,
+		Role:        "viewer",
+		ScopedTagID: 1,
+	}))
+	rec := httptest.NewRecorder()
+
+	manager.handleListClips(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	var result apiClipListResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+
+	// Should return clips 10 and 11 (work + work/client1) but NOT 12 (personal)
+	if result.Total != 2 {
+		t.Fatalf("expected 2 clips in subtree, got %d", result.Total)
+	}
+	if len(result.Clips) != 2 {
+		t.Fatalf("expected 2 clips, got %d", len(result.Clips))
+	}
+
+	ids := map[int64]bool{}
+	for _, c := range result.Clips {
+		ids[c.ID] = true
+	}
+	if !ids[10] || !ids[11] {
+		t.Fatalf("expected clips 10 and 11, got %+v", result.Clips)
+	}
+	if ids[12] {
+		t.Fatalf("did not expect clip 12 (personal) in scoped results")
 	}
 }

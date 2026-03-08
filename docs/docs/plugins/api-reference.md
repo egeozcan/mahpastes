@@ -323,12 +323,14 @@ Returns a single tag by ID.
 
 Creates a new tag. Color is automatically assigned from a rotating palette.
 
+If the name contains `/` separators, intermediate parent tags are auto-created. For example, `tags.create("work/client1/projectABC")` creates `work`, `work/client1`, and `work/client1/projectABC` (skipping any that already exist). The returned tag object is the leaf tag.
+
 **Parameters:**
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| name | string | Yes | Tag name (max 50 characters) |
+| name | string | Yes | Tag name (max 50 characters). Use `/` to create subtags. |
 
-**Returns:** New tag object, or `nil, error_message`
+**Returns:** New tag object (the leaf tag), or `nil, error_message`
 
 **Example:**
 ```lua
@@ -338,6 +340,10 @@ if tag then
 else
   log("Error: " .. err)
 end
+
+-- Create a subtag hierarchy
+local subtag = tags.create("work/client1/projectABC")
+-- Also creates "work" and "work/client1" if they don't exist
 ```
 
 ---

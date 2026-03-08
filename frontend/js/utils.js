@@ -212,3 +212,46 @@ function getFriendlyFileType(contentType, filename) {
     }
     return subtype.toUpperCase();
 }
+
+// --- Tag Hierarchy Utilities ---
+
+function getTagDepth(name) {
+    return (name.match(/\//g) || []).length;
+}
+
+function getParentTagName(name) {
+    const i = name.lastIndexOf('/');
+    return i < 0 ? '' : name.substring(0, i);
+}
+
+function getShortTagName(name) {
+    const i = name.lastIndexOf('/');
+    return i < 0 ? name : name.substring(i + 1);
+}
+
+function isDescendantOf(child, parent) {
+    return child.startsWith(parent + '/');
+}
+
+function isImmediateChildOf(child, parent) {
+    if (parent === '') return !child.includes('/');
+    if (!child.startsWith(parent + '/')) return false;
+    return !child.substring(parent.length + 1).includes('/');
+}
+
+function buildTagTree(tags) {
+    const byName = {};
+    for (const tag of tags) {
+        byName[tag.name] = { tag, children: [] };
+    }
+    const roots = [];
+    for (const tag of tags) {
+        const parentName = getParentTagName(tag.name);
+        if (parentName && byName[parentName]) {
+            byName[parentName].children.push(byName[tag.name]);
+        } else {
+            roots.push(byName[tag.name]);
+        }
+    }
+    return roots;
+}

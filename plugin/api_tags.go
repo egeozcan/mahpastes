@@ -23,14 +23,28 @@ var tagColors = []string{
 
 const maxTagNameLength = 50
 
-// TagsAPI provides tag operations to plugins
-type TagsAPI struct {
-	db *sql.DB
+// TagCreateResult holds the fields returned by the tag-creation callback.
+// This mirrors the main.Tag struct without importing the main package.
+type TagCreateResult struct {
+	ID    int64
+	Name  string
+	Color string
 }
 
-// NewTagsAPI creates a new tags API instance
-func NewTagsAPI(db *sql.DB) *TagsAPI {
-	return &TagsAPI{db: db}
+// TagCreateFunc creates a tag by name and returns its details.
+// It delegates to App.CreateTag so that subtag auto-creation works.
+type TagCreateFunc func(name string) (*TagCreateResult, error)
+
+// TagsAPI provides tag operations to plugins
+type TagsAPI struct {
+	db       *sql.DB
+	createFn TagCreateFunc
+}
+
+// NewTagsAPI creates a new tags API instance.
+// createFn may be nil; if so, the legacy SQL path is used.
+func NewTagsAPI(db *sql.DB, createFn TagCreateFunc) *TagsAPI {
+	return &TagsAPI{db: db, createFn: createFn}
 }
 
 // Register adds the tags module to the Lua state
@@ -124,7 +138,9 @@ func (t *TagsAPI) get(L *lua.LState) int {
 	return 1
 }
 
-// create creates a new tag with auto-assigned color
+// create creates a new tag with auto-assigned color.
+// When a TagCreateFunc is available it delegates to App.CreateTag so that
+// subtag auto-creation (ancestor tags) works correctly.
 func (t *TagsAPI) create(L *lua.LState) int {
 	name := strings.TrimSpace(L.CheckString(1))
 
@@ -139,7 +155,26 @@ func (t *TagsAPI) create(L *lua.LState) int {
 		return 2
 	}
 
-	// Use transaction to prevent race condition in color assignment
+	// Delegate to App.CreateTag when available (handles subtag auto-creation)
+	if t.createFn != nil {
+		result, err := t.createFn(name)
+		if err != nil {
+			L.Push(lua.LNil)
+			L.Push(lua.LString(err.Error()))
+			return 2
+		}
+
+		tag := L.NewTable()
+		tag.RawSetString("id", lua.LNumber(result.ID))
+		tag.RawSetString("name", lua.LString(result.Name))
+		tag.RawSetString("color", lua.LString(result.Color))
+		tag.RawSetString("count", lua.LNumber(0))
+
+		L.Push(tag)
+		return 1
+	}
+
+	// Legacy fallback: direct SQL (no subtag auto-creation)
 	tx, err := t.db.Begin()
 	if err != nil {
 		L.Push(lua.LNil)
@@ -148,7 +183,6 @@ func (t *TagsAPI) create(L *lua.LState) int {
 	}
 	defer tx.Rollback()
 
-	// Get count of existing tags to determine color
 	var count int
 	if err := tx.QueryRow("SELECT COUNT(*) FROM tags").Scan(&count); err != nil {
 		L.Push(lua.LNil)
@@ -157,7 +191,7 @@ func (t *TagsAPI) create(L *lua.LState) int {
 	}
 	color := tagColors[count%len(tagColors)]
 
-	result, err := tx.Exec("INSERT INTO tags (name, color) VALUES (?, ?)", name, color)
+	dbResult, err := tx.Exec("INSERT INTO tags (name, color) VALUES (?, ?)", name, color)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			L.Push(lua.LNil)
@@ -169,7 +203,7 @@ func (t *TagsAPI) create(L *lua.LState) int {
 		return 2
 	}
 
-	id, _ := result.LastInsertId()
+	id, _ := dbResult.LastInsertId()
 
 	if err := tx.Commit(); err != nil {
 		L.Push(lua.LNil)

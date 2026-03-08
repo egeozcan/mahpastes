@@ -55,13 +55,34 @@ Click **Revoke** on any active key card. The key stops working immediately. Revo
 
 ## Tag Scope
 
-A key can be scoped to a single tag. When scoped:
+A key can be scoped to a single tag. When scoped, the key has access to the **full subtree** rooted at that tag -- the scoped tag itself plus all of its descendants.
 
-- **List clips** returns only clips with that tag
-- **Get / download / delete** a clip requires the clip to have that tag
+### Clip Access
+
+- **List clips** returns clips tagged with the scoped tag or any of its subtags
+- **Get / download / delete** a clip requires the clip to have the scoped tag or one of its subtags
 - **Create clip** auto-applies the scoped tag to the new clip
-- **Tag management** (create/update/delete tags) is forbidden
-- **Add/remove tag on clip** is restricted to the scoped tag only
+
+### Tag Management (Admin Role)
+
+Scoped admin keys can manage tags within their subtree:
+
+- **Create tags** -- can create new subtags under the scoped tag (e.g., a key scoped to `work` can create `work/client2`)
+- **Update tags** -- can rename or recolor tags within the subtree
+- **Delete tags** -- can delete tags within the subtree
+- **List tags** returns the scoped tag and all of its descendants
+
+Tags outside the subtree are not visible or modifiable.
+
+### Clip-Tag Association
+
+- **Add/remove tag on clip** is restricted to tags within the scoped subtree
+- The clip must also belong to the scoped subtree
+
+### Serve Management
+
+- Scoped admin keys can start and stop serving for their scoped tag
+- Serve management is restricted to the exact scoped tag, not its subtags
 
 Unscoped keys (scope: "All tags") have access to all clips and tags within their role.
 

@@ -200,7 +200,15 @@ function renderHiddenTagsSettings() {
         return;
     }
 
-    allTags.forEach(tag => {
+    // Filter to top-level tags only (or orphaned subtags whose parent doesn't exist)
+    const visibleTags = allTags.filter(tag => {
+        if (!tag.name.includes('/')) return true;
+        // Orphaned subtag — parent doesn't exist
+        const parentName = getParentTagName(tag.name);
+        return !allTags.some(t => t.name === parentName);
+    });
+
+    visibleTags.forEach(tag => {
         const isHidden = getHiddenTags().includes(tag.id);
         const row = document.createElement('label');
         row.className = 'flex items-center justify-between py-2 px-1 cursor-pointer hover:bg-stone-50 rounded transition-colors';

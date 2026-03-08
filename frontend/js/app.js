@@ -151,6 +151,20 @@ let hiddenTags = [];
 let currentSortField = 'date';
 let currentSortDir = 'desc';
 
+// Folder mode state
+let folderMode = false;
+function isFolderMode() { return folderMode; }
+function toggleFolderMode() {
+    folderMode = !folderMode;
+    const btn = document.getElementById('folder-mode-btn');
+    if (btn) {
+        btn.setAttribute('aria-pressed', folderMode);
+        btn.classList.toggle('bg-stone-100', folderMode);
+        btn.classList.toggle('border-stone-300', folderMode);
+    }
+    loadClips();
+}
+
 // Accessors for hiddenTags — other files should use these instead of the variable directly
 function getHiddenTags() { return hiddenTags; }
 function setHiddenTagsState(tags) {
@@ -187,6 +201,8 @@ Object.assign(window.__testHelpers, {
   getHiddenTags: () => getHiddenTags(),
   setViewingArchive: (val) => { isViewingArchive = val; },
   setSort: (field, dir) => { currentSortField = field; currentSortDir = dir; },
+  isFolderMode: () => isFolderMode(),
+  setFolderMode: (val) => { folderMode = val; },
   getShortcutManager: () => typeof ShortcutManager !== 'undefined' ? ShortcutManager : null,
   // Expose loadClips function (defined in wails-api.js, but called here)
   loadClips: () => {
@@ -473,6 +489,12 @@ window.addEventListener('load', async () => {
             if (['date', 'name', 'size', 'type'].includes(savedField)) currentSortField = savedField;
             if (['asc', 'desc'].includes(savedDir)) currentSortDir = savedDir;
         } catch (e) { /* use defaults */ }
+
+        // Folder mode toggle
+        const folderModeBtn = document.getElementById('folder-mode-btn');
+        if (folderModeBtn) {
+            folderModeBtn.addEventListener('click', toggleFolderMode);
+        }
 
         await loadClips();
         checkDuplicatesExist();

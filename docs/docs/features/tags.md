@@ -72,9 +72,72 @@ How hidden tags work:
 - If you explicitly filter by a hidden tag, matching clips appear
 - Hidden tags are marked with an eye-slash indicator in the filter dropdown
 
+## Subtags (Hierarchical Tags)
+
+Tags support a hierarchy using `/` as a separator. A tag name like `work/client1/projectABC` creates a three-level tree: `work` is the parent, `client1` is a child of `work`, and `projectABC` is a child of `client1`.
+
+### Creating Subtags
+
+Create a subtag the same way as a regular tag -- just include `/` in the name:
+
+1. Open the **Tags** popover for a clip
+2. Type a path like `work/client1/projectABC`
+3. Press Enter or click **Add**
+
+Intermediate tags are auto-created if they do not already exist. Creating `work/client1/projectABC` also creates `work` and `work/client1` if they are missing. Intermediate tags inherit the color of the root parent.
+
+### Rename and Delete Behavior
+
+- **Cascading rename:** Renaming a parent tag renames all descendant tags. Renaming `work` to `office` changes `work/client1` to `office/client1`, `work/client1/projectABC` to `office/client1/projectABC`, and so on.
+- **Deleting a parent does not delete children.** If you delete `work`, its children (`work/client1`, `work/client1/projectABC`) remain as-is. They become orphaned subtags at the top level of the hierarchy.
+- **Orphan protection:** A parent tag is not auto-deleted when its last clip is untagged if it still has child tags.
+
+### Card Tag Pills
+
+Tag pills on clip cards show the **short name** (the last segment of the path). For example, a clip tagged `work/client1/projectABC` shows a pill labeled `projectABC`. Hovering the pill displays the full path as a tooltip.
+
+## Hierarchical Filtering
+
+When you filter by a parent tag, the gallery shows clips tagged with that tag **and** all of its descendants. Filtering by `work` returns clips tagged `work`, `work/client1`, `work/client1/projectABC`, and any other subtag under `work`.
+
+### Filter Dropdown
+
+The tag filter dropdown displays tags in a tree structure with indentation to show hierarchy. Top-level tags appear at the root, and subtags are indented beneath their parents.
+
+### AND Logic Across Groups
+
+AND logic works across tag groups as before. Selecting both `work` and `screenshots` returns clips that match both -- the clip must have at least one tag in the `work` subtree **and** the `screenshots` tag.
+
+## Folder Mode
+
+Folder mode gives the gallery a folder-like navigation experience based on subtag hierarchy.
+
+### Activating Folder Mode
+
+Click the folder toggle button next to the sort controls. When active, the gallery shows:
+
+- **Subtag folders as navigable cards** -- each immediate child subtag appears as a folder card
+- **Directly-tagged clips** alongside the folder cards
+
+### Navigating
+
+- Click a folder card to navigate deeper into that subtag
+- A **breadcrumb trail** appears in the active tags area showing the current path
+- Click any breadcrumb segment to jump back to that level
+
+Folder mode is a view-only toggle. It is **not persisted** across sessions -- closing the app resets it.
+
+## Hidden Tag Inheritance
+
+Hiding a parent tag in settings hides **all of its descendants** from the default gallery view.
+
+- The **Settings > Hidden Tags** panel only shows top-level tags. Toggling a top-level tag hides the entire subtree.
+- Orphaned subtags (those whose parent was deleted) appear at the top level in the hidden tags list.
+- Explicitly filtering by a hidden subtag still shows its clips, the same as with regular hidden tags.
+
 ## Tag Colors
 
-Tag colors are assigned automatically in a rotating palette when tags are created.
+Tag colors are assigned automatically in a rotating palette when tags are created. Subtags inherit their color from the root parent tag.
 
 ## Current Limitations
 
@@ -83,7 +146,7 @@ There is no standalone tag-management screen for rename/recolor/delete actions.
 Today, tag management is done through assignment popovers:
 - Assign/unassign tags on clip cards or bulk selection
 - Create new tags from the same popover
-- Unused tags are removed automatically once no clips reference them
+- Unused tags are removed automatically once no clips reference them (unless the tag has children)
 
 ## Related
 

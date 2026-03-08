@@ -34,7 +34,6 @@ let tagPopoverMode = 'single';
 
 function renderTagFilterDropdown() {
     if (!tagFilterList) return;
-
     tagFilterList.innerHTML = '';
 
     if (allTags.length === 0) {
@@ -42,11 +41,19 @@ function renderTagFilterDropdown() {
         return;
     }
 
-    allTags.forEach(tag => {
+    const tree = buildTagTree(allTags);
+    const hiddenTagIds = getHiddenTags();
+
+    function renderNode(node, depth) {
+        const { tag, children } = node;
         const isActive = activeTagFilters.includes(tag.id);
-        const isHidden = getHiddenTags().includes(tag.id);
+        const isHidden = hiddenTagIds.includes(tag.id);
+        const displayName = depth === 0 ? tag.name : getShortTagName(tag.name);
+
         const item = document.createElement('label');
-        item.className = `flex items-center gap-2 px-3 py-1.5 hover:bg-stone-100 cursor-pointer transition-colors${isHidden ? ' opacity-50' : ''}`;
+        item.className = `flex items-center gap-2 py-1.5 hover:bg-stone-100 cursor-pointer transition-colors${isHidden ? ' opacity-50' : ''}`;
+        item.style.paddingLeft = `${12 + depth * 16}px`;
+        item.style.paddingRight = '12px';
         item.innerHTML = `
             <input type="checkbox"
                    data-testid="tag-checkbox-${tag.name}"
@@ -54,16 +61,25 @@ function renderTagFilterDropdown() {
                    ${isActive ? 'checked' : ''}>
             <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium text-white"
                   style="background-color: ${tag.color}">
-                ${escapeHTML(tag.name)}
+                ${escapeHTML(displayName)}
             </span>
             ${isHidden ? '<svg class="w-3 h-3 text-stone-400 ml-auto flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.878 9.878L3 3m6.878 6.878L21 21"/></svg>' : `<span class="text-stone-400 text-[10px] ml-auto">${tag.count}</span>`}
         `;
 
-        const checkbox = item.querySelector('input');
-        checkbox.addEventListener('change', () => toggleTagFilter(tag.id));
-
+        item.querySelector('input').addEventListener('change', () => toggleTagFilter(tag.id));
         tagFilterList.appendChild(item);
-    });
+
+        // Render children (skip if parent is hidden)
+        if (!isHidden) {
+            for (const child of children) {
+                renderNode(child, depth + 1);
+            }
+        }
+    }
+
+    for (const root of tree) {
+        renderNode(root, 0);
+    }
 }
 
 function toggleTagFilter(tagId) {
@@ -104,29 +120,87 @@ function updateActiveTagsDisplay() {
             label.textContent = 'Filtering:';
             activeTagsContainer.appendChild(label);
 
-            activeTagFilters.forEach(tagId => {
-                const tag = allTags.find(t => t.id === tagId);
-                if (!tag) return;
+            if (typeof isFolderMode === 'function' && isFolderMode()) {
+                // Folder mode: breadcrumb-style navigation
+                const deepestTag = allTags.find(t => t.id === activeTagFilters[activeTagFilters.length - 1]);
+                if (deepestTag) {
+                    const segments = deepestTag.name.split('/');
+                    let path = '';
+                    for (let i = 0; i < segments.length; i++) {
+                        path = i === 0 ? segments[i] : path + '/' + segments[i];
+                        const segTag = allTags.find(t => t.name === path);
+                        if (!segTag) continue;
 
-                const pill = document.createElement('span');
-                pill.className = 'inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium text-white';
-                pill.style.backgroundColor = tag.color;
-                pill.innerHTML = `
-                    ${escapeHTML(tag.name)}
-                    <button class="hover:opacity-75" aria-label="Remove ${tag.name} filter">
-                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                        </svg>
-                    </button>
-                `;
+                        // Add separator
+                        if (i > 0) {
+                            const sep = document.createElement('span');
+                            sep.className = 'text-stone-300 text-xs';
+                            sep.textContent = '/';
+                            activeTagsContainer.appendChild(sep);
+                        }
 
-                pill.querySelector('button').addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    toggleTagFilter(tagId);
+                        const pill = document.createElement('span');
+                        pill.className = 'inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium text-white';
+                        pill.style.backgroundColor = segTag.color;
+                        pill.dataset.testid = `tag-pill-${segTag.name}`;
+                        pill.innerHTML = `
+                            ${escapeHTML(segments[i])}
+                            <button class="hover:opacity-75" aria-label="Remove ${segTag.name} filter">
+                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                                </svg>
+                            </button>
+                        `;
+
+                        const capturedSegTag = segTag;
+                        pill.querySelector('button').addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            // Navigate up: keep ancestors of this tag, remove this and deeper
+                            const parentName = getParentTagName(capturedSegTag.name);
+                            activeTagFilters.length = 0;
+                            if (parentName) {
+                                // Rebuild filter chain up to parent
+                                let p = '';
+                                for (const s of parentName.split('/')) {
+                                    p = p ? p + '/' + s : s;
+                                    const pt = allTags.find(t => t.name === p);
+                                    if (pt) activeTagFilters.push(pt.id);
+                                }
+                            }
+                            updateActiveTagsDisplay();
+                            renderTagFilterDropdown();
+                            loadClips();
+                        });
+
+                        activeTagsContainer.appendChild(pill);
+                    }
+                }
+            } else {
+                // Normal mode: existing pill rendering
+                activeTagFilters.forEach(tagId => {
+                    const tag = allTags.find(t => t.id === tagId);
+                    if (!tag) return;
+
+                    const pill = document.createElement('span');
+                    pill.className = 'inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium text-white';
+                    pill.style.backgroundColor = tag.color;
+                    pill.innerHTML = `
+                        ${escapeHTML(tag.name)}
+                        <button class="hover:opacity-75" aria-label="Remove ${tag.name} filter">
+                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                            </svg>
+                        </button>
+                    `;
+
+                    pill.querySelector('button').addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        toggleTagFilter(tagId);
+                    });
+
+                    activeTagsContainer.appendChild(pill);
                 });
-
-                activeTagsContainer.appendChild(pill);
-            });
+            }
 
             // Add clear all button
             const clearBtn = document.createElement('button');
@@ -242,10 +316,8 @@ function positionPopover(anchorElement) {
 
 async function renderTagPopoverList(clipId) {
     if (!tagPopoverList) return;
-
     tagPopoverList.innerHTML = '';
 
-    // Get clip's current tags if single mode
     let clipTagIds = [];
     if (clipId) {
         const card = document.querySelector(`[data-id="${clipId}"]`);
@@ -259,10 +331,17 @@ async function renderTagPopoverList(clipId) {
         return;
     }
 
-    allTags.forEach(tag => {
+    const tree = buildTagTree(allTags);
+
+    function renderNode(node, depth) {
+        const { tag, children } = node;
         const hasTag = clipTagIds.includes(tag.id);
+        const displayName = depth === 0 ? tag.name : getShortTagName(tag.name);
+
         const item = document.createElement('label');
-        item.className = 'flex items-center gap-2 px-3 py-1.5 hover:bg-stone-100 cursor-pointer transition-colors';
+        item.className = 'flex items-center gap-2 py-1.5 hover:bg-stone-100 cursor-pointer transition-colors';
+        item.style.paddingLeft = `${12 + depth * 16}px`;
+        item.style.paddingRight = '12px';
         item.innerHTML = `
             <input type="checkbox"
                    data-testid="tag-checkbox-${tag.name}"
@@ -270,7 +349,7 @@ async function renderTagPopoverList(clipId) {
                    ${hasTag ? 'checked' : ''}>
             <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium text-white"
                   style="background-color: ${tag.color}">
-                ${escapeHTML(tag.name)}
+                ${escapeHTML(displayName)}
             </span>
         `;
 
@@ -284,7 +363,15 @@ async function renderTagPopoverList(clipId) {
         });
 
         tagPopoverList.appendChild(item);
-    });
+
+        for (const child of children) {
+            renderNode(child, depth + 1);
+        }
+    }
+
+    for (const root of tree) {
+        renderNode(root, 0);
+    }
 }
 
 async function handleClipTagToggle(clipId, tagId, add) {
@@ -430,9 +517,9 @@ function renderCardTags(card, tags) {
         const pill = document.createElement('button');
         pill.className = 'inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium text-white hover:opacity-80 transition-opacity';
         pill.style.backgroundColor = tag.color;
-        pill.textContent = tag.name;
+        pill.textContent = getShortTagName(tag.name);
         pill.dataset.testid = `tag-pill-${tag.name}`;
-        pill.title = `Filter by "${tag.name}"`;
+        pill.title = tag.name;
 
         // Click to filter by this tag
         pill.addEventListener('click', (e) => {

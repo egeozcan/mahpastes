@@ -1057,3 +1057,68 @@ searchInput.addEventListener('input', (e) => {
         }
     });
 });
+
+// --- Folder Mode Rendering ---
+
+async function renderFolderCards() {
+    let folderTags;
+    if (activeTagFilters.length > 0) {
+        // Show children of the deepest active filter
+        const currentTagId = activeTagFilters[activeTagFilters.length - 1];
+        folderTags = await getChildTags(currentTagId);
+    } else {
+        folderTags = await getTopLevelTags();
+    }
+
+    if (!folderTags || folderTags.length === 0) return;
+
+    for (const tag of folderTags) {
+        const count = await getDescendantClipCount(tag.id);
+        const shortName = getShortTagName(tag.name);
+
+        const card = document.createElement('li');
+        card.className = 'bg-white rounded-md border border-stone-200 overflow-hidden flex flex-col items-center justify-center p-6 cursor-pointer transition-all duration-150 hover:border-stone-300 hover:scale-[1.02]';
+        card.setAttribute('data-testid', `folder-card-${shortName}`);
+        card.setAttribute('data-folder', tag.id);
+        card.innerHTML = `
+            <svg class="w-10 h-10 mb-2" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="${tag.color}">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.06-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" />
+            </svg>
+            <span class="text-xs font-medium text-stone-700">${escapeHTML(shortName)}</span>
+            <span class="text-[10px] text-stone-400 mt-0.5">${count} clip${count !== 1 ? 's' : ''}</span>
+        `;
+
+        card.addEventListener('click', () => {
+            navigateToFolder(tag.id);
+        });
+
+        gallery.appendChild(card);
+    }
+}
+
+function navigateToFolder(tagId) {
+    // Replace active filters with this tag's ancestors + this tag
+    const tag = allTags.find(t => t.id === tagId);
+    if (!tag) return;
+
+    // Build filter chain: all ancestors + this tag
+    const ancestors = [];
+    let current = tag.name;
+    while (current) {
+        const parentName = getParentTagName(current);
+        if (parentName) {
+            const parentTag = allTags.find(t => t.name === parentName);
+            if (parentTag) ancestors.unshift(parentTag.id);
+        }
+        current = parentName;
+    }
+    ancestors.push(tagId);
+
+    // Replace active filters
+    activeTagFilters.length = 0;
+    activeTagFilters.push(...ancestors);
+
+    updateActiveTagsDisplay();
+    renderTagFilterDropdown();
+    loadClips();
+}

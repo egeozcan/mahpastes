@@ -46,6 +46,8 @@ type ClipPreview struct {
 }
 ```
 
+**Note:** When `tagIDs` are provided, the filter automatically expands to include all descendant subtags. Filtering by a parent tag returns clips tagged with that tag or any of its children. Use `GetClipsDirect` if you need exact (non-expanded) tag matching.
+
 **JavaScript usage:**
 ```javascript
 const clips = await GetClips(false, [], [], 'date', 'desc');      // Active clips, newest first
@@ -574,7 +576,7 @@ type WatchStatus struct {
 
 ### CreateTag
 
-Create a new tag.
+Create a new tag. If the name contains `/` separators, intermediate parent tags are auto-created.
 
 ```go
 func (a *App) CreateTag(name string) (*Tag, error)
@@ -583,13 +585,15 @@ func (a *App) CreateTag(name string) (*Tag, error)
 **Parameters:**
 | Name | Type | Description |
 |------|------|-------------|
-| `name` | string | Tag name (must be unique) |
+| `name` | string | Tag name (must be unique). Use `/` to create subtags (e.g., `"work/client1/projectABC"`) |
 
 **Returns:**
 | Type | Description |
 |------|-------------|
-| `*Tag` | The created tag |
-| `error` | Error if name already exists |
+| `*Tag` | The created (leaf) tag |
+| `error` | Error if the leaf tag name already exists |
+
+When given a path like `work/client1/projectABC`, this method creates `work`, `work/client1`, and `work/client1/projectABC` (skipping any that already exist). Intermediate tags inherit the color of the root parent.
 
 **Tag structure:**
 ```go
@@ -611,7 +615,9 @@ Delete a tag by ID.
 func (a *App) DeleteTag(id int64) error
 ```
 
-Removes the tag and all clip associations.
+Removes the tag and all clip associations. Deleting a parent tag does **not** delete its children -- they remain as orphaned subtags.
+
+**Internal:** The `deleteTagIfOrphaned` helper (used by auto-cleanup) checks whether a tag has child tags before removing it. A tag with zero clips but one or more children is kept alive.
 
 ---
 
@@ -635,7 +641,7 @@ The `Count` field on each Tag contains the number of clips using that tag.
 
 ### UpdateTag
 
-Update a tag's name and color.
+Update a tag's name and color. If the tag has descendants, renaming cascades: all children have their name prefix updated to match.
 
 ```go
 func (a *App) UpdateTag(id int64, name string, color string) error
@@ -647,6 +653,8 @@ func (a *App) UpdateTag(id int64, name string, color string) error
 | `id` | int64 | Tag ID |
 | `name` | string | New tag name |
 | `color` | string | Hex color code (e.g., "#ef4444") |
+
+For example, renaming tag `work` to `office` also renames `work/client1` to `office/client1` and `work/client1/projectABC` to `office/client1/projectABC`.
 
 ---
 
@@ -742,6 +750,64 @@ func (a *App) SetHiddenTags(ids []int64) error
 | Name | Type | Description |
 |------|------|-------------|
 | `ids` | []int64 | Array of tag IDs to hide |
+
+---
+
+### GetChildTags
+
+Get the immediate child tags of a given tag.
+
+```go
+func (a *App) GetChildTags(tagID int64) ([]Tag, error)
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `tagID` | int64 | Parent tag ID |
+
+**Returns:** Tags whose name is one level below the given tag. For example, if tag ID 5 is `work`, this returns `work/client1` and `work/client2` but not `work/client1/projectABC`.
+
+---
+
+### GetTopLevelTags
+
+Get all tags that have no parent (no `/` in their name).
+
+```go
+func (a *App) GetTopLevelTags() ([]Tag, error)
+```
+
+**Returns:** Tags whose names contain no `/` separator.
+
+---
+
+### GetDescendantClipCount
+
+Get the total number of clips tagged with a tag or any of its descendants.
+
+```go
+func (a *App) GetDescendantClipCount(tagID int64) (int, error)
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `tagID` | int64 | Root tag ID |
+
+**Returns:** The count of distinct clips tagged with this tag or any subtag beneath it.
+
+---
+
+### GetClipsDirect
+
+Retrieve clips without expanding tag filters to include descendants. Unlike `GetClips`, filtering by a tag ID returns only clips directly tagged with that exact tag.
+
+```go
+func (a *App) GetClipsDirect(archived bool, tagIDs []int64, hiddenTagIDs []int64, sortField string, sortDir string) ([]ClipPreview, error)
+```
+
+Parameters and return type are identical to `GetClips`. The only difference is that tag filters are not expanded to include subtags.
 
 ---
 

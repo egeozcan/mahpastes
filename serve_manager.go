@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"html"
@@ -45,11 +46,18 @@ type virtualFile struct {
 	size        int64
 }
 
-// directoryEntry is the JSON representation of a file in a directory listing.
+// directoryEntry is the JSON representation of a file or folder in a directory listing.
 type directoryEntry struct {
 	Name        string `json:"name"`
 	Size        int64  `json:"size"`
 	ContentType string `json:"content_type"`
+	Type        string `json:"type"` // "file" or "directory"
+}
+
+// childTagInfo holds the short name and ID of an immediate child tag.
+type childTagInfo struct {
+	shortName string
+	tagID     int64
 }
 
 // ServeManager manages per-tag HTTP servers.
@@ -114,6 +122,47 @@ func (sm *ServeManager) buildFileList(tagID int64) ([]virtualFile, error) {
 	return files, nil
 }
 
+// getImmediateChildTags returns the immediate child tags of the given parent tag name.
+func (sm *ServeManager) getImmediateChildTags(parentTagName string) ([]childTagInfo, error) {
+	rows, err := sm.app.db.Query(`SELECT id, name FROM tags WHERE name LIKE ? || '/%'`, parentTagName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query child tags: %w", err)
+	}
+	defer rows.Close()
+
+	var children []childTagInfo
+	for rows.Next() {
+		var id int64
+		var name string
+		if err := rows.Scan(&id, &name); err != nil {
+			return nil, fmt.Errorf("failed to scan tag row: %w", err)
+		}
+		if isImmediateChildOf(name, parentTagName) {
+			children = append(children, childTagInfo{
+				shortName: getShortTagName(name),
+				tagID:     id,
+			})
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("row iteration error: %w", err)
+	}
+	return children, nil
+}
+
+// resolveSubtag looks up a tag by exact name and returns its ID, or 0 if not found.
+func (sm *ServeManager) resolveSubtag(tagName string) (int64, error) {
+	var id int64
+	err := sm.app.db.QueryRow(`SELECT id FROM tags WHERE name = ?`, tagName).Scan(&id)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return 0, nil
+		}
+		return 0, err
+	}
+	return id, nil
+}
+
 // serveClipData reads the blob from the database and writes it to the HTTP response.
 func (sm *ServeManager) serveClipData(w http.ResponseWriter, clipID int64, contentType string) {
 	var data []byte
@@ -143,34 +192,100 @@ func (sm *ServeManager) makeHandler(ts *tagServer) http.Handler {
 
 		atomic.AddInt64(&ts.requestCount, 1)
 
-		files, err := sm.buildFileList(ts.tagID)
-		if err != nil {
-			log.Printf("serve: failed to build file list for tag %d: %v", ts.tagID, err)
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
-		}
-
 		reqPath := strings.TrimPrefix(r.URL.Path, "/")
 		if decodedPath, err := url.PathUnescape(reqPath); err == nil {
 			reqPath = decodedPath
 		}
 
-		// Root or /index.html — check for an index.html clip first.
-		if reqPath == "" || reqPath == "index.html" {
+		// Strip trailing slash to determine directory vs file,
+		// but remember whether the original path ended with one.
+		isDir := reqPath == "" || strings.HasSuffix(reqPath, "/")
+		reqPath = strings.TrimSuffix(reqPath, "/")
+
+		// Walk path segments to resolve the deepest subtag.
+		// Start from the root tag that this server is serving.
+		currentTagName := ts.tagName
+		currentTagID := ts.tagID
+
+		var filename string
+		if reqPath != "" {
+			segments := strings.Split(reqPath, "/")
+			for i, seg := range segments {
+				// Try to resolve this segment as a child tag.
+				childTagName := currentTagName + "/" + seg
+				childID, err := sm.resolveSubtag(childTagName)
+				if err != nil {
+					log.Printf("serve: failed to resolve subtag %q: %v", childTagName, err)
+					http.Error(w, "internal error", http.StatusInternalServerError)
+					return
+				}
+
+				if childID != 0 {
+					// This segment is a subtag — descend into it.
+					currentTagName = childTagName
+					currentTagID = childID
+				} else {
+					// Not a subtag — must be a filename. It should be the last segment.
+					if i != len(segments)-1 {
+						// Middle segment doesn't match a tag — 404.
+						http.NotFound(w, r)
+						return
+					}
+					filename = seg
+					isDir = false
+				}
+			}
+		}
+
+		// If all segments resolved to tags and no explicit trailing slash,
+		// check if the last segment is actually a file in the parent tag.
+		// But if the path ended with "/" or was empty, it's a directory request.
+		if filename == "" && !isDir && reqPath != "" {
+			// The last segment resolved as a subtag. Redirect to add trailing slash.
+			http.Redirect(w, r, r.URL.Path+"/", http.StatusMovedPermanently)
+			return
+		}
+
+		// Build the file list for the resolved tag.
+		files, err := sm.buildFileList(currentTagID)
+		if err != nil {
+			log.Printf("serve: failed to build file list for tag %d: %v", currentTagID, err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+
+		if isDir {
+			// Directory listing — check for index.html clip first (scoped to this level).
 			for _, f := range files {
 				if f.filename == "index.html" {
 					sm.serveClipData(w, f.clipID, f.contentType)
 					return
 				}
 			}
-			// No index.html clip — show directory listing.
-			sm.serveDirectoryListing(w, r, ts.tagName, files)
+
+			// Get child tags for directory listing.
+			childTags, err := sm.getImmediateChildTags(currentTagName)
+			if err != nil {
+				log.Printf("serve: failed to get child tags for %q: %v", currentTagName, err)
+				http.Error(w, "internal error", http.StatusInternalServerError)
+				return
+			}
+
+			// Build the URL prefix for links in this directory.
+			urlPrefix := "/"
+			if currentTagName != ts.tagName {
+				// We're in a subdirectory — compute relative path from root tag.
+				relPath := strings.TrimPrefix(currentTagName, ts.tagName+"/")
+				urlPrefix = "/" + relPath + "/"
+			}
+
+			sm.serveDirectoryListing(w, r, currentTagName, files, childTags, urlPrefix)
 			return
 		}
 
-		// Try to match a file.
+		// Serve a specific file.
 		for _, f := range files {
-			if f.filename == reqPath {
+			if f.filename == filename {
 				sm.serveClipData(w, f.clipID, f.contentType)
 				return
 			}
@@ -182,16 +297,28 @@ func (sm *ServeManager) makeHandler(ts *tagServer) http.Handler {
 
 // serveDirectoryListing responds with either JSON or an HTML directory listing
 // depending on the Accept header.
-func (sm *ServeManager) serveDirectoryListing(w http.ResponseWriter, r *http.Request, tagName string, files []virtualFile) {
+func (sm *ServeManager) serveDirectoryListing(w http.ResponseWriter, r *http.Request, tagName string, files []virtualFile, childTags []childTagInfo, urlPrefix string) {
 	accept := r.Header.Get("Accept")
 	if strings.Contains(accept, "application/json") {
-		entries := make([]directoryEntry, len(files))
-		for i, f := range files {
-			entries[i] = directoryEntry{
+		var entries []directoryEntry
+		// Add folder entries first.
+		for _, ct := range childTags {
+			entries = append(entries, directoryEntry{
+				Name: ct.shortName,
+				Type: "directory",
+			})
+		}
+		// Add file entries.
+		for _, f := range files {
+			entries = append(entries, directoryEntry{
 				Name:        f.filename,
 				Size:        f.size,
 				ContentType: f.contentType,
-			}
+				Type:        "file",
+			})
+		}
+		if entries == nil {
+			entries = []directoryEntry{}
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(entries)
@@ -220,6 +347,7 @@ a:hover{text-decoration:underline}
 .size{color:#78716c;text-align:right;font-size:.6875rem}
 .type{color:#a8a29e;font-size:.625rem}
 .empty{color:#a8a29e;font-size:.75rem;padding:2rem 0}
+.icon{display:inline-block;width:1rem;margin-right:.25rem;vertical-align:middle}
 </style>
 </head>
 <body>
@@ -228,18 +356,29 @@ a:hover{text-decoration:underline}
 	b.WriteString(`</h1>
 `)
 
-	if len(files) == 0 {
+	hasContent := len(files) > 0 || len(childTags) > 0
+	if !hasContent {
 		b.WriteString(`<p class="empty">No files.</p>`)
 	} else {
 		b.WriteString(`<table>
 <tr><th>Name</th><th>Type</th><th style="text-align:right">Size</th></tr>
 `)
+		// Render folder entries first.
+		for _, ct := range childTags {
+			name := html.EscapeString(ct.shortName)
+			href := html.EscapeString(urlPrefix + url.PathEscape(ct.shortName) + "/")
+			fmt.Fprintf(&b,
+				"<tr><td><span class=\"icon\">\U0001F4C1</span><a href=\"%s\">%s/</a></td><td class=\"type\">folder</td><td class=\"size\"></td></tr>\n",
+				href, name,
+			)
+		}
+		// Render file entries.
 		for _, f := range files {
 			name := html.EscapeString(f.filename)
-			href := "/" + url.PathEscape(f.filename)
+			href := html.EscapeString(urlPrefix + url.PathEscape(f.filename))
 			fmt.Fprintf(&b,
-				"<tr><td><a href=\"/%s\">%s</a></td><td class=\"type\">%s</td><td class=\"size\">%s</td></tr>\n",
-				html.EscapeString(strings.TrimPrefix(href, "/")), name, html.EscapeString(f.contentType), formatSize(f.size),
+				"<tr><td><a href=\"%s\">%s</a></td><td class=\"type\">%s</td><td class=\"size\">%s</td></tr>\n",
+				href, name, html.EscapeString(f.contentType), formatSize(f.size),
 			)
 		}
 		b.WriteString("</table>\n")

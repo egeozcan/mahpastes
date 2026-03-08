@@ -132,6 +132,7 @@ type Manager struct {
 	updateChecker   *UpdateChecker
 	metadataGet    MetadataGetFunc
 	metadataUpdate MetadataUpdateFunc
+	tagCreateFn    TagCreateFunc
 }
 
 // NewManager creates a new plugin manager
@@ -160,6 +161,12 @@ func NewManager(ctx context.Context, db *sql.DB, pluginsDir string) (*Manager, e
 func (m *Manager) SetMetadataFuncs(getFn MetadataGetFunc, updateFn MetadataUpdateFunc) {
 	m.metadataGet = getFn
 	m.metadataUpdate = updateFn
+}
+
+// SetTagCreateFunc sets the tag creation function used by the tags Lua API.
+// When set, tags.create() delegates to App.CreateTag for subtag auto-creation.
+func (m *Manager) SetTagCreateFunc(fn TagCreateFunc) {
+	m.tagCreateFn = fn
 }
 
 // SetPermissionCallback sets the callback for filesystem permission requests
@@ -231,7 +238,7 @@ func (m *Manager) loadPlugin(p *Plugin) error {
 	utilsAPI := NewUtilsAPI(manifest.Name, manifest.Clipboard)
 	utilsAPI.Register(sandbox.GetState())
 
-	tagsAPI := NewTagsAPI(m.db)
+	tagsAPI := NewTagsAPI(m.db, m.tagCreateFn)
 	tagsAPI.Register(sandbox.GetState())
 
 	toastAPI := NewToastAPI(m.ctx, p.ID)

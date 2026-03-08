@@ -127,6 +127,8 @@ Note: Colors are auto-assigned from a palette when creating tags, not via a SQL 
 | `name` | TEXT | Tag name (unique) |
 | `color` | TEXT | Hex color code for display |
 
+**Tag hierarchy convention:** There is no `parent_id` column or separate hierarchy table. Tag hierarchy is derived entirely from the `/` separator in tag names. For example, the tag `work/client1/projectABC` is a child of `work/client1`, which is a child of `work`. Descendant queries use `LIKE 'prefix/%'` against the `name` column. This keeps the schema flat and avoids recursive joins.
+
 ### clip_tags
 
 Junction table linking clips to tags (many-to-many).

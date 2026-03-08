@@ -1582,6 +1582,35 @@ export class AppHelper {
     });
   }
 
+  // ==================== Folder Mode ====================
+
+  async toggleFolderMode(): Promise<void> {
+    await this.page.locator(selectors.tags.folderModeButton).click();
+  }
+
+  async expectFolderVisible(name: string): Promise<void> {
+    await expect(this.page.locator(selectors.tags.folderCard(name))).toBeVisible();
+  }
+
+  async expectFolderNotVisible(name: string): Promise<void> {
+    await expect(this.page.locator(selectors.tags.folderCard(name))).not.toBeVisible();
+  }
+
+  async clickFolder(name: string): Promise<void> {
+    await this.page.locator(selectors.tags.folderCard(name)).click();
+    await this.page.waitForTimeout(500);
+  }
+
+  async setFolderMode(enabled: boolean): Promise<void> {
+    await this.page.evaluate((val) => {
+      // @ts-ignore
+      if (window.__testHelpers?.setFolderMode) {
+        // @ts-ignore
+        window.__testHelpers.setFolderMode(val);
+      }
+    }, enabled);
+  }
+
   // ==================== Hidden Tags ====================
 
   async setHiddenTags(tagNames: string[]): Promise<void> {

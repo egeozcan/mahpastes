@@ -5,23 +5,37 @@ async function loadClips() {
     try {
         if (typeof ShortcutManager !== 'undefined') ShortcutManager.clearFocus();
         const effectiveHidden = getHiddenTags().filter(id => !activeTagFilters.includes(id));
-        const clips = await window.go.main.App.GetClips(isViewingArchive, activeTagFilters, effectiveHidden, currentSortField, currentSortDir);
+
+        let clips;
+        if (isFolderMode() && activeTagFilters.length > 0) {
+            // In folder mode with active filters, show only directly-tagged clips
+            clips = await window.go.main.App.GetClipsDirect(isViewingArchive, activeTagFilters, effectiveHidden, currentSortField, currentSortDir);
+        } else {
+            clips = await window.go.main.App.GetClips(isViewingArchive, activeTagFilters, effectiveHidden, currentSortField, currentSortDir);
+        }
 
         if (typeof clearPreparedDragState === 'function') {
             clearPreparedDragState();
         }
 
-        gallery.innerHTML = ''; // Clear gallery
+        gallery.innerHTML = '';
         selectedIds.clear();
-        imageClips = []; // Clear image clips
+        imageClips = [];
         updateBulkToolbar();
+
+        // Render folder cards in folder mode
+        if (isFolderMode()) {
+            await renderFolderCards();
+        }
 
         if (clips && clips.length > 0) {
             for (const clip of clips) {
                 await createClipCard(clip);
             }
-            updateClipCount(clips.length);
-        } else {
+            // Update count to include folder cards
+            const folderCount = gallery.querySelectorAll('[data-folder]').length;
+            updateClipCount(clips.length + folderCount);
+        } else if (!isFolderMode() || gallery.children.length === 0) {
             let emptyMsg;
             if (activeTagFilters.length > 0) {
                 emptyMsg = 'No clips match the selected tags.';
@@ -32,6 +46,8 @@ async function loadClips() {
             }
             gallery.innerHTML = `<p class="text-gray-500 col-span-full text-center">${emptyMsg}</p>`;
             updateClipCount(0);
+        } else {
+            updateClipCount(gallery.querySelectorAll('[data-folder]').length);
         }
         if (typeof checkDuplicatesExist === 'function') checkDuplicatesExist();
     } catch (error) {
@@ -300,6 +316,44 @@ async function bulkRemoveTag(clipIds, tagId) {
     } catch (error) {
         console.error('Error in bulk remove tag:', error);
         showToast('Failed to remove tag from clips.');
+    }
+}
+
+// --- Tag Hierarchy API functions ---
+
+async function getChildTags(tagId) {
+    try {
+        return await window.go.main.App.GetChildTags(tagId);
+    } catch (error) {
+        console.error('Error getting child tags:', error);
+        return [];
+    }
+}
+
+async function getTopLevelTags() {
+    try {
+        return await window.go.main.App.GetTopLevelTags();
+    } catch (error) {
+        console.error('Error getting top level tags:', error);
+        return [];
+    }
+}
+
+async function getDescendantClipCount(tagId) {
+    try {
+        return await window.go.main.App.GetDescendantClipCount(tagId);
+    } catch (error) {
+        console.error('Error getting descendant clip count:', error);
+        return 0;
+    }
+}
+
+async function getClipsDirect(archived, tagIds, hiddenTagIds, sortField, sortDir) {
+    try {
+        return await window.go.main.App.GetClipsDirect(archived, tagIds, hiddenTagIds, sortField, sortDir);
+    } catch (error) {
+        console.error('Error loading clips direct:', error);
+        return [];
     }
 }
 

@@ -69,6 +69,42 @@ If the tag contains a clip named `index.html`, requesting `/` or `/index.html` s
 
 When multiple clips share the same filename, duplicates get a numbered suffix: `photo.png`, `photo (2).png`, `photo (3).png`.
 
+## Subtag Folder Navigation
+
+When a served tag has subtags, the directory listing includes subtag folders alongside clip files. This mirrors the subtag hierarchy as a navigable directory structure.
+
+### URL Structure
+
+- `/` -- shows clips directly tagged with the served tag, plus a folder entry for each immediate subtag
+- `/client1/` -- navigates into the `client1` subtag, showing its clips and any deeper subtag folders
+- `/client1/projectABC/` -- navigates further down the tree
+
+Path segments in the URL resolve to subtags by name. For example, if you are serving the tag `work`, then `/client1/` resolves to the subtag `work/client1`.
+
+### Directory Listing Format
+
+Each entry in the directory listing includes a `type` field:
+
+| Type | Description |
+|------|-------------|
+| `"file"` | A clip served as a downloadable file |
+| `"directory"` | A subtag folder that can be navigated into |
+
+**JSON response** (when `Accept: application/json`):
+
+```json
+[
+  { "name": "report.pdf", "size": 204800, "content_type": "application/pdf", "type": "file" },
+  { "name": "client1/", "type": "directory" }
+]
+```
+
+**HTML response** shows folder icons next to directory entries to distinguish them from files.
+
+### index.html Scoping
+
+The `index.html` override is scoped per level. If `work/client1` has a clip named `index.html`, requesting `/client1/` serves that clip. The root-level `index.html` (on the `work` tag itself) is unaffected.
+
 ## Activity Indicators
 
 - A **green dot** appears on running tag cards

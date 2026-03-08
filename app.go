@@ -57,6 +57,20 @@ func computeContentHash(data []byte) string {
 	return hex.EncodeToString(hash[:])
 }
 
+// emitEvent sends a frontend event, guarded for nil ctx (e.g. in tests).
+func (a *App) emitEvent(event string, data ...interface{}) {
+	if a.ctx != nil {
+		runtime.EventsEmit(a.ctx, event, data...)
+	}
+}
+
+// emitPluginEvent dispatches a plugin event, guarded for nil pluginManager.
+func (a *App) emitPluginEvent(name string, data map[string]interface{}) {
+	if a.pluginManager != nil {
+		a.pluginManager.EmitEvent(name, data)
+	}
+}
+
 // emitWatchError sends an error event to the frontend
 func (a *App) emitWatchError(filePath string, errMsg string) {
 	runtime.EventsEmit(a.ctx, "watch:error", map[string]string{
@@ -166,6 +180,19 @@ func (a *App) startup(ctx context.Context) {
 		a.pluginManager = pm
 		// Wire metadata functions so plugin API delegates to App
 		pm.SetMetadataFuncs(a.GetClipMetadata, a.updateClipMetadata)
+		// Wire tag creation so plugin tags.create() delegates to App.CreateTag
+		// (ensures subtag auto-creation of ancestor tags works)
+		pm.SetTagCreateFunc(func(name string) (*plugin.TagCreateResult, error) {
+			tag, err := a.CreateTag(name)
+			if err != nil {
+				return nil, err
+			}
+			return &plugin.TagCreateResult{
+				ID:    tag.ID,
+				Name:  tag.Name,
+				Color: tag.Color,
+			}, nil
+		})
 		// Set up permission callback for filesystem access
 		pm.SetPermissionCallback(func(pluginName, permType, requestedPath string) string {
 			// Use Wails runtime dialog for folder selection
@@ -378,6 +405,14 @@ func sortColumn(field string) string {
 
 // GetClips retrieves a list of clips for the gallery, optionally filtered by tags
 func (a *App) GetClips(archived bool, tagIDs []int64, hiddenTagIDs []int64, sortField string, sortDir string) ([]ClipPreview, error) {
+	return a.getClipsInternal(archived, tagIDs, hiddenTagIDs, sortField, sortDir, true)
+}
+
+func (a *App) GetClipsDirect(archived bool, tagIDs []int64, hiddenTagIDs []int64, sortField string, sortDir string) ([]ClipPreview, error) {
+	return a.getClipsInternal(archived, tagIDs, hiddenTagIDs, sortField, sortDir, false)
+}
+
+func (a *App) getClipsInternal(archived bool, tagIDs []int64, hiddenTagIDs []int64, sortField string, sortDir string, expandFilters bool) ([]ClipPreview, error) {
 	archivedInt := 0
 	if archived {
 		archivedInt = 1
@@ -397,14 +432,42 @@ func (a *App) GetClips(archived bool, tagIDs []int64, hiddenTagIDs []int64, sort
 		orderClause += ", c.id ASC"
 	}
 
-	// Compute effective hidden tags (remove any that are in active filters)
-	effectiveHidden := make([]int64, 0)
-	tagIDSet := make(map[int64]bool)
-	for _, id := range tagIDs {
-		tagIDSet[id] = true
+	// Expand hidden tags to include descendants (always, regardless of expandFilters)
+	expandedHidden := make([]int64, 0, len(hiddenTagIDs))
+	for _, tagID := range hiddenTagIDs {
+		expandedHidden = append(expandedHidden, tagID)
+		descendants, err := a.getDescendantTagIDs(tagID)
+		if err == nil {
+			expandedHidden = append(expandedHidden, descendants...)
+		}
 	}
-	for _, id := range hiddenTagIDs {
-		if !tagIDSet[id] {
+
+	// Build expanded filter groups (one per original tag filter)
+	type tagFilterGroup struct {
+		ids []int64
+	}
+	var filterGroups []tagFilterGroup
+	// Collect all filter IDs (expanded) for effective hidden computation
+	allFilterIDs := make(map[int64]bool)
+	for _, tagID := range tagIDs {
+		group := tagFilterGroup{ids: []int64{tagID}}
+		allFilterIDs[tagID] = true
+		if expandFilters {
+			descendants, err := a.getDescendantTagIDs(tagID)
+			if err == nil {
+				group.ids = append(group.ids, descendants...)
+				for _, d := range descendants {
+					allFilterIDs[d] = true
+				}
+			}
+		}
+		filterGroups = append(filterGroups, group)
+	}
+
+	// Compute effective hidden tags: remove any that are in active filters (or their descendants)
+	effectiveHidden := make([]int64, 0)
+	for _, id := range expandedHidden {
+		if !allFilterIDs[id] {
 			effectiveHidden = append(effectiveHidden, id)
 		}
 	}
@@ -412,50 +475,49 @@ func (a *App) GetClips(archived bool, tagIDs []int64, hiddenTagIDs []int64, sort
 	var query string
 	var args []interface{}
 
-	if len(tagIDs) > 0 {
-		// Filter by tags (AND logic - clip must have ALL selected tags)
+	selectCols := `c.id, c.content_type, c.filename, c.created_at, c.expires_at, SUBSTR(c.data, 1, 500), c.is_archived, LENGTH(c.data),
+		       (SELECT COUNT(*) FROM clips c2 WHERE c2.content_hash = c.content_hash AND c2.content_hash != '' AND c2.id != c.id)`
 
-		// 1. Hidden tags anti-join (LEFT JOIN ON clause)
-		hiddenJoin := ""
-		hiddenWhere := ""
-		var hiddenArgs []interface{}
+	if len(filterGroups) > 0 {
+		// Filter by tags using EXISTS per group (AND logic - clip must match ALL groups)
+
+		// Build EXISTS clauses for each filter group
+		var existsClauses []string
+		for _, group := range filterGroups {
+			placeholders := make([]string, len(group.ids))
+			for i, id := range group.ids {
+				placeholders[i] = "?"
+				args = append(args, id)
+			}
+			existsClauses = append(existsClauses,
+				fmt.Sprintf("EXISTS (SELECT 1 FROM clip_tags ct WHERE ct.clip_id = c.id AND ct.tag_id IN (%s))",
+					strings.Join(placeholders, ",")))
+		}
+
+		// Hidden tags anti-join via NOT EXISTS
+		hiddenClause := ""
 		if len(effectiveHidden) > 0 {
 			hiddenPlaceholders := make([]string, len(effectiveHidden))
 			for i, id := range effectiveHidden {
 				hiddenPlaceholders[i] = "?"
-				hiddenArgs = append(hiddenArgs, id)
+				args = append(args, id)
 			}
-			hiddenJoin = fmt.Sprintf("\n\t\tLEFT JOIN clip_tags ht ON c.id = ht.clip_id AND ht.tag_id IN (%s)", strings.Join(hiddenPlaceholders, ","))
-			hiddenWhere = "\n\t\t  AND ht.clip_id IS NULL"
+			hiddenClause = fmt.Sprintf("\n\t\t  AND NOT EXISTS (SELECT 1 FROM clip_tags ct WHERE ct.clip_id = c.id AND ct.tag_id IN (%s))",
+				strings.Join(hiddenPlaceholders, ","))
 		}
 
-		// 2. Tag filter (WHERE IN clause)
-		tagPlaceholders := make([]string, len(tagIDs))
-		var tagArgs []interface{}
-		for i, id := range tagIDs {
-			tagPlaceholders[i] = "?"
-			tagArgs = append(tagArgs, id)
-		}
-
-		// Build args in SQL clause order: LEFT JOIN ON → WHERE IN → WHERE = → HAVING =
-		args = append(args, hiddenArgs...)
-		args = append(args, tagArgs...)
-		args = append(args, archivedInt, len(tagIDs))
+		args = append(args, archivedInt)
 
 		query = fmt.Sprintf(`
-		SELECT c.id, c.content_type, c.filename, c.created_at, c.expires_at, SUBSTR(c.data, 1, 500), c.is_archived, LENGTH(c.data),
-		       (SELECT COUNT(*) FROM clips c2 WHERE c2.content_hash = c.content_hash AND c2.content_hash != '' AND c2.id != c.id)
+		SELECT %s
 		FROM clips c
-		INNER JOIN clip_tags ct ON c.id = ct.clip_id%s
-		WHERE ct.tag_id IN (%s)
+		WHERE %s%s
 		  AND c.is_archived = ?
-		  AND (c.expires_at IS NULL OR c.expires_at > CURRENT_TIMESTAMP)%s
-		GROUP BY c.id
-		HAVING COUNT(DISTINCT ct.tag_id) = ?
+		  AND (c.expires_at IS NULL OR c.expires_at > CURRENT_TIMESTAMP)
 		%s
-		LIMIT %d`, hiddenJoin, strings.Join(tagPlaceholders, ","), hiddenWhere, orderClause, defaultClipLimit)
+		LIMIT %d`, selectCols, strings.Join(existsClauses, "\n\t\t  AND "), hiddenClause, orderClause, defaultClipLimit)
 	} else if len(effectiveHidden) > 0 {
-		// No tag filters but has hidden tags - use LEFT JOIN anti-join
+		// No tag filters but has hidden tags - use NOT EXISTS anti-join
 		hiddenPlaceholders := make([]string, len(effectiveHidden))
 		for i, id := range effectiveHidden {
 			hiddenPlaceholders[i] = "?"
@@ -464,25 +526,22 @@ func (a *App) GetClips(archived bool, tagIDs []int64, hiddenTagIDs []int64, sort
 		args = append(args, archivedInt)
 
 		query = fmt.Sprintf(`
-		SELECT c.id, c.content_type, c.filename, c.created_at, c.expires_at, SUBSTR(c.data, 1, 500), c.is_archived, LENGTH(c.data),
-		       (SELECT COUNT(*) FROM clips c2 WHERE c2.content_hash = c.content_hash AND c2.content_hash != '' AND c2.id != c.id)
+		SELECT %s
 		FROM clips c
-		LEFT JOIN clip_tags ht ON c.id = ht.clip_id AND ht.tag_id IN (%s)
-		WHERE ht.clip_id IS NULL
+		WHERE NOT EXISTS (SELECT 1 FROM clip_tags ct WHERE ct.clip_id = c.id AND ct.tag_id IN (%s))
 		  AND c.is_archived = ?
 		  AND (c.expires_at IS NULL OR c.expires_at > CURRENT_TIMESTAMP)
 		%s
-		LIMIT %d`, strings.Join(hiddenPlaceholders, ","), orderClause, defaultClipLimit)
+		LIMIT %d`, selectCols, strings.Join(hiddenPlaceholders, ","), orderClause, defaultClipLimit)
 	} else {
 		// No filters, no hidden tags - original simple query
 		args = append(args, archivedInt)
 		query = fmt.Sprintf(`
-		SELECT c.id, c.content_type, c.filename, c.created_at, c.expires_at, SUBSTR(c.data, 1, 500), c.is_archived, LENGTH(c.data),
-		       (SELECT COUNT(*) FROM clips c2 WHERE c2.content_hash = c.content_hash AND c2.content_hash != '' AND c2.id != c.id)
+		SELECT %s
 		FROM clips c
 		WHERE c.is_archived = ? AND (c.expires_at IS NULL OR c.expires_at > CURRENT_TIMESTAMP)
 		%s
-		LIMIT %d`, orderClause, defaultClipLimit)
+		LIMIT %d`, selectCols, orderClause, defaultClipLimit)
 	}
 
 	rows, err := a.db.Query(query, args...)
@@ -972,12 +1031,37 @@ func (a *App) CreateTag(name string) (*Tag, error) {
 	}
 	defer tx.Rollback()
 
-	// Get count of existing tags to determine color (within transaction)
-	var count int
-	if err := tx.QueryRow("SELECT COUNT(*) FROM tags").Scan(&count); err != nil {
-		return nil, fmt.Errorf("failed to count tags: %w", err)
+	// Auto-create any missing ancestor tags (e.g. "work" and "work/client1"
+	// for "work/client1/projectABC").
+	ancestors := getAncestorTagNames(name)
+	var createdAncestors []Tag
+	for _, ancestor := range ancestors {
+		// Check if ancestor already exists
+		var exists bool
+		if err := tx.QueryRow("SELECT EXISTS(SELECT 1 FROM tags WHERE name = ?)", ancestor).Scan(&exists); err != nil {
+			return nil, fmt.Errorf("failed to check ancestor tag %q: %w", ancestor, err)
+		}
+		if exists {
+			continue
+		}
+
+		// Determine color: inherit from nearest existing ancestor, or use palette rotation
+		color := a.pickColorForTag(tx, ancestor)
+
+		result, err := tx.Exec("INSERT INTO tags (name, color) VALUES (?, ?)", ancestor, color)
+		if err != nil {
+			// Race: someone else created it between our check and insert
+			if strings.Contains(err.Error(), "UNIQUE") {
+				continue
+			}
+			return nil, fmt.Errorf("failed to create ancestor tag %q: %w", ancestor, err)
+		}
+		id, _ := result.LastInsertId()
+		createdAncestors = append(createdAncestors, Tag{ID: id, Name: ancestor, Color: color, Count: 0})
 	}
-	color := tagColors[count%len(tagColors)]
+
+	// Now create the requested tag itself
+	color := a.pickColorForTag(tx, name)
 
 	result, err := tx.Exec("INSERT INTO tags (name, color) VALUES (?, ?)", name, color)
 	if err != nil {
@@ -996,14 +1080,19 @@ func (a *App) CreateTag(name string) (*Tag, error) {
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	// Emit plugin event
-	if a.pluginManager != nil {
-		a.pluginManager.EmitEvent("tag:created", map[string]interface{}{
-			"id":    id,
-			"name":  name,
-			"color": color,
+	// Emit events for auto-created ancestors first, then for the requested tag
+	for _, anc := range createdAncestors {
+		a.emitPluginEvent("tag:created", map[string]interface{}{
+			"id":    anc.ID,
+			"name":  anc.Name,
+			"color": anc.Color,
 		})
 	}
+	a.emitPluginEvent("tag:created", map[string]interface{}{
+		"id":    id,
+		"name":  name,
+		"color": color,
+	})
 
 	return &Tag{
 		ID:    id,
@@ -1011,6 +1100,31 @@ func (a *App) CreateTag(name string) (*Tag, error) {
 		Color: color,
 		Count: 0,
 	}, nil
+}
+
+// pickColorForTag determines the color for a new tag. It walks up the
+// ancestor chain looking for an existing tag whose color can be inherited.
+// If no ancestor exists, it falls back to palette rotation based on current
+// tag count.  The lookup uses the provided transaction.
+func (a *App) pickColorForTag(tx *sql.Tx, name string) string {
+	// Walk ancestors from nearest to root, looking for an existing tag color
+	parent := getParentTagName(name)
+	for parent != "" {
+		var color string
+		err := tx.QueryRow("SELECT color FROM tags WHERE name = ?", parent).Scan(&color)
+		if err == nil {
+			return color
+		}
+		parent = getParentTagName(parent)
+	}
+
+	// No ancestor found — use palette rotation
+	var count int
+	if err := tx.QueryRow("SELECT COUNT(*) FROM tags").Scan(&count); err != nil {
+		// Fallback to first color on error
+		return tagColors[0]
+	}
+	return tagColors[count%len(tagColors)]
 }
 
 // UpdateTag updates a tag's name and/or color
@@ -1023,7 +1137,14 @@ func (a *App) UpdateTag(id int64, name, color string) error {
 		return fmt.Errorf("tag name too long (max %d characters)", maxTagNameLength)
 	}
 
-	_, err := a.db.Exec("UPDATE tags SET name = ?, color = ? WHERE id = ?", name, color, id)
+	// Fetch the old name so we can cascade rename descendants
+	var oldName string
+	err := a.db.QueryRow("SELECT name FROM tags WHERE id = ?", id).Scan(&oldName)
+	if err != nil {
+		return fmt.Errorf("tag not found")
+	}
+
+	_, err = a.db.Exec("UPDATE tags SET name = ?, color = ? WHERE id = ?", name, color, id)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			return fmt.Errorf("tag name already exists: %s", name)
@@ -1031,14 +1152,23 @@ func (a *App) UpdateTag(id int64, name, color string) error {
 		return fmt.Errorf("failed to update tag: %w", err)
 	}
 
-	// Emit plugin event
-	if a.pluginManager != nil {
-		a.pluginManager.EmitEvent("tag:updated", map[string]interface{}{
-			"id":    id,
-			"name":  name,
-			"color": color,
-		})
+	// After updating the tag itself, cascade rename descendants
+	if oldName != name {
+		oldPrefix := oldName + "/"
+		newPrefix := name + "/"
+		_, err = a.db.Exec(`UPDATE tags SET name = ? || SUBSTR(name, ?) WHERE name LIKE ?`,
+			newPrefix, len(oldPrefix)+1, oldPrefix+"%")
+		if err != nil {
+			return fmt.Errorf("failed to rename descendant tags: %w", err)
+		}
 	}
+
+	// Emit plugin event
+	a.emitPluginEvent("tag:updated", map[string]interface{}{
+		"id":    id,
+		"name":  name,
+		"color": color,
+	})
 
 	return nil
 }
@@ -1133,12 +1263,159 @@ func (a *App) deleteTagIfOrphaned(tagID int64) {
 	if err != nil {
 		return
 	}
-	if count == 0 {
-		_, err := a.db.Exec("DELETE FROM tags WHERE id = ?", tagID)
-		if err == nil && a.pluginManager != nil {
-			a.pluginManager.EmitEvent("tag:deleted", tagID)
+	if count > 0 {
+		return
+	}
+
+	// Check if this tag has children — don't delete a parent with descendants
+	var tagName string
+	err = a.db.QueryRow("SELECT name FROM tags WHERE id = ?", tagID).Scan(&tagName)
+	if err != nil {
+		return
+	}
+	var childCount int
+	a.db.QueryRow("SELECT COUNT(*) FROM tags WHERE name LIKE ?", tagName+"/%").Scan(&childCount)
+	if childCount > 0 {
+		return
+	}
+
+	_, err = a.db.Exec("DELETE FROM tags WHERE id = ?", tagID)
+	if err == nil {
+		a.emitPluginEvent("tag:deleted", map[string]interface{}{"id": tagID})
+	}
+}
+
+// getDescendantTagIDs returns all tag IDs whose names are descendants of the
+// given tag (i.e., names matching parentName + "/%").
+func (a *App) getDescendantTagIDs(tagID int64) ([]int64, error) {
+	var parentName string
+	err := a.db.QueryRow("SELECT name FROM tags WHERE id = ?", tagID).Scan(&parentName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find tag %d: %w", tagID, err)
+	}
+
+	rows, err := a.db.Query("SELECT id FROM tags WHERE name LIKE ?", parentName+"/%")
+	if err != nil {
+		return nil, fmt.Errorf("failed to query descendant tags: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("failed to scan descendant tag id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
+// getChildTags returns immediate child tags of the given tag, with clip counts.
+func (a *App) getChildTags(tagID int64) ([]Tag, error) {
+	var parentName string
+	err := a.db.QueryRow("SELECT name FROM tags WHERE id = ?", tagID).Scan(&parentName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find tag %d: %w", tagID, err)
+	}
+
+	rows, err := a.db.Query(`
+		SELECT t.id, t.name, t.color, COUNT(ct.clip_id) as count
+		FROM tags t
+		LEFT JOIN clip_tags ct ON t.id = ct.tag_id
+		WHERE t.name LIKE ?
+		GROUP BY t.id
+		ORDER BY t.name
+	`, parentName+"/%")
+	if err != nil {
+		return nil, fmt.Errorf("failed to query child tags: %w", err)
+	}
+	defer rows.Close()
+
+	var children []Tag
+	for rows.Next() {
+		var tag Tag
+		if err := rows.Scan(&tag.ID, &tag.Name, &tag.Color, &tag.Count); err != nil {
+			log.Printf("Failed to scan child tag: %v", err)
+			continue
+		}
+		if isImmediateChildOf(tag.Name, parentName) {
+			children = append(children, tag)
 		}
 	}
+
+	if children == nil {
+		children = []Tag{}
+	}
+	return children, nil
+}
+
+// getTopLevelTags returns tags whose names contain no "/" separator, with clip counts.
+func (a *App) getTopLevelTags() ([]Tag, error) {
+	rows, err := a.db.Query(`
+		SELECT t.id, t.name, t.color, COUNT(ct.clip_id) as count
+		FROM tags t
+		LEFT JOIN clip_tags ct ON t.id = ct.tag_id
+		WHERE t.name NOT LIKE '%/%'
+		GROUP BY t.id
+		ORDER BY t.name
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query top-level tags: %w", err)
+	}
+	defer rows.Close()
+
+	var tags []Tag
+	for rows.Next() {
+		var tag Tag
+		if err := rows.Scan(&tag.ID, &tag.Name, &tag.Color, &tag.Count); err != nil {
+			log.Printf("Failed to scan top-level tag: %v", err)
+			continue
+		}
+		tags = append(tags, tag)
+	}
+
+	if tags == nil {
+		tags = []Tag{}
+	}
+	return tags, nil
+}
+
+// getDescendantClipCount returns the number of distinct clips tagged with the
+// given tag or any of its descendants.
+func (a *App) getDescendantClipCount(tagID int64) (int, error) {
+	var parentName string
+	err := a.db.QueryRow("SELECT name FROM tags WHERE id = ?", tagID).Scan(&parentName)
+	if err != nil {
+		return 0, fmt.Errorf("failed to find tag %d: %w", tagID, err)
+	}
+
+	var count int
+	err = a.db.QueryRow(`
+		SELECT COUNT(DISTINCT ct.clip_id)
+		FROM clip_tags ct
+		INNER JOIN tags t ON ct.tag_id = t.id
+		WHERE t.id = ? OR t.name LIKE ?
+	`, tagID, parentName+"/%").Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count descendant clips: %w", err)
+	}
+	return count, nil
+}
+
+// GetChildTags returns immediate child tags of the given tag (exported for Wails binding).
+func (a *App) GetChildTags(tagID int64) ([]Tag, error) {
+	return a.getChildTags(tagID)
+}
+
+// GetTopLevelTags returns tags with no parent (exported for Wails binding).
+func (a *App) GetTopLevelTags() ([]Tag, error) {
+	return a.getTopLevelTags()
+}
+
+// GetDescendantClipCount returns total clip count for a tag and all descendants (exported for Wails binding).
+func (a *App) GetDescendantClipCount(tagID int64) (int, error) {
+	return a.getDescendantClipCount(tagID)
 }
 
 // BulkAddTag adds a tag to multiple clips

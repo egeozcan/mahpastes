@@ -86,6 +86,10 @@ export function DeleteTag(arg1) {
   return window['go']['main']['App']['DeleteTag'](arg1);
 }
 
+export function GetChildTags(arg1) {
+  return window['go']['main']['App']['GetChildTags'](arg1);
+}
+
 export function GetClipData(arg1) {
   return window['go']['main']['App']['GetClipData'](arg1);
 }
@@ -110,6 +114,14 @@ export function GetClips(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['main']['App']['GetClips'](arg1, arg2, arg3, arg4, arg5);
 }
 
+export function GetClipsDirect(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['main']['App']['GetClipsDirect'](arg1, arg2, arg3, arg4, arg5);
+}
+
+export function GetDescendantClipCount(arg1) {
+  return window['go']['main']['App']['GetDescendantClipCount'](arg1);
+}
+
 export function GetDuplicateGroups() {
   return window['go']['main']['App']['GetDuplicateGroups']();
 }
@@ -132,6 +144,10 @@ export function GetSetting(arg1) {
 
 export function GetTags() {
   return window['go']['main']['App']['GetTags']();
+}
+
+export function GetTopLevelTags() {
+  return window['go']['main']['App']['GetTopLevelTags']();
 }
 
 export function GetWatchStatus() {

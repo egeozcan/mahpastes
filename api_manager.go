@@ -405,18 +405,37 @@ func parseIntParam(s string) (int64, error) {
 	return strconv.ParseInt(s, 10, 64)
 }
 
-// enforceTagScope returns an error if the key is tag-scoped and the clip doesn't have that tag.
+// enforceTagScope returns an error if the key is tag-scoped and the clip doesn't have that tag
+// or any descendant tag.
 func (am *APIManager) enforceTagScope(keyCtx *apiKeyContext, clipID int64) error {
 	if keyCtx.ScopedTagID == 0 {
 		return nil
 	}
+	// Get the scoped tag name
+	var scopedName string
+	if err := am.app.db.QueryRow("SELECT name FROM tags WHERE id = ?", keyCtx.ScopedTagID).Scan(&scopedName); err != nil {
+		return fmt.Errorf("forbidden: scoped tag not found")
+	}
+	// Check if clip has the scoped tag or any descendant
 	var count int
-	am.app.db.QueryRow("SELECT COUNT(*) FROM clip_tags WHERE clip_id = ? AND tag_id = ?",
-		clipID, keyCtx.ScopedTagID).Scan(&count)
+	am.app.db.QueryRow(`
+		SELECT COUNT(*) FROM clip_tags ct
+		JOIN tags t ON ct.tag_id = t.id
+		WHERE ct.clip_id = ? AND (t.id = ? OR t.name LIKE ?)`,
+		clipID, keyCtx.ScopedTagID, scopedName+"/%").Scan(&count)
 	if count == 0 {
 		return fmt.Errorf("forbidden: clip not in scoped tag")
 	}
 	return nil
+}
+
+// isTagInScope returns true if the given tag name is the scoped tag itself or a descendant of it.
+func (am *APIManager) isTagInScope(tagName string, scopedTagID int64) bool {
+	var scopedName string
+	if err := am.app.db.QueryRow("SELECT name FROM tags WHERE id = ?", scopedTagID).Scan(&scopedName); err != nil {
+		return false
+	}
+	return tagName == scopedName || isDescendantOf(tagName, scopedName)
 }
 
 // --- Clip Handlers ---
@@ -467,14 +486,19 @@ func (am *APIManager) handleListClips(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Tag-scoped key: force filter to scoped tag
+	// Tag-scoped key: expand filter to include subtree
 	if keyCtx.ScopedTagID > 0 {
-		if tagFilter > 0 && tagFilter != keyCtx.ScopedTagID {
-			// Requested a different tag than scoped — return empty
-			am.jsonOK(w, apiClipListResponse{Clips: []apiClipResponse{}, Total: 0, Limit: limit, Offset: offset})
-			return
+		if tagFilter > 0 {
+			// Verify requested tag is within scope
+			var tagName string
+			if err := am.app.db.QueryRow("SELECT name FROM tags WHERE id = ?", tagFilter).Scan(&tagName); err != nil || !am.isTagInScope(tagName, keyCtx.ScopedTagID) {
+				am.jsonOK(w, apiClipListResponse{Clips: []apiClipResponse{}, Total: 0, Limit: limit, Offset: offset})
+				return
+			}
+			// tagFilter stays as-is, the existing query will handle it
+		} else {
+			tagFilter = keyCtx.ScopedTagID
 		}
-		tagFilter = keyCtx.ScopedTagID
 	}
 
 	// Content type filter
@@ -509,23 +533,50 @@ func (am *APIManager) handleListClips(w http.ResponseWriter, r *http.Request) {
 	var err error
 
 	if tagFilter > 0 {
-		// Count
-		countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM clips c
-			JOIN clip_tags ct ON c.id = ct.clip_id
-			WHERE ct.tag_id = ?%s`, whereClause)
-		countArgs := append([]interface{}{tagFilter}, args...)
-		am.app.db.QueryRow(countQuery, countArgs...).Scan(&totalCount)
+		// For scoped keys using their scoped tag as the filter, expand to include subtree
+		expandSubtree := keyCtx.ScopedTagID > 0 && tagFilter == keyCtx.ScopedTagID
+		if expandSubtree {
+			var scopedName string
+			am.app.db.QueryRow("SELECT name FROM tags WHERE id = ?", keyCtx.ScopedTagID).Scan(&scopedName)
 
-		// Fetch
-		query := fmt.Sprintf(`SELECT c.id, c.content_type, c.filename, LENGTH(c.data), c.is_archived, c.created_at
-			FROM clips c
-			JOIN clip_tags ct ON c.id = ct.clip_id
-			WHERE ct.tag_id = ?%s
-			ORDER BY c.created_at DESC
-			LIMIT ? OFFSET ?`, whereClause)
-		fetchArgs := append([]interface{}{tagFilter}, args...)
-		fetchArgs = append(fetchArgs, limit, offset)
-		rows, err = am.app.db.Query(query, fetchArgs...)
+			// Count
+			countQuery := fmt.Sprintf(`SELECT COUNT(DISTINCT c.id) FROM clips c
+				JOIN clip_tags ct ON c.id = ct.clip_id
+				JOIN tags t ON ct.tag_id = t.id
+				WHERE (t.id = ? OR t.name LIKE ?)%s`, whereClause)
+			countArgs := append([]interface{}{tagFilter, scopedName + "/%"}, args...)
+			am.app.db.QueryRow(countQuery, countArgs...).Scan(&totalCount)
+
+			// Fetch
+			query := fmt.Sprintf(`SELECT DISTINCT c.id, c.content_type, c.filename, LENGTH(c.data), c.is_archived, c.created_at
+				FROM clips c
+				JOIN clip_tags ct ON c.id = ct.clip_id
+				JOIN tags t ON ct.tag_id = t.id
+				WHERE (t.id = ? OR t.name LIKE ?)%s
+				ORDER BY c.created_at DESC
+				LIMIT ? OFFSET ?`, whereClause)
+			fetchArgs := append([]interface{}{tagFilter, scopedName + "/%"}, args...)
+			fetchArgs = append(fetchArgs, limit, offset)
+			rows, err = am.app.db.Query(query, fetchArgs...)
+		} else {
+			// Count
+			countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM clips c
+				JOIN clip_tags ct ON c.id = ct.clip_id
+				WHERE ct.tag_id = ?%s`, whereClause)
+			countArgs := append([]interface{}{tagFilter}, args...)
+			am.app.db.QueryRow(countQuery, countArgs...).Scan(&totalCount)
+
+			// Fetch
+			query := fmt.Sprintf(`SELECT c.id, c.content_type, c.filename, LENGTH(c.data), c.is_archived, c.created_at
+				FROM clips c
+				JOIN clip_tags ct ON c.id = ct.clip_id
+				WHERE ct.tag_id = ?%s
+				ORDER BY c.created_at DESC
+				LIMIT ? OFFSET ?`, whereClause)
+			fetchArgs := append([]interface{}{tagFilter}, args...)
+			fetchArgs = append(fetchArgs, limit, offset)
+			rows, err = am.app.db.Query(query, fetchArgs...)
+		}
 	} else {
 		// Count
 		countQuery := fmt.Sprintf("SELECT COUNT(*) FROM clips c WHERE 1=1%s", whereClause)
@@ -844,19 +895,35 @@ func (am *APIManager) handleListTags(w http.ResponseWriter, r *http.Request) {
 	keyCtx := getKeyContext(r)
 
 	if keyCtx.ScopedTagID > 0 {
-		// Return only the scoped tag
-		var t Tag
-		err := am.app.db.QueryRow(`
+		// Return the scoped tag and all its descendants
+		var scopedName string
+		if err := am.app.db.QueryRow("SELECT name FROM tags WHERE id = ?", keyCtx.ScopedTagID).Scan(&scopedName); err != nil {
+			am.jsonOK(w, []Tag{})
+			return
+		}
+
+		rows, err := am.app.db.Query(`
 			SELECT t.id, t.name, t.color, COUNT(ct.clip_id) as count
 			FROM tags t
 			LEFT JOIN clip_tags ct ON t.id = ct.tag_id
-			WHERE t.id = ?
-			GROUP BY t.id`, keyCtx.ScopedTagID).Scan(&t.ID, &t.Name, &t.Color, &t.Count)
+			WHERE t.id = ? OR t.name LIKE ?
+			GROUP BY t.id
+			ORDER BY t.name`, keyCtx.ScopedTagID, scopedName+"/%")
 		if err != nil {
 			am.jsonOK(w, []Tag{})
 			return
 		}
-		am.jsonOK(w, []Tag{t})
+		defer rows.Close()
+
+		tags := []Tag{}
+		for rows.Next() {
+			var t Tag
+			if err := rows.Scan(&t.ID, &t.Name, &t.Color, &t.Count); err != nil {
+				continue
+			}
+			tags = append(tags, t)
+		}
+		am.jsonOK(w, tags)
 		return
 	}
 
@@ -871,17 +938,19 @@ func (am *APIManager) handleListTags(w http.ResponseWriter, r *http.Request) {
 func (am *APIManager) handleCreateTag(w http.ResponseWriter, r *http.Request) {
 	keyCtx := getKeyContext(r)
 
-	if keyCtx.ScopedTagID > 0 {
-		am.jsonError(w, http.StatusForbidden, "tag-scoped keys cannot manage tags")
-		return
-	}
-
 	var body struct {
 		Name string `json:"name"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		am.jsonError(w, http.StatusBadRequest, "invalid JSON body")
 		return
+	}
+
+	if keyCtx.ScopedTagID > 0 {
+		if !am.isTagInScope(body.Name, keyCtx.ScopedTagID) {
+			am.jsonError(w, http.StatusForbidden, "tag-scoped key can only create subtags under its scope")
+			return
+		}
 	}
 
 	tag, err := am.app.CreateTag(body.Name)
@@ -898,15 +967,22 @@ func (am *APIManager) handleCreateTag(w http.ResponseWriter, r *http.Request) {
 func (am *APIManager) handleUpdateTag(w http.ResponseWriter, r *http.Request) {
 	keyCtx := getKeyContext(r)
 
-	if keyCtx.ScopedTagID > 0 {
-		am.jsonError(w, http.StatusForbidden, "tag-scoped keys cannot manage tags")
-		return
-	}
-
 	id, err := parseIntParam(r.PathValue("id"))
 	if err != nil {
 		am.jsonError(w, http.StatusBadRequest, "invalid tag id")
 		return
+	}
+
+	if keyCtx.ScopedTagID > 0 {
+		var tagName string
+		if err := am.app.db.QueryRow("SELECT name FROM tags WHERE id = ?", id).Scan(&tagName); err != nil {
+			am.jsonError(w, http.StatusNotFound, "tag not found")
+			return
+		}
+		if !am.isTagInScope(tagName, keyCtx.ScopedTagID) {
+			am.jsonError(w, http.StatusForbidden, "tag-scoped key can only manage tags within its scope")
+			return
+		}
 	}
 
 	var body struct {
@@ -929,15 +1005,22 @@ func (am *APIManager) handleUpdateTag(w http.ResponseWriter, r *http.Request) {
 func (am *APIManager) handleDeleteTag(w http.ResponseWriter, r *http.Request) {
 	keyCtx := getKeyContext(r)
 
-	if keyCtx.ScopedTagID > 0 {
-		am.jsonError(w, http.StatusForbidden, "tag-scoped keys cannot manage tags")
-		return
-	}
-
 	id, err := parseIntParam(r.PathValue("id"))
 	if err != nil {
 		am.jsonError(w, http.StatusBadRequest, "invalid tag id")
 		return
+	}
+
+	if keyCtx.ScopedTagID > 0 {
+		var tagName string
+		if err := am.app.db.QueryRow("SELECT name FROM tags WHERE id = ?", id).Scan(&tagName); err != nil {
+			am.jsonError(w, http.StatusNotFound, "tag not found")
+			return
+		}
+		if !am.isTagInScope(tagName, keyCtx.ScopedTagID) {
+			am.jsonError(w, http.StatusForbidden, "tag-scoped key can only manage tags within its scope")
+			return
+		}
 	}
 
 	if err := am.app.DeleteTag(id); err != nil {
@@ -965,12 +1048,17 @@ func (am *APIManager) handleAddTagToClip(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Tag-scoped keys can only add the scoped tag
-	if keyCtx.ScopedTagID > 0 && tagID != keyCtx.ScopedTagID {
-		am.jsonError(w, http.StatusForbidden, "tag-scoped key can only manage its scoped tag")
-		return
-	}
+	// Tag-scoped keys can only add tags within scope
 	if keyCtx.ScopedTagID > 0 {
+		var tagName string
+		if err := am.app.db.QueryRow("SELECT name FROM tags WHERE id = ?", tagID).Scan(&tagName); err != nil {
+			am.jsonError(w, http.StatusBadRequest, "tag not found")
+			return
+		}
+		if !am.isTagInScope(tagName, keyCtx.ScopedTagID) {
+			am.jsonError(w, http.StatusForbidden, "tag-scoped key can only manage tags within its scope")
+			return
+		}
 		if err := am.enforceTagScope(keyCtx, clipID); err != nil {
 			am.jsonError(w, http.StatusForbidden, err.Error())
 			return
@@ -1000,10 +1088,17 @@ func (am *APIManager) handleRemoveTagFromClip(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// Tag-scoped keys can only remove the scoped tag
-	if keyCtx.ScopedTagID > 0 && tagID != keyCtx.ScopedTagID {
-		am.jsonError(w, http.StatusForbidden, "tag-scoped key can only manage its scoped tag")
-		return
+	// Tag-scoped keys can only remove tags within scope
+	if keyCtx.ScopedTagID > 0 {
+		var tagName string
+		if err := am.app.db.QueryRow("SELECT name FROM tags WHERE id = ?", tagID).Scan(&tagName); err != nil {
+			am.jsonError(w, http.StatusBadRequest, "tag not found")
+			return
+		}
+		if !am.isTagInScope(tagName, keyCtx.ScopedTagID) {
+			am.jsonError(w, http.StatusForbidden, "tag-scoped key can only manage tags within its scope")
+			return
+		}
 	}
 
 	if err := am.app.RemoveTagFromClip(clipID, tagID); err != nil {
