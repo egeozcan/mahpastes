@@ -1,5 +1,0 @@
-{
-  "name": "mahpastes",
-  "description": "Use mahpastes as an artifact store, web host, and cross-session memory for Claude Code.",
-  "version": "1.0.0"
-}
