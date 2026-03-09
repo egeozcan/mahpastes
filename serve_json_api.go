@@ -39,7 +39,7 @@ func (sm *ServeManager) handleJSONAPI(w http.ResponseWriter, r *http.Request, ts
 		return
 	}
 
-	// Parse path: /_api/{clipStem}/{jsonPath...}
+	// Parse path: /_api/{clipFilename}/{jsonPath...}
 	apiPath := strings.TrimPrefix(r.URL.Path, "/_api/")
 	apiPath = strings.TrimPrefix(apiPath, "/_api")
 	apiPath = strings.TrimPrefix(apiPath, "/")
@@ -49,9 +49,10 @@ func (sm *ServeManager) handleJSONAPI(w http.ResponseWriter, r *http.Request, ts
 		return
 	}
 
-	// First segment is the clip stem (filename), rest is the JSON path.
+	// First segment is the clip stem, rest is the JSON path.
+	// The stem maps to a clip named "{stem}.json" in the tag.
 	parts := strings.SplitN(apiPath, "/", 2)
-	clipStem := parts[0]
+	clipFilename := parts[0] + ".json"
 	jsonPath := ""
 	if len(parts) > 1 {
 		jsonPath = parts[1]
@@ -61,25 +62,25 @@ func (sm *ServeManager) handleJSONAPI(w http.ResponseWriter, r *http.Request, ts
 
 	switch r.Method {
 	case http.MethodGet:
-		sm.handleJSONGet(w, r, ts, clipStem, jsonPath)
+		sm.handleJSONGet(w, r, ts, clipFilename, jsonPath)
 	case http.MethodPost:
-		sm.handleJSONPost(w, r, ts, clipStem, jsonPath)
+		sm.handleJSONPost(w, r, ts, clipFilename, jsonPath)
 	case http.MethodPut:
-		sm.handleJSONPut(w, r, ts, clipStem, jsonPath)
+		sm.handleJSONPut(w, r, ts, clipFilename, jsonPath)
 	case http.MethodPatch:
-		sm.handleJSONPatch(w, r, ts, clipStem, jsonPath)
+		sm.handleJSONPatch(w, r, ts, clipFilename, jsonPath)
 	case http.MethodDelete:
-		sm.handleJSONDelete(w, r, ts, clipStem, jsonPath)
+		sm.handleJSONDelete(w, r, ts, clipFilename, jsonPath)
 	default:
 		jsonAPIError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
 // handleJSONGet reads a JSON clip and returns the value at the given path.
-func (sm *ServeManager) handleJSONGet(w http.ResponseWriter, r *http.Request, ts *tagServer, clipStem, jsonPath string) {
-	data, err := sm.readJSONClip(ts.tagID, clipStem)
+func (sm *ServeManager) handleJSONGet(w http.ResponseWriter, r *http.Request, ts *tagServer, clipFilename, jsonPath string) {
+	data, err := sm.readJSONClip(ts.tagID, clipFilename)
 	if err != nil {
-		jsonAPIError(w, http.StatusNotFound, fmt.Sprintf("clip not found: %s", clipStem))
+		jsonAPIError(w, http.StatusNotFound, fmt.Sprintf("clip not found: %s", clipFilename))
 		return
 	}
 
@@ -98,7 +99,7 @@ func (sm *ServeManager) handleJSONGet(w http.ResponseWriter, r *http.Request, ts
 }
 
 // handleJSONPost appends an element to an array at the given path, auto-assigning an id.
-func (sm *ServeManager) handleJSONPost(w http.ResponseWriter, r *http.Request, ts *tagServer, clipStem, jsonPath string) {
+func (sm *ServeManager) handleJSONPost(w http.ResponseWriter, r *http.Request, ts *tagServer, clipFilename, jsonPath string) {
 	body, err := readJSONBody(r)
 	if err != nil {
 		jsonAPIError(w, http.StatusBadRequest, err.Error())
@@ -112,13 +113,13 @@ func (sm *ServeManager) handleJSONPost(w http.ResponseWriter, r *http.Request, t
 		return
 	}
 
-	mu := getClipMutex(ts, clipStem)
+	mu := getClipMutex(ts, clipFilename)
 	mu.Lock()
 	defer mu.Unlock()
 
-	data, err := sm.readJSONClip(ts.tagID, clipStem)
+	data, err := sm.readJSONClip(ts.tagID, clipFilename)
 	if err != nil {
-		jsonAPIError(w, http.StatusNotFound, fmt.Sprintf("clip not found: %s", clipStem))
+		jsonAPIError(w, http.StatusNotFound, fmt.Sprintf("clip not found: %s", clipFilename))
 		return
 	}
 
@@ -157,7 +158,7 @@ func (sm *ServeManager) handleJSONPost(w http.ResponseWriter, r *http.Request, t
 		}
 	}
 
-	if err := sm.writeJSONClip(ts.tagID, clipStem, data); err != nil {
+	if err := sm.writeJSONClip(ts.tagID, clipFilename, data); err != nil {
 		jsonAPIError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -166,20 +167,20 @@ func (sm *ServeManager) handleJSONPost(w http.ResponseWriter, r *http.Request, t
 }
 
 // handleJSONPut replaces a value at the given path (upsert).
-func (sm *ServeManager) handleJSONPut(w http.ResponseWriter, r *http.Request, ts *tagServer, clipStem, jsonPath string) {
+func (sm *ServeManager) handleJSONPut(w http.ResponseWriter, r *http.Request, ts *tagServer, clipFilename, jsonPath string) {
 	body, err := readJSONBody(r)
 	if err != nil {
 		jsonAPIError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	mu := getClipMutex(ts, clipStem)
+	mu := getClipMutex(ts, clipFilename)
 	mu.Lock()
 	defer mu.Unlock()
 
-	data, err := sm.readJSONClip(ts.tagID, clipStem)
+	data, err := sm.readJSONClip(ts.tagID, clipFilename)
 	if err != nil {
-		jsonAPIError(w, http.StatusNotFound, fmt.Sprintf("clip not found: %s", clipStem))
+		jsonAPIError(w, http.StatusNotFound, fmt.Sprintf("clip not found: %s", clipFilename))
 		return
 	}
 
@@ -193,7 +194,7 @@ func (sm *ServeManager) handleJSONPut(w http.ResponseWriter, r *http.Request, ts
 		}
 	}
 
-	if err := sm.writeJSONClip(ts.tagID, clipStem, data); err != nil {
+	if err := sm.writeJSONClip(ts.tagID, clipFilename, data); err != nil {
 		jsonAPIError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -202,7 +203,7 @@ func (sm *ServeManager) handleJSONPut(w http.ResponseWriter, r *http.Request, ts
 }
 
 // handleJSONPatch merges an object into the value at the given path (RFC 7396).
-func (sm *ServeManager) handleJSONPatch(w http.ResponseWriter, r *http.Request, ts *tagServer, clipStem, jsonPath string) {
+func (sm *ServeManager) handleJSONPatch(w http.ResponseWriter, r *http.Request, ts *tagServer, clipFilename, jsonPath string) {
 	body, err := readJSONBody(r)
 	if err != nil {
 		jsonAPIError(w, http.StatusBadRequest, err.Error())
@@ -216,13 +217,13 @@ func (sm *ServeManager) handleJSONPatch(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	mu := getClipMutex(ts, clipStem)
+	mu := getClipMutex(ts, clipFilename)
 	mu.Lock()
 	defer mu.Unlock()
 
-	data, err := sm.readJSONClip(ts.tagID, clipStem)
+	data, err := sm.readJSONClip(ts.tagID, clipFilename)
 	if err != nil {
-		jsonAPIError(w, http.StatusNotFound, fmt.Sprintf("clip not found: %s", clipStem))
+		jsonAPIError(w, http.StatusNotFound, fmt.Sprintf("clip not found: %s", clipFilename))
 		return
 	}
 
@@ -263,7 +264,7 @@ func (sm *ServeManager) handleJSONPatch(w http.ResponseWriter, r *http.Request, 
 		}
 	}
 
-	if err := sm.writeJSONClip(ts.tagID, clipStem, data); err != nil {
+	if err := sm.writeJSONClip(ts.tagID, clipFilename, data); err != nil {
 		jsonAPIError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -272,19 +273,19 @@ func (sm *ServeManager) handleJSONPatch(w http.ResponseWriter, r *http.Request, 
 }
 
 // handleJSONDelete removes a key from an object or an element from an array by id.
-func (sm *ServeManager) handleJSONDelete(w http.ResponseWriter, r *http.Request, ts *tagServer, clipStem, jsonPath string) {
+func (sm *ServeManager) handleJSONDelete(w http.ResponseWriter, r *http.Request, ts *tagServer, clipFilename, jsonPath string) {
 	if jsonPath == "" {
 		jsonAPIError(w, http.StatusBadRequest, "cannot delete root — use PUT to replace")
 		return
 	}
 
-	mu := getClipMutex(ts, clipStem)
+	mu := getClipMutex(ts, clipFilename)
 	mu.Lock()
 	defer mu.Unlock()
 
-	data, err := sm.readJSONClip(ts.tagID, clipStem)
+	data, err := sm.readJSONClip(ts.tagID, clipFilename)
 	if err != nil {
-		jsonAPIError(w, http.StatusNotFound, fmt.Sprintf("clip not found: %s", clipStem))
+		jsonAPIError(w, http.StatusNotFound, fmt.Sprintf("clip not found: %s", clipFilename))
 		return
 	}
 
@@ -293,7 +294,7 @@ func (sm *ServeManager) handleJSONDelete(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	if err := sm.writeJSONClip(ts.tagID, clipStem, data); err != nil {
+	if err := sm.writeJSONClip(ts.tagID, clipFilename, data); err != nil {
 		jsonAPIError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
