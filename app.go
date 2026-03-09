@@ -1281,6 +1281,12 @@ func (a *App) GetTags() ([]Tag, error) {
 
 // AddTagToClip adds a tag to a clip
 func (a *App) AddTagToClip(clipID, tagID int64) error {
+	// Enforce tree exclusivity: a clip can only have one tag per root tree.
+	// Adding a/b/d removes any existing tags under the same root (a, a/b, a/b/c, etc.)
+	if err := a.removeSameTreeTags(clipID, tagID); err != nil {
+		log.Printf("Failed to enforce tree exclusivity for clip %d tag %d: %v", clipID, tagID, err)
+	}
+
 	_, err := a.db.Exec("INSERT OR IGNORE INTO clip_tags (clip_id, tag_id) VALUES (?, ?)", clipID, tagID)
 	if err != nil {
 		return fmt.Errorf("failed to add tag to clip: %w", err)
@@ -1314,6 +1320,46 @@ func (a *App) RemoveTagFromClip(clipID, tagID int64) error {
 
 	// Clean up orphaned tag
 	a.deleteTagIfOrphaned(tagID)
+	return nil
+}
+
+// removeSameTreeTags removes any existing tags from the same root tree for a clip.
+// This enforces the constraint that a clip can only occupy one position in a tag tree.
+func (a *App) removeSameTreeTags(clipID, newTagID int64) error {
+	// Look up the new tag's name to find its root
+	var newTagName string
+	if err := a.db.QueryRow("SELECT name FROM tags WHERE id = ?", newTagID).Scan(&newTagName); err != nil {
+		return err
+	}
+	root := getRootTagName(newTagName)
+
+	// Find all tags on this clip that share the same root tree
+	rows, err := a.db.Query(`
+		SELECT t.id FROM clip_tags ct
+		INNER JOIN tags t ON ct.tag_id = t.id
+		WHERE ct.clip_id = ? AND (t.name = ? OR t.name LIKE ?)`,
+		clipID, root, root+"/%")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	var toRemove []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			continue
+		}
+		if id != newTagID {
+			toRemove = append(toRemove, id)
+		}
+	}
+
+	for _, oldTagID := range toRemove {
+		if _, err := a.db.Exec("DELETE FROM clip_tags WHERE clip_id = ? AND tag_id = ?", clipID, oldTagID); err != nil {
+			log.Printf("Failed to remove old tree tag %d from clip %d: %v", oldTagID, clipID, err)
+		}
+	}
 	return nil
 }
 
@@ -1501,6 +1547,13 @@ func (a *App) BulkAddTag(clipIDs []int64, tagID int64) error {
 		return fmt.Errorf("failed to prepare statement: %w", err)
 	}
 	defer stmt.Close()
+
+	// Enforce tree exclusivity before bulk insert
+	for _, clipID := range clipIDs {
+		if err := a.removeSameTreeTags(clipID, tagID); err != nil {
+			log.Printf("Failed to enforce tree exclusivity for clip %d tag %d: %v", clipID, tagID, err)
+		}
+	}
 
 	for _, clipID := range clipIDs {
 		if _, err := stmt.Exec(clipID, tagID); err != nil {

@@ -43,6 +43,16 @@ func getAncestorTagNames(name string) []string {
 	return ancestors
 }
 
+// getRootTagName returns the root (top-level) segment of a tag name.
+// For "a/b/c" it returns "a". For top-level tags, returns the full name.
+func getRootTagName(name string) string {
+	idx := strings.Index(name, "/")
+	if idx < 0 {
+		return name
+	}
+	return name[:idx]
+}
+
 // isDescendantOf returns true if child is a descendant of parent.
 // A tag is NOT considered a descendant of itself.
 func isDescendantOf(child, parent string) bool {
