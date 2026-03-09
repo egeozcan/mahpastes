@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -28,7 +29,7 @@ func (sm *ServeManager) handleJSONAPI(w http.ResponseWriter, r *http.Request, ts
 
 	// Validate cookie authentication.
 	cookie, err := r.Cookie("_mp_serve_key")
-	if err != nil || cookie.Value != ts.serveKey {
+	if err != nil || subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(ts.serveKey)) != 1 {
 		jsonAPIError(w, http.StatusUnauthorized, "unauthorized: missing or invalid serve key")
 		return
 	}
@@ -532,8 +533,11 @@ func deleteJSON(data *interface{}, path string) error {
 		for i, elem := range v {
 			if obj, ok := elem.(map[string]interface{}); ok {
 				if elemID, ok := toFloat(obj["id"]); ok && elemID == id {
-					// Splice the element out.
-					newArr := append(v[:i], v[i+1:]...)
+					// Splice the element out using a clean copy to avoid
+				// corrupting the original backing array.
+					newArr := make([]interface{}, 0, len(v)-1)
+					newArr = append(newArr, v[:i]...)
+					newArr = append(newArr, v[i+1:]...)
 					// Write the modified slice back to the parent via setJSON.
 					if len(parentPath) == 0 {
 						*data = newArr
