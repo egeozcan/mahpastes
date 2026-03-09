@@ -1072,6 +1072,13 @@ func (a *App) CreateTag(name string) (*Tag, error) {
 		return nil, fmt.Errorf("tag name too long (max %d characters)", maxTagNameLength)
 	}
 
+	// Reserve "_api" as a path segment — used by tag serve JSON API.
+	for _, seg := range strings.Split(name, "/") {
+		if seg == "_api" {
+			return nil, fmt.Errorf("tag name contains reserved segment '_api'")
+		}
+	}
+
 	// Use transaction to prevent race condition in color assignment
 	tx, err := a.db.Begin()
 	if err != nil {
