@@ -15,6 +15,7 @@ Verify `MAHPASTES_API_URL` and `MAHPASTES_API_KEY` environment variables are set
 Extract from `$ARGUMENTS`:
 - `$1` — Tag name for the site (required). If missing, ask the user.
 - `$2` — Port number (optional). If not provided, pick a random port in the 3000-9000 range.
+- `$3` — API access mode: `none`, `read`, or `readwrite` (optional, default: `none`)
 
 ## Find or Create Tag
 
@@ -68,7 +69,7 @@ For each file:
 curl -s -X POST \
   -H "Authorization: Bearer $MAHPASTES_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"tag_id":TAG_ID,"port":PORT,"bind_all":false}' \
+  -d '{"tag_id":TAG_ID,"port":PORT,"bind_all":false,"api_access":"API_ACCESS"}' \
   "$MAHPASTES_API_URL/api/v1/serve"
 ```
 
@@ -78,3 +79,7 @@ Tell the user the site is live and provide:
 - URL: `http://127.0.0.1:PORT/`
 - List of all served files with their URLs
 - How to stop serving from the mahpastes app, or by calling `DELETE /api/v1/serve/TAG_ID`
+
+## JSON API Note
+
+When `api_access` is `read` or `readwrite`, the served tag exposes a JSON API at the `/_api/` path. HTML files in the tag can use `fetch('/_api/{clipName}/{path}', { credentials: 'include' })` to read and write JSON clips. The auth cookie is set automatically by the server.

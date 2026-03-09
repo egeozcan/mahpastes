@@ -1,6 +1,6 @@
 ---
 name: mahpastes
-description: This skill should be used when Claude Code needs to store generated artifacts, host websites or static files via HTTP, or manage a research knowledge base using the mahpastes clipboard manager's REST API and tag-serve system. Triggers on "save to mahpastes", "upload to mahpastes", "store in mahpastes", "host this site", "serve these files", "deploy to mahpastes", "search mahpastes", "find in mahpastes", "persist this to mahpastes", "tag this in mahpastes", "make this available over HTTP via mahpastes", or "retrieve from mahpastes".
+description: This skill should be used when Claude Code needs to store generated artifacts, host websites or static files via HTTP, manage a research knowledge base, or create interactive web apps with JSON data persistence using the mahpastes clipboard manager's REST API and tag-serve system. Triggers on "save to mahpastes", "upload to mahpastes", "store in mahpastes", "host this site", "serve these files", "deploy to mahpastes", "search mahpastes", "find in mahpastes", "persist this to mahpastes", "tag this in mahpastes", "make this available over HTTP via mahpastes", "retrieve from mahpastes", "create interactive app in mahpastes", "JSON API with mahpastes", or "serve data from mahpastes".
 ---
 
 # mahpastes Integration
@@ -97,11 +97,12 @@ curl -s -H "Authorization: Bearer $MAHPASTES_API_KEY" \
 curl -s -X POST \
   -H "Authorization: Bearer $MAHPASTES_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"tag_id":TAG_ID,"port":PORT,"bind_all":false}' \
+  -d '{"tag_id":TAG_ID,"port":PORT,"bind_all":false,"api_access":"none"}' \
   "$MAHPASTES_API_URL/api/v1/serve"
 ```
 
 Clips tagged with TAG_ID become accessible at `http://127.0.0.1:PORT/FILENAME`. A clip named `index.html` is served at the root path.
+Set `api_access` to `"read"` or `"readwrite"` to enable the JSON API on the served tag. When enabled, HTML clips can fetch `/_api/{clipName}/{path}` to read/write JSON clips.
 
 ### Delete a Clip
 
@@ -162,6 +163,19 @@ Store research findings, notes, and references for organized retrieval.
 5. Download clip data for content that matches
 
 **With a scoped key**: Skip steps 2-3. All uploads auto-tag with the scoped tag, so multi-topic organization is not available. Rely on descriptive filenames and the `?search=` parameter for retrieval instead. All clips share one tag, making search the primary discovery mechanism.
+
+### 4. Interactive Web App with JSON API
+
+Build self-contained web apps that persist data via JSON clips.
+
+1. Create a tag for the app (e.g., `todo-app`)
+2. Upload `index.html` with the app UI (uses `fetch('/_api/...', { credentials: 'include' })`)
+3. Upload `todos.json` with initial data (e.g., `[]`)
+4. Tag both clips with the app tag
+5. Start serving with read-write API: `POST /api/v1/serve` with `"api_access": "readwrite"`
+6. The HTML can now GET/POST/PUT/PATCH/DELETE via `/_api/todos/{id}`
+
+**With a scoped key**: Skip steps 1 and 4. Use the scoped tag ID for serving.
 
 ## Important Notes
 

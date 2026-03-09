@@ -219,6 +219,9 @@ Body:
 | tag_id | int | Yes | Tag to serve |
 | port | int | Yes | HTTP port (1024-65535) |
 | bind_all | bool | No | Bind to 0.0.0.0 instead of 127.0.0.1 (default: false) |
+| api_access | string | No | JSON API access: `"none"` (default), `"read"`, `"readwrite"` |
+
+When `api_access` is `"read"` or `"readwrite"`, the tag server exposes a JSON API at `/_api/` that HTML clips can use to read/write JSON clips in the same tag.
 
 Response (200): Server status object.
 
