@@ -514,9 +514,10 @@ function renderCardTags(card, tags) {
 
     visibleTags.forEach(tag => {
         const pill = document.createElement('button');
-        pill.className = 'inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium text-white hover:opacity-80 transition-opacity';
+        const showFullPath = typeof isFolderMode === 'function' && isFolderMode() && tag.name.includes('/');
+        pill.className = 'inline-flex max-w-full items-center overflow-hidden text-ellipsis whitespace-nowrap px-1.5 py-0.5 rounded text-[9px] font-medium text-white hover:opacity-80 transition-opacity';
         pill.style.backgroundColor = tag.color;
-        pill.textContent = getShortTagName(tag.name);
+        pill.textContent = showFullPath ? tag.name : getShortTagName(tag.name);
         pill.dataset.testid = `tag-pill-${tag.name}`;
         pill.title = tag.name;
 

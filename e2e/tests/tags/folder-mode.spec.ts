@@ -1,5 +1,6 @@
 import { test, expect } from '../../fixtures/test-fixtures';
 import { createTempFile, generateTestImage } from '../../helpers/test-data';
+import { selectors } from '../../helpers/selectors';
 import path from 'path';
 
 test.describe('Folder Mode', () => {
@@ -125,5 +126,32 @@ test.describe('Folder Mode', () => {
     await app.toggleFolderMode();
     // Clip should still be visible (filtered by work, which includes descendants)
     await app.expectClipCount(1);
+  });
+
+  test('enabling folder mode after selecting a subtag renders breadcrumb pills', async ({ app }) => {
+    await app.createTag('work/client1');
+
+    await app.filterByTag('work/client1');
+    await app.toggleFolderMode();
+
+    await expect(app.page.locator(selectors.tags.tagPill('work'))).toBeVisible();
+    await expect(app.page.locator(selectors.tags.tagPill('work/client1'))).toBeVisible();
+  });
+
+  test('folder mode shows full subtag paths on clip cards', async ({ app }) => {
+    await app.createTag('work/client1');
+    const imagePath = await createTempFile(generateTestImage(), 'png');
+    const filename = path.basename(imagePath);
+    await app.uploadFile(imagePath);
+    await app.addTagToClip(filename, 'work');
+    await app.addTagToClip(filename, 'work/client1');
+
+    await app.toggleFolderMode();
+    await app.clickFolder('work');
+    await app.clickFolder('client1');
+
+    const clip = await app.getClipByFilename(filename);
+    const subtagPill = clip.locator(selectors.tags.tagPill('work/client1'));
+    await expect(subtagPill).toHaveText('work/client1');
   });
 });

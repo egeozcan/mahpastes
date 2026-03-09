@@ -162,6 +162,12 @@ function toggleFolderMode() {
         btn.classList.toggle('bg-stone-100', folderMode);
         btn.classList.toggle('border-stone-300', folderMode);
     }
+    if (typeof updateActiveTagsDisplay === 'function') {
+        updateActiveTagsDisplay();
+    }
+    if (typeof renderTagFilterDropdown === 'function') {
+        renderTagFilterDropdown();
+    }
     loadClips();
 }
 
