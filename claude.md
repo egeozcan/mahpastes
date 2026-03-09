@@ -61,7 +61,7 @@ Tests are organized by feature in `e2e/tests/`:
 - `search/` - Filtering functionality
 - `screenshots/` - Documentation screenshot capture
 - `shortcuts/` - Keyboard shortcut tests
-- `tags/` - Tag CRUD, filtering, hidden tags
+- `tags/` - Tag CRUD, filtering, hidden tags, folder mode, tree exclusivity
 - `watch/` - Watch folders feature
 
 ### Test Abstractions
@@ -185,6 +185,7 @@ mahpastes/
 ├── temp_clip_store.go    # Leased temp file management for transfers
 ├── transfer_service.go   # Drag-out preparation and native drag initiation
 ├── transfer_types.go     # Transfer system type definitions
+├── tag_hierarchy.go      # Tag tree helpers (parent, root, ancestor, descendant checks)
 ├── watcher.go            # Watch folder implementation
 ├── plugin/               # Lua plugin system
 │   ├── manager.go        # Plugin lifecycle, event dispatch
@@ -314,13 +315,31 @@ Tag operations exposed to the frontend (and to plugins via `plugin/api_tags.go`)
 - `UpdateTag(id, name, color)` → `error`
 - `DeleteTag(id)` → `error`
 - `GetTags()` → `[]Tag, error`
-- `AddTagToClip(clipID, tagID)` → `error`
+- `AddTagToClip(clipID, tagID)` → `error` — enforces tree exclusivity (removes same-tree tags first)
 - `RemoveTagFromClip(clipID, tagID)` → `error`
-- `BulkAddTag(clipIDs, tagID)` → `error`
+- `BulkAddTag(clipIDs, tagID)` → `error` — enforces tree exclusivity per clip
 - `BulkRemoveTag(clipIDs, tagID)` → `error`
 - `GetClipTags(clipID)` → `[]Tag, error`
 - `GetHiddenTags()` → `[]int64, error`
 - `SetHiddenTags(ids)` → `error`
+
+### Tag Hierarchy & Folder Mode
+
+Tags form hierarchical trees using `/` as separator (e.g., `work/client1/projectA`). Key behaviors:
+
+**Tree exclusivity**: A clip can only have ONE tag per root tree. Adding `a/b/d` automatically removes any existing tags under the same root (`a`, `a/b`, `a/b/c`, etc.). Tags from different trees (e.g., `a/b` and `x/y`) coexist freely. Enforced in `AddTagToClip` and `BulkAddTag` via `removeSameTreeTags()`.
+
+**Hierarchical filtering** (normal mode): Filtering by `a` shows clips tagged with `a`, `a/b`, `a/b/c`, etc. via `getDescendantTagIDs()` expansion in `GetClips`. Multiple filters use AND logic.
+
+**Folder mode**: Shows clips only at their exact tag level. `GetFolderClips` excludes descendants; `GetUntaggedClips` shows only clips with zero tags at root. The folder mode toggle uses the same `bg-stone-800` active style as the archive toggle.
+
+**Auto-tagging on upload**: `UploadFiles(files, expirationMinutes, autoTagID)` accepts an optional tag ID. When in folder mode with an active folder, the frontend passes the current folder's tag ID so new clips are auto-tagged into the folder.
+
+**Tag filter in folder mode**: Checking a tag in the filter dropdown navigates to that tag's folder (via `navigateToFolder`) instead of appending. Unchecking navigates up to the parent. Entering folder mode with multiple unrelated filters normalizes to the last selected tag's path.
+
+**Tag display**: Clip card pills always show the full tag path (e.g., `work/client1` not `client1`).
+
+**Key files**: `tag_hierarchy.go` (tree helpers), `app.go` (exclusivity + queries), `frontend/js/tags.js` (filter UI), `frontend/js/ui.js` (`navigateToFolder`, `renderFolderCards`), `frontend/js/wails-api.js` (`loadClips` folder mode branches).
 
 ### Plugin UI Actions
 
