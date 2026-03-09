@@ -6,6 +6,7 @@ let currentView = 'clips';
 let isViewingServe = false;
 let servePollingInterval = null;
 const bindPreferences = new Map(); // tagID -> bindAll preference
+const apiAccessPreferences = new Map(); // tagID -> "none" | "read" | "readwrite"
 // Configured entries: tags the user has added to the serve list (persists when stopped)
 // Each entry: { tag_id, tag_name, bind_all }
 const configuredEntries = new Map();
@@ -104,6 +105,9 @@ function renderServeCard(info) {
     const bindLabel = info.bind_all ? 'Network' : 'Local';
     const bindDisabled = info.running ? 'pointer-events-none opacity-50' : 'cursor-pointer';
 
+    const currentApiAccess = apiAccessPreferences.get(info.tag_id) || 'none';
+    const apiDisabled = info.running ? 'pointer-events-none opacity-50' : '';
+
     li.innerHTML = `
         <div class="flex items-center gap-3 min-w-0 flex-1">
             ${statusDot}
@@ -120,6 +124,12 @@ function renderServeCard(info) {
                     data-tag-id="${info.tag_id}" data-bind-all="${info.bind_all}" ${info.running ? 'disabled' : ''} title="${info.bind_all ? 'Accessible from network (0.0.0.0)' : 'Local only (127.0.0.1)'}">
                 ${bindLabel}
             </button>
+            <select class="serve-api-access text-[10px] font-medium py-1 px-1.5 rounded border border-stone-200 text-stone-500 bg-white transition-colors ${apiDisabled}"
+                    data-tag-id="${info.tag_id}" ${info.running ? 'disabled' : ''}>
+                <option value="none"${currentApiAccess === 'none' ? ' selected' : ''}>No API</option>
+                <option value="read"${currentApiAccess === 'read' ? ' selected' : ''}>API Read</option>
+                <option value="readwrite"${currentApiAccess === 'readwrite' ? ' selected' : ''}>API R/W</option>
+            </select>
             <button class="serve-toggle-btn text-[11px] font-medium py-1.5 px-3 rounded-md transition-colors ${toggleClass}"
                     data-tag-id="${info.tag_id}" data-running="${info.running}" data-bind-all="${info.bind_all}">
                 ${toggleLabel}
@@ -143,6 +153,9 @@ async function loadServeStatus() {
             // Ensure running servers are in configured entries
             if (!configuredEntries.has(s.tag_id)) {
                 configuredEntries.set(s.tag_id, { tag_id: s.tag_id, tag_name: s.tag_name, bind_all: s.bind_all });
+            }
+            if (s.api_access && s.api_access !== 'none') {
+                apiAccessPreferences.set(s.tag_id, s.api_access);
             }
         }
 
@@ -266,8 +279,9 @@ async function showServeTagPicker() {
 // --- Start Serving a Tag ---
 async function startServingTag(tagID, bindAll = false) {
     try {
+        const apiAccess = apiAccessPreferences.get(tagID) || 'none';
         const port = await window.go.main.ServeService.GetRandomPort();
-        await window.go.main.ServeService.StartServing(tagID, port, bindAll, 'none');
+        await window.go.main.ServeService.StartServing(tagID, port, bindAll, apiAccess);
         showToast('Tag server started');
         await loadServeStatus();
         updateServeIndicator();
@@ -371,6 +385,7 @@ serveList.addEventListener('click', async (e) => {
         const tagID = parseInt(removeBtn.dataset.tagId, 10);
         configuredEntries.delete(tagID);
         bindPreferences.delete(tagID);
+        apiAccessPreferences.delete(tagID);
         await loadServeStatus();
         return;
     }
@@ -386,6 +401,15 @@ serveList.addEventListener('click', async (e) => {
         } else {
             await startServingTag(tagID, bindAll);
         }
+    }
+});
+
+// API access dropdown change handler
+serveList.addEventListener('change', (e) => {
+    const select = e.target.closest('.serve-api-access');
+    if (select) {
+        const tagID = parseInt(select.dataset.tagId, 10);
+        apiAccessPreferences.set(tagID, select.value);
     }
 });
 
