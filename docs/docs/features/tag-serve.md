@@ -105,6 +105,85 @@ Each entry in the directory listing includes a `type` field:
 
 The `index.html` override is scoped per level. If `work/client1` has a clip named `index.html`, requesting `/client1/` serves that clip. The root-level `index.html` (on the `work` tag itself) is unaffected.
 
+## JSON API
+
+Serve a tag's JSON clips as a RESTful API that HTML pages in the same tag can read and write.
+
+### Enabling the API
+
+When starting a tag server, select an API access level:
+
+| Level | Description |
+|-------|-------------|
+| **No API** | `/_api` returns 404 (default) |
+| **API Read** | GET only — HTML can read JSON data |
+| **API R/W** | Full CRUD — HTML can read, create, update, and delete |
+
+The access level can only be changed while the server is stopped.
+
+### Authentication
+
+When the API is enabled, the tag server sets an HTTP-only cookie (`_mp_serve_key`) on every response. HTML pages served from the same tag automatically receive this cookie, so `fetch()` calls to `/_api/` work with `credentials: 'include'`.
+
+Requests without a valid cookie receive `401 Unauthorized`.
+
+### URL Structure
+
+```
+/_api/{clipName}/{jsonPath...}
+```
+
+- `{clipName}` maps to a clip named `{clipName}.json` in the tag
+- `{jsonPath}` navigates into the JSON structure by key (objects) or by `id` field (arrays)
+
+### HTTP Methods
+
+| Method | Path | Behavior |
+|--------|------|----------|
+| `GET` | `/_api/users` | Return full contents of `users.json` |
+| `GET` | `/_api/users/3` | Return array element where `id` is 3 |
+| `POST` | `/_api/users` | Append to array, auto-assign `id` |
+| `PUT` | `/_api/users/3` | Replace element with `id` 3 |
+| `PATCH` | `/_api/users/3` | Merge fields into element (RFC 7396) |
+| `DELETE` | `/_api/users/3` | Remove element from array |
+| `PUT` | `/_api/config/theme` | Set nested key in `config.json` |
+
+### Example
+
+Given a clip named `todos.json` containing:
+
+```json
+[{"id": 1, "text": "Buy milk", "done": false}]
+```
+
+From an `index.html` in the same tag:
+
+```javascript
+// Read all todos
+const todos = await fetch('/_api/todos', { credentials: 'include' }).then(r => r.json());
+
+// Add a new todo (id auto-assigned)
+const newTodo = await fetch('/_api/todos', {
+  method: 'POST',
+  credentials: 'include',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ text: 'Walk dog', done: false })
+}).then(r => r.json());
+// newTodo = { id: 2, text: "Walk dog", done: false }
+
+// Mark as done
+await fetch('/_api/todos/2', {
+  method: 'PATCH',
+  credentials: 'include',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ done: true })
+});
+```
+
+### Reserved Tag Names
+
+Tag names cannot contain `_api` as a path segment (e.g., `_api`, `work/_api`, `docs/_api/foo`). This prevents conflicts with the API route prefix. Names where `_api` appears as a substring are allowed (e.g., `my_api_utils`).
+
 ## Activity Indicators
 
 - A **green dot** appears on running tag cards

@@ -142,12 +142,14 @@ All endpoints are prefixed with `/api/v1`.
 {
   "tag_id": 5,
   "port": 0,
-  "bind_all": false
+  "bind_all": false,
+  "api_access": "none"
 }
 ```
 
 - `port`: Set to `0` (or omit) to auto-assign an available port
 - `bind_all`: Bind to `0.0.0.0` instead of `127.0.0.1`
+- `api_access`: `"none"` (default), `"read"`, or `"readwrite"` — controls the [JSON API](tag-serve.md#json-api) on the tag server
 - Returns `201` with `ServeInfo` on success
 - Returns `409` if the tag is already being served or the port is unavailable
 - Tag-scoped keys cannot start or stop servers (returns `403`), but can list servers filtered to their tag

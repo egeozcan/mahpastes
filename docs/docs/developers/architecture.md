@@ -69,7 +69,8 @@ temp_clip_store.go   Leased temp file management
 native_drag_darwin.go    macOS native drag via CGo
 plugin_service.go    Plugin frontend API (separate struct for Wails binding limit)
 plugins.go           Plugin install/uninstall helpers
-serve_manager.go     Tag serve HTTP server management
+serve_manager.go     Tag serve HTTP server management, JSON API routing
+serve_json_api.go    JSON API handler for served tags (/_api prefix)
 serve_service.go     Serve service (Wails-bound)
 api_manager.go       REST API server and key management
 api_service.go       API service (Wails-bound)
