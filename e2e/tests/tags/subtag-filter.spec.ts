@@ -66,16 +66,16 @@ test.describe('Subtag Filtering', () => {
     await app.closeTagFilterDropdown();
   });
 
-  test('card tag pills show short names', async ({ app }) => {
+  test('card tag pills show full paths for subtags', async ({ app }) => {
     await app.createTag('work/client1');
     const imagePath = await createTempFile(generateTestImage(), 'png');
     await app.uploadFile(imagePath);
     await app.addTagToClip(path.basename(imagePath), 'work/client1');
     await app.refreshClips();
-    // The pill should show "client1" not "work/client1"
+    // The pill should show the full path "work/client1"
     const pill = app.page.locator('[data-testid="tag-pill-work/client1"]');
     await expect(pill).toBeVisible();
     const text = await pill.textContent();
-    expect(text?.trim()).toBe('client1');
+    expect(text?.trim()).toBe('work/client1');
   });
 });

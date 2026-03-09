@@ -159,8 +159,21 @@ function toggleFolderMode() {
     const btn = document.getElementById('folder-mode-btn');
     if (btn) {
         btn.setAttribute('aria-pressed', folderMode);
-        btn.classList.toggle('bg-stone-100', folderMode);
-        btn.classList.toggle('border-stone-300', folderMode);
+        if (folderMode) {
+            btn.classList.add('bg-stone-800', 'text-white', 'border-stone-800');
+            btn.classList.remove('border-stone-200', 'text-stone-500', 'hover:border-stone-300', 'hover:bg-stone-100');
+        } else {
+            btn.classList.remove('bg-stone-800', 'text-white', 'border-stone-800');
+            btn.classList.add('border-stone-200', 'text-stone-500', 'hover:border-stone-300', 'hover:bg-stone-100');
+        }
+    }
+    // When entering folder mode with filters active, normalize to a single
+    // folder path by navigating to the last selected tag.  This prevents
+    // broken breadcrumbs when multiple unrelated trees are checked.
+    if (folderMode && activeTagFilters.length > 0 && typeof navigateToFolder === 'function') {
+        const lastTagId = activeTagFilters[activeTagFilters.length - 1];
+        navigateToFolder(lastTagId);
+        return;
     }
     if (typeof updateActiveTagsDisplay === 'function') {
         updateActiveTagsDisplay();
