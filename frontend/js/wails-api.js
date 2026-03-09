@@ -324,7 +324,6 @@ async function bulkAddTag(clipIds, tagId) {
     try {
         await window.go.main.App.BulkAddTag(clipIds, tagId);
         showToast(`Tag added to ${clipIds.length} clips.`);
-        loadClips();
     } catch (error) {
         console.error('Error in bulk add tag:', error);
         showToast('Failed to add tag to clips.');
@@ -335,7 +334,6 @@ async function bulkRemoveTag(clipIds, tagId) {
     try {
         await window.go.main.App.BulkRemoveTag(clipIds, tagId);
         showToast(`Tag removed from ${clipIds.length} clips.`);
-        loadClips();
     } catch (error) {
         console.error('Error in bulk remove tag:', error);
         showToast('Failed to remove tag from clips.');
