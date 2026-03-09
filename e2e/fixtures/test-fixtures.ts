@@ -2444,8 +2444,8 @@ export class AppHelper {
     await this.page.waitForSelector(selectors.serve.view, { state: 'visible', timeout: 5000 });
   }
 
-  async startServingTag(tagName: string): Promise<{ port: number; url: string }> {
-    return this.page.evaluate(async (name: string) => {
+  async startServingTag(tagName: string, apiAccess: string = 'none'): Promise<{ port: number; url: string }> {
+    return this.page.evaluate(async ({ name, access }: { name: string; access: string }) => {
       // @ts-ignore - Wails runtime
       const tags = await window.go.main.App.GetTags();
       const tag = tags.find((t: any) => t.name === name);
@@ -2453,9 +2453,9 @@ export class AppHelper {
       // @ts-ignore - Wails runtime
       const port = await window.go.main.ServeService.GetRandomPort();
       // @ts-ignore - Wails runtime
-      const info = await window.go.main.ServeService.StartServing(tag.id, port, false, 'none');
+      const info = await window.go.main.ServeService.StartServing(tag.id, port, false, access);
       return { port: info.port, url: info.url };
-    }, tagName);
+    }, { name: tagName, access: apiAccess });
   }
 
   async stopServingTag(tagName: string): Promise<void> {
