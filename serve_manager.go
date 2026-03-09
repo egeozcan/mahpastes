@@ -191,13 +191,31 @@ func (sm *ServeManager) makeHandler(ts *tagServer) http.Handler {
 		// Allow cross-origin requests (Wails webview uses wails:// origin)
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		if r.Method == http.MethodOptions {
-			w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Accept")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Accept")
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 
+		// Route /_api/* requests to the JSON API handler.
+		if strings.HasPrefix(r.URL.Path, "/_api/") || r.URL.Path == "/_api" {
+			atomic.AddInt64(&ts.requestCount, 1)
+			sm.handleJSONAPI(w, r, ts)
+			return
+		}
+
 		atomic.AddInt64(&ts.requestCount, 1)
+
+		// Set auth cookie on all responses when JSON API is enabled.
+		if ts.apiAccess != "none" {
+			http.SetCookie(w, &http.Cookie{
+				Name:     "_mp_serve_key",
+				Value:    ts.serveKey,
+				Path:     "/",
+				HttpOnly: true,
+				SameSite: http.SameSiteStrictMode,
+			})
+		}
 
 		reqPath := strings.TrimPrefix(r.URL.Path, "/")
 		if decodedPath, err := url.PathUnescape(reqPath); err == nil {
