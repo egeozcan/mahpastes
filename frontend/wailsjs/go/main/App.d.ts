@@ -136,4 +136,4 @@ export function UpdateWatchedFolder(arg1:number,arg2:main.WatchedFolderConfig):P
 
 export function UploadFileAndGetID(arg1:main.FileData):Promise<number>;
 
-export function UploadFiles(arg1:Array<main.FileData>,arg2:number):Promise<void>;
+export function UploadFiles(arg1:Array<main.FileData>,arg2:number,arg3:number):Promise<void>;

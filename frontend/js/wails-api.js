@@ -78,7 +78,11 @@ async function loadClips() {
 async function upload(files) {
     try {
         const minutes = typeof getUploadExpirationMinutes === 'function' ? getUploadExpirationMinutes() : 0;
-        await window.go.main.App.UploadFiles(files, minutes);
+        let autoTagID = 0;
+        if (isFolderMode() && activeTagFilters.length > 0) {
+            autoTagID = activeTagFilters[activeTagFilters.length - 1];
+        }
+        await window.go.main.App.UploadFiles(files, minutes, autoTagID);
         showToast('Upload successful!');
         if (!isViewingArchive) {
             loadClips(); // Refresh gallery only if looking at active

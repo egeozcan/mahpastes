@@ -763,7 +763,7 @@ func (a *App) UploadFileAndGetID(file FileData) (int64, error) {
 }
 
 // UploadFiles handles file uploads
-func (a *App) UploadFiles(files []FileData, expirationMinutes int) error {
+func (a *App) UploadFiles(files []FileData, expirationMinutes int, autoTagID int64) error {
 	var expiresAt *time.Time
 	if expirationMinutes > 0 {
 		t := time.Now().Add(time.Duration(expirationMinutes) * time.Minute)
@@ -803,6 +803,13 @@ func (a *App) UploadFiles(files []FileData, expirationMinutes int) error {
 		}
 
 		clipID, _ := result.LastInsertId()
+
+		// Auto-tag with folder tag if specified
+		if autoTagID > 0 {
+			if err := a.AddTagToClip(clipID, autoTagID); err != nil {
+				log.Printf("Failed to auto-tag clip %d with tag %d: %v", clipID, autoTagID, err)
+			}
+		}
 
 		// Emit plugin event
 		if a.pluginManager != nil {

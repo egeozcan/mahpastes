@@ -270,6 +270,6 @@ export function UploadFileAndGetID(arg1) {
   return window['go']['main']['App']['UploadFileAndGetID'](arg1);
 }
 
-export function UploadFiles(arg1, arg2) {
-  return window['go']['main']['App']['UploadFiles'](arg1, arg2);
+export function UploadFiles(arg1, arg2, arg3) {
+  return window['go']['main']['App']['UploadFiles'](arg1, arg2, arg3);
 }

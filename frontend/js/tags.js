@@ -84,8 +84,34 @@ function renderTagFilterDropdown() {
 function toggleTagFilter(tagId) {
     const idx = activeTagFilters.indexOf(tagId);
     if (idx === -1) {
+        // Adding a tag filter
+        if (typeof isFolderMode === 'function' && isFolderMode() && typeof navigateToFolder === 'function') {
+            // In folder mode, navigate to this tag's folder instead of appending
+            navigateToFolder(tagId);
+            return;
+        }
         activeTagFilters.push(tagId);
     } else {
+        if (typeof isFolderMode === 'function' && isFolderMode()) {
+            // In folder mode, unchecking a tag navigates up to its parent
+            const tag = allTags.find(t => t.id === tagId);
+            if (tag) {
+                const parentName = getParentTagName(tag.name);
+                activeTagFilters.length = 0;
+                if (parentName) {
+                    let p = '';
+                    for (const s of parentName.split('/')) {
+                        p = p ? p + '/' + s : s;
+                        const pt = allTags.find(t => t.name === p);
+                        if (pt) activeTagFilters.push(pt.id);
+                    }
+                }
+                updateActiveTagsDisplay();
+                renderTagFilterDropdown();
+                loadClips();
+                return;
+            }
+        }
         activeTagFilters.splice(idx, 1);
     }
     updateActiveTagsDisplay();
