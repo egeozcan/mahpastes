@@ -182,6 +182,9 @@ mahpastes/
 ├── native_drag_other.go  # Unsupported platform stub
 ├── plugin_service.go     # Plugin frontend API (separate struct for Wails binding limit)
 ├── plugins.go            # Plugin install/uninstall helpers
+├── serve_json_api.go     # JSON API handler for served tags (/_api prefix)
+├── serve_manager.go      # Tag HTTP server lifecycle and routing
+├── serve_service.go      # Serve frontend API (separate struct for Wails binding limit)
 ├── temp_clip_store.go    # Leased temp file management for transfers
 ├── transfer_service.go   # Drag-out preparation and native drag initiation
 ├── transfer_types.go     # Transfer system type definitions
@@ -340,6 +343,24 @@ Tags form hierarchical trees using `/` as separator (e.g., `work/client1/project
 **Tag display**: Clip card pills always show the full tag path (e.g., `work/client1` not `client1`).
 
 **Key files**: `tag_hierarchy.go` (tree helpers), `app.go` (exclusivity + queries), `frontend/js/tags.js` (filter UI), `frontend/js/ui.js` (`navigateToFolder`, `renderFolderCards`), `frontend/js/wails-api.js` (`loadClips` folder mode branches).
+
+### Tag Serve JSON API
+
+HTML clips served from a tag can read/write JSON clips in the same tag via REST semantics at the `/_api` prefix.
+
+**Routing**: `/_api/{clipStem}/{jsonPath...}` — first segment maps to `{clipStem}.json` clip, remaining segments navigate into JSON (object keys by name, array elements by `id` field).
+
+**HTTP verbs**: GET (read), POST (append to array with auto-increment id), PUT (replace/upsert), PATCH (JSON Merge Patch RFC 7396), DELETE (remove key/element).
+
+**Cookie auth**: Tag server sets `_mp_serve_key` HTTP-only SameSite=Strict cookie on every response when API is enabled. `/_api` handler validates this cookie — 401 without it.
+
+**Permission model**: `StartServing(tagID, port, bindAll, apiAccess)` where `apiAccess` is `"none"` (404, default), `"read"` (GET only), or `"readwrite"` (full CRUD).
+
+**Concurrency**: Per-clip `sync.Mutex` serializes writes to the same JSON clip.
+
+**Reserved tag names**: `CreateTag` rejects any tag where a path segment equals `_api` (e.g., `_api`, `work/_api`). Substrings are fine (e.g., `my_api_stuff`).
+
+**Key files**: `serve_json_api.go` (JSON handler, path navigation, CRUD operations), `serve_manager.go` (cookie setting, `/_api` routing, `tagServer` struct fields).
 
 ### Plugin UI Actions
 
