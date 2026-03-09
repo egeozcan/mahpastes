@@ -93,9 +93,20 @@ Intermediate tags are auto-created if they do not already exist. Creating `work/
 - **Subtag preservation:** Subtags (tags with `/` in their name) are **never** auto-deleted by the orphan cleanup. They persist until explicitly deleted, even when no clips reference them. Only flat tags (no `/`) are auto-deleted when orphaned.
 - **Parent protection:** A parent tag is not auto-deleted when its last clip is untagged if it still has child tags.
 
+### Tag Tree Exclusivity
+
+A clip can only occupy **one position** in any given tag tree. When you assign a tag, any other tags from the same root tree are automatically removed:
+
+- Assigning `work/client1` to a clip that already has `work` removes `work`
+- Assigning `work` to a clip that has `work/client1` removes `work/client1`
+- Assigning `work/client2` to a clip that has `work/client1` removes `work/client1`
+- Tags from **different trees** are unaffected -- a clip can have both `work/client1` and `photos/vacation`
+
+Ancestor tags are **implied**. A clip tagged `work/client1` automatically appears when you filter by `work`, without needing to be explicitly tagged with `work`.
+
 ### Card Tag Pills
 
-Tag pills on clip cards show the **short name** (the last segment of the path). For example, a clip tagged `work/client1/projectABC` shows a pill labeled `projectABC`. Hovering the pill displays the full path as a tooltip. In **folder mode**, pills show the full path instead to make the hierarchy clear.
+Tag pills on clip cards always show the **full path**. For example, a clip tagged `work/client1/projectABC` shows a pill labeled `work/client1/projectABC`. Hovering the pill also displays the full path as a tooltip.
 
 ## Hierarchical Filtering
 
@@ -115,7 +126,7 @@ Folder mode gives the gallery a folder-like navigation experience based on subta
 
 ### Activating Folder Mode
 
-Click the folder toggle button next to the sort controls. When active, the gallery shows:
+Click the folder toggle button next to the sort controls. The button uses a solid dark highlight (matching the archive toggle) when folder mode is active. The gallery shows:
 
 - **At root level (no tag filter):** Folder cards for each top-level tag, plus only **untagged clips** (clips with no tags at all). Tagged clips are only accessible by navigating into their folder.
 - **Inside a folder:** Folder cards for immediate child subtags, plus clips tagged **directly** with that folder's tag. Clips that only have a deeper subtag (e.g., `work/client1`) do not appear at the parent level (`work`) -- they belong in the subfolder.
@@ -125,6 +136,18 @@ Click the folder toggle button next to the sort controls. When active, the galle
 - Click a folder card to navigate deeper into that subtag
 - A **breadcrumb trail** appears in the active tags area showing the current path
 - Click any breadcrumb segment to jump back to that level
+
+### Auto-Tagging on Upload
+
+When you upload or paste a clip while inside a folder, the clip is automatically tagged with that folder's tag. This means adding content while "inside" a folder puts it in that folder -- no manual tagging needed. Uploading at the root level (no folder selected) does not auto-tag.
+
+### Tag Filter in Folder Mode
+
+The tag filter dropdown behaves differently in folder mode:
+
+- **Checking a tag** navigates to that tag's folder (replaces the current path) instead of adding an additional filter
+- **Unchecking a tag** navigates up to its parent folder
+- **Entering folder mode** with multiple unrelated filters normalizes to the last selected tag's folder path
 
 Folder mode is a view-only toggle. It is **not persisted** across sessions -- closing the app resets it.
 

@@ -26,6 +26,7 @@ The backend is written in Go using the Wails framework. It handles data storage,
 ├── temp_clip_store.go   Leased temp file management
 ├── native_drag_darwin.go    macOS native drag implementation
 ├── native_drag_other.go     Fallback native drag stub
+├── tag_hierarchy.go     Tag tree helpers (parent, root, ancestor, descendant checks)
 ├── plugin/              Lua plugin system
 │   ├── manager.go       Plugin lifecycle, event dispatch
 │   ├── manifest.go      Manifest parsing, validation
@@ -92,20 +93,20 @@ func (a *App) shutdown(ctx context.Context)  // Cleanup on exit
 ```go
 func (a *App) GetClips(archived bool, tagIDs []int64, hiddenTagIDs []int64, sortField string, sortDir string) ([]ClipPreview, error)
 func (a *App) GetClipData(id int64) (*ClipData, error)
-func (a *App) UploadFiles(files []FileData, expMins int) error
+func (a *App) UploadFiles(files []FileData, expMins int, autoTagID int64) error
 func (a *App) DeleteClip(id int64) error
 func (a *App) ToggleArchive(id int64) error
 ```
 
-**Tag operations:**
+**Tag operations** (AddTagToClip and BulkAddTag enforce tree exclusivity -- adding a tag removes other tags from the same root tree):
 ```go
 func (a *App) CreateTag(name string) (*Tag, error)
 func (a *App) UpdateTag(id int64, name, color string) error
 func (a *App) DeleteTag(id int64) error
 func (a *App) GetTags() ([]Tag, error)
-func (a *App) AddTagToClip(clipID, tagID int64) error
+func (a *App) AddTagToClip(clipID, tagID int64) error       // enforces tree exclusivity
 func (a *App) RemoveTagFromClip(clipID, tagID int64) error
-func (a *App) BulkAddTag(clipIDs []int64, tagID int64) error
+func (a *App) BulkAddTag(clipIDs []int64, tagID int64) error // enforces tree exclusivity
 func (a *App) BulkRemoveTag(clipIDs []int64, tagID int64) error
 func (a *App) GetClipTags(clipID int64) ([]Tag, error)
 func (a *App) GetHiddenTags() ([]int64, error)
@@ -296,7 +297,7 @@ data, err := base64.StdEncoding.DecodeString(file.Data)
 Automatic detection for text content:
 
 ```go
-func (a *App) UploadFiles(files []FileData, expMins int) error {
+func (a *App) UploadFiles(files []FileData, expMins int, autoTagID int64) error {
     for _, file := range files {
         contentType := file.ContentType
 

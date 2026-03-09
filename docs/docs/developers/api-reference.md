@@ -96,7 +96,7 @@ type ClipData struct {
 Upload one or more files.
 
 ```go
-func (a *App) UploadFiles(files []FileData, expirationMinutes int) error
+func (a *App) UploadFiles(files []FileData, expirationMinutes int, autoTagID int64) error
 ```
 
 **Parameters:**
@@ -104,6 +104,7 @@ func (a *App) UploadFiles(files []FileData, expirationMinutes int) error
 |------|------|-------------|
 | `files` | []FileData | Array of file data |
 | `expirationMinutes` | int | Minutes until auto-delete (0 = never) |
+| `autoTagID` | int64 | Tag ID to auto-assign to each clip (0 = no auto-tag). Used by folder mode to tag uploads into the current folder |
 
 **FileData structure:**
 ```go
@@ -121,8 +122,9 @@ const fileData = {
     content_type: 'image/png',
     data: base64Data
 };
-await UploadFiles([fileData], 0); // No expiration
-await UploadFiles([fileData], 30); // Expires in 30 min
+await UploadFiles([fileData], 0, 0);  // No expiration, no auto-tag
+await UploadFiles([fileData], 30, 0); // Expires in 30 min, no auto-tag
+await UploadFiles([fileData], 0, 5);  // No expiration, auto-tag with tag ID 5
 ```
 
 ---
@@ -660,7 +662,7 @@ For example, renaming tag `work` to `office` also renames `work/client1` to `off
 
 ### AddTagToClip
 
-Add a tag to a clip.
+Add a tag to a clip. **Enforces tree exclusivity:** any existing tags from the same root tree are automatically removed before adding the new tag. For example, adding `work/client2` to a clip that has `work/client1` removes `work/client1`. Tags from different trees are unaffected.
 
 ```go
 func (a *App) AddTagToClip(clipID int64, tagID int64) error
@@ -702,7 +704,7 @@ func (a *App) GetClipTags(clipID int64) ([]Tag, error)
 
 ### BulkAddTag
 
-Add a tag to multiple clips at once.
+Add a tag to multiple clips at once. Enforces tree exclusivity per clip (same as `AddTagToClip`).
 
 ```go
 func (a *App) BulkAddTag(clipIDs []int64, tagID int64) error
@@ -828,7 +830,7 @@ func (a *App) GetFolderClips(archived bool, tagID int64, hiddenTagIDs []int64, s
 | `sortField` | string | Sort field: `"date"`, `"name"`, `"size"`, or `"type"` |
 | `sortDir` | string | Sort direction: `"asc"` or `"desc"` |
 
-A clip tagged with both `work` and `work/client1` does **not** appear when viewing the `work` folder -- it belongs in the `client1` subfolder.
+Due to tree exclusivity, a clip can only have one tag per tree (e.g., `work/client1` but not both `work` and `work/client1`). Clips appear only at the level of their assigned tag -- a clip tagged `work/client1` does not appear in the `work` folder.
 
 ---
 
