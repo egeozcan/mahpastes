@@ -90,11 +90,12 @@ Intermediate tags are auto-created if they do not already exist. Creating `work/
 
 - **Cascading rename:** Renaming a parent tag renames all descendant tags. Renaming `work` to `office` changes `work/client1` to `office/client1`, `work/client1/projectABC` to `office/client1/projectABC`, and so on.
 - **Deleting a parent does not delete children.** If you delete `work`, its children (`work/client1`, `work/client1/projectABC`) remain as-is. They become orphaned subtags at the top level of the hierarchy.
-- **Orphan protection:** A parent tag is not auto-deleted when its last clip is untagged if it still has child tags.
+- **Subtag preservation:** Subtags (tags with `/` in their name) are **never** auto-deleted by the orphan cleanup. They persist until explicitly deleted, even when no clips reference them. Only flat tags (no `/`) are auto-deleted when orphaned.
+- **Parent protection:** A parent tag is not auto-deleted when its last clip is untagged if it still has child tags.
 
 ### Card Tag Pills
 
-Tag pills on clip cards show the **short name** (the last segment of the path). For example, a clip tagged `work/client1/projectABC` shows a pill labeled `projectABC`. Hovering the pill displays the full path as a tooltip.
+Tag pills on clip cards show the **short name** (the last segment of the path). For example, a clip tagged `work/client1/projectABC` shows a pill labeled `projectABC`. Hovering the pill displays the full path as a tooltip. In **folder mode**, pills show the full path instead to make the hierarchy clear.
 
 ## Hierarchical Filtering
 
@@ -116,8 +117,8 @@ Folder mode gives the gallery a folder-like navigation experience based on subta
 
 Click the folder toggle button next to the sort controls. When active, the gallery shows:
 
-- **Subtag folders as navigable cards** -- each immediate child subtag appears as a folder card
-- **Directly-tagged clips** alongside the folder cards
+- **At root level (no tag filter):** Folder cards for each top-level tag, plus only **untagged clips** (clips with no tags at all). Tagged clips are only accessible by navigating into their folder.
+- **Inside a folder:** Folder cards for immediate child subtags, plus clips tagged **directly** with that folder's tag. Clips that only have a deeper subtag (e.g., `work/client1`) do not appear at the parent level (`work`) -- they belong in the subfolder.
 
 ### Navigating
 
@@ -133,7 +134,8 @@ Hiding a parent tag in settings hides **all of its descendants** from the defaul
 
 - The **Settings > Hidden Tags** panel only shows top-level tags. Toggling a top-level tag hides the entire subtree.
 - Orphaned subtags (those whose parent was deleted) appear at the top level in the hidden tags list.
-- Explicitly filtering by a hidden subtag still shows its clips, the same as with regular hidden tags.
+- Subtags of a hidden parent still appear in the filter dropdown (dimmed to indicate they are hidden). This lets you filter by them when needed.
+- **Filtering by a subtag of a hidden parent reveals the clips.** The hidden ancestor is excluded from the hidden list for the scope of that filter, so matching clips appear normally.
 
 ## Tag Colors
 
@@ -146,7 +148,7 @@ There is no standalone tag-management screen for rename/recolor/delete actions.
 Today, tag management is done through assignment popovers:
 - Assign/unassign tags on clip cards or bulk selection
 - Create new tags from the same popover
-- Unused tags are removed automatically once no clips reference them (unless the tag has children)
+- Unused flat tags are removed automatically once no clips reference them (subtags and parents with children are preserved)
 
 ## Related
 

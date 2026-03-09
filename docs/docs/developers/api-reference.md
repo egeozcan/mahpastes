@@ -617,7 +617,7 @@ func (a *App) DeleteTag(id int64) error
 
 Removes the tag and all clip associations. Deleting a parent tag does **not** delete its children -- they remain as orphaned subtags.
 
-**Internal:** The `deleteTagIfOrphaned` helper (used by auto-cleanup) checks whether a tag has child tags before removing it. A tag with zero clips but one or more children is kept alive.
+**Internal:** The `deleteTagIfOrphaned` helper (used by auto-cleanup) never deletes subtags (tags with `/` in their name). For flat tags, it checks whether the tag has child tags before removing it. A flat tag with zero clips but one or more children is kept alive.
 
 ---
 
@@ -808,6 +808,45 @@ func (a *App) GetClipsDirect(archived bool, tagIDs []int64, hiddenTagIDs []int64
 ```
 
 Parameters and return type are identical to `GetClips`. The only difference is that tag filters are not expanded to include subtags.
+
+---
+
+### GetFolderClips
+
+Retrieve clips tagged with a specific tag but **not** tagged with any descendant of that tag. Used by folder mode so clips appear only at the level of their most specific tag.
+
+```go
+func (a *App) GetFolderClips(archived bool, tagID int64, hiddenTagIDs []int64, sortField string, sortDir string) ([]ClipPreview, error)
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `archived` | bool | true for archived clips, false for active |
+| `tagID` | int64 | The folder-level tag ID |
+| `hiddenTagIDs` | []int64 | Tag IDs whose clips should be excluded |
+| `sortField` | string | Sort field: `"date"`, `"name"`, `"size"`, or `"type"` |
+| `sortDir` | string | Sort direction: `"asc"` or `"desc"` |
+
+A clip tagged with both `work` and `work/client1` does **not** appear when viewing the `work` folder -- it belongs in the `client1` subfolder.
+
+---
+
+### GetUntaggedClips
+
+Retrieve clips that have no tags at all. Used by folder mode at root level to show only truly untagged clips alongside folder cards.
+
+```go
+func (a *App) GetUntaggedClips(archived bool, hiddenTagIDs []int64, sortField string, sortDir string) ([]ClipPreview, error)
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `archived` | bool | true for archived clips, false for active |
+| `hiddenTagIDs` | []int64 | Tag IDs whose clips should be excluded |
+| `sortField` | string | Sort field: `"date"`, `"name"`, `"size"`, or `"type"` |
+| `sortDir` | string | Sort direction: `"asc"` or `"desc"` |
 
 ---
 

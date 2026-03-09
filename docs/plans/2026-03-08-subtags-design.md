@@ -16,7 +16,7 @@ No schema changes. Tags remain flat in the DB. Hierarchy is derived by parsing `
 - **`DeleteTag`**: Deleting a parent does NOT cascade-delete children. Deleting `work` leaves `work/client1` intact.
 - **`SetHiddenTags`**: Only top-level tags can be in the hidden list. Backend resolves descendants — hiding `work` automatically hides all `work/*` tags.
 - **`UpdateTag` (rename)**: Renaming `work` to `job` also renames `work/client1` → `job/client1`, `work/client1/projectABC` → `job/client1/projectABC`, etc.
-- **Orphan auto-delete**: Only auto-delete a tag if it has no clips AND no children (intermediate structural tags must survive even with 0 clips).
+- **Orphan auto-delete**: Subtags (names with `/`) are never auto-deleted. Flat tags are auto-deleted only if they have no clips AND no children.
 
 ## Tag Filter Dropdown (Tree View)
 
@@ -26,7 +26,7 @@ Current flat alphabetical checkbox list becomes an indented tree with expand/col
 - Parent tags get a disclosure triangle (▶/▼) to expand/collapse. Leaf tags have none.
 - Checking a parent filters by that tag and all descendants (backend handles expansion). The checkbox itself doesn't auto-check children.
 - Tags at all levels are independently checkable.
-- Hidden tags show eye-slash icon at top level only. Children are hidden implicitly and don't render when parent is hidden.
+- Hidden tags show eye-slash icon at top level only. Children of hidden parents render (dimmed) so they remain accessible for filtering.
 - Tree expanded by default.
 
 ## Folder Mode
@@ -37,8 +37,8 @@ Next to the sort button in the header. Folder icon, same styling as sort button 
 
 ### Behavior
 
-- **Root level (no tag filter)**: Folder cards for each top-level tag + all clips not tagged with any hierarchical tag. Clips with only flat tags (no `/`) also appear.
-- **Navigated into a tag (e.g., `work`)**: Folder cards for immediate children (`work/client1`, `work/client2`) + clips tagged directly with `work` (not with any `work/*` subtag).
+- **Root level (no tag filter)**: Folder cards for each top-level tag + only **untagged clips** (clips with no tags at all). Tagged clips only appear when navigating into their folder.
+- **Navigated into a tag (e.g., `work`)**: Folder cards for immediate children (`work/client1`, `work/client2`) + clips tagged directly with `work` but **not** tagged with any `work/*` subtag. Clips that belong in a subfolder do not appear at the parent level.
 - **Folder cards**: Same card dimensions but with folder icon, short name (e.g., `client1` not `work/client1`), clip count (including descendants), tag's inherited color as accent. Clicking navigates deeper by adding/replacing the tag filter.
 
 ### Navigation
@@ -60,6 +60,8 @@ Exiting folder mode switches back to normal view with current tag filters preser
 
 - Only top-level tags appear as toggleable items. Subtags not listed separately.
 - Hiding a top-level tag hides all descendants implicitly.
+- Subtags of hidden parents still appear (dimmed) in the filter dropdown so they remain accessible.
+- Filtering by a subtag of a hidden parent reveals the clips — the hidden ancestor is excluded from the effective hidden list for that filter scope.
 - Orphaned subtags (parent deleted) appear at top level in settings.
 
 ### Tag popover (assigning tags to clips)
@@ -70,13 +72,14 @@ Exiting folder mode switches back to normal view with current tag filters preser
 
 ### Card tag pills
 
-- Show short name (leaf segment) to save space. Tooltip shows full path on hover.
+- Show short name (leaf segment) to save space. Tooltip shows full path on hover. In **folder mode**, pills show the full path instead.
 - Clicking a pill filters to that specific tag (descendants included via backend expansion).
 
 ### Tag deletion
 
 - Deleting a parent does NOT delete children.
-- Auto-delete only if tag has no clips AND no children.
+- Subtags (names with `/`) are never auto-deleted by orphan cleanup.
+- Flat tags are auto-deleted only if they have no clips AND no children.
 
 ## Serve Integration
 
