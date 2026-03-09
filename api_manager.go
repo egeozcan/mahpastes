@@ -1147,9 +1147,10 @@ func (am *APIManager) handleStartServer(w http.ResponseWriter, r *http.Request) 
 	keyCtx := getKeyContext(r)
 
 	var body struct {
-		TagID   int64 `json:"tag_id"`
-		Port    int   `json:"port"`
-		BindAll bool  `json:"bind_all"`
+		TagID     int64  `json:"tag_id"`
+		Port      int    `json:"port"`
+		BindAll   bool   `json:"bind_all"`
+		ApiAccess string `json:"api_access"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		am.jsonError(w, http.StatusBadRequest, "invalid JSON body")
@@ -1183,7 +1184,7 @@ func (am *APIManager) handleStartServer(w http.ResponseWriter, r *http.Request) 
 		port = p
 	}
 
-	info, err := am.app.serveManager.StartServing(body.TagID, port, body.BindAll)
+	info, err := am.app.serveManager.StartServing(body.TagID, port, body.BindAll, body.ApiAccess)
 	if err != nil {
 		msg := err.Error()
 		if strings.Contains(msg, "already being served") {

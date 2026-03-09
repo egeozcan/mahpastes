@@ -13,11 +13,11 @@ func NewServeService(app *App) *ServeService {
 }
 
 // StartServing starts an HTTP server for the given tag.
-func (s *ServeService) StartServing(tagID int64, port int, bindAll bool) (ServeInfo, error) {
+func (s *ServeService) StartServing(tagID int64, port int, bindAll bool, apiAccess string) (ServeInfo, error) {
 	if s.app.serveManager == nil {
 		return ServeInfo{}, fmt.Errorf("serve manager not initialized")
 	}
-	return s.app.serveManager.StartServing(tagID, port, bindAll)
+	return s.app.serveManager.StartServing(tagID, port, bindAll, apiAccess)
 }
 
 // StopServing stops the HTTP server for the given tag.

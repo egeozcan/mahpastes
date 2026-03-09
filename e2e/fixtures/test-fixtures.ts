@@ -2453,7 +2453,7 @@ export class AppHelper {
       // @ts-ignore - Wails runtime
       const port = await window.go.main.ServeService.GetRandomPort();
       // @ts-ignore - Wails runtime
-      const info = await window.go.main.ServeService.StartServing(tag.id, port, false);
+      const info = await window.go.main.ServeService.StartServing(tag.id, port, false, 'none');
       return { port: info.port, url: info.url };
     }, tagName);
   }

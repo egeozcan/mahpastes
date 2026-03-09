@@ -10,8 +10,8 @@ export function GetServeStatus() {
   return window['go']['main']['ServeService']['GetServeStatus']();
 }
 
-export function StartServing(arg1, arg2, arg3) {
-  return window['go']['main']['ServeService']['StartServing'](arg1, arg2, arg3);
+export function StartServing(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['ServeService']['StartServing'](arg1, arg2, arg3, arg4);
 }
 
 export function StopServing(arg1) {

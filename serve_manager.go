@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"html"
@@ -26,6 +28,7 @@ type ServeInfo struct {
 	URL          string `json:"url"`
 	Running      bool   `json:"running"`
 	RequestCount int64  `json:"request_count"`
+	ApiAccess    string `json:"api_access"`
 }
 
 // tagServer is the internal state for a single running HTTP server.
@@ -36,6 +39,10 @@ type tagServer struct {
 	bindAll      bool
 	server       *http.Server
 	requestCount int64 // accessed atomically
+	apiAccess    string              // "none", "read", "readwrite"
+	serveKey     string              // random token for cookie auth
+	clipMutexes  map[string]*sync.Mutex // per-clip filename mutex
+	clipMu       sync.Mutex            // protects clipMutexes map
 }
 
 // virtualFile represents a clip exposed as a file in the HTTP listing.
@@ -408,7 +415,7 @@ func formatSize(bytes int64) string {
 }
 
 // StartServing starts an HTTP server for the given tag on the specified port.
-func (sm *ServeManager) StartServing(tagID int64, port int, bindAll bool) (ServeInfo, error) {
+func (sm *ServeManager) StartServing(tagID int64, port int, bindAll bool, apiAccess string) (ServeInfo, error) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
@@ -423,6 +430,15 @@ func (sm *ServeManager) StartServing(tagID int64, port int, bindAll bool) (Serve
 		return ServeInfo{}, fmt.Errorf("tag not found: %w", err)
 	}
 
+	if apiAccess != "read" && apiAccess != "readwrite" {
+		apiAccess = "none"
+	}
+
+	tokenBytes := make([]byte, 32)
+	if _, err := rand.Read(tokenBytes); err != nil {
+		return ServeInfo{}, fmt.Errorf("failed to generate serve key: %w", err)
+	}
+
 	host := "127.0.0.1"
 	if bindAll {
 		host = "0.0.0.0"
@@ -430,10 +446,13 @@ func (sm *ServeManager) StartServing(tagID int64, port int, bindAll bool) (Serve
 	addr := fmt.Sprintf("%s:%d", host, port)
 
 	ts := &tagServer{
-		tagID:   tagID,
-		tagName: tagName,
-		port:    port,
-		bindAll: bindAll,
+		tagID:       tagID,
+		tagName:     tagName,
+		port:        port,
+		bindAll:     bindAll,
+		apiAccess:   apiAccess,
+		serveKey:    hex.EncodeToString(tokenBytes),
+		clipMutexes: make(map[string]*sync.Mutex),
 	}
 
 	ts.server = &http.Server{
@@ -467,6 +486,7 @@ func (sm *ServeManager) StartServing(tagID int64, port int, bindAll bool) (Serve
 		URL:          displayServerURL(actualPort),
 		Running:      true,
 		RequestCount: 0,
+		ApiAccess:    apiAccess,
 	}, nil
 }
 
@@ -508,6 +528,7 @@ func (sm *ServeManager) GetStatus() []ServeInfo {
 			URL:          displayServerURL(ts.port),
 			Running:      true,
 			RequestCount: atomic.LoadInt64(&ts.requestCount),
+			ApiAccess:    ts.apiAccess,
 		})
 	}
 	return infos

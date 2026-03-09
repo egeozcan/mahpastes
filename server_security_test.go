@@ -145,7 +145,7 @@ func TestServeManagerStatusUsesReachableLoopbackURLWhenBoundToAllInterfaces(t *t
 		t.Fatalf("failed to insert tag: %v", err)
 	}
 
-	info, err := manager.StartServing(5, 0, true)
+	info, err := manager.StartServing(5, 0, true, "none")
 	if err != nil {
 		t.Fatalf("failed to start serve manager: %v", err)
 	}
@@ -399,7 +399,7 @@ func TestHandleStopServerScopedAdminCanStopOwnTag(t *testing.T) {
 	}
 
 	// Start a server first.
-	if _, err := app.serveManager.StartServing(1, 0, false); err != nil {
+	if _, err := app.serveManager.StartServing(1, 0, false, "none"); err != nil {
 		t.Fatalf("failed to start server: %v", err)
 	}
 
@@ -431,7 +431,7 @@ func TestHandleStopServerScopedAdminCannotStopOtherTag(t *testing.T) {
 	}
 
 	// Start a server for tag 2.
-	if _, err := app.serveManager.StartServing(2, 0, false); err != nil {
+	if _, err := app.serveManager.StartServing(2, 0, false, "none"); err != nil {
 		t.Fatalf("failed to start server: %v", err)
 	}
 	t.Cleanup(func() {
@@ -801,10 +801,10 @@ func TestHandleListServersTagScoped(t *testing.T) {
 	}
 
 	// Start two servers
-	if _, err := app.serveManager.StartServing(10, 0, false); err != nil {
+	if _, err := app.serveManager.StartServing(10, 0, false, "none"); err != nil {
 		t.Fatalf("failed to start server for tag 10: %v", err)
 	}
-	if _, err := app.serveManager.StartServing(11, 0, false); err != nil {
+	if _, err := app.serveManager.StartServing(11, 0, false, "none"); err != nil {
 		t.Fatalf("failed to start server for tag 11: %v", err)
 	}
 	t.Cleanup(func() {

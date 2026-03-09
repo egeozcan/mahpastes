@@ -452,11 +452,12 @@ export namespace main {
 	    url: string;
 	    running: boolean;
 	    request_count: number;
-	
+	    api_access: string;
+
 	    static createFrom(source: any = {}) {
 	        return new ServeInfo(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.tag_id = source["tag_id"];
@@ -466,6 +467,7 @@ export namespace main {
 	        this.url = source["url"];
 	        this.running = source["running"];
 	        this.request_count = source["request_count"];
+	        this.api_access = source["api_access"];
 	    }
 	}
 	export class StartNativeDragRequest {

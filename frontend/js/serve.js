@@ -267,7 +267,7 @@ async function showServeTagPicker() {
 async function startServingTag(tagID, bindAll = false) {
     try {
         const port = await window.go.main.ServeService.GetRandomPort();
-        await window.go.main.ServeService.StartServing(tagID, port, bindAll);
+        await window.go.main.ServeService.StartServing(tagID, port, bindAll, 'none');
         showToast('Tag server started');
         await loadServeStatus();
         updateServeIndicator();

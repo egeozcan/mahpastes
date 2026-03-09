@@ -6,6 +6,6 @@ export function GetRandomPort():Promise<number>;
 
 export function GetServeStatus():Promise<Array<main.ServeInfo>>;
 
-export function StartServing(arg1:number,arg2:number,arg3:boolean):Promise<main.ServeInfo>;
+export function StartServing(arg1:number,arg2:number,arg3:boolean,arg4:string):Promise<main.ServeInfo>;
 
 export function StopServing(arg1:number):Promise<void>;
