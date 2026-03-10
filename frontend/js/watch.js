@@ -313,6 +313,7 @@ function openFolderModalForEdit(folder) {
 }
 
 function showModal() {
+    folderModal.removeAttribute('inert');
     folderModal.classList.remove('opacity-0', 'pointer-events-none');
     folderModal.classList.add('opacity-100');
     const innerDiv = folderModal.querySelector('div');
@@ -330,6 +331,7 @@ function closeFolderModal() {
         innerDiv.classList.add('scale-95');
         innerDiv.classList.remove('scale-100');
     }
+    folderModal.setAttribute('inert', '');
 }
 
 function updateFilterState() {

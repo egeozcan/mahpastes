@@ -381,6 +381,7 @@ const ShortcutManager = (() => {
     function openCheatSheet() {
         const overlay = document.getElementById('shortcuts-cheatsheet');
         if (!overlay) return;
+        overlay.removeAttribute('inert');
         overlay.classList.remove('opacity-0', 'pointer-events-none');
         overlay.classList.add('opacity-100');
         renderCheatSheet();
@@ -391,6 +392,7 @@ const ShortcutManager = (() => {
         if (!overlay) return;
         overlay.classList.add('opacity-0', 'pointer-events-none');
         overlay.classList.remove('opacity-100');
+        overlay.setAttribute('inert', '');
     }
 
     function isCheatSheetOpen() {

@@ -16,6 +16,7 @@ function openSettings() {
     loadUpdateInterval();
     renderShortcutsSettings();
     loadTooltipToggle();
+    settingsModal.removeAttribute('inert');
     settingsModal.classList.remove('opacity-0', 'pointer-events-none');
     settingsModal.classList.add('opacity-100');
     settingsModal.querySelector(':scope > div').classList.remove('scale-95');
@@ -35,6 +36,7 @@ function closeSettings() {
     settingsModal.classList.remove('opacity-100');
     settingsModal.querySelector(':scope > div').classList.add('scale-95');
     settingsModal.querySelector(':scope > div').classList.remove('scale-100');
+    settingsModal.setAttribute('inert', '');
     if (lastFocusedElementBeforeSettings && lastFocusedElementBeforeSettings !== document.body
         && !lastFocusedElementBeforeSettings.closest('[inert]')) {
         lastFocusedElementBeforeSettings.focus();
@@ -152,6 +154,7 @@ async function selectRestoreBackup() {
 }
 
 function showRestoreConfirmDialog() {
+    restoreConfirmDialog.removeAttribute('inert');
     restoreConfirmDialog.classList.remove('opacity-0', 'pointer-events-none');
     restoreConfirmDialog.classList.add('opacity-100');
     restoreConfirmDialog.querySelector(':scope > div').classList.remove('scale-95');
@@ -164,6 +167,7 @@ function hideRestoreConfirmDialog() {
     restoreConfirmDialog.querySelector(':scope > div').classList.add('scale-95');
     restoreConfirmDialog.querySelector(':scope > div').classList.remove('scale-100');
     pendingRestorePath = null;
+    restoreConfirmDialog.setAttribute('inert', '');
 }
 
 async function confirmRestore() {

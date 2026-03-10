@@ -11,6 +11,7 @@ let currentMetadataClipId = null;
 
 function openMetadataModal(clipId, clipData) {
     currentMetadataClipId = clipId;
+    metadataModal.removeAttribute('inert');
     metadataModal.classList.remove('opacity-0', 'pointer-events-none');
     metadataModal.classList.add('opacity-100');
     metadataModal.querySelector(':scope > div').classList.remove('scale-95');
@@ -56,6 +57,7 @@ function closeMetadataModal() {
     metadataModal.querySelector(':scope > div').classList.add('scale-95');
     metadataModal.querySelector(':scope > div').classList.remove('scale-100');
     currentMetadataClipId = null;
+    metadataModal.setAttribute('inert', '');
 }
 
 async function loadMetadata(clipId) {

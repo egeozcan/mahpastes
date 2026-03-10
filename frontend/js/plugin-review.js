@@ -107,6 +107,7 @@ function showPluginReview(preview, mode, currentVersion) {
         reviewApproveBtn.disabled = false;
 
         // Show modal
+        reviewModal.removeAttribute('inert');
         reviewModal.classList.remove('opacity-0', 'pointer-events-none');
         reviewModal.classList.add('opacity-100');
         reviewModal.querySelector(':scope > div').classList.remove('scale-95');
@@ -119,6 +120,7 @@ function closePluginReview(approved) {
     reviewModal.classList.remove('opacity-100');
     reviewModal.querySelector(':scope > div').classList.add('scale-95');
     reviewModal.querySelector(':scope > div').classList.remove('scale-100');
+    reviewModal.setAttribute('inert', '');
 
     if (reviewResolve) {
         reviewResolve(approved);

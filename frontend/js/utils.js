@@ -14,6 +14,7 @@ function showConfirmDialog(title, message, callback) {
     messageEl.innerHTML = message;
     confirmCallback = callback;
 
+    dialog.removeAttribute('inert');
     dialog.classList.remove('opacity-0', 'pointer-events-none');
     dialog.classList.add('opacity-100');
     dialogContent.classList.remove('scale-95');
@@ -40,6 +41,7 @@ function closeConfirmDialog() {
     dialogContent.classList.remove('scale-100');
     dialogContent.classList.add('scale-95');
     confirmCallback = null;
+    dialog.setAttribute('inert', '');
 
     if (lastFocusedElement) {
         lastFocusedElement.focus();

@@ -30,6 +30,7 @@ function openApiModal() {
     loadAPIStatus();
     loadAPIKeys();
     populateTagScopeOptions();
+    apiModal.removeAttribute('inert');
     apiModal.classList.remove('opacity-0', 'pointer-events-none');
     apiModal.classList.add('opacity-100');
     apiModal.querySelector(':scope > div').classList.remove('scale-95');
@@ -41,6 +42,7 @@ function closeApiModal() {
     apiModal.classList.remove('opacity-100');
     apiModal.querySelector(':scope > div').classList.add('scale-95');
     apiModal.querySelector(':scope > div').classList.remove('scale-100');
+    apiModal.setAttribute('inert', '');
     hideCreateKeyForm();
     hideKeyReveal();
 }

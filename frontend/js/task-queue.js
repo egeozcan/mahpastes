@@ -152,6 +152,7 @@ function getVisibleTasks() {
 // Queue modal functions
 function openQueueModal() {
     if (queueModal) {
+        queueModal.removeAttribute('inert');
         queueModal.classList.remove('opacity-0', 'pointer-events-none');
         queueModal.classList.add('opacity-100');
         const inner = queueModal.querySelector(':scope > div');
@@ -172,6 +173,7 @@ function closeQueueModal() {
             inner.classList.add('scale-95');
             inner.classList.remove('scale-100');
         }
+        queueModal.setAttribute('inert', '');
     }
 }
 

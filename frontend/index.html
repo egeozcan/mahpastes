@@ -471,7 +471,7 @@
 
     <!-- Confirm Dialog -->
     <div id="confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title"
-        aria-describedby="confirm-message" tabindex="-1"
+        aria-describedby="confirm-message" tabindex="-1" inert
         class="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm transition-opacity duration-200 opacity-0 pointer-events-none">
         <div class="bg-white rounded-lg shadow-xl max-w-sm w-full overflow-hidden transform transition-transform duration-200 scale-95">
             <div class="p-5">
@@ -500,7 +500,7 @@
     </div>
 
     <!-- Restore Backup Confirm Dialog -->
-    <div id="restore-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="restore-confirm-title"
+    <div id="restore-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="restore-confirm-title" inert
         class="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm transition-opacity duration-200 opacity-0 pointer-events-none">
         <div class="bg-white rounded-lg shadow-xl max-w-md w-full overflow-hidden transform transition-transform duration-200 scale-95">
             <div class="p-5">
@@ -556,7 +556,7 @@
 
     <!-- Lightbox -->
     <div id="lightbox" class="lightbox-backdrop" role="dialog" aria-modal="true" aria-label="Image Lightbox"
-        tabindex="-1">
+        tabindex="-1" inert>
         <button id="lightbox-close" class="lightbox-close" aria-label="Close lightbox" data-tooltip="Close viewer (Esc)">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"
                 xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -598,7 +598,7 @@
         </div>
     </div>
     <div id="comparison-modal" class="comparison-backdrop" role="dialog" aria-modal="true"
-        aria-label="Image Comparison" tabindex="-1">
+        aria-label="Image Comparison" tabindex="-1" inert>
         <div class="comparison-header">
             <div class="flex items-center gap-3">
                 <h3 class="text-sm font-medium">Compare</h3>
@@ -715,7 +715,7 @@
     </div>
 
     <!-- Editor Modal -->
-    <div id="editor-modal" class="editor-backdrop" role="dialog" aria-modal="true" aria-label="File Editor">
+    <div id="editor-modal" class="editor-backdrop" role="dialog" aria-modal="true" aria-label="File Editor" inert>
         <div class="editor-container">
             <!-- Header -->
             <div class="editor-header">
@@ -848,7 +848,7 @@
         style="display: none; min-width: 100px;">
 
     <!-- Add/Edit Folder Modal -->
-    <div id="folder-modal" role="dialog" aria-modal="true" aria-labelledby="folder-modal-title"
+    <div id="folder-modal" role="dialog" aria-modal="true" aria-labelledby="folder-modal-title" inert
         class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm transition-opacity duration-200 opacity-0 pointer-events-none">
         <div class="bg-white rounded-lg shadow-xl max-w-md w-full overflow-hidden transform transition-transform duration-200 scale-95">
             <div class="p-5 border-b border-stone-100">
@@ -940,7 +940,7 @@
     </div>
 
     <!-- Metadata Modal -->
-    <div id="metadata-modal" data-testid="metadata-modal" role="dialog" aria-modal="true" aria-labelledby="metadata-modal-title"
+    <div id="metadata-modal" data-testid="metadata-modal" role="dialog" aria-modal="true" aria-labelledby="metadata-modal-title" inert
         class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm transition-opacity duration-200 opacity-0 pointer-events-none">
         <div class="bg-white rounded-lg shadow-xl max-w-md w-full overflow-hidden transform transition-transform duration-200 scale-95">
             <div class="p-5 border-b border-stone-100 flex justify-between items-center">
@@ -972,7 +972,7 @@
 
     <!-- Settings Modal -->
     <div id="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-modal-title"
-        tabindex="-1"
+        tabindex="-1" inert
         class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm transition-opacity duration-200 opacity-0 pointer-events-none">
         <div class="bg-white rounded-lg shadow-xl max-w-md w-full overflow-hidden transform transition-transform duration-200 scale-95">
             <div class="p-5 border-b border-stone-100 flex justify-between items-center">
@@ -1093,7 +1093,7 @@
 
     <!-- Plugins Modal -->
     <div id="plugins-modal" role="dialog" aria-modal="true" aria-labelledby="plugins-modal-title"
-        data-testid="plugins-modal" tabindex="-1"
+        data-testid="plugins-modal" tabindex="-1" inert
         class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm transition-opacity duration-200 opacity-0 pointer-events-none">
         <div class="bg-white rounded-lg shadow-xl max-w-lg w-full max-h-[80vh] flex flex-col overflow-hidden transform transition-transform duration-200 scale-95">
             <div class="p-5 border-b border-stone-100 flex justify-between items-center">
@@ -1154,7 +1154,7 @@
 
     <!-- Plugin Review Modal -->
     <div id="plugin-review-modal" role="dialog" aria-modal="true" aria-labelledby="plugin-review-title"
-        data-testid="plugin-review-modal"
+        data-testid="plugin-review-modal" inert
         class="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm transition-opacity duration-200 opacity-0 pointer-events-none">
         <div class="bg-white rounded-lg shadow-xl max-w-lg w-full max-h-[80vh] flex flex-col overflow-hidden transform transition-transform duration-200 scale-95">
             <div class="p-5 border-b border-stone-100">
@@ -1216,7 +1216,7 @@
     </div>
 
     <!-- Task Queue Modal -->
-    <div id="queue-modal" role="dialog" aria-modal="true"
+    <div id="queue-modal" role="dialog" aria-modal="true" inert
         class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm transition-opacity duration-200 opacity-0 pointer-events-none">
         <div class="bg-white rounded-lg shadow-xl max-w-lg w-full max-h-[80vh] flex flex-col overflow-hidden transform transition-transform duration-200 scale-95">
             <div class="p-4 border-b border-stone-100 flex justify-between items-center">
@@ -1245,7 +1245,7 @@
     </div>
 
     <!-- Plugin Options Dialog -->
-    <div id="plugin-options-modal" class="modal-backdrop opacity-0 pointer-events-none" role="dialog" aria-modal="true">
+    <div id="plugin-options-modal" class="modal-backdrop opacity-0 pointer-events-none" role="dialog" aria-modal="true" inert>
         <div class="modal-content max-w-md">
             <div class="modal-header">
                 <h3 id="plugin-options-title" class="text-sm font-semibold text-stone-800">Action Options</h3>
@@ -1266,7 +1266,7 @@
     </div>
 
     <!-- Plugin Result Modal -->
-    <div id="plugin-result-modal" class="modal-backdrop opacity-0 pointer-events-none" role="dialog" aria-modal="true" aria-labelledby="plugin-result-title">
+    <div id="plugin-result-modal" class="modal-backdrop opacity-0 pointer-events-none" role="dialog" aria-modal="true" aria-labelledby="plugin-result-title" inert>
         <div class="modal-content max-w-2xl">
             <div class="modal-header">
                 <h3 id="plugin-result-title" class="text-sm font-semibold text-stone-800">Result</h3>
@@ -1300,7 +1300,7 @@
 
     <!-- API Settings Modal -->
     <div id="api-modal" role="dialog" aria-modal="true" aria-labelledby="api-modal-title"
-        data-testid="api-modal"
+        data-testid="api-modal" inert
         class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm transition-opacity duration-200 opacity-0 pointer-events-none">
         <div class="bg-white rounded-lg shadow-xl max-w-lg w-full max-h-[80vh] flex flex-col overflow-hidden transform transition-transform duration-200 scale-95">
             <div class="p-5 border-b border-stone-100 flex justify-between items-center">
@@ -1426,7 +1426,7 @@
     </div>
 
     <!-- Shortcuts Cheat Sheet Overlay -->
-    <div id="shortcuts-cheatsheet" role="dialog" aria-modal="true" aria-label="Keyboard Shortcuts"
+    <div id="shortcuts-cheatsheet" role="dialog" aria-modal="true" aria-label="Keyboard Shortcuts" inert
         class="fixed inset-0 z-[60] flex items-center justify-center p-8 bg-stone-900/80 backdrop-blur-sm transition-opacity duration-200 opacity-0 pointer-events-none"
         data-testid="shortcuts-cheatsheet">
         <div class="bg-stone-800 rounded-lg shadow-2xl max-w-lg w-full max-h-[80vh] overflow-y-auto border border-stone-700">

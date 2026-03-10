@@ -22,6 +22,7 @@ let pluginsFocusTrapCleanup = null;
 // --- Modal Open/Close ---
 function openPlugins() {
     lastFocusedElementBeforePlugins = document.activeElement;
+    pluginsModal.removeAttribute('inert');
     pluginsModal.classList.remove('opacity-0', 'pointer-events-none');
     pluginsModal.classList.add('opacity-100');
     pluginsModal.querySelector(':scope > div').classList.remove('scale-95');
@@ -41,6 +42,7 @@ function closePlugins() {
     pluginsModal.classList.remove('opacity-100');
     pluginsModal.querySelector(':scope > div').classList.add('scale-95');
     pluginsModal.querySelector(':scope > div').classList.remove('scale-100');
+    pluginsModal.setAttribute('inert', '');
     expandedPluginId = null;
     if (lastFocusedElementBeforePlugins && lastFocusedElementBeforePlugins !== document.body
         && !lastFocusedElementBeforePlugins.closest('[inert]')) {
@@ -851,6 +853,7 @@ function openPluginOptionsDialog(action, clipIds) {
     });
 
     // Show modal
+    modal.removeAttribute('inert');
     modal.classList.remove('opacity-0', 'pointer-events-none');
     modal.classList.add('opacity-100');
 }
@@ -859,6 +862,7 @@ function closePluginOptionsDialog() {
     const modal = document.getElementById('plugin-options-modal');
     modal.classList.remove('opacity-100');
     modal.classList.add('opacity-0', 'pointer-events-none');
+    modal.setAttribute('inert', '');
     currentPluginAction = null;
     currentActionClipIds = [];
 }

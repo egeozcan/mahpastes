@@ -136,6 +136,7 @@ async function showPluginResultModal(data) {
         pluginResultBody.appendChild(rendered);
     }
 
+    pluginResultModal.removeAttribute('inert');
     pluginResultModal.classList.remove('opacity-0', 'pointer-events-none');
     pluginResultModal.classList.add('opacity-100');
 }
@@ -143,6 +144,7 @@ async function showPluginResultModal(data) {
 function closePluginResultModal() {
     pluginResultModal.classList.remove('opacity-100');
     pluginResultModal.classList.add('opacity-0', 'pointer-events-none');
+    pluginResultModal.setAttribute('inert', '');
     currentModalData = null;
     // Notify Go side so modal.show() lock is released
     window.runtime.EventsEmit('plugin:modal:closed');

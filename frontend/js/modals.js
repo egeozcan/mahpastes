@@ -457,6 +457,7 @@ async function openLightbox(index) {
     lightboxImg.alt = escapeHTML(clip.filename) || 'Image preview';
     lightboxCaption.textContent = clip.filename || 'Pasted Image';
 
+    lightbox.removeAttribute('inert');
     lightbox.classList.add('active');
     updateLightboxNav();
     if (lightboxFocusTrapCleanup) lightboxFocusTrapCleanup();
@@ -479,6 +480,7 @@ function closeLightbox() {
         lightboxFocusTrapCleanup = null;
     }
     lightbox.classList.remove('active');
+    lightbox.setAttribute('inert', '');
     resetLightboxZoom();
     setTimeout(() => {
         // Remove the image element completely to avoid any residue
@@ -948,6 +950,7 @@ async function openComparisonModal() {
     window._comparisonResizeObserver.observe(comparisonImgBottom);
 
     updateComparisonView();
+    comparisonModal.removeAttribute('inert');
     comparisonModal.classList.add('active');
     if (comparisonFocusTrapCleanup) comparisonFocusTrapCleanup();
     comparisonFocusTrapCleanup = trapFocus(comparisonModal);
@@ -960,6 +963,7 @@ function closeComparisonModal() {
         comparisonFocusTrapCleanup = null;
     }
     comparisonModal.classList.remove('active');
+    comparisonModal.setAttribute('inert', '');
     comparisonSimilarity.classList.add('hidden');
     comparisonImageInfo.classList.add('hidden');
     if (window._comparisonResizeObserver) {

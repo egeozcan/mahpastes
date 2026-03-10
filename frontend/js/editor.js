@@ -85,6 +85,7 @@ async function openEditor(clipId) {
             document.getElementById('text-editor-textarea').value = clipData.data;
         }
 
+        editorModal.removeAttribute('inert');
         editorModal.classList.add('active');
         resetToolState();
 
@@ -108,6 +109,7 @@ function getNewFilename(original) {
 function closeEditor() {
     const editorModal = document.getElementById('editor-modal');
     editorModal.classList.remove('active');
+    editorModal.setAttribute('inert', '');
 
     // Clear state
     editorClipId = null;
