@@ -416,7 +416,7 @@ export const selectors = {
     resetButton: '[data-testid="shortcuts-reset-btn"]',
     shortcutRow: (id: string) => `[data-testid="shortcut-row-${id}"]`,
     shortcutBadge: (id: string) => `[data-testid="shortcut-badge-${id}"]`,
-    focusedClip: '.clip-focused',
+    focusedClip: '#gallery > li:focus-visible',
   },
 } as const;
 

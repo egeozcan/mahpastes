@@ -2311,15 +2311,44 @@ export class AppHelper {
 
   async getFocusedClipIndex(): Promise<number> {
     return this.page.evaluate(() => {
-      // @ts-ignore
-      return typeof ShortcutManager !== 'undefined' ? ShortcutManager.focusedClipIndex : -1;
+      const focused = document.activeElement;
+      if (!focused || !focused.matches('#gallery > li')) return -1;
+      const gallery = document.getElementById('gallery');
+      if (!gallery) return -1;
+      const clips = Array.from(gallery.querySelectorAll(':scope > li'));
+      return clips.indexOf(focused);
     });
   }
 
   async isFocusedClipVisible(): Promise<boolean> {
     return this.page.evaluate(() => {
-      return !!document.querySelector('.clip-focused');
+      const focused = document.activeElement;
+      return !!focused && focused.matches('#gallery > li');
     });
+  }
+
+  /** Assert that the currently focused element matches the given selector. */
+  async expectFocusOn(selector: string): Promise<void> {
+    await expect(this.page.locator(selector)).toBeFocused();
+  }
+
+  /**
+   * Press Tab repeatedly until the focused element matches `selector`.
+   * Throws after `maxTabs` presses to prevent infinite loops.
+   * If `shift` is true, presses Shift+Tab instead.
+   */
+  async tabTo(selector: string, options?: { shift?: boolean; maxTabs?: number }): Promise<void> {
+    const max = options?.maxTabs ?? 30;
+    const key = options?.shift ? 'Shift+Tab' : 'Tab';
+    for (let i = 0; i < max; i++) {
+      await this.page.keyboard.press(key);
+      const focused = await this.page.evaluate(
+        (sel) => document.activeElement?.matches(sel) ?? false,
+        selector
+      );
+      if (focused) return;
+    }
+    throw new Error(`Could not tab to "${selector}" within ${max} presses`);
   }
 
   // ==================== Metadata ====================
