@@ -939,6 +939,7 @@ async function getImageDataUrl(clipId) {
 function updateBulkToolbar() {
     const count = selectedIds.size;
     if (count > 0) {
+        bulkToolbar.removeAttribute('inert');
         bulkToolbar.classList.remove('hidden', 'translate-y-4', 'opacity-0', 'pointer-events-none');
         bulkToolbar.classList.add('translate-y-0', 'opacity-100', 'pointer-events-auto');
         selectedCountEl.textContent = `${count} selected`;
@@ -986,6 +987,7 @@ function updateBulkToolbar() {
             bulkToolbarRover.update();
         }
     } else {
+        bulkToolbar.setAttribute('inert', '');
         bulkToolbar.classList.remove('translate-y-0', 'opacity-100', 'pointer-events-auto');
         bulkToolbar.classList.add('translate-y-4', 'opacity-0', 'pointer-events-none');
         selectAllCheckbox.checked = false;
