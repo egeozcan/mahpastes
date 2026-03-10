@@ -171,10 +171,9 @@ test.describe('Keyboard Shortcuts', () => {
       await app.uploadFile(imagePath);
       await app.expectClipCount(1);
 
+      // Tab into gallery to focus a clip
       await app.page.locator('body').click();
-
-      // Focus a clip first
-      await app.page.keyboard.press('ArrowRight');
+      await app.tabTo('#gallery > li', { maxTabs: 50 });
       expect(await app.getFocusedClipIndex()).toBe(0);
 
       // Focus search should clear grid focus
@@ -213,15 +212,16 @@ test.describe('Keyboard Shortcuts', () => {
   });
 
   test.describe('Grid Navigation', () => {
-    test('should focus first clip on arrow key press', async ({ app }) => {
+    test('should focus first clip when Tabbing into gallery', async ({ app }) => {
       const imagePath1 = await createTempFile(generateTestImage(100, 100, 'red'), 'png');
       const imagePath2 = await createTempFile(generateTestImage(100, 100, 'blue'), 'png');
       await app.uploadFile(imagePath1);
       await app.uploadFile(imagePath2);
       await app.expectClipCount(2);
 
+      // Tab into gallery (click body first for consistent focus position)
       await app.page.locator('body').click();
-      await app.page.keyboard.press('ArrowRight');
+      await app.tabTo('#gallery > li', { maxTabs: 50 });
 
       // Should have a focused clip
       await expect(app.page.locator(selectors.shortcuts.focusedClip)).toBeVisible();
@@ -234,10 +234,9 @@ test.describe('Keyboard Shortcuts', () => {
       await app.uploadFile(imagePath2);
       await app.expectClipCount(2);
 
+      // Tab into gallery to focus first clip
       await app.page.locator('body').click();
-
-      // Focus first clip
-      await app.page.keyboard.press('ArrowRight');
+      await app.tabTo('#gallery > li', { maxTabs: 50 });
       const idx1 = await app.getFocusedClipIndex();
       expect(idx1).toBe(0);
 
@@ -252,8 +251,9 @@ test.describe('Keyboard Shortcuts', () => {
       await app.uploadFile(imagePath);
       await app.expectClipCount(1);
 
+      // Tab into gallery then press Enter
       await app.page.locator('body').click();
-      await app.page.keyboard.press('ArrowRight');
+      await app.tabTo('#gallery > li', { maxTabs: 50 });
       await app.page.keyboard.press('Enter');
 
       expect(await app.isLightboxOpen()).toBe(true);
@@ -266,10 +266,9 @@ test.describe('Keyboard Shortcuts', () => {
       await app.uploadFile(imagePath2);
       await app.expectClipCount(2);
 
+      // Tab into gallery to focus first clip
       await app.page.locator('body').click();
-
-      // Focus first clip
-      await app.page.keyboard.press('ArrowRight');
+      await app.tabTo('#gallery > li', { maxTabs: 50 });
       expect(await app.getFocusedClipIndex()).toBe(0);
 
       // Try to go left past start
@@ -284,10 +283,9 @@ test.describe('Keyboard Shortcuts', () => {
       await app.uploadFile(imagePath2);
       await app.expectClipCount(2);
 
+      // Tab into gallery, then move to last
       await app.page.locator('body').click();
-
-      // Focus first, then move to last
-      await app.page.keyboard.press('ArrowRight');
+      await app.tabTo('#gallery > li', { maxTabs: 50 });
       await app.page.keyboard.press('ArrowRight');
       expect(await app.getFocusedClipIndex()).toBe(1);
 
@@ -308,9 +306,13 @@ test.describe('Keyboard Shortcuts', () => {
       }
       await app.expectClipCount(3);
 
+      // Tab into gallery to focus first clip
       await app.page.locator('body').click();
+      await app.tabTo('#gallery > li', { maxTabs: 50 });
+      const startIdx = await app.getFocusedClipIndex();
+      expect(startIdx).toBe(0);
 
-      // Focus first clip
+      // ArrowDown should move focus
       await app.page.keyboard.press('ArrowDown');
       const idx = await app.getFocusedClipIndex();
       expect(idx).toBeGreaterThanOrEqual(0);
@@ -323,10 +325,9 @@ test.describe('Keyboard Shortcuts', () => {
       await app.uploadFile(imagePath2);
       await app.expectClipCount(2);
 
+      // Tab into gallery, move right, then up should clamp to 0
       await app.page.locator('body').click();
-
-      // Focus first clip, move right, then up should stay at 0
-      await app.page.keyboard.press('ArrowRight');
+      await app.tabTo('#gallery > li', { maxTabs: 50 });
       await app.page.keyboard.press('ArrowRight');
       expect(await app.getFocusedClipIndex()).toBe(1);
 
@@ -341,10 +342,11 @@ test.describe('Keyboard Shortcuts', () => {
       await app.uploadFile(imagePath);
       await app.expectClipCount(1);
 
+      // Tab into gallery to focus clip
       await app.page.locator('body').click();
-      await app.page.keyboard.press('ArrowRight');
+      await app.tabTo('#gallery > li', { maxTabs: 50 });
 
-      // The focused clip should have the .clip-focused class
+      // The focused clip should be :focus-visible
       const focusedClip = app.page.locator(selectors.shortcuts.focusedClip);
       await expect(focusedClip).toBeVisible();
       expect(await app.isFocusedClipVisible()).toBe(true);
@@ -354,9 +356,12 @@ test.describe('Keyboard Shortcuts', () => {
       await app.expectClipCount(0);
 
       await app.page.locator('body').click();
-      await app.page.keyboard.press('ArrowRight');
 
-      // Focus should remain at -1
+      // With no clips, Tab should not enter an empty gallery
+      // Try pressing Tab a few times — focus should never land on a gallery li
+      for (let i = 0; i < 5; i++) {
+        await app.page.keyboard.press('Tab');
+      }
       expect(await app.getFocusedClipIndex()).toBe(-1);
     });
 
@@ -368,7 +373,8 @@ test.describe('Keyboard Shortcuts', () => {
       await app.expectClipCount(2);
 
       // Tab into the gallery — first clip should get focus
-      await app.tabTo('#gallery > li');
+      await app.page.locator('body').click();
+      await app.tabTo('#gallery > li', { maxTabs: 50 });
       expect(await app.getFocusedClipIndex()).toBe(0);
 
       // Arrow right to second clip
@@ -389,7 +395,8 @@ test.describe('Keyboard Shortcuts', () => {
       await app.uploadFile(img3);
       await app.expectClipCount(3);
 
-      await app.tabTo('#gallery > li');
+      await app.page.locator('body').click();
+      await app.tabTo('#gallery > li', { maxTabs: 50 });
       expect(await app.getFocusedClipIndex()).toBe(0);
 
       // End should jump to last
@@ -408,8 +415,9 @@ test.describe('Keyboard Shortcuts', () => {
       await app.uploadFile(imagePath);
       await app.expectClipCount(1);
 
+      // Tab into gallery to focus clip
       await app.page.locator('body').click();
-      await app.page.keyboard.press('ArrowRight');
+      await app.tabTo('#gallery > li', { maxTabs: 50 });
       expect(await app.getFocusedClipIndex()).toBe(0);
 
       // Press 'd' to delete
@@ -426,8 +434,9 @@ test.describe('Keyboard Shortcuts', () => {
       await app.uploadFile(imagePath);
       await app.expectClipCount(1);
 
+      // Tab into gallery to focus clip
       await app.page.locator('body').click();
-      await app.page.keyboard.press('ArrowRight');
+      await app.tabTo('#gallery > li', { maxTabs: 50 });
 
       // Press 'e' to archive
       await app.page.keyboard.press('e');
@@ -436,6 +445,7 @@ test.describe('Keyboard Shortcuts', () => {
       await app.expectClipCount(0);
 
       // Should appear in archive
+      await app.page.locator('body').click();
       await app.page.keyboard.press('a'); // toggle to archive
       await app.expectClipCount(1);
     });
@@ -445,8 +455,9 @@ test.describe('Keyboard Shortcuts', () => {
       await app.uploadFile(imagePath);
       await app.expectClipCount(1);
 
+      // Tab into gallery to focus clip
       await app.page.locator('body').click();
-      await app.page.keyboard.press('ArrowRight');
+      await app.tabTo('#gallery > li', { maxTabs: 50 });
 
       // Press Space to select
       await app.page.keyboard.press('Space');
@@ -1067,9 +1078,10 @@ test.describe('Keyboard Shortcuts', () => {
       await app.uploadFile(imagePath);
       await app.expectClipCount(1);
 
+      // Tab into gallery first, then rapidly press arrow keys
       await app.page.locator('body').click();
+      await app.tabTo('#gallery > li', { maxTabs: 50 });
 
-      // Rapidly press arrow keys
       for (let i = 0; i < 10; i++) {
         await app.page.keyboard.press('ArrowRight');
       }

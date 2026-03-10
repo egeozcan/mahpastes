@@ -69,6 +69,9 @@ async function loadClips() {
             updateClipCount(gallery.querySelectorAll('[data-folder]').length);
         }
         if (typeof checkDuplicatesExist === 'function') checkDuplicatesExist();
+
+        // Re-index roving tabindex after gallery re-render
+        if (window.__galleryRover) window.__galleryRover.update();
     } catch (error) {
         console.error('Error loading clips:', error);
         gallery.innerHTML = '<p class="text-red-500 col-span-full text-center">Error loading clips.</p>';

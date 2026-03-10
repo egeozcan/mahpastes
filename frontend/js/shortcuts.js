@@ -11,9 +11,6 @@ const ShortcutManager = (() => {
     // User overrides loaded from backend (only stores differences from defaults)
     let userOverrides = {}; // { actionId: comboString | null }
 
-    // Grid focus state
-    let focusedClipIndex = -1;
-
     // Whether the manager is initialized
     let initialized = false;
 
@@ -95,7 +92,7 @@ const ShortcutManager = (() => {
             contexts.push('bulk');
         }
 
-        if (focusedClipIndex >= 0) {
+        if (document.activeElement && document.activeElement.matches('#gallery > li')) {
             contexts.push('clip');
         }
 
@@ -273,80 +270,17 @@ const ShortcutManager = (() => {
         return columns.split(' ').filter(c => c.trim()).length;
     }
 
-    function getVisibleClipCount() {
-        const gallery = getGallery();
-        if (!gallery) return 0;
-        return gallery.querySelectorAll(':scope > li').length;
-    }
-
-    function setFocusedClipIndex(index) {
-        const gallery = getGallery();
-        if (!gallery) return;
-
-        const clips = gallery.querySelectorAll(':scope > li');
-
-        // Remove focus from previous
-        if (focusedClipIndex >= 0 && focusedClipIndex < clips.length) {
-            clips[focusedClipIndex].classList.remove('clip-focused');
-        }
-
-        focusedClipIndex = index;
-
-        // Add focus to new
-        if (focusedClipIndex >= 0 && focusedClipIndex < clips.length) {
-            clips[focusedClipIndex].classList.add('clip-focused');
-            clips[focusedClipIndex].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-        }
-    }
-
     function clearFocus() {
-        setFocusedClipIndex(-1);
-    }
-
-    function navigateGrid(direction) {
-        const total = getVisibleClipCount();
-        if (total === 0) return;
-
-        const cols = getGridColumnCount();
-
-        if (focusedClipIndex < 0) {
-            // No focus yet — focus first clip
-            setFocusedClipIndex(0);
-            return;
-        }
-
-        let next = focusedClipIndex;
-        switch (direction) {
-            case 'ArrowRight':
-                next = focusedClipIndex + 1;
-                if (next >= total) next = total - 1; // Don't wrap past end
-                break;
-            case 'ArrowLeft':
-                next = focusedClipIndex - 1;
-                if (next < 0) next = 0;
-                break;
-            case 'ArrowDown':
-                next = focusedClipIndex + cols;
-                if (next >= total) next = total - 1; // Clamp to last
-                break;
-            case 'ArrowUp':
-                next = focusedClipIndex - cols;
-                if (next < 0) next = 0;
-                break;
-        }
-
-        if (next !== focusedClipIndex) {
-            setFocusedClipIndex(next);
-        }
+        const rover = window.__galleryRover;
+        if (rover) rover.reset();
+        const clip = getFocusedClip();
+        if (clip) clip.blur();
     }
 
     function getFocusedClip() {
-        if (focusedClipIndex < 0) return null;
-        const gallery = getGallery();
-        if (!gallery) return null;
-        const clips = gallery.querySelectorAll(':scope > li');
-        if (focusedClipIndex >= clips.length) return null;
-        return clips[focusedClipIndex];
+        const active = document.activeElement;
+        if (active && active.matches('#gallery > li')) return active;
+        return null;
     }
 
     function getFocusedClipId() {
@@ -574,17 +508,15 @@ const ShortcutManager = (() => {
         resetAllToDefaults,
         loadUserOverrides,
         saveUserOverrides,
-        navigateGrid,
         clearFocus,
         getFocusedClip,
         getFocusedClipId,
-        setFocusedClipIndex,
+        getGridColumnCount,
         openCheatSheet,
         closeCheatSheet,
         isCheatSheetOpen,
         renderCheatSheet,
         get actions() { return actions; },
-        get focusedClipIndex() { return focusedClipIndex; },
         get userOverrides() { return userOverrides; },
         CATEGORY_ORDER,
         CATEGORY_LABELS,

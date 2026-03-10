@@ -889,6 +889,8 @@ async function createClipCard(clip, options = {}) {
     } else {
         gallery.appendChild(card);
     }
+
+    if (window.__galleryRover) window.__galleryRover.update();
 }
 
 // Load image data for a card

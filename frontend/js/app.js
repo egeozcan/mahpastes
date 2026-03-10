@@ -608,27 +608,7 @@ window.addEventListener('load', async () => {
             callback: () => deleteAllTempFiles()
         });
 
-        // Grid navigation
-        ShortcutManager.register({
-            id: 'grid-up', label: 'Navigate Up', category: 'gallery',
-            defaultKey: 'ArrowUp', context: 'gallery',
-            callback: () => ShortcutManager.navigateGrid('ArrowUp')
-        });
-        ShortcutManager.register({
-            id: 'grid-down', label: 'Navigate Down', category: 'gallery',
-            defaultKey: 'ArrowDown', context: 'gallery',
-            callback: () => ShortcutManager.navigateGrid('ArrowDown')
-        });
-        ShortcutManager.register({
-            id: 'grid-left', label: 'Navigate Left', category: 'gallery',
-            defaultKey: 'ArrowLeft', context: 'gallery',
-            callback: () => ShortcutManager.navigateGrid('ArrowLeft')
-        });
-        ShortcutManager.register({
-            id: 'grid-right', label: 'Navigate Right', category: 'gallery',
-            defaultKey: 'ArrowRight', context: 'gallery',
-            callback: () => ShortcutManager.navigateGrid('ArrowRight')
-        });
+        // Grid navigation is handled by the gallery roving tabindex below.
 
         // Clip actions (when a clip has keyboard focus)
         ShortcutManager.register({
@@ -701,7 +681,7 @@ window.addEventListener('load', async () => {
             id: 'clip-context-menu', label: 'Open Context Menu', category: 'clip',
             defaultKey: 'mod+Enter', context: 'clip',
             callback: () => {
-                const focused = document.querySelector('.clip-focused');
+                const focused = ShortcutManager.getFocusedClip();
                 if (!focused) return;
                 const clipId = focused.dataset.id;
                 const menuBtn = focused.querySelector('[data-action="menu"]');
@@ -893,6 +873,24 @@ window.addEventListener('load', async () => {
 
         // Initialize the shortcut manager (loads user overrides and starts listening)
         await ShortcutManager.init();
+
+        // Gallery roving tabindex — single Tab stop, arrow keys navigate within
+        const galleryRover = RovingTabindex.create({
+            container: gallery,
+            itemSelector: ':scope > li:not([data-folder])',
+            orientation: 'grid',
+            columns: () => {
+                const style = getComputedStyle(gallery);
+                const columns = style.getPropertyValue('grid-template-columns');
+                if (!columns || columns === 'none') return 1;
+                return columns.split(' ').filter(c => c.trim()).length;
+            },
+            wrap: false,
+        });
+        window.__galleryRover = galleryRover;
+        Object.assign(window.__testHelpers, {
+            galleryRover: galleryRover,
+        });
 
         // Cheat sheet close handlers
         const cheatsheetClose = document.getElementById('shortcuts-cheatsheet-close');

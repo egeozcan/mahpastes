@@ -112,20 +112,11 @@ test.describe('Context Menu Keyboard Navigation', () => {
     const imagePath = await createTempFile(generateTestImage(), 'png');
     await app.uploadFile(imagePath);
 
-    // Focus first card programmatically to avoid ArrowDown timing issues
-    await app.page.evaluate(() => {
-      // @ts-ignore - ShortcutManager is global
-      if (typeof ShortcutManager !== 'undefined') {
-        ShortcutManager.setFocusedClipIndex(0);
-      }
-    });
-    const focusedClip = app.page.locator(selectors.shortcuts.focusedClip);
-    await focusedClip.waitFor({ state: 'visible', timeout: 5000 });
-    // Ensure the menu trigger button is rendered inside the focused card
-    await focusedClip.locator('[data-action="menu"]').waitFor({ state: 'attached', timeout: 3000 });
+    // Tab into gallery to focus first clip
+    await app.page.locator('body').click();
+    await app.tabTo('#gallery > li', { maxTabs: 50 });
 
-    // Click the page body to ensure Playwright has keyboard focus on the page
-    await app.page.locator('body').click({ position: { x: 400, y: 400 } });
+    // Press Ctrl/Cmd+Enter to open context menu
     await app.page.keyboard.press('ControlOrMeta+Enter');
 
     const menu = app.page.locator(selectors.cardMenu.dropdown);

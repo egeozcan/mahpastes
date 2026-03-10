@@ -314,14 +314,6 @@ body.drag-preparing * {
     }
 }
 
-/* Keyboard navigation focus indicator */
-.clip-focused {
-    outline: 2px solid #a8a29e; /* stone-400 */
-    outline-offset: 2px;
-    transform: scale(1.02);
-    z-index: 1;
-}
-
 /* Tooltip system */
 [data-tooltip] {
     position: relative;

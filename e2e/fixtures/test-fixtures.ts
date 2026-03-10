@@ -659,9 +659,6 @@ export class AppHelper {
         cheatsheet.classList.add('opacity-0', 'pointer-events-none');
       }
 
-      // Clear grid focus
-      document.querySelector('.clip-focused')?.classList.remove('clip-focused');
-
       // Card menu dropdown (dynamically created)
       document.querySelector('.card-menu-dropdown')?.remove();
 
