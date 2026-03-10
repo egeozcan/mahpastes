@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -476,14 +477,15 @@ func setJSON(data *interface{}, path string, value interface{}) error {
 		for i, elem := range v {
 			if obj, ok := elem.(map[string]interface{}); ok {
 				if elemID, ok := toFloat(obj["id"]); ok && elemID == id {
-					// If value is an object, replace the element's contents.
-					if newObj, ok := value.(map[string]interface{}); ok {
-						// Preserve the id.
-						newObj["id"] = obj["id"]
-						v[i] = newObj
-					} else {
-						v[i] = value
+					// Only objects can replace id-addressed array elements;
+					// a non-object would strip the id and break future lookups.
+					newObj, ok := value.(map[string]interface{})
+					if !ok {
+						return fmt.Errorf("cannot replace array element with non-object value")
 					}
+					// Preserve the id.
+					newObj["id"] = obj["id"]
+					v[i] = newObj
 					found = true
 					break
 				}
@@ -606,8 +608,7 @@ func toFloat(v interface{}) (float64, bool) {
 	case int64:
 		return float64(n), true
 	case string:
-		var f float64
-		_, err := fmt.Sscanf(n, "%f", &f)
+		f, err := strconv.ParseFloat(n, 64)
 		return f, err == nil
 	default:
 		return 0, false

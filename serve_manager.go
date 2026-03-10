@@ -197,8 +197,10 @@ func (sm *ServeManager) makeHandler(ts *tagServer) http.Handler {
 			return
 		}
 
-		// Route /_api/* requests to the JSON API handler.
-		if strings.HasPrefix(r.URL.Path, "/_api/") || r.URL.Path == "/_api" {
+		// Route /_api/* requests to the JSON API handler only when API is enabled.
+		// When disabled, fall through to normal file/subtag resolution so existing
+		// clips or subtags named "_api" remain reachable.
+		if ts.apiAccess != "none" && (strings.HasPrefix(r.URL.Path, "/_api/") || r.URL.Path == "/_api") {
 			atomic.AddInt64(&ts.requestCount, 1)
 			sm.handleJSONAPI(w, r, ts)
 			return
