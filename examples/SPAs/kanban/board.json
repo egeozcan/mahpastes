@@ -1,0 +1,43 @@
+{
+  "title": "Project Board",
+  "columns": [
+    {
+      "id": 1,
+      "name": "To Do",
+      "tasks": [
+        {
+          "id": 1,
+          "title": "Try editing this task",
+          "description": "Click the edit button to use PATCH",
+          "priority": "medium",
+          "created": "2026-03-10T12:00:00Z"
+        },
+        {
+          "id": 2,
+          "title": "Drag me to another column",
+          "description": "Moving a task uses DELETE + POST",
+          "priority": "low",
+          "created": "2026-03-10T12:01:00Z"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "In Progress",
+      "tasks": [
+        {
+          "id": 1,
+          "title": "Add a new task below",
+          "description": "Type in the input and press Enter to POST",
+          "priority": "high",
+          "created": "2026-03-10T12:02:00Z"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "Done",
+      "tasks": []
+    }
+  ]
+}
