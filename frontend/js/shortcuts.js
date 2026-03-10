@@ -83,6 +83,11 @@ const ShortcutManager = (() => {
             return contexts;
         }
 
+        const serveViewEl = document.getElementById('serve-view');
+        if (serveViewEl && !serveViewEl.classList.contains('hidden')) {
+            return contexts; // global only — no gallery/bulk/clip shortcuts
+        }
+
         // Gallery-level contexts
         contexts.push('gallery');
 
@@ -201,9 +206,9 @@ const ShortcutManager = (() => {
         // Don't intercept keys when a context menu is open — it has its own keyboard handler
         if (typeof ContextMenu !== 'undefined' && ContextMenu.isOpen()) return;
 
-        // Input guard: suppress shortcuts when typing in form fields (except Escape)
+        // Input guard: suppress shortcuts when interacting with form fields (except Escape)
         const tag = e.target.tagName;
-        const isEditable = tag === 'INPUT' || tag === 'TEXTAREA' || e.target.isContentEditable;
+        const isEditable = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable;
         if (isEditable && e.key !== 'Escape') return;
 
         // Handle Escape for modal overlays that block all shortcut contexts.

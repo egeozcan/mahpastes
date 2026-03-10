@@ -145,6 +145,10 @@ function renderServeCard(info) {
 
 // --- Load Serve Status ---
 async function loadServeStatus() {
+    // Skip re-render if user is interacting with a dropdown to avoid
+    // nuking the DOM mid-interaction (e.g. API access select being open).
+    if (serveList.querySelector('select:focus')) return;
+
     try {
         const statuses = await window.go.main.ServeService.GetServeStatus();
         const runningMap = new Map();
@@ -248,17 +252,48 @@ async function showServeTagPicker() {
         addServeZone.style.position = 'relative';
         addServeZone.appendChild(picker);
 
-        // Tag selection handler — add to list (stopped), user clicks Start
+        // Select a tag option: add to list (stopped), user clicks Start
+        async function selectOption(option) {
+            const tagID = parseInt(option.dataset.tagId, 10);
+            const tagName = option.textContent.trim();
+            picker.remove();
+            document.removeEventListener('click', closeOnOutside);
+            configuredEntries.set(tagID, { tag_id: tagID, tag_name: tagName, bind_all: false });
+            await loadServeStatus();
+        }
+
         picker.addEventListener('click', async (e) => {
             const option = e.target.closest('.serve-tag-option');
-            if (option) {
-                const tagID = parseInt(option.dataset.tagId, 10);
-                const tagName = option.textContent.trim();
+            if (option) await selectOption(option);
+        });
+
+        // Keyboard navigation: arrow keys, Enter to select, Escape to close
+        picker.addEventListener('keydown', (e) => {
+            const options = [...picker.querySelectorAll('.serve-tag-option')];
+            const current = document.activeElement;
+            const idx = options.indexOf(current);
+
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                const next = idx < options.length - 1 ? idx + 1 : 0;
+                options[next].focus();
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                const prev = idx > 0 ? idx - 1 : options.length - 1;
+                options[prev].focus();
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                if (current && options.includes(current)) selectOption(current);
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
                 picker.remove();
-                configuredEntries.set(tagID, { tag_id: tagID, tag_name: tagName, bind_all: false });
-                await loadServeStatus();
+                document.removeEventListener('click', closeOnOutside);
             }
         });
+
+        // Focus first option for immediate keyboard use
+        const firstOption = picker.querySelector('.serve-tag-option');
+        if (firstOption) firstOption.focus();
 
         // Close on outside click
         const closeOnOutside = (e) => {
