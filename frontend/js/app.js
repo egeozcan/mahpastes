@@ -681,6 +681,11 @@ window.addEventListener('load', async () => {
             callback: () => {
                 const clip = ShortcutManager.getFocusedClip();
                 if (!clip) return;
+                if (clip.dataset.folder) {
+                    // Folder card — navigate into the folder, focus first item
+                    navigateToFolder(parseInt(clip.dataset.folder, 10), { focusFirst: true });
+                    return;
+                }
                 const viewBtn = clip.querySelector('[data-action="open-lightbox"]');
                 if (viewBtn) viewBtn.click();
             }
@@ -953,7 +958,7 @@ window.addEventListener('load', async () => {
         // Gallery roving tabindex — single Tab stop, arrow keys navigate within
         const galleryRover = RovingTabindex.create({
             container: gallery,
-            itemSelector: ':scope > li:not([data-folder])',
+            itemSelector: ':scope > li',
             orientation: 'grid',
             columns: () => {
                 const style = getComputedStyle(gallery);
@@ -962,6 +967,16 @@ window.addEventListener('load', async () => {
                 return columns.split(' ').filter(c => c.trim()).length;
             },
             wrap: false,
+            onActivate: (item) => {
+                if (item.dataset.folder) {
+                    // Folder card — navigate into the folder, focus first item
+                    navigateToFolder(parseInt(item.dataset.folder, 10), { focusFirst: true });
+                } else {
+                    // Clip card — open lightbox / editor
+                    const openBtn = item.querySelector('[data-action="open-lightbox"]');
+                    if (openBtn) openBtn.click();
+                }
+            },
         });
         window.__galleryRover = galleryRover;
         Object.assign(window.__testHelpers, {

@@ -1,9 +1,17 @@
 // Wails API - replaces fetch-based api.js
 // All methods call Go bindings via window.go.main.App.*
 
-async function loadClips() {
+let _pendingFocusAfterLoad = false;
+
+async function loadClips({ focusFirst = false } = {}) {
+    _pendingFocusAfterLoad = focusFirst;
     try {
-        if (typeof ShortcutManager !== 'undefined') ShortcutManager.clearFocus();
+        // Clear gallery focus, but not if user is interacting with the tag filter dropdown
+        const tagDropdown = document.getElementById('tag-filter-dropdown');
+        if (typeof ShortcutManager !== 'undefined' &&
+            !(tagDropdown && !tagDropdown.classList.contains('hidden') && tagDropdown.contains(document.activeElement))) {
+            ShortcutManager.clearFocus();
+        }
         // Build set of filter IDs + their ancestors so hidden parent tags
         // are revealed when filtering by a subtag.
         const revealedIds = new Set(activeTagFilters);
@@ -72,6 +80,22 @@ async function loadClips() {
 
         // Re-index roving tabindex after gallery re-render
         if (window.__galleryRover) window.__galleryRover.update();
+
+        // Focus first gallery item after folder navigation or search
+        if (_pendingFocusAfterLoad) {
+            _pendingFocusAfterLoad = false;
+            const firstItem = gallery.querySelector(':scope > li');
+            if (firstItem) {
+                if (window.__galleryRover) window.__galleryRover.setActiveIndex(0);
+                firstItem.focus();
+            } else {
+                // No items — focus the last breadcrumb remove button
+                const pills = document.querySelectorAll('#active-tags-container button[aria-label^="Remove"]');
+                if (pills.length > 0) {
+                    pills[pills.length - 1].focus();
+                }
+            }
+        }
     } catch (error) {
         console.error('Error loading clips:', error);
         gallery.innerHTML = '<p class="text-red-500 col-span-full text-center">Error loading clips.</p>';

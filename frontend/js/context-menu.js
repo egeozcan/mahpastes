@@ -9,6 +9,7 @@ const ContextMenu = (() => {
     let outsideClickHandler = null;
     let onActionCallback = null;
     let currentClipId = null;
+    let lastFocusedBeforeOpen = null;
 
     // Maps submenu trigger elements to their children data
     const submenuChildrenMap = new WeakMap();
@@ -459,6 +460,7 @@ const ContextMenu = (() => {
 
         currentClipId = clipId;
         onActionCallback = onAction;
+        lastFocusedBeforeOpen = document.activeElement;
 
         // Create menu container
         const menu = document.createElement('div');
@@ -523,6 +525,12 @@ const ContextMenu = (() => {
 
         onActionCallback = null;
         currentClipId = null;
+
+        // Restore focus to the element that was focused before the menu opened
+        if (lastFocusedBeforeOpen) {
+            lastFocusedBeforeOpen.focus();
+            lastFocusedBeforeOpen = null;
+        }
     }
 
     function isOpen() {

@@ -129,6 +129,7 @@ function toggleTagFilter(tagId) {
                 }
                 updateActiveTagsDisplay();
                 renderTagFilterDropdown();
+                restoreTagFilterFocus(tagId);
                 loadClips();
                 return;
             }
@@ -137,7 +138,25 @@ function toggleTagFilter(tagId) {
     }
     updateActiveTagsDisplay();
     renderTagFilterDropdown();
+    restoreTagFilterFocus(tagId);
     loadClips();
+}
+
+function restoreTagFilterFocus(tagId) {
+    if (!tagFilterRover) return;
+    // Find the tag's name to locate its checkbox in the re-rendered list
+    const tag = allTags.find(t => t.id === tagId);
+    if (!tag) return;
+    const checkbox = tagFilterList.querySelector(`[data-testid="tag-checkbox-${tag.name}"]`);
+    if (!checkbox) return;
+    const label = checkbox.closest('label');
+    if (!label) return;
+    const items = tagFilterRover.getItems();
+    const idx = items.indexOf(label);
+    if (idx >= 0) {
+        tagFilterRover.setActiveIndex(idx);
+        label.focus();
+    }
 }
 
 function updateActiveTagsDisplay() {
@@ -272,13 +291,39 @@ function clearAllTagFilters() {
 
 // --- Tag Filter Dropdown Toggle ---
 
+let tagFilterFocusTrapCleanup = null;
+
+function openTagFilterDropdown() {
+    tagFilterDropdown.classList.remove('hidden');
+    // Re-index rover now that items are visible, and focus first item
+    if (tagFilterRover) {
+        tagFilterRover.update();
+        const items = tagFilterRover.getItems();
+        if (items.length > 0) {
+            tagFilterRover.setActiveIndex(0);
+            items[0].focus();
+        }
+    }
+    if (tagFilterFocusTrapCleanup) tagFilterFocusTrapCleanup();
+    tagFilterFocusTrapCleanup = trapFocus(tagFilterDropdown);
+}
+
+function closeTagFilterDropdown(restoreFocus = true) {
+    tagFilterDropdown.classList.add('hidden');
+    if (tagFilterFocusTrapCleanup) {
+        tagFilterFocusTrapCleanup();
+        tagFilterFocusTrapCleanup = null;
+    }
+    if (restoreFocus) tagFilterBtn.focus();
+}
+
 if (tagFilterBtn) {
     tagFilterBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        tagFilterDropdown.classList.toggle('hidden');
-        // Re-index rover now that items are visible
-        if (!tagFilterDropdown.classList.contains('hidden') && tagFilterRover) {
-            tagFilterRover.update();
+        if (tagFilterDropdown.classList.contains('hidden')) {
+            openTagFilterDropdown();
+        } else {
+            closeTagFilterDropdown();
         }
     });
 }
@@ -287,11 +332,22 @@ if (clearTagFiltersBtn) {
     clearTagFiltersBtn.addEventListener('click', clearAllTagFilters);
 }
 
+// Close dropdown on Escape and restore focus to filter button
+if (tagFilterDropdown) {
+    tagFilterDropdown.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            e.stopPropagation();
+            closeTagFilterDropdown();
+        }
+    });
+}
+
 // Close dropdown when clicking outside
 document.addEventListener('click', (e) => {
     if (tagFilterDropdown && !tagFilterDropdown.classList.contains('hidden')) {
         if (!tagFilterDropdown.contains(e.target) && e.target !== tagFilterBtn) {
-            tagFilterDropdown.classList.add('hidden');
+            closeTagFilterDropdown(false);
         }
     }
 });

@@ -687,6 +687,7 @@ export class AppHelper {
         if (helpers.setHiddenTags) helpers.setHiddenTags([]);
         if (helpers.setViewingArchive) helpers.setViewingArchive(false);
         if (helpers.setViewingWatch) helpers.setViewingWatch(false);
+        if (helpers.setFolderMode) helpers.setFolderMode(false);
         if (helpers.setSort) helpers.setSort('date', 'desc');
 
         // Reset keyboard shortcut overrides to defaults
@@ -710,6 +711,14 @@ export class AppHelper {
       const drawerToggle = document.getElementById('drawer-toggle-btn');
       if (drawerToggle) {
         drawerToggle.setAttribute('aria-expanded', 'false');
+      }
+
+      // Reset folder mode button UI
+      const folderModeBtn = document.getElementById('folder-mode-btn');
+      if (folderModeBtn) {
+        folderModeBtn.setAttribute('aria-pressed', 'false');
+        folderModeBtn.classList.remove('bg-stone-800', 'text-white', 'border-stone-800');
+        folderModeBtn.classList.add('border-stone-200', 'text-stone-500', 'hover:border-stone-300', 'hover:bg-stone-100');
       }
 
       // Reset archive button UI (ID: toggle-archive-view-btn)
@@ -1601,6 +1610,7 @@ export class AppHelper {
 
   async toggleFolderMode(): Promise<void> {
     await this.page.locator(selectors.tags.folderModeButton).click();
+    await this.page.waitForFunction(() => (window as any).__appReady === true, null, { timeout: 10000 });
   }
 
   async expectFolderVisible(name: string): Promise<void> {
@@ -1612,8 +1622,10 @@ export class AppHelper {
   }
 
   async clickFolder(name: string): Promise<void> {
-    await this.page.locator(selectors.tags.folderCard(name)).click();
-    await this.page.waitForTimeout(500);
+    const folder = this.page.locator(selectors.tags.folderCard(name));
+    await folder.waitFor({ state: 'visible', timeout: 10000 });
+    await folder.click();
+    await this.page.waitForFunction(() => (window as any).__appReady === true, null, { timeout: 10000 });
   }
 
   async setFolderMode(enabled: boolean): Promise<void> {
@@ -1982,6 +1994,7 @@ export class AppHelper {
   async hoverCopySubmenu(filename: string): Promise<void> {
     await this.openCardMenu(filename);
     const trigger = this.page.locator(selectors.cardMenu.copyTrigger);
+    await trigger.waitFor({ state: 'visible', timeout: 5000 });
     await trigger.hover();
     await this.page.locator(selectors.cardMenu.submenu).waitFor({ state: 'visible', timeout: 3000 });
   }
@@ -1989,6 +2002,7 @@ export class AppHelper {
   async hoverPluginsSubmenu(filename: string): Promise<void> {
     await this.openCardMenu(filename);
     const trigger = this.page.locator(selectors.cardMenu.pluginsTrigger);
+    await trigger.waitFor({ state: 'visible', timeout: 5000 });
     await trigger.hover();
     await this.page.locator(selectors.cardMenu.submenu).waitFor({ state: 'visible', timeout: 3000 });
   }

@@ -1083,6 +1083,20 @@ searchInput.addEventListener('input', (e) => {
     });
 });
 
+searchInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        // Focus the first visible gallery item
+        const firstVisible = gallery.querySelector(':scope > li:not([style*="display: none"])');
+        if (firstVisible && window.__galleryRover) {
+            const items = window.__galleryRover.getItems();
+            const idx = items.indexOf(firstVisible);
+            if (idx >= 0) window.__galleryRover.setActiveIndex(idx);
+            firstVisible.focus();
+        }
+    }
+});
+
 // --- Folder Mode Rendering ---
 
 async function renderFolderCards() {
@@ -1121,7 +1135,7 @@ async function renderFolderCards() {
     }
 }
 
-function navigateToFolder(tagId) {
+function navigateToFolder(tagId, { focusFirst = false } = {}) {
     // Replace active filters with this tag's ancestors + this tag
     const tag = allTags.find(t => t.id === tagId);
     if (!tag) return;
@@ -1145,5 +1159,5 @@ function navigateToFolder(tagId) {
 
     updateActiveTagsDisplay();
     renderTagFilterDropdown();
-    loadClips();
+    loadClips({ focusFirst });
 }

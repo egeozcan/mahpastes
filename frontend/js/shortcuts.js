@@ -378,21 +378,37 @@ const ShortcutManager = (() => {
 
     // --- Cheat Sheet ---
 
+    let cheatSheetFocusTrapCleanup = null;
+    let lastFocusedBeforeCheatSheet = null;
+
     function openCheatSheet() {
         const overlay = document.getElementById('shortcuts-cheatsheet');
         if (!overlay) return;
+        lastFocusedBeforeCheatSheet = document.activeElement;
         overlay.removeAttribute('inert');
         overlay.classList.remove('opacity-0', 'pointer-events-none');
         overlay.classList.add('opacity-100');
         renderCheatSheet();
+        if (cheatSheetFocusTrapCleanup) cheatSheetFocusTrapCleanup();
+        cheatSheetFocusTrapCleanup = trapFocus(overlay);
+        const closeBtn = document.getElementById('shortcuts-cheatsheet-close');
+        if (closeBtn) closeBtn.focus();
     }
 
     function closeCheatSheet() {
         const overlay = document.getElementById('shortcuts-cheatsheet');
         if (!overlay) return;
+        if (cheatSheetFocusTrapCleanup) {
+            cheatSheetFocusTrapCleanup();
+            cheatSheetFocusTrapCleanup = null;
+        }
         overlay.classList.add('opacity-0', 'pointer-events-none');
         overlay.classList.remove('opacity-100');
         overlay.setAttribute('inert', '');
+        if (lastFocusedBeforeCheatSheet) {
+            lastFocusedBeforeCheatSheet.focus();
+            lastFocusedBeforeCheatSheet = null;
+        }
     }
 
     function isCheatSheetOpen() {
@@ -485,6 +501,13 @@ const ShortcutManager = (() => {
         const pluginsModal = document.querySelector('[data-testid="plugins-modal"]');
         if (pluginsModal && !pluginsModal.classList.contains('opacity-0')) {
             if (typeof closePlugins === 'function') closePlugins();
+            return true;
+        }
+
+        // Tag filter dropdown
+        const tagDropdown = document.getElementById('tag-filter-dropdown');
+        if (tagDropdown && !tagDropdown.classList.contains('hidden')) {
+            if (typeof closeTagFilterDropdown === 'function') closeTagFilterDropdown();
             return true;
         }
 
