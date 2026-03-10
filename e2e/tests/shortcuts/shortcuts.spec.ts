@@ -359,6 +359,47 @@ test.describe('Keyboard Shortcuts', () => {
       // Focus should remain at -1
       expect(await app.getFocusedClipIndex()).toBe(-1);
     });
+
+    test('should Tab into gallery and focus first clip, then Tab out', async ({ app }) => {
+      const img1 = await createTempFile(generateTestImage(100, 100, 'red'), 'png');
+      const img2 = await createTempFile(generateTestImage(100, 100, 'blue'), 'png');
+      await app.uploadFile(img1);
+      await app.uploadFile(img2);
+      await app.expectClipCount(2);
+
+      // Tab into the gallery — first clip should get focus
+      await app.tabTo('#gallery > li');
+      expect(await app.getFocusedClipIndex()).toBe(0);
+
+      // Arrow right to second clip
+      await app.page.keyboard.press('ArrowRight');
+      expect(await app.getFocusedClipIndex()).toBe(1);
+
+      // Tab out of gallery — focus should leave gallery
+      await app.page.keyboard.press('Tab');
+      expect(await app.getFocusedClipIndex()).toBe(-1);
+    });
+
+    test('should support Home/End keys in gallery', async ({ app }) => {
+      const img1 = await createTempFile(generateTestImage(100, 100, 'red'), 'png');
+      const img2 = await createTempFile(generateTestImage(100, 100, 'blue'), 'png');
+      const img3 = await createTempFile(generateTestImage(100, 100, 'green'), 'png');
+      await app.uploadFile(img1);
+      await app.uploadFile(img2);
+      await app.uploadFile(img3);
+      await app.expectClipCount(3);
+
+      await app.tabTo('#gallery > li');
+      expect(await app.getFocusedClipIndex()).toBe(0);
+
+      // End should jump to last
+      await app.page.keyboard.press('End');
+      expect(await app.getFocusedClipIndex()).toBe(2);
+
+      // Home should jump to first
+      await app.page.keyboard.press('Home');
+      expect(await app.getFocusedClipIndex()).toBe(0);
+    });
   });
 
   test.describe('Clip Actions (with focused clip)', () => {
