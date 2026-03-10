@@ -675,12 +675,11 @@
       async request(method, path, body) {
         const url = API_BASE + (path ? '/' + path : '');
         const start = performance.now();
-        const opts = {
-          method,
-          credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' },
-        };
-        if (body !== undefined) opts.body = JSON.stringify(body);
+        const opts = { method, credentials: 'same-origin' };
+        if (body !== undefined) {
+          opts.headers = { 'Content-Type': 'application/json' };
+          opts.body = JSON.stringify(body);
+        }
         let res;
         try {
           res = await fetch(url, opts);
@@ -1171,12 +1170,24 @@
         // Step 2: POST to target column (new id will be auto-assigned)
         const taskData = { ...task };
         delete taskData.id; // Server assigns new id
-        await api.post(`columns/${targetColumnId}/tasks`, taskData);
+        try {
+          await api.post(`columns/${targetColumnId}/tasks`, taskData);
+        } catch (postErr) {
+          // POST failed after DELETE succeeded — try to restore to source column
+          try {
+            await api.post(`columns/${fromColumnId}/tasks`, taskData);
+            showError('Move failed, task restored to original column');
+          } catch {
+            showError('Move failed and rollback failed — task may be lost. Check the API log.');
+          }
+          await loadBoard();
+          return;
+        }
 
         await loadBoard();
       } catch (err) {
         showError('Failed to move task: ' + err.message);
-        await loadBoard(); // Re-render to restore state
+        await loadBoard();
       }
     }
 
