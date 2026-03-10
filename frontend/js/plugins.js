@@ -128,7 +128,7 @@ function createPluginCard(plugin) {
                     <label class="relative inline-flex items-center cursor-pointer" data-action="toggle-enable">
                         <input type="checkbox" data-testid="plugin-toggle-${plugin.id}"
                                class="sr-only peer" ${plugin.enabled ? 'checked' : ''}>
-                        <div class="w-9 h-5 bg-stone-300 peer-focus:ring-2 peer-focus:ring-stone-400/30 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500"></div>
+                        <div class="w-9 h-5 bg-stone-300 peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-stone-400 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500"></div>
                     </label>
                     <svg class="w-4 h-4 text-stone-400 transition-transform ${isExpanded ? 'rotate-180' : ''}"
                          fill="none" stroke="currentColor" viewBox="0 0 24 24">
