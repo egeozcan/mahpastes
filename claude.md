@@ -49,6 +49,8 @@ npm run test:debug    # Debug mode with Playwright inspector
 npm run test:ui       # Interactive UI mode
 ```
 
+**IMPORTANT**: When running the full test suite, always pipe through `| tail -N` (e.g. `tail -50`) to avoid truncated output. The full output is very long.
+
 ### Test Organization
 
 Tests are organized by feature in `e2e/tests/`:

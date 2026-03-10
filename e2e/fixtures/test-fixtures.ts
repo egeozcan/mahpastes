@@ -665,6 +665,14 @@ export class AppHelper {
       // Sort popover (dynamically created)
       document.querySelector('.sort-popover')?.remove();
 
+      // Tag popover
+      const tagPopover = document.getElementById('tag-popover');
+      if (tagPopover) tagPopover.classList.add('hidden');
+
+      // Tag filter dropdown
+      const tagFilterDropdown = document.getElementById('tag-filter-dropdown');
+      if (tagFilterDropdown) tagFilterDropdown.classList.add('hidden');
+
       // Close plugin URL input container
       const urlContainer = document.getElementById('plugin-url-container');
       if (urlContainer) urlContainer.classList.add('hidden');
@@ -698,10 +706,11 @@ export class AppHelper {
         }
       }
 
-      // Close nav drawer if open
+      // Close nav drawer if open and restore inert
       const navDrawer = document.getElementById('nav-drawer');
-      if (navDrawer && !navDrawer.classList.contains('translate-x-full')) {
+      if (navDrawer) {
         navDrawer.classList.add('translate-x-full');
+        navDrawer.setAttribute('inert', '');
       }
       const drawerOverlay = document.getElementById('drawer-overlay');
       if (drawerOverlay) {

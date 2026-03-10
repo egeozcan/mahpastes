@@ -1111,6 +1111,9 @@ async function renderFolderCards() {
 
     if (!folderTags || folderTags.length === 0) return;
 
+    // Remove any existing folder cards to prevent duplicates from race conditions
+    gallery.querySelectorAll('[data-folder]').forEach(card => card.remove());
+
     for (const tag of folderTags) {
         const count = await getDescendantClipCount(tag.id);
         const shortName = getShortTagName(tag.name);

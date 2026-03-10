@@ -458,6 +458,9 @@ const ContextMenu = (() => {
         // Close any existing menu
         close();
 
+        // Dismiss tag popover if visible (it has higher z-index)
+        if (typeof closeTagPopover === 'function') closeTagPopover();
+
         currentClipId = clipId;
         onActionCallback = onAction;
         lastFocusedBeforeOpen = document.activeElement;
