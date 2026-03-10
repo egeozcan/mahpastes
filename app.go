@@ -1192,6 +1192,13 @@ func (a *App) UpdateTag(id int64, name, color string) error {
 		return fmt.Errorf("tag name too long (max %d characters)", maxTagNameLength)
 	}
 
+	// Reserve "_api" as a path segment — used by tag serve JSON API.
+	for _, seg := range strings.Split(name, "/") {
+		if seg == "_api" {
+			return fmt.Errorf("tag name contains reserved segment '_api'")
+		}
+	}
+
 	tx, err := a.db.Begin()
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
@@ -1340,12 +1347,14 @@ func (a *App) removeSameTreeTags(clipID, newTagID int64) error {
 	}
 	root := getRootTagName(newTagName)
 
-	// Find all tags on this clip that share the same root tree
+	// Find all tags on this clip that share the same root tree.
+	// Escape SQL LIKE wildcards in the root name so _ and % are treated literally.
+	escapedRoot := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(root)
 	rows, err := a.db.Query(`
 		SELECT t.id FROM clip_tags ct
 		INNER JOIN tags t ON ct.tag_id = t.id
-		WHERE ct.clip_id = ? AND (t.name = ? OR t.name LIKE ?)`,
-		clipID, root, root+"/%")
+		WHERE ct.clip_id = ? AND (t.name = ? OR t.name LIKE ? ESCAPE '\')`,
+		clipID, root, escapedRoot+"/%")
 	if err != nil {
 		return err
 	}

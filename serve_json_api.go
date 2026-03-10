@@ -246,14 +246,8 @@ func (sm *ServeManager) handleJSONPatch(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	// RFC 7396 merge: null values delete keys, others upsert.
-	for k, v := range patch {
-		if v == nil {
-			delete(obj, k)
-		} else {
-			obj[k] = v
-		}
-	}
+	// RFC 7396 merge: recurse into nested objects, null deletes keys.
+	mergePatch(obj, patch)
 
 	// Write back.
 	if jsonPath == "" {
@@ -305,14 +299,31 @@ func (sm *ServeManager) handleJSONDelete(w http.ResponseWriter, r *http.Request,
 
 // --- Database helpers ---
 
-// readJSONClip queries the DB for a clip's data by tag and filename, and unmarshals it.
+// resolveClipID finds the clip ID for a served filename by using the same
+// buildFileList alias map that the normal file handler uses. This correctly
+// handles duplicate filenames (e.g. "users.json" vs "users (2).json").
+func (sm *ServeManager) resolveClipID(tagID int64, filename string) (int64, error) {
+	files, err := sm.buildFileList(tagID)
+	if err != nil {
+		return 0, err
+	}
+	for _, f := range files {
+		if f.filename == filename {
+			return f.clipID, nil
+		}
+	}
+	return 0, fmt.Errorf("clip not found")
+}
+
+// readJSONClip queries the DB for a clip's data by resolved clip ID, and unmarshals it.
 func (sm *ServeManager) readJSONClip(tagID int64, filename string) (interface{}, error) {
+	clipID, err := sm.resolveClipID(tagID, filename)
+	if err != nil {
+		return nil, err
+	}
+
 	var data []byte
-	err := sm.app.db.QueryRow(`
-		SELECT c.data FROM clips c
-		JOIN clip_tags ct ON c.id = ct.clip_id
-		WHERE ct.tag_id = ? AND c.filename = ? AND c.is_archived = 0
-	`, tagID, filename).Scan(&data)
+	err = sm.app.db.QueryRow(`SELECT data FROM clips WHERE id = ?`, clipID).Scan(&data)
 	if err != nil {
 		return nil, fmt.Errorf("clip not found")
 	}
@@ -324,29 +335,21 @@ func (sm *ServeManager) readJSONClip(tagID int64, filename string) (interface{},
 	return result, nil
 }
 
-// writeJSONClip marshals data and updates the clip's data in the DB.
+// writeJSONClip marshals data and updates the clip by resolved clip ID.
 func (sm *ServeManager) writeJSONClip(tagID int64, filename string, data interface{}) error {
+	clipID, err := sm.resolveClipID(tagID, filename)
+	if err != nil {
+		return err
+	}
+
 	raw, err := json.Marshal(data)
 	if err != nil {
 		return fmt.Errorf("failed to marshal JSON: %w", err)
 	}
 
-	result, err := sm.app.db.Exec(`
-		UPDATE clips SET data = ?
-		WHERE id = (
-			SELECT c.id FROM clips c
-			JOIN clip_tags ct ON c.id = ct.clip_id
-			WHERE ct.tag_id = ? AND c.filename = ? AND c.is_archived = 0
-			LIMIT 1
-		)
-	`, raw, tagID, filename)
+	_, err = sm.app.db.Exec(`UPDATE clips SET data = ? WHERE id = ?`, raw, clipID)
 	if err != nil {
 		return fmt.Errorf("failed to write clip: %w", err)
-	}
-
-	rows, _ := result.RowsAffected()
-	if rows == 0 {
-		return fmt.Errorf("clip not found for write")
 	}
 	return nil
 }
@@ -559,6 +562,25 @@ func deleteJSON(data *interface{}, path string) error {
 	}
 
 	return nil
+}
+
+// mergePatch applies RFC 7396 JSON Merge Patch recursively.
+// null values delete keys; nested objects are merged recursively; all else overwrites.
+func mergePatch(target, patch map[string]interface{}) {
+	for k, v := range patch {
+		if v == nil {
+			delete(target, k)
+			continue
+		}
+		// If both sides are objects, recurse.
+		if patchObj, ok := v.(map[string]interface{}); ok {
+			if targetObj, ok := target[k].(map[string]interface{}); ok {
+				mergePatch(targetObj, patchObj)
+				continue
+			}
+		}
+		target[k] = v
+	}
 }
 
 // nextID scans an array of objects for the maximum "id" field and returns max+1.
