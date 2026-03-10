@@ -59,6 +59,10 @@ const ShortcutManager = (() => {
         if (settingsModal && !settingsModal.classList.contains('opacity-0')) return [];
         if (pluginsModal && !pluginsModal.classList.contains('opacity-0')) return [];
 
+        // Nav drawer open — suppress all shortcuts (drawer has its own key handling)
+        const navDrawer = document.getElementById('nav-drawer');
+        if (navDrawer && !navDrawer.classList.contains('translate-x-full')) return [];
+
         // Check for any other open modal (plugin options, plugin review, folder modal, etc.)
         const openModals = ['plugin-options-modal', 'plugin-result-modal', 'plugin-review-modal',
                             'folder-modal', 'restore-confirm-dialog', 'text-editor-modal', 'metadata-modal'];
@@ -486,6 +490,13 @@ const ShortcutManager = (() => {
         const sortPopover = document.querySelector('.sort-popover');
         if (sortPopover) {
             if (typeof closeSortPopover === 'function') closeSortPopover();
+            return true;
+        }
+
+        // Nav drawer
+        const navDrawer = document.getElementById('nav-drawer');
+        if (navDrawer && !navDrawer.classList.contains('translate-x-full')) {
+            if (typeof closeDrawer === 'function') closeDrawer();
             return true;
         }
 

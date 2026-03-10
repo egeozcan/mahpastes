@@ -4,34 +4,73 @@ const drawerCloseBtn = document.getElementById('drawer-close-btn');
 const drawerOverlay = document.getElementById('drawer-overlay');
 const navDrawer = document.getElementById('nav-drawer');
 
+let drawerFocusTrapCleanup = null;
+let lastFocusedBeforeDrawer = null;
+
+// Roving tabindex for drawer nav buttons
+let drawerNavRover = null;
+
 function openDrawer() {
+    lastFocusedBeforeDrawer = document.activeElement;
     navDrawer.classList.remove('translate-x-full');
     drawerOverlay.classList.remove('opacity-0', 'pointer-events-none');
     drawerOverlay.classList.add('opacity-100');
     drawerToggleBtn.setAttribute('aria-expanded', 'true');
+
+    // Focus trap and focus the active view tab
+    if (drawerFocusTrapCleanup) drawerFocusTrapCleanup();
+    drawerFocusTrapCleanup = trapFocus(navDrawer);
+    const activeTab = navDrawer.querySelector('[role="tab"][aria-selected="true"]');
+    if (activeTab) activeTab.focus();
+
+    // Initialize nav buttons rover if not yet created
+    initDrawerNavRover();
 }
 
-function closeDrawer() {
+function closeDrawer(restoreFocus = true) {
     navDrawer.classList.add('translate-x-full');
     drawerOverlay.classList.add('opacity-0', 'pointer-events-none');
     drawerOverlay.classList.remove('opacity-100');
     drawerToggleBtn.setAttribute('aria-expanded', 'false');
+
+    if (drawerFocusTrapCleanup) {
+        drawerFocusTrapCleanup();
+        drawerFocusTrapCleanup = null;
+    }
+    if (restoreFocus && lastFocusedBeforeDrawer) {
+        lastFocusedBeforeDrawer.focus();
+    }
+    lastFocusedBeforeDrawer = null;
+}
+
+function initDrawerNavRover() {
+    if (drawerNavRover) drawerNavRover.destroy();
+    const navContainer = navDrawer.querySelector('nav');
+    if (navContainer) {
+        drawerNavRover = RovingTabindex.create({
+            container: navContainer,
+            itemSelector: 'button:not([style*="display: none"])',
+            orientation: 'vertical',
+            wrap: false,
+            onActivate: (btn) => btn.click(),
+        });
+    }
 }
 
 drawerToggleBtn.addEventListener('click', openDrawer);
 drawerCloseBtn.addEventListener('click', closeDrawer);
 drawerOverlay.addEventListener('click', closeDrawer);
 
-// Close drawer when any nav button inside it is clicked
+// Close drawer when any nav button inside it is clicked (skip focus restore — the action handles focus)
 navDrawer.addEventListener('click', (e) => {
     const globalActionBtn = e.target.closest('[data-global-action]');
     if (globalActionBtn) {
-        closeDrawer();
+        closeDrawer(false);
         handleGlobalAction(globalActionBtn);
         return;
     }
     if (e.target.closest('button[id]') && e.target.closest('button[id]') !== drawerCloseBtn) {
-        closeDrawer();
+        closeDrawer(false);
     }
 });
 
