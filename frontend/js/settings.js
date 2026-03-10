@@ -6,7 +6,12 @@ const openSettingsBtn = document.getElementById('open-settings-btn');
 const settingsCloseBtn = document.getElementById('settings-close');
 const settingsSaveBtn = document.getElementById('settings-save');
 
+// Focus management
+let lastFocusedElementBeforeSettings = null;
+let settingsFocusTrapCleanup = null;
+
 function openSettings() {
+    lastFocusedElementBeforeSettings = document.activeElement;
     renderHiddenTagsSettings();
     loadUpdateInterval();
     renderShortcutsSettings();
@@ -15,14 +20,27 @@ function openSettings() {
     settingsModal.classList.add('opacity-100');
     settingsModal.querySelector(':scope > div').classList.remove('scale-95');
     settingsModal.querySelector(':scope > div').classList.add('scale-100');
+    if (settingsFocusTrapCleanup) settingsFocusTrapCleanup();
+    settingsFocusTrapCleanup = trapFocus(settingsModal);
+    settingsModal.focus();
 }
 
 function closeSettings() {
     stopRecording();
+    if (settingsFocusTrapCleanup) {
+        settingsFocusTrapCleanup();
+        settingsFocusTrapCleanup = null;
+    }
     settingsModal.classList.add('opacity-0', 'pointer-events-none');
     settingsModal.classList.remove('opacity-100');
     settingsModal.querySelector(':scope > div').classList.add('scale-95');
     settingsModal.querySelector(':scope > div').classList.remove('scale-100');
+    if (lastFocusedElementBeforeSettings && lastFocusedElementBeforeSettings !== document.body) {
+        lastFocusedElementBeforeSettings.focus();
+    } else {
+        settingsModal.blur();
+    }
+    lastFocusedElementBeforeSettings = null;
     renderTagFilterDropdown();
     loadClips();
 }

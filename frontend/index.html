@@ -471,7 +471,7 @@
 
     <!-- Confirm Dialog -->
     <div id="confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title"
-        aria-describedby="confirm-message"
+        aria-describedby="confirm-message" tabindex="-1"
         class="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm transition-opacity duration-200 opacity-0 pointer-events-none">
         <div class="bg-white rounded-lg shadow-xl max-w-sm w-full overflow-hidden transform transition-transform duration-200 scale-95">
             <div class="p-5">
@@ -598,7 +598,7 @@
         </div>
     </div>
     <div id="comparison-modal" class="comparison-backdrop" role="dialog" aria-modal="true"
-        aria-label="Image Comparison">
+        aria-label="Image Comparison" tabindex="-1">
         <div class="comparison-header">
             <div class="flex items-center gap-3">
                 <h3 class="text-sm font-medium">Compare</h3>
@@ -972,6 +972,7 @@
 
     <!-- Settings Modal -->
     <div id="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-modal-title"
+        tabindex="-1"
         class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm transition-opacity duration-200 opacity-0 pointer-events-none">
         <div class="bg-white rounded-lg shadow-xl max-w-md w-full overflow-hidden transform transition-transform duration-200 scale-95">
             <div class="p-5 border-b border-stone-100 flex justify-between items-center">
@@ -1092,7 +1093,7 @@
 
     <!-- Plugins Modal -->
     <div id="plugins-modal" role="dialog" aria-modal="true" aria-labelledby="plugins-modal-title"
-        data-testid="plugins-modal"
+        data-testid="plugins-modal" tabindex="-1"
         class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm transition-opacity duration-200 opacity-0 pointer-events-none">
         <div class="bg-white rounded-lg shadow-xl max-w-lg w-full max-h-[80vh] flex flex-col overflow-hidden transform transition-transform duration-200 scale-95">
             <div class="p-5 border-b border-stone-100 flex justify-between items-center">

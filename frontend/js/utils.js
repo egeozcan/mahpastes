@@ -2,6 +2,7 @@
 window.__testHelpers = {};
 
 let confirmCallback = null;
+let confirmFocusTrapCleanup = null;
 
 function showConfirmDialog(title, message, callback) {
     const dialog = document.getElementById('confirm-dialog');
@@ -19,6 +20,8 @@ function showConfirmDialog(title, message, callback) {
     dialogContent.classList.add('scale-100');
 
     lastFocusedElement = document.activeElement;
+    if (confirmFocusTrapCleanup) confirmFocusTrapCleanup();
+    confirmFocusTrapCleanup = trapFocus(dialog);
     setTimeout(() => {
         document.getElementById('confirm-no-btn').focus();
     }, 100);
@@ -28,6 +31,10 @@ function closeConfirmDialog() {
     const dialog = document.getElementById('confirm-dialog');
     const dialogContent = dialog.querySelector('div');
 
+    if (confirmFocusTrapCleanup) {
+        confirmFocusTrapCleanup();
+        confirmFocusTrapCleanup = null;
+    }
     dialog.classList.remove('opacity-100');
     dialog.classList.add('opacity-0', 'pointer-events-none');
     dialogContent.classList.remove('scale-100');

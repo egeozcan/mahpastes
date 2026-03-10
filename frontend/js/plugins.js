@@ -14,21 +14,39 @@ let expandedPluginId = null;
 let pluginUpdates = {}; // pluginID -> PluginUpdateInfo
 let showingURLInput = false;
 
+// Focus management
+let lastFocusedElementBeforePlugins = null;
+let pluginsFocusTrapCleanup = null;
+
 // --- Modal Open/Close ---
 function openPlugins() {
+    lastFocusedElementBeforePlugins = document.activeElement;
     pluginsModal.classList.remove('opacity-0', 'pointer-events-none');
     pluginsModal.classList.add('opacity-100');
     pluginsModal.querySelector(':scope > div').classList.remove('scale-95');
     pluginsModal.querySelector(':scope > div').classList.add('scale-100');
+    if (pluginsFocusTrapCleanup) pluginsFocusTrapCleanup();
+    pluginsFocusTrapCleanup = trapFocus(pluginsModal);
+    pluginsModal.focus();
     loadPlugins();
 }
 
 function closePlugins() {
+    if (pluginsFocusTrapCleanup) {
+        pluginsFocusTrapCleanup();
+        pluginsFocusTrapCleanup = null;
+    }
     pluginsModal.classList.add('opacity-0', 'pointer-events-none');
     pluginsModal.classList.remove('opacity-100');
     pluginsModal.querySelector(':scope > div').classList.add('scale-95');
     pluginsModal.querySelector(':scope > div').classList.remove('scale-100');
     expandedPluginId = null;
+    if (lastFocusedElementBeforePlugins && lastFocusedElementBeforePlugins !== document.body) {
+        lastFocusedElementBeforePlugins.focus();
+    } else {
+        pluginsModal.blur();
+    }
+    lastFocusedElementBeforePlugins = null;
 }
 
 // --- Load Plugins ---

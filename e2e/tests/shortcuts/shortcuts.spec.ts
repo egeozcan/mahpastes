@@ -1072,6 +1072,89 @@ test.describe('Keyboard Shortcuts', () => {
     });
   });
 
+  test.describe('Modal Focus Management', () => {
+    test('should focus settings modal on open and restore focus on close', async ({ app }) => {
+      await app.page.locator('body').click();
+      await app.page.keyboard.press(',');
+      await expect(app.page.locator(selectors.settings.modal)).not.toHaveClass(/opacity-0/);
+
+      // Focus should be inside settings modal
+      const focusInSettings = await app.page.evaluate(() => {
+        const modal = document.getElementById('settings-modal');
+        return modal?.contains(document.activeElement) ?? false;
+      });
+      expect(focusInSettings).toBe(true);
+
+      // Close with Escape
+      await app.page.keyboard.press('Escape');
+      await app.page.waitForSelector(`${selectors.settings.modal}.opacity-0`, { timeout: 5000 });
+
+      // Focus should not be in settings
+      const focusAfterClose = await app.page.evaluate(() => {
+        const modal = document.getElementById('settings-modal');
+        return modal?.contains(document.activeElement) ?? false;
+      });
+      expect(focusAfterClose).toBe(false);
+    });
+
+    test('should focus cancel button in confirm dialog', async ({ app }) => {
+      const imagePath = await createTempFile(generateTestImage(), 'png');
+      await app.uploadFile(imagePath);
+      await app.expectClipCount(1);
+
+      await app.clickDeleteInCardMenu(path.basename(imagePath));
+
+      // Cancel button should be focused
+      await expect(app.page.locator(selectors.confirm.cancelButton)).toBeFocused();
+    });
+
+    test('should focus plugins modal on open and restore focus on close', async ({ app }) => {
+      await app.openPluginsModal();
+
+      // Focus should be inside plugins modal
+      const focusInPlugins = await app.page.evaluate(() => {
+        const modal = document.getElementById('plugins-modal');
+        return modal?.contains(document.activeElement) ?? false;
+      });
+      expect(focusInPlugins).toBe(true);
+
+      // Close
+      await app.closePluginsModal();
+
+      // Focus should not be in plugins modal
+      const focusAfterClose = await app.page.evaluate(() => {
+        const modal = document.getElementById('plugins-modal');
+        return modal?.contains(document.activeElement) ?? false;
+      });
+      expect(focusAfterClose).toBe(false);
+    });
+
+    test('should focus lightbox on open and restore focus on close', async ({ app }) => {
+      const imagePath = await createTempFile(generateTestImage(), 'png');
+      await app.uploadFile(imagePath);
+      await app.openLightbox(path.basename(imagePath));
+      await app.page.waitForSelector('#lightbox.active');
+
+      // Focus should be inside lightbox
+      const focusInLightbox = await app.page.evaluate(() => {
+        const modal = document.getElementById('lightbox');
+        return modal?.contains(document.activeElement) ?? false;
+      });
+      expect(focusInLightbox).toBe(true);
+
+      // Close with Escape and wait for transition + focus restore (300ms setTimeout)
+      await app.page.keyboard.press('Escape');
+      await app.page.waitForTimeout(500);
+
+      // Focus should not be in lightbox
+      const focusAfterClose = await app.page.evaluate(() => {
+        const modal = document.getElementById('lightbox');
+        return modal?.contains(document.activeElement) ?? false;
+      });
+      expect(focusAfterClose).toBe(false);
+    });
+  });
+
   test.describe('Edge Cases', () => {
     test('should handle rapid key presses without errors', async ({ app }) => {
       const imagePath = await createTempFile(generateTestImage(), 'png');

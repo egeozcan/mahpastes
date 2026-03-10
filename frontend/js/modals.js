@@ -3,6 +3,10 @@
 // Delay after lightbox close animation before opening a new modal (matches CSS transition 0.2s + buffer)
 const LIGHTBOX_CLOSE_DELAY = 350;
 
+// Focus trap cleanup functions
+let lightboxFocusTrapCleanup = null;
+let comparisonFocusTrapCleanup = null;
+
 // Lightbox image element - managed here, accessed via getLightboxImg()
 let lightboxImg = null;
 
@@ -455,6 +459,8 @@ async function openLightbox(index) {
 
     lightbox.classList.add('active');
     updateLightboxNav();
+    if (lightboxFocusTrapCleanup) lightboxFocusTrapCleanup();
+    lightboxFocusTrapCleanup = trapFocus(lightbox);
     lightbox.focus();
 
     // Update image info in bottom bar
@@ -468,6 +474,10 @@ async function openLightbox(index) {
 function closeLightbox() {
     closeLightboxPluginMenu();
     closeLightboxFileMenu(true);
+    if (lightboxFocusTrapCleanup) {
+        lightboxFocusTrapCleanup();
+        lightboxFocusTrapCleanup = null;
+    }
     lightbox.classList.remove('active');
     resetLightboxZoom();
     setTimeout(() => {
@@ -890,23 +900,7 @@ function initLightboxGestures() {
     document.addEventListener('mousemove', handleLightboxMouseMove);
     document.addEventListener('mouseup', handleLightboxMouseUp);
 
-    // Tab focus trap for lightbox (not routed through ShortcutManager since Tab shouldn't be rebindable)
-    lightbox.addEventListener('keydown', (e) => {
-        if (e.key !== 'Tab') return;
-        if (!lightbox.classList.contains('active')) return;
-
-        const focusableElements = lightbox.querySelectorAll('button');
-        const first = focusableElements[0];
-        const last = focusableElements[focusableElements.length - 1];
-
-        if (e.shiftKey && document.activeElement === first) {
-            last.focus();
-            e.preventDefault();
-        } else if (!e.shiftKey && document.activeElement === last) {
-            first.focus();
-            e.preventDefault();
-        }
-    });
+    // Tab focus trap is now managed via trapFocus() in openLightbox/closeLightbox
 }
 
 // --- Comparison Functions ---
@@ -955,10 +949,16 @@ async function openComparisonModal() {
 
     updateComparisonView();
     comparisonModal.classList.add('active');
+    if (comparisonFocusTrapCleanup) comparisonFocusTrapCleanup();
+    comparisonFocusTrapCleanup = trapFocus(comparisonModal);
     comparisonModal.focus();
 }
 
 function closeComparisonModal() {
+    if (comparisonFocusTrapCleanup) {
+        comparisonFocusTrapCleanup();
+        comparisonFocusTrapCleanup = null;
+    }
     comparisonModal.classList.remove('active');
     comparisonSimilarity.classList.add('hidden');
     comparisonImageInfo.classList.add('hidden');

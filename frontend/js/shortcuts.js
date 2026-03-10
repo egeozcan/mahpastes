@@ -467,6 +467,14 @@ const ShortcutManager = (() => {
             return true;
         }
 
+        // Settings modal (skip if recording a shortcut — let the recording handler consume Escape)
+        const settingsModal = document.getElementById('settings-modal');
+        if (settingsModal && !settingsModal.classList.contains('opacity-0')) {
+            if (typeof recordingActionId !== 'undefined' && recordingActionId !== null) return false;
+            if (typeof closeSettings === 'function') closeSettings();
+            return true;
+        }
+
         // Plugins modal
         const pluginsModal = document.querySelector('[data-testid="plugins-modal"]');
         if (pluginsModal && !pluginsModal.classList.contains('opacity-0')) {
