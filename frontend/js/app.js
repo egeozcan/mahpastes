@@ -608,7 +608,30 @@ window.addEventListener('load', async () => {
             callback: () => deleteAllTempFiles()
         });
 
-        // Grid navigation is handled by the gallery roving tabindex below.
+        // Grid navigation — registered so actions appear in settings/cheat sheet
+        // and honor user key overrides. Uses 'clip' context so arrow keys only fire
+        // when a gallery clip is focused, leaving other rovers (view tabs, tag filter,
+        // bulk toolbar) free to handle their own arrow keys in bubble phase.
+        ShortcutManager.register({
+            id: 'grid-up', label: 'Navigate Up', category: 'gallery',
+            defaultKey: 'ArrowUp', context: 'clip',
+            callback: () => window.__galleryRover?.navigate('up')
+        });
+        ShortcutManager.register({
+            id: 'grid-down', label: 'Navigate Down', category: 'gallery',
+            defaultKey: 'ArrowDown', context: 'clip',
+            callback: () => window.__galleryRover?.navigate('down')
+        });
+        ShortcutManager.register({
+            id: 'grid-left', label: 'Navigate Left', category: 'gallery',
+            defaultKey: 'ArrowLeft', context: 'clip',
+            callback: () => window.__galleryRover?.navigate('left')
+        });
+        ShortcutManager.register({
+            id: 'grid-right', label: 'Navigate Right', category: 'gallery',
+            defaultKey: 'ArrowRight', context: 'clip',
+            callback: () => window.__galleryRover?.navigate('right')
+        });
 
         // Clip actions (when a clip has keyboard focus)
         ShortcutManager.register({

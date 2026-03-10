@@ -276,6 +276,10 @@ if (tagFilterBtn) {
     tagFilterBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         tagFilterDropdown.classList.toggle('hidden');
+        // Re-index rover now that items are visible
+        if (!tagFilterDropdown.classList.contains('hidden') && tagFilterRover) {
+            tagFilterRover.update();
+        }
     });
 }
 

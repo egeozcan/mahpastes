@@ -54,9 +54,9 @@ function trapFocus(container) {
     function handler(e) {
         if (e.key !== 'Tab') return;
 
-        const focusable = container.querySelectorAll(
+        const focusable = Array.from(container.querySelectorAll(
             'button:not([disabled]):not([tabindex="-1"]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-        );
+        )).filter(el => el.offsetParent !== null || el.offsetWidth > 0);
         if (focusable.length === 0) return;
 
         const first = focusable[0];

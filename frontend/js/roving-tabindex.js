@@ -24,12 +24,20 @@ const RovingTabindex = (() => {
         let activeIndex = 0;
 
         function getItems() {
-            return Array.from(container.querySelectorAll(itemSelector));
+            return Array.from(container.querySelectorAll(itemSelector))
+                .filter(el => el.offsetParent !== null || el.offsetWidth > 0);
         }
 
         function setTabIndexes(items, focusIdx) {
             items.forEach((item, i) => {
                 item.setAttribute('tabindex', i === focusIdx ? '0' : '-1');
+                // Remove nested interactive elements from sequential tab order
+                // so Tab skips the entire composite widget as a single stop.
+                item.querySelectorAll(
+                    'button, [href], input, select, textarea, [tabindex]'
+                ).forEach(child => {
+                    child.setAttribute('tabindex', '-1');
+                });
             });
         }
 
@@ -145,6 +153,33 @@ const RovingTabindex = (() => {
             }
         }
 
+        /** Programmatically navigate in the given direction and focus the result. */
+        function navigate(direction) {
+            const items = getItems();
+            if (items.length === 0) return;
+            const cols = getColumns();
+            let nextIdx = activeIndex;
+            switch (direction) {
+                case 'up':
+                    nextIdx = orientation === 'grid'
+                        ? clampOrWrap(activeIndex - cols, items.length)
+                        : clampOrWrap(activeIndex - 1, items.length);
+                    break;
+                case 'down':
+                    nextIdx = orientation === 'grid'
+                        ? clampOrWrap(activeIndex + cols, items.length)
+                        : clampOrWrap(activeIndex + 1, items.length);
+                    break;
+                case 'left':
+                    nextIdx = clampOrWrap(activeIndex - 1, items.length);
+                    break;
+                case 'right':
+                    nextIdx = clampOrWrap(activeIndex + 1, items.length);
+                    break;
+            }
+            if (nextIdx !== activeIndex) focusItem(items, nextIdx);
+        }
+
         function destroy() {
             container.removeEventListener('keydown', handleKeydown);
             container.removeEventListener('focusin', handleFocusin);
@@ -154,7 +189,7 @@ const RovingTabindex = (() => {
         container.addEventListener('focusin', handleFocusin);
         update();
 
-        return { update, reset, destroy, getActiveIndex, setActiveIndex, getItems };
+        return { update, reset, destroy, getActiveIndex, setActiveIndex, getItems, navigate };
     }
 
     return { create };
