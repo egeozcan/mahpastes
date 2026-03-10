@@ -2,6 +2,7 @@
 let isViewingWatch = false;
 let watchFolders = [];
 let editingFolderId = null; // null = adding new, number = editing existing
+let watchFolderRover = null;
 
 // --- Elements ---
 const watchIndicator = document.getElementById('watch-indicator');
@@ -97,6 +98,17 @@ function renderWatchFolderList() {
     for (const folder of watchFolders) {
         const card = createWatchFolderCard(folder);
         watchFolderList.appendChild(card);
+    }
+
+    // Initialize roving tabindex for watch folder cards
+    if (watchFolderRover) watchFolderRover.destroy();
+    if (watchFolderList.children.length > 0) {
+        watchFolderRover = RovingTabindex.create({
+            container: watchFolderList,
+            itemSelector: ':scope > li',
+            orientation: 'vertical',
+            wrap: false,
+        });
     }
 }
 

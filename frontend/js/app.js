@@ -874,6 +874,18 @@ window.addEventListener('load', async () => {
         // Initialize the shortcut manager (loads user overrides and starts listening)
         await ShortcutManager.init();
 
+        // View tabs roving tabindex — arrow keys navigate between Clips/Watch/Serve tabs
+        const viewTabsContainer = document.querySelector('[role="tablist"]');
+        if (viewTabsContainer) {
+            RovingTabindex.create({
+                container: viewTabsContainer,
+                itemSelector: '[role="tab"]',
+                orientation: 'horizontal',
+                wrap: false,
+                onActivate: (tab) => tab.click(),
+            });
+        }
+
         // Gallery roving tabindex — single Tab stop, arrow keys navigate within
         const galleryRover = RovingTabindex.create({
             container: gallery,

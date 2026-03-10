@@ -1155,6 +1155,70 @@ test.describe('Keyboard Shortcuts', () => {
     });
   });
 
+  test.describe('View Tabs Keyboard Navigation', () => {
+    test('should navigate view tabs with arrow keys', async ({ app }) => {
+      await app.openDrawer();
+      await app.tabTo('#view-tab-clips', { maxTabs: 50 });
+      await app.expectFocusOn('#view-tab-clips');
+      await app.page.keyboard.press('ArrowRight');
+      await app.expectFocusOn('#view-tab-watch');
+      await app.page.keyboard.press('ArrowRight');
+      await app.expectFocusOn('#view-tab-serve');
+    });
+  });
+
+  test.describe('Tag Filter Keyboard Navigation', () => {
+    test('should navigate tag filter checkboxes with arrow keys', async ({ app }) => {
+      await app.createTag('alpha');
+      await app.createTag('beta');
+
+      // Trigger re-render of tag filter dropdown
+      await app.page.evaluate(() => {
+        // @ts-ignore
+        if (typeof renderTagFilterDropdown === 'function') renderTagFilterDropdown();
+      });
+
+      await app.page.locator(selectors.tags.filterButton).click();
+      await expect(app.page.locator(selectors.tags.filterDropdown)).toBeVisible();
+
+      // Focus the first label directly (labels get tabindex from roving tabindex)
+      const firstLabel = app.page.locator('#tag-filter-list label').first();
+      await firstLabel.focus();
+      await expect(firstLabel).toBeFocused();
+
+      // Arrow down to next label
+      await app.page.keyboard.press('ArrowDown');
+
+      // Second label should be focused
+      const secondLabel = app.page.locator('#tag-filter-list label').nth(1);
+      await expect(secondLabel).toBeFocused();
+    });
+  });
+
+  test.describe('Bulk Toolbar Keyboard Navigation', () => {
+    test('should navigate bulk toolbar buttons with arrow keys', async ({ app }) => {
+      const img1 = await createTempFile(generateTestImage(100, 100, 'red'), 'png');
+      const img2 = await createTempFile(generateTestImage(100, 100, 'blue'), 'png');
+      await app.uploadFile(img1);
+      await app.uploadFile(img2);
+      await app.expectClipCount(2);
+
+      await app.selectAll();
+
+      // Tab to bulk toolbar
+      await app.tabTo('#bulk-toolbar button', { maxTabs: 50 });
+
+      // Arrow right to next button
+      await app.page.keyboard.press('ArrowRight');
+
+      const focusInToolbar = await app.page.evaluate(() => {
+        const toolbar = document.getElementById('bulk-toolbar');
+        return toolbar?.contains(document.activeElement) ?? false;
+      });
+      expect(focusInToolbar).toBe(true);
+    });
+  });
+
   test.describe('Edge Cases', () => {
     test('should handle rapid key presses without errors', async ({ app }) => {
       const imagePath = await createTempFile(generateTestImage(), 'png');

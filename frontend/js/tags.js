@@ -1,5 +1,8 @@
 // --- Tag UI Management ---
 
+// Roving tabindex for tag filter dropdown
+let tagFilterRover = null;
+
 // Constants
 const MAX_TAG_NAME_LENGTH = 50;
 
@@ -78,6 +81,24 @@ function renderTagFilterDropdown() {
 
     for (const root of tree) {
         renderNode(root, 0, false);
+    }
+
+    // Initialize roving tabindex for tag filter labels
+    if (tagFilterRover) tagFilterRover.destroy();
+    if (tagFilterList && tagFilterList.children.length > 0 && tagFilterList.querySelector('label')) {
+        tagFilterRover = RovingTabindex.create({
+            container: tagFilterList,
+            itemSelector: 'label',
+            orientation: 'vertical',
+            wrap: false,
+            onActivate: (label) => {
+                const checkbox = label.querySelector('input[type="checkbox"]');
+                if (checkbox) {
+                    checkbox.checked = !checkbox.checked;
+                    checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+            },
+        });
     }
 }
 

@@ -8,6 +8,9 @@ let lastCheckedCheckbox = null;
 let pluginUIActions = null;
 let dragPrepBusyCount = 0;
 
+// Roving tabindex for bulk toolbar
+let bulkToolbarRover = null;
+
 function beginGlobalDragPrepareCursor() {
     dragPrepBusyCount += 1;
     document.body.classList.add('drag-preparing');
@@ -970,11 +973,29 @@ function updateBulkToolbar() {
                 bulkCancelExpiryBtn.classList.add('hidden');
             }
         }
+
+        // Initialize or update roving tabindex for bulk toolbar buttons
+        if (!bulkToolbarRover) {
+            bulkToolbarRover = RovingTabindex.create({
+                container: bulkToolbar,
+                itemSelector: 'button:not(.hidden):not([style*="display: none"])',
+                orientation: 'horizontal',
+                wrap: false,
+            });
+        } else {
+            bulkToolbarRover.update();
+        }
     } else {
         bulkToolbar.classList.remove('translate-y-0', 'opacity-100', 'pointer-events-auto');
         bulkToolbar.classList.add('translate-y-4', 'opacity-0', 'pointer-events-none');
         selectAllCheckbox.checked = false;
         bulkCompareBtn.classList.add('hidden');
+
+        // Destroy roving tabindex when toolbar is hidden
+        if (bulkToolbarRover) {
+            bulkToolbarRover.destroy();
+            bulkToolbarRover = null;
+        }
     }
 
 }

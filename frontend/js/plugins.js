@@ -13,6 +13,7 @@ let pluginsCache = [];
 let expandedPluginId = null;
 let pluginUpdates = {}; // pluginID -> PluginUpdateInfo
 let showingURLInput = false;
+let pluginListRover = null;
 
 // Focus management
 let lastFocusedElementBeforePlugins = null;
@@ -74,6 +75,17 @@ function renderPluginsList() {
     for (const plugin of pluginsCache) {
         const card = createPluginCard(plugin);
         pluginsList.appendChild(card);
+    }
+
+    // Initialize roving tabindex for plugin list
+    if (pluginListRover) pluginListRover.destroy();
+    if (pluginsList.children.length > 0) {
+        pluginListRover = RovingTabindex.create({
+            container: pluginsList,
+            itemSelector: ':scope > li',
+            orientation: 'vertical',
+            wrap: false,
+        });
     }
 }
 
