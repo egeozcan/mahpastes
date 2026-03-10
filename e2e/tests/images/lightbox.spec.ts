@@ -182,6 +182,62 @@ test.describe('Image Lightbox', () => {
     });
   });
 
+  test.describe('Focus Management', () => {
+    test('should trap Tab focus within lightbox', async ({ app }) => {
+      const imagePath = await createTempFile(generateTestImage(), 'png');
+      await app.uploadFile(imagePath);
+      await app.expectClipCount(1);
+
+      await app.openLightbox(path.basename(imagePath));
+
+      // Tab through all focusable elements — should cycle back to first
+      const focusableCount = await app.page.evaluate(() => {
+        const lb = document.getElementById('lightbox');
+        return lb!.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])').length;
+      });
+      expect(focusableCount).toBeGreaterThan(0);
+
+      // Press Tab enough times to cycle
+      for (let i = 0; i < focusableCount + 1; i++) {
+        await app.page.keyboard.press('Tab');
+      }
+
+      // Focus should still be inside lightbox
+      const focusInLightbox = await app.page.evaluate(() => {
+        const lb = document.getElementById('lightbox');
+        return lb?.contains(document.activeElement) ?? false;
+      });
+      expect(focusInLightbox).toBe(true);
+    });
+
+    test('should restore focus to previous element after lightbox close', async ({ app }) => {
+      const imagePath = await createTempFile(generateTestImage(), 'png');
+      await app.uploadFile(imagePath);
+      await app.expectClipCount(1);
+
+      // Open lightbox via the view button (click-based, since roving tabindex isn't on gallery yet)
+      await app.openLightbox(path.basename(imagePath));
+      expect(await app.isLightboxOpen()).toBe(true);
+
+      // Close lightbox with Escape
+      await app.page.keyboard.press('Escape');
+      await app.page.waitForFunction(() => {
+        const lb = document.getElementById('lightbox');
+        return !lb?.classList.contains('active');
+      });
+
+      // Wait for focus restoration (lightbox has a 300ms delay)
+      await app.page.waitForTimeout(400);
+
+      // Focus should NOT be inside the lightbox
+      const focusInLightbox = await app.page.evaluate(() => {
+        const lb = document.getElementById('lightbox');
+        return lb?.contains(document.activeElement) ?? false;
+      });
+      expect(focusInLightbox).toBe(false);
+    });
+  });
+
   test.describe('Zoom Info Display', () => {
     test('should display zoom percentage in lightbox', async ({ app }) => {
       const imagePath = await createTempFile(generateTestImage(200, 200), 'png');

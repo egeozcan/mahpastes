@@ -50,8 +50,31 @@ pre::-webkit-scrollbar-thumb:hover {
 
 /* Focus states */
 *:focus-visible {
-    outline: 1px solid #78716c;
+    outline: 2px solid #a8a29e; /* stone-400 */
     outline-offset: 2px;
+    border-radius: 4px;
+}
+
+/* Clip cards: match existing focused card style */
+#gallery > li:focus-visible {
+    outline: 2px solid #a8a29e;
+    outline-offset: 2px;
+    transform: scale(1.02);
+    z-index: 1;
+}
+
+/* Buttons on dark backgrounds get lighter ring */
+.bg-stone-800 button:focus-visible,
+.bg-stone-800:focus-visible,
+#shortcuts-cheatsheet button:focus-visible {
+    outline-color: #d6d3d1; /* stone-300 */
+}
+
+/* Inputs keep their existing Tailwind focus ring */
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+    outline: none;
 }
 
 /* Selection */
