@@ -198,6 +198,43 @@ test.describe('Search and Filtering', () => {
     });
   });
 
+  test.describe('Keyboard Search Workflow', () => {
+    test('should search and open clip via keyboard only', async ({ app }) => {
+      const imagePath = await createTempFile(generateTestImage(), 'png');
+      await app.uploadFile(imagePath);
+      await app.expectClipCount(1);
+
+      const filename = path.basename(imagePath);
+
+      // Click body to ensure gallery context is active for '/' shortcut
+      await app.page.locator('body').click();
+
+      // Press / to focus search
+      await app.page.keyboard.press('/');
+      await expect(app.page.locator(selectors.header.searchInput)).toBeFocused();
+
+      // Type part of filename to filter
+      await app.page.keyboard.type(filename.substring(0, 8));
+
+      // Wait for filter to apply
+      await app.page.waitForFunction(() => (window as any).__appReady === true, { timeout: 5000 });
+
+      // Tab to gallery clip
+      await app.tabTo('#gallery > li', { maxTabs: 50 });
+
+      // Enter to open lightbox
+      await app.page.keyboard.press('Enter');
+      expect(await app.isLightboxOpen()).toBe(true);
+
+      // Escape to close lightbox
+      await app.page.keyboard.press('Escape');
+      await app.page.waitForFunction(() => {
+        const lb = document.getElementById('lightbox');
+        return !lb?.classList.contains('active');
+      });
+    });
+  });
+
   test.describe('Search Persistence', () => {
     test('should maintain search when uploading new clip', async ({ app }) => {
       const file1 = await createTempFile(generateTestText('existing'), 'txt');

@@ -134,6 +134,52 @@ test.describe('Clip Archive', () => {
     });
   });
 
+  test.describe('Keyboard Archive', () => {
+    test('should archive clip via keyboard only', async ({ app }) => {
+      const imagePath = await createTempFile(generateTestImage(), 'png');
+      await app.uploadFile(imagePath);
+      await app.expectClipCount(1);
+
+      // Tab to gallery, focus clip
+      await app.tabTo('#gallery > li', { maxTabs: 50 });
+      expect(await app.getFocusedClipIndex()).toBe(0);
+
+      // Press 'e' to archive (clip context shortcut)
+      await app.page.keyboard.press('e');
+
+      // Clip should be archived (removed from non-archive view)
+      await app.expectClipCount(0);
+    });
+
+    test('should restore archived clip via keyboard only', async ({ app }) => {
+      const imagePath = await createTempFile(generateTestImage(), 'png');
+      const filename = path.basename(imagePath);
+      await app.uploadFile(imagePath);
+      await app.expectClipCount(1);
+
+      // Archive via keyboard
+      await app.tabTo('#gallery > li', { maxTabs: 50 });
+      await app.page.keyboard.press('e');
+      await app.expectClipCount(0);
+
+      // Switch to archive view to verify it's there
+      await app.toggleArchiveView();
+      await app.expectClipVisible(filename);
+
+      // Focus the archived clip and restore via keyboard
+      await app.tabTo('#gallery > li', { maxTabs: 50 });
+      expect(await app.getFocusedClipIndex()).toBe(0);
+      await app.page.keyboard.press('e');
+
+      // Should be removed from archive view
+      await app.expectClipCount(0);
+
+      // Switch back to main view - clip should be restored
+      await app.toggleArchiveView();
+      await app.expectClipVisible(filename);
+    });
+  });
+
   test.describe('Archive with Expiration', () => {
     test('should archive any clip', async ({ app }) => {
       const imagePath = await createTempFile(generateTestImage(), 'png');

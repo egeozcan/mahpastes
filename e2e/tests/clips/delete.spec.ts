@@ -118,6 +118,95 @@ test.describe('Clip Delete', () => {
     });
   });
 
+  test.describe('Keyboard Delete', () => {
+    test('should delete clip via keyboard only', async ({ app }) => {
+      const imagePath = await createTempFile(generateTestImage(), 'png');
+      await app.uploadFile(imagePath);
+      await app.expectClipCount(1);
+
+      // Click body to establish focus outside any hidden dialogs
+      await app.page.locator('body').click();
+
+      // Tab to gallery
+      await app.tabTo('#gallery > li', { maxTabs: 50 });
+      expect(await app.getFocusedClipIndex()).toBe(0);
+
+      // Press 'd' to trigger delete (clip context shortcut)
+      await app.page.keyboard.press('d');
+
+      // Confirm dialog should appear
+      await expect(app.page.locator(selectors.confirm.dialog)).toHaveClass(/opacity-100/);
+
+      // Cancel button should be focused (safe default)
+      await expect(app.page.locator(selectors.confirm.cancelButton)).toBeFocused();
+
+      // Tab to confirm button and press Enter
+      await app.page.keyboard.press('Tab');
+      await app.page.keyboard.press('Enter');
+
+      // Clip should be deleted
+      await app.expectClipCount(0);
+    });
+
+    test('should cancel keyboard delete via Enter on cancel button', async ({ app }) => {
+      const imagePath = await createTempFile(generateTestImage(), 'png');
+      await app.uploadFile(imagePath);
+      await app.expectClipCount(1);
+
+      // Click body to establish focus outside any hidden dialogs
+      await app.page.locator('body').click();
+
+      // Tab to gallery
+      await app.tabTo('#gallery > li', { maxTabs: 50 });
+      expect(await app.getFocusedClipIndex()).toBe(0);
+
+      // Press 'd' to trigger delete
+      await app.page.keyboard.press('d');
+
+      // Confirm dialog should appear with cancel button focused (safe default)
+      await expect(app.page.locator(selectors.confirm.dialog)).toHaveClass(/opacity-100/);
+      await expect(app.page.locator(selectors.confirm.cancelButton)).toBeFocused();
+
+      // Press Enter on the focused cancel button to dismiss
+      await app.page.keyboard.press('Enter');
+
+      // Dialog should close
+      await expect(app.page.locator(selectors.confirm.dialog)).toHaveClass(/opacity-0/);
+
+      // Clip should still exist
+      await app.expectClipCount(1);
+    });
+
+    test('should cancel keyboard delete via Escape', async ({ app }) => {
+      const imagePath = await createTempFile(generateTestImage(), 'png');
+      await app.uploadFile(imagePath);
+      await app.expectClipCount(1);
+
+      // Click body to establish focus outside any hidden dialogs
+      await app.page.locator('body').click();
+
+      // Tab to gallery
+      await app.tabTo('#gallery > li', { maxTabs: 50 });
+      expect(await app.getFocusedClipIndex()).toBe(0);
+
+      // Press 'd' to trigger delete
+      await app.page.keyboard.press('d');
+
+      // Confirm dialog should appear; wait for cancel button to receive focus
+      await expect(app.page.locator(selectors.confirm.dialog)).toHaveClass(/opacity-100/);
+      await expect(app.page.locator(selectors.confirm.cancelButton)).toBeFocused();
+
+      // Press Escape to cancel (focus is inside the dialog so its handler fires)
+      await app.page.keyboard.press('Escape');
+
+      // Dialog should close
+      await expect(app.page.locator(selectors.confirm.dialog)).toHaveClass(/opacity-0/);
+
+      // Clip should still exist
+      await app.expectClipCount(1);
+    });
+  });
+
   test.describe('Delete from Archive', () => {
     test('should delete archived clip', async ({ app }) => {
       const imagePath = await createTempFile(generateTestImage(), 'png');
