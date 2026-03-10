@@ -35,10 +35,11 @@ function closeSettings() {
     settingsModal.classList.remove('opacity-100');
     settingsModal.querySelector(':scope > div').classList.add('scale-95');
     settingsModal.querySelector(':scope > div').classList.remove('scale-100');
-    if (lastFocusedElementBeforeSettings && lastFocusedElementBeforeSettings !== document.body) {
+    if (lastFocusedElementBeforeSettings && lastFocusedElementBeforeSettings !== document.body
+        && !lastFocusedElementBeforeSettings.closest('[inert]')) {
         lastFocusedElementBeforeSettings.focus();
     } else {
-        settingsModal.blur();
+        document.getElementById('drawer-toggle-btn')?.focus();
     }
     lastFocusedElementBeforeSettings = null;
     renderTagFilterDropdown();

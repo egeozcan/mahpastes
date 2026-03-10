@@ -12,6 +12,7 @@ let drawerNavRover = null;
 
 function openDrawer() {
     lastFocusedBeforeDrawer = document.activeElement;
+    navDrawer.removeAttribute('inert');
     navDrawer.classList.remove('translate-x-full');
     drawerOverlay.classList.remove('opacity-0', 'pointer-events-none');
     drawerOverlay.classList.add('opacity-100');
@@ -28,6 +29,7 @@ function openDrawer() {
 }
 
 function closeDrawer(restoreFocus = true) {
+    navDrawer.setAttribute('inert', '');
     navDrawer.classList.add('translate-x-full');
     drawerOverlay.classList.add('opacity-0', 'pointer-events-none');
     drawerOverlay.classList.remove('opacity-100');

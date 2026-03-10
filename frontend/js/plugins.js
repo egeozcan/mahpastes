@@ -42,10 +42,11 @@ function closePlugins() {
     pluginsModal.querySelector(':scope > div').classList.add('scale-95');
     pluginsModal.querySelector(':scope > div').classList.remove('scale-100');
     expandedPluginId = null;
-    if (lastFocusedElementBeforePlugins && lastFocusedElementBeforePlugins !== document.body) {
+    if (lastFocusedElementBeforePlugins && lastFocusedElementBeforePlugins !== document.body
+        && !lastFocusedElementBeforePlugins.closest('[inert]')) {
         lastFocusedElementBeforePlugins.focus();
     } else {
-        pluginsModal.blur();
+        document.getElementById('drawer-toggle-btn')?.focus();
     }
     lastFocusedElementBeforePlugins = null;
 }
