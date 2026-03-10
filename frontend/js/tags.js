@@ -471,6 +471,7 @@ if (createTagBtn) {
                 loadClips();
             } else if (tagPopoverMode === 'bulk') {
                 await bulkAddTag(Array.from(selectedIds), tag.id);
+                loadClips();
             }
 
             closeTagPopover();
