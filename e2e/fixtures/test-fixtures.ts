@@ -938,8 +938,8 @@ export class AppHelper {
     await this.page.waitForSelector(`${selectors.editor.modal}:not(.active)`);
   }
 
-  async selectTool(tool: 'brush' | 'line' | 'rectangle' | 'circle' | 'text' | 'eraser'): Promise<void> {
-    await this.page.locator(selectors.editor.tools[tool]).click();
+  async selectTool(tool: string): Promise<void> {
+    await this.page.locator(`[data-tool="${tool}"]`).click();
   }
 
   async setEditorColor(color: string): Promise<void> {

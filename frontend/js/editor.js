@@ -151,6 +151,17 @@ function updateToolButtons() {
     });
 }
 
+function updateContextToolbar() {
+    const cropOpts = document.getElementById('editor-crop-options');
+    const anonOpts = document.getElementById('editor-anonymize-options');
+    const textOpts = document.getElementById('editor-text-options');
+    const toolName = EditorCore.activeToolName;
+
+    if (cropOpts) cropOpts.style.display = toolName === 'crop' ? 'flex' : 'none';
+    if (anonOpts) anonOpts.style.display = toolName === 'anonymize' ? 'flex' : 'none';
+    if (textOpts) textOpts.style.display = toolName === 'text' ? 'flex' : 'none';
+}
+
 function selectTool(tool) {
     // Commit any active text input when switching away from text
     if (TextTool.isActive && tool !== 'text') {
@@ -159,6 +170,7 @@ function selectTool(tool) {
 
     EditorCore.selectTool(tool);
     updateToolButtons();
+    updateContextToolbar();
 }
 
 // --- Save ---
@@ -248,6 +260,17 @@ function setupEditorListeners() {
     document.getElementById('editor-zoom-100')?.addEventListener('click', () => ZoomTool.zoomTo100());
     document.getElementById('editor-zoom-in')?.addEventListener('click', () => ZoomTool.zoomIn());
     document.getElementById('editor-zoom-out')?.addEventListener('click', () => ZoomTool.zoomOut());
+
+    // Rotate/Flip buttons — delegate to TransformTool (no-ops until tool-transform.js exists)
+    document.getElementById('editor-rotate-cw')?.addEventListener('click', () => typeof TransformTool !== 'undefined' && TransformTool.rotateCW());
+    document.getElementById('editor-rotate-ccw')?.addEventListener('click', () => typeof TransformTool !== 'undefined' && TransformTool.rotateCCW());
+    document.getElementById('editor-flip-h')?.addEventListener('click', () => typeof TransformTool !== 'undefined' && TransformTool.flipH());
+    document.getElementById('editor-flip-v')?.addEventListener('click', () => typeof TransformTool !== 'undefined' && TransformTool.flipV());
+
+    // Font size input
+    document.getElementById('editor-font-size')?.addEventListener('input', (e) => {
+        EditorCore.fontSize = parseInt(e.target.value) || 24;
+    });
 
     // Text input commit on Enter or blur
     const textInput = document.getElementById('canvas-text-input');

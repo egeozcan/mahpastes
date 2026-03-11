@@ -755,35 +755,28 @@
             <div id="image-editor-view" class="editor-content hidden">
                 <!-- Toolbar -->
                 <div class="editor-toolbar">
-                    <div class="flex items-center gap-1">
+                    <!-- Row 1: Tools -->
+                    <div class="flex items-center gap-1 flex-wrap">
+                        <!-- Selection & Crop -->
+                        <button class="editor-tool-btn" data-tool="select" data-tooltip="Select and move (V)">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"></path>
+                            </svg>
+                        </button>
+                        <button class="editor-tool-btn" data-tool="crop" data-tooltip="Crop image (C)">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 2v4H2v2h4v12h12v4h2v-4h4v-2H8V6h12V4H8V2H6z"></path>
+                            </svg>
+                        </button>
+
+                        <div class="h-5 w-px bg-stone-300"></div>
+
+                        <!-- Drawing tools -->
                         <button class="editor-tool-btn active" data-tool="brush" data-tooltip="Freehand brush (B)">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                                     d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z">
                                 </path>
-                            </svg>
-                        </button>
-                        <button class="editor-tool-btn" data-tool="line" data-tooltip="Draw straight line (L)">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 20L20 4">
-                                </path>
-                            </svg>
-                        </button>
-                        <button class="editor-tool-btn" data-tool="rectangle" data-tooltip="Draw rectangle (R)">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
-                                    d="M4 6a2 2 0 012-2h12a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V6z"></path>
-                            </svg>
-                        </button>
-                        <button class="editor-tool-btn" data-tool="circle" data-tooltip="Draw circle (C)">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <circle cx="12" cy="12" r="9" stroke-width="1.5" fill="none"></circle>
-                            </svg>
-                        </button>
-                        <button class="editor-tool-btn" data-tool="text" data-tooltip="Add text annotation (T)">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
-                                    d="M4 6h16M12 6v14M8 6v2m8-2v2"></path>
                             </svg>
                         </button>
                         <button class="editor-tool-btn" data-tool="eraser" data-tooltip="Erase drawn content (E)">
@@ -793,67 +786,200 @@
                                 </path>
                             </svg>
                         </button>
-                    </div>
 
-                    <div class="h-5 w-px bg-stone-300"></div>
+                        <div class="h-5 w-px bg-stone-300"></div>
 
-                    <div class="flex items-center gap-3">
-                        <div class="flex items-center gap-1.5">
-                            <label class="text-[10px] font-medium text-stone-500 uppercase tracking-wide">Color</label>
-                            <input type="color" id="editor-color" value="#44403c"
-                                class="w-6 h-6 rounded cursor-pointer border border-stone-200">
-                        </div>
-                        <div class="flex items-center gap-1.5">
-                            <label class="text-[10px] font-medium text-stone-500 uppercase tracking-wide">Opacity</label>
-                            <input type="range" id="editor-opacity" min="0" max="100" value="100" class="w-16 accent-stone-600">
-                            <span id="editor-opacity-value" class="text-[10px] font-medium text-stone-600 w-8">100%</span>
-                        </div>
-                        <div class="flex items-center gap-1.5">
-                            <label class="text-[10px] font-medium text-stone-500 uppercase tracking-wide">Size</label>
-                            <input type="range" id="editor-brush-size" min="1" max="50" value="8" class="w-16 accent-stone-600">
-                            <span id="editor-brush-size-value" class="text-[10px] font-medium text-stone-600 w-8">8px</span>
-                        </div>
-                    </div>
-
-                    <div class="h-5 w-px bg-stone-300"></div>
-
-                    <div class="flex items-center gap-1">
-                        <button id="editor-undo" class="p-1.5 bg-stone-100 hover:bg-stone-200 rounded-md transition-colors"
-                            data-tooltip="Undo last action (Ctrl+Z)">
-                            <svg class="w-4 h-4 text-stone-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <!-- Shape tools -->
+                        <button class="editor-tool-btn" data-tool="line" data-tooltip="Draw straight line (L)">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 20L20 4">
+                                </path>
+                            </svg>
+                        </button>
+                        <button class="editor-tool-btn" data-tool="arrow" data-tooltip="Draw arrow (W)">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 19L19 5m0 0v10m0-10H9"></path>
+                            </svg>
+                        </button>
+                        <button class="editor-tool-btn" data-tool="rectangle" data-tooltip="Draw rectangle (U)">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
-                                    d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"></path>
+                                    d="M4 6a2 2 0 012-2h12a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V6z"></path>
                             </svg>
                         </button>
-                        <button id="editor-redo" class="p-1.5 bg-stone-100 hover:bg-stone-200 rounded-md transition-colors"
-                            data-tooltip="Redo last action (Ctrl+Y)">
-                            <svg class="w-4 h-4 text-stone-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <button class="editor-tool-btn" data-tool="circle" data-tooltip="Draw circle (O)">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <circle cx="12" cy="12" r="9" stroke-width="1.5" fill="none"></circle>
+                            </svg>
+                        </button>
+
+                        <div class="h-5 w-px bg-stone-300"></div>
+
+                        <!-- Annotation tools -->
+                        <button class="editor-tool-btn" data-tool="text" data-tooltip="Add text (T)">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
-                                    d="M21 10h-10a8 8 0 00-8 8v2M21 10l-6 6m6-6l-6-6"></path>
+                                    d="M4 6h16M12 6v14M8 6v2m8-2v2"></path>
+                            </svg>
+                        </button>
+                        <button class="editor-tool-btn" data-tool="anonymize" data-tooltip="Anonymize region (X)">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 4h4v4H4V4zm6 0h4v4h-4V4zm6 0h4v4h-4V4zM4 10h4v4H4v-4zm6 0h4v4h-4v-4zm6 0h4v4h-4v-4zM4 16h4v4H4v-4zm6 0h4v4h-4v-4zm6 0h4v4h-4v-4z"></path>
+                            </svg>
+                        </button>
+
+                        <div class="h-5 w-px bg-stone-300"></div>
+
+                        <!-- Utility tools -->
+                        <button class="editor-tool-btn" data-tool="eyedropper" data-tooltip="Pick color (I)">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 4l-2-2-4 4-1-1-3 3 1 1-6 6v3h3l6-6 1 1 3-3-1-1 4-4z"></path>
                             </svg>
                         </button>
                     </div>
 
-                    <div class="h-5 w-px bg-stone-300"></div>
+                    <!-- Row 2: Properties & Actions -->
+                    <div class="flex items-center gap-3 flex-wrap mt-1.5 pt-1.5 border-t border-stone-200/60">
+                        <!-- Color/Opacity/Size controls -->
+                        <div class="flex items-center gap-3">
+                            <div class="flex items-center gap-1.5">
+                                <label class="text-[10px] font-medium text-stone-500 uppercase tracking-wide">Color</label>
+                                <input type="color" id="editor-color" value="#44403c"
+                                    class="w-6 h-6 rounded cursor-pointer border border-stone-200">
+                            </div>
+                            <div class="flex items-center gap-1.5">
+                                <label class="text-[10px] font-medium text-stone-500 uppercase tracking-wide">Opacity</label>
+                                <input type="range" id="editor-opacity" min="0" max="100" value="100" class="w-16 accent-stone-600">
+                                <span id="editor-opacity-value" class="text-[10px] font-medium text-stone-600 w-8">100%</span>
+                            </div>
+                            <div class="flex items-center gap-1.5">
+                                <label class="text-[10px] font-medium text-stone-500 uppercase tracking-wide">Size</label>
+                                <input type="range" id="editor-brush-size" min="1" max="50" value="8" class="w-16 accent-stone-600">
+                                <span id="editor-brush-size-value" class="text-[10px] font-medium text-stone-600 w-8">8px</span>
+                            </div>
+                        </div>
 
+                        <div class="h-5 w-px bg-stone-300"></div>
+
+                        <!-- Undo/Redo -->
+                        <div class="flex items-center gap-1">
+                            <button id="editor-undo" class="p-1.5 bg-stone-100 hover:bg-stone-200 rounded-md transition-colors"
+                                data-tooltip="Undo last action (Ctrl+Z)">
+                                <svg class="w-4 h-4 text-stone-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                                        d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"></path>
+                                </svg>
+                            </button>
+                            <button id="editor-redo" class="p-1.5 bg-stone-100 hover:bg-stone-200 rounded-md transition-colors"
+                                data-tooltip="Redo last action (Ctrl+Y)">
+                                <svg class="w-4 h-4 text-stone-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                                        d="M21 10h-10a8 8 0 00-8 8v2M21 10l-6 6m6-6l-6-6"></path>
+                                </svg>
+                            </button>
+                        </div>
+
+                        <div class="h-5 w-px bg-stone-300"></div>
+
+                        <!-- Rotate/Flip buttons -->
+                        <div class="flex items-center gap-1">
+                            <button id="editor-rotate-cw" class="p-1.5 bg-stone-100 hover:bg-stone-200 rounded-md transition-colors" data-tooltip="Rotate 90° clockwise (R)">
+                                <svg class="w-3.5 h-3.5 text-stone-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 4v5h5M20 20v-5h-5M4.5 9A7.5 7.5 0 0119.5 15M19.5 15l-5-5"></path>
+                                </svg>
+                            </button>
+                            <button id="editor-rotate-ccw" class="p-1.5 bg-stone-100 hover:bg-stone-200 rounded-md transition-colors" data-tooltip="Rotate 90° counter-clockwise (Shift+R)">
+                                <svg class="w-3.5 h-3.5 text-stone-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 4v5h-5M4 20v-5h5M19.5 9A7.5 7.5 0 004.5 15M4.5 15l5-5"></path>
+                                </svg>
+                            </button>
+                            <button id="editor-flip-h" class="p-1.5 bg-stone-100 hover:bg-stone-200 rounded-md transition-colors" data-tooltip="Flip horizontal">
+                                <svg class="w-3.5 h-3.5 text-stone-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 21L7 3M17 21l-10-9 10-9"></path>
+                                </svg>
+                            </button>
+                            <button id="editor-flip-v" class="p-1.5 bg-stone-100 hover:bg-stone-200 rounded-md transition-colors" data-tooltip="Flip vertical">
+                                <svg class="w-3.5 h-3.5 text-stone-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 7h18M3 17l9-10 9 10"></path>
+                                </svg>
+                            </button>
+                        </div>
+
+                        <div class="h-5 w-px bg-stone-300"></div>
+
+                        <!-- Zoom controls -->
+                        <div class="flex items-center gap-1">
+                            <button id="editor-zoom-fit" class="p-1.5 bg-stone-100 hover:bg-stone-200 rounded-md transition-colors text-[10px] font-medium text-stone-600"
+                                data-tooltip="Zoom to fit (Ctrl+0)">Fit</button>
+                            <button id="editor-zoom-100" class="p-1.5 bg-stone-100 hover:bg-stone-200 rounded-md transition-colors text-[10px] font-medium text-stone-600"
+                                data-tooltip="Zoom to 100% (Ctrl+1)">100%</button>
+                            <button id="editor-zoom-out" class="p-1.5 bg-stone-100 hover:bg-stone-200 rounded-md transition-colors"
+                                data-tooltip="Zoom out (Ctrl+-)">
+                                <svg class="w-3.5 h-3.5 text-stone-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 12H4"></path>
+                                </svg>
+                            </button>
+                            <span id="editor-zoom-display" class="text-[10px] font-medium text-stone-600 w-8 text-center">100%</span>
+                            <button id="editor-zoom-in" class="p-1.5 bg-stone-100 hover:bg-stone-200 rounded-md transition-colors"
+                                data-tooltip="Zoom in (Ctrl+=)">
+                                <svg class="w-3.5 h-3.5 text-stone-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 4v16m8-8H4"></path>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Contextual sub-toolbars -->
+                <div id="editor-crop-options" class="editor-context-toolbar" style="display: none;">
+                    <div class="flex items-center gap-1.5">
+                        <label class="text-[10px] font-medium text-stone-500 uppercase tracking-wide">Ratio</label>
+                        <select id="editor-crop-ratio" class="text-[10px] font-medium text-stone-600 bg-stone-100 border border-stone-200 rounded px-1.5 py-1">
+                            <option value="free">Free</option>
+                            <option value="1:1">1:1</option>
+                            <option value="4:3">4:3</option>
+                            <option value="3:2">3:2</option>
+                            <option value="16:9">16:9</option>
+                        </select>
+                        <button id="editor-crop-swap" class="p-1 bg-stone-100 hover:bg-stone-200 rounded transition-colors" data-tooltip="Swap orientation">
+                            <svg class="w-3.5 h-3.5 text-stone-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"></path>
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="h-5 w-px bg-stone-300"></div>
+                    <div class="flex items-center gap-1.5">
+                        <label class="text-[10px] font-medium text-stone-500 uppercase tracking-wide">Straighten</label>
+                        <input type="range" id="editor-crop-rotate" min="-45" max="45" value="0" step="0.5" class="w-24 accent-stone-600">
+                        <span id="editor-crop-rotate-value" class="text-[10px] font-medium text-stone-600 w-8">0°</span>
+                    </div>
+                    <div class="h-5 w-px bg-stone-300"></div>
                     <div class="flex items-center gap-1">
-                        <button id="editor-zoom-fit" class="p-1.5 bg-stone-100 hover:bg-stone-200 rounded-md transition-colors text-[10px] font-medium text-stone-600"
-                            data-tooltip="Zoom to fit (Ctrl+0)">Fit</button>
-                        <button id="editor-zoom-100" class="p-1.5 bg-stone-100 hover:bg-stone-200 rounded-md transition-colors text-[10px] font-medium text-stone-600"
-                            data-tooltip="Zoom to 100% (Ctrl+1)">100%</button>
-                        <button id="editor-zoom-out" class="p-1.5 bg-stone-100 hover:bg-stone-200 rounded-md transition-colors"
-                            data-tooltip="Zoom out (Ctrl+-)">
-                            <svg class="w-3.5 h-3.5 text-stone-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 12H4"></path>
-                            </svg>
-                        </button>
-                        <span id="editor-zoom-display" class="text-[10px] font-medium text-stone-600 w-8 text-center">100%</span>
-                        <button id="editor-zoom-in" class="p-1.5 bg-stone-100 hover:bg-stone-200 rounded-md transition-colors"
-                            data-tooltip="Zoom in (Ctrl+=)">
-                            <svg class="w-3.5 h-3.5 text-stone-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 4v16m8-8H4"></path>
-                            </svg>
-                        </button>
+                        <button id="editor-crop-confirm" class="px-2.5 py-1 bg-stone-800 hover:bg-stone-700 text-white text-[10px] font-medium rounded-md transition-colors">Apply</button>
+                        <button id="editor-crop-cancel" class="px-2.5 py-1 bg-stone-100 hover:bg-stone-200 text-stone-600 text-[10px] font-medium rounded-md transition-colors">Cancel</button>
+                    </div>
+                </div>
+
+                <div id="editor-anonymize-options" class="editor-context-toolbar" style="display: none;">
+                    <div class="flex items-center gap-1.5">
+                        <label class="text-[10px] font-medium text-stone-500 uppercase tracking-wide">Mode</label>
+                        <button id="editor-anon-brush" class="px-2 py-1 bg-stone-800 text-white text-[10px] font-medium rounded-md transition-colors">Brush</button>
+                        <button id="editor-anon-rect" class="px-2 py-1 bg-stone-100 text-stone-600 text-[10px] font-medium rounded-md transition-colors">Rectangle</button>
+                    </div>
+                    <div class="h-5 w-px bg-stone-300"></div>
+                    <div class="flex items-center gap-1.5">
+                        <label class="text-[10px] font-medium text-stone-500 uppercase tracking-wide">Effect</label>
+                        <button id="editor-anon-pixelate" class="px-2 py-1 bg-stone-800 text-white text-[10px] font-medium rounded-md transition-colors">Pixelate</button>
+                        <button id="editor-anon-blur" class="px-2 py-1 bg-stone-100 text-stone-600 text-[10px] font-medium rounded-md transition-colors">Blur</button>
+                    </div>
+                </div>
+
+                <div id="editor-text-options" class="editor-context-toolbar" style="display: none;">
+                    <div class="flex items-center gap-1.5">
+                        <label class="text-[10px] font-medium text-stone-500 uppercase tracking-wide">Font Size</label>
+                        <input type="number" id="editor-font-size" min="8" max="200" value="24"
+                            class="w-14 text-[10px] font-medium text-stone-600 bg-stone-100 border border-stone-200 rounded px-1.5 py-1 text-center">
+                        <span class="text-[10px] text-stone-400">px</span>
                     </div>
                 </div>
 

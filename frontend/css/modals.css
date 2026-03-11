@@ -657,6 +657,16 @@ input[type="range"].comparison-range::-webkit-slider-thumb {
     align-items: center;
 }
 
+.editor-context-toolbar {
+    padding: 0.375rem 1rem;
+    background: #f5f5f4;
+    border-bottom: 1px solid #e7e5e4;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: center;
+}
+
 .editor-tool-btn {
     padding: 0.375rem;
     border-radius: 4px;
