@@ -35,6 +35,7 @@ const BrushTool = (() => {
                 const ctx = EditorCore.ctx;
                 if (!ctx) return;
 
+                ctx.save();
                 ctx.globalCompositeOperation = compositeOp;
                 ctx.globalAlpha = compositeOp === 'destination-out' ? 1 : EditorCore.currentOpacity;
                 ctx.strokeStyle = EditorCore.currentColor;
@@ -46,12 +47,14 @@ const BrushTool = (() => {
                 ctx.stroke();
                 ctx.beginPath();
                 ctx.moveTo(coords.x, coords.y);
+                ctx.restore();
             },
 
             onMouseUp(coords, e) {
                 const ctx = EditorCore.ctx;
                 if (ctx) {
                     ctx.globalCompositeOperation = 'source-over';
+                    ctx.globalAlpha = 1;
                 }
                 EditorCore.saveUndoState();
             },

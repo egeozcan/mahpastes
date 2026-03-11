@@ -144,18 +144,8 @@ function resetToolState() {
 
 function updateToolButtons() {
     document.querySelectorAll('.editor-tool-btn').forEach(btn => {
-        btn.classList.remove('active', 'bg-blue-600', 'text-white');
-        btn.classList.add('bg-gray-100', 'text-gray-700');
+        btn.classList.toggle('active', btn.dataset.tool === EditorCore.activeToolName);
     });
-
-    const activeName = EditorCore.activeToolName;
-    if (activeName) {
-        const activeBtn = document.querySelector(`.editor-tool-btn[data-tool="${activeName}"]`);
-        if (activeBtn) {
-            activeBtn.classList.add('active', 'bg-blue-600', 'text-white');
-            activeBtn.classList.remove('bg-gray-100', 'text-gray-700');
-        }
-    }
 }
 
 function selectTool(tool) {

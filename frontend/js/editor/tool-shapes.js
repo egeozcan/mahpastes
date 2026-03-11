@@ -92,6 +92,7 @@ const ShapeTools = (() => {
         const sx = EditorCore.startX;
         const sy = EditorCore.startY;
 
+        ctx.save();
         ctx.globalAlpha = EditorCore.currentOpacity;
         ctx.strokeStyle = EditorCore.currentColor;
         ctx.lineWidth = EditorCore.brushSize;
@@ -123,6 +124,7 @@ const ShapeTools = (() => {
             ctx.arc(sx, sy, radius, 0, Math.PI * 2);
             ctx.stroke();
         }
+        ctx.restore();
     }
 
     /**

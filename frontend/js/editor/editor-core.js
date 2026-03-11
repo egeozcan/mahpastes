@@ -589,6 +589,9 @@ const EditorCore = (() => {
         }
         activeToolName = null;
 
+        // Clear tool registry to prevent accumulation on repeated opens
+        tools.clear();
+
         // Reset canvas refs
         canvas = null;
         ctx = null;
