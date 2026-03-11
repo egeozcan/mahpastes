@@ -753,7 +753,8 @@
 
             <!-- Image Editor View -->
             <div id="image-editor-view" class="editor-content hidden">
-                <!-- Toolbar -->
+                <!-- Toolbar wrapper (single grid row for all toolbar rows) -->
+                <div class="editor-toolbar-wrapper">
                 <div class="editor-toolbar">
                     <!-- Row 1: Tools -->
                     <div class="flex items-center gap-1 flex-wrap" role="toolbar" aria-label="Drawing tools">
@@ -981,6 +982,7 @@
                             class="w-14 text-[10px] font-medium text-stone-600 bg-stone-100 border border-stone-200 rounded px-1.5 py-1 text-center">
                         <span class="text-[10px] text-stone-400">px</span>
                     </div>
+                </div>
                 </div>
 
                 <!-- Canvas Container -->

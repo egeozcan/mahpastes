@@ -647,6 +647,10 @@ input[type="range"].comparison-range::-webkit-slider-thumb {
     min-height: 0;
 }
 
+.editor-toolbar-wrapper {
+    /* Contains main toolbar + contextual sub-toolbars as a single grid row */
+}
+
 .editor-toolbar {
     padding: 0.625rem 1rem;
     background: #fafaf9;
