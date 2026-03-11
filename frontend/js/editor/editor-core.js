@@ -252,11 +252,11 @@ const EditorCore = (() => {
     // --- Undo/redo with ImageData ---
 
     /**
-     * Estimate memory usage of an ImageData object in bytes.
+     * Estimate memory usage of an undo entry in bytes.
      * Each pixel is 4 bytes (RGBA).
      */
-    function imageDataBytes(imageData) {
-        return imageData.data.byteLength;
+    function entryBytes(entry) {
+        return entry.imageData.data.byteLength;
     }
 
     /**
@@ -265,10 +265,10 @@ const EditorCore = (() => {
     function totalMemoryUsage() {
         let total = 0;
         for (const entry of undoStack) {
-            total += imageDataBytes(entry);
+            total += entryBytes(entry);
         }
         for (const entry of redoStack) {
-            total += imageDataBytes(entry);
+            total += entryBytes(entry);
         }
         return total;
     }
@@ -290,6 +290,8 @@ const EditorCore = (() => {
 
     /**
      * Save current canvas state to the undo stack.
+     * Each entry stores {imageData, width, height} so undo/redo can
+     * restore canvas dimensions after crop or rotate operations.
      */
     function saveUndoState() {
         if (!canvas || !ctx) return;
@@ -297,12 +299,30 @@ const EditorCore = (() => {
         // Clear redo stack when new action is taken
         redoStack = [];
 
-        // Save as ImageData (raw pixel data, much faster than toDataURL)
+        // Save as ImageData plus canvas dimensions
         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        undoStack.push(imageData);
+        undoStack.push({ imageData, width: canvas.width, height: canvas.height });
 
         trimUndoStack();
         updateUndoRedoButtons();
+    }
+
+    /**
+     * Restore a canvas state entry, resizing canvas if dimensions changed.
+     */
+    function restoreState(entry) {
+        // Resize canvas and overlay if dimensions differ (crop, rotate)
+        if (canvas.width !== entry.width || canvas.height !== entry.height) {
+            canvas.width = entry.width;
+            canvas.height = entry.height;
+            if (overlayCanvas) {
+                overlayCanvas.width = entry.width;
+                overlayCanvas.height = entry.height;
+            }
+        }
+
+        ctx.putImageData(entry.imageData, 0, 0);
+        syncOverlay();
     }
 
     /**
@@ -313,8 +333,8 @@ const EditorCore = (() => {
 
         redoStack.push(undoStack.pop());
 
-        const state = undoStack[undoStack.length - 1];
-        ctx.putImageData(state, 0, 0);
+        const entry = undoStack[undoStack.length - 1];
+        restoreState(entry);
 
         updateUndoRedoButtons();
     }
@@ -325,10 +345,10 @@ const EditorCore = (() => {
     function redo() {
         if (redoStack.length === 0) return;
 
-        const state = redoStack.pop();
-        undoStack.push(state);
+        const entry = redoStack.pop();
+        undoStack.push(entry);
 
-        ctx.putImageData(state, 0, 0);
+        restoreState(entry);
 
         updateUndoRedoButtons();
     }
@@ -338,8 +358,8 @@ const EditorCore = (() => {
      */
     function redrawCanvas() {
         if (undoStack.length === 0 || !ctx) return;
-        const state = undoStack[undoStack.length - 1];
-        ctx.putImageData(state, 0, 0);
+        const entry = undoStack[undoStack.length - 1];
+        restoreState(entry);
     }
 
     /**
