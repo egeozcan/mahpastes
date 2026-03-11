@@ -76,7 +76,9 @@ async function openEditor(clipId) {
             EditorCore.registerTool('line', ShapeTools.createLine());
             EditorCore.registerTool('rectangle', ShapeTools.createRectangle());
             EditorCore.registerTool('circle', ShapeTools.createCircle());
+            EditorCore.registerTool('arrow', ArrowTool.create());
             EditorCore.registerTool('text', TextTool.create());
+            EditorCore.registerTool('eyedropper', EyedropperTool.create());
 
             // Attach mouse/touch/keyboard listeners
             EditorCore.attachListeners();

@@ -946,10 +946,14 @@ window.addEventListener('load', async () => {
         ShortcutManager.register({ id: 'editor.line',      label: 'Line tool',         category: 'editor', context: 'editor', defaultKey: 'l', callback: () => selectTool('line') });
         ShortcutManager.register({ id: 'editor.rectangle', label: 'Rectangle tool',    category: 'editor', context: 'editor', defaultKey: 'u', callback: () => selectTool('rectangle') });
         ShortcutManager.register({ id: 'editor.circle',    label: 'Circle tool',       category: 'editor', context: 'editor', defaultKey: 'o', callback: () => selectTool('circle') });
+        ShortcutManager.register({ id: 'editor.arrow',     label: 'Arrow tool',        category: 'editor', context: 'editor', defaultKey: 'w', callback: () => selectTool('arrow') });
         ShortcutManager.register({ id: 'editor.text',      label: 'Text tool',         category: 'editor', context: 'editor', defaultKey: 't', callback: () => selectTool('text') });
         ShortcutManager.register({ id: 'editor.undo',      label: 'Undo',              category: 'editor', context: 'editor', defaultKey: 'mod+z', callback: () => EditorCore.undo() });
         ShortcutManager.register({ id: 'editor.redo',      label: 'Redo',              category: 'editor', context: 'editor', defaultKey: 'mod+shift+z', callback: () => EditorCore.redo() });
         ShortcutManager.register({ id: 'editor.redo-y',    label: 'Redo (Alt)',        category: 'editor', context: 'editor', defaultKey: 'mod+y', callback: () => EditorCore.redo() });
+        ShortcutManager.register({ id: 'editor.eyedropper', label: 'Eyedropper',        category: 'editor', context: 'editor', defaultKey: 'i', callback: () => { selectTool('eyedropper'); updateToolButtons(); } });
+        ShortcutManager.register({ id: 'editor.rotate_cw',  label: 'Rotate 90° CW',   category: 'editor', context: 'editor', defaultKey: 'r', callback: () => TransformTool.rotateCW() });
+        ShortcutManager.register({ id: 'editor.rotate_ccw', label: 'Rotate 90° CCW',   category: 'editor', context: 'editor', defaultKey: 'shift+r', callback: () => TransformTool.rotateCCW() });
         ShortcutManager.register({ id: 'editor.save',      label: 'Save as new clip',  category: 'editor', context: 'editor', defaultKey: 'mod+s', callback: () => saveEditorContent() });
         ShortcutManager.register({ id: 'editor.close',     label: 'Close editor',      category: 'editor', context: 'editor', defaultKey: 'Escape', callback: () => closeEditor() });
 
