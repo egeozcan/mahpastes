@@ -714,10 +714,20 @@ input[type="range"].comparison-range::-webkit-slider-thumb {
     cursor: crosshair;
 }
 
+.editor-canvas-pair {
+    position: relative;
+    display: inline-block;
+    max-width: 100%;
+    max-height: 100%;
+}
+
 #editor-overlay-canvas {
     position: absolute;
+    top: 0;
+    left: 0;
     pointer-events: none;
-    /* Sized and positioned by JS to match the main canvas exactly */
+    /* Same pixel dimensions as main canvas (set in JS), same CSS transform.
+       No JS-based positioning needed — it stacks directly on the main canvas. */
 }
 
 #canvas-text-input {

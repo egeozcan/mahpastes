@@ -128,13 +128,14 @@ const EditorCore = (() => {
     // --- Zoom/pan ---
 
     /**
-     * Apply CSS transform for zoom and pan to both canvases.
+     * Apply CSS transform for zoom and pan to the canvas wrapper.
      */
     function applyTransform() {
         const transform = `translate(${panX}px, ${panY}px) scale(${zoomLevel})`;
-        if (canvas) canvas.style.transform = transform;
-        if (overlayCanvas) overlayCanvas.style.transform = transform;
-        syncOverlay();
+        // Transform the wrapper div so both canvases move/scale together
+        if (canvas && canvas.parentElement) {
+            canvas.parentElement.style.transform = transform;
+        }
     }
 
     /**
@@ -168,18 +169,14 @@ const EditorCore = (() => {
     // --- Overlay sync ---
 
     /**
-     * Position overlay canvas precisely on top of main canvas.
+     * Sync overlay canvas dimensions with the main canvas.
+     * The overlay is positioned via CSS (absolute, top:0, left:0) inside
+     * the same wrapper div, so no JS positioning is needed.
      */
     function syncOverlay() {
-        if (!canvas || !overlayCanvas) return;
-        const rect = canvas.getBoundingClientRect();
-        const container = canvas.parentElement;
-        if (!container) return;
-        const containerRect = container.getBoundingClientRect();
-        overlayCanvas.style.left = (rect.left - containerRect.left) + 'px';
-        overlayCanvas.style.top = (rect.top - containerRect.top) + 'px';
-        overlayCanvas.style.width = rect.width + 'px';
-        overlayCanvas.style.height = rect.height + 'px';
+        // Nothing to do — overlay shares the wrapper with the main canvas
+        // and CSS handles positioning. Pixel dimensions are synced when
+        // the canvas is resized (loadImage, crop, rotate).
     }
 
     // --- Tool registry ---
@@ -614,6 +611,11 @@ const EditorCore = (() => {
 
         // Clear tool registry to prevent accumulation on repeated opens
         tools.clear();
+
+        // Clear transform on wrapper before losing canvas ref
+        if (canvas && canvas.parentElement) {
+            canvas.parentElement.style.transform = '';
+        }
 
         // Reset canvas refs
         canvas = null;

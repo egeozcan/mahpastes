@@ -22,7 +22,8 @@ const ZoomTool = (() => {
     function zoomToFit() {
         const canvas = EditorCore.canvas;
         if (!canvas) return;
-        const container = canvas.parentElement;
+        // Navigate past the .editor-canvas-pair wrapper to the .editor-canvas-container
+        const container = canvas.closest('.editor-canvas-container');
         if (!container) return;
         const containerRect = container.getBoundingClientRect();
         const padding = 48;

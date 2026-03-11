@@ -43,21 +43,20 @@ const EyedropperTool = (() => {
                 EditorCore.currentColor = hex;
                 const colorInput = document.getElementById('editor-color');
                 if (colorInput) colorInput.value = hex;
+            },
 
-                // Switch back to the previous tool
+            onMouseMove(coords, e) {
+                // No-op — don't draw anything
+            },
+
+            onMouseUp(coords, e) {
+                // Switch back to the previous tool AFTER the mouse event cycle completes,
+                // so the new tool doesn't receive stray move/up events from this click.
                 const restoreTo = previousTool && previousTool !== 'eyedropper'
                     ? previousTool
                     : 'brush';
                 selectTool(restoreTo);
                 updateToolButtons();
-            },
-
-            onMouseMove(coords, e) {
-                // No-op
-            },
-
-            onMouseUp(coords, e) {
-                // No-op
             },
 
             getCursor() {
