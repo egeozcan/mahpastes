@@ -482,6 +482,7 @@ const EditorCore = (() => {
             const centerY = e.clientY - rect.top;
             const delta = e.deltaY > 0 ? 0.9 : 1.1;
             setZoom(zoomLevel * delta, centerX, centerY);
+            if (typeof ZoomTool !== 'undefined') ZoomTool.updateZoomDisplay();
         }
     }
 

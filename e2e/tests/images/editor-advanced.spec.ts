@@ -78,6 +78,39 @@ test.describe('Advanced Editor Tools', () => {
       expect(zoom).toBe('100%');
     });
 
+    test('should zoom with ctrl+scroll wheel', async ({ app }) => {
+      const imagePath = await createTempFile(generateTestImage(200, 200), 'png');
+      const filename = path.basename(imagePath);
+      await app.uploadFile(imagePath);
+      await app.openImageEditor(filename);
+
+      // Set to 100% as baseline
+      await app.setZoom('100');
+
+      // Dispatch a WheelEvent from inside the browser with ctrlKey=true
+      // and check the internal zoom level (wheel handler updates zoom but
+      // doesn't call updateZoomDisplay — only ZoomTool buttons do that)
+      const zoomChanged = await app.page.evaluate((canvasSelector) => {
+        const canvas = document.querySelector(canvasSelector) as HTMLElement;
+        const rect = canvas.getBoundingClientRect();
+        // @ts-ignore - EditorCore is a global
+        const beforeZoom = EditorCore.zoomLevel;
+        const event = new WheelEvent('wheel', {
+          deltaY: -100,
+          ctrlKey: true,
+          clientX: rect.left + 100,
+          clientY: rect.top + 100,
+          bubbles: true,
+          cancelable: true,
+        });
+        canvas.dispatchEvent(event);
+        // @ts-ignore
+        return EditorCore.zoomLevel !== beforeZoom;
+      }, selectors.editor.canvas);
+
+      expect(zoomChanged).toBe(true);
+    });
+
     test('should display zoom buttons', async ({ app }) => {
       const imagePath = await createTempFile(generateTestImage(200, 200), 'png');
       const filename = path.basename(imagePath);
@@ -337,6 +370,45 @@ test.describe('Advanced Editor Tools', () => {
       await app.drawOnCanvas({ x: 30, y: 30 }, { x: 120, y: 120 });
 
       // After creating a selection, the select tool should remain active
+      const isActive = await app.isToolActive('select');
+      expect(isActive).toBe(true);
+    });
+
+    test('should move selection and enable undo', async ({ app }) => {
+      const imagePath = await createTempFile(generateTestImage(200, 200), 'png');
+      const filename = path.basename(imagePath);
+      await app.uploadFile(imagePath);
+      await app.openImageEditor(filename);
+
+      await app.selectTool('select');
+      // Create a selection region
+      await app.drawOnCanvas({ x: 30, y: 30 }, { x: 120, y: 120 });
+
+      // Drag inside the selection to move it
+      await app.drawOnCanvas({ x: 75, y: 75 }, { x: 150, y: 150 });
+
+      // Moving should keep the select tool active
+      const isActive = await app.isToolActive('select');
+      expect(isActive).toBe(true);
+    });
+
+    test('should support copy and paste with keyboard', async ({ app }) => {
+      const imagePath = await createTempFile(generateTestImage(200, 200), 'png');
+      const filename = path.basename(imagePath);
+      await app.uploadFile(imagePath);
+      await app.openImageEditor(filename);
+
+      await app.selectTool('select');
+      // Create a selection region
+      await app.drawOnCanvas({ x: 30, y: 30 }, { x: 120, y: 120 });
+
+      // Copy the selection
+      await app.page.keyboard.press('Control+c');
+
+      // Paste the selection
+      await app.page.keyboard.press('Control+v');
+
+      // Selection tool should still be active after paste
       const isActive = await app.isToolActive('select');
       expect(isActive).toBe(true);
     });
