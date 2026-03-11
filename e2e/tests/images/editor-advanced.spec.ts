@@ -387,9 +387,11 @@ test.describe('Advanced Editor Tools', () => {
       // Drag inside the selection to move it
       await app.drawOnCanvas({ x: 75, y: 75 }, { x: 150, y: 150 });
 
-      // Moving should keep the select tool active
+      // Moving should keep the select tool active and enable undo
       const isActive = await app.isToolActive('select');
       expect(isActive).toBe(true);
+      const undoEnabled = await app.isUndoEnabled();
+      expect(undoEnabled).toBe(true);
     });
 
     test('should support copy and paste with keyboard', async ({ app }) => {
@@ -402,11 +404,11 @@ test.describe('Advanced Editor Tools', () => {
       // Create a selection region
       await app.drawOnCanvas({ x: 30, y: 30 }, { x: 120, y: 120 });
 
-      // Copy the selection
-      await app.page.keyboard.press('Control+c');
+      // Copy the selection (use ControlOrMeta for cross-platform compatibility)
+      await app.page.keyboard.press('ControlOrMeta+c');
 
       // Paste the selection
-      await app.page.keyboard.press('Control+v');
+      await app.page.keyboard.press('ControlOrMeta+v');
 
       // Selection tool should still be active after paste
       const isActive = await app.isToolActive('select');
