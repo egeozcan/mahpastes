@@ -81,6 +81,7 @@ async function openEditor(clipId) {
             EditorCore.registerTool('eyedropper', EyedropperTool.create());
             EditorCore.registerTool('crop', CropTool.create());
             EditorCore.registerTool('select', SelectTool.create());
+            EditorCore.registerTool('anonymize', AnonymizeTool.create());
 
             // Attach mouse/touch/keyboard listeners
             EditorCore.attachListeners();
@@ -319,6 +320,39 @@ function setupEditorListeners() {
 
     document.getElementById('editor-crop-cancel')?.addEventListener('click', () => {
         CropTool.cancel();
+    });
+
+    // Anonymize controls
+    document.getElementById('editor-anon-brush')?.addEventListener('click', () => {
+        AnonymizeTool.setMode('brush');
+        document.getElementById('editor-anon-brush').classList.add('bg-stone-800', 'text-white');
+        document.getElementById('editor-anon-brush').classList.remove('bg-stone-100', 'text-stone-600');
+        document.getElementById('editor-anon-rect').classList.remove('bg-stone-800', 'text-white');
+        document.getElementById('editor-anon-rect').classList.add('bg-stone-100', 'text-stone-600');
+    });
+
+    document.getElementById('editor-anon-rect')?.addEventListener('click', () => {
+        AnonymizeTool.setMode('rect');
+        document.getElementById('editor-anon-rect').classList.add('bg-stone-800', 'text-white');
+        document.getElementById('editor-anon-rect').classList.remove('bg-stone-100', 'text-stone-600');
+        document.getElementById('editor-anon-brush').classList.remove('bg-stone-800', 'text-white');
+        document.getElementById('editor-anon-brush').classList.add('bg-stone-100', 'text-stone-600');
+    });
+
+    document.getElementById('editor-anon-pixelate')?.addEventListener('click', () => {
+        AnonymizeTool.setEffect('pixelate');
+        document.getElementById('editor-anon-pixelate').classList.add('bg-stone-800', 'text-white');
+        document.getElementById('editor-anon-pixelate').classList.remove('bg-stone-100', 'text-stone-600');
+        document.getElementById('editor-anon-blur').classList.remove('bg-stone-800', 'text-white');
+        document.getElementById('editor-anon-blur').classList.add('bg-stone-100', 'text-stone-600');
+    });
+
+    document.getElementById('editor-anon-blur')?.addEventListener('click', () => {
+        AnonymizeTool.setEffect('blur');
+        document.getElementById('editor-anon-blur').classList.add('bg-stone-800', 'text-white');
+        document.getElementById('editor-anon-blur').classList.remove('bg-stone-100', 'text-stone-600');
+        document.getElementById('editor-anon-pixelate').classList.remove('bg-stone-800', 'text-white');
+        document.getElementById('editor-anon-pixelate').classList.add('bg-stone-100', 'text-stone-600');
     });
 
     // Click outside to close

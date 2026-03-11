@@ -957,6 +957,7 @@ window.addEventListener('load', async () => {
         ShortcutManager.register({ id: 'editor.copy',      label: 'Copy selection',    category: 'editor', context: 'editor', defaultKey: 'mod+c', callback: () => { if (typeof SelectTool !== 'undefined') SelectTool.copySelection(); } });
         ShortcutManager.register({ id: 'editor.paste',     label: 'Paste selection',   category: 'editor', context: 'editor', defaultKey: 'mod+v', callback: () => { if (typeof SelectTool !== 'undefined') SelectTool.pasteSelection(); } });
         ShortcutManager.register({ id: 'editor.delete_sel', label: 'Delete selection', category: 'editor', context: 'editor', defaultKey: 'Delete', callback: () => { if (typeof SelectTool !== 'undefined') SelectTool.deleteSelection(); } });
+        ShortcutManager.register({ id: 'editor.anonymize',  label: 'Anonymize tool',    category: 'editor', context: 'editor', defaultKey: 'x', callback: () => { selectTool('anonymize'); updateToolButtons(); } });
         ShortcutManager.register({ id: 'editor.crop',       label: 'Crop tool',         category: 'editor', context: 'editor', defaultKey: 'c', callback: () => { selectTool('crop'); updateToolButtons(); } });
         ShortcutManager.register({ id: 'editor.confirm',    label: 'Confirm crop/selection', category: 'editor', context: 'editor', defaultKey: 'Enter', callback: () => {
             if (EditorCore.activeToolName === 'crop' && typeof CropTool !== 'undefined') CropTool.confirm();
