@@ -11,9 +11,10 @@ const EditorCore = (() => {
 
     // --- Image state ---
     let originalImage = null;
+    let originalContentType = '';
 
     // --- Drawing properties ---
-    let currentColor = '#3b82f6';
+    let currentColor = '#44403c';
     let currentOpacity = 1;
     let brushSize = 8;
     let fontSize = 16;
@@ -68,19 +69,24 @@ const EditorCore = (() => {
      * Load an image blob into the canvas. Caps at 4000px on longest side.
      * Returns a promise that resolves when the image is drawn.
      */
-    async function loadImage(imageBlob) {
+    async function loadImage(imageBlob, contentType) {
         canvas = document.getElementById('editor-canvas');
         ctx = canvas.getContext('2d');
         overlayCanvas = document.getElementById('editor-overlay-canvas');
         overlayCtx = overlayCanvas.getContext('2d');
 
+        originalContentType = contentType || 'image/png';
+
         originalImage = new Image();
-        originalImage.src = URL.createObjectURL(imageBlob);
+        const objectURL = URL.createObjectURL(imageBlob);
+        originalImage.src = objectURL;
 
         await new Promise((resolve, reject) => {
             originalImage.onload = resolve;
             originalImage.onerror = reject;
         });
+
+        URL.revokeObjectURL(objectURL);
 
         const maxSize = 4000;
         let width = originalImage.width;
@@ -458,9 +464,10 @@ const EditorCore = (() => {
     }
 
     function handleTouchEnd(e) {
+        const touch = e.changedTouches[0];
         const mouseEvent = new MouseEvent('mouseup', {
-            clientX: lastX,
-            clientY: lastY
+            clientX: touch.clientX,
+            clientY: touch.clientY
         });
         handleMouseUp(mouseEvent);
     }
@@ -575,15 +582,23 @@ const EditorCore = (() => {
     function reset() {
         detachListeners();
 
+        // Reset tool BEFORE nullifying canvas (tools may reference canvas during deactivation)
+        const current = getActiveTool();
+        if (current && typeof current.deactivate === 'function') {
+            current.deactivate();
+        }
+        activeToolName = null;
+
         // Reset canvas refs
         canvas = null;
         ctx = null;
         overlayCanvas = null;
         overlayCtx = null;
         originalImage = null;
+        originalContentType = '';
 
         // Reset drawing properties
-        currentColor = '#3b82f6';
+        currentColor = '#44403c';
         currentOpacity = 1;
         brushSize = 8;
         fontSize = 16;
@@ -606,13 +621,6 @@ const EditorCore = (() => {
         panStartPanX = 0;
         panStartPanY = 0;
 
-        // Reset tool
-        const current = getActiveTool();
-        if (current && typeof current.deactivate === 'function') {
-            current.deactivate();
-        }
-        activeToolName = null;
-
         // Clear undo/redo stacks
         undoStack = [];
         redoStack = [];
@@ -630,6 +638,7 @@ const EditorCore = (() => {
         get overlayCanvas() { return overlayCanvas; },
         get overlayCtx() { return overlayCtx; },
         get originalImage() { return originalImage; },
+        get originalContentType() { return originalContentType; },
 
         // Drawing properties (getters and setters)
         get currentColor() { return currentColor; },
