@@ -688,7 +688,7 @@ input[type="range"].comparison-range::-webkit-slider-thumb {
     display: flex;
     align-items: center;
     justify-content: center;
-    overflow: auto;
+    overflow: hidden;
     position: relative;
     padding: 1.5rem;
 }

@@ -833,6 +833,28 @@
                             </svg>
                         </button>
                     </div>
+
+                    <div class="h-5 w-px bg-stone-300"></div>
+
+                    <div class="flex items-center gap-1">
+                        <button id="editor-zoom-fit" class="p-1.5 bg-stone-100 hover:bg-stone-200 rounded-md transition-colors text-[10px] font-medium text-stone-600"
+                            data-tooltip="Zoom to fit (Ctrl+0)">Fit</button>
+                        <button id="editor-zoom-100" class="p-1.5 bg-stone-100 hover:bg-stone-200 rounded-md transition-colors text-[10px] font-medium text-stone-600"
+                            data-tooltip="Zoom to 100% (Ctrl+1)">100%</button>
+                        <button id="editor-zoom-out" class="p-1.5 bg-stone-100 hover:bg-stone-200 rounded-md transition-colors"
+                            data-tooltip="Zoom out (Ctrl+-)">
+                            <svg class="w-3.5 h-3.5 text-stone-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 12H4"></path>
+                            </svg>
+                        </button>
+                        <span id="editor-zoom-display" class="text-[10px] font-medium text-stone-600 w-8 text-center">100%</span>
+                        <button id="editor-zoom-in" class="p-1.5 bg-stone-100 hover:bg-stone-200 rounded-md transition-colors"
+                            data-tooltip="Zoom in (Ctrl+=)">
+                            <svg class="w-3.5 h-3.5 text-stone-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 4v16m8-8H4"></path>
+                            </svg>
+                        </button>
+                    </div>
                 </div>
 
                 <!-- Canvas Container -->
@@ -1466,6 +1488,7 @@
     <script src="js/editor/tool-brush.js"></script>
     <script src="js/editor/tool-shapes.js"></script>
     <script src="js/editor/tool-text.js"></script>
+    <script src="js/editor/tool-zoom.js"></script>
     <script src="js/editor.js"></script>
     <script src="js/watch.js"></script>
     <script src="js/serve.js"></script>

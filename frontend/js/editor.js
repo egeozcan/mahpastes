@@ -81,6 +81,9 @@ async function openEditor(clipId) {
             // Attach mouse/touch/keyboard listeners
             EditorCore.attachListeners();
 
+            // Update zoom display to reflect initial zoom level
+            ZoomTool.updateZoomDisplay();
+
             // Select default tool
             EditorCore.selectTool('brush');
         } else {
@@ -240,6 +243,12 @@ function setupEditorListeners() {
     document.getElementById('editor-undo').addEventListener('click', () => EditorCore.undo());
     document.getElementById('editor-redo').addEventListener('click', () => EditorCore.redo());
 
+    // Zoom controls — delegate to ZoomTool
+    document.getElementById('editor-zoom-fit')?.addEventListener('click', () => ZoomTool.zoomToFit());
+    document.getElementById('editor-zoom-100')?.addEventListener('click', () => ZoomTool.zoomTo100());
+    document.getElementById('editor-zoom-in')?.addEventListener('click', () => ZoomTool.zoomIn());
+    document.getElementById('editor-zoom-out')?.addEventListener('click', () => ZoomTool.zoomOut());
+
     // Text input commit on Enter or blur
     const textInput = document.getElementById('canvas-text-input');
     textInput.addEventListener('keydown', (e) => {
@@ -265,25 +274,4 @@ function setupEditorListeners() {
         }
     });
 
-    // Keyboard shortcuts (ad-hoc listener — will be replaced by ShortcutManager in Task 3)
-    document.addEventListener('keydown', (e) => {
-        const editorModal = document.getElementById('editor-modal');
-        if (!editorModal.classList.contains('active')) return;
-
-        if (e.key === 'Escape') {
-            e.preventDefault();
-            closeEditor();
-        } else if (e.ctrlKey || e.metaKey) {
-            if (e.key === 'z' && !e.shiftKey) {
-                e.preventDefault();
-                EditorCore.undo();
-            } else if ((e.key === 'z' && e.shiftKey) || e.key === 'y') {
-                e.preventDefault();
-                EditorCore.redo();
-            } else if (e.key === 's') {
-                e.preventDefault();
-                saveEditorContent();
-            }
-        }
-    });
 }
