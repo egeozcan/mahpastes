@@ -183,6 +183,24 @@ export const selectors = {
     rotateCCW: '#editor-rotate-ccw',
     flipH: '#editor-flip-h',
     flipV: '#editor-flip-v',
+    // Crop options
+    cropOptions: '#editor-crop-options',
+    cropConfirm: '#editor-crop-confirm',
+    cropCancel: '#editor-crop-cancel',
+    cropRatio: '#editor-crop-ratio',
+    cropSwap: '#editor-crop-swap',
+    cropRotate: '#editor-crop-rotate',
+    // Anonymize options
+    anonymizeOptions: '#editor-anonymize-options',
+    anonBrush: '#editor-anon-brush',
+    anonRect: '#editor-anon-rect',
+    anonPixelate: '#editor-anon-pixelate',
+    anonBlur: '#editor-anon-blur',
+    // Text options
+    textOptions: '#editor-text-options',
+    fontSize: '#editor-font-size',
+    // Overlay canvas
+    overlayCanvas: '#editor-overlay-canvas',
   },
 
   // Image comparison

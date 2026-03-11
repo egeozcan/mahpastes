@@ -665,10 +665,13 @@ const EditorCore = (() => {
         get lastY() { return lastY; },
         set lastY(v) { lastY = v; },
 
-        // Zoom/pan state (getters)
+        // Zoom/pan state (getters/setters)
         get zoomLevel() { return zoomLevel; },
+        set zoomLevel(v) { zoomLevel = v; },
         get panX() { return panX; },
+        set panX(v) { panX = v; },
         get panY() { return panY; },
+        set panY(v) { panY = v; },
         get isPanning() { return isPanning; },
         get spaceHeld() { return spaceHeld; },
 

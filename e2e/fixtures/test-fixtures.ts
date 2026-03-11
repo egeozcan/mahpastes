@@ -978,6 +978,59 @@ export class AppHelper {
     }, selectors.editor.modal);
   }
 
+  async setZoom(action: 'fit' | '100' | 'in' | 'out'): Promise<void> {
+    const map: Record<string, string> = {
+      fit: selectors.editor.zoomFit,
+      '100': selectors.editor.zoom100,
+      'in': selectors.editor.zoomIn,
+      out: selectors.editor.zoomOut,
+    };
+    await this.page.locator(map[action]).click();
+  }
+
+  async getZoomLevel(): Promise<string> {
+    return await this.page.locator(selectors.editor.zoomDisplay).textContent() || '';
+  }
+
+  async cropImage(from: Point, to: Point): Promise<void> {
+    await this.selectTool('crop');
+    await this.drawOnCanvas(from, to);
+    await this.page.locator(selectors.editor.cropConfirm).click();
+  }
+
+  async anonymizeRegion(from: Point, to: Point, mode: 'brush' | 'rect' = 'rect'): Promise<void> {
+    await this.selectTool('anonymize');
+    if (mode === 'rect') {
+      await this.page.locator(selectors.editor.anonRect).click();
+    } else {
+      await this.page.locator(selectors.editor.anonBrush).click();
+    }
+    await this.drawOnCanvas(from, to);
+  }
+
+  async getCanvasDimensions(): Promise<{ width: number; height: number }> {
+    return this.page.evaluate((sel) => {
+      const canvas = document.querySelector(sel) as HTMLCanvasElement;
+      return canvas ? { width: canvas.width, height: canvas.height } : { width: 0, height: 0 };
+    }, selectors.editor.canvas);
+  }
+
+  async isToolActive(tool: string): Promise<boolean> {
+    const btn = this.page.locator(`[data-tool="${tool}"]`);
+    return btn.evaluate((el) => el.classList.contains('active'));
+  }
+
+  async isUndoEnabled(): Promise<boolean> {
+    return this.page.evaluate((sel) => {
+      const btn = document.querySelector(sel) as HTMLButtonElement;
+      return btn ? !btn.disabled : false;
+    }, selectors.editor.undoButton);
+  }
+
+  async setFontSize(size: number): Promise<void> {
+    await this.page.locator(selectors.editor.fontSize).fill(String(size));
+  }
+
   // ==================== Image Comparison ====================
 
   async openComparison(): Promise<void> {
