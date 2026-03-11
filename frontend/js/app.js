@@ -351,6 +351,26 @@ document.getElementById('confirm-dialog').addEventListener('click', (e) => {
     if (e.target.id === 'confirm-dialog') closeConfirmDialog();
 });
 
+// Prompt Dialog Listeners
+document.getElementById('prompt-save-btn').addEventListener('click', async () => {
+    const value = document.getElementById('prompt-input').value;
+    if (promptCallback) await promptCallback(value);
+    closePromptDialog();
+});
+
+document.getElementById('prompt-cancel-btn').addEventListener('click', closePromptDialog);
+
+document.getElementById('prompt-dialog').addEventListener('click', (e) => {
+    if (e.target.id === 'prompt-dialog') closePromptDialog();
+});
+
+document.getElementById('prompt-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        document.getElementById('prompt-save-btn').click();
+    }
+});
+
 // Delete All Temp Files
 deleteAllTempBtn.addEventListener('click', deleteAllTempFiles);
 

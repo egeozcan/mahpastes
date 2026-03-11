@@ -206,6 +206,10 @@ export function RemoveWatchedFolder(arg1) {
   return window['go']['main']['App']['RemoveWatchedFolder'](arg1);
 }
 
+export function RenameClip(arg1, arg2) {
+  return window['go']['main']['App']['RenameClip'](arg1, arg2);
+}
+
 export function RestoreBackup(arg1) {
   return window['go']['main']['App']['RestoreBackup'](arg1);
 }
@@ -256,6 +260,10 @@ export function ShowRestoreBackupDialog() {
 
 export function ToggleArchive(arg1) {
   return window['go']['main']['App']['ToggleArchive'](arg1);
+}
+
+export function UpdateClipData(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['UpdateClipData'](arg1, arg2, arg3, arg4);
 }
 
 export function UpdateTag(arg1, arg2, arg3) {

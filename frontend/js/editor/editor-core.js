@@ -54,7 +54,6 @@ const EditorCore = (() => {
     let boundMouseDown = null;
     let boundMouseMove = null;
     let boundMouseUp = null;
-    let boundMouseLeave = null;
     let boundTouchStart = null;
     let boundTouchMove = null;
     let boundTouchEnd = null;
@@ -457,8 +456,9 @@ const EditorCore = (() => {
     }
 
     function handleMouseLeave(e) {
-        // Treat mouse leave as mouse up
-        handleMouseUp(e);
+        // No-op: mousemove and mouseup are on document, so drawing
+        // continues even when the cursor leaves the canvas and resumes
+        // when it re-enters.
     }
 
     function handleTouchStart(e) {
@@ -545,7 +545,6 @@ const EditorCore = (() => {
         boundMouseDown = handleMouseDown;
         boundMouseMove = handleMouseMove;
         boundMouseUp = handleMouseUp;
-        boundMouseLeave = handleMouseLeave;
         boundTouchStart = handleTouchStart;
         boundTouchMove = handleTouchMove;
         boundTouchEnd = handleTouchEnd;
@@ -555,9 +554,8 @@ const EditorCore = (() => {
         boundContextMenu = handleContextMenu;
 
         canvas.addEventListener('mousedown', boundMouseDown);
-        canvas.addEventListener('mousemove', boundMouseMove);
-        canvas.addEventListener('mouseup', boundMouseUp);
-        canvas.addEventListener('mouseleave', boundMouseLeave);
+        document.addEventListener('mousemove', boundMouseMove);
+        document.addEventListener('mouseup', boundMouseUp);
         canvas.addEventListener('touchstart', boundTouchStart, { passive: false });
         canvas.addEventListener('touchmove', boundTouchMove, { passive: false });
         canvas.addEventListener('touchend', boundTouchEnd);
@@ -578,9 +576,11 @@ const EditorCore = (() => {
 
         if (canvas) {
             canvas.removeEventListener('mousedown', boundMouseDown);
-            canvas.removeEventListener('mousemove', boundMouseMove);
-            canvas.removeEventListener('mouseup', boundMouseUp);
-            canvas.removeEventListener('mouseleave', boundMouseLeave);
+        }
+        document.removeEventListener('mousemove', boundMouseMove);
+        document.removeEventListener('mouseup', boundMouseUp);
+
+        if (canvas) {
             canvas.removeEventListener('touchstart', boundTouchStart);
             canvas.removeEventListener('touchmove', boundTouchMove);
             canvas.removeEventListener('touchend', boundTouchEnd);

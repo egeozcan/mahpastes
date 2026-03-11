@@ -3,6 +3,8 @@ window.__testHelpers = {};
 
 let confirmCallback = null;
 let confirmFocusTrapCleanup = null;
+let promptCallback = null;
+let promptFocusTrapCleanup = null;
 
 function showConfirmDialog(title, message, callback) {
     const dialog = document.getElementById('confirm-dialog');
@@ -41,6 +43,51 @@ function closeConfirmDialog() {
     dialogContent.classList.remove('scale-100');
     dialogContent.classList.add('scale-95');
     confirmCallback = null;
+    dialog.setAttribute('inert', '');
+
+    if (lastFocusedElement) {
+        lastFocusedElement.focus();
+    }
+}
+
+function showPromptDialog(title, defaultValue, callback) {
+    const dialog = document.getElementById('prompt-dialog');
+    const dialogContent = dialog.querySelector('div');
+    const titleEl = document.getElementById('prompt-title');
+    const input = document.getElementById('prompt-input');
+
+    titleEl.textContent = title;
+    input.value = defaultValue || '';
+    promptCallback = callback;
+
+    dialog.removeAttribute('inert');
+    dialog.classList.remove('opacity-0', 'pointer-events-none');
+    dialog.classList.add('opacity-100');
+    dialogContent.classList.remove('scale-95');
+    dialogContent.classList.add('scale-100');
+
+    lastFocusedElement = document.activeElement;
+    if (promptFocusTrapCleanup) promptFocusTrapCleanup();
+    promptFocusTrapCleanup = trapFocus(dialog);
+    setTimeout(() => {
+        input.focus();
+        input.select();
+    }, 100);
+}
+
+function closePromptDialog() {
+    const dialog = document.getElementById('prompt-dialog');
+    const dialogContent = dialog.querySelector('div');
+
+    if (promptFocusTrapCleanup) {
+        promptFocusTrapCleanup();
+        promptFocusTrapCleanup = null;
+    }
+    dialog.classList.remove('opacity-100');
+    dialog.classList.add('opacity-0', 'pointer-events-none');
+    dialogContent.classList.remove('scale-100');
+    dialogContent.classList.add('scale-95');
+    promptCallback = null;
     dialog.setAttribute('inert', '');
 
     if (lastFocusedElement) {

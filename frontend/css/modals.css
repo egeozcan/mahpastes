@@ -708,8 +708,6 @@ input[type="range"].comparison-range::-webkit-slider-thumb {
 }
 
 #editor-canvas {
-    max-width: 100%;
-    max-height: 100%;
     background: white;
     cursor: crosshair;
 }
@@ -717,8 +715,7 @@ input[type="range"].comparison-range::-webkit-slider-thumb {
 .editor-canvas-pair {
     position: relative;
     display: inline-block;
-    max-width: 100%;
-    max-height: 100%;
+    transform-origin: center center;
 }
 
 #editor-overlay-canvas {

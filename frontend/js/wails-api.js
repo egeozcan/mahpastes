@@ -133,6 +133,22 @@ async function deleteClip(id) {
     });
 }
 
+function renameClip(id) {
+    const card = gallery.querySelector(`li[data-id="${id}"]`);
+    const currentName = card?.querySelector('.p-2\\.5 p')?.getAttribute('title') || '';
+    showPromptDialog('Rename Clip', currentName, async (newName) => {
+        if (!newName || !newName.trim()) return;
+        try {
+            await window.go.main.App.RenameClip(id, newName.trim());
+            showToast('Clip renamed.');
+            loadClips();
+        } catch (error) {
+            console.error('Error renaming clip:', error);
+            showToast('Failed to rename clip.', 'error');
+        }
+    });
+}
+
 async function toggleArchiveClip(id) {
     try {
         await window.go.main.App.ToggleArchive(id);

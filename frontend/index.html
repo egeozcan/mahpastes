@@ -499,6 +499,36 @@
         </div>
     </div>
 
+    <!-- Prompt Dialog -->
+    <div id="prompt-dialog" role="dialog" aria-modal="true" aria-labelledby="prompt-title" tabindex="-1" inert
+        class="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm transition-opacity duration-200 opacity-0 pointer-events-none">
+        <div class="bg-white rounded-lg shadow-xl max-w-sm w-full overflow-hidden transform transition-transform duration-200 scale-95">
+            <div class="p-5">
+                <div class="flex items-center justify-center w-10 h-10 mx-auto bg-stone-100 rounded-full mb-3">
+                    <svg class="w-5 h-5 text-stone-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                        xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                            d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z">
+                        </path>
+                    </svg>
+                </div>
+                <h2 id="prompt-title" class="text-sm font-semibold text-stone-800 text-center mb-3">Rename</h2>
+                <input id="prompt-input" type="text"
+                    class="block w-full border border-stone-200 rounded-md text-sm bg-white placeholder-stone-400 focus:outline-none focus:border-stone-400 focus:ring-1 focus:ring-stone-400/20 transition-colors px-3 py-2">
+            </div>
+            <div class="bg-stone-50 px-5 py-3 flex gap-2 justify-end border-t border-stone-100">
+                <button id="prompt-cancel-btn"
+                    class="bg-white border border-stone-200 hover:bg-stone-50 text-stone-600 text-xs font-medium py-2 px-4 rounded-md transition-colors">
+                    Cancel
+                </button>
+                <button id="prompt-save-btn"
+                    class="bg-stone-800 hover:bg-stone-700 text-white text-xs font-medium py-2 px-4 rounded-md transition-colors">
+                    Save
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Restore Backup Confirm Dialog -->
     <div id="restore-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="restore-confirm-title" inert
         class="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm transition-opacity duration-200 opacity-0 pointer-events-none">
@@ -724,8 +754,17 @@
                     <input type="text" id="editor-filename"
                         class="px-2.5 py-1.5 bg-white/10 border border-white/20 rounded-md text-white text-xs focus:outline-none focus:ring-1 focus:ring-white/30"
                         placeholder="filename.ext">
-                    <button id="editor-save"
+                    <button id="editor-save-in-place"
                         class="px-3 py-1.5 bg-white text-stone-800 text-xs font-medium rounded-md hover:bg-stone-100 transition-colors flex items-center gap-1.5"
+                        data-tooltip="Overwrite the original clip with your edits">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M5 13l4 4L19 7"></path>
+                        </svg>
+                        Save
+                    </button>
+                    <button id="editor-save"
+                        class="px-3 py-1.5 bg-white/20 text-white text-xs font-medium rounded-md hover:bg-white/30 transition-colors flex items-center gap-1.5"
                         data-tooltip="Save edits as a new clip in your library">
                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -766,7 +805,7 @@
                         </button>
                         <button class="editor-tool-btn" data-tool="crop" aria-label="Crop image" aria-pressed="false" data-tooltip="Crop image (C)">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 2v4H2v2h4v12h12v4h2v-4h4v-2H8V6h12V4H8V2H6z"></path>
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6.13 1L6.13 6.13 1 6.13M6.13 6.13L6.13 17.87 17.87 17.87M17.87 23L17.87 17.87 23 17.87M17.87 17.87L17.87 6.13 6.13 6.13"></path>
                             </svg>
                         </button>
 
@@ -818,9 +857,8 @@
 
                         <!-- Annotation tools -->
                         <button class="editor-tool-btn" data-tool="text" aria-label="Add text" aria-pressed="false" data-tooltip="Add text (T)">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
-                                    d="M4 6h16M12 6v14M8 6v2m8-2v2"></path>
+                            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M7 5h10V3H7v2zm3.5 2H11v12h2V7h1.5z"></path>
                             </svg>
                         </button>
                         <button class="editor-tool-btn" data-tool="anonymize" aria-label="Anonymize region" aria-pressed="false" data-tooltip="Anonymize region (X)">
@@ -886,22 +924,24 @@
                         <div class="flex items-center gap-1">
                             <button id="editor-rotate-cw" class="p-1.5 bg-stone-100 hover:bg-stone-200 rounded-md transition-colors" aria-label="Rotate 90° clockwise" data-tooltip="Rotate 90° clockwise (R)">
                                 <svg class="w-3.5 h-3.5 text-stone-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 4v5h5M20 20v-5h-5M4.5 9A7.5 7.5 0 0119.5 15M19.5 15l-5-5"></path>
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 3l4 4-4 4"></path>
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 7h-8a5 5 0 00-5 5v8"></path>
                                 </svg>
                             </button>
                             <button id="editor-rotate-ccw" class="p-1.5 bg-stone-100 hover:bg-stone-200 rounded-md transition-colors" aria-label="Rotate 90° counter-clockwise" data-tooltip="Rotate 90° counter-clockwise (Shift+R)">
                                 <svg class="w-3.5 h-3.5 text-stone-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 4v5h-5M4 20v-5h5M19.5 9A7.5 7.5 0 004.5 15M4.5 15l5-5"></path>
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 3L5 7l4 4"></path>
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 7h8a5 5 0 015 5v8"></path>
                                 </svg>
                             </button>
                             <button id="editor-flip-h" class="p-1.5 bg-stone-100 hover:bg-stone-200 rounded-md transition-colors" aria-label="Flip horizontal" data-tooltip="Flip horizontal">
                                 <svg class="w-3.5 h-3.5 text-stone-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 21L7 3M17 21l-10-9 10-9"></path>
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 3v18M16 7l4 5-4 5M8 7L4 12l4 5"></path>
                                 </svg>
                             </button>
                             <button id="editor-flip-v" class="p-1.5 bg-stone-100 hover:bg-stone-200 rounded-md transition-colors" aria-label="Flip vertical" data-tooltip="Flip vertical">
                                 <svg class="w-3.5 h-3.5 text-stone-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 7h18M3 17l9-10 9 10"></path>
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 12h18M7 8L12 4l5 4M7 16l5 4 5-4"></path>
                                 </svg>
                             </button>
                         </div>

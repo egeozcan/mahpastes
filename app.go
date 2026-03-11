@@ -833,6 +833,52 @@ func (a *App) UploadFiles(files []FileData, expirationMinutes int, autoTagID int
 	return nil
 }
 
+// UpdateClipData replaces the content of an existing clip in place,
+// recalculating the content hash.
+func (a *App) UpdateClipData(id int64, contentType string, base64Data string, filename string) error {
+	data, err := base64.StdEncoding.DecodeString(base64Data)
+	if err != nil {
+		return fmt.Errorf("failed to decode base64 data: %w", err)
+	}
+
+	contentHash := computeContentHash(data)
+	_, err = a.db.Exec(
+		"UPDATE clips SET data = ?, content_type = ?, filename = ?, content_hash = ? WHERE id = ?",
+		data, contentType, filename, contentHash, id,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update clip: %w", err)
+	}
+
+	return nil
+}
+
+// RenameClip changes only the filename of a clip.
+func (a *App) RenameClip(id int64, newFilename string) error {
+	newFilename = strings.TrimSpace(newFilename)
+	if newFilename == "" {
+		return fmt.Errorf("filename cannot be empty")
+	}
+
+	result, err := a.db.Exec("UPDATE clips SET filename = ? WHERE id = ?", newFilename, id)
+	if err != nil {
+		return fmt.Errorf("failed to rename clip: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to check rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("clip not found")
+	}
+
+	a.emitPluginEvent("clip:renamed", map[string]interface{}{
+		"id":       id,
+		"filename": newFilename,
+	})
+	return nil
+}
+
 // DeleteClip deletes a clip by ID
 func (a *App) DeleteClip(id int64) error {
 	// Get tag IDs before deleting (to clean up orphaned tags)

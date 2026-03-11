@@ -86,8 +86,8 @@ async function openEditor(clipId) {
             // Attach mouse/touch/keyboard listeners
             EditorCore.attachListeners();
 
-            // Update zoom display to reflect initial zoom level
-            ZoomTool.updateZoomDisplay();
+            // Fit image to container and show the correct zoom percentage
+            ZoomTool.zoomToFit();
 
             // Select default tool
             EditorCore.selectTool('brush');
@@ -203,6 +203,39 @@ function selectTool(tool) {
 
 // --- Save ---
 
+async function saveEditorInPlace() {
+    if (!editorClipId) {
+        showToast('No clip to overwrite.');
+        return;
+    }
+
+    let base64Data;
+    let contentType = editorContentType;
+
+    if (isTextEditor) {
+        const text = document.getElementById('text-editor-textarea').value;
+        base64Data = btoa(unescape(encodeURIComponent(text)));
+    } else {
+        const savedContentType = EditorCore.originalContentType;
+        const exportType = (savedContentType === 'image/jpeg' || savedContentType === 'image/webp')
+            ? savedContentType
+            : 'image/png';
+        const dataUrl = EditorCore.canvas.toDataURL(exportType);
+        base64Data = dataUrl.split(',')[1];
+        contentType = exportType;
+    }
+
+    try {
+        await window.go.main.App.UpdateClipData(editorClipId, contentType, base64Data, editorFilename);
+        showToast('Saved!');
+        closeEditor();
+        loadClips();
+    } catch (error) {
+        console.error('Error saving in place:', error);
+        showToast('Failed to save.');
+    }
+}
+
 async function saveEditorContent() {
     const filename = document.getElementById('editor-filename').value.trim();
     if (!filename) {
@@ -254,8 +287,9 @@ function setupEditorListeners() {
     // Close button
     document.getElementById('editor-close').addEventListener('click', closeEditor);
 
-    // Save button
+    // Save buttons
     document.getElementById('editor-save').addEventListener('click', saveEditorContent);
+    document.getElementById('editor-save-in-place').addEventListener('click', saveEditorInPlace);
 
     // Tool buttons — delegate to EditorCore via selectTool wrapper
     document.querySelectorAll('.editor-tool-btn').forEach(btn => {

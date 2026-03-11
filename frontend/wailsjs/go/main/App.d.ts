@@ -104,6 +104,8 @@ export function RemoveTagFromClip(arg1:number,arg2:number):Promise<void>;
 
 export function RemoveWatchedFolder(arg1:number):Promise<void>;
 
+export function RenameClip(arg1:number,arg2:string):Promise<void>;
+
 export function RestoreBackup(arg1:string):Promise<void>;
 
 export function SaveClipToFile(arg1:number):Promise<void>;
@@ -129,6 +131,8 @@ export function ShowCreateBackupDialog():Promise<string>;
 export function ShowRestoreBackupDialog():Promise<main.BackupManifest>;
 
 export function ToggleArchive(arg1:number):Promise<void>;
+
+export function UpdateClipData(arg1:number,arg2:string,arg3:string,arg4:string):Promise<void>;
 
 export function UpdateTag(arg1:number,arg2:string,arg3:string):Promise<void>;
 

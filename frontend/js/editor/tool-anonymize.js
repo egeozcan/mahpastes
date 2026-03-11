@@ -6,6 +6,16 @@ const AnonymizeTool = (() => {
     let mode = 'brush';      // 'brush' or 'rect'
     let effect = 'pixelate'; // 'pixelate' or 'blur'
 
+    // --- Noise helper (adds per-pixel jitter to destroy reversibility) ---
+
+    function noise(amplitude) {
+        return Math.round((Math.random() - 0.5) * 2 * amplitude);
+    }
+
+    function clamp(v) {
+        return v < 0 ? 0 : v > 255 ? 255 : v;
+    }
+
     // --- Pixelate function ---
 
     function pixelateRegion(ctx, x, y, w, h, blockSize) {
@@ -17,6 +27,7 @@ const AnonymizeTool = (() => {
 
         const imageData = ctx.getImageData(x, y, w, h);
         const data = imageData.data;
+        const noiseAmp = Math.max(8, blockSize * 2);
 
         for (let by = 0; by < h; by += blockSize) {
             for (let bx = 0; bx < w; bx += blockSize) {
@@ -31,7 +42,9 @@ const AnonymizeTool = (() => {
                 for (let dy = 0; dy < blockSize && by + dy < h; dy++) {
                     for (let dx = 0; dx < blockSize && bx + dx < w; dx++) {
                         const i = ((by + dy) * w + (bx + dx)) * 4;
-                        data[i] = r; data[i+1] = g; data[i+2] = b;
+                        data[i]   = clamp(r + noise(noiseAmp));
+                        data[i+1] = clamp(g + noise(noiseAmp));
+                        data[i+2] = clamp(b + noise(noiseAmp));
                     }
                 }
             }
@@ -48,20 +61,52 @@ const AnonymizeTool = (() => {
         h = Math.min(ctx.canvas.height - y, Math.round(h));
         if (w <= 0 || h <= 0) return;
 
-        const tmp = document.createElement('canvas');
-        tmp.width = w;
-        tmp.height = h;
-        const tmpCtx = tmp.getContext('2d');
-        tmpCtx.drawImage(ctx.canvas, x, y, w, h, 0, 0, w, h);
+        const imageData = ctx.getImageData(x, y, w, h);
+        const src = imageData.data;
+        const dst = new Uint8ClampedArray(src);
+        const r = Math.max(1, Math.round(radius));
 
-        const blurred = document.createElement('canvas');
-        blurred.width = w;
-        blurred.height = h;
-        const blurCtx = blurred.getContext('2d');
-        blurCtx.filter = `blur(${radius}px)`;
-        blurCtx.drawImage(tmp, 0, 0);
+        // Horizontal pass
+        for (let row = 0; row < h; row++) {
+            for (let col = 0; col < w; col++) {
+                let rr = 0, gg = 0, bb = 0, aa = 0, count = 0;
+                for (let k = -r; k <= r; k++) {
+                    const c = col + k;
+                    if (c < 0 || c >= w) continue;
+                    const i = (row * w + c) * 4;
+                    rr += src[i]; gg += src[i+1]; bb += src[i+2]; aa += src[i+3]; count++;
+                }
+                const i = (row * w + col) * 4;
+                dst[i] = rr / count; dst[i+1] = gg / count; dst[i+2] = bb / count; dst[i+3] = aa / count;
+            }
+        }
 
-        ctx.drawImage(blurred, x, y);
+        // Vertical pass (read from dst, write back to dst via a copy)
+        const src2 = new Uint8ClampedArray(dst);
+        for (let col = 0; col < w; col++) {
+            for (let row = 0; row < h; row++) {
+                let rr = 0, gg = 0, bb = 0, aa = 0, count = 0;
+                for (let k = -r; k <= r; k++) {
+                    const ro = row + k;
+                    if (ro < 0 || ro >= h) continue;
+                    const i = (ro * w + col) * 4;
+                    rr += src2[i]; gg += src2[i+1]; bb += src2[i+2]; aa += src2[i+3]; count++;
+                }
+                const i = (row * w + col) * 4;
+                dst[i] = rr / count; dst[i+1] = gg / count; dst[i+2] = bb / count; dst[i+3] = aa / count;
+            }
+        }
+
+        // Add per-pixel noise to destroy reversibility
+        const noiseAmp = Math.max(6, r);
+        for (let i = 0; i < dst.length; i += 4) {
+            dst[i]   = clamp(dst[i]   + noise(noiseAmp));
+            dst[i+1] = clamp(dst[i+1] + noise(noiseAmp));
+            dst[i+2] = clamp(dst[i+2] + noise(noiseAmp));
+        }
+
+        imageData.data.set(dst);
+        ctx.putImageData(imageData, x, y);
     }
 
     // --- Apply effect at a region ---

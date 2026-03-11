@@ -86,6 +86,7 @@ export const selectors = {
     delete: '.card-menu-dropdown [data-action="delete"]',
     mergeDuplicates: '.card-menu-dropdown [data-action="merge-duplicates"]',
     metadata: '.card-menu-dropdown [data-action="metadata"]',
+    rename: '.card-menu-dropdown [data-action="rename"]',
     pluginAction: '.card-menu-submenu [data-action="plugin"]',
     divider: '.card-menu-dropdown .card-menu-divider',
   },
@@ -284,6 +285,15 @@ export const selectors = {
     message: '#confirm-message',
     confirmButton: '#confirm-yes-btn',
     cancelButton: '#confirm-no-btn',
+  },
+
+  // Prompt dialog
+  prompt: {
+    dialog: '#prompt-dialog',
+    title: '#prompt-title',
+    input: '#prompt-input',
+    saveButton: '#prompt-save-btn',
+    cancelButton: '#prompt-cancel-btn',
   },
 
   // Toast notifications
