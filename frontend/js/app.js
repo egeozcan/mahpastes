@@ -952,14 +952,27 @@ window.addEventListener('load', async () => {
         ShortcutManager.register({ id: 'editor.redo',      label: 'Redo',              category: 'editor', context: 'editor', defaultKey: 'mod+shift+z', callback: () => EditorCore.redo() });
         ShortcutManager.register({ id: 'editor.redo-y',    label: 'Redo (Alt)',        category: 'editor', context: 'editor', defaultKey: 'mod+y', callback: () => EditorCore.redo() });
         ShortcutManager.register({ id: 'editor.eyedropper', label: 'Eyedropper',        category: 'editor', context: 'editor', defaultKey: 'i', callback: () => { selectTool('eyedropper'); updateToolButtons(); } });
+        ShortcutManager.register({ id: 'editor.select',     label: 'Select tool',       category: 'editor', context: 'editor', defaultKey: 'v', callback: () => { selectTool('select'); updateToolButtons(); } });
+        ShortcutManager.register({ id: 'editor.select_all', label: 'Select all',       category: 'editor', context: 'editor', defaultKey: 'mod+a', callback: () => { if (typeof SelectTool !== 'undefined') SelectTool.selectAll(); } });
+        ShortcutManager.register({ id: 'editor.copy',      label: 'Copy selection',    category: 'editor', context: 'editor', defaultKey: 'mod+c', callback: () => { if (typeof SelectTool !== 'undefined') SelectTool.copySelection(); } });
+        ShortcutManager.register({ id: 'editor.paste',     label: 'Paste selection',   category: 'editor', context: 'editor', defaultKey: 'mod+v', callback: () => { if (typeof SelectTool !== 'undefined') SelectTool.pasteSelection(); } });
+        ShortcutManager.register({ id: 'editor.delete_sel', label: 'Delete selection', category: 'editor', context: 'editor', defaultKey: 'Delete', callback: () => { if (typeof SelectTool !== 'undefined') SelectTool.deleteSelection(); } });
         ShortcutManager.register({ id: 'editor.crop',       label: 'Crop tool',         category: 'editor', context: 'editor', defaultKey: 'c', callback: () => { selectTool('crop'); updateToolButtons(); } });
-        ShortcutManager.register({ id: 'editor.confirm',    label: 'Confirm crop',      category: 'editor', context: 'editor', defaultKey: 'Enter', callback: () => {
+        ShortcutManager.register({ id: 'editor.confirm',    label: 'Confirm crop/selection', category: 'editor', context: 'editor', defaultKey: 'Enter', callback: () => {
             if (EditorCore.activeToolName === 'crop' && typeof CropTool !== 'undefined') CropTool.confirm();
+            else if (EditorCore.activeToolName === 'select' && typeof SelectTool !== 'undefined') SelectTool.confirmSelection();
         }});
         ShortcutManager.register({ id: 'editor.rotate_cw',  label: 'Rotate 90° CW',   category: 'editor', context: 'editor', defaultKey: 'r', callback: () => TransformTool.rotateCW() });
         ShortcutManager.register({ id: 'editor.rotate_ccw', label: 'Rotate 90° CCW',   category: 'editor', context: 'editor', defaultKey: 'shift+r', callback: () => TransformTool.rotateCCW() });
         ShortcutManager.register({ id: 'editor.save',      label: 'Save as new clip',  category: 'editor', context: 'editor', defaultKey: 'mod+s', callback: () => saveEditorContent() });
-        ShortcutManager.register({ id: 'editor.close',     label: 'Close editor',      category: 'editor', context: 'editor', defaultKey: 'Escape', callback: () => closeEditor() });
+        ShortcutManager.register({ id: 'editor.close',     label: 'Close editor',      category: 'editor', context: 'editor', defaultKey: 'Escape', callback: () => {
+            // If select tool has an active selection, cancel it instead of closing editor
+            if (EditorCore.activeToolName === 'select' && typeof SelectTool !== 'undefined' && SelectTool.hasSelection()) {
+                SelectTool.cancelSelectionKey();
+                return;
+            }
+            closeEditor();
+        } });
 
         // Initialize the shortcut manager (loads user overrides and starts listening)
         await ShortcutManager.init();

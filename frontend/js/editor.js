@@ -80,6 +80,7 @@ async function openEditor(clipId) {
             EditorCore.registerTool('text', TextTool.create());
             EditorCore.registerTool('eyedropper', EyedropperTool.create());
             EditorCore.registerTool('crop', CropTool.create());
+            EditorCore.registerTool('select', SelectTool.create());
 
             // Attach mouse/touch/keyboard listeners
             EditorCore.attachListeners();
