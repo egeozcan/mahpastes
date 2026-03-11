@@ -148,6 +148,27 @@ function resetToolState() {
     document.getElementById('editor-opacity-value').textContent = '100%';
     document.getElementById('editor-brush-size').value = EditorCore.brushSize;
     document.getElementById('editor-brush-size-value').textContent = EditorCore.brushSize + 'px';
+    const fontSizeInput = document.getElementById('editor-font-size');
+    if (fontSizeInput) fontSizeInput.value = EditorCore.fontSize;
+}
+
+function adjustBrushSize(delta) {
+    const newSize = Math.max(1, Math.min(50, EditorCore.brushSize + delta));
+    EditorCore.brushSize = newSize;
+    const sizeInput = document.getElementById('editor-brush-size');
+    const sizeLabel = document.getElementById('editor-brush-size-value');
+    if (sizeInput) sizeInput.value = newSize;
+    if (sizeLabel) sizeLabel.textContent = newSize + 'px';
+}
+
+function adjustOpacity(delta) {
+    const newOpacity = Math.max(0, Math.min(1, EditorCore.currentOpacity + delta));
+    EditorCore.currentOpacity = newOpacity;
+    const pct = Math.round(newOpacity * 100);
+    const opacityInput = document.getElementById('editor-opacity');
+    const opacityLabel = document.getElementById('editor-opacity-value');
+    if (opacityInput) opacityInput.value = pct;
+    if (opacityLabel) opacityLabel.textContent = pct + '%';
 }
 
 function updateToolButtons() {

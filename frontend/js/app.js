@@ -974,6 +974,10 @@ window.addEventListener('load', async () => {
             }
             closeEditor();
         } });
+        ShortcutManager.register({ id: 'editor.size_up',    label: 'Increase brush size', category: 'editor', context: 'editor', defaultKey: ']', callback: () => adjustBrushSize(2) });
+        ShortcutManager.register({ id: 'editor.size_down',  label: 'Decrease brush size', category: 'editor', context: 'editor', defaultKey: '[', callback: () => adjustBrushSize(-2) });
+        ShortcutManager.register({ id: 'editor.opacity_up', label: 'Increase opacity',    category: 'editor', context: 'editor', defaultKey: '}', callback: () => adjustOpacity(0.1) });
+        ShortcutManager.register({ id: 'editor.opacity_down', label: 'Decrease opacity',  category: 'editor', context: 'editor', defaultKey: '{', callback: () => adjustOpacity(-0.1) });
 
         // Initialize the shortcut manager (loads user overrides and starts listening)
         await ShortcutManager.init();
