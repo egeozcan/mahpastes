@@ -952,6 +952,10 @@ window.addEventListener('load', async () => {
         ShortcutManager.register({ id: 'editor.redo',      label: 'Redo',              category: 'editor', context: 'editor', defaultKey: 'mod+shift+z', callback: () => EditorCore.redo() });
         ShortcutManager.register({ id: 'editor.redo-y',    label: 'Redo (Alt)',        category: 'editor', context: 'editor', defaultKey: 'mod+y', callback: () => EditorCore.redo() });
         ShortcutManager.register({ id: 'editor.eyedropper', label: 'Eyedropper',        category: 'editor', context: 'editor', defaultKey: 'i', callback: () => { selectTool('eyedropper'); updateToolButtons(); } });
+        ShortcutManager.register({ id: 'editor.crop',       label: 'Crop tool',         category: 'editor', context: 'editor', defaultKey: 'c', callback: () => { selectTool('crop'); updateToolButtons(); } });
+        ShortcutManager.register({ id: 'editor.confirm',    label: 'Confirm crop',      category: 'editor', context: 'editor', defaultKey: 'Enter', callback: () => {
+            if (EditorCore.activeToolName === 'crop' && typeof CropTool !== 'undefined') CropTool.confirm();
+        }});
         ShortcutManager.register({ id: 'editor.rotate_cw',  label: 'Rotate 90° CW',   category: 'editor', context: 'editor', defaultKey: 'r', callback: () => TransformTool.rotateCW() });
         ShortcutManager.register({ id: 'editor.rotate_ccw', label: 'Rotate 90° CCW',   category: 'editor', context: 'editor', defaultKey: 'shift+r', callback: () => TransformTool.rotateCCW() });
         ShortcutManager.register({ id: 'editor.save',      label: 'Save as new clip',  category: 'editor', context: 'editor', defaultKey: 'mod+s', callback: () => saveEditorContent() });

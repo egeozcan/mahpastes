@@ -79,6 +79,7 @@ async function openEditor(clipId) {
             EditorCore.registerTool('arrow', ArrowTool.create());
             EditorCore.registerTool('text', TextTool.create());
             EditorCore.registerTool('eyedropper', EyedropperTool.create());
+            EditorCore.registerTool('crop', CropTool.create());
 
             // Attach mouse/touch/keyboard listeners
             EditorCore.attachListeners();
@@ -290,6 +291,33 @@ function setupEditorListeners() {
         if (TextTool.isActive) {
             TextTool.commitTextInput();
         }
+    });
+
+    // Crop controls
+    document.getElementById('editor-crop-ratio')?.addEventListener('change', (e) => {
+        const val = e.target.value;
+        if (val === 'free') CropTool.setAspectRatio(null);
+        else {
+            const [w, h] = val.split(':').map(Number);
+            CropTool.setAspectRatio(w / h);
+        }
+    });
+
+    document.getElementById('editor-crop-swap')?.addEventListener('click', () => {
+        CropTool.swapAspectRatio();
+    });
+
+    document.getElementById('editor-crop-rotate')?.addEventListener('input', (e) => {
+        CropTool.setRotation(parseFloat(e.target.value));
+        document.getElementById('editor-crop-rotate-value').textContent = e.target.value + '°';
+    });
+
+    document.getElementById('editor-crop-confirm')?.addEventListener('click', () => {
+        CropTool.confirm();
+    });
+
+    document.getElementById('editor-crop-cancel')?.addEventListener('click', () => {
+        CropTool.cancel();
     });
 
     // Click outside to close
