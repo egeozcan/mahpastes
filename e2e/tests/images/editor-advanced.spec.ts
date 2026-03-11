@@ -226,6 +226,29 @@ test.describe('Advanced Editor Tools', () => {
       expect(after.height).toBe(200);
     });
 
+    test('should undo rotate and restore original dimensions', async ({ app }) => {
+      const imagePath = await createTempFile(generateTestImage(200, 100), 'png');
+      const filename = path.basename(imagePath);
+      await app.uploadFile(imagePath);
+      await app.openImageEditor(filename);
+
+      const before = await app.getCanvasDimensions();
+      expect(before.width).toBe(200);
+      expect(before.height).toBe(100);
+
+      // Rotate CW (swaps to 100x200)
+      await app.page.locator(selectors.editor.rotateCW).click();
+      const rotated = await app.getCanvasDimensions();
+      expect(rotated.width).toBe(100);
+      expect(rotated.height).toBe(200);
+
+      // Undo should restore original 200x100
+      await app.editorUndo();
+      const restored = await app.getCanvasDimensions();
+      expect(restored.width).toBe(200);
+      expect(restored.height).toBe(100);
+    });
+
     test('should flip horizontal and enable undo', async ({ app }) => {
       const imagePath = await createTempFile(generateTestImage(200, 200), 'png');
       const filename = path.basename(imagePath);

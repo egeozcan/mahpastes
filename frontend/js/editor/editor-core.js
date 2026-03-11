@@ -319,6 +319,8 @@ const EditorCore = (() => {
                 overlayCanvas.width = entry.width;
                 overlayCanvas.height = entry.height;
             }
+            // Re-fit zoom so canvas isn't awkwardly panned/zoomed after dimension change
+            if (typeof ZoomTool !== 'undefined') ZoomTool.zoomToFit();
         }
 
         ctx.putImageData(entry.imageData, 0, 0);
