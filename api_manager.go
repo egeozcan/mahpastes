@@ -15,6 +15,7 @@ import (
 	"mime"
 	"mime/multipart"
 	"net"
+	"os"
 	"net/http"
 	"path/filepath"
 	"strconv"
@@ -176,6 +177,14 @@ func (am *APIManager) Start(port int, bindAll bool) (APIStatus, error) {
 	mux.HandleFunc("PUT /api/v1/plugins/{id}/storage/{key}", am.authMiddleware(am.requireRole("admin", am.handleSetPluginStorage)))
 	mux.HandleFunc("POST /api/v1/plugins/{id}/actions/{actionId}", am.authMiddleware(am.requireRole("editor", am.handleExecutePluginAction)))
 	mux.HandleFunc("POST /api/v1/plugins/{id}/update", am.authMiddleware(am.requireRole("admin", am.handleUpdatePlugin)))
+
+	// Backup
+	mux.HandleFunc("GET /api/v1/backup", am.authMiddleware(am.requireRole("admin", am.handleCreateBackup)))
+	mux.HandleFunc("POST /api/v1/backup/restore", am.authMiddleware(am.requireRole("admin", am.handleRestoreBackup)))
+
+	// Clipboard
+	mux.HandleFunc("POST /api/v1/clipboard/copy", am.authMiddleware(am.requireRole("editor", am.handleCopyToClipboard)))
+	mux.HandleFunc("POST /api/v1/clipboard/copy-file", am.authMiddleware(am.requireRole("editor", am.handleCopyFileToClipboard)))
 
 	handler := am.corsMiddleware(mux)
 
@@ -2394,4 +2403,115 @@ func (am *APIManager) handleUpdatePlugin(w http.ResponseWriter, r *http.Request)
 	}
 
 	am.jsonOK(w, result)
+}
+
+// --- Backup Handlers ---
+
+func (am *APIManager) handleCreateBackup(w http.ResponseWriter, r *http.Request) {
+	tmpFile, err := os.CreateTemp("", "mahpastes-backup-*.zip")
+	if err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to create temp file")
+		return
+	}
+	tmpPath := tmpFile.Name()
+	tmpFile.Close()
+	defer os.Remove(tmpPath)
+
+	if err := am.app.CreateBackup(tmpPath); err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to create backup: "+err.Error())
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", `attachment; filename="mahpastes-backup.zip"`)
+	http.ServeFile(w, r, tmpPath)
+}
+
+func (am *APIManager) handleRestoreBackup(w http.ResponseWriter, r *http.Request) {
+	ct := r.Header.Get("Content-Type")
+	if ct == "" {
+		am.jsonError(w, http.StatusBadRequest, "missing Content-Type header")
+		return
+	}
+
+	mediaType, params, _ := mime.ParseMediaType(ct)
+	if !strings.HasPrefix(mediaType, "multipart/") {
+		am.jsonError(w, http.StatusBadRequest, "expected multipart/form-data")
+		return
+	}
+
+	reader := multipart.NewReader(r.Body, params["boundary"])
+	part, err := reader.NextPart()
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "failed to read multipart data")
+		return
+	}
+
+	tmpFile, err := os.CreateTemp("", "mahpastes-restore-*.zip")
+	if err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to create temp file")
+		return
+	}
+	tmpPath := tmpFile.Name()
+	defer os.Remove(tmpPath)
+
+	if _, err := io.Copy(tmpFile, part); err != nil {
+		tmpFile.Close()
+		am.jsonError(w, http.StatusBadRequest, "failed to read upload data")
+		return
+	}
+	tmpFile.Close()
+
+	if err := am.app.ConfirmRestoreBackup(tmpPath); err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to restore backup: "+err.Error())
+		return
+	}
+
+	am.jsonOK(w, map[string]string{"status": "restored"})
+}
+
+// --- Clipboard Handlers ---
+
+func (am *APIManager) handleCopyToClipboard(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ClipID int64 `json:"clip_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	if am.app.clipboardService == nil {
+		am.jsonError(w, http.StatusInternalServerError, "clipboard service not available")
+		return
+	}
+
+	if err := am.app.clipboardService.CopyClipContents(body.ClipID); err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to copy to clipboard: "+err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (am *APIManager) handleCopyFileToClipboard(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ClipID int64 `json:"clip_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	if am.app.clipboardService == nil {
+		am.jsonError(w, http.StatusInternalServerError, "clipboard service not available")
+		return
+	}
+
+	if err := am.app.clipboardService.CopyFileToClipboard(body.ClipID); err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to copy file to clipboard: "+err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
