@@ -2100,13 +2100,14 @@ func (am *APIManager) handleUpdateWatchFolder(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	var config WatchedFolderConfig
-	if err := json.NewDecoder(r.Body).Decode(&config); err != nil {
+	// Decode into raw map so we know which fields were actually provided
+	var rawFields map[string]json.RawMessage
+	if err := json.NewDecoder(r.Body).Decode(&rawFields); err != nil {
 		am.jsonError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
 
-	if err := am.app.UpdateWatchedFolder(id, config); err != nil {
+	if err := am.app.UpdateWatchedFolderPartial(id, rawFields); err != nil {
 		am.jsonError(w, http.StatusBadRequest, err.Error())
 		return
 	}

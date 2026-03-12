@@ -468,10 +468,10 @@ func runWatchStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	var status struct {
-		GlobalPaused bool     `json:"global_paused"`
-		Active       int      `json:"active"`
-		Total        int      `json:"total"`
-		Watching     []string `json:"watching"`
+		GlobalPaused bool `json:"global_paused"`
+		ActiveCount  int  `json:"active_count"`
+		TotalCount   int  `json:"total_count"`
+		IsWatching   bool `json:"is_watching"`
 	}
 
 	if err := c.GetJSON("/api/v1/watch/status", &status); err != nil {
@@ -487,15 +487,16 @@ func runWatchStatus(cmd *cobra.Command, args []string) error {
 	if status.GlobalPaused {
 		globalPaused = "yes"
 	}
+	isWatching := "no"
+	if status.IsWatching {
+		isWatching = "yes"
+	}
 
 	pairs := [][2]string{
 		{"Global Paused", globalPaused},
-		{"Active", strconv.Itoa(status.Active)},
-		{"Total", strconv.Itoa(status.Total)},
-		{"Watching", strings.Join(status.Watching, ", ")},
-	}
-	if len(status.Watching) == 0 {
-		pairs[3] = [2]string{"Watching", "-"}
+		{"Active", strconv.Itoa(status.ActiveCount)},
+		{"Total", strconv.Itoa(status.TotalCount)},
+		{"Watching", isWatching},
 	}
 
 	printKeyValue(pairs)

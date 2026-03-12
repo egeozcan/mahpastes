@@ -503,35 +503,41 @@ func runPluginUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	if pluginUpdateCheck {
-		var updates []struct {
-			ID             int64  `json:"id"`
-			Name           string `json:"name"`
-			CurrentVersion string `json:"current_version"`
-			LatestVersion  string `json:"latest_version"`
+		var envelope struct {
+			Updates []struct {
+				PluginID             int64  `json:"plugin_id"`
+				CurrentVersion       string `json:"current_version"`
+				NewVersion           string `json:"new_version"`
+				HasPermissionChanges bool   `json:"has_permission_changes"`
+			} `json:"updates"`
 		}
 
-		if err := c.PostJSON("/api/v1/plugins/check-updates", nil, &updates); err != nil {
+		if err := c.PostJSON("/api/v1/plugins/check-updates", nil, &envelope); err != nil {
 			return err
 		}
 
 		if jsonOutput {
-			printJSON(updates)
+			printJSON(envelope)
 			return nil
 		}
 
-		if len(updates) == 0 {
+		if len(envelope.Updates) == 0 {
 			fmt.Println("All plugins are up to date.")
 			return nil
 		}
 
-		headers := []string{"ID", "NAME", "CURRENT", "LATEST"}
-		rows := make([][]string, len(updates))
-		for i, u := range updates {
+		headers := []string{"PLUGIN_ID", "CURRENT", "NEW", "PERM_CHANGES"}
+		rows := make([][]string, len(envelope.Updates))
+		for i, u := range envelope.Updates {
+			permChanges := "no"
+			if u.HasPermissionChanges {
+				permChanges = "yes"
+			}
 			rows[i] = []string{
-				strconv.FormatInt(u.ID, 10),
-				u.Name,
+				strconv.FormatInt(u.PluginID, 10),
 				u.CurrentVersion,
-				u.LatestVersion,
+				u.NewVersion,
+				permChanges,
 			}
 		}
 
@@ -550,9 +556,14 @@ func runPluginUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	var result struct {
-		ID      int64  `json:"id"`
-		Name    string `json:"name"`
-		Version string `json:"version"`
+		Success     bool   `json:"success"`
+		NeedsReview bool   `json:"needs_review"`
+		Error       string `json:"error,omitempty"`
+		PluginInfo  *struct {
+			ID      int64  `json:"id"`
+			Name    string `json:"name"`
+			Version string `json:"version"`
+		} `json:"plugin_info,omitempty"`
 	}
 
 	if err := c.PostJSON(fmt.Sprintf("/api/v1/plugins/%d/update", pluginID), nil, &result); err != nil {
@@ -564,11 +575,24 @@ func runPluginUpdate(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	version := result.Version
-	if version == "" {
-		version = "latest"
+	if result.Error != "" {
+		return fmt.Errorf("update failed: %s", result.Error)
 	}
-	fmt.Printf("Updated plugin %d to %s\n", pluginID, version)
+
+	if result.NeedsReview {
+		fmt.Printf("Plugin %d update requires permission review in the desktop app.\n", pluginID)
+		return nil
+	}
+
+	if result.Success && result.PluginInfo != nil {
+		version := result.PluginInfo.Version
+		if version == "" {
+			version = "latest"
+		}
+		fmt.Printf("Updated plugin %s to %s\n", result.PluginInfo.Name, version)
+	} else if result.Success {
+		fmt.Printf("Updated plugin %d\n", pluginID)
+	}
 	return nil
 }
 

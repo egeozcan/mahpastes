@@ -374,10 +374,14 @@ func runClipUpload(cmd *cobra.Command, args []string) error {
 	// Apply tag and expiration to uploaded clips
 	for _, clip := range uploaded {
 		if tagID > 0 {
-			_ = c.PutJSON(fmt.Sprintf("/api/v1/clips/%d/tags/%d", clip.ID, tagID), nil, nil)
+			if err := c.PutJSON(fmt.Sprintf("/api/v1/clips/%d/tags/%d", clip.ID, tagID), nil, nil); err != nil {
+				errorf("failed to tag clip %d: %s", clip.ID, err)
+			}
 		}
 		if expireMinutes > 0 {
-			_ = c.PutJSON(fmt.Sprintf("/api/v1/clips/%d/expiration", clip.ID), map[string]int{"minutes": expireMinutes}, nil)
+			if err := c.PutJSON(fmt.Sprintf("/api/v1/clips/%d/expiration", clip.ID), map[string]int{"minutes": expireMinutes}, nil); err != nil {
+				errorf("failed to set expiration on clip %d: %s", clip.ID, err)
+			}
 		}
 	}
 

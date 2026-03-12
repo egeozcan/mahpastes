@@ -1831,7 +1831,7 @@ func (a *App) BulkArchive(ids []int64) error {
 		args[i] = id
 	}
 
-	query := fmt.Sprintf("UPDATE clips SET is_archived = NOT is_archived WHERE id IN (%s)", strings.Join(placeholders, ","))
+	query := fmt.Sprintf("UPDATE clips SET is_archived = 1 WHERE id IN (%s)", strings.Join(placeholders, ","))
 	_, err := a.db.Exec(query, args...)
 	if err != nil {
 		return fmt.Errorf("failed to bulk archive: %w", err)
@@ -2328,6 +2328,9 @@ func (a *App) UpdateWatchedFolder(id int64, config WatchedFolderConfig) error {
 	if err != nil {
 		return fmt.Errorf("watch folder not found: %w", err)
 	}
+	if existing == nil {
+		return fmt.Errorf("watch folder %d not found", id)
+	}
 
 	filterMode := existing.FilterMode
 	if config.FilterMode != "" {
@@ -2352,6 +2355,74 @@ func (a *App) UpdateWatchedFolder(id int64, config WatchedFolderConfig) error {
 	autoTagID := existing.AutoTagID
 	if config.AutoTagID != nil {
 		autoTagID = config.AutoTagID
+	}
+
+	var presetsJSON []byte
+	if len(filterPresets) > 0 {
+		presetsJSON, _ = json.Marshal(filterPresets)
+	}
+
+	_, err = a.db.Exec(`
+		UPDATE watched_folders
+		SET filter_mode = ?, filter_presets = ?, filter_regex = ?, auto_archive = ?, auto_tag_id = ?
+		WHERE id = ?
+	`, filterMode, string(presetsJSON), filterRegex,
+		boolToInt(autoArchive), autoTagID, id)
+	if err != nil {
+		return fmt.Errorf("failed to update watched folder: %w", err)
+	}
+	return nil
+}
+
+// UpdateWatchedFolderPartial updates only the fields present in the raw JSON map.
+func (a *App) UpdateWatchedFolderPartial(id int64, fields map[string]json.RawMessage) error {
+	existing, err := a.GetWatchedFolderByID(id)
+	if err != nil {
+		return fmt.Errorf("watch folder query failed: %w", err)
+	}
+	if existing == nil {
+		return fmt.Errorf("watch folder %d not found", id)
+	}
+
+	filterMode := existing.FilterMode
+	filterPresets := existing.FilterPresets
+	filterRegex := existing.FilterRegex
+	autoArchive := existing.AutoArchive
+	autoTagID := existing.AutoTagID
+
+	if raw, ok := fields["filter_mode"]; ok {
+		var v string
+		if err := json.Unmarshal(raw, &v); err == nil {
+			filterMode = v
+		}
+	}
+	if raw, ok := fields["filter_presets"]; ok {
+		var v []string
+		if err := json.Unmarshal(raw, &v); err == nil {
+			filterPresets = v
+		}
+	}
+	if raw, ok := fields["filter_regex"]; ok {
+		var v string
+		if err := json.Unmarshal(raw, &v); err == nil {
+			filterRegex = v
+		}
+	}
+	if raw, ok := fields["auto_archive"]; ok {
+		var v bool
+		if err := json.Unmarshal(raw, &v); err == nil {
+			autoArchive = v
+		}
+	}
+	if raw, ok := fields["auto_tag_id"]; ok {
+		if string(raw) == "null" {
+			autoTagID = nil
+		} else {
+			var v int64
+			if err := json.Unmarshal(raw, &v); err == nil {
+				autoTagID = &v
+			}
+		}
 	}
 
 	var presetsJSON []byte
