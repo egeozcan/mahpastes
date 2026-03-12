@@ -22,6 +22,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"go-clipboard/plugin"
 )
 
 // APIStatus describes the current state of the API server.
@@ -160,6 +162,20 @@ func (am *APIManager) Start(port int, bindAll bool) (APIStatus, error) {
 	mux.HandleFunc("PUT /api/v1/watch/{id}/pause", am.authMiddleware(am.requireRole("admin", am.handlePauseWatchFolder)))
 	mux.HandleFunc("DELETE /api/v1/watch/{id}/pause", am.authMiddleware(am.requireRole("admin", am.handleResumeWatchFolder)))
 	mux.HandleFunc("POST /api/v1/watch/{id}/process", am.authMiddleware(am.requireRole("admin", am.handleProcessExisting)))
+
+	// Plugins
+	mux.HandleFunc("GET /api/v1/plugins", am.authMiddleware(am.requireRole("viewer", am.handleListPlugins)))
+	mux.HandleFunc("GET /api/v1/plugins/actions", am.authMiddleware(am.requireRole("viewer", am.handleListPluginActions)))
+	mux.HandleFunc("POST /api/v1/plugins", am.authMiddleware(am.requireRole("admin", am.handleInstallPlugin)))
+	mux.HandleFunc("POST /api/v1/plugins/check-updates", am.authMiddleware(am.requireRole("admin", am.handleCheckPluginUpdates)))
+	mux.HandleFunc("DELETE /api/v1/plugins/{id}", am.authMiddleware(am.requireRole("admin", am.handleRemovePlugin)))
+	mux.HandleFunc("PUT /api/v1/plugins/{id}/enable", am.authMiddleware(am.requireRole("admin", am.handleEnablePlugin)))
+	mux.HandleFunc("PUT /api/v1/plugins/{id}/disable", am.authMiddleware(am.requireRole("admin", am.handleDisablePlugin)))
+	mux.HandleFunc("GET /api/v1/plugins/{id}/storage", am.authMiddleware(am.requireRole("admin", am.handleGetPluginStorageAll)))
+	mux.HandleFunc("GET /api/v1/plugins/{id}/storage/{key}", am.authMiddleware(am.requireRole("admin", am.handleGetPluginStorage)))
+	mux.HandleFunc("PUT /api/v1/plugins/{id}/storage/{key}", am.authMiddleware(am.requireRole("admin", am.handleSetPluginStorage)))
+	mux.HandleFunc("POST /api/v1/plugins/{id}/actions/{actionId}", am.authMiddleware(am.requireRole("editor", am.handleExecutePluginAction)))
+	mux.HandleFunc("POST /api/v1/plugins/{id}/update", am.authMiddleware(am.requireRole("admin", am.handleUpdatePlugin)))
 
 	handler := am.corsMiddleware(mux)
 
@@ -2084,4 +2100,298 @@ func (am *APIManager) handleProcessExisting(w http.ResponseWriter, r *http.Reque
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- Plugin Handlers ---
+
+func (am *APIManager) handleListPlugins(w http.ResponseWriter, r *http.Request) {
+	if am.app.db == nil {
+		am.jsonOK(w, map[string]interface{}{
+			"plugins": []PluginInfo{},
+			"total":   0,
+		})
+		return
+	}
+
+	rows, err := am.app.db.Query(`
+		SELECT id, name, version, enabled, status
+		FROM plugins ORDER BY name
+	`)
+	if err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to query plugins")
+		return
+	}
+	defer rows.Close()
+
+	var plugins []PluginInfo
+	for rows.Next() {
+		var p PluginInfo
+		var enabled int
+		if err := rows.Scan(&p.ID, &p.Name, &p.Version, &enabled, &p.Status); err != nil {
+			log.Printf("handleListPlugins: failed to scan row: %v", err)
+			continue
+		}
+		p.Enabled = enabled == 1
+
+		// Augment with manifest info from loaded plugin
+		if am.app.pluginManager != nil {
+			for _, loaded := range am.app.pluginManager.GetPlugins() {
+				if loaded.ID == p.ID && loaded.Manifest != nil {
+					p.Description = loaded.Manifest.Description
+					p.Author = loaded.Manifest.Author
+					p.Events = loaded.Manifest.Events
+					p.Settings = loaded.Manifest.Settings
+					break
+				}
+			}
+		}
+
+		plugins = append(plugins, p)
+	}
+
+	if plugins == nil {
+		plugins = []PluginInfo{}
+	}
+
+	am.jsonOK(w, map[string]interface{}{
+		"plugins": plugins,
+		"total":   len(plugins),
+	})
+}
+
+func (am *APIManager) handleListPluginActions(w http.ResponseWriter, r *http.Request) {
+	response, err := am.app.getPluginUIActions()
+	if err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to get plugin actions")
+		return
+	}
+
+	am.jsonOK(w, response)
+}
+
+func (am *APIManager) handleInstallPlugin(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Source string `json:"source"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	if body.Source == "" {
+		am.jsonError(w, http.StatusBadRequest, "source is required")
+		return
+	}
+
+	info, err := am.app.installPluginFromSource(body.Source)
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(info)
+}
+
+func (am *APIManager) handleRemovePlugin(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIntParam(r.PathValue("id"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid plugin id")
+		return
+	}
+
+	if am.app.pluginManager == nil {
+		am.jsonError(w, http.StatusInternalServerError, "plugin manager not available")
+		return
+	}
+
+	if err := am.app.pluginManager.RemovePlugin(id); err != nil {
+		am.jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (am *APIManager) handleEnablePlugin(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIntParam(r.PathValue("id"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid plugin id")
+		return
+	}
+
+	if am.app.pluginManager == nil {
+		am.jsonError(w, http.StatusInternalServerError, "plugin manager not available")
+		return
+	}
+
+	if err := am.app.pluginManager.EnablePlugin(id); err != nil {
+		am.jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (am *APIManager) handleDisablePlugin(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIntParam(r.PathValue("id"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid plugin id")
+		return
+	}
+
+	if am.app.pluginManager == nil {
+		am.jsonError(w, http.StatusInternalServerError, "plugin manager not available")
+		return
+	}
+
+	if err := am.app.pluginManager.DisablePlugin(id); err != nil {
+		am.jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (am *APIManager) handleGetPluginStorageAll(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIntParam(r.PathValue("id"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid plugin id")
+		return
+	}
+
+	storage, err := am.app.getAllPluginStorage(id)
+	if err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to get plugin storage")
+		return
+	}
+
+	am.jsonOK(w, storage)
+}
+
+func (am *APIManager) handleGetPluginStorage(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIntParam(r.PathValue("id"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid plugin id")
+		return
+	}
+
+	key := r.PathValue("key")
+	if key == "" {
+		am.jsonError(w, http.StatusBadRequest, "key is required")
+		return
+	}
+
+	value, err := am.app.getPluginStorage(id, key)
+	if err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to get plugin storage value")
+		return
+	}
+
+	am.jsonOK(w, map[string]string{
+		"key":   key,
+		"value": value,
+	})
+}
+
+func (am *APIManager) handleSetPluginStorage(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIntParam(r.PathValue("id"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid plugin id")
+		return
+	}
+
+	key := r.PathValue("key")
+	if key == "" {
+		am.jsonError(w, http.StatusBadRequest, "key is required")
+		return
+	}
+
+	var body struct {
+		Value string `json:"value"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	if err := am.app.setPluginStorage(id, key, body.Value); err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to set plugin storage value")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (am *APIManager) handleExecutePluginAction(w http.ResponseWriter, r *http.Request) {
+	pluginID, err := parseIntParam(r.PathValue("id"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid plugin id")
+		return
+	}
+
+	actionID := r.PathValue("actionId")
+	if actionID == "" {
+		am.jsonError(w, http.StatusBadRequest, "action id is required")
+		return
+	}
+
+	var body struct {
+		ClipIDs []int64                `json:"clip_ids"`
+		Options map[string]interface{} `json:"options"`
+	}
+	// Body is optional for actions that don't need clip IDs or options
+	json.NewDecoder(r.Body).Decode(&body)
+
+	result, err := am.app.executePluginAction(pluginID, actionID, body.ClipIDs, body.Options)
+	if err != nil {
+		am.jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	am.jsonOK(w, result)
+}
+
+func (am *APIManager) handleCheckPluginUpdates(w http.ResponseWriter, r *http.Request) {
+	if am.app.pluginManager == nil {
+		am.jsonOK(w, map[string]interface{}{
+			"updates": []*plugin.PluginUpdateInfo{},
+		})
+		return
+	}
+
+	uc := am.app.pluginManager.GetUpdateChecker()
+	if uc == nil {
+		am.jsonOK(w, map[string]interface{}{
+			"updates": []*plugin.PluginUpdateInfo{},
+		})
+		return
+	}
+
+	uc.CheckAll()
+	updates := uc.GetUpdates()
+	if updates == nil {
+		updates = []*plugin.PluginUpdateInfo{}
+	}
+
+	am.jsonOK(w, map[string]interface{}{
+		"updates": updates,
+	})
+}
+
+func (am *APIManager) handleUpdatePlugin(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIntParam(r.PathValue("id"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid plugin id")
+		return
+	}
+
+	result, err := am.app.updatePlugin(id)
+	if err != nil {
+		am.jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	am.jsonOK(w, result)
 }
