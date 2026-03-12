@@ -178,5 +178,5 @@ All endpoints are prefixed with `/api/v1`.
 
 ## Related
 
-- [Tag Serve](tag-serve.md) -- unauthenticated file serving for quick sharing
+- [Tag Serve](tag-serve.md) -- unauthenticated file serving for quick sharing, plus JSON API and [file upload](tag-serve.md#file-upload) for served HTML apps
 - [Tags](tags.md) -- create and manage tags used for scoping
