@@ -102,6 +102,52 @@ function closePromptDialog() {
     }
 }
 
+let conflictResolveCallback = null;
+let conflictFocusTrapCleanup = null;
+
+function showConflictDialog(filenames, onResolve) {
+    const dialog = document.getElementById('conflict-dialog');
+    const dialogContent = dialog.querySelector('div');
+    const messageEl = document.getElementById('conflict-message');
+    const fileList = document.getElementById('conflict-file-list');
+
+    messageEl.textContent = `${filenames.length} file${filenames.length === 1 ? '' : 's'} already exist${filenames.length === 1 ? 's' : ''} with different content:`;
+    fileList.innerHTML = filenames.map(f => `<li class="truncate">${escapeHTML(f)}</li>`).join('');
+    conflictResolveCallback = onResolve;
+
+    dialog.removeAttribute('inert');
+    dialog.classList.remove('opacity-0', 'pointer-events-none');
+    dialog.classList.add('opacity-100');
+    dialogContent.classList.remove('scale-95');
+    dialogContent.classList.add('scale-100');
+
+    lastFocusedElement = document.activeElement;
+    if (conflictFocusTrapCleanup) conflictFocusTrapCleanup();
+    conflictFocusTrapCleanup = trapFocus(dialog);
+    setTimeout(() => document.getElementById('conflict-skip-btn').focus(), 100);
+}
+
+function closeConflictDialog(resolution) {
+    const dialog = document.getElementById('conflict-dialog');
+    const dialogContent = dialog.querySelector('div');
+
+    if (conflictFocusTrapCleanup) {
+        conflictFocusTrapCleanup();
+        conflictFocusTrapCleanup = null;
+    }
+    dialog.classList.remove('opacity-100');
+    dialog.classList.add('opacity-0', 'pointer-events-none');
+    dialogContent.classList.remove('scale-100');
+    dialogContent.classList.add('scale-95');
+    dialog.setAttribute('inert', '');
+
+    if (lastFocusedElement) lastFocusedElement.focus();
+
+    const cb = conflictResolveCallback;
+    conflictResolveCallback = null;
+    if (cb) cb(resolution);
+}
+
 /**
  * Trap Tab/Shift+Tab focus within a container.
  * Returns a cleanup function to remove the listener.

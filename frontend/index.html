@@ -62,6 +62,19 @@
                     </div>
                 </div>
 
+                <!-- Sort Button -->
+                <div class="relative">
+                    <button id="sort-btn" data-testid="sort-button"
+                        class="relative border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-500 p-2 rounded-md transition-colors"
+                        aria-label="Sort clips" aria-haspopup="true" aria-expanded="false" data-tooltip="Change sort order">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M3 7.5L7.5 3m0 0L12 7.5M7.5 3v13.5m13.5 0L16.5 21m0 0L12 16.5m4.5 4.5V7.5" />
+                        </svg>
+                    </button>
+                </div>
+
+                <div class="w-px h-5 bg-stone-200"></div>
+
                 <!-- Archive Toggle Button -->
                 <button id="header-archive-btn"
                     class="relative border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-500 p-2 rounded-md transition-colors"
@@ -76,22 +89,11 @@
                 <!-- Folder Mode Button -->
                 <button id="folder-mode-btn" data-testid="folder-mode-button"
                     class="relative border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-500 p-2 rounded-md transition-colors"
-                    aria-label="Toggle folder mode" aria-pressed="false" data-tooltip="Toggle folder view">
+                    aria-label="Toggle folder mode" aria-pressed="false" data-tooltip="Toggle folder view (F)">
                     <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.06-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" />
                     </svg>
                 </button>
-
-                <!-- Sort Button -->
-                <div class="relative">
-                    <button id="sort-btn" data-testid="sort-button"
-                        class="relative border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-500 p-2 rounded-md transition-colors"
-                        aria-label="Sort clips" aria-haspopup="true" aria-expanded="false" data-tooltip="Change sort order">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M3 7.5L7.5 3m0 0L12 7.5M7.5 3v13.5m13.5 0L16.5 21m0 0L12 16.5m4.5 4.5V7.5" />
-                        </svg>
-                    </button>
-                </div>
 
             </div>
 
@@ -524,6 +526,42 @@
                 <button id="prompt-save-btn"
                     class="bg-stone-800 hover:bg-stone-700 text-white text-xs font-medium py-2 px-4 rounded-md transition-colors">
                     Save
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Upload Conflict Dialog -->
+    <div id="conflict-dialog" role="alertdialog" aria-modal="true" aria-labelledby="conflict-title"
+        aria-describedby="conflict-message" tabindex="-1" inert
+        class="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm transition-opacity duration-200 opacity-0 pointer-events-none">
+        <div class="bg-white rounded-lg shadow-xl max-w-sm w-full overflow-hidden transform transition-transform duration-200 scale-95">
+            <div class="p-5">
+                <div class="flex items-center justify-center w-10 h-10 mx-auto bg-amber-50 rounded-full mb-3">
+                    <svg class="w-5 h-5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                        xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                            d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z">
+                        </path>
+                    </svg>
+                </div>
+                <h2 id="conflict-title" class="text-sm font-semibold text-stone-800 text-center mb-1">Duplicate Files Found</h2>
+                <p id="conflict-message" class="text-xs text-stone-500 text-center mb-3"></p>
+                <ul id="conflict-file-list" class="text-xs text-stone-600 font-mono bg-stone-50 rounded-md border border-stone-200 p-2 max-h-32 overflow-y-auto space-y-0.5">
+                </ul>
+            </div>
+            <div class="bg-stone-50 px-5 py-3 flex gap-2 justify-end border-t border-stone-100">
+                <button id="conflict-skip-btn"
+                    class="bg-white border border-stone-200 hover:bg-stone-50 text-stone-600 text-xs font-medium py-2 px-4 rounded-md transition-colors">
+                    Skip
+                </button>
+                <button id="conflict-keep-btn"
+                    class="bg-white border border-stone-200 hover:bg-stone-50 text-stone-600 text-xs font-medium py-2 px-4 rounded-md transition-colors">
+                    Keep Both
+                </button>
+                <button id="conflict-overwrite-btn"
+                    class="bg-stone-800 hover:bg-stone-700 text-white text-xs font-medium py-2 px-4 rounded-md transition-colors">
+                    Overwrite
                 </button>
             </div>
         </div>
