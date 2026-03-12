@@ -184,6 +184,95 @@ await fetch('/_api/todos/2', {
 
 Tag names cannot contain `_api` as a path segment (e.g., `_api`, `work/_api`, `docs/_api/foo`). This prevents conflicts with the API route prefix. Names where `_api` appears as a substring are allowed (e.g., `my_api_utils`).
 
+## File Upload
+
+Upload files from HTML apps hosted in a tag directly back into mahpastes as new clips.
+
+### Requirements
+
+- API access must be set to **API R/W** (readwrite mode)
+- Uses the same cookie authentication as the JSON API
+
+### Endpoint
+
+```
+POST /_api/_upload
+Content-Type: multipart/form-data
+```
+
+Form fields:
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `file` | Yes | The file to upload (max 10 MB) |
+| `tag` | No | Relative subtag path (e.g., `photos/vacation`). Creates tag if it doesn't exist |
+| `content_type` | No | Override auto-detected content type |
+
+### Tag Targeting
+
+Uploaded files are tagged to the served tag by default. Use the `tag` field to target a subtag:
+
+| Served tag | `tag` field | Clip tagged to |
+|------------|-------------|---------------|
+| `myapp` | _(empty)_ | `myapp` |
+| `myapp` | `data` | `myapp/data` |
+| `myapp` | `data/images` | `myapp/data/images` |
+
+Tags are auto-created if they don't exist yet, including intermediate parents.
+
+### Example
+
+From an `index.html` in the same tag:
+
+```javascript
+// Upload a file to the served tag
+const formData = new FormData();
+formData.append('file', fileInput.files[0]);
+
+const res = await fetch('/_api/_upload', {
+  method: 'POST',
+  credentials: 'include',
+  body: formData,
+});
+const result = await res.json();
+// result = { id: 42, filename: "photo.png", content_type: "image/png", tag: "myapp", tag_id: 5 }
+
+// Upload to a subtag
+const formData2 = new FormData();
+formData2.append('file', blob);
+formData2.append('tag', 'exports/renders');
+
+await fetch('/_api/_upload', {
+  method: 'POST',
+  credentials: 'include',
+  body: formData2,
+});
+```
+
+### Response
+
+**Success (201 Created):**
+
+```json
+{
+  "id": 42,
+  "filename": "photo.png",
+  "content_type": "image/png",
+  "tag": "myapp/data/images",
+  "tag_id": 7
+}
+```
+
+**Errors:**
+
+| Status | Meaning |
+|--------|---------|
+| 400 | Missing file, invalid tag path |
+| 401 | Missing or invalid auth cookie |
+| 403 | API is in read-only mode |
+| 413 | File exceeds 10 MB limit |
+| 404 | API access is disabled |
+
 ## Activity Indicators
 
 - A **green dot** appears on running tag cards
