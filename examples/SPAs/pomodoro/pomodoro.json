@@ -1,0 +1,19 @@
+{
+  "title": "Pomodoro Timer",
+  "settings": {
+    "workMinutes": 25,
+    "breakMinutes": 5,
+    "longBreakMinutes": 15,
+    "longBreakAfter": 4
+  },
+  "tasks": [
+    { "id": 1, "name": "Write documentation", "completed": false },
+    { "id": 2, "name": "Review pull requests", "completed": false },
+    { "id": 3, "name": "Fix login bug", "completed": true }
+  ],
+  "sessions": [
+    { "id": 1, "taskId": 1, "type": "work", "duration": 25, "completedAt": "2026-03-10T14:25:00Z" },
+    { "id": 2, "taskId": 1, "type": "work", "duration": 25, "completedAt": "2026-03-10T15:00:00Z" },
+    { "id": 3, "taskId": 2, "type": "work", "duration": 25, "completedAt": "2026-03-10T16:30:00Z" }
+  ]
+}

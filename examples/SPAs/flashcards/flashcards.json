@@ -1,0 +1,30 @@
+{
+  "title": "Flashcards",
+  "decks": [
+    {
+      "id": 1,
+      "name": "JavaScript Basics",
+      "description": "Core JS concepts",
+      "cards": [
+        { "id": 1, "front": "What is a closure?", "back": "A function that retains access to its outer scope's variables even after the outer function has returned.", "correct": 3, "incorrect": 1 },
+        { "id": 2, "front": "What does 'use strict' do?", "back": "Enables strict mode which catches common coding mistakes and prevents unsafe actions.", "correct": 5, "incorrect": 0 },
+        { "id": 3, "front": "Difference between == and ===?", "back": "== performs type coercion before comparison. === checks both value and type without coercion.", "correct": 2, "incorrect": 2 }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "Go Fundamentals",
+      "description": "Go language basics",
+      "cards": [
+        { "id": 1, "front": "What is a goroutine?", "back": "A lightweight thread managed by the Go runtime, started with the 'go' keyword.", "correct": 1, "incorrect": 0 },
+        { "id": 2, "front": "What is a channel?", "back": "A typed conduit for sending and receiving values between goroutines.", "correct": 0, "incorrect": 1 }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "CSS Selectors",
+      "description": "CSS selector patterns",
+      "cards": []
+    }
+  ]
+}

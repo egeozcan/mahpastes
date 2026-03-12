@@ -1,0 +1,28 @@
+{
+  "title": "Expense Tracker",
+  "categories": [
+    {
+      "id": 1,
+      "name": "Food & Groceries",
+      "budget": 500,
+      "entries": [
+        { "id": 1, "description": "Weekly groceries", "amount": 42.50, "date": "2026-03-08" },
+        { "id": 2, "description": "Coffee beans", "amount": 18.00, "date": "2026-03-09" }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "Transportation",
+      "budget": 200,
+      "entries": [
+        { "id": 1, "description": "Monthly transit pass", "amount": 95.00, "date": "2026-03-01" }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "Entertainment",
+      "budget": 150,
+      "entries": []
+    }
+  ]
+}

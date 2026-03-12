@@ -1,0 +1,1909 @@
+<!--
+  mahpastes Flashcards — JSON API Demo SPA
+
+  Setup:
+  1. Create a tag in mahpastes (e.g., "flashcards")
+  2. Upload this file (index.html) into that tag
+  3. Upload flashcards.json (in the same directory) into the same tag
+  4. Serve the tag with API access set to "readwrite"
+  5. Open the served URL in your browser
+
+  This app exercises every JSON API method (GET, POST, PUT, PATCH, DELETE)
+  through deeply nested paths. Watch the API log panel at the bottom to see
+  each call as it happens.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Flashcards — mahpastes</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --stone-50:  #fafaf9;
+      --stone-100: #f5f5f4;
+      --stone-200: #e7e5e4;
+      --stone-300: #d6d3d1;
+      --stone-400: #a8a29e;
+      --stone-500: #78716c;
+      --stone-600: #57534e;
+      --stone-700: #44403c;
+      --stone-800: #292524;
+      --stone-900: #1c1917;
+      --white:     #ffffff;
+      --red-500:   #ef4444;
+      --red-50:    #fef2f2;
+      /* Log-panel-only accent colors */
+      --log-get:     #78716c;
+      --log-post:    #059669;
+      --log-patch:   #d97706;
+      --log-put:     #2563eb;
+      --log-delete:  #ef4444;
+    }
+
+    html { font-size: 16px; }
+
+    body {
+      font-family: 'IBM Plex Mono', monospace;
+      background: var(--stone-50);
+      color: var(--stone-800);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--stone-300); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--stone-400); }
+
+    /* ── App Header ── */
+    .app-header {
+      padding: 1.25rem 1.5rem 1rem;
+      border-bottom: 1px solid var(--stone-200);
+      background: var(--stone-50);
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      flex-shrink: 0;
+    }
+
+    .app-title {
+      font-size: 0.875rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--stone-800);
+      cursor: pointer;
+      padding: 0.25rem 0.5rem;
+      border-radius: 0.375rem;
+      border: 1px solid transparent;
+      transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+      background: none;
+      outline: none;
+      font-family: inherit;
+    }
+
+    .app-title:hover { border-color: var(--stone-200); background: var(--white); }
+    .app-title:focus { border-color: var(--stone-400); background: var(--white); }
+
+    .app-subtitle {
+      font-size: 0.625rem;
+      font-weight: 500;
+      color: var(--stone-400);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .header-back-btn {
+      padding: 0.3rem;
+      color: var(--stone-400);
+      background: none;
+      border: none;
+      border-radius: 0.25rem;
+      cursor: pointer;
+      transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .header-back-btn:hover { color: var(--stone-600); background: var(--stone-100); }
+
+    .header-deck-name {
+      font-size: 0.875rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--stone-800);
+    }
+
+    .header-deck-count {
+      font-size: 0.5625rem;
+      font-weight: 500;
+      color: var(--stone-400);
+      background: var(--stone-50);
+      border: 1px solid var(--stone-200);
+      border-radius: 9999px;
+      padding: 0.1rem 0.45rem;
+      flex-shrink: 0;
+    }
+
+    /* ── Main Content ── */
+    .main-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 1.25rem 1.5rem;
+    }
+
+    /* ── Deck Grid ── */
+    .deck-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 1rem;
+      align-items: start;
+    }
+
+    .deck-card {
+      background: var(--white);
+      border: 1px solid var(--stone-200);
+      border-radius: 0.375rem;
+      padding: 1rem;
+      cursor: pointer;
+      transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .deck-card:hover {
+      border-color: var(--stone-300);
+      transform: scale(1.02);
+    }
+
+    .deck-card-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 0.5rem;
+    }
+
+    .deck-card-name {
+      font-size: 0.6875rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--stone-800);
+      line-height: 1.4;
+    }
+
+    .deck-card-actions {
+      display: flex;
+      gap: 0.15rem;
+      opacity: 0;
+      transition: opacity 150ms;
+      flex-shrink: 0;
+    }
+
+    .deck-card:hover .deck-card-actions { opacity: 1; }
+
+    .deck-action-btn {
+      padding: 0.2rem;
+      color: var(--stone-400);
+      background: none;
+      border: none;
+      border-radius: 0.25rem;
+      cursor: pointer;
+      transition: all 150ms;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .deck-action-btn:hover { color: var(--stone-600); background: var(--stone-100); }
+    .deck-action-btn.delete:hover { color: var(--red-500); background: var(--red-50); }
+    .deck-action-btn.delete:disabled { opacity: 0.3; pointer-events: none; }
+
+    .deck-card-desc {
+      font-size: 0.5625rem;
+      color: var(--stone-400);
+      line-height: 1.4;
+    }
+
+    .deck-card-stats {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-top: 0.25rem;
+    }
+
+    .deck-stat {
+      font-size: 0.5625rem;
+      font-weight: 500;
+      color: var(--stone-500);
+    }
+
+    .deck-stat-label {
+      color: var(--stone-400);
+    }
+
+    .deck-card-empty {
+      font-size: 0.5625rem;
+      color: var(--stone-400);
+      font-style: italic;
+    }
+
+    .deck-accuracy-bar {
+      height: 3px;
+      background: var(--stone-100);
+      border-radius: 2px;
+      overflow: hidden;
+      margin-top: 0.25rem;
+    }
+
+    .deck-accuracy-fill {
+      height: 100%;
+      background: var(--stone-400);
+      border-radius: 2px;
+      transition: width 300ms cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    /* ── Add Deck Button ── */
+    .add-deck-btn {
+      min-height: 100px;
+      border: 2px dashed var(--stone-200);
+      border-radius: 0.375rem;
+      background: none;
+      color: var(--stone-400);
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.625rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 150ms;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.35rem;
+    }
+
+    .add-deck-btn:hover {
+      border-color: var(--stone-300);
+      color: var(--stone-600);
+      background: var(--white);
+    }
+
+    /* ── Inline Edit Form ── */
+    .edit-form {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      padding: 0.75rem;
+      background: var(--stone-50);
+      border: 1px solid var(--stone-200);
+      border-radius: 0.375rem;
+    }
+
+    .edit-form input,
+    .edit-form textarea {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.6875rem;
+      padding: 0.375rem 0.5rem;
+      border: 1px solid var(--stone-200);
+      border-radius: 0.25rem;
+      background: var(--white);
+      color: var(--stone-800);
+      outline: none;
+      transition: all 150ms;
+      width: 100%;
+    }
+
+    .edit-form input:focus,
+    .edit-form textarea:focus {
+      border-color: var(--stone-400);
+      box-shadow: 0 0 0 2px var(--stone-100);
+    }
+
+    .edit-form textarea { resize: vertical; min-height: 2.5rem; }
+
+    .edit-form label {
+      font-size: 0.5625rem;
+      font-weight: 600;
+      color: var(--stone-500);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .edit-form-actions {
+      display: flex;
+      gap: 0.4rem;
+      justify-content: flex-end;
+    }
+
+    /* ── Study Mode ── */
+    .study-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1.25rem;
+      padding: 1rem 0;
+      max-width: 540px;
+      margin: 0 auto;
+      width: 100%;
+    }
+
+    /* ── Progress Bar ── */
+    .progress-area {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+
+    .progress-text {
+      font-size: 0.5625rem;
+      font-weight: 500;
+      color: var(--stone-400);
+      text-align: center;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .progress-bar {
+      height: 3px;
+      background: var(--stone-200);
+      border-radius: 2px;
+      overflow: hidden;
+      width: 100%;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: var(--stone-800);
+      border-radius: 2px;
+      transition: width 300ms cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    /* ── Flashcard 3D Flip ── */
+    .card-flip-container {
+      perspective: 1000px;
+      width: 100%;
+      min-height: 260px;
+      cursor: pointer;
+    }
+
+    .card-flip-inner {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      min-height: 260px;
+      transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+      transform-style: preserve-3d;
+    }
+
+    .card-flip-inner.flipped {
+      transform: rotateY(180deg);
+    }
+
+    .card-front, .card-back {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      min-height: 260px;
+      backface-visibility: hidden;
+      -webkit-backface-visibility: hidden;
+      background: var(--white);
+      border: 1px solid var(--stone-200);
+      border-radius: 0.375rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem 1.5rem;
+      transition: border-color 150ms;
+    }
+
+    .card-flip-container:hover .card-front,
+    .card-flip-container:hover .card-back {
+      border-color: var(--stone-300);
+    }
+
+    .card-back {
+      transform: rotateY(180deg);
+    }
+
+    .card-face-label {
+      font-size: 0.5rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--stone-400);
+      position: absolute;
+      top: 0.75rem;
+      left: 1rem;
+    }
+
+    .card-face-text {
+      font-size: 0.8125rem;
+      font-weight: 500;
+      color: var(--stone-800);
+      line-height: 1.6;
+      text-align: center;
+      max-width: 100%;
+    }
+
+    .card-back .card-face-text {
+      color: var(--stone-600);
+    }
+
+    .card-flip-hint {
+      font-size: 0.5625rem;
+      color: var(--stone-400);
+      font-style: italic;
+      text-align: center;
+      transition: opacity 200ms;
+    }
+
+    .card-flip-hint.hidden {
+      opacity: 0;
+    }
+
+    /* ── Score Buttons ── */
+    .score-buttons {
+      display: flex;
+      gap: 0.75rem;
+      width: 100%;
+      justify-content: center;
+      min-height: 2.5rem;
+    }
+
+    .score-btn {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.625rem;
+      font-weight: 600;
+      padding: 0.5rem 1.5rem;
+      border-radius: 0.25rem;
+      cursor: pointer;
+      transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      opacity: 0;
+      transform: translateY(6px);
+    }
+
+    .score-btn.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .score-btn.got-it {
+      background: var(--stone-800);
+      color: var(--white);
+      border: none;
+    }
+
+    .score-btn.got-it:hover { background: var(--stone-700); }
+
+    .score-btn.missed {
+      background: none;
+      color: var(--stone-600);
+      border: 1px solid var(--stone-200);
+    }
+
+    .score-btn.missed:hover { border-color: var(--stone-300); background: var(--stone-100); }
+
+    /* ── Card Management Buttons ── */
+    .card-manage-area {
+      display: flex;
+      gap: 0.4rem;
+      align-items: center;
+    }
+
+    .card-manage-btn {
+      padding: 0.25rem;
+      color: var(--stone-400);
+      background: none;
+      border: none;
+      border-radius: 0.25rem;
+      cursor: pointer;
+      transition: all 150ms;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .card-manage-btn:hover { color: var(--stone-600); background: var(--stone-100); }
+    .card-manage-btn.delete:hover { color: var(--red-500); background: var(--red-50); }
+
+    /* ── Session Summary ── */
+    .session-summary {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1rem;
+      padding: 2rem 1.5rem;
+      background: var(--white);
+      border: 1px solid var(--stone-200);
+      border-radius: 0.375rem;
+      width: 100%;
+      max-width: 540px;
+      margin: 0 auto;
+    }
+
+    .summary-title {
+      font-size: 0.875rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--stone-800);
+    }
+
+    .summary-stats {
+      display: flex;
+      gap: 2rem;
+      align-items: center;
+    }
+
+    .summary-stat {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.2rem;
+    }
+
+    .summary-stat-value {
+      font-size: 1.5rem;
+      font-weight: 600;
+      color: var(--stone-800);
+    }
+
+    .summary-stat-label {
+      font-size: 0.5625rem;
+      font-weight: 500;
+      color: var(--stone-400);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .summary-divider {
+      width: 1px;
+      height: 2.5rem;
+      background: var(--stone-200);
+    }
+
+    .summary-accuracy-bar {
+      width: 100%;
+      height: 4px;
+      background: var(--stone-100);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    .summary-accuracy-fill {
+      height: 100%;
+      background: var(--stone-800);
+      border-radius: 2px;
+      transition: width 600ms cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .summary-actions {
+      display: flex;
+      gap: 0.5rem;
+    }
+
+    /* ── Add Card Form (in study mode) ── */
+    .add-card-form {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      width: 100%;
+      max-width: 540px;
+      padding: 0.75rem;
+      background: var(--stone-50);
+      border: 1px solid var(--stone-200);
+      border-radius: 0.375rem;
+    }
+
+    .add-card-form input,
+    .add-card-form textarea {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.6875rem;
+      padding: 0.375rem 0.5rem;
+      border: 1px solid var(--stone-200);
+      border-radius: 0.25rem;
+      background: var(--white);
+      color: var(--stone-800);
+      outline: none;
+      transition: all 150ms;
+      width: 100%;
+    }
+
+    .add-card-form input:focus,
+    .add-card-form textarea:focus {
+      border-color: var(--stone-400);
+      box-shadow: 0 0 0 2px var(--stone-100);
+    }
+
+    .add-card-form textarea { resize: vertical; min-height: 2.5rem; }
+
+    .add-card-form label {
+      font-size: 0.5625rem;
+      font-weight: 600;
+      color: var(--stone-500);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .add-card-form-actions {
+      display: flex;
+      gap: 0.4rem;
+      justify-content: flex-end;
+    }
+
+    .replace-hint {
+      font-size: 0.5rem;
+      color: var(--stone-400);
+      font-style: italic;
+      margin-top: -0.25rem;
+    }
+
+    /* ── Empty Study State ── */
+    .empty-study {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 2.5rem 1.5rem;
+      color: var(--stone-400);
+      text-align: center;
+    }
+
+    .empty-study-text {
+      font-size: 0.6875rem;
+      font-weight: 500;
+      font-style: italic;
+    }
+
+    /* ── Buttons ── */
+    .btn-primary {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.625rem;
+      font-weight: 500;
+      padding: 0.35rem 0.75rem;
+      background: var(--stone-800);
+      color: var(--white);
+      border: none;
+      border-radius: 0.25rem;
+      cursor: pointer;
+      transition: all 150ms;
+    }
+
+    .btn-primary:hover { background: var(--stone-700); }
+
+    .btn-secondary {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.625rem;
+      font-weight: 500;
+      padding: 0.35rem 0.75rem;
+      background: none;
+      color: var(--stone-600);
+      border: 1px solid var(--stone-200);
+      border-radius: 0.25rem;
+      cursor: pointer;
+      transition: all 150ms;
+    }
+
+    .btn-secondary:hover { border-color: var(--stone-300); background: var(--stone-100); }
+
+    /* ── API Log Panel ── */
+    .log-panel {
+      flex-shrink: 0;
+      border-top: 1px solid var(--stone-200);
+      background: var(--white);
+      transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .log-panel.collapsed .log-body { display: none; }
+
+    .log-header {
+      padding: 0.5rem 1rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .log-header:hover { background: var(--stone-50); }
+
+    .log-header-left {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .log-label {
+      font-size: 0.5625rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--stone-500);
+    }
+
+    .log-count {
+      font-size: 0.5625rem;
+      font-weight: 500;
+      color: var(--stone-400);
+    }
+
+    .log-chevron {
+      transition: transform 200ms;
+      color: var(--stone-400);
+    }
+
+    .log-panel.collapsed .log-chevron { transform: rotate(180deg); }
+
+    .log-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .log-clear-btn {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.5625rem;
+      font-weight: 500;
+      color: var(--stone-400);
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 0.15rem 0.35rem;
+      border-radius: 0.25rem;
+      transition: all 150ms;
+    }
+
+    .log-clear-btn:hover { color: var(--stone-600); background: var(--stone-100); }
+
+    .log-body {
+      max-height: 180px;
+      overflow-y: auto;
+      border-top: 1px solid var(--stone-100);
+    }
+
+    .log-entry {
+      display: flex;
+      align-items: center;
+      gap: 0.625rem;
+      padding: 0.3rem 1rem;
+      font-size: 0.625rem;
+      border-bottom: 1px solid var(--stone-50);
+      transition: background 150ms;
+    }
+
+    .log-entry:hover { background: var(--stone-50); }
+
+    .log-method {
+      font-weight: 600;
+      font-size: 0.5625rem;
+      padding: 0.1rem 0.35rem;
+      border-radius: 0.2rem;
+      color: var(--white);
+      text-transform: uppercase;
+      flex-shrink: 0;
+      min-width: 3.5rem;
+      text-align: center;
+      letter-spacing: 0.03em;
+    }
+
+    .log-method.GET    { background: var(--log-get); }
+    .log-method.POST   { background: var(--log-post); }
+    .log-method.PATCH  { background: var(--log-patch); }
+    .log-method.PUT    { background: var(--log-put); }
+    .log-method.DELETE { background: var(--log-delete); }
+
+    .log-path {
+      flex: 1;
+      color: var(--stone-600);
+      font-size: 0.625rem;
+      font-weight: 400;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .log-status {
+      font-size: 0.5625rem;
+      font-weight: 500;
+      color: var(--stone-500);
+      flex-shrink: 0;
+    }
+
+    .log-status.error { color: var(--red-500); }
+
+    .log-duration {
+      font-size: 0.5625rem;
+      color: var(--stone-400);
+      flex-shrink: 0;
+      min-width: 3rem;
+      text-align: right;
+    }
+
+    .log-time {
+      font-size: 0.5rem;
+      color: var(--stone-400);
+      flex-shrink: 0;
+      min-width: 4.5rem;
+      text-align: right;
+      font-style: italic;
+    }
+
+    /* ── Loading / Error ── */
+    .loading-state {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--stone-400);
+      font-size: 0.75rem;
+    }
+
+    .error-banner {
+      padding: 0.5rem 1rem;
+      background: var(--red-50);
+      color: var(--red-500);
+      font-size: 0.625rem;
+      font-weight: 500;
+      text-align: center;
+      border-bottom: 1px solid var(--stone-200);
+      display: none;
+    }
+
+    .error-banner.visible { display: block; }
+
+    /* ── Screen-reader only ── */
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0,0,0,0);
+      white-space: nowrap;
+      border-width: 0;
+    }
+  </style>
+</head>
+<body>
+  <div id="error-banner" class="error-banner" role="alert"></div>
+
+  <header class="app-header" id="app-header">
+    <input
+      id="app-title"
+      class="app-title"
+      type="text"
+      readonly
+      aria-label="App title — click to edit"
+      title="Click to rename (PATCH)"
+    >
+    <span class="app-subtitle" id="app-subtitle">Study smarter</span>
+  </header>
+
+  <main class="main-content" id="main-content" role="main">
+    <div class="loading-state" id="loading">Loading flashcards...</div>
+  </main>
+
+  <footer class="log-panel" id="log-panel" role="log" aria-label="API request log">
+    <div class="log-header" id="log-header">
+      <div class="log-header-left">
+        <span class="log-label">API Log</span>
+        <span class="log-count" id="log-count">0 calls</span>
+      </div>
+      <div class="log-header-actions">
+        <button class="log-clear-btn" id="log-clear" title="Clear log" onclick="event.stopPropagation()">Clear</button>
+        <svg class="log-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="18 15 12 9 6 15"></polyline>
+        </svg>
+      </div>
+    </div>
+    <div class="log-body" id="log-body"></div>
+  </footer>
+
+  <!-- Live region for card flip announcements -->
+  <div id="flip-announce" class="sr-only" aria-live="assertive" aria-atomic="true"></div>
+
+  <script>
+    'use strict';
+
+    // ── Text escaping to prevent XSS ──
+    const ESC_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+    const esc = (s) => s == null ? '' : String(s).replace(/[&<>"']/g, (c) => ESC_MAP[c]);
+
+    // ── API Client ──
+    const API_BASE = '/_api/flashcards';
+    const logEntries = [];
+
+    const api = {
+      async request(method, path, body) {
+        const url = API_BASE + (path ? '/' + path : '');
+        const start = performance.now();
+        const opts = { method, credentials: 'same-origin' };
+        if (body !== undefined) {
+          opts.headers = { 'Content-Type': 'application/json' };
+          opts.body = JSON.stringify(body);
+        }
+        let res;
+        try {
+          res = await fetch(url, opts);
+        } catch (err) {
+          const ms = Math.round(performance.now() - start);
+          logApiCall(method, url, 0, ms);
+          throw new Error('Network error: ' + err.message);
+        }
+        const ms = Math.round(performance.now() - start);
+        const data = res.status !== 204 ? await res.json().catch(() => null) : null;
+        logApiCall(method, url, res.status, ms);
+        if (!res.ok) throw new Error(data?.error || res.statusText);
+        return data;
+      },
+      get:    (p) => api.request('GET', p),
+      post:   (p, b) => api.request('POST', p, b),
+      put:    (p, b) => api.request('PUT', p, b),
+      patch:  (p, b) => api.request('PATCH', p, b),
+      delete: (p) => api.request('DELETE', p),
+    };
+
+    // ── API Log Panel ──
+    const logBody = document.getElementById('log-body');
+    const logCountEl = document.getElementById('log-count');
+    const logPanel = document.getElementById('log-panel');
+    const logHeader = document.getElementById('log-header');
+    const logClear = document.getElementById('log-clear');
+
+    function logApiCall(method, url, status, ms) {
+      const entry = { method, url, status, ms, time: new Date() };
+      logEntries.push(entry);
+      renderLogEntry(entry);
+      logCountEl.textContent = logEntries.length + ' call' + (logEntries.length !== 1 ? 's' : '');
+    }
+
+    function renderLogEntry(entry) {
+      const row = document.createElement('div');
+      row.className = 'log-entry';
+      const statusClass = entry.status >= 400 || entry.status === 0 ? ' error' : '';
+      const timeStr = entry.time.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      row.innerHTML = `
+        <span class="log-method ${esc(entry.method)}">${esc(entry.method)}</span>
+        <span class="log-path" title="${esc(entry.url)}">${esc(entry.url)}</span>
+        <span class="log-status${statusClass}">${entry.status || 'ERR'}</span>
+        <span class="log-duration">${entry.ms}ms</span>
+        <span class="log-time">${timeStr}</span>
+      `;
+      logBody.appendChild(row);
+      logBody.scrollTop = logBody.scrollHeight;
+    }
+
+    logHeader.addEventListener('click', () => {
+      logPanel.classList.toggle('collapsed');
+    });
+
+    logClear.addEventListener('click', () => {
+      logEntries.length = 0;
+      logBody.innerHTML = '';
+      logCountEl.textContent = '0 calls';
+    });
+
+    // ── Error Banner ──
+    const errorBanner = document.getElementById('error-banner');
+
+    function showError(msg) {
+      errorBanner.textContent = msg;
+      errorBanner.classList.add('visible');
+      setTimeout(() => errorBanner.classList.remove('visible'), 4000);
+    }
+
+    // ── SVG Icons ──
+    const icons = {
+      edit: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`,
+      trash: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>`,
+      plus: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`,
+      back: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>`,
+      check: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`,
+      x: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
+      cards: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>`,
+      flip: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>`,
+      arrowLeft: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>`,
+      arrowRight: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>`,
+    };
+
+    // ── App State ──
+    let data = null;            // Full flashcards data from API
+    let currentView = 'decks';  // 'decks' or 'study'
+    let currentDeckId = null;
+    let currentCardIndex = 0;
+    let isFlipped = false;
+    let showingAddCardForm = false;
+    let showingEditCardForm = false;
+    let sessionResults = null;  // { correct, incorrect } after completing all cards
+    let editingDeckId = null;   // Deck being edited inline
+
+    // ── DOM refs ──
+    const mainContent = document.getElementById('main-content');
+    const appHeader = document.getElementById('app-header');
+    const appTitleEl = document.getElementById('app-title');
+    const appSubtitle = document.getElementById('app-subtitle');
+    const flipAnnounce = document.getElementById('flip-announce');
+
+    // ── Helpers ──
+    function getDeck(deckId) {
+      return data?.decks?.find((d) => d.id === deckId) || null;
+    }
+
+    function deckAccuracy(deck) {
+      if (!deck?.cards?.length) return null;
+      let totalCorrect = 0;
+      let totalIncorrect = 0;
+      for (const c of deck.cards) {
+        totalCorrect += c.correct || 0;
+        totalIncorrect += c.incorrect || 0;
+      }
+      const total = totalCorrect + totalIncorrect;
+      if (total === 0) return null;
+      return Math.round((totalCorrect / total) * 100);
+    }
+
+    // ── Render Router ──
+    function render() {
+      if (!data) return;
+
+      if (currentView === 'decks') {
+        renderDeckListHeader();
+        renderDeckList();
+      } else if (currentView === 'study') {
+        renderStudyHeader();
+        renderStudy();
+      }
+    }
+
+    // ── Deck List View ──
+    function renderDeckListHeader() {
+      appHeader.innerHTML = '';
+
+      const titleInput = document.createElement('input');
+      titleInput.id = 'app-title';
+      titleInput.className = 'app-title';
+      titleInput.type = 'text';
+      titleInput.readOnly = true;
+      titleInput.value = data.title || 'Flashcards';
+      titleInput.setAttribute('aria-label', 'App title — click to edit');
+      titleInput.title = 'Click to rename (PATCH)';
+      appHeader.appendChild(titleInput);
+
+      const subtitle = document.createElement('span');
+      subtitle.className = 'app-subtitle';
+      subtitle.textContent = 'Study smarter';
+      appHeader.appendChild(subtitle);
+
+      // Title editing
+      titleInput.addEventListener('click', () => {
+        titleInput.readOnly = false;
+        titleInput.focus();
+        titleInput.select();
+      });
+
+      titleInput.addEventListener('blur', async () => {
+        titleInput.readOnly = true;
+        const newTitle = titleInput.value.trim();
+        if (!newTitle || newTitle === data?.title) return;
+        try {
+          await api.patch('', { title: newTitle });
+          await loadData();
+        } catch (err) {
+          showError('Failed to rename: ' + err.message);
+          titleInput.value = data?.title || '';
+        }
+      });
+
+      titleInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); titleInput.blur(); }
+        if (e.key === 'Escape') { titleInput.value = data?.title || ''; titleInput.blur(); }
+      });
+    }
+
+    function renderDeckList() {
+      const loading = document.getElementById('loading');
+      if (loading) loading.remove();
+
+      mainContent.innerHTML = '';
+      const grid = document.createElement('div');
+      grid.className = 'deck-grid';
+
+      const decks = data.decks || [];
+      for (const deck of decks) {
+        if (editingDeckId === deck.id) {
+          grid.appendChild(renderDeckEditForm(deck));
+        } else {
+          grid.appendChild(renderDeckCard(deck));
+        }
+      }
+
+      // Add deck button
+      const addBtn = document.createElement('button');
+      addBtn.className = 'add-deck-btn';
+      addBtn.innerHTML = `${icons.plus}<span>Add Deck</span>`;
+      addBtn.title = 'POST to decks array';
+      addBtn.setAttribute('aria-label', 'Add new deck');
+      addBtn.addEventListener('click', addDeck);
+      grid.appendChild(addBtn);
+
+      mainContent.appendChild(grid);
+    }
+
+    function renderDeckCard(deck) {
+      const card = document.createElement('div');
+      card.className = 'deck-card';
+      card.dataset.deckId = deck.id;
+      card.setAttribute('role', 'button');
+      card.setAttribute('tabindex', '0');
+      card.setAttribute('aria-label', `${deck.name} — ${(deck.cards || []).length} cards. Click to study.`);
+
+      const cardCount = (deck.cards || []).length;
+      const accuracy = deckAccuracy(deck);
+      const canDelete = cardCount === 0;
+
+      card.innerHTML = `
+        <div class="deck-card-header">
+          <span class="deck-card-name">${esc(deck.name)}</span>
+          <div class="deck-card-actions">
+            <button class="deck-action-btn edit" title="Edit deck (PATCH)" aria-label="Edit deck">${icons.edit}</button>
+            <button
+              class="deck-action-btn delete"
+              title="${canDelete ? 'Delete deck (DELETE)' : 'Remove all cards first'}"
+              ${canDelete ? '' : 'disabled'}
+              aria-label="Delete deck"
+            >${icons.trash}</button>
+          </div>
+        </div>
+        ${deck.description ? `<div class="deck-card-desc">${esc(deck.description)}</div>` : ''}
+        ${cardCount > 0 ? `
+          <div class="deck-card-stats">
+            <span class="deck-stat">${cardCount} <span class="deck-stat-label">card${cardCount !== 1 ? 's' : ''}</span></span>
+            ${accuracy !== null ? `<span class="deck-stat">${accuracy}% <span class="deck-stat-label">accuracy</span></span>` : ''}
+          </div>
+          ${accuracy !== null ? `<div class="deck-accuracy-bar"><div class="deck-accuracy-fill" style="width: ${accuracy}%"></div></div>` : ''}
+        ` : `<div class="deck-card-empty">No cards yet — click to add some</div>`}
+      `;
+
+      // Click to study
+      card.addEventListener('click', (e) => {
+        if (e.target.closest('.deck-action-btn')) return;
+        enterStudyMode(deck.id);
+      });
+
+      card.addEventListener('keydown', (e) => {
+        if ((e.key === 'Enter' || e.key === ' ') && !e.target.closest('.deck-action-btn')) {
+          e.preventDefault();
+          enterStudyMode(deck.id);
+        }
+      });
+
+      // Edit button
+      card.querySelector('.deck-action-btn.edit').addEventListener('click', (e) => {
+        e.stopPropagation();
+        editingDeckId = deck.id;
+        render();
+      });
+
+      // Delete button
+      const delBtn = card.querySelector('.deck-action-btn.delete');
+      delBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        deleteDeck(deck.id);
+      });
+
+      return card;
+    }
+
+    function renderDeckEditForm(deck) {
+      const form = document.createElement('div');
+      form.className = 'edit-form';
+      form.innerHTML = `
+        <div>
+          <label for="edit-deck-name-${deck.id}">Name</label>
+          <input id="edit-deck-name-${deck.id}" type="text" value="${esc(deck.name)}" />
+        </div>
+        <div>
+          <label for="edit-deck-desc-${deck.id}">Description</label>
+          <textarea id="edit-deck-desc-${deck.id}" rows="2">${esc(deck.description || '')}</textarea>
+        </div>
+        <div class="edit-form-actions">
+          <button class="btn-secondary cancel-btn">Cancel</button>
+          <button class="btn-primary save-btn" title="PATCH — merge changed fields">Save</button>
+        </div>
+      `;
+
+      const nameInput = form.querySelector(`#edit-deck-name-${deck.id}`);
+      const descInput = form.querySelector(`#edit-deck-desc-${deck.id}`);
+
+      form.querySelector('.cancel-btn').addEventListener('click', () => {
+        editingDeckId = null;
+        render();
+      });
+
+      form.querySelector('.save-btn').addEventListener('click', async () => {
+        const patch = {};
+        const newName = nameInput.value.trim();
+        const newDesc = descInput.value.trim();
+
+        if (newName && newName !== deck.name) patch.name = newName;
+        if (newDesc !== (deck.description || '')) {
+          patch.description = newDesc === '' ? null : newDesc;
+        }
+
+        if (Object.keys(patch).length === 0) {
+          editingDeckId = null;
+          render();
+          return;
+        }
+
+        try {
+          await api.patch(`decks/${deck.id}`, patch);
+          editingDeckId = null;
+          await loadData();
+        } catch (err) {
+          showError('Failed to update deck: ' + err.message);
+        }
+      });
+
+      // Focus name input after render
+      requestAnimationFrame(() => {
+        nameInput.focus();
+        nameInput.select();
+      });
+
+      return form;
+    }
+
+    // ── Study Mode View ──
+    function enterStudyMode(deckId) {
+      currentDeckId = deckId;
+      currentCardIndex = 0;
+      isFlipped = false;
+      sessionResults = null;
+      showingAddCardForm = false;
+      showingEditCardForm = false;
+      currentView = 'study';
+      render();
+    }
+
+    function exitStudyMode() {
+      currentView = 'decks';
+      currentDeckId = null;
+      sessionResults = null;
+      showingAddCardForm = false;
+      showingEditCardForm = false;
+      editingDeckId = null;
+      render();
+    }
+
+    function renderStudyHeader() {
+      const deck = getDeck(currentDeckId);
+      if (!deck) return;
+
+      appHeader.innerHTML = '';
+
+      const backBtn = document.createElement('button');
+      backBtn.className = 'header-back-btn';
+      backBtn.innerHTML = icons.back;
+      backBtn.title = 'Back to decks';
+      backBtn.setAttribute('aria-label', 'Back to decks');
+      backBtn.addEventListener('click', exitStudyMode);
+      appHeader.appendChild(backBtn);
+
+      const deckName = document.createElement('span');
+      deckName.className = 'header-deck-name';
+      deckName.textContent = deck.name;
+      appHeader.appendChild(deckName);
+
+      const cardCount = (deck.cards || []).length;
+      const countBadge = document.createElement('span');
+      countBadge.className = 'header-deck-count';
+      countBadge.textContent = `${cardCount} card${cardCount !== 1 ? 's' : ''}`;
+      appHeader.appendChild(countBadge);
+
+      // Spacer
+      const spacer = document.createElement('span');
+      spacer.style.flex = '1';
+      appHeader.appendChild(spacer);
+
+      // Add card button in header
+      const addCardBtn = document.createElement('button');
+      addCardBtn.className = 'btn-secondary';
+      addCardBtn.innerHTML = `${icons.plus} <span style="margin-left:0.25rem">Add Card</span>`;
+      addCardBtn.title = 'POST a new card to this deck';
+      addCardBtn.setAttribute('aria-label', 'Add card to deck');
+      addCardBtn.addEventListener('click', () => {
+        showingAddCardForm = !showingAddCardForm;
+        showingEditCardForm = false;
+        renderStudy();
+      });
+      appHeader.appendChild(addCardBtn);
+    }
+
+    function renderStudy() {
+      const deck = getDeck(currentDeckId);
+      if (!deck) {
+        exitStudyMode();
+        return;
+      }
+
+      mainContent.innerHTML = '';
+      const cards = deck.cards || [];
+
+      // Show add card form if toggled
+      if (showingAddCardForm) {
+        mainContent.appendChild(renderAddCardForm(deck));
+        return;
+      }
+
+      // Show edit card form if toggled
+      if (showingEditCardForm && cards[currentCardIndex]) {
+        mainContent.appendChild(renderEditCardForm(deck, cards[currentCardIndex]));
+        return;
+      }
+
+      // Session summary
+      if (sessionResults) {
+        mainContent.appendChild(renderSessionSummary(deck));
+        return;
+      }
+
+      // Empty deck
+      if (cards.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'empty-study';
+        empty.innerHTML = `
+          ${icons.cards}
+          <div class="empty-study-text">This deck has no cards yet.</div>
+          <button class="btn-primary" id="empty-add-btn">${icons.plus} Add First Card</button>
+        `;
+        mainContent.appendChild(empty);
+        empty.querySelector('#empty-add-btn').addEventListener('click', () => {
+          showingAddCardForm = true;
+          renderStudy();
+        });
+        return;
+      }
+
+      // Clamp index
+      if (currentCardIndex >= cards.length) {
+        currentCardIndex = cards.length - 1;
+      }
+
+      const card = cards[currentCardIndex];
+      const container = document.createElement('div');
+      container.className = 'study-container';
+
+      // Progress
+      const progressArea = document.createElement('div');
+      progressArea.className = 'progress-area';
+      const progressPct = ((currentCardIndex + 1) / cards.length) * 100;
+      progressArea.innerHTML = `
+        <div class="progress-text">Card ${currentCardIndex + 1} of ${cards.length}</div>
+        <div class="progress-bar"><div class="progress-fill" style="width: ${progressPct}%"></div></div>
+      `;
+      container.appendChild(progressArea);
+
+      // Flashcard
+      const flipContainer = document.createElement('div');
+      flipContainer.className = 'card-flip-container';
+      flipContainer.setAttribute('role', 'button');
+      flipContainer.setAttribute('tabindex', '0');
+      flipContainer.setAttribute('aria-label', isFlipped ? 'Flashcard showing answer. Click or press Space to flip back.' : 'Flashcard showing question. Click or press Space to flip.');
+
+      const flipInner = document.createElement('div');
+      flipInner.className = 'card-flip-inner' + (isFlipped ? ' flipped' : '');
+
+      flipInner.innerHTML = `
+        <div class="card-front">
+          <span class="card-face-label">Question</span>
+          <div class="card-face-text">${esc(card.front)}</div>
+        </div>
+        <div class="card-back">
+          <span class="card-face-label">Answer</span>
+          <div class="card-face-text">${esc(card.back)}</div>
+        </div>
+      `;
+
+      flipContainer.appendChild(flipInner);
+      flipContainer.addEventListener('click', () => flipCard(flipInner));
+      flipContainer.addEventListener('keydown', (e) => {
+        if (e.key === ' ' || e.key === 'Enter') {
+          e.preventDefault();
+          flipCard(flipInner);
+        }
+      });
+      container.appendChild(flipContainer);
+
+      // Flip hint
+      const hint = document.createElement('div');
+      hint.className = 'card-flip-hint' + (isFlipped ? ' hidden' : '');
+      hint.textContent = 'Click card or press Space to flip';
+      container.appendChild(hint);
+
+      // Score buttons
+      const scoreArea = document.createElement('div');
+      scoreArea.className = 'score-buttons';
+
+      const missedBtn = document.createElement('button');
+      missedBtn.className = 'score-btn missed' + (isFlipped ? ' visible' : '');
+      missedBtn.innerHTML = `${icons.x} Missed`;
+      missedBtn.setAttribute('aria-label', 'Mark as missed');
+      missedBtn.addEventListener('click', () => scoreCard(card, 'incorrect'));
+
+      const gotItBtn = document.createElement('button');
+      gotItBtn.className = 'score-btn got-it' + (isFlipped ? ' visible' : '');
+      gotItBtn.innerHTML = `${icons.check} Got it`;
+      gotItBtn.setAttribute('aria-label', 'Mark as correct');
+      gotItBtn.addEventListener('click', () => scoreCard(card, 'correct'));
+
+      scoreArea.appendChild(missedBtn);
+      scoreArea.appendChild(gotItBtn);
+      container.appendChild(scoreArea);
+
+      // Card management (nav + edit + delete)
+      const manageArea = document.createElement('div');
+      manageArea.className = 'card-manage-area';
+
+      // Prev button
+      const prevBtn = document.createElement('button');
+      prevBtn.className = 'card-manage-btn';
+      prevBtn.innerHTML = icons.arrowLeft;
+      prevBtn.title = 'Previous card';
+      prevBtn.setAttribute('aria-label', 'Previous card');
+      prevBtn.disabled = currentCardIndex === 0;
+      prevBtn.style.opacity = currentCardIndex === 0 ? '0.3' : '1';
+      prevBtn.addEventListener('click', () => navigateCard(-1));
+      manageArea.appendChild(prevBtn);
+
+      // Next button
+      const nextBtn = document.createElement('button');
+      nextBtn.className = 'card-manage-btn';
+      nextBtn.innerHTML = icons.arrowRight;
+      nextBtn.title = 'Next card';
+      nextBtn.setAttribute('aria-label', 'Next card');
+      nextBtn.disabled = currentCardIndex >= cards.length - 1;
+      nextBtn.style.opacity = currentCardIndex >= cards.length - 1 ? '0.3' : '1';
+      nextBtn.addEventListener('click', () => navigateCard(1));
+      manageArea.appendChild(nextBtn);
+
+      // Separator
+      const sep = document.createElement('span');
+      sep.style.cssText = 'width:1px;height:1rem;background:var(--stone-200);margin:0 0.25rem';
+      manageArea.appendChild(sep);
+
+      // Edit button
+      const editBtn = document.createElement('button');
+      editBtn.className = 'card-manage-btn';
+      editBtn.innerHTML = icons.edit;
+      editBtn.title = 'Edit card (PATCH / PUT)';
+      editBtn.setAttribute('aria-label', 'Edit current card');
+      editBtn.addEventListener('click', () => {
+        showingEditCardForm = true;
+        showingAddCardForm = false;
+        renderStudy();
+      });
+      manageArea.appendChild(editBtn);
+
+      // Delete button
+      const delBtn = document.createElement('button');
+      delBtn.className = 'card-manage-btn delete';
+      delBtn.innerHTML = icons.trash;
+      delBtn.title = 'Delete card (DELETE)';
+      delBtn.setAttribute('aria-label', 'Delete current card');
+      delBtn.addEventListener('click', () => deleteCard(currentDeckId, card.id));
+      manageArea.appendChild(delBtn);
+
+      container.appendChild(manageArea);
+      mainContent.appendChild(container);
+
+      // Focus the flip container for keyboard accessibility
+      requestAnimationFrame(() => flipContainer.focus());
+    }
+
+    function flipCard(flipInner) {
+      isFlipped = !isFlipped;
+      if (isFlipped) {
+        flipInner.classList.add('flipped');
+      } else {
+        flipInner.classList.remove('flipped');
+      }
+
+      // Update aria-live announcement
+      const deck = getDeck(currentDeckId);
+      const cards = deck?.cards || [];
+      const card = cards[currentCardIndex];
+      if (card) {
+        flipAnnounce.textContent = isFlipped
+          ? 'Answer: ' + card.back
+          : 'Question: ' + card.front;
+      }
+
+      // Re-render to update hint and score buttons without losing flip state
+      // (we do a targeted update instead of full re-render to preserve the animation)
+      const hint = mainContent.querySelector('.card-flip-hint');
+      if (hint) {
+        hint.classList.toggle('hidden', isFlipped);
+      }
+
+      const scoreButtons = mainContent.querySelectorAll('.score-btn');
+      scoreButtons.forEach((btn) => {
+        btn.classList.toggle('visible', isFlipped);
+      });
+
+      // Update flip container aria-label
+      const flipContainer = mainContent.querySelector('.card-flip-container');
+      if (flipContainer) {
+        flipContainer.setAttribute('aria-label', isFlipped
+          ? 'Flashcard showing answer. Click or press Space to flip back.'
+          : 'Flashcard showing question. Click or press Space to flip.');
+      }
+    }
+
+    function navigateCard(direction) {
+      const deck = getDeck(currentDeckId);
+      const cards = deck?.cards || [];
+      const newIndex = currentCardIndex + direction;
+      if (newIndex < 0 || newIndex >= cards.length) return;
+      currentCardIndex = newIndex;
+      isFlipped = false;
+      renderStudy();
+    }
+
+    async function scoreCard(card, type) {
+      const deck = getDeck(currentDeckId);
+      const cards = deck?.cards || [];
+
+      // PATCH the card to increment correct/incorrect
+      const patch = {};
+      patch[type] = (card[type] || 0) + 1;
+
+      try {
+        await api.patch(`decks/${currentDeckId}/cards/${card.id}`, patch);
+      } catch (err) {
+        showError('Failed to update score: ' + err.message);
+        return;
+      }
+
+      // Track session results
+      if (!sessionResults) {
+        sessionResults = { correct: 0, incorrect: 0, _active: true };
+      }
+      sessionResults[type]++;
+
+      // Advance to next card or show summary
+      if (currentCardIndex < cards.length - 1) {
+        currentCardIndex++;
+        isFlipped = false;
+        // Reload data to get updated scores, then render
+        await loadData(true);
+      } else {
+        // Session complete
+        const sr = sessionResults;
+        sr._active = false;
+        await loadData(true);
+        // Restore session results (loadData resets nothing, but render would use it)
+        sessionResults = sr;
+        render();
+      }
+    }
+
+    // ── Session Summary ──
+    function renderSessionSummary(deck) {
+      const sr = sessionResults;
+      const total = sr.correct + sr.incorrect;
+      const accuracy = total > 0 ? Math.round((sr.correct / total) * 100) : 0;
+
+      const summary = document.createElement('div');
+      summary.className = 'session-summary';
+      summary.innerHTML = `
+        <div class="summary-title">Session Complete</div>
+        <div class="summary-stats">
+          <div class="summary-stat">
+            <span class="summary-stat-value">${sr.correct}</span>
+            <span class="summary-stat-label">Correct</span>
+          </div>
+          <div class="summary-divider"></div>
+          <div class="summary-stat">
+            <span class="summary-stat-value">${sr.incorrect}</span>
+            <span class="summary-stat-label">Missed</span>
+          </div>
+          <div class="summary-divider"></div>
+          <div class="summary-stat">
+            <span class="summary-stat-value">${accuracy}%</span>
+            <span class="summary-stat-label">Accuracy</span>
+          </div>
+        </div>
+        <div class="summary-accuracy-bar"><div class="summary-accuracy-fill" style="width: 0%"></div></div>
+        <div class="summary-actions">
+          <button class="btn-secondary" id="summary-back-btn">Back to Decks</button>
+          <button class="btn-primary" id="summary-again-btn">Study Again</button>
+        </div>
+      `;
+
+      // Animate accuracy bar after mount
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          const fill = summary.querySelector('.summary-accuracy-fill');
+          if (fill) fill.style.width = accuracy + '%';
+        });
+      });
+
+      summary.querySelector('#summary-back-btn').addEventListener('click', exitStudyMode);
+      summary.querySelector('#summary-again-btn').addEventListener('click', () => {
+        currentCardIndex = 0;
+        isFlipped = false;
+        sessionResults = null;
+        renderStudy();
+        renderStudyHeader();
+      });
+
+      return summary;
+    }
+
+    // ── Add Card Form ──
+    function renderAddCardForm(deck) {
+      const form = document.createElement('div');
+      form.className = 'add-card-form';
+      form.style.maxWidth = '540px';
+      form.style.margin = '0 auto';
+      form.innerHTML = `
+        <div>
+          <label for="add-card-front">Front (Question)</label>
+          <textarea id="add-card-front" rows="3" placeholder="What is..."></textarea>
+        </div>
+        <div>
+          <label for="add-card-back">Back (Answer)</label>
+          <textarea id="add-card-back" rows="3" placeholder="The answer is..."></textarea>
+        </div>
+        <div class="add-card-form-actions">
+          <button class="btn-secondary cancel-btn">Cancel</button>
+          <button class="btn-primary save-btn" title="POST — add new card">Add Card</button>
+        </div>
+      `;
+
+      form.querySelector('.cancel-btn').addEventListener('click', () => {
+        showingAddCardForm = false;
+        renderStudy();
+      });
+
+      form.querySelector('.save-btn').addEventListener('click', async () => {
+        const front = form.querySelector('#add-card-front').value.trim();
+        const back = form.querySelector('#add-card-back').value.trim();
+        if (!front || !back) {
+          showError('Both front and back are required');
+          return;
+        }
+        try {
+          await api.post(`decks/${deck.id}/cards`, {
+            front,
+            back,
+            correct: 0,
+            incorrect: 0,
+          });
+          showingAddCardForm = false;
+          await loadData(true);
+        } catch (err) {
+          showError('Failed to add card: ' + err.message);
+        }
+      });
+
+      requestAnimationFrame(() => {
+        form.querySelector('#add-card-front').focus();
+      });
+
+      return form;
+    }
+
+    // ── Edit Card Form ──
+    function renderEditCardForm(deck, card) {
+      const form = document.createElement('div');
+      form.className = 'add-card-form';
+      form.style.maxWidth = '540px';
+      form.style.margin = '0 auto';
+      form.innerHTML = `
+        <div>
+          <label for="edit-card-front">Front (Question)</label>
+          <textarea id="edit-card-front" rows="3">${esc(card.front)}</textarea>
+        </div>
+        <div>
+          <label for="edit-card-back">Back (Answer)</label>
+          <textarea id="edit-card-back" rows="3">${esc(card.back)}</textarea>
+        </div>
+        <div class="replace-hint">Save = PATCH (merge fields) &middot; Replace = PUT (overwrite entire card)</div>
+        <div class="add-card-form-actions">
+          <button class="btn-secondary cancel-btn">Cancel</button>
+          <button class="btn-secondary replace-btn" title="PUT — replace entire card object">Replace</button>
+          <button class="btn-primary save-btn" title="PATCH — merge changed fields">Save</button>
+        </div>
+      `;
+
+      form.querySelector('.cancel-btn').addEventListener('click', () => {
+        showingEditCardForm = false;
+        renderStudy();
+      });
+
+      // Save (PATCH)
+      form.querySelector('.save-btn').addEventListener('click', async () => {
+        const patch = {};
+        const newFront = form.querySelector('#edit-card-front').value.trim();
+        const newBack = form.querySelector('#edit-card-back').value.trim();
+
+        if (newFront && newFront !== card.front) patch.front = newFront;
+        if (newBack && newBack !== card.back) patch.back = newBack;
+
+        if (Object.keys(patch).length === 0) {
+          showingEditCardForm = false;
+          renderStudy();
+          return;
+        }
+
+        try {
+          await api.patch(`decks/${currentDeckId}/cards/${card.id}`, patch);
+          showingEditCardForm = false;
+          await loadData(true);
+        } catch (err) {
+          showError('Failed to update card: ' + err.message);
+        }
+      });
+
+      // Replace (PUT)
+      form.querySelector('.replace-btn').addEventListener('click', async () => {
+        const newFront = form.querySelector('#edit-card-front').value.trim();
+        const newBack = form.querySelector('#edit-card-back').value.trim();
+
+        if (!newFront || !newBack) {
+          showError('Both front and back are required');
+          return;
+        }
+
+        try {
+          await api.put(`decks/${currentDeckId}/cards/${card.id}`, {
+            front: newFront,
+            back: newBack,
+            correct: card.correct || 0,
+            incorrect: card.incorrect || 0,
+          });
+          showingEditCardForm = false;
+          await loadData(true);
+        } catch (err) {
+          showError('Failed to replace card: ' + err.message);
+        }
+      });
+
+      requestAnimationFrame(() => {
+        form.querySelector('#edit-card-front').focus();
+      });
+
+      return form;
+    }
+
+    // ── Deck Actions ──
+    async function addDeck() {
+      const name = prompt('Deck name:');
+      if (!name || !name.trim()) return;
+      try {
+        await api.post('decks', { name: name.trim(), description: '', cards: [] });
+        await loadData();
+      } catch (err) {
+        showError('Failed to add deck: ' + err.message);
+      }
+    }
+
+    async function deleteDeck(deckId) {
+      try {
+        await api.delete(`decks/${deckId}`);
+        await loadData();
+      } catch (err) {
+        showError('Failed to delete deck: ' + err.message);
+      }
+    }
+
+    // ── Card Actions ──
+    async function deleteCard(deckId, cardId) {
+      try {
+        await api.delete(`decks/${deckId}/cards/${cardId}`);
+        // Adjust index if needed
+        const deck = getDeck(deckId);
+        const remaining = (deck?.cards || []).length - 1;
+        if (currentCardIndex >= remaining && remaining > 0) {
+          currentCardIndex = remaining - 1;
+        }
+        isFlipped = false;
+        await loadData(true);
+      } catch (err) {
+        showError('Failed to delete card: ' + err.message);
+      }
+    }
+
+    // ── Keyboard Navigation ──
+    document.addEventListener('keydown', (e) => {
+      if (currentView !== 'study') return;
+      if (showingAddCardForm || showingEditCardForm) return;
+      if (sessionResults && !sessionResults._active) return;
+
+      // Ignore if focus is on an input/textarea
+      const tag = document.activeElement?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+
+      const deck = getDeck(currentDeckId);
+      const cards = deck?.cards || [];
+      if (cards.length === 0) return;
+
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        navigateCard(-1);
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        navigateCard(1);
+      } else if (e.key === ' ' || e.key === 'Enter') {
+        // Only flip if focus is NOT on a button (to avoid double-action)
+        if (document.activeElement?.tagName !== 'BUTTON') {
+          e.preventDefault();
+          const flipInner = mainContent.querySelector('.card-flip-inner');
+          if (flipInner) flipCard(flipInner);
+        }
+      }
+    });
+
+    // ── Load Data ──
+    async function loadData(preserveView) {
+      try {
+        data = await api.get('');
+        if (preserveView) {
+          // Re-render current view
+          render();
+        } else {
+          render();
+        }
+      } catch (err) {
+        showError('Failed to load data: ' + err.message);
+        const loading = document.getElementById('loading');
+        if (loading) loading.textContent = 'Failed to load. Is the tag served with API access enabled?';
+      }
+    }
+
+    // ── Demo: GET a single deck at startup ──
+    async function demoReadDeck() {
+      if (!data?.decks?.length) return;
+      try {
+        await api.get(`decks/${data.decks[0].id}`);
+      } catch {
+        // Non-critical, just for the demo log
+      }
+    }
+
+    // ── Init ──
+    async function init() {
+      await loadData();
+      await demoReadDeck();
+    }
+
+    init();
+  </script>
+</body>
+</html>

@@ -1,0 +1,1356 @@
+<!--
+  mahpastes Bookmarks Manager — JSON API Demo SPA
+
+  Setup:
+  1. Create a tag in mahpastes (e.g., "bookmarks")
+  2. Upload this file (index.html) into that tag
+  3. Upload bookmarks.json (in the same directory) into the same tag
+  4. Serve the tag with API access set to "readwrite"
+  5. Open the served URL in your browser
+
+  This bookmarks manager exercises every JSON API method (GET, POST, PUT, PATCH, DELETE)
+  through deeply nested paths. Watch the API log panel at the bottom to see
+  each call as it happens.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bookmarks — mahpastes</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --stone-50:  #fafaf9;
+      --stone-100: #f5f5f4;
+      --stone-200: #e7e5e4;
+      --stone-300: #d6d3d1;
+      --stone-400: #a8a29e;
+      --stone-500: #78716c;
+      --stone-600: #57534e;
+      --stone-700: #44403c;
+      --stone-800: #292524;
+      --stone-900: #1c1917;
+      --white:     #ffffff;
+      --red-500:   #ef4444;
+      --red-50:    #fef2f2;
+      /* Log-panel-only accent colors */
+      --log-get:     #78716c;
+      --log-post:    #059669;
+      --log-patch:   #d97706;
+      --log-put:     #2563eb;
+      --log-delete:  #ef4444;
+    }
+
+    html { font-size: 16px; }
+
+    body {
+      font-family: 'IBM Plex Mono', monospace;
+      background: var(--stone-50);
+      color: var(--stone-800);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--stone-300); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--stone-400); }
+
+    /* ── App Header ── */
+    .app-header {
+      padding: 1.25rem 1.5rem 1rem;
+      border-bottom: 1px solid var(--stone-200);
+      background: var(--stone-50);
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      flex-shrink: 0;
+    }
+
+    .app-title {
+      font-size: 0.875rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--stone-800);
+      cursor: pointer;
+      padding: 0.25rem 0.5rem;
+      border-radius: 0.375rem;
+      border: 1px solid transparent;
+      transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+      background: none;
+      outline: none;
+      font-family: inherit;
+    }
+
+    .app-title:hover { border-color: var(--stone-200); background: var(--white); }
+    .app-title:focus { border-color: var(--stone-400); background: var(--white); }
+
+    .app-subtitle {
+      font-size: 0.625rem;
+      font-weight: 500;
+      color: var(--stone-400);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    /* ── Layout: Sidebar + Main ── */
+    .app-layout {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+    }
+
+    /* ── Sidebar ── */
+    .sidebar {
+      width: 200px;
+      flex-shrink: 0;
+      border-right: 1px solid var(--stone-200);
+      background: var(--white);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .sidebar-label {
+      font-size: 0.5625rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--stone-400);
+      padding: 0.75rem 0.75rem 0.5rem;
+    }
+
+    .folder-list {
+      flex: 1;
+      overflow-y: auto;
+      list-style: none;
+      padding: 0 0.375rem;
+    }
+
+    .folder-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.45rem 0.625rem;
+      border-radius: 0.375rem;
+      cursor: pointer;
+      transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+      margin-bottom: 0.125rem;
+      position: relative;
+    }
+
+    .folder-item:hover { background: var(--stone-100); }
+
+    .folder-item.active {
+      background: var(--stone-800);
+      color: var(--white);
+    }
+
+    .folder-item.active:hover { background: var(--stone-700); }
+
+    .folder-item-left {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      min-width: 0;
+      flex: 1;
+    }
+
+    .folder-icon {
+      flex-shrink: 0;
+      color: var(--stone-400);
+      transition: color 150ms;
+    }
+
+    .folder-item.active .folder-icon { color: var(--stone-400); }
+
+    .folder-name {
+      font-size: 0.6875rem;
+      font-weight: 500;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .folder-count {
+      font-size: 0.5625rem;
+      font-weight: 500;
+      color: var(--stone-400);
+      background: var(--stone-50);
+      border: 1px solid var(--stone-200);
+      border-radius: 9999px;
+      padding: 0.05rem 0.4rem;
+      flex-shrink: 0;
+      transition: all 150ms;
+    }
+
+    .folder-item.active .folder-count {
+      background: var(--stone-700);
+      border-color: var(--stone-600);
+      color: var(--stone-300);
+    }
+
+    .folder-actions {
+      display: flex;
+      gap: 0.1rem;
+      opacity: 0;
+      transition: opacity 150ms;
+      position: absolute;
+      right: 0.35rem;
+      top: 50%;
+      transform: translateY(-50%);
+    }
+
+    .folder-item:hover .folder-actions { opacity: 1; }
+    .folder-item.active:hover .folder-actions { opacity: 1; }
+
+    .folder-action-btn {
+      padding: 0.15rem;
+      color: var(--stone-400);
+      background: none;
+      border: none;
+      border-radius: 0.25rem;
+      cursor: pointer;
+      transition: all 150ms;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .folder-action-btn:hover { color: var(--stone-600); background: var(--stone-100); }
+    .folder-action-btn.delete:hover { color: var(--red-500); background: var(--red-50); }
+    .folder-item.active .folder-action-btn:hover { color: var(--white); background: var(--stone-600); }
+    .folder-item.active .folder-action-btn.delete:hover { color: var(--red-500); background: var(--red-50); }
+
+    .add-folder-btn {
+      margin: 0.375rem;
+      padding: 0.45rem;
+      border: 2px dashed var(--stone-200);
+      border-radius: 0.375rem;
+      background: none;
+      color: var(--stone-400);
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.5625rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 150ms;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.3rem;
+      flex-shrink: 0;
+    }
+
+    .add-folder-btn:hover {
+      border-color: var(--stone-300);
+      color: var(--stone-600);
+      background: var(--stone-50);
+    }
+
+    /* ── Main Content ── */
+    .main-content {
+      flex: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+
+    .main-header {
+      padding: 1rem 1.25rem 0.75rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-shrink: 0;
+    }
+
+    .main-folder-name {
+      font-size: 0.6875rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--stone-600);
+    }
+
+    .main-link-count {
+      font-size: 0.5625rem;
+      font-weight: 500;
+      color: var(--stone-400);
+    }
+
+    /* ── Add Link Bar ── */
+    .add-link-bar {
+      padding: 0 1.25rem 0.75rem;
+      display: flex;
+      gap: 0.5rem;
+      flex-shrink: 0;
+    }
+
+    .add-link-input {
+      flex: 1;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.6875rem;
+      padding: 0.4rem 0.6rem;
+      border: 1px solid var(--stone-200);
+      border-radius: 0.25rem;
+      background: var(--white);
+      color: var(--stone-800);
+      outline: none;
+      transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .add-link-input::placeholder { color: var(--stone-400); }
+    .add-link-input:focus { border-color: var(--stone-400); box-shadow: 0 0 0 2px var(--stone-100); }
+
+    /* ── Links List ── */
+    .links-list {
+      flex: 1;
+      padding: 0 1.25rem 1.25rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      overflow-y: auto;
+    }
+
+    /* ── Link Card ── */
+    .link-card {
+      background: var(--white);
+      border: 1px solid var(--stone-200);
+      border-radius: 0.375rem;
+      padding: 0.625rem 0.75rem;
+      display: flex;
+      align-items: flex-start;
+      gap: 0.625rem;
+      transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+      position: relative;
+    }
+
+    .link-card:hover {
+      border-color: var(--stone-300);
+      transform: scale(1.01);
+    }
+
+    .link-avatar {
+      width: 2rem;
+      height: 2rem;
+      border-radius: 0.375rem;
+      background: var(--stone-200);
+      color: var(--stone-600);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      flex-shrink: 0;
+    }
+
+    .link-body {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+    }
+
+    .link-title-row {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+
+    .link-title {
+      font-size: 0.6875rem;
+      font-weight: 500;
+      color: var(--stone-800);
+      text-decoration: none;
+      line-height: 1.4;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      transition: color 150ms;
+    }
+
+    .link-title:hover { color: var(--stone-600); }
+
+    .link-url {
+      font-size: 0.5625rem;
+      color: var(--stone-400);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      line-height: 1.3;
+    }
+
+    .link-note {
+      font-size: 0.5625rem;
+      color: var(--stone-400);
+      font-style: italic;
+      line-height: 1.3;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .link-right {
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+      flex-shrink: 0;
+    }
+
+    .link-actions {
+      display: flex;
+      gap: 0.15rem;
+      opacity: 0;
+      transition: opacity 150ms;
+    }
+
+    .link-card:hover .link-actions { opacity: 1; }
+
+    .link-action-btn {
+      padding: 0.2rem;
+      color: var(--stone-400);
+      background: none;
+      border: none;
+      border-radius: 0.25rem;
+      cursor: pointer;
+      transition: all 150ms;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .link-action-btn:hover { color: var(--stone-600); background: var(--stone-100); }
+    .link-action-btn.delete:hover { color: var(--red-500); background: var(--red-50); }
+
+    .star-btn {
+      padding: 0.2rem;
+      background: none;
+      border: none;
+      border-radius: 0.25rem;
+      cursor: pointer;
+      transition: all 150ms;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--stone-300);
+    }
+
+    .star-btn:hover { color: var(--stone-800); }
+    .star-btn.active { color: var(--stone-800); }
+
+    /* ── Link Edit Form ── */
+    .link-edit-form {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      padding: 0.625rem 0.75rem;
+      background: var(--stone-50);
+      border: 1px solid var(--stone-200);
+      border-radius: 0.375rem;
+    }
+
+    .link-edit-form input,
+    .link-edit-form textarea {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.6875rem;
+      padding: 0.375rem 0.5rem;
+      border: 1px solid var(--stone-200);
+      border-radius: 0.25rem;
+      background: var(--white);
+      color: var(--stone-800);
+      outline: none;
+      transition: all 150ms;
+      width: 100%;
+    }
+
+    .link-edit-form input:focus,
+    .link-edit-form textarea:focus {
+      border-color: var(--stone-400);
+      box-shadow: 0 0 0 2px var(--stone-100);
+    }
+
+    .link-edit-form textarea { resize: vertical; min-height: 2rem; }
+
+    .link-edit-form label {
+      font-size: 0.5625rem;
+      font-weight: 600;
+      color: var(--stone-500);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .link-edit-actions {
+      display: flex;
+      gap: 0.4rem;
+      justify-content: flex-end;
+    }
+
+    .replace-hint {
+      font-size: 0.5rem;
+      color: var(--stone-400);
+      font-style: italic;
+      margin-top: -0.25rem;
+    }
+
+    /* ── Buttons ── */
+    .btn-primary {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.625rem;
+      font-weight: 500;
+      padding: 0.35rem 0.75rem;
+      background: var(--stone-800);
+      color: var(--white);
+      border: none;
+      border-radius: 0.25rem;
+      cursor: pointer;
+      transition: all 150ms;
+    }
+
+    .btn-primary:hover { background: var(--stone-700); }
+
+    .btn-secondary {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.625rem;
+      font-weight: 500;
+      padding: 0.35rem 0.75rem;
+      background: none;
+      color: var(--stone-600);
+      border: 1px solid var(--stone-200);
+      border-radius: 0.25rem;
+      cursor: pointer;
+      transition: all 150ms;
+    }
+
+    .btn-secondary:hover { border-color: var(--stone-300); background: var(--stone-100); }
+
+    /* ── Empty State ── */
+    .empty-state {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: var(--stone-400);
+      font-size: 0.6875rem;
+      font-style: italic;
+      gap: 0.5rem;
+      padding: 2rem;
+    }
+
+    .empty-state-icon { color: var(--stone-300); }
+
+    /* ── Loading / Error ── */
+    .loading-state {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--stone-400);
+      font-size: 0.75rem;
+    }
+
+    .error-banner {
+      padding: 0.5rem 1rem;
+      background: var(--red-50);
+      color: var(--red-500);
+      font-size: 0.625rem;
+      font-weight: 500;
+      text-align: center;
+      border-bottom: 1px solid var(--stone-200);
+      display: none;
+    }
+
+    .error-banner.visible { display: block; }
+
+    /* ── Folder Rename Input ── */
+    .folder-rename-input {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      padding: 0.15rem 0.35rem;
+      border: 1px solid var(--stone-400);
+      border-radius: 0.25rem;
+      background: var(--white);
+      color: var(--stone-800);
+      outline: none;
+      width: 100%;
+      transition: all 150ms;
+    }
+
+    .folder-rename-input:focus {
+      box-shadow: 0 0 0 2px var(--stone-100);
+    }
+
+    /* ── API Log Panel ── */
+    .log-panel {
+      flex-shrink: 0;
+      border-top: 1px solid var(--stone-200);
+      background: var(--white);
+      transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .log-panel.collapsed .log-body { display: none; }
+
+    .log-header {
+      padding: 0.5rem 1rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .log-header:hover { background: var(--stone-50); }
+
+    .log-header-left {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .log-label {
+      font-size: 0.5625rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--stone-500);
+    }
+
+    .log-count {
+      font-size: 0.5625rem;
+      font-weight: 500;
+      color: var(--stone-400);
+    }
+
+    .log-chevron {
+      transition: transform 200ms;
+      color: var(--stone-400);
+    }
+
+    .log-panel.collapsed .log-chevron { transform: rotate(180deg); }
+
+    .log-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .log-clear-btn {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.5625rem;
+      font-weight: 500;
+      color: var(--stone-400);
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 0.15rem 0.35rem;
+      border-radius: 0.25rem;
+      transition: all 150ms;
+    }
+
+    .log-clear-btn:hover { color: var(--stone-600); background: var(--stone-100); }
+
+    .log-body {
+      max-height: 180px;
+      overflow-y: auto;
+      border-top: 1px solid var(--stone-100);
+    }
+
+    .log-entry {
+      display: flex;
+      align-items: center;
+      gap: 0.625rem;
+      padding: 0.3rem 1rem;
+      font-size: 0.625rem;
+      border-bottom: 1px solid var(--stone-50);
+      transition: background 150ms;
+    }
+
+    .log-entry:hover { background: var(--stone-50); }
+
+    .log-method {
+      font-weight: 600;
+      font-size: 0.5625rem;
+      padding: 0.1rem 0.35rem;
+      border-radius: 0.2rem;
+      color: var(--white);
+      text-transform: uppercase;
+      flex-shrink: 0;
+      min-width: 3.5rem;
+      text-align: center;
+      letter-spacing: 0.03em;
+    }
+
+    .log-method.GET    { background: var(--log-get); }
+    .log-method.POST   { background: var(--log-post); }
+    .log-method.PATCH  { background: var(--log-patch); }
+    .log-method.PUT    { background: var(--log-put); }
+    .log-method.DELETE { background: var(--log-delete); }
+
+    .log-path {
+      flex: 1;
+      color: var(--stone-600);
+      font-size: 0.625rem;
+      font-weight: 400;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .log-status {
+      font-size: 0.5625rem;
+      font-weight: 500;
+      color: var(--stone-500);
+      flex-shrink: 0;
+    }
+
+    .log-status.error { color: var(--red-500); }
+
+    .log-duration {
+      font-size: 0.5625rem;
+      color: var(--stone-400);
+      flex-shrink: 0;
+      min-width: 3rem;
+      text-align: right;
+    }
+
+    .log-time {
+      font-size: 0.5rem;
+      color: var(--stone-400);
+      flex-shrink: 0;
+      min-width: 4.5rem;
+      text-align: right;
+      font-style: italic;
+    }
+  </style>
+</head>
+<body>
+  <div id="error-banner" class="error-banner" role="alert"></div>
+
+  <header class="app-header">
+    <input
+      id="app-title"
+      class="app-title"
+      type="text"
+      readonly
+      aria-label="Collection title — click to edit"
+      title="Click to rename collection (PATCH)"
+    >
+    <span class="app-subtitle">mahpastes json api</span>
+  </header>
+
+  <div class="app-layout">
+    <nav class="sidebar" aria-label="Bookmark folders">
+      <div class="sidebar-label">Folders</div>
+      <ul class="folder-list" id="folder-list" role="list"></ul>
+      <button class="add-folder-btn" id="add-folder-btn" aria-label="Add folder" title="POST to folders array">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        <span>Add Folder</span>
+      </button>
+    </nav>
+
+    <main class="main-content" id="main-content" role="main">
+      <div class="loading-state" id="loading">Loading bookmarks...</div>
+    </main>
+  </div>
+
+  <footer class="log-panel" id="log-panel" role="log" aria-label="API request log">
+    <div class="log-header" id="log-header">
+      <div class="log-header-left">
+        <span class="log-label">API Log</span>
+        <span class="log-count" id="log-count">0 calls</span>
+      </div>
+      <div class="log-header-actions">
+        <button class="log-clear-btn" id="log-clear" title="Clear log" onclick="event.stopPropagation()">Clear</button>
+        <svg class="log-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="18 15 12 9 6 15"></polyline>
+        </svg>
+      </div>
+    </div>
+    <div class="log-body" id="log-body"></div>
+  </footer>
+
+  <script>
+    'use strict';
+
+    // ── Text escaping to prevent XSS ──
+    const ESC_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+    const esc = (s) => s == null ? '' : String(s).replace(/[&<>"']/g, (c) => ESC_MAP[c]);
+
+    // ── API Client ──
+    const API_BASE = '/_api/bookmarks';
+    const logEntries = [];
+
+    const api = {
+      async request(method, path, body) {
+        const url = API_BASE + (path ? '/' + path : '');
+        const start = performance.now();
+        const opts = { method, credentials: 'same-origin' };
+        if (body !== undefined) {
+          opts.headers = { 'Content-Type': 'application/json' };
+          opts.body = JSON.stringify(body);
+        }
+        let res;
+        try {
+          res = await fetch(url, opts);
+        } catch (err) {
+          const ms = Math.round(performance.now() - start);
+          logApiCall(method, url, 0, ms);
+          throw new Error('Network error: ' + err.message);
+        }
+        const ms = Math.round(performance.now() - start);
+        const data = res.status !== 204 ? await res.json().catch(() => null) : null;
+        logApiCall(method, url, res.status, ms);
+        if (!res.ok) throw new Error(data?.error || res.statusText);
+        return data;
+      },
+      get:    (p) => api.request('GET', p),
+      post:   (p, b) => api.request('POST', p, b),
+      put:    (p, b) => api.request('PUT', p, b),
+      patch:  (p, b) => api.request('PATCH', p, b),
+      delete: (p) => api.request('DELETE', p),
+    };
+
+    // ── API Log Panel ──
+    const logBody = document.getElementById('log-body');
+    const logCountEl = document.getElementById('log-count');
+    const logPanel = document.getElementById('log-panel');
+    const logHeader = document.getElementById('log-header');
+    const logClear = document.getElementById('log-clear');
+
+    function logApiCall(method, url, status, ms) {
+      const entry = { method, url, status, ms, time: new Date() };
+      logEntries.push(entry);
+      renderLogEntry(entry);
+      logCountEl.textContent = logEntries.length + ' call' + (logEntries.length !== 1 ? 's' : '');
+    }
+
+    function renderLogEntry(entry) {
+      const row = document.createElement('div');
+      row.className = 'log-entry';
+      const statusClass = entry.status >= 400 || entry.status === 0 ? ' error' : '';
+      const timeStr = entry.time.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      row.innerHTML = `
+        <span class="log-method ${esc(entry.method)}">${esc(entry.method)}</span>
+        <span class="log-path" title="${esc(entry.url)}">${esc(entry.url)}</span>
+        <span class="log-status${statusClass}">${entry.status || 'ERR'}</span>
+        <span class="log-duration">${entry.ms}ms</span>
+        <span class="log-time">${timeStr}</span>
+      `;
+      logBody.appendChild(row);
+      logBody.scrollTop = logBody.scrollHeight;
+    }
+
+    logHeader.addEventListener('click', () => {
+      logPanel.classList.toggle('collapsed');
+    });
+
+    logClear.addEventListener('click', () => {
+      logEntries.length = 0;
+      logBody.innerHTML = '';
+      logCountEl.textContent = '0 calls';
+    });
+
+    // ── Error Banner ──
+    const errorBanner = document.getElementById('error-banner');
+
+    function showError(msg) {
+      errorBanner.textContent = msg;
+      errorBanner.classList.add('visible');
+      setTimeout(() => errorBanner.classList.remove('visible'), 4000);
+    }
+
+    // ── SVG Icons ──
+    const icons = {
+      folder: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`,
+      edit: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`,
+      trash: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>`,
+      plus: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`,
+      star: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`,
+      starFilled: `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`,
+      link: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`,
+      bookmark: `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>`,
+      replace: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>`,
+    };
+
+    // ── App State ──
+    let data = null;
+    let activeFolderId = null;
+
+    // ── Render Sidebar ──
+    function renderSidebar() {
+      if (!data) return;
+      const list = document.getElementById('folder-list');
+      list.innerHTML = '';
+
+      const folders = data.folders || [];
+      for (const folder of folders) {
+        const li = document.createElement('li');
+        li.className = 'folder-item' + (folder.id === activeFolderId ? ' active' : '');
+        li.setAttribute('role', 'listitem');
+        if (folder.id === activeFolderId) {
+          li.setAttribute('aria-current', 'true');
+        }
+
+        const linkCount = (folder.links || []).length;
+        const canDelete = linkCount === 0;
+
+        li.innerHTML = `
+          <div class="folder-item-left">
+            <span class="folder-icon">${icons.folder}</span>
+            <span class="folder-name">${esc(folder.name)}</span>
+          </div>
+          <span class="folder-count">${linkCount}</span>
+          <div class="folder-actions">
+            <button class="folder-action-btn rename" title="Rename folder (PATCH)" aria-label="Rename folder">${icons.edit}</button>
+            <button class="folder-action-btn delete" title="${canDelete ? 'Delete folder (DELETE)' : 'Remove all links first'}" aria-label="Delete folder" ${canDelete ? '' : 'disabled'}>${icons.trash}</button>
+          </div>
+        `;
+
+        // Click to select folder
+        li.addEventListener('click', (e) => {
+          if (e.target.closest('.folder-action-btn')) return;
+          activeFolderId = folder.id;
+          renderSidebar();
+          renderMain();
+        });
+
+        // Rename folder
+        li.querySelector('.folder-action-btn.rename').addEventListener('click', (e) => {
+          e.stopPropagation();
+          showFolderRename(folder, li);
+        });
+
+        // Delete folder
+        li.querySelector('.folder-action-btn.delete').addEventListener('click', (e) => {
+          e.stopPropagation();
+          deleteFolder(folder.id);
+        });
+
+        list.appendChild(li);
+      }
+    }
+
+    // ── Folder Rename Inline ──
+    function showFolderRename(folder, li) {
+      const nameEl = li.querySelector('.folder-name');
+      const oldName = folder.name;
+
+      const input = document.createElement('input');
+      input.className = 'folder-rename-input';
+      input.type = 'text';
+      input.value = oldName;
+      input.setAttribute('aria-label', 'Rename folder');
+
+      nameEl.replaceWith(input);
+      input.focus();
+      input.select();
+
+      const commit = async () => {
+        const newName = input.value.trim();
+        if (!newName || newName === oldName) {
+          await loadData();
+          return;
+        }
+        try {
+          await api.patch(`folders/${folder.id}`, { name: newName });
+          await loadData();
+        } catch (err) {
+          showError('Failed to rename folder: ' + err.message);
+          await loadData();
+        }
+      };
+
+      input.addEventListener('blur', commit);
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+        if (e.key === 'Escape') { input.value = oldName; input.blur(); }
+      });
+    }
+
+    // ── Render Main Content ──
+    function renderMain() {
+      const main = document.getElementById('main-content');
+      const loading = document.getElementById('loading');
+      if (loading) loading.remove();
+
+      if (!data || !activeFolderId) {
+        main.innerHTML = `
+          <div class="empty-state">
+            <span class="empty-state-icon">${icons.bookmark}</span>
+            <span>Select a folder to view bookmarks</span>
+          </div>
+        `;
+        return;
+      }
+
+      const folder = (data.folders || []).find((f) => f.id === activeFolderId);
+      if (!folder) {
+        main.innerHTML = `
+          <div class="empty-state">
+            <span class="empty-state-icon">${icons.bookmark}</span>
+            <span>Folder not found</span>
+          </div>
+        `;
+        return;
+      }
+
+      const links = folder.links || [];
+
+      let html = `
+        <section class="main-header">
+          <span class="main-folder-name">${esc(folder.name)}</span>
+          <span class="main-link-count">${links.length} link${links.length !== 1 ? 's' : ''}</span>
+        </section>
+        <div class="add-link-bar">
+          <input
+            class="add-link-input"
+            type="url"
+            id="add-url"
+            placeholder="URL"
+            aria-label="New link URL"
+          >
+          <input
+            class="add-link-input"
+            type="text"
+            id="add-title"
+            placeholder="Title"
+            aria-label="New link title"
+          >
+          <button class="btn-primary" id="add-link-btn" aria-label="Add link" title="POST to links array">Add</button>
+        </div>
+      `;
+
+      main.innerHTML = html;
+
+      // Links list container
+      const linksList = document.createElement('div');
+      linksList.className = 'links-list';
+
+      if (links.length === 0) {
+        linksList.innerHTML = `
+          <div class="empty-state">
+            <span class="empty-state-icon">${icons.link}</span>
+            <span>No bookmarks in this folder yet</span>
+          </div>
+        `;
+      } else {
+        for (const link of links) {
+          linksList.appendChild(renderLinkCard(folder.id, link));
+        }
+      }
+
+      main.appendChild(linksList);
+
+      // Add link handler
+      const addUrlInput = document.getElementById('add-url');
+      const addTitleInput = document.getElementById('add-title');
+      const addLinkBtn = document.getElementById('add-link-btn');
+
+      const doAddLink = () => {
+        const url = addUrlInput.value.trim();
+        const title = addTitleInput.value.trim();
+        if (!url) return;
+        addLink(folder.id, url, title || url);
+        addUrlInput.value = '';
+        addTitleInput.value = '';
+        addUrlInput.focus();
+      };
+
+      addLinkBtn.addEventListener('click', doAddLink);
+      addTitleInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') doAddLink();
+      });
+      addUrlInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          if (addTitleInput.value.trim()) {
+            doAddLink();
+          } else {
+            addTitleInput.focus();
+          }
+        }
+      });
+    }
+
+    // ── Render Link Card ──
+    function renderLinkCard(folderId, link) {
+      const card = document.createElement('div');
+      card.className = 'link-card';
+      card.dataset.linkId = link.id;
+
+      const firstLetter = (link.title || link.url || '?').charAt(0);
+      const isFav = link.favorite === true;
+      const noteHtml = link.note ? `<span class="link-note">${esc(link.note)}</span>` : '';
+
+      card.innerHTML = `
+        <div class="link-avatar" aria-hidden="true">${esc(firstLetter)}</div>
+        <div class="link-body">
+          <div class="link-title-row">
+            <a class="link-title" href="${esc(link.url)}" target="_blank" rel="noopener noreferrer" title="${esc(link.url)}">${esc(link.title)}</a>
+          </div>
+          <span class="link-url">${esc(link.url)}</span>
+          ${noteHtml}
+        </div>
+        <div class="link-right">
+          <div class="link-actions">
+            <button class="link-action-btn edit" title="Edit link (PATCH / PUT)" aria-label="Edit link">${icons.edit}</button>
+            <button class="link-action-btn delete" title="Delete link (DELETE)" aria-label="Delete link">${icons.trash}</button>
+          </div>
+          <button class="star-btn ${isFav ? 'active' : ''}" title="Toggle favorite (PATCH)" aria-label="Toggle favorite" aria-pressed="${isFav}">
+            ${isFav ? icons.starFilled : icons.star}
+          </button>
+        </div>
+      `;
+
+      // Favorite toggle
+      card.querySelector('.star-btn').addEventListener('click', () => {
+        toggleFavorite(folderId, link.id, !isFav);
+      });
+
+      // Edit
+      card.querySelector('.link-action-btn.edit').addEventListener('click', () => {
+        showLinkEditForm(folderId, link, card);
+      });
+
+      // Delete
+      card.querySelector('.link-action-btn.delete').addEventListener('click', () => {
+        deleteLink(folderId, link.id);
+      });
+
+      return card;
+    }
+
+    // ── Link Edit Form ──
+    function showLinkEditForm(folderId, link, cardEl) {
+      const form = document.createElement('div');
+      form.className = 'link-edit-form';
+      form.innerHTML = `
+        <div>
+          <label for="edit-url-${link.id}">URL</label>
+          <input id="edit-url-${link.id}" type="url" value="${esc(link.url)}" />
+        </div>
+        <div>
+          <label for="edit-title-${link.id}">Title</label>
+          <input id="edit-title-${link.id}" type="text" value="${esc(link.title)}" />
+        </div>
+        <div>
+          <label for="edit-note-${link.id}">Note</label>
+          <textarea id="edit-note-${link.id}" rows="2">${esc(link.note || '')}</textarea>
+        </div>
+        <div class="replace-hint">Save = PATCH (merge fields) &middot; Replace = PUT (overwrite entire link)</div>
+        <div class="link-edit-actions">
+          <button class="btn-secondary cancel-btn">Cancel</button>
+          <button class="btn-secondary replace-btn" title="PUT — replace entire link object">${icons.replace} Replace</button>
+          <button class="btn-primary save-btn" title="PATCH — merge changed fields">Save</button>
+        </div>
+      `;
+
+      cardEl.replaceWith(form);
+
+      const urlInput = form.querySelector(`#edit-url-${link.id}`);
+      const titleInput = form.querySelector(`#edit-title-${link.id}`);
+      const noteInput = form.querySelector(`#edit-note-${link.id}`);
+
+      // Cancel
+      form.querySelector('.cancel-btn').addEventListener('click', () => {
+        loadData();
+      });
+
+      // Escape to cancel
+      form.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') loadData();
+      });
+
+      // Save (PATCH — only changed fields)
+      form.querySelector('.save-btn').addEventListener('click', async () => {
+        const patch = {};
+        const newUrl = urlInput.value.trim();
+        const newTitle = titleInput.value.trim();
+        const newNote = noteInput.value.trim();
+
+        if (newUrl !== link.url) patch.url = newUrl;
+        if (newTitle !== link.title) patch.title = newTitle;
+        if (newNote !== (link.note || '')) {
+          patch.note = newNote === '' ? null : newNote;
+        }
+
+        if (Object.keys(patch).length === 0) {
+          loadData();
+          return;
+        }
+
+        try {
+          await api.patch(`folders/${folderId}/links/${link.id}`, patch);
+          await loadData();
+        } catch (err) {
+          showError('Failed to update link: ' + err.message);
+        }
+      });
+
+      // Replace (PUT — full object replacement)
+      form.querySelector('.replace-btn').addEventListener('click', async () => {
+        const fullLink = {
+          url: urlInput.value.trim(),
+          title: titleInput.value.trim(),
+          note: noteInput.value.trim() || undefined,
+          favorite: link.favorite || false,
+          added: link.added || new Date().toISOString(),
+        };
+        if (fullLink.note === undefined) delete fullLink.note;
+
+        try {
+          await api.put(`folders/${folderId}/links/${link.id}`, fullLink);
+          await loadData();
+        } catch (err) {
+          showError('Failed to replace link: ' + err.message);
+        }
+      });
+
+      urlInput.focus();
+      urlInput.select();
+    }
+
+    // ── Collection Title Editing ──
+    const appTitleEl = document.getElementById('app-title');
+
+    appTitleEl.addEventListener('click', () => {
+      appTitleEl.removeAttribute('readonly');
+      appTitleEl.focus();
+      appTitleEl.select();
+    });
+
+    appTitleEl.addEventListener('blur', async () => {
+      appTitleEl.setAttribute('readonly', '');
+      const newTitle = appTitleEl.value.trim();
+      if (!newTitle || newTitle === data?.title) return;
+      try {
+        await api.patch('', { title: newTitle });
+        await loadData();
+      } catch (err) {
+        showError('Failed to rename collection: ' + err.message);
+        appTitleEl.value = data?.title || '';
+      }
+    });
+
+    appTitleEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); appTitleEl.blur(); }
+      if (e.key === 'Escape') { appTitleEl.value = data?.title || ''; appTitleEl.blur(); }
+    });
+
+    // ── Folder Actions ──
+    document.getElementById('add-folder-btn').addEventListener('click', async () => {
+      const name = prompt('Folder name:');
+      if (!name || !name.trim()) return;
+      try {
+        await api.post('folders', { name: name.trim(), links: [] });
+        await loadData();
+        // Select the newly created folder (last in the array)
+        const folders = data.folders || [];
+        if (folders.length > 0) {
+          activeFolderId = folders[folders.length - 1].id;
+          renderSidebar();
+          renderMain();
+        }
+      } catch (err) {
+        showError('Failed to add folder: ' + err.message);
+      }
+    });
+
+    async function deleteFolder(folderId) {
+      try {
+        await api.delete(`folders/${folderId}`);
+        if (activeFolderId === folderId) {
+          activeFolderId = null;
+        }
+        await loadData();
+      } catch (err) {
+        showError('Failed to delete folder: ' + err.message);
+      }
+    }
+
+    // ── Link Actions ──
+    async function addLink(folderId, url, title) {
+      try {
+        await api.post(`folders/${folderId}/links`, {
+          url,
+          title,
+          note: '',
+          favorite: false,
+          added: new Date().toISOString(),
+        });
+        await loadData();
+      } catch (err) {
+        showError('Failed to add link: ' + err.message);
+      }
+    }
+
+    async function deleteLink(folderId, linkId) {
+      try {
+        await api.delete(`folders/${folderId}/links/${linkId}`);
+        await loadData();
+      } catch (err) {
+        showError('Failed to delete link: ' + err.message);
+      }
+    }
+
+    async function toggleFavorite(folderId, linkId, newValue) {
+      try {
+        await api.patch(`folders/${folderId}/links/${linkId}`, { favorite: newValue });
+        await loadData();
+      } catch (err) {
+        showError('Failed to toggle favorite: ' + err.message);
+      }
+    }
+
+    // ── Load Data ──
+    async function loadData() {
+      try {
+        data = await api.get('');
+        appTitleEl.value = data.title || 'Untitled';
+        renderSidebar();
+        renderMain();
+      } catch (err) {
+        showError('Failed to load bookmarks: ' + err.message);
+        const loading = document.getElementById('loading');
+        if (loading) loading.textContent = 'Failed to load bookmarks. Is the tag served with API access enabled?';
+      }
+    }
+
+    // ── Demonstrate GET on a single folder at startup ──
+    async function demoReadFolder() {
+      if (!data?.folders?.length) return;
+      try {
+        await api.get(`folders/${data.folders[0].id}`);
+      } catch {
+        // Non-critical, just for the demo log
+      }
+    }
+
+    // ── Init ──
+    async function init() {
+      await loadData();
+      // Select first folder by default
+      if (data?.folders?.length && !activeFolderId) {
+        activeFolderId = data.folders[0].id;
+        renderSidebar();
+        renderMain();
+      }
+      await demoReadFolder();
+    }
+
+    init();
+  </script>
+</body>
+</html>

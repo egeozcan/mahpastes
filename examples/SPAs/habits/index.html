@@ -1,0 +1,1374 @@
+<!--
+  mahpastes Atomic Habits Tracker — JSON API Demo SPA
+
+  Setup:
+  1. Create a tag in mahpastes (e.g., "habits")
+  2. Upload this file (index.html) into that tag
+  3. Upload tracker.json (in the same directory) into the same tag
+  4. Serve the tag with API access set to "readwrite"
+  5. Open the served URL in your browser
+
+  This tracker exercises every JSON API method (GET, POST, PUT, PATCH, DELETE)
+  through deeply nested paths. Watch the API log panel at the bottom to see
+  each call as it happens.
+
+  Inspired by James Clear's "Atomic Habits":
+  - Identity-based habits ("I am a reader")
+  - Habit stacking ("After morning coffee, I will...")
+  - Don't break the chain — visual streak tracking
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Atomic Habits — mahpastes</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --stone-50:  #fafaf9;
+      --stone-100: #f5f5f4;
+      --stone-200: #e7e5e4;
+      --stone-300: #d6d3d1;
+      --stone-400: #a8a29e;
+      --stone-500: #78716c;
+      --stone-600: #57534e;
+      --stone-700: #44403c;
+      --stone-800: #292524;
+      --stone-900: #1c1917;
+      --white:     #ffffff;
+      --red-500:   #ef4444;
+      --red-50:    #fef2f2;
+      /* Log-panel-only accent colors */
+      --log-get:     #78716c;
+      --log-post:    #059669;
+      --log-patch:   #d97706;
+      --log-put:     #2563eb;
+      --log-delete:  #ef4444;
+    }
+
+    html { font-size: 16px; }
+
+    body {
+      font-family: 'IBM Plex Mono', monospace;
+      background: var(--stone-50);
+      color: var(--stone-800);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--stone-300); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--stone-400); }
+
+    /* ── Header ── */
+    .tracker-header {
+      padding: 1.25rem 1.5rem 0.75rem;
+      border-bottom: 1px solid var(--stone-200);
+      background: var(--stone-50);
+      flex-shrink: 0;
+    }
+
+    .header-top {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .tracker-title {
+      font-size: 0.875rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--stone-800);
+      cursor: pointer;
+      padding: 0.25rem 0.5rem;
+      border-radius: 0.375rem;
+      border: 1px solid transparent;
+      transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+      background: none;
+      outline: none;
+      font-family: inherit;
+    }
+
+    .tracker-title:hover { border-color: var(--stone-200); background: var(--white); }
+    .tracker-title:focus { border-color: var(--stone-400); background: var(--white); }
+
+    .header-subtitle {
+      font-size: 0.5625rem;
+      font-weight: 400;
+      font-style: italic;
+      color: var(--stone-400);
+      margin-top: 0.3rem;
+      padding-left: 0.5rem;
+      letter-spacing: 0.01em;
+    }
+
+    .week-nav {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-top: 0.75rem;
+      padding-left: 0.25rem;
+    }
+
+    .week-nav-btn {
+      padding: 0.25rem;
+      color: var(--stone-400);
+      background: none;
+      border: 1px solid var(--stone-200);
+      border-radius: 0.25rem;
+      cursor: pointer;
+      transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .week-nav-btn:hover { color: var(--stone-600); border-color: var(--stone-300); background: var(--white); }
+
+    .week-range {
+      font-size: 0.625rem;
+      font-weight: 500;
+      color: var(--stone-600);
+      min-width: 12rem;
+      text-align: center;
+    }
+
+    .week-today-btn {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.5625rem;
+      font-weight: 500;
+      color: var(--stone-400);
+      background: none;
+      border: 1px solid var(--stone-200);
+      border-radius: 0.25rem;
+      padding: 0.2rem 0.5rem;
+      cursor: pointer;
+      transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .week-today-btn:hover { color: var(--stone-600); border-color: var(--stone-300); background: var(--white); }
+    .week-today-btn.hidden { visibility: hidden; }
+
+    /* ── Main Content ── */
+    .main-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 1rem 1.5rem;
+    }
+
+    /* ── Habit Grid ── */
+    .habit-grid {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+    }
+
+    /* ── Day Headers ── */
+    .day-headers {
+      display: grid;
+      grid-template-columns: 1fr repeat(7, 2.75rem) 3.5rem;
+      gap: 0;
+      align-items: end;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid var(--stone-200);
+      margin-bottom: 0;
+    }
+
+    .day-header {
+      font-size: 0.5625rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--stone-400);
+      text-align: center;
+      padding-bottom: 0.25rem;
+    }
+
+    .day-header-date {
+      font-size: 0.5rem;
+      font-weight: 400;
+      color: var(--stone-300);
+      margin-top: 0.1rem;
+    }
+
+    .day-header.today {
+      color: var(--stone-800);
+    }
+
+    .day-header.today .day-header-date {
+      color: var(--stone-500);
+    }
+
+    .streak-header {
+      font-size: 0.5625rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--stone-400);
+      text-align: center;
+      padding-bottom: 0.25rem;
+    }
+
+    .info-header {
+      padding-bottom: 0.25rem;
+    }
+
+    /* ── Habit Row ── */
+    .habit-row {
+      display: grid;
+      grid-template-columns: 1fr repeat(7, 2.75rem) 3.5rem;
+      gap: 0;
+      align-items: center;
+      padding: 0.625rem 0;
+      border-bottom: 1px solid var(--stone-100);
+      transition: background 150ms cubic-bezier(0.4, 0, 0.2, 1);
+      position: relative;
+    }
+
+    .habit-row:hover { background: var(--stone-50); }
+
+    /* Today column highlight */
+    .today-col-highlight {
+      background: var(--stone-50);
+      border-radius: 0.25rem;
+    }
+
+    /* ── Habit Info ── */
+    .habit-info {
+      padding-right: 1rem;
+      min-width: 0;
+      position: relative;
+    }
+
+    .habit-name-row {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+
+    .habit-name {
+      font-size: 0.6875rem;
+      font-weight: 500;
+      color: var(--stone-800);
+      cursor: pointer;
+      padding: 0.15rem 0.35rem;
+      border-radius: 0.25rem;
+      border: 1px solid transparent;
+      background: none;
+      outline: none;
+      font-family: inherit;
+      min-width: 0;
+      transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .habit-name:hover { border-color: var(--stone-200); background: var(--white); }
+    .habit-name:focus { border-color: var(--stone-400); background: var(--white); }
+
+    .habit-actions {
+      display: flex;
+      gap: 0.1rem;
+      opacity: 0;
+      transition: opacity 150ms cubic-bezier(0.4, 0, 0.2, 1);
+      flex-shrink: 0;
+    }
+
+    .habit-row:hover .habit-actions { opacity: 1; }
+
+    .habit-action-btn {
+      padding: 0.2rem;
+      color: var(--stone-400);
+      background: none;
+      border: none;
+      border-radius: 0.25rem;
+      cursor: pointer;
+      transition: all 150ms;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .habit-action-btn:hover { color: var(--stone-600); background: var(--stone-100); }
+    .habit-action-btn.delete:hover { color: var(--red-500); background: var(--red-50); }
+
+    .habit-identity {
+      font-size: 0.5625rem;
+      font-weight: 400;
+      font-style: italic;
+      color: var(--stone-500);
+      padding-left: 0.35rem;
+      margin-top: 0.15rem;
+      line-height: 1.3;
+    }
+
+    .habit-cue {
+      font-size: 0.5rem;
+      font-weight: 400;
+      color: var(--stone-400);
+      padding-left: 0.35rem;
+      margin-top: 0.1rem;
+      line-height: 1.3;
+    }
+
+    /* ── Habit Dot ── */
+    .dot-cell {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0.25rem 0;
+    }
+
+    .habit-dot {
+      width: 1.125rem;
+      height: 1.125rem;
+      border-radius: 50%;
+      border: 1.5px solid var(--stone-200);
+      background: none;
+      cursor: pointer;
+      transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+      padding: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .habit-dot:hover {
+      border-color: var(--stone-400);
+      transform: scale(1.15);
+    }
+
+    .habit-dot:focus-visible {
+      outline: 2px solid var(--stone-400);
+      outline-offset: 2px;
+    }
+
+    .habit-dot.done {
+      background: var(--stone-800);
+      border-color: var(--stone-800);
+    }
+
+    .habit-dot.done:hover {
+      background: var(--stone-700);
+      border-color: var(--stone-700);
+    }
+
+    .habit-dot.today-dot {
+      width: 1.3rem;
+      height: 1.3rem;
+      box-shadow: 0 0 0 2px var(--stone-50), 0 0 0 3.5px var(--stone-300);
+    }
+
+    .habit-dot.today-dot.done {
+      box-shadow: 0 0 0 2px var(--stone-50), 0 0 0 3.5px var(--stone-800);
+    }
+
+    .habit-dot.future {
+      opacity: 0.3;
+      cursor: default;
+      pointer-events: none;
+    }
+
+    /* Checkmark inside done dot */
+    .habit-dot .dot-check {
+      display: none;
+    }
+
+    .habit-dot.done .dot-check {
+      display: block;
+    }
+
+    /* ── Streak ── */
+    .streak-cell {
+      text-align: center;
+      padding: 0 0.25rem;
+    }
+
+    .streak-number {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--stone-800);
+      line-height: 1;
+    }
+
+    .streak-number.zero {
+      color: var(--stone-300);
+    }
+
+    .streak-label {
+      font-size: 0.4375rem;
+      font-weight: 500;
+      color: var(--stone-400);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-top: 0.1rem;
+    }
+
+    /* ── Add Habit Form ── */
+    .add-habit-area {
+      display: grid;
+      grid-template-columns: 1fr repeat(7, 2.75rem) 3.5rem;
+      gap: 0;
+      padding: 0.75rem 0 0;
+      border-top: 1px dashed var(--stone-200);
+      margin-top: 0;
+    }
+
+    .add-habit-form {
+      display: flex;
+      gap: 0.5rem;
+      align-items: flex-start;
+      flex-wrap: wrap;
+      padding-right: 1rem;
+      grid-column: 1 / -1;
+    }
+
+    .add-habit-input-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+      flex: 1;
+      min-width: 8rem;
+    }
+
+    .add-habit-label {
+      font-size: 0.5rem;
+      font-weight: 600;
+      color: var(--stone-400);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .add-habit-input {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.625rem;
+      padding: 0.375rem 0.5rem;
+      border: 1px solid var(--stone-200);
+      border-radius: 0.25rem;
+      background: var(--white);
+      color: var(--stone-800);
+      outline: none;
+      transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+      width: 100%;
+    }
+
+    .add-habit-input::placeholder { color: var(--stone-400); }
+    .add-habit-input:focus { border-color: var(--stone-400); box-shadow: 0 0 0 2px var(--stone-100); }
+
+    .add-habit-input.identity-input {
+      font-style: italic;
+    }
+
+    .add-habit-btn {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.625rem;
+      font-weight: 500;
+      padding: 0.375rem 0.75rem;
+      background: var(--stone-800);
+      color: var(--white);
+      border: none;
+      border-radius: 0.25rem;
+      cursor: pointer;
+      transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+      align-self: flex-end;
+      white-space: nowrap;
+    }
+
+    .add-habit-btn:hover { background: var(--stone-700); }
+
+    /* ── Edit Habit Form ── */
+    .habit-edit-form {
+      grid-column: 1 / -1;
+      display: flex;
+      gap: 0.5rem;
+      align-items: flex-end;
+      flex-wrap: wrap;
+      padding: 0.625rem 0;
+      background: var(--stone-50);
+      border-radius: 0.375rem;
+      border: 1px solid var(--stone-200);
+      padding: 0.625rem;
+    }
+
+    .habit-edit-form .add-habit-input-group {
+      min-width: 7rem;
+    }
+
+    .habit-edit-actions {
+      display: flex;
+      gap: 0.35rem;
+      align-self: flex-end;
+    }
+
+    /* ── Buttons ── */
+    .btn-primary {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.625rem;
+      font-weight: 500;
+      padding: 0.35rem 0.75rem;
+      background: var(--stone-800);
+      color: var(--white);
+      border: none;
+      border-radius: 0.25rem;
+      cursor: pointer;
+      transition: all 150ms;
+    }
+
+    .btn-primary:hover { background: var(--stone-700); }
+
+    .btn-secondary {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.625rem;
+      font-weight: 500;
+      padding: 0.35rem 0.75rem;
+      background: none;
+      color: var(--stone-600);
+      border: 1px solid var(--stone-200);
+      border-radius: 0.25rem;
+      cursor: pointer;
+      transition: all 150ms;
+    }
+
+    .btn-secondary:hover { border-color: var(--stone-300); background: var(--stone-100); }
+
+    /* ── Empty State ── */
+    .empty-state {
+      text-align: center;
+      padding: 2rem 1rem;
+      color: var(--stone-400);
+      font-size: 0.6875rem;
+      font-style: italic;
+    }
+
+    /* ── Loading / Error ── */
+    .loading-state {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--stone-400);
+      font-size: 0.75rem;
+    }
+
+    .error-banner {
+      padding: 0.5rem 1rem;
+      background: var(--red-50);
+      color: var(--red-500);
+      font-size: 0.625rem;
+      font-weight: 500;
+      text-align: center;
+      border-bottom: 1px solid var(--stone-200);
+      display: none;
+    }
+
+    .error-banner.visible { display: block; }
+
+    /* ── API Log Panel ── */
+    .log-panel {
+      flex-shrink: 0;
+      border-top: 1px solid var(--stone-200);
+      background: var(--white);
+      transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .log-panel.collapsed .log-body { display: none; }
+
+    .log-header {
+      padding: 0.5rem 1rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .log-header:hover { background: var(--stone-50); }
+
+    .log-header-left {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .log-label {
+      font-size: 0.5625rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--stone-500);
+    }
+
+    .log-count {
+      font-size: 0.5625rem;
+      font-weight: 500;
+      color: var(--stone-400);
+    }
+
+    .log-chevron {
+      transition: transform 200ms;
+      color: var(--stone-400);
+    }
+
+    .log-panel.collapsed .log-chevron { transform: rotate(180deg); }
+
+    .log-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .log-clear-btn {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.5625rem;
+      font-weight: 500;
+      color: var(--stone-400);
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 0.15rem 0.35rem;
+      border-radius: 0.25rem;
+      transition: all 150ms;
+    }
+
+    .log-clear-btn:hover { color: var(--stone-600); background: var(--stone-100); }
+
+    .log-body {
+      max-height: 180px;
+      overflow-y: auto;
+      border-top: 1px solid var(--stone-100);
+    }
+
+    .log-entry {
+      display: flex;
+      align-items: center;
+      gap: 0.625rem;
+      padding: 0.3rem 1rem;
+      font-size: 0.625rem;
+      border-bottom: 1px solid var(--stone-50);
+      transition: background 150ms;
+    }
+
+    .log-entry:hover { background: var(--stone-50); }
+
+    .log-method {
+      font-weight: 600;
+      font-size: 0.5625rem;
+      padding: 0.1rem 0.35rem;
+      border-radius: 0.2rem;
+      color: var(--white);
+      text-transform: uppercase;
+      flex-shrink: 0;
+      min-width: 3.5rem;
+      text-align: center;
+      letter-spacing: 0.03em;
+    }
+
+    .log-method.GET    { background: var(--log-get); }
+    .log-method.POST   { background: var(--log-post); }
+    .log-method.PATCH  { background: var(--log-patch); }
+    .log-method.PUT    { background: var(--log-put); }
+    .log-method.DELETE { background: var(--log-delete); }
+
+    .log-path {
+      flex: 1;
+      color: var(--stone-600);
+      font-size: 0.625rem;
+      font-weight: 400;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .log-status {
+      font-size: 0.5625rem;
+      font-weight: 500;
+      color: var(--stone-500);
+      flex-shrink: 0;
+    }
+
+    .log-status.error { color: var(--red-500); }
+
+    .log-duration {
+      font-size: 0.5625rem;
+      color: var(--stone-400);
+      flex-shrink: 0;
+      min-width: 3rem;
+      text-align: right;
+    }
+
+    .log-time {
+      font-size: 0.5rem;
+      color: var(--stone-400);
+      flex-shrink: 0;
+      min-width: 4.5rem;
+      text-align: right;
+      font-style: italic;
+    }
+
+    /* ── Replace hint ── */
+    .replace-hint {
+      font-size: 0.5rem;
+      color: var(--stone-400);
+      font-style: italic;
+    }
+  </style>
+</head>
+<body>
+  <div id="error-banner" class="error-banner" role="alert"></div>
+
+  <header class="tracker-header">
+    <div class="header-top">
+      <input
+        id="tracker-title"
+        class="tracker-title"
+        type="text"
+        readonly
+        aria-label="Tracker title — click to edit"
+        title="Click to rename tracker (PATCH)"
+      >
+    </div>
+    <div class="header-subtitle" id="header-subtitle">Every action is a vote for the type of person you wish to become</div>
+    <nav class="week-nav" aria-label="Week navigation">
+      <button class="week-nav-btn" id="week-prev" aria-label="Previous week" title="Previous week">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+      </button>
+      <span class="week-range" id="week-range"></span>
+      <button class="week-nav-btn" id="week-next" aria-label="Next week" title="Next week">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+      </button>
+      <button class="week-today-btn" id="week-today" title="Jump to current week">Today</button>
+    </nav>
+  </header>
+
+  <main class="main-content" id="main-content" role="main">
+    <div class="loading-state" id="loading">Loading habits...</div>
+  </main>
+
+  <footer class="log-panel" id="log-panel" role="log" aria-label="API request log">
+    <div class="log-header" id="log-header">
+      <div class="log-header-left">
+        <span class="log-label">API Log</span>
+        <span class="log-count" id="log-count">0 calls</span>
+      </div>
+      <div class="log-header-actions">
+        <button class="log-clear-btn" id="log-clear" title="Clear log" onclick="event.stopPropagation()">Clear</button>
+        <svg class="log-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="18 15 12 9 6 15"></polyline>
+        </svg>
+      </div>
+    </div>
+    <div class="log-body" id="log-body"></div>
+  </footer>
+
+  <script>
+    'use strict';
+
+    // ── Text escaping to prevent XSS ──
+    const ESC_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+    const esc = (s) => s == null ? '' : String(s).replace(/[&<>"']/g, (c) => ESC_MAP[c]);
+
+    // ── API Client ──
+    const API_BASE = '/_api/tracker';
+    const logEntries = [];
+
+    const api = {
+      async request(method, path, body) {
+        const url = API_BASE + (path ? '/' + path : '');
+        const start = performance.now();
+        const opts = { method, credentials: 'same-origin' };
+        if (body !== undefined) {
+          opts.headers = { 'Content-Type': 'application/json' };
+          opts.body = JSON.stringify(body);
+        }
+        let res;
+        try {
+          res = await fetch(url, opts);
+        } catch (err) {
+          const ms = Math.round(performance.now() - start);
+          logApiCall(method, url, 0, ms);
+          throw new Error('Network error: ' + err.message);
+        }
+        const ms = Math.round(performance.now() - start);
+        const data = res.status !== 204 ? await res.json().catch(() => null) : null;
+        logApiCall(method, url, res.status, ms);
+        if (!res.ok) throw new Error(data?.error || res.statusText);
+        return data;
+      },
+      get:    (p) => api.request('GET', p),
+      post:   (p, b) => api.request('POST', p, b),
+      put:    (p, b) => api.request('PUT', p, b),
+      patch:  (p, b) => api.request('PATCH', p, b),
+      delete: (p) => api.request('DELETE', p),
+    };
+
+    // ── API Log Panel ──
+    const logBody = document.getElementById('log-body');
+    const logCountEl = document.getElementById('log-count');
+    const logPanel = document.getElementById('log-panel');
+    const logHeader = document.getElementById('log-header');
+    const logClear = document.getElementById('log-clear');
+
+    function logApiCall(method, url, status, ms) {
+      const entry = { method, url, status, ms, time: new Date() };
+      logEntries.push(entry);
+      renderLogEntry(entry);
+      logCountEl.textContent = logEntries.length + ' call' + (logEntries.length !== 1 ? 's' : '');
+    }
+
+    function renderLogEntry(entry) {
+      const row = document.createElement('div');
+      row.className = 'log-entry';
+      const statusClass = entry.status >= 400 || entry.status === 0 ? ' error' : '';
+      const timeStr = entry.time.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      row.innerHTML = `
+        <span class="log-method ${esc(entry.method)}">${esc(entry.method)}</span>
+        <span class="log-path" title="${esc(entry.url)}">${esc(entry.url)}</span>
+        <span class="log-status${statusClass}">${entry.status || 'ERR'}</span>
+        <span class="log-duration">${entry.ms}ms</span>
+        <span class="log-time">${timeStr}</span>
+      `;
+      logBody.appendChild(row);
+      logBody.scrollTop = logBody.scrollHeight;
+    }
+
+    logHeader.addEventListener('click', () => {
+      logPanel.classList.toggle('collapsed');
+    });
+
+    logClear.addEventListener('click', () => {
+      logEntries.length = 0;
+      logBody.innerHTML = '';
+      logCountEl.textContent = '0 calls';
+    });
+
+    // ── Error Banner ──
+    const errorBanner = document.getElementById('error-banner');
+
+    function showError(msg) {
+      errorBanner.textContent = msg;
+      errorBanner.classList.add('visible');
+      setTimeout(() => errorBanner.classList.remove('visible'), 4000);
+    }
+
+    // ── SVG Icons ──
+    const icons = {
+      edit: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`,
+      trash: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>`,
+      check: `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`,
+    };
+
+    // ── State ──
+    let tracker = null;
+    let weekOffset = 0;
+    let editingHabitId = null;
+
+    // ── Date Helpers ──
+    const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+    function today() {
+      return new Date();
+    }
+
+    function toDateStr(d) {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    }
+
+    function getMonday(d) {
+      const date = new Date(d);
+      const day = date.getDay();
+      // getDay(): 0=Sun, 1=Mon ... 6=Sat
+      const diff = day === 0 ? -6 : 1 - day;
+      date.setDate(date.getDate() + diff);
+      date.setHours(0, 0, 0, 0);
+      return date;
+    }
+
+    function getWeekDates(offset) {
+      const mondayOfThisWeek = getMonday(today());
+      mondayOfThisWeek.setDate(mondayOfThisWeek.getDate() + offset * 7);
+      const dates = [];
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(mondayOfThisWeek);
+        d.setDate(d.getDate() + i);
+        dates.push(d);
+      }
+      return dates;
+    }
+
+    function formatDateRange(dates) {
+      const first = dates[0];
+      const last = dates[6];
+      const sameMonth = first.getMonth() === last.getMonth();
+      const sameYear = first.getFullYear() === last.getFullYear();
+      if (sameMonth && sameYear) {
+        return `${MONTH_NAMES[first.getMonth()]} ${first.getDate()} \u2013 ${last.getDate()}, ${first.getFullYear()}`;
+      } else if (sameYear) {
+        return `${MONTH_NAMES[first.getMonth()]} ${first.getDate()} \u2013 ${MONTH_NAMES[last.getMonth()]} ${last.getDate()}, ${first.getFullYear()}`;
+      } else {
+        return `${MONTH_NAMES[first.getMonth()]} ${first.getDate()}, ${first.getFullYear()} \u2013 ${MONTH_NAMES[last.getMonth()]} ${last.getDate()}, ${last.getFullYear()}`;
+      }
+    }
+
+    // ── Streak Calculation ──
+    function calculateStreak(habitId) {
+      if (!tracker || !tracker.log) return 0;
+      const logs = tracker.log.filter((l) => l.habitId === habitId && l.done);
+      const dateSet = new Set(logs.map((l) => l.date));
+
+      let streak = 0;
+      const d = new Date(today());
+      d.setHours(0, 0, 0, 0);
+
+      // Check if today is done
+      const todayStr = toDateStr(d);
+      if (!dateSet.has(todayStr)) {
+        // Start from yesterday
+        d.setDate(d.getDate() - 1);
+      }
+
+      // Walk backwards counting consecutive days
+      while (dateSet.has(toDateStr(d))) {
+        streak++;
+        d.setDate(d.getDate() - 1);
+      }
+
+      return streak;
+    }
+
+    // ── Find log entry for a habit + date ──
+    function findLogEntry(habitId, dateStr) {
+      if (!tracker || !tracker.log) return null;
+      return tracker.log.find((l) => l.habitId === habitId && l.date === dateStr && l.done) || null;
+    }
+
+    // ── Week Navigation ──
+    const weekPrev = document.getElementById('week-prev');
+    const weekNext = document.getElementById('week-next');
+    const weekTodayBtn = document.getElementById('week-today');
+    const weekRangeEl = document.getElementById('week-range');
+
+    weekPrev.addEventListener('click', () => { weekOffset--; render(); });
+    weekNext.addEventListener('click', () => { weekOffset++; render(); });
+    weekTodayBtn.addEventListener('click', () => { weekOffset = 0; render(); });
+
+    function updateWeekNav() {
+      const dates = getWeekDates(weekOffset);
+      weekRangeEl.textContent = formatDateRange(dates);
+      weekTodayBtn.classList.toggle('hidden', weekOffset === 0);
+    }
+
+    // ── Tracker Title Editing ──
+    const trackerTitleEl = document.getElementById('tracker-title');
+
+    trackerTitleEl.addEventListener('click', () => {
+      trackerTitleEl.removeAttribute('readonly');
+      trackerTitleEl.focus();
+      trackerTitleEl.select();
+    });
+
+    trackerTitleEl.addEventListener('blur', async () => {
+      trackerTitleEl.setAttribute('readonly', '');
+      const newTitle = trackerTitleEl.value.trim();
+      if (!newTitle || newTitle === tracker?.title) return;
+      try {
+        await api.patch('', { title: newTitle });
+        await loadTracker();
+      } catch (err) {
+        showError('Failed to rename tracker: ' + err.message);
+        trackerTitleEl.value = tracker?.title || '';
+      }
+    });
+
+    trackerTitleEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); trackerTitleEl.blur(); }
+      if (e.key === 'Escape') { trackerTitleEl.value = tracker?.title || ''; trackerTitleEl.blur(); }
+    });
+
+    // ── Render ──
+    function render() {
+      if (!tracker) return;
+
+      // Title
+      trackerTitleEl.value = tracker.title || 'Untitled';
+
+      // Week nav
+      updateWeekNav();
+
+      const main = document.getElementById('main-content');
+      const loading = document.getElementById('loading');
+      if (loading) loading.remove();
+
+      const weekDates = getWeekDates(weekOffset);
+      const todayStr = toDateStr(today());
+
+      // Build the grid
+      let html = '';
+
+      // Day headers row
+      html += '<div class="day-headers">';
+      html += '<div class="info-header"></div>';
+      for (let i = 0; i < 7; i++) {
+        const d = weekDates[i];
+        const dateStr = toDateStr(d);
+        const isToday = dateStr === todayStr;
+        html += `<div class="day-header ${isToday ? 'today' : ''}">`;
+        html += `${esc(DAY_NAMES[i])}`;
+        html += `<div class="day-header-date">${d.getDate()}</div>`;
+        html += '</div>';
+      }
+      html += '<div class="streak-header">Streak</div>';
+      html += '</div>';
+
+      // Habit rows
+      const habits = tracker.habits || [];
+      if (habits.length === 0) {
+        html += '<div class="empty-state">No habits yet. Add one below to start building your identity.</div>';
+      } else {
+        for (const habit of habits) {
+          if (editingHabitId === habit.id) {
+            html += renderEditForm(habit);
+          } else {
+            html += renderHabitRow(habit, weekDates, todayStr);
+          }
+        }
+      }
+
+      // Add habit area
+      html += `
+        <div class="add-habit-area">
+          <form class="add-habit-form" id="add-habit-form">
+            <div class="add-habit-input-group">
+              <span class="add-habit-label">Habit</span>
+              <input class="add-habit-input" type="text" id="add-name" placeholder="Read 10 pages" aria-label="Habit name" required>
+            </div>
+            <div class="add-habit-input-group">
+              <span class="add-habit-label">Identity</span>
+              <input class="add-habit-input identity-input" type="text" id="add-identity" placeholder="I am a reader" aria-label="Identity statement">
+            </div>
+            <div class="add-habit-input-group">
+              <span class="add-habit-label">Cue</span>
+              <input class="add-habit-input" type="text" id="add-cue" placeholder="After morning coffee" aria-label="Habit cue">
+            </div>
+            <button type="submit" class="add-habit-btn" aria-label="Add habit">Add Habit</button>
+          </form>
+        </div>
+      `;
+
+      main.innerHTML = html;
+
+      // Bind form submit
+      const form = document.getElementById('add-habit-form');
+      if (form) {
+        form.addEventListener('submit', (e) => {
+          e.preventDefault();
+          handleAddHabit();
+        });
+      }
+
+      // Bind dot clicks
+      main.querySelectorAll('.habit-dot:not(.future)').forEach((dot) => {
+        dot.addEventListener('click', () => {
+          const habitId = parseInt(dot.dataset.habitId, 10);
+          const dateStr = dot.dataset.date;
+          const logId = dot.dataset.logId;
+          if (logId) {
+            removeLog(parseInt(logId, 10));
+          } else {
+            addLog(habitId, dateStr);
+          }
+        });
+      });
+
+      // Bind edit buttons
+      main.querySelectorAll('.habit-edit-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          editingHabitId = parseInt(btn.dataset.habitId, 10);
+          render();
+        });
+      });
+
+      // Bind delete buttons
+      main.querySelectorAll('.habit-delete-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          deleteHabit(parseInt(btn.dataset.habitId, 10));
+        });
+      });
+
+      // Bind edit form if present
+      const editForm = document.getElementById('edit-habit-form');
+      if (editForm) {
+        editForm.addEventListener('submit', (e) => {
+          e.preventDefault();
+          handleEditSave();
+        });
+        const cancelBtn = editForm.querySelector('.edit-cancel-btn');
+        if (cancelBtn) cancelBtn.addEventListener('click', () => { editingHabitId = null; render(); });
+        const replaceBtn = editForm.querySelector('.edit-replace-btn');
+        if (replaceBtn) replaceBtn.addEventListener('click', handleEditReplace);
+
+        // Focus the name input
+        const nameInput = editForm.querySelector('.edit-name-input');
+        if (nameInput) { nameInput.focus(); nameInput.select(); }
+
+        // Escape to cancel
+        editForm.addEventListener('keydown', (e) => {
+          if (e.key === 'Escape') { editingHabitId = null; render(); }
+        });
+      }
+
+      // Bind inline name editing
+      main.querySelectorAll('.habit-name').forEach((input) => {
+        input.addEventListener('click', () => {
+          input.removeAttribute('readonly');
+          input.focus();
+          input.select();
+        });
+        input.addEventListener('blur', () => handleHabitNameBlur(input));
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+          if (e.key === 'Escape') {
+            const habit = (tracker.habits || []).find((h) => h.id === parseInt(input.dataset.habitId, 10));
+            input.value = habit ? habit.name : '';
+            input.blur();
+          }
+        });
+      });
+    }
+
+    function renderHabitRow(habit, weekDates, todayStr) {
+      const streak = calculateStreak(habit.id);
+      let html = `<div class="habit-row">`;
+
+      // Habit info cell
+      html += '<div class="habit-info">';
+      html += '<div class="habit-name-row">';
+      html += `<input class="habit-name" type="text" value="${esc(habit.name)}" readonly data-habit-id="${habit.id}" aria-label="Habit name — click to edit" title="Click to rename (PATCH)">`;
+      html += `<div class="habit-actions">`;
+      html += `<button class="habit-action-btn habit-edit-btn" data-habit-id="${habit.id}" title="Edit habit details (PATCH / PUT)" aria-label="Edit habit">${icons.edit}</button>`;
+      html += `<button class="habit-action-btn delete habit-delete-btn" data-habit-id="${habit.id}" title="Delete habit (DELETE)" aria-label="Delete habit">${icons.trash}</button>`;
+      html += '</div>';
+      html += '</div>';
+      if (habit.identity) {
+        html += `<div class="habit-identity">${esc(habit.identity)}</div>`;
+      }
+      if (habit.cue) {
+        html += `<div class="habit-cue">${esc(habit.cue)}</div>`;
+      }
+      html += '</div>';
+
+      // Day dots
+      for (let i = 0; i < 7; i++) {
+        const d = weekDates[i];
+        const dateStr = toDateStr(d);
+        const isToday = dateStr === todayStr;
+        const isFuture = dateStr > todayStr;
+        const logEntry = findLogEntry(habit.id, dateStr);
+
+        let dotClass = 'habit-dot';
+        if (logEntry) dotClass += ' done';
+        if (isToday) dotClass += ' today-dot';
+        if (isFuture) dotClass += ' future';
+
+        const ariaLabel = logEntry
+          ? `Unmark ${esc(habit.name)} for ${MONTH_NAMES[d.getMonth()]} ${d.getDate()}`
+          : `Mark ${esc(habit.name)} as complete for ${MONTH_NAMES[d.getMonth()]} ${d.getDate()}`;
+
+        html += `<div class="dot-cell${isToday ? ' today-col-highlight' : ''}">`;
+        html += `<button class="${dotClass}" data-habit-id="${habit.id}" data-date="${dateStr}" ${logEntry ? `data-log-id="${logEntry.id}"` : ''} aria-label="${ariaLabel}" aria-pressed="${logEntry ? 'true' : 'false'}" ${isFuture ? 'tabindex="-1"' : ''}>`;
+        html += `<span class="dot-check">${icons.check}</span>`;
+        html += '</button></div>';
+      }
+
+      // Streak
+      html += '<div class="streak-cell">';
+      html += `<div class="streak-number ${streak === 0 ? 'zero' : ''}">${streak}</div>`;
+      html += `<div class="streak-label">${streak === 1 ? 'day' : 'days'}</div>`;
+      html += '</div>';
+
+      html += '</div>';
+      return html;
+    }
+
+    function renderEditForm(habit) {
+      let html = '<div class="habit-row">';
+      html += `<form class="habit-edit-form" id="edit-habit-form">`;
+      html += `<div class="add-habit-input-group">`;
+      html += `<span class="add-habit-label">Habit</span>`;
+      html += `<input class="add-habit-input edit-name-input" type="text" value="${esc(habit.name)}" aria-label="Edit habit name">`;
+      html += '</div>';
+      html += `<div class="add-habit-input-group">`;
+      html += `<span class="add-habit-label">Identity</span>`;
+      html += `<input class="add-habit-input identity-input edit-identity-input" type="text" value="${esc(habit.identity || '')}" aria-label="Edit identity statement">`;
+      html += '</div>';
+      html += `<div class="add-habit-input-group">`;
+      html += `<span class="add-habit-label">Cue</span>`;
+      html += `<input class="add-habit-input edit-cue-input" type="text" value="${esc(habit.cue || '')}" aria-label="Edit habit cue">`;
+      html += '</div>';
+      html += '<div class="habit-edit-actions">';
+      html += '<button type="button" class="btn-secondary edit-cancel-btn">Cancel</button>';
+      html += `<button type="button" class="btn-secondary edit-replace-btn" title="PUT — replace entire habit object">Replace</button>`;
+      html += '<button type="submit" class="btn-primary" title="PATCH — merge changed fields">Save</button>';
+      html += '</div>';
+      html += `<div class="replace-hint">Save = PATCH (merge fields) &middot; Replace = PUT (overwrite entire habit)</div>`;
+      html += '</form>';
+      html += '</div>';
+      return html;
+    }
+
+    // ── Habit Actions ──
+    async function handleAddHabit() {
+      const nameInput = document.getElementById('add-name');
+      const identityInput = document.getElementById('add-identity');
+      const cueInput = document.getElementById('add-cue');
+
+      const name = nameInput.value.trim();
+      if (!name) return;
+
+      const habit = { name };
+      const identity = identityInput.value.trim();
+      const cue = cueInput.value.trim();
+      if (identity) habit.identity = identity;
+      if (cue) habit.cue = cue;
+
+      try {
+        await api.post('habits', habit);
+        await loadTracker();
+      } catch (err) {
+        showError('Failed to add habit: ' + err.message);
+      }
+    }
+
+    async function deleteHabit(habitId) {
+      try {
+        await api.delete(`habits/${habitId}`);
+        await loadTracker();
+      } catch (err) {
+        showError('Failed to delete habit: ' + err.message);
+      }
+    }
+
+    async function handleHabitNameBlur(input) {
+      input.setAttribute('readonly', '');
+      const habitId = parseInt(input.dataset.habitId, 10);
+      const habit = (tracker.habits || []).find((h) => h.id === habitId);
+      const newName = input.value.trim();
+      if (!newName || newName === habit?.name) return;
+      try {
+        await api.patch(`habits/${habitId}`, { name: newName });
+        await loadTracker();
+      } catch (err) {
+        showError('Failed to rename habit: ' + err.message);
+        input.value = habit?.name || '';
+      }
+    }
+
+    async function handleEditSave() {
+      if (!editingHabitId) return;
+      const habit = (tracker.habits || []).find((h) => h.id === editingHabitId);
+      if (!habit) return;
+
+      const form = document.getElementById('edit-habit-form');
+      const nameVal = form.querySelector('.edit-name-input').value.trim();
+      const identityVal = form.querySelector('.edit-identity-input').value.trim();
+      const cueVal = form.querySelector('.edit-cue-input').value.trim();
+
+      const patch = {};
+      if (nameVal && nameVal !== habit.name) patch.name = nameVal;
+      if (identityVal !== (habit.identity || '')) {
+        patch.identity = identityVal === '' ? null : identityVal;
+      }
+      if (cueVal !== (habit.cue || '')) {
+        patch.cue = cueVal === '' ? null : cueVal;
+      }
+
+      if (Object.keys(patch).length === 0) {
+        editingHabitId = null;
+        render();
+        return;
+      }
+
+      try {
+        await api.patch(`habits/${habit.id}`, patch);
+        editingHabitId = null;
+        await loadTracker();
+      } catch (err) {
+        showError('Failed to update habit: ' + err.message);
+      }
+    }
+
+    async function handleEditReplace() {
+      if (!editingHabitId) return;
+      const habit = (tracker.habits || []).find((h) => h.id === editingHabitId);
+      if (!habit) return;
+
+      const form = document.getElementById('edit-habit-form');
+      const nameVal = form.querySelector('.edit-name-input').value.trim();
+      const identityVal = form.querySelector('.edit-identity-input').value.trim();
+      const cueVal = form.querySelector('.edit-cue-input').value.trim();
+
+      const fullHabit = { name: nameVal || habit.name };
+      if (identityVal) fullHabit.identity = identityVal;
+      if (cueVal) fullHabit.cue = cueVal;
+
+      try {
+        await api.put(`habits/${habit.id}`, fullHabit);
+        editingHabitId = null;
+        await loadTracker();
+      } catch (err) {
+        showError('Failed to replace habit: ' + err.message);
+      }
+    }
+
+    // ── Log Actions ──
+    async function addLog(habitId, dateStr) {
+      try {
+        await api.post('log', { habitId, date: dateStr, done: true });
+        await loadTracker();
+      } catch (err) {
+        showError('Failed to log habit: ' + err.message);
+      }
+    }
+
+    async function removeLog(logId) {
+      try {
+        await api.delete(`log/${logId}`);
+        await loadTracker();
+      } catch (err) {
+        showError('Failed to remove log entry: ' + err.message);
+      }
+    }
+
+    // ── Load Tracker Data ──
+    async function loadTracker() {
+      try {
+        tracker = await api.get('');
+        render();
+      } catch (err) {
+        showError('Failed to load tracker: ' + err.message);
+        const loading = document.getElementById('loading');
+        if (loading) loading.textContent = 'Failed to load tracker. Is the tag served with API access enabled?';
+      }
+    }
+
+    // ── Init ──
+    async function init() {
+      await loadTracker();
+    }
+
+    init();
+  </script>
+</body>
+</html>

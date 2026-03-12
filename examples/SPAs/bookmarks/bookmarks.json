@@ -1,0 +1,25 @@
+{
+  "title": "Bookmarks",
+  "folders": [
+    {
+      "id": 1,
+      "name": "Dev Tools",
+      "links": [
+        { "id": 1, "url": "https://developer.mozilla.org", "title": "MDN Web Docs", "note": "JavaScript reference", "favorite": true, "added": "2026-03-08T10:00:00Z" },
+        { "id": 2, "url": "https://caniuse.com", "title": "Can I Use", "note": "Browser compatibility tables", "favorite": false, "added": "2026-03-09T14:00:00Z" }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "Reading List",
+      "links": [
+        { "id": 1, "url": "https://blog.codinghorror.com", "title": "Coding Horror", "note": "", "favorite": false, "added": "2026-03-07T09:00:00Z" }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "Design",
+      "links": []
+    }
+  ]
+}

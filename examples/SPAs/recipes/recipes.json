@@ -1,0 +1,60 @@
+{
+  "title": "Recipe Book",
+  "recipes": [
+    {
+      "id": 1,
+      "name": "Pasta Aglio e Olio",
+      "servings": 2,
+      "prepTime": "5 min",
+      "cookTime": "15 min",
+      "ingredients": [
+        { "id": 1, "item": "Spaghetti", "amount": "200g" },
+        { "id": 2, "item": "Garlic cloves", "amount": "6" },
+        { "id": 3, "item": "Extra virgin olive oil", "amount": "80ml" },
+        { "id": 4, "item": "Red pepper flakes", "amount": "1 tsp" },
+        { "id": 5, "item": "Fresh parsley", "amount": "handful" }
+      ],
+      "steps": [
+        { "id": 1, "text": "Cook spaghetti in salted boiling water until al dente. Reserve 1 cup pasta water." },
+        { "id": 2, "text": "Thinly slice garlic. Heat olive oil over medium-low, add garlic, cook until golden (not brown)." },
+        { "id": 3, "text": "Add pepper flakes, then toss in drained pasta with a splash of pasta water." },
+        { "id": 4, "text": "Toss until emulsified and coated. Finish with parsley." }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "Scrambled Eggs",
+      "servings": 1,
+      "prepTime": "2 min",
+      "cookTime": "5 min",
+      "ingredients": [
+        { "id": 1, "item": "Eggs", "amount": "3" },
+        { "id": 2, "item": "Butter", "amount": "1 tbsp" },
+        { "id": 3, "item": "Salt and pepper", "amount": "to taste" }
+      ],
+      "steps": [
+        { "id": 1, "text": "Crack eggs into a bowl, whisk until uniform." },
+        { "id": 2, "text": "Melt butter in a non-stick pan over medium-low heat." },
+        { "id": 3, "text": "Pour in eggs, stir gently with a spatula. Remove from heat while still slightly wet." }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "Overnight Oats",
+      "servings": 1,
+      "prepTime": "5 min",
+      "cookTime": "0 min",
+      "ingredients": [
+        { "id": 1, "item": "Rolled oats", "amount": "1/2 cup" },
+        { "id": 2, "item": "Milk", "amount": "1/2 cup" },
+        { "id": 3, "item": "Yogurt", "amount": "1/4 cup" },
+        { "id": 4, "item": "Honey", "amount": "1 tbsp" }
+      ],
+      "steps": [
+        { "id": 1, "text": "Combine all ingredients in a jar. Stir well." },
+        { "id": 2, "text": "Refrigerate overnight (or at least 4 hours)." },
+        { "id": 3, "text": "Top with fruit, nuts, or seeds before serving." }
+      ]
+    }
+  ]
+}

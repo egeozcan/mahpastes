@@ -1,0 +1,25 @@
+{
+  "title": "Contacts",
+  "groups": [
+    {
+      "id": 1,
+      "name": "Work",
+      "contacts": [
+        { "id": 1, "name": "Alice Chen", "email": "alice@example.com", "phone": "+1 555-0101", "note": "Engineering lead" },
+        { "id": 2, "name": "Bob Martinez", "email": "bob@example.com", "phone": "+1 555-0102", "note": "" }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "Friends",
+      "contacts": [
+        { "id": 1, "name": "Carol Davis", "email": "carol@example.com", "phone": "+1 555-0201", "note": "College roommate" }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "Family",
+      "contacts": []
+    }
+  ]
+}

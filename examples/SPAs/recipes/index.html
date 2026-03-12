@@ -1,0 +1,1706 @@
+<!--
+  mahpastes Recipe Book — JSON API Demo SPA
+
+  Setup:
+  1. Create a tag in mahpastes (e.g., "recipes")
+  2. Upload this file (index.html) into that tag
+  3. Upload recipes.json (in the same directory) into the same tag
+  4. Serve the tag with API access set to "readwrite"
+  5. Open the served URL in your browser
+
+  This recipe book exercises every JSON API method (GET, POST, PUT, PATCH, DELETE)
+  through deeply nested paths (recipes → ingredients, steps). Watch the API log
+  panel at the bottom to see each call as it happens.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Recipe Book — mahpastes</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --stone-50:  #fafaf9;
+      --stone-100: #f5f5f4;
+      --stone-200: #e7e5e4;
+      --stone-300: #d6d3d1;
+      --stone-400: #a8a29e;
+      --stone-500: #78716c;
+      --stone-600: #57534e;
+      --stone-700: #44403c;
+      --stone-800: #292524;
+      --stone-900: #1c1917;
+      --white:     #ffffff;
+      --red-500:   #ef4444;
+      --red-50:    #fef2f2;
+      /* Log-panel-only accent colors */
+      --log-get:     #78716c;
+      --log-post:    #059669;
+      --log-patch:   #d97706;
+      --log-put:     #2563eb;
+      --log-delete:  #ef4444;
+    }
+
+    html { font-size: 16px; }
+
+    body {
+      font-family: 'IBM Plex Mono', monospace;
+      background: var(--stone-50);
+      color: var(--stone-800);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--stone-300); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--stone-400); }
+
+    /* ── App Header ── */
+    .app-header {
+      padding: 1.25rem 1.5rem 1rem;
+      border-bottom: 1px solid var(--stone-200);
+      background: var(--stone-50);
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      flex-shrink: 0;
+    }
+
+    .back-btn {
+      padding: 0.3rem;
+      color: var(--stone-400);
+      background: none;
+      border: none;
+      border-radius: 0.25rem;
+      cursor: pointer;
+      transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .back-btn:hover { color: var(--stone-600); background: var(--stone-100); }
+
+    .header-title {
+      font-size: 0.875rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--stone-800);
+      cursor: pointer;
+      padding: 0.25rem 0.5rem;
+      border-radius: 0.375rem;
+      border: 1px solid transparent;
+      transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+      background: none;
+      outline: none;
+      font-family: inherit;
+    }
+
+    .header-title:hover { border-color: var(--stone-200); background: var(--white); }
+    .header-title:focus { border-color: var(--stone-400); background: var(--white); }
+
+    .header-subtitle {
+      font-size: 0.625rem;
+      font-weight: 500;
+      color: var(--stone-400);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .header-right {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    /* ── Main Content Area ── */
+    .main-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 1.25rem 1.5rem;
+    }
+
+    /* ── Recipe List View ── */
+    .recipe-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.625rem;
+      max-width: 640px;
+      margin: 0 auto;
+    }
+
+    .recipe-card {
+      background: var(--white);
+      border: 1px solid var(--stone-200);
+      border-radius: 0.375rem;
+      padding: 0.75rem 0.875rem;
+      cursor: pointer;
+      transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+      position: relative;
+    }
+
+    .recipe-card:hover {
+      border-color: var(--stone-300);
+      transform: scale(1.02);
+    }
+
+    .recipe-card-top {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.625rem;
+    }
+
+    .recipe-card-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .recipe-card-name {
+      font-size: 0.6875rem;
+      font-weight: 600;
+      color: var(--stone-800);
+      line-height: 1.4;
+    }
+
+    .recipe-card-meta {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-top: 0.35rem;
+      flex-wrap: wrap;
+    }
+
+    .meta-badge {
+      font-size: 0.5625rem;
+      font-weight: 500;
+      color: var(--stone-500);
+      background: var(--stone-50);
+      border: 1px solid var(--stone-200);
+      border-radius: 9999px;
+      padding: 0.1rem 0.45rem;
+      white-space: nowrap;
+    }
+
+    .recipe-card-actions {
+      display: flex;
+      gap: 0.15rem;
+      opacity: 0;
+      transition: opacity 150ms;
+      flex-shrink: 0;
+    }
+
+    .recipe-card:hover .recipe-card-actions { opacity: 1; }
+
+    .action-btn {
+      padding: 0.2rem;
+      color: var(--stone-400);
+      background: none;
+      border: none;
+      border-radius: 0.25rem;
+      cursor: pointer;
+      transition: all 150ms;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .action-btn:hover { color: var(--stone-600); background: var(--stone-100); }
+    .action-btn.delete:hover { color: var(--red-500); background: var(--red-50); }
+
+    /* ── Add Recipe Card ── */
+    .add-recipe-btn {
+      width: 100%;
+      max-width: 640px;
+      margin: 0 auto;
+      min-height: 56px;
+      border: 2px dashed var(--stone-200);
+      border-radius: 0.375rem;
+      background: none;
+      color: var(--stone-400);
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.625rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 150ms;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.35rem;
+    }
+
+    .add-recipe-btn:hover {
+      border-color: var(--stone-300);
+      color: var(--stone-600);
+      background: var(--white);
+    }
+
+    /* ── Add Recipe Form ── */
+    .add-recipe-form {
+      background: var(--white);
+      border: 1px solid var(--stone-200);
+      border-radius: 0.375rem;
+      padding: 0.75rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      max-width: 640px;
+      margin: 0 auto;
+    }
+
+    .form-row {
+      display: flex;
+      gap: 0.5rem;
+    }
+
+    .form-field {
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+      flex: 1;
+    }
+
+    .form-label {
+      font-size: 0.5625rem;
+      font-weight: 600;
+      color: var(--stone-500);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .form-input {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.6875rem;
+      padding: 0.375rem 0.5rem;
+      border: 1px solid var(--stone-200);
+      border-radius: 0.25rem;
+      background: var(--white);
+      color: var(--stone-800);
+      outline: none;
+      transition: all 150ms;
+      width: 100%;
+    }
+
+    .form-input::placeholder { color: var(--stone-400); }
+    .form-input:focus { border-color: var(--stone-400); box-shadow: 0 0 0 2px var(--stone-100); }
+
+    .form-actions {
+      display: flex;
+      gap: 0.4rem;
+      justify-content: flex-end;
+    }
+
+    /* ── Recipe Detail View ── */
+    .detail-header {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+      max-width: 640px;
+      margin-left: auto;
+      margin-right: auto;
+      margin-bottom: 1rem;
+    }
+
+    .detail-meta {
+      display: flex;
+      gap: 0.75rem;
+      margin-bottom: 1.25rem;
+      max-width: 640px;
+      margin-left: auto;
+      margin-right: auto;
+      margin-bottom: 1.25rem;
+      flex-wrap: wrap;
+    }
+
+    .meta-field {
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+    }
+
+    .meta-label {
+      font-size: 0.5625rem;
+      font-weight: 600;
+      color: var(--stone-500);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .meta-input {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      color: var(--stone-800);
+      padding: 0.25rem 0.4rem;
+      border: 1px solid transparent;
+      border-radius: 0.25rem;
+      background: none;
+      outline: none;
+      transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+      width: 6rem;
+    }
+
+    .meta-input:hover { border-color: var(--stone-200); background: var(--white); }
+    .meta-input:focus { border-color: var(--stone-400); background: var(--white); box-shadow: 0 0 0 2px var(--stone-100); }
+
+    .meta-input.narrow { width: 4rem; }
+
+    /* ── Sections (Ingredients + Steps) ── */
+    .detail-sections {
+      display: flex;
+      gap: 1.25rem;
+      max-width: 640px;
+      margin: 0 auto;
+    }
+
+    @media (max-width: 600px) {
+      .detail-sections { flex-direction: column; }
+    }
+
+    .detail-section {
+      flex: 1;
+      background: var(--white);
+      border: 1px solid var(--stone-200);
+      border-radius: 0.375rem;
+      display: flex;
+      flex-direction: column;
+      max-height: calc(100vh - 280px);
+      min-height: 200px;
+    }
+
+    .section-header {
+      padding: 0.625rem 0.75rem 0.5rem;
+      border-bottom: 1px solid var(--stone-100);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+
+    .section-title {
+      font-size: 0.6875rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--stone-600);
+    }
+
+    .section-count {
+      font-size: 0.5625rem;
+      font-weight: 500;
+      color: var(--stone-400);
+      background: var(--stone-50);
+      border: 1px solid var(--stone-200);
+      border-radius: 9999px;
+      padding: 0.1rem 0.45rem;
+      flex-shrink: 0;
+    }
+
+    .section-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 0.5rem;
+    }
+
+    .section-footer {
+      border-top: 1px solid var(--stone-100);
+      padding: 0.5rem 0.625rem;
+      flex-shrink: 0;
+    }
+
+    /* ── Ingredient List ── */
+    .ingredient-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+
+    .ingredient-item {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.3rem 0.375rem;
+      border-radius: 0.25rem;
+      transition: background 150ms cubic-bezier(0.4, 0, 0.2, 1);
+      position: relative;
+    }
+
+    .ingredient-item:hover { background: var(--stone-50); }
+
+    .ingredient-amount {
+      font-size: 0.625rem;
+      font-weight: 500;
+      color: var(--stone-600);
+      min-width: 4.5rem;
+      flex-shrink: 0;
+    }
+
+    .ingredient-name {
+      font-size: 0.6875rem;
+      font-weight: 500;
+      color: var(--stone-800);
+      flex: 1;
+      min-width: 0;
+    }
+
+    .ingredient-actions {
+      display: flex;
+      gap: 0.1rem;
+      opacity: 0;
+      transition: opacity 150ms;
+      flex-shrink: 0;
+    }
+
+    .ingredient-item:hover .ingredient-actions { opacity: 1; }
+
+    /* ── Ingredient / Step Edit Inline ── */
+    .inline-edit-form {
+      display: flex;
+      gap: 0.35rem;
+      align-items: center;
+      padding: 0.25rem 0.375rem;
+      background: var(--stone-50);
+      border: 1px solid var(--stone-200);
+      border-radius: 0.25rem;
+      width: 100%;
+    }
+
+    .inline-edit-form input {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.625rem;
+      padding: 0.25rem 0.35rem;
+      border: 1px solid var(--stone-200);
+      border-radius: 0.2rem;
+      background: var(--white);
+      color: var(--stone-800);
+      outline: none;
+      transition: all 150ms;
+    }
+
+    .inline-edit-form input:focus {
+      border-color: var(--stone-400);
+      box-shadow: 0 0 0 2px var(--stone-100);
+    }
+
+    .inline-edit-form input.amount-input { width: 4.5rem; flex-shrink: 0; }
+    .inline-edit-form input.item-input { flex: 1; min-width: 0; }
+    .inline-edit-form input.step-input { flex: 1; min-width: 0; }
+
+    .replace-hint {
+      font-size: 0.5rem;
+      color: var(--stone-400);
+      font-style: italic;
+      padding: 0.15rem 0.375rem;
+    }
+
+    /* ── Step List ── */
+    .step-list {
+      list-style: none;
+      counter-reset: step-counter;
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+
+    .step-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.5rem;
+      padding: 0.35rem 0.375rem;
+      border-radius: 0.25rem;
+      transition: background 150ms cubic-bezier(0.4, 0, 0.2, 1);
+      counter-increment: step-counter;
+      position: relative;
+    }
+
+    .step-item:hover { background: var(--stone-50); }
+
+    .step-number {
+      font-size: 0.625rem;
+      font-weight: 600;
+      color: var(--stone-400);
+      min-width: 1.25rem;
+      flex-shrink: 0;
+      margin-top: 0.05rem;
+    }
+
+    .step-text {
+      font-size: 0.6875rem;
+      font-weight: 500;
+      color: var(--stone-800);
+      flex: 1;
+      min-width: 0;
+      line-height: 1.5;
+    }
+
+    .step-actions {
+      display: flex;
+      gap: 0.1rem;
+      opacity: 0;
+      transition: opacity 150ms;
+      flex-shrink: 0;
+      margin-top: 0.05rem;
+    }
+
+    .step-item:hover .step-actions { opacity: 1; }
+
+    /* ── Add Item Row ── */
+    .add-item-row {
+      display: flex;
+      gap: 0.35rem;
+      align-items: center;
+    }
+
+    .add-item-input {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.625rem;
+      padding: 0.35rem 0.5rem;
+      border: 1px solid var(--stone-200);
+      border-radius: 0.25rem;
+      background: var(--white);
+      color: var(--stone-800);
+      outline: none;
+      transition: all 150ms;
+    }
+
+    .add-item-input::placeholder { color: var(--stone-400); }
+    .add-item-input:focus { border-color: var(--stone-400); box-shadow: 0 0 0 2px var(--stone-100); }
+    .add-item-input.grow { flex: 1; min-width: 0; }
+    .add-item-input.amount { width: 4.5rem; flex-shrink: 0; }
+
+    /* ── Buttons ── */
+    .btn-primary {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.625rem;
+      font-weight: 500;
+      padding: 0.35rem 0.75rem;
+      background: var(--stone-800);
+      color: var(--white);
+      border: none;
+      border-radius: 0.25rem;
+      cursor: pointer;
+      transition: all 150ms;
+    }
+
+    .btn-primary:hover { background: var(--stone-700); }
+
+    .btn-secondary {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.625rem;
+      font-weight: 500;
+      padding: 0.35rem 0.75rem;
+      background: none;
+      color: var(--stone-600);
+      border: 1px solid var(--stone-200);
+      border-radius: 0.25rem;
+      cursor: pointer;
+      transition: all 150ms;
+    }
+
+    .btn-secondary:hover { border-color: var(--stone-300); background: var(--stone-100); }
+
+    .btn-small {
+      padding: 0.2rem 0.5rem;
+      font-size: 0.5625rem;
+    }
+
+    /* ── Empty state ── */
+    .empty-state {
+      font-size: 0.5625rem;
+      color: var(--stone-400);
+      text-align: center;
+      padding: 1.25rem 0.5rem;
+      font-style: italic;
+    }
+
+    /* ── Loading / Error ── */
+    .loading-state {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--stone-400);
+      font-size: 0.75rem;
+    }
+
+    .error-banner {
+      padding: 0.5rem 1rem;
+      background: var(--red-50);
+      color: var(--red-500);
+      font-size: 0.625rem;
+      font-weight: 500;
+      text-align: center;
+      border-bottom: 1px solid var(--stone-200);
+      display: none;
+    }
+
+    .error-banner.visible { display: block; }
+
+    /* ── API Log Panel ── */
+    .log-panel {
+      flex-shrink: 0;
+      border-top: 1px solid var(--stone-200);
+      background: var(--white);
+      transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .log-panel.collapsed .log-body { display: none; }
+
+    .log-header {
+      padding: 0.5rem 1rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .log-header:hover { background: var(--stone-50); }
+
+    .log-header-left {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .log-label {
+      font-size: 0.5625rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--stone-500);
+    }
+
+    .log-count {
+      font-size: 0.5625rem;
+      font-weight: 500;
+      color: var(--stone-400);
+    }
+
+    .log-chevron {
+      transition: transform 200ms;
+      color: var(--stone-400);
+    }
+
+    .log-panel.collapsed .log-chevron { transform: rotate(180deg); }
+
+    .log-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .log-clear-btn {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.5625rem;
+      font-weight: 500;
+      color: var(--stone-400);
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 0.15rem 0.35rem;
+      border-radius: 0.25rem;
+      transition: all 150ms;
+    }
+
+    .log-clear-btn:hover { color: var(--stone-600); background: var(--stone-100); }
+
+    .log-body {
+      max-height: 180px;
+      overflow-y: auto;
+      border-top: 1px solid var(--stone-100);
+    }
+
+    .log-entry {
+      display: flex;
+      align-items: center;
+      gap: 0.625rem;
+      padding: 0.3rem 1rem;
+      font-size: 0.625rem;
+      border-bottom: 1px solid var(--stone-50);
+      transition: background 150ms;
+    }
+
+    .log-entry:hover { background: var(--stone-50); }
+
+    .log-method {
+      font-weight: 600;
+      font-size: 0.5625rem;
+      padding: 0.1rem 0.35rem;
+      border-radius: 0.2rem;
+      color: var(--white);
+      text-transform: uppercase;
+      flex-shrink: 0;
+      min-width: 3.5rem;
+      text-align: center;
+      letter-spacing: 0.03em;
+    }
+
+    .log-method.GET    { background: var(--log-get); }
+    .log-method.POST   { background: var(--log-post); }
+    .log-method.PATCH  { background: var(--log-patch); }
+    .log-method.PUT    { background: var(--log-put); }
+    .log-method.DELETE { background: var(--log-delete); }
+
+    .log-path {
+      flex: 1;
+      color: var(--stone-600);
+      font-size: 0.625rem;
+      font-weight: 400;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .log-status {
+      font-size: 0.5625rem;
+      font-weight: 500;
+      color: var(--stone-500);
+      flex-shrink: 0;
+    }
+
+    .log-status.error { color: var(--red-500); }
+
+    .log-duration {
+      font-size: 0.5625rem;
+      color: var(--stone-400);
+      flex-shrink: 0;
+      min-width: 3rem;
+      text-align: right;
+    }
+
+    .log-time {
+      font-size: 0.5rem;
+      color: var(--stone-400);
+      flex-shrink: 0;
+      min-width: 4.5rem;
+      text-align: right;
+      font-style: italic;
+    }
+
+    /* ── Hidden utility ── */
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <div id="error-banner" class="error-banner" role="alert"></div>
+
+  <header class="app-header" id="app-header">
+    <button class="back-btn hidden" id="back-btn" aria-label="Back to recipe list" title="Back to list">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+    </button>
+    <input
+      id="header-title"
+      class="header-title"
+      type="text"
+      readonly
+      aria-label="Collection title — click to edit"
+      title="Click to rename (PATCH)"
+    >
+    <span class="header-subtitle" id="header-subtitle">mahpastes json api</span>
+  </header>
+
+  <main class="main-content" id="main-content" role="main">
+    <div class="loading-state" id="loading">Loading recipes...</div>
+  </main>
+
+  <footer class="log-panel" id="log-panel" role="log" aria-label="API request log">
+    <div class="log-header" id="log-header">
+      <div class="log-header-left">
+        <span class="log-label">API Log</span>
+        <span class="log-count" id="log-count">0 calls</span>
+      </div>
+      <div class="log-header-actions">
+        <button class="log-clear-btn" id="log-clear" title="Clear log" onclick="event.stopPropagation()">Clear</button>
+        <svg class="log-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="18 15 12 9 6 15"></polyline>
+        </svg>
+      </div>
+    </div>
+    <div class="log-body" id="log-body"></div>
+  </footer>
+
+  <script>
+    'use strict';
+
+    // ── Text escaping to prevent XSS ──
+    const ESC_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+    const esc = (s) => s == null ? '' : String(s).replace(/[&<>"']/g, (c) => ESC_MAP[c]);
+
+    // ── API Client ──
+    const API_BASE = '/_api/recipes';
+    const logEntries = [];
+
+    const api = {
+      async request(method, path, body) {
+        const url = API_BASE + (path ? '/' + path : '');
+        const start = performance.now();
+        const opts = { method, credentials: 'same-origin' };
+        if (body !== undefined) {
+          opts.headers = { 'Content-Type': 'application/json' };
+          opts.body = JSON.stringify(body);
+        }
+        let res;
+        try {
+          res = await fetch(url, opts);
+        } catch (err) {
+          const ms = Math.round(performance.now() - start);
+          logApiCall(method, url, 0, ms);
+          throw new Error('Network error: ' + err.message);
+        }
+        const ms = Math.round(performance.now() - start);
+        const data = res.status !== 204 ? await res.json().catch(() => null) : null;
+        logApiCall(method, url, res.status, ms);
+        if (!res.ok) throw new Error(data?.error || res.statusText);
+        return data;
+      },
+      get:    (p) => api.request('GET', p),
+      post:   (p, b) => api.request('POST', p, b),
+      put:    (p, b) => api.request('PUT', p, b),
+      patch:  (p, b) => api.request('PATCH', p, b),
+      delete: (p) => api.request('DELETE', p),
+    };
+
+    // ── API Log Panel ──
+    const logBody = document.getElementById('log-body');
+    const logCountEl = document.getElementById('log-count');
+    const logPanel = document.getElementById('log-panel');
+    const logHeader = document.getElementById('log-header');
+    const logClear = document.getElementById('log-clear');
+
+    function logApiCall(method, url, status, ms) {
+      const entry = { method, url, status, ms, time: new Date() };
+      logEntries.push(entry);
+      renderLogEntry(entry);
+      logCountEl.textContent = logEntries.length + ' call' + (logEntries.length !== 1 ? 's' : '');
+    }
+
+    function renderLogEntry(entry) {
+      const row = document.createElement('div');
+      row.className = 'log-entry';
+      const statusClass = entry.status >= 400 || entry.status === 0 ? ' error' : '';
+      const timeStr = entry.time.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      row.innerHTML = `
+        <span class="log-method ${esc(entry.method)}">${esc(entry.method)}</span>
+        <span class="log-path" title="${esc(entry.url)}">${esc(entry.url)}</span>
+        <span class="log-status${statusClass}">${entry.status || 'ERR'}</span>
+        <span class="log-duration">${entry.ms}ms</span>
+        <span class="log-time">${timeStr}</span>
+      `;
+      logBody.appendChild(row);
+      logBody.scrollTop = logBody.scrollHeight;
+    }
+
+    logHeader.addEventListener('click', () => {
+      logPanel.classList.toggle('collapsed');
+    });
+
+    logClear.addEventListener('click', () => {
+      logEntries.length = 0;
+      logBody.innerHTML = '';
+      logCountEl.textContent = '0 calls';
+    });
+
+    // ── Error Banner ──
+    const errorBanner = document.getElementById('error-banner');
+
+    function showError(msg) {
+      errorBanner.textContent = msg;
+      errorBanner.classList.add('visible');
+      setTimeout(() => errorBanner.classList.remove('visible'), 4000);
+    }
+
+    // ── State ──
+    let data = null;          // Full JSON root { title, recipes: [...] }
+    let currentView = 'list'; // 'list' | 'detail'
+    let activeRecipeId = null;
+
+    // ── SVG Icons ──
+    const icons = {
+      edit: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`,
+      trash: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>`,
+      plus: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`,
+      replace: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>`,
+    };
+
+    // ── DOM refs ──
+    const mainContent = document.getElementById('main-content');
+    const headerTitle = document.getElementById('header-title');
+    const headerSubtitle = document.getElementById('header-subtitle');
+    const backBtn = document.getElementById('back-btn');
+
+    // ── Header Title Editing ──
+    headerTitle.addEventListener('click', () => {
+      headerTitle.removeAttribute('readonly');
+      headerTitle.focus();
+      headerTitle.select();
+    });
+
+    headerTitle.addEventListener('blur', async () => {
+      headerTitle.setAttribute('readonly', '');
+      const newVal = headerTitle.value.trim();
+      if (!newVal) { headerTitle.value = getHeaderValue(); return; }
+
+      if (currentView === 'list') {
+        // PATCH collection title
+        if (newVal === data?.title) return;
+        try {
+          await api.patch('', { title: newVal });
+          await loadData();
+        } catch (err) {
+          showError('Failed to rename: ' + err.message);
+          headerTitle.value = data?.title || '';
+        }
+      } else {
+        // PATCH recipe name
+        const recipe = getActiveRecipe();
+        if (!recipe || newVal === recipe.name) return;
+        try {
+          await api.patch(`recipes/${recipe.id}`, { name: newVal });
+          await loadData();
+          renderDetail();
+        } catch (err) {
+          showError('Failed to rename recipe: ' + err.message);
+          headerTitle.value = recipe.name;
+        }
+      }
+    });
+
+    headerTitle.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); headerTitle.blur(); }
+      if (e.key === 'Escape') { headerTitle.value = getHeaderValue(); headerTitle.blur(); }
+    });
+
+    function getHeaderValue() {
+      if (currentView === 'detail') {
+        const r = getActiveRecipe();
+        return r ? r.name : '';
+      }
+      return data?.title || '';
+    }
+
+    // ── Back Button ──
+    backBtn.addEventListener('click', () => {
+      navigateToList();
+    });
+
+    // ── Navigation ──
+    function navigateToList() {
+      currentView = 'list';
+      activeRecipeId = null;
+      backBtn.classList.add('hidden');
+      headerSubtitle.textContent = 'mahpastes json api';
+      renderList();
+      headerTitle.value = data?.title || '';
+      headerTitle.focus();
+    }
+
+    async function navigateToDetail(recipeId) {
+      currentView = 'detail';
+      activeRecipeId = recipeId;
+      backBtn.classList.remove('hidden');
+
+      // Demo: GET single recipe to show deep path in log
+      try {
+        await api.get(`recipes/${recipeId}`);
+      } catch {
+        // Non-critical, just for the demo log
+      }
+
+      const recipe = getActiveRecipe();
+      headerTitle.value = recipe ? recipe.name : '';
+      headerSubtitle.textContent = recipe
+        ? `${(recipe.ingredients || []).length} ingredients \u00B7 ${(recipe.steps || []).length} steps`
+        : '';
+      renderDetail();
+      headerTitle.focus();
+    }
+
+    function getActiveRecipe() {
+      if (!data?.recipes || !activeRecipeId) return null;
+      return data.recipes.find((r) => r.id === activeRecipeId) || null;
+    }
+
+    // ── Render: Recipe List ──
+    function renderList() {
+      const loading = document.getElementById('loading');
+      if (loading) loading.remove();
+
+      const recipes = data?.recipes || [];
+      const count = recipes.length;
+
+      let html = '<div class="recipe-list" id="recipe-list">';
+
+      if (count === 0) {
+        html += '<div class="empty-state">No recipes yet. Add one below.</div>';
+      }
+
+      for (const recipe of recipes) {
+        const ingCount = (recipe.ingredients || []).length;
+        const stepCount = (recipe.steps || []).length;
+        html += `
+          <div class="recipe-card" data-recipe-id="${recipe.id}" tabindex="0" role="button" aria-label="Open ${esc(recipe.name)}">
+            <div class="recipe-card-top">
+              <div class="recipe-card-info">
+                <div class="recipe-card-name">${esc(recipe.name)}</div>
+                <div class="recipe-card-meta">
+                  <span class="meta-badge">${esc(String(recipe.servings))} serving${recipe.servings !== 1 ? 's' : ''}</span>
+                  <span class="meta-badge">${esc(recipe.prepTime)} prep</span>
+                  <span class="meta-badge">${esc(recipe.cookTime)} cook</span>
+                  <span class="meta-badge">${ingCount} ingredient${ingCount !== 1 ? 's' : ''}</span>
+                </div>
+              </div>
+              <div class="recipe-card-actions">
+                <button class="action-btn edit" title="Edit name (PATCH)" aria-label="Edit recipe name" data-action="edit" data-id="${recipe.id}">${icons.edit}</button>
+                <button class="action-btn delete" title="Delete recipe (DELETE)" aria-label="Delete recipe" data-action="delete" data-id="${recipe.id}">${icons.trash}</button>
+              </div>
+            </div>
+          </div>
+        `;
+      }
+
+      html += '</div>';
+
+      // Add recipe button / form
+      html += '<div id="add-recipe-area" style="max-width:640px;margin:0.625rem auto 0;"></div>';
+
+      mainContent.innerHTML = html;
+
+      // Bind card clicks
+      const cards = mainContent.querySelectorAll('.recipe-card');
+      for (const card of cards) {
+        const recipeId = Number(card.dataset.recipeId);
+
+        card.addEventListener('click', (e) => {
+          // Don't navigate if clicking action buttons
+          if (e.target.closest('.recipe-card-actions')) return;
+          navigateToDetail(recipeId);
+        });
+
+        card.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' && !e.target.closest('.recipe-card-actions')) {
+            navigateToDetail(recipeId);
+          }
+        });
+      }
+
+      // Bind action buttons
+      mainContent.querySelectorAll('.action-btn[data-action="edit"]').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          editRecipeName(Number(btn.dataset.id));
+        });
+      });
+
+      mainContent.querySelectorAll('.action-btn[data-action="delete"]').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          deleteRecipe(Number(btn.dataset.id));
+        });
+      });
+
+      // Show add recipe button
+      renderAddRecipeArea();
+
+      // Update subtitle with count
+      headerSubtitle.textContent = count + ' recipe' + (count !== 1 ? 's' : '') + ' \u00B7 mahpastes json api';
+    }
+
+    function renderAddRecipeArea() {
+      const area = document.getElementById('add-recipe-area');
+      if (!area) return;
+      area.innerHTML = `
+        <button class="add-recipe-btn" id="add-recipe-btn" title="POST to recipes array">
+          ${icons.plus}<span>Add Recipe</span>
+        </button>
+      `;
+      document.getElementById('add-recipe-btn').addEventListener('click', showAddRecipeForm);
+    }
+
+    function showAddRecipeForm() {
+      const area = document.getElementById('add-recipe-area');
+      if (!area) return;
+      area.innerHTML = `
+        <div class="add-recipe-form" id="add-recipe-form">
+          <div class="form-field">
+            <label class="form-label" for="new-recipe-name">Name</label>
+            <input class="form-input" id="new-recipe-name" type="text" placeholder="Recipe name" />
+          </div>
+          <div class="form-row">
+            <div class="form-field">
+              <label class="form-label" for="new-recipe-servings">Servings</label>
+              <input class="form-input" id="new-recipe-servings" type="number" min="1" value="2" />
+            </div>
+            <div class="form-field">
+              <label class="form-label" for="new-recipe-prep">Prep Time</label>
+              <input class="form-input" id="new-recipe-prep" type="text" placeholder="5 min" />
+            </div>
+            <div class="form-field">
+              <label class="form-label" for="new-recipe-cook">Cook Time</label>
+              <input class="form-input" id="new-recipe-cook" type="text" placeholder="10 min" />
+            </div>
+          </div>
+          <div class="form-actions">
+            <button class="btn-secondary" id="cancel-add-recipe">Cancel</button>
+            <button class="btn-primary" id="confirm-add-recipe">Add Recipe</button>
+          </div>
+        </div>
+      `;
+
+      const nameInput = document.getElementById('new-recipe-name');
+      nameInput.focus();
+
+      document.getElementById('cancel-add-recipe').addEventListener('click', renderAddRecipeArea);
+
+      document.getElementById('confirm-add-recipe').addEventListener('click', async () => {
+        const name = nameInput.value.trim();
+        if (!name) { nameInput.focus(); return; }
+        const servings = parseInt(document.getElementById('new-recipe-servings').value, 10) || 1;
+        const prepTime = document.getElementById('new-recipe-prep').value.trim() || '0 min';
+        const cookTime = document.getElementById('new-recipe-cook').value.trim() || '0 min';
+        try {
+          await api.post('recipes', { name, servings, prepTime, cookTime, ingredients: [], steps: [] });
+          await loadData();
+          renderList();
+        } catch (err) {
+          showError('Failed to add recipe: ' + err.message);
+        }
+      });
+
+      // Enter to submit
+      const formInputs = area.querySelectorAll('.form-input');
+      for (const inp of formInputs) {
+        inp.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') { document.getElementById('confirm-add-recipe').click(); }
+          if (e.key === 'Escape') { renderAddRecipeArea(); }
+        });
+      }
+    }
+
+    // ── Recipe List Actions ──
+    async function editRecipeName(recipeId) {
+      const recipe = data?.recipes?.find((r) => r.id === recipeId);
+      if (!recipe) return;
+      const newName = prompt('Rename recipe:', recipe.name);
+      if (!newName || !newName.trim() || newName.trim() === recipe.name) return;
+      try {
+        await api.patch(`recipes/${recipeId}`, { name: newName.trim() });
+        await loadData();
+        renderList();
+      } catch (err) {
+        showError('Failed to rename recipe: ' + err.message);
+      }
+    }
+
+    async function deleteRecipe(recipeId) {
+      try {
+        await api.delete(`recipes/${recipeId}`);
+        await loadData();
+        renderList();
+      } catch (err) {
+        showError('Failed to delete recipe: ' + err.message);
+      }
+    }
+
+    // ── Render: Recipe Detail ──
+    function renderDetail() {
+      const recipe = getActiveRecipe();
+      if (!recipe) {
+        navigateToList();
+        return;
+      }
+
+      const ingredients = recipe.ingredients || [];
+      const steps = recipe.steps || [];
+
+      // Update subtitle
+      headerSubtitle.textContent = `${ingredients.length} ingredient${ingredients.length !== 1 ? 's' : ''} \u00B7 ${steps.length} step${steps.length !== 1 ? 's' : ''}`;
+
+      let html = '';
+
+      // Meta row
+      html += `
+        <div class="detail-meta">
+          <div class="meta-field">
+            <span class="meta-label">Servings</span>
+            <input class="meta-input narrow" type="number" min="1" value="${esc(String(recipe.servings))}" data-field="servings" aria-label="Servings" title="Edit servings (PATCH on blur)" />
+          </div>
+          <div class="meta-field">
+            <span class="meta-label">Prep Time</span>
+            <input class="meta-input" type="text" value="${esc(recipe.prepTime)}" data-field="prepTime" aria-label="Prep time" title="Edit prep time (PATCH on blur)" />
+          </div>
+          <div class="meta-field">
+            <span class="meta-label">Cook Time</span>
+            <input class="meta-input" type="text" value="${esc(recipe.cookTime)}" data-field="cookTime" aria-label="Cook time" title="Edit cook time (PATCH on blur)" />
+          </div>
+        </div>
+      `;
+
+      // Two-column: Ingredients + Steps
+      html += '<div class="detail-sections">';
+
+      // ── Ingredients Section ──
+      html += `
+        <section class="detail-section" aria-label="Ingredients">
+          <div class="section-header">
+            <span class="section-title">Ingredients</span>
+            <span class="section-count">${ingredients.length}</span>
+          </div>
+          <div class="section-body" id="ingredients-body">
+      `;
+
+      if (ingredients.length === 0) {
+        html += '<div class="empty-state">No ingredients yet</div>';
+      } else {
+        html += '<ul class="ingredient-list" id="ingredient-list">';
+        for (const ing of ingredients) {
+          html += `
+            <li class="ingredient-item" data-ing-id="${ing.id}">
+              <span class="ingredient-amount">${esc(ing.amount)}</span>
+              <span class="ingredient-name">${esc(ing.item)}</span>
+              <div class="ingredient-actions">
+                <button class="action-btn" title="Edit (PATCH)" aria-label="Edit ingredient" data-action="edit-ing" data-id="${ing.id}">${icons.edit}</button>
+                <button class="action-btn" title="Replace (PUT)" aria-label="Replace ingredient" data-action="replace-ing" data-id="${ing.id}">${icons.replace}</button>
+                <button class="action-btn delete" title="Delete (DELETE)" aria-label="Delete ingredient" data-action="delete-ing" data-id="${ing.id}">${icons.trash}</button>
+              </div>
+            </li>
+          `;
+        }
+        html += '</ul>';
+      }
+
+      html += `
+          </div>
+          <div class="section-footer">
+            <div class="add-item-row">
+              <input class="add-item-input amount" id="add-ing-amount" type="text" placeholder="Amount" aria-label="New ingredient amount" />
+              <input class="add-item-input grow" id="add-ing-item" type="text" placeholder="Ingredient name" aria-label="New ingredient name" />
+              <button class="btn-primary btn-small" id="add-ing-btn" title="POST new ingredient">Add</button>
+            </div>
+          </div>
+        </section>
+      `;
+
+      // ── Steps Section ──
+      html += `
+        <section class="detail-section" aria-label="Steps">
+          <div class="section-header">
+            <span class="section-title">Steps</span>
+            <span class="section-count">${steps.length}</span>
+          </div>
+          <div class="section-body" id="steps-body">
+      `;
+
+      if (steps.length === 0) {
+        html += '<div class="empty-state">No steps yet</div>';
+      } else {
+        html += '<ol class="step-list" id="step-list">';
+        steps.forEach((step, idx) => {
+          html += `
+            <li class="step-item" data-step-id="${step.id}">
+              <span class="step-number">${idx + 1}.</span>
+              <span class="step-text">${esc(step.text)}</span>
+              <div class="step-actions">
+                <button class="action-btn" title="Edit (PATCH)" aria-label="Edit step" data-action="edit-step" data-id="${step.id}">${icons.edit}</button>
+                <button class="action-btn" title="Replace (PUT)" aria-label="Replace step" data-action="replace-step" data-id="${step.id}">${icons.replace}</button>
+                <button class="action-btn delete" title="Delete (DELETE)" aria-label="Delete step" data-action="delete-step" data-id="${step.id}">${icons.trash}</button>
+              </div>
+            </li>
+          `;
+        });
+        html += '</ol>';
+      }
+
+      html += `
+          </div>
+          <div class="section-footer">
+            <div class="add-item-row">
+              <input class="add-item-input grow" id="add-step-text" type="text" placeholder="Step description" aria-label="New step text" />
+              <button class="btn-primary btn-small" id="add-step-btn" title="POST new step">Add</button>
+            </div>
+          </div>
+        </section>
+      `;
+
+      html += '</div>'; // close detail-sections
+
+      mainContent.innerHTML = html;
+
+      // ── Bind meta field blur ──
+      mainContent.querySelectorAll('.meta-input').forEach((input) => {
+        const field = input.dataset.field;
+        const original = field === 'servings' ? String(recipe.servings) : recipe[field];
+
+        input.addEventListener('blur', async () => {
+          const val = input.value.trim();
+          if (!val || val === original) { input.value = original; return; }
+          const patch = {};
+          patch[field] = field === 'servings' ? (parseInt(val, 10) || recipe.servings) : val;
+          try {
+            await api.patch(`recipes/${recipe.id}`, patch);
+            await loadData();
+            renderDetail();
+          } catch (err) {
+            showError('Failed to update: ' + err.message);
+            input.value = original;
+          }
+        });
+
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+          if (e.key === 'Escape') { input.value = original; input.blur(); }
+        });
+      });
+
+      // ── Bind ingredient actions ──
+      bindIngredientActions(recipe);
+
+      // ── Bind step actions ──
+      bindStepActions(recipe);
+
+      // ── Bind add ingredient ──
+      const addIngBtn = document.getElementById('add-ing-btn');
+      const addIngAmount = document.getElementById('add-ing-amount');
+      const addIngItem = document.getElementById('add-ing-item');
+
+      addIngBtn.addEventListener('click', () => addIngredient(recipe.id));
+
+      [addIngAmount, addIngItem].forEach((input) => {
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') addIngredient(recipe.id);
+          if (e.key === 'Escape') { input.value = ''; input.blur(); }
+        });
+      });
+
+      // ── Bind add step ──
+      const addStepBtn = document.getElementById('add-step-btn');
+      const addStepText = document.getElementById('add-step-text');
+
+      addStepBtn.addEventListener('click', () => addStep(recipe.id));
+
+      addStepText.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') addStep(recipe.id);
+        if (e.key === 'Escape') { addStepText.value = ''; addStepText.blur(); }
+      });
+    }
+
+    // ── Ingredient Actions ──
+    function bindIngredientActions(recipe) {
+      mainContent.querySelectorAll('[data-action="edit-ing"]').forEach((btn) => {
+        btn.addEventListener('click', () => editIngredient(recipe.id, Number(btn.dataset.id)));
+      });
+
+      mainContent.querySelectorAll('[data-action="replace-ing"]').forEach((btn) => {
+        btn.addEventListener('click', () => replaceIngredient(recipe.id, Number(btn.dataset.id)));
+      });
+
+      mainContent.querySelectorAll('[data-action="delete-ing"]').forEach((btn) => {
+        btn.addEventListener('click', () => deleteIngredient(recipe.id, Number(btn.dataset.id)));
+      });
+    }
+
+    function editIngredient(recipeId, ingId) {
+      const recipe = data?.recipes?.find((r) => r.id === recipeId);
+      if (!recipe) return;
+      const ing = (recipe.ingredients || []).find((i) => i.id === ingId);
+      if (!ing) return;
+
+      const li = mainContent.querySelector(`.ingredient-item[data-ing-id="${ingId}"]`);
+      if (!li) return;
+
+      li.innerHTML = `
+        <div class="inline-edit-form">
+          <input class="amount-input" type="text" value="${esc(ing.amount)}" aria-label="Amount" />
+          <input class="item-input" type="text" value="${esc(ing.item)}" aria-label="Item" />
+          <button class="btn-primary btn-small" data-save>Save</button>
+          <button class="btn-secondary btn-small" data-cancel>Cancel</button>
+        </div>
+        <div class="replace-hint">Save = PATCH (merge) &middot; Edit fields and press Save</div>
+      `;
+
+      const amountInput = li.querySelector('.amount-input');
+      const itemInput = li.querySelector('.item-input');
+      amountInput.focus();
+      amountInput.select();
+
+      li.querySelector('[data-cancel]').addEventListener('click', () => {
+        renderDetail();
+      });
+
+      li.querySelector('[data-save]').addEventListener('click', async () => {
+        const patch = {};
+        const newAmount = amountInput.value.trim();
+        const newItem = itemInput.value.trim();
+        if (newAmount && newAmount !== ing.amount) patch.amount = newAmount;
+        if (newItem && newItem !== ing.item) patch.item = newItem;
+        if (Object.keys(patch).length === 0) { renderDetail(); return; }
+        try {
+          await api.patch(`recipes/${recipeId}/ingredients/${ingId}`, patch);
+          await loadData();
+          renderDetail();
+        } catch (err) {
+          showError('Failed to update ingredient: ' + err.message);
+        }
+      });
+
+      [amountInput, itemInput].forEach((inp) => {
+        inp.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') li.querySelector('[data-save]').click();
+          if (e.key === 'Escape') renderDetail();
+        });
+      });
+    }
+
+    function replaceIngredient(recipeId, ingId) {
+      const recipe = data?.recipes?.find((r) => r.id === recipeId);
+      if (!recipe) return;
+      const ing = (recipe.ingredients || []).find((i) => i.id === ingId);
+      if (!ing) return;
+
+      const li = mainContent.querySelector(`.ingredient-item[data-ing-id="${ingId}"]`);
+      if (!li) return;
+
+      li.innerHTML = `
+        <div class="inline-edit-form">
+          <input class="amount-input" type="text" value="${esc(ing.amount)}" aria-label="Amount" />
+          <input class="item-input" type="text" value="${esc(ing.item)}" aria-label="Item" />
+          <button class="btn-primary btn-small" data-save>Replace</button>
+          <button class="btn-secondary btn-small" data-cancel>Cancel</button>
+        </div>
+        <div class="replace-hint">Replace = PUT (overwrites entire ingredient object)</div>
+      `;
+
+      const amountInput = li.querySelector('.amount-input');
+      const itemInput = li.querySelector('.item-input');
+      amountInput.focus();
+      amountInput.select();
+
+      li.querySelector('[data-cancel]').addEventListener('click', () => {
+        renderDetail();
+      });
+
+      li.querySelector('[data-save]').addEventListener('click', async () => {
+        const newAmount = amountInput.value.trim() || ing.amount;
+        const newItem = itemInput.value.trim() || ing.item;
+        try {
+          await api.put(`recipes/${recipeId}/ingredients/${ingId}`, { item: newItem, amount: newAmount });
+          await loadData();
+          renderDetail();
+        } catch (err) {
+          showError('Failed to replace ingredient: ' + err.message);
+        }
+      });
+
+      [amountInput, itemInput].forEach((inp) => {
+        inp.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') li.querySelector('[data-save]').click();
+          if (e.key === 'Escape') renderDetail();
+        });
+      });
+    }
+
+    async function deleteIngredient(recipeId, ingId) {
+      try {
+        await api.delete(`recipes/${recipeId}/ingredients/${ingId}`);
+        await loadData();
+        renderDetail();
+      } catch (err) {
+        showError('Failed to delete ingredient: ' + err.message);
+      }
+    }
+
+    async function addIngredient(recipeId) {
+      const amountInput = document.getElementById('add-ing-amount');
+      const itemInput = document.getElementById('add-ing-item');
+      const item = itemInput.value.trim();
+      const amount = amountInput.value.trim();
+      if (!item) { itemInput.focus(); return; }
+      try {
+        await api.post(`recipes/${recipeId}/ingredients`, { item, amount: amount || '' });
+        await loadData();
+        renderDetail();
+        // Refocus add inputs
+        setTimeout(() => {
+          const newAmount = document.getElementById('add-ing-amount');
+          if (newAmount) newAmount.focus();
+        }, 50);
+      } catch (err) {
+        showError('Failed to add ingredient: ' + err.message);
+      }
+    }
+
+    // ── Step Actions ──
+    function bindStepActions(recipe) {
+      mainContent.querySelectorAll('[data-action="edit-step"]').forEach((btn) => {
+        btn.addEventListener('click', () => editStep(recipe.id, Number(btn.dataset.id)));
+      });
+
+      mainContent.querySelectorAll('[data-action="replace-step"]').forEach((btn) => {
+        btn.addEventListener('click', () => replaceStep(recipe.id, Number(btn.dataset.id)));
+      });
+
+      mainContent.querySelectorAll('[data-action="delete-step"]').forEach((btn) => {
+        btn.addEventListener('click', () => deleteStep(recipe.id, Number(btn.dataset.id)));
+      });
+    }
+
+    function editStep(recipeId, stepId) {
+      const recipe = data?.recipes?.find((r) => r.id === recipeId);
+      if (!recipe) return;
+      const step = (recipe.steps || []).find((s) => s.id === stepId);
+      if (!step) return;
+
+      const li = mainContent.querySelector(`.step-item[data-step-id="${stepId}"]`);
+      if (!li) return;
+
+      li.innerHTML = `
+        <div class="inline-edit-form">
+          <input class="step-input" type="text" value="${esc(step.text)}" aria-label="Step text" />
+          <button class="btn-primary btn-small" data-save>Save</button>
+          <button class="btn-secondary btn-small" data-cancel>Cancel</button>
+        </div>
+        <div class="replace-hint">Save = PATCH (merge fields)</div>
+      `;
+
+      const textInput = li.querySelector('.step-input');
+      textInput.focus();
+      textInput.select();
+
+      li.querySelector('[data-cancel]').addEventListener('click', () => {
+        renderDetail();
+      });
+
+      li.querySelector('[data-save]').addEventListener('click', async () => {
+        const newText = textInput.value.trim();
+        if (!newText || newText === step.text) { renderDetail(); return; }
+        try {
+          await api.patch(`recipes/${recipeId}/steps/${stepId}`, { text: newText });
+          await loadData();
+          renderDetail();
+        } catch (err) {
+          showError('Failed to update step: ' + err.message);
+        }
+      });
+
+      textInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') li.querySelector('[data-save]').click();
+        if (e.key === 'Escape') renderDetail();
+      });
+    }
+
+    function replaceStep(recipeId, stepId) {
+      const recipe = data?.recipes?.find((r) => r.id === recipeId);
+      if (!recipe) return;
+      const step = (recipe.steps || []).find((s) => s.id === stepId);
+      if (!step) return;
+
+      const li = mainContent.querySelector(`.step-item[data-step-id="${stepId}"]`);
+      if (!li) return;
+
+      li.innerHTML = `
+        <div class="inline-edit-form">
+          <input class="step-input" type="text" value="${esc(step.text)}" aria-label="Step text" />
+          <button class="btn-primary btn-small" data-save>Replace</button>
+          <button class="btn-secondary btn-small" data-cancel>Cancel</button>
+        </div>
+        <div class="replace-hint">Replace = PUT (overwrites entire step object)</div>
+      `;
+
+      const textInput = li.querySelector('.step-input');
+      textInput.focus();
+      textInput.select();
+
+      li.querySelector('[data-cancel]').addEventListener('click', () => {
+        renderDetail();
+      });
+
+      li.querySelector('[data-save]').addEventListener('click', async () => {
+        const newText = textInput.value.trim() || step.text;
+        try {
+          await api.put(`recipes/${recipeId}/steps/${stepId}`, { text: newText });
+          await loadData();
+          renderDetail();
+        } catch (err) {
+          showError('Failed to replace step: ' + err.message);
+        }
+      });
+
+      textInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') li.querySelector('[data-save]').click();
+        if (e.key === 'Escape') renderDetail();
+      });
+    }
+
+    async function deleteStep(recipeId, stepId) {
+      try {
+        await api.delete(`recipes/${recipeId}/steps/${stepId}`);
+        await loadData();
+        renderDetail();
+      } catch (err) {
+        showError('Failed to delete step: ' + err.message);
+      }
+    }
+
+    async function addStep(recipeId) {
+      const textInput = document.getElementById('add-step-text');
+      const text = textInput.value.trim();
+      if (!text) { textInput.focus(); return; }
+      try {
+        await api.post(`recipes/${recipeId}/steps`, { text });
+        await loadData();
+        renderDetail();
+        // Refocus add input
+        setTimeout(() => {
+          const newInput = document.getElementById('add-step-text');
+          if (newInput) newInput.focus();
+        }, 50);
+      } catch (err) {
+        showError('Failed to add step: ' + err.message);
+      }
+    }
+
+    // ── Load Data ──
+    async function loadData() {
+      try {
+        data = await api.get('');
+      } catch (err) {
+        showError('Failed to load recipes: ' + err.message);
+        const loading = document.getElementById('loading');
+        if (loading) loading.textContent = 'Failed to load recipes. Is the tag served with API access enabled?';
+      }
+    }
+
+    // ── Init ──
+    async function init() {
+      await loadData();
+      if (!data) return;
+      headerTitle.value = data.title || '';
+      renderList();
+
+      // Demo: GET a single recipe to show deep path in log
+      if (data.recipes && data.recipes.length > 0) {
+        try {
+          await api.get(`recipes/${data.recipes[0].id}`);
+        } catch {
+          // Non-critical, just for the demo log
+        }
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>

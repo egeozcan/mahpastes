@@ -1,0 +1,1782 @@
+<!--
+  mahpastes Pomodoro Timer — JSON API Demo SPA
+
+  Setup:
+  1. Create a tag in mahpastes (e.g., "pomodoro")
+  2. Upload this file (index.html) into that tag
+  3. Upload pomodoro.json (in the same directory) into the same tag
+  4. Serve the tag with API access set to "readwrite"
+  5. Open the served URL in your browser
+
+  This timer exercises every JSON API method (GET, POST, PUT, PATCH, DELETE)
+  through nested paths. Watch the API log panel at the bottom to see
+  each call as it happens.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pomodoro Timer — mahpastes</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --stone-50:  #fafaf9;
+      --stone-100: #f5f5f4;
+      --stone-200: #e7e5e4;
+      --stone-300: #d6d3d1;
+      --stone-400: #a8a29e;
+      --stone-500: #78716c;
+      --stone-600: #57534e;
+      --stone-700: #44403c;
+      --stone-800: #292524;
+      --stone-900: #1c1917;
+      --white:     #ffffff;
+      --red-500:   #ef4444;
+      --red-50:    #fef2f2;
+      /* Log-panel-only accent colors */
+      --log-get:     #78716c;
+      --log-post:    #059669;
+      --log-patch:   #d97706;
+      --log-put:     #2563eb;
+      --log-delete:  #ef4444;
+    }
+
+    html { font-size: 16px; }
+
+    body {
+      font-family: 'IBM Plex Mono', monospace;
+      background: var(--stone-50);
+      color: var(--stone-800);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--stone-300); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--stone-400); }
+
+    /* ── App Header ── */
+    .app-header {
+      padding: 1.25rem 1.5rem 1rem;
+      border-bottom: 1px solid var(--stone-200);
+      background: var(--stone-50);
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      flex-shrink: 0;
+    }
+
+    .app-title {
+      font-size: 0.875rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--stone-800);
+      cursor: pointer;
+      padding: 0.25rem 0.5rem;
+      border-radius: 0.375rem;
+      border: 1px solid transparent;
+      transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+      background: none;
+      outline: none;
+      font-family: inherit;
+    }
+
+    .app-title:hover { border-color: var(--stone-200); background: var(--white); }
+    .app-title:focus { border-color: var(--stone-400); background: var(--white); }
+
+    .app-subtitle {
+      font-size: 0.625rem;
+      font-weight: 500;
+      color: var(--stone-400);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    /* ── Main Content ── */
+    .main-content {
+      flex: 1;
+      overflow: hidden;
+      display: flex;
+      gap: 1rem;
+      padding: 1.25rem 1.5rem;
+      min-height: 0;
+    }
+
+    @media (max-width: 860px) {
+      .main-content {
+        flex-direction: column;
+        overflow-y: auto;
+      }
+      .panel { min-height: 200px; }
+      .timer-panel { min-height: 320px; }
+    }
+
+    /* ── Panel Base ── */
+    .panel {
+      background: var(--white);
+      border: 1px solid var(--stone-200);
+      border-radius: 0.375rem;
+      display: flex;
+      flex-direction: column;
+      transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+      overflow: hidden;
+    }
+
+    .panel:hover { border-color: var(--stone-300); }
+
+    .panel-header {
+      padding: 0.75rem 0.75rem 0.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--stone-100);
+      gap: 0.5rem;
+      flex-shrink: 0;
+    }
+
+    .panel-title {
+      font-size: 0.6875rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--stone-600);
+    }
+
+    .panel-count {
+      font-size: 0.5625rem;
+      font-weight: 500;
+      color: var(--stone-400);
+      background: var(--stone-50);
+      border: 1px solid var(--stone-200);
+      border-radius: 9999px;
+      padding: 0.1rem 0.45rem;
+      flex-shrink: 0;
+    }
+
+    .panel-body {
+      flex: 1;
+      overflow-y: auto;
+      min-height: 0;
+    }
+
+    /* ── Timer Panel ── */
+    .timer-panel {
+      flex: 0 0 280px;
+      min-width: 240px;
+    }
+
+    .timer-body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 1.25rem 1rem;
+      flex: 1;
+      gap: 0.75rem;
+    }
+
+    .timer-task-label {
+      font-size: 0.5625rem;
+      font-weight: 500;
+      color: var(--stone-400);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      text-align: center;
+      min-height: 0.875rem;
+    }
+
+    .timer-task-label.active {
+      color: var(--stone-600);
+    }
+
+    .timer-ring-wrapper {
+      position: relative;
+      width: 160px;
+      height: 160px;
+      flex-shrink: 0;
+    }
+
+    .timer-ring-bg,
+    .timer-ring-fg {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+    }
+
+    .timer-ring-bg circle {
+      fill: none;
+      stroke: var(--stone-100);
+      stroke-width: 4;
+    }
+
+    .timer-ring-fg circle {
+      fill: none;
+      stroke: var(--stone-800);
+      stroke-width: 4;
+      stroke-linecap: round;
+      transform: rotate(-90deg);
+      transform-origin: 50% 50%;
+      transition: stroke-dashoffset 1s linear;
+    }
+
+    .timer-ring-fg.break circle {
+      stroke: var(--stone-400);
+    }
+
+    .timer-display {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.25rem;
+    }
+
+    .timer-digits {
+      font-size: 2.25rem;
+      font-weight: 600;
+      color: var(--stone-800);
+      letter-spacing: 0.02em;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .timer-mode-label {
+      font-size: 0.5625rem;
+      font-weight: 600;
+      color: var(--stone-400);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .timer-mode-label.work { color: var(--stone-600); }
+
+    .timer-controls {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+    }
+
+    .timer-session-counter {
+      font-size: 0.5625rem;
+      font-weight: 500;
+      color: var(--stone-400);
+      margin-top: 0.25rem;
+    }
+
+    /* ── Settings inline form ── */
+    .settings-row {
+      padding: 0.5rem 0.75rem;
+      border-top: 1px solid var(--stone-100);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem 0.75rem;
+      align-items: center;
+      flex-shrink: 0;
+    }
+
+    .settings-field {
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+    }
+
+    .settings-field label {
+      font-size: 0.5rem;
+      font-weight: 500;
+      color: var(--stone-400);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      white-space: nowrap;
+    }
+
+    .settings-field input {
+      width: 2.5rem;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.625rem;
+      padding: 0.2rem 0.3rem;
+      border: 1px solid var(--stone-200);
+      border-radius: 0.25rem;
+      background: var(--white);
+      color: var(--stone-800);
+      outline: none;
+      text-align: center;
+      transition: all 150ms;
+    }
+
+    .settings-field input:focus {
+      border-color: var(--stone-400);
+      box-shadow: 0 0 0 2px var(--stone-100);
+    }
+
+    /* ── Tasks Panel ── */
+    .tasks-panel {
+      flex: 1;
+      min-width: 200px;
+    }
+
+    .task-list {
+      padding: 0.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+
+    .task-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.45rem 0.5rem;
+      border: 1px solid transparent;
+      border-radius: 0.375rem;
+      transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+      cursor: pointer;
+      position: relative;
+    }
+
+    .task-row:hover {
+      border-color: var(--stone-200);
+      background: var(--stone-50);
+    }
+
+    .task-row.selected {
+      background: var(--stone-100);
+      border-color: var(--stone-200);
+    }
+
+    .task-row.selected::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 25%;
+      bottom: 25%;
+      width: 2px;
+      background: var(--stone-800);
+      border-radius: 1px;
+    }
+
+    .task-checkbox {
+      width: 14px;
+      height: 14px;
+      flex-shrink: 0;
+      border: 1.5px solid var(--stone-300);
+      border-radius: 3px;
+      background: var(--white);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 150ms;
+      padding: 0;
+    }
+
+    .task-checkbox:hover { border-color: var(--stone-500); }
+
+    .task-checkbox.checked {
+      background: var(--stone-800);
+      border-color: var(--stone-800);
+    }
+
+    .task-checkbox.checked svg { display: block; }
+    .task-checkbox svg { display: none; }
+
+    .task-name {
+      flex: 1;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      color: var(--stone-800);
+      line-height: 1.4;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .task-name.completed {
+      text-decoration: line-through;
+      color: var(--stone-400);
+    }
+
+    .task-name-input {
+      flex: 1;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      padding: 0.15rem 0.35rem;
+      border: 1px solid var(--stone-300);
+      border-radius: 0.25rem;
+      background: var(--white);
+      color: var(--stone-800);
+      outline: none;
+      min-width: 0;
+      transition: all 150ms;
+    }
+
+    .task-name-input:focus {
+      border-color: var(--stone-400);
+      box-shadow: 0 0 0 2px var(--stone-100);
+    }
+
+    .task-actions {
+      display: flex;
+      gap: 0.15rem;
+      opacity: 0;
+      transition: opacity 150ms;
+      flex-shrink: 0;
+    }
+
+    .task-row:hover .task-actions { opacity: 1; }
+
+    .task-action-btn {
+      padding: 0.2rem;
+      color: var(--stone-400);
+      background: none;
+      border: none;
+      border-radius: 0.25rem;
+      cursor: pointer;
+      transition: all 150ms;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .task-action-btn:hover { color: var(--stone-600); background: var(--stone-100); }
+    .task-action-btn.delete:hover { color: var(--red-500); background: var(--red-50); }
+
+    /* ── Add Task Input ── */
+    .add-task-area {
+      padding: 0.5rem 0.75rem 0.75rem;
+      border-top: 1px solid var(--stone-100);
+      flex-shrink: 0;
+    }
+
+    .add-task-input {
+      width: 100%;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.625rem;
+      padding: 0.4rem 0.5rem;
+      border: 1px solid var(--stone-200);
+      border-radius: 0.25rem;
+      background: var(--white);
+      color: var(--stone-800);
+      outline: none;
+      transition: all 150ms;
+    }
+
+    .add-task-input::placeholder { color: var(--stone-400); }
+    .add-task-input:focus { border-color: var(--stone-400); box-shadow: 0 0 0 2px var(--stone-100); }
+
+    /* ── Sessions Panel ── */
+    .sessions-panel {
+      flex: 1;
+      min-width: 200px;
+    }
+
+    .session-list {
+      padding: 0.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.3rem;
+    }
+
+    .session-entry {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.4rem 0.5rem;
+      border: 1px solid transparent;
+      border-radius: 0.375rem;
+      transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+      position: relative;
+    }
+
+    .session-entry:hover {
+      border-color: var(--stone-200);
+      background: var(--stone-50);
+    }
+
+    .session-type-badge {
+      font-size: 0.5rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 0.1rem 0.35rem;
+      border-radius: 0.2rem;
+      flex-shrink: 0;
+      min-width: 2.5rem;
+      text-align: center;
+    }
+
+    .session-type-badge.work {
+      background: var(--stone-800);
+      color: var(--white);
+    }
+
+    .session-type-badge.break {
+      background: var(--stone-200);
+      color: var(--stone-600);
+    }
+
+    .session-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .session-task-name {
+      font-size: 0.625rem;
+      font-weight: 500;
+      color: var(--stone-700);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .session-meta {
+      font-size: 0.5rem;
+      color: var(--stone-400);
+      font-style: italic;
+    }
+
+    .session-delete-btn {
+      padding: 0.2rem;
+      color: var(--stone-400);
+      background: none;
+      border: none;
+      border-radius: 0.25rem;
+      cursor: pointer;
+      transition: all 150ms;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      flex-shrink: 0;
+    }
+
+    .session-entry:hover .session-delete-btn { opacity: 1; }
+    .session-delete-btn:hover { color: var(--red-500); background: var(--red-50); }
+
+    /* ── Buttons ── */
+    .btn-primary {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.625rem;
+      font-weight: 500;
+      padding: 0.35rem 0.75rem;
+      background: var(--stone-800);
+      color: var(--white);
+      border: none;
+      border-radius: 0.25rem;
+      cursor: pointer;
+      transition: all 150ms;
+    }
+
+    .btn-primary:hover { background: var(--stone-700); }
+
+    .btn-secondary {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.625rem;
+      font-weight: 500;
+      padding: 0.35rem 0.75rem;
+      background: none;
+      color: var(--stone-600);
+      border: 1px solid var(--stone-200);
+      border-radius: 0.25rem;
+      cursor: pointer;
+      transition: all 150ms;
+    }
+
+    .btn-secondary:hover { border-color: var(--stone-300); background: var(--stone-100); }
+
+    .btn-icon {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.625rem;
+      font-weight: 500;
+      padding: 0.35rem;
+      background: none;
+      color: var(--stone-500);
+      border: 1px solid var(--stone-200);
+      border-radius: 0.25rem;
+      cursor: pointer;
+      transition: all 150ms;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .btn-icon:hover { border-color: var(--stone-300); background: var(--stone-100); color: var(--stone-700); }
+
+    .clear-all-btn {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.5625rem;
+      font-weight: 500;
+      color: var(--stone-400);
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 0.15rem 0.35rem;
+      border-radius: 0.25rem;
+      transition: all 150ms;
+    }
+
+    .clear-all-btn:hover { color: var(--red-500); background: var(--red-50); }
+
+    /* ── API Log Panel ── */
+    .log-panel {
+      flex-shrink: 0;
+      border-top: 1px solid var(--stone-200);
+      background: var(--white);
+      transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .log-panel.collapsed .log-body { display: none; }
+
+    .log-header {
+      padding: 0.5rem 1rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .log-header:hover { background: var(--stone-50); }
+
+    .log-header-left {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .log-label {
+      font-size: 0.5625rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--stone-500);
+    }
+
+    .log-count {
+      font-size: 0.5625rem;
+      font-weight: 500;
+      color: var(--stone-400);
+    }
+
+    .log-chevron {
+      transition: transform 200ms;
+      color: var(--stone-400);
+    }
+
+    .log-panel.collapsed .log-chevron { transform: rotate(180deg); }
+
+    .log-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .log-clear-btn {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.5625rem;
+      font-weight: 500;
+      color: var(--stone-400);
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 0.15rem 0.35rem;
+      border-radius: 0.25rem;
+      transition: all 150ms;
+    }
+
+    .log-clear-btn:hover { color: var(--stone-600); background: var(--stone-100); }
+
+    .log-body {
+      max-height: 180px;
+      overflow-y: auto;
+      border-top: 1px solid var(--stone-100);
+    }
+
+    .log-entry {
+      display: flex;
+      align-items: center;
+      gap: 0.625rem;
+      padding: 0.3rem 1rem;
+      font-size: 0.625rem;
+      border-bottom: 1px solid var(--stone-50);
+      transition: background 150ms;
+    }
+
+    .log-entry:hover { background: var(--stone-50); }
+
+    .log-method {
+      font-weight: 600;
+      font-size: 0.5625rem;
+      padding: 0.1rem 0.35rem;
+      border-radius: 0.2rem;
+      color: var(--white);
+      text-transform: uppercase;
+      flex-shrink: 0;
+      min-width: 3.5rem;
+      text-align: center;
+      letter-spacing: 0.03em;
+    }
+
+    .log-method.GET    { background: var(--log-get); }
+    .log-method.POST   { background: var(--log-post); }
+    .log-method.PATCH  { background: var(--log-patch); }
+    .log-method.PUT    { background: var(--log-put); }
+    .log-method.DELETE { background: var(--log-delete); }
+
+    .log-path {
+      flex: 1;
+      color: var(--stone-600);
+      font-size: 0.625rem;
+      font-weight: 400;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .log-status {
+      font-size: 0.5625rem;
+      font-weight: 500;
+      color: var(--stone-500);
+      flex-shrink: 0;
+    }
+
+    .log-status.error { color: var(--red-500); }
+
+    .log-duration {
+      font-size: 0.5625rem;
+      color: var(--stone-400);
+      flex-shrink: 0;
+      min-width: 3rem;
+      text-align: right;
+    }
+
+    .log-time {
+      font-size: 0.5rem;
+      color: var(--stone-400);
+      flex-shrink: 0;
+      min-width: 4.5rem;
+      text-align: right;
+      font-style: italic;
+    }
+
+    /* ── Empty state ── */
+    .empty-state {
+      font-size: 0.5625rem;
+      color: var(--stone-400);
+      text-align: center;
+      padding: 1rem 0.5rem;
+      font-style: italic;
+    }
+
+    /* ── Loading / Error ── */
+    .loading-state {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--stone-400);
+      font-size: 0.75rem;
+    }
+
+    .error-banner {
+      padding: 0.5rem 1rem;
+      background: var(--red-50);
+      color: var(--red-500);
+      font-size: 0.625rem;
+      font-weight: 500;
+      text-align: center;
+      border-bottom: 1px solid var(--stone-200);
+      display: none;
+    }
+
+    .error-banner.visible { display: block; }
+
+    /* ── Screen-reader only ── */
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0,0,0,0);
+      white-space: nowrap;
+      border: 0;
+    }
+  </style>
+</head>
+<body>
+  <div id="error-banner" class="error-banner" role="alert"></div>
+
+  <header class="app-header">
+    <input
+      id="app-title"
+      class="app-title"
+      type="text"
+      readonly
+      aria-label="App title — click to edit"
+      title="Click to rename (PATCH)"
+    >
+    <span class="app-subtitle">mahpastes json api</span>
+  </header>
+
+  <main class="main-content" id="main-content" role="main">
+    <div class="loading-state" id="loading">Loading timer...</div>
+  </main>
+
+  <footer class="log-panel" id="log-panel" role="log" aria-label="API request log">
+    <div class="log-header" id="log-header">
+      <div class="log-header-left">
+        <span class="log-label">API Log</span>
+        <span class="log-count" id="log-count">0 calls</span>
+      </div>
+      <div class="log-header-actions">
+        <button class="log-clear-btn" id="log-clear" title="Clear log" onclick="event.stopPropagation()">Clear</button>
+        <svg class="log-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="18 15 12 9 6 15"></polyline>
+        </svg>
+      </div>
+    </div>
+    <div class="log-body" id="log-body"></div>
+  </footer>
+
+  <!-- Live region for screen readers to announce timer updates -->
+  <div id="timer-live" class="sr-only" aria-live="assertive" aria-atomic="true"></div>
+
+  <script>
+    'use strict';
+
+    // ── Text escaping to prevent XSS ──
+    const ESC_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+    const esc = (s) => s == null ? '' : String(s).replace(/[&<>"']/g, (c) => ESC_MAP[c]);
+
+    // ── API Client ──
+    const API_BASE = '/_api/pomodoro';
+    const logEntries = [];
+
+    const api = {
+      async request(method, path, body) {
+        const url = API_BASE + (path ? '/' + path : '');
+        const start = performance.now();
+        const opts = { method, credentials: 'same-origin' };
+        if (body !== undefined) {
+          opts.headers = { 'Content-Type': 'application/json' };
+          opts.body = JSON.stringify(body);
+        }
+        let res;
+        try {
+          res = await fetch(url, opts);
+        } catch (err) {
+          const ms = Math.round(performance.now() - start);
+          logApiCall(method, url, 0, ms);
+          throw new Error('Network error: ' + err.message);
+        }
+        const ms = Math.round(performance.now() - start);
+        const data = res.status !== 204 ? await res.json().catch(() => null) : null;
+        logApiCall(method, url, res.status, ms);
+        if (!res.ok) throw new Error(data?.error || res.statusText);
+        return data;
+      },
+      get:    (p) => api.request('GET', p),
+      post:   (p, b) => api.request('POST', p, b),
+      put:    (p, b) => api.request('PUT', p, b),
+      patch:  (p, b) => api.request('PATCH', p, b),
+      delete: (p) => api.request('DELETE', p),
+    };
+
+    // ── API Log Panel ──
+    const logBody = document.getElementById('log-body');
+    const logCountEl = document.getElementById('log-count');
+    const logPanel = document.getElementById('log-panel');
+    const logHeader = document.getElementById('log-header');
+    const logClear = document.getElementById('log-clear');
+
+    function logApiCall(method, url, status, ms) {
+      const entry = { method, url, status, ms, time: new Date() };
+      logEntries.push(entry);
+      renderLogEntry(entry);
+      logCountEl.textContent = logEntries.length + ' call' + (logEntries.length !== 1 ? 's' : '');
+    }
+
+    function renderLogEntry(entry) {
+      const row = document.createElement('div');
+      row.className = 'log-entry';
+      const statusClass = entry.status >= 400 || entry.status === 0 ? ' error' : '';
+      const timeStr = entry.time.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      row.innerHTML = `
+        <span class="log-method ${esc(entry.method)}">${esc(entry.method)}</span>
+        <span class="log-path" title="${esc(entry.url)}">${esc(entry.url)}</span>
+        <span class="log-status${statusClass}">${entry.status || 'ERR'}</span>
+        <span class="log-duration">${entry.ms}ms</span>
+        <span class="log-time">${timeStr}</span>
+      `;
+      logBody.appendChild(row);
+      logBody.scrollTop = logBody.scrollHeight;
+    }
+
+    logHeader.addEventListener('click', () => {
+      logPanel.classList.toggle('collapsed');
+    });
+
+    logClear.addEventListener('click', () => {
+      logEntries.length = 0;
+      logBody.innerHTML = '';
+      logCountEl.textContent = '0 calls';
+    });
+
+    // ── Error Banner ──
+    const errorBanner = document.getElementById('error-banner');
+
+    function showError(msg) {
+      errorBanner.textContent = msg;
+      errorBanner.classList.add('visible');
+      setTimeout(() => errorBanner.classList.remove('visible'), 4000);
+    }
+
+    // ── SVG Icons ──
+    const icons = {
+      play: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>`,
+      pause: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>`,
+      reset: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>`,
+      skip: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>`,
+      check: `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`,
+      edit: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`,
+      trash: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>`,
+      x: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
+    };
+
+    // ── App State ──
+    let appData = null;
+    let selectedTaskId = null;
+    let editingTaskId = null;
+
+    // Timer state (client-side only)
+    let timerSeconds = 0;
+    let timerTotal = 0;
+    let timerRunning = false;
+    let timerInterval = null;
+    let timerMode = 'work';       // 'work', 'break', 'longBreak'
+    let pomodoroCount = 0;
+
+    // ── Ring circumference constant ──
+    const RING_RADIUS = 68;
+    const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
+
+    // ── Timer Helpers ──
+    function getModeDuration() {
+      if (!appData) return 25 * 60;
+      const s = appData.settings;
+      if (timerMode === 'work') return (s.workMinutes || 25) * 60;
+      if (timerMode === 'break') return (s.breakMinutes || 5) * 60;
+      return (s.longBreakMinutes || 15) * 60;
+    }
+
+    function getModeLabel() {
+      if (timerMode === 'work') return 'Work';
+      if (timerMode === 'break') return 'Break';
+      return 'Long Break';
+    }
+
+    function formatTime(totalSec) {
+      const m = Math.floor(totalSec / 60);
+      const s = totalSec % 60;
+      return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+    }
+
+    function resetTimerToMode() {
+      timerTotal = getModeDuration();
+      timerSeconds = timerTotal;
+      stopTimer();
+    }
+
+    function startTimer() {
+      if (timerRunning) return;
+      timerRunning = true;
+      timerInterval = setInterval(tick, 1000);
+      renderTimerControls();
+    }
+
+    function stopTimer() {
+      timerRunning = false;
+      if (timerInterval) {
+        clearInterval(timerInterval);
+        timerInterval = null;
+      }
+      renderTimerControls();
+    }
+
+    function tick() {
+      if (timerSeconds <= 0) {
+        onTimerComplete();
+        return;
+      }
+      timerSeconds--;
+      renderTimerDisplay();
+
+      // Announce to screen reader every 60 seconds and at 10s, 5s, 0s
+      if (timerSeconds % 60 === 0 || timerSeconds === 10 || timerSeconds === 5) {
+        const liveEl = document.getElementById('timer-live');
+        if (liveEl) liveEl.textContent = formatTime(timerSeconds) + ' remaining, ' + getModeLabel() + ' session';
+      }
+    }
+
+    async function onTimerComplete() {
+      stopTimer();
+      timerSeconds = 0;
+      renderTimerDisplay();
+
+      if (timerMode === 'work') {
+        pomodoroCount++;
+
+        // Log the completed work session via POST
+        const taskId = selectedTaskId;
+        const duration = appData ? appData.settings.workMinutes : 25;
+        try {
+          await api.post('sessions', {
+            taskId: taskId || null,
+            type: 'work',
+            duration: duration,
+            completedAt: new Date().toISOString(),
+          });
+          await reloadData();
+        } catch (err) {
+          showError('Failed to log session: ' + err.message);
+        }
+
+        // Decide next mode
+        const longBreakAfter = appData ? appData.settings.longBreakAfter : 4;
+        if (pomodoroCount % longBreakAfter === 0) {
+          timerMode = 'longBreak';
+        } else {
+          timerMode = 'break';
+        }
+      } else {
+        // Break or long break finished, switch back to work
+        timerMode = 'work';
+      }
+
+      resetTimerToMode();
+      renderTimerDisplay();
+      renderTimerControls();
+      renderSessionCounter();
+    }
+
+    function skipTimer() {
+      // Immediately complete the current timer phase
+      timerSeconds = 0;
+      onTimerComplete();
+    }
+
+    function fullReset() {
+      timerMode = 'work';
+      pomodoroCount = 0;
+      resetTimerToMode();
+      renderTimerDisplay();
+      renderTimerControls();
+      renderSessionCounter();
+    }
+
+    // ── Render Functions ──
+    function render() {
+      if (!appData) return;
+
+      // Title
+      const titleEl = document.getElementById('app-title');
+      titleEl.value = appData.title || 'Untitled';
+
+      // Main content
+      const main = document.getElementById('main-content');
+      const loading = document.getElementById('loading');
+      if (loading) loading.remove();
+
+      main.innerHTML = '';
+
+      // Timer Panel
+      main.appendChild(renderTimerPanel());
+
+      // Tasks Panel
+      main.appendChild(renderTasksPanel());
+
+      // Sessions Panel
+      main.appendChild(renderSessionsPanel());
+
+      // Initialize timer display
+      if (timerTotal === 0) {
+        resetTimerToMode();
+      }
+      renderTimerDisplay();
+      renderTimerControls();
+      renderSessionCounter();
+    }
+
+    function renderTimerPanel() {
+      const panel = document.createElement('section');
+      panel.className = 'panel timer-panel';
+      panel.setAttribute('aria-label', 'Pomodoro timer');
+
+      const header = document.createElement('div');
+      header.className = 'panel-header';
+      header.innerHTML = `<span class="panel-title">Timer</span>`;
+      panel.appendChild(header);
+
+      const body = document.createElement('div');
+      body.className = 'timer-body';
+
+      // Task label above timer
+      const taskLabel = document.createElement('div');
+      taskLabel.className = 'timer-task-label';
+      taskLabel.id = 'timer-task-label';
+      const selectedTask = selectedTaskId ? (appData.tasks || []).find(t => t.id === selectedTaskId) : null;
+      if (selectedTask) {
+        taskLabel.textContent = selectedTask.name;
+        taskLabel.classList.add('active');
+      } else {
+        taskLabel.textContent = 'No task selected';
+      }
+      body.appendChild(taskLabel);
+
+      // Timer ring
+      const ringWrapper = document.createElement('div');
+      ringWrapper.className = 'timer-ring-wrapper';
+      ringWrapper.innerHTML = `
+        <svg class="timer-ring-bg" viewBox="0 0 160 160">
+          <circle cx="80" cy="80" r="${RING_RADIUS}"/>
+        </svg>
+        <svg class="timer-ring-fg ${timerMode !== 'work' ? 'break' : ''}" id="timer-ring-fg" viewBox="0 0 160 160">
+          <circle cx="80" cy="80" r="${RING_RADIUS}"
+            stroke-dasharray="${RING_CIRCUMFERENCE}"
+            stroke-dashoffset="0"
+            id="timer-ring-circle"/>
+        </svg>
+        <div class="timer-display">
+          <span class="timer-digits" id="timer-digits" aria-label="Time remaining">--:--</span>
+          <span class="timer-mode-label ${timerMode === 'work' ? 'work' : ''}" id="timer-mode-label">${esc(getModeLabel())}</span>
+        </div>
+      `;
+      body.appendChild(ringWrapper);
+
+      // Controls
+      const controls = document.createElement('div');
+      controls.className = 'timer-controls';
+      controls.id = 'timer-controls';
+      body.appendChild(controls);
+
+      // Session counter
+      const counter = document.createElement('div');
+      counter.className = 'timer-session-counter';
+      counter.id = 'timer-session-counter';
+      body.appendChild(counter);
+
+      panel.appendChild(body);
+
+      // Settings row
+      const settings = appData.settings || {};
+      const settingsRow = document.createElement('div');
+      settingsRow.className = 'settings-row';
+      settingsRow.innerHTML = `
+        <div class="settings-field">
+          <label for="setting-work">Work</label>
+          <input id="setting-work" type="number" min="1" max="90" value="${settings.workMinutes || 25}" aria-label="Work duration in minutes" title="PATCH settings.workMinutes">
+        </div>
+        <div class="settings-field">
+          <label for="setting-break">Break</label>
+          <input id="setting-break" type="number" min="1" max="30" value="${settings.breakMinutes || 5}" aria-label="Break duration in minutes" title="PATCH settings.breakMinutes">
+        </div>
+        <div class="settings-field">
+          <label for="setting-long">Long</label>
+          <input id="setting-long" type="number" min="1" max="60" value="${settings.longBreakMinutes || 15}" aria-label="Long break duration in minutes" title="PATCH settings.longBreakMinutes">
+        </div>
+        <div class="settings-field">
+          <label for="setting-cycle">Cycle</label>
+          <input id="setting-cycle" type="number" min="2" max="10" value="${settings.longBreakAfter || 4}" aria-label="Work sessions before long break" title="PATCH settings.longBreakAfter">
+        </div>
+      `;
+      panel.appendChild(settingsRow);
+
+      // Settings change handlers
+      const settingInputs = settingsRow.querySelectorAll('input');
+      settingInputs.forEach(input => {
+        input.addEventListener('change', () => handleSettingsChange());
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+        });
+      });
+
+      return panel;
+    }
+
+    function renderTimerDisplay() {
+      const digits = document.getElementById('timer-digits');
+      const modeLabel = document.getElementById('timer-mode-label');
+      const ringCircle = document.getElementById('timer-ring-circle');
+      const ringFg = document.getElementById('timer-ring-fg');
+
+      if (!digits) return;
+
+      digits.textContent = formatTime(timerSeconds);
+
+      if (modeLabel) {
+        modeLabel.textContent = getModeLabel();
+        modeLabel.className = 'timer-mode-label' + (timerMode === 'work' ? ' work' : '');
+      }
+
+      if (ringCircle && timerTotal > 0) {
+        const progress = timerSeconds / timerTotal;
+        const offset = RING_CIRCUMFERENCE * (1 - progress);
+        ringCircle.setAttribute('stroke-dashoffset', String(offset));
+      }
+
+      if (ringFg) {
+        ringFg.className = 'timer-ring-fg' + (timerMode !== 'work' ? ' break' : '');
+      }
+    }
+
+    function renderTimerControls() {
+      const controls = document.getElementById('timer-controls');
+      if (!controls) return;
+
+      controls.innerHTML = '';
+
+      if (timerRunning) {
+        // Pause button
+        const pauseBtn = document.createElement('button');
+        pauseBtn.className = 'btn-secondary';
+        pauseBtn.innerHTML = icons.pause + ' <span>Pause</span>';
+        pauseBtn.setAttribute('aria-label', 'Pause timer');
+        pauseBtn.title = 'Pause timer (Space)';
+        pauseBtn.addEventListener('click', stopTimer);
+        controls.appendChild(pauseBtn);
+      } else {
+        // Start button
+        const startBtn = document.createElement('button');
+        startBtn.className = 'btn-primary';
+        startBtn.innerHTML = icons.play + ' <span>Start</span>';
+        startBtn.setAttribute('aria-label', 'Start timer');
+        startBtn.title = 'Start timer (Space)';
+        startBtn.addEventListener('click', startTimer);
+        controls.appendChild(startBtn);
+      }
+
+      // Skip button
+      const skipBtn = document.createElement('button');
+      skipBtn.className = 'btn-icon';
+      skipBtn.innerHTML = icons.skip;
+      skipBtn.setAttribute('aria-label', 'Skip to next phase');
+      skipBtn.title = 'Skip to next phase';
+      skipBtn.addEventListener('click', skipTimer);
+      controls.appendChild(skipBtn);
+
+      // Reset button
+      const resetBtn = document.createElement('button');
+      resetBtn.className = 'btn-icon';
+      resetBtn.innerHTML = icons.reset;
+      resetBtn.setAttribute('aria-label', 'Reset timer');
+      resetBtn.title = 'Reset all progress';
+      resetBtn.addEventListener('click', fullReset);
+      controls.appendChild(resetBtn);
+    }
+
+    function renderSessionCounter() {
+      const counter = document.getElementById('timer-session-counter');
+      if (!counter) return;
+      const longBreakAfter = appData ? appData.settings.longBreakAfter : 4;
+      const current = (pomodoroCount % longBreakAfter) + (timerMode === 'work' ? 1 : 0);
+      counter.textContent = 'Pomodoro ' + Math.min(current, longBreakAfter) + ' of ' + longBreakAfter;
+    }
+
+    function renderTasksPanel() {
+      const panel = document.createElement('section');
+      panel.className = 'panel tasks-panel';
+      panel.setAttribute('aria-label', 'Task list');
+
+      const tasks = appData.tasks || [];
+      const activeTasks = tasks.filter(t => !t.completed);
+      const completedTasks = tasks.filter(t => t.completed);
+
+      const header = document.createElement('div');
+      header.className = 'panel-header';
+      header.innerHTML = `
+        <span class="panel-title">Tasks</span>
+        <span class="panel-count">${tasks.length}</span>
+      `;
+      panel.appendChild(header);
+
+      const body = document.createElement('div');
+      body.className = 'panel-body';
+
+      if (tasks.length === 0) {
+        body.innerHTML = '<div class="empty-state">No tasks yet</div>';
+      } else {
+        const list = document.createElement('div');
+        list.className = 'task-list';
+
+        // Active tasks first, then completed
+        for (const task of activeTasks) {
+          list.appendChild(renderTaskRow(task));
+        }
+        for (const task of completedTasks) {
+          list.appendChild(renderTaskRow(task));
+        }
+
+        body.appendChild(list);
+      }
+
+      panel.appendChild(body);
+
+      // Add task input
+      const addArea = document.createElement('div');
+      addArea.className = 'add-task-area';
+      addArea.innerHTML = `<input
+        class="add-task-input"
+        type="text"
+        placeholder="Add task... (Enter)"
+        aria-label="New task name"
+        title="Press Enter to POST a new task"
+      >`;
+      const addInput = addArea.querySelector('.add-task-input');
+      addInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && addInput.value.trim()) {
+          addTask(addInput.value.trim());
+          addInput.value = '';
+        }
+        if (e.key === 'Escape') {
+          addInput.value = '';
+          addInput.blur();
+        }
+      });
+      panel.appendChild(addArea);
+
+      return panel;
+    }
+
+    function renderTaskRow(task) {
+      const row = document.createElement('div');
+      row.className = 'task-row' + (selectedTaskId === task.id ? ' selected' : '');
+      row.dataset.taskId = task.id;
+
+      // If editing this task, show inline rename input
+      if (editingTaskId === task.id) {
+        row.innerHTML = `
+          <button class="task-checkbox ${task.completed ? 'checked' : ''}" aria-label="Toggle completed" title="PATCH task completed">${icons.check}</button>
+          <input class="task-name-input" type="text" value="${esc(task.name)}" aria-label="Edit task name" />
+          <div class="task-actions" style="opacity:1">
+            <button class="task-action-btn" aria-label="Cancel edit" title="Cancel">${icons.x}</button>
+          </div>
+        `;
+
+        const nameInput = row.querySelector('.task-name-input');
+        const cancelBtn = row.querySelector('.task-action-btn');
+
+        nameInput.addEventListener('keydown', async (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            const newName = nameInput.value.trim();
+            if (newName && newName !== task.name) {
+              await renameTask(task.id, newName);
+            }
+            editingTaskId = null;
+            await reloadData();
+          }
+          if (e.key === 'Escape') {
+            editingTaskId = null;
+            reloadData();
+          }
+        });
+
+        nameInput.addEventListener('blur', () => {
+          // Small delay so click on cancel still fires
+          setTimeout(() => {
+            if (editingTaskId === task.id) {
+              editingTaskId = null;
+              reloadData();
+            }
+          }, 150);
+        });
+
+        cancelBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          editingTaskId = null;
+          reloadData();
+        });
+
+        // Focus the input after it's in the DOM
+        requestAnimationFrame(() => {
+          nameInput.focus();
+          nameInput.select();
+        });
+      } else {
+        row.innerHTML = `
+          <button class="task-checkbox ${task.completed ? 'checked' : ''}" aria-label="${task.completed ? 'Mark as incomplete' : 'Mark as complete'}" title="PATCH task completed">${icons.check}</button>
+          <span class="task-name ${task.completed ? 'completed' : ''}">${esc(task.name)}</span>
+          <div class="task-actions">
+            <button class="task-action-btn edit" title="Rename task (PATCH)" aria-label="Rename task">${icons.edit}</button>
+            <button class="task-action-btn delete" title="Delete task (DELETE)" aria-label="Delete task">${icons.trash}</button>
+          </div>
+        `;
+
+        // Click row to select task for the timer
+        row.addEventListener('click', (e) => {
+          // Don't select if clicking buttons
+          if (e.target.closest('.task-checkbox') || e.target.closest('.task-action-btn')) return;
+          selectTask(task.id);
+        });
+
+        // Checkbox toggle
+        const checkbox = row.querySelector('.task-checkbox');
+        checkbox.addEventListener('click', (e) => {
+          e.stopPropagation();
+          toggleTaskCompleted(task.id, !task.completed);
+        });
+
+        // Edit button
+        const editBtn = row.querySelector('.task-action-btn.edit');
+        editBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          editingTaskId = task.id;
+          reloadData();
+        });
+
+        // Delete button
+        const deleteBtn = row.querySelector('.task-action-btn.delete');
+        deleteBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          deleteTask(task.id);
+        });
+      }
+
+      return row;
+    }
+
+    function renderSessionsPanel() {
+      const panel = document.createElement('section');
+      panel.className = 'panel sessions-panel';
+      panel.setAttribute('aria-label', 'Session log');
+
+      const sessions = appData.sessions || [];
+
+      const header = document.createElement('div');
+      header.className = 'panel-header';
+      header.innerHTML = `
+        <span class="panel-title">Session Log</span>
+        <span class="panel-count">${sessions.length}</span>
+      `;
+
+      if (sessions.length > 0) {
+        const clearBtn = document.createElement('button');
+        clearBtn.className = 'clear-all-btn';
+        clearBtn.textContent = 'Clear all';
+        clearBtn.title = 'DELETE all sessions one by one';
+        clearBtn.setAttribute('aria-label', 'Clear all sessions');
+        clearBtn.addEventListener('click', clearAllSessions);
+        header.appendChild(clearBtn);
+      }
+
+      panel.appendChild(header);
+
+      const body = document.createElement('div');
+      body.className = 'panel-body';
+
+      if (sessions.length === 0) {
+        body.innerHTML = '<div class="empty-state">No sessions logged yet</div>';
+      } else {
+        const list = document.createElement('div');
+        list.className = 'session-list';
+
+        // Newest first
+        const sorted = [...sessions].sort((a, b) => {
+          const dateA = a.completedAt ? new Date(a.completedAt) : 0;
+          const dateB = b.completedAt ? new Date(b.completedAt) : 0;
+          return dateB - dateA;
+        });
+
+        for (const session of sorted) {
+          list.appendChild(renderSessionEntry(session));
+        }
+
+        body.appendChild(list);
+      }
+
+      panel.appendChild(body);
+
+      return panel;
+    }
+
+    function renderSessionEntry(session) {
+      const entry = document.createElement('div');
+      entry.className = 'session-entry';
+
+      // Find the task name for this session
+      const task = session.taskId ? (appData.tasks || []).find(t => t.id === session.taskId) : null;
+      const taskName = task ? task.name : (session.taskId ? 'Deleted task' : 'No task');
+      const duration = session.duration || 0;
+      const completedAt = session.completedAt ? new Date(session.completedAt) : null;
+
+      let timeStr = '';
+      if (completedAt) {
+        const now = new Date();
+        const diffMs = now - completedAt;
+        const diffHrs = Math.floor(diffMs / 3600000);
+        const diffDays = Math.floor(diffMs / 86400000);
+
+        if (diffDays > 0) {
+          timeStr = diffDays + 'd ago';
+        } else if (diffHrs > 0) {
+          timeStr = diffHrs + 'h ago';
+        } else {
+          const diffMins = Math.floor(diffMs / 60000);
+          timeStr = diffMins <= 0 ? 'Just now' : diffMins + 'm ago';
+        }
+      }
+
+      const badgeClass = session.type === 'work' ? 'work' : 'break';
+
+      entry.innerHTML = `
+        <span class="session-type-badge ${esc(badgeClass)}">${esc(session.type || 'work')}</span>
+        <div class="session-info">
+          <div class="session-task-name">${esc(taskName)}</div>
+          <div class="session-meta">${duration}min &middot; ${esc(timeStr)}</div>
+        </div>
+        <button class="session-delete-btn" title="Delete session (DELETE)" aria-label="Delete session">${icons.trash}</button>
+      `;
+
+      const deleteBtn = entry.querySelector('.session-delete-btn');
+      deleteBtn.addEventListener('click', () => deleteSession(session.id));
+
+      return entry;
+    }
+
+    // ── App Title Editing ──
+    const appTitleEl = document.getElementById('app-title');
+
+    appTitleEl.addEventListener('click', () => {
+      appTitleEl.removeAttribute('readonly');
+      appTitleEl.focus();
+      appTitleEl.select();
+    });
+
+    appTitleEl.addEventListener('blur', async () => {
+      appTitleEl.setAttribute('readonly', '');
+      const newTitle = appTitleEl.value.trim();
+      if (!newTitle || newTitle === appData?.title) return;
+      try {
+        await api.patch('', { title: newTitle });
+        await reloadData();
+      } catch (err) {
+        showError('Failed to rename: ' + err.message);
+        appTitleEl.value = appData?.title || '';
+      }
+    });
+
+    appTitleEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); appTitleEl.blur(); }
+      if (e.key === 'Escape') { appTitleEl.value = appData?.title || ''; appTitleEl.blur(); }
+    });
+
+    // ── Task Actions ──
+    function selectTask(taskId) {
+      selectedTaskId = selectedTaskId === taskId ? null : taskId;
+      renderAfterStateChange();
+    }
+
+    async function toggleTaskCompleted(taskId, completed) {
+      try {
+        await api.patch('tasks/' + taskId, { completed: completed });
+        await reloadData();
+      } catch (err) {
+        showError('Failed to update task: ' + err.message);
+      }
+    }
+
+    async function renameTask(taskId, newName) {
+      try {
+        await api.patch('tasks/' + taskId, { name: newName });
+      } catch (err) {
+        showError('Failed to rename task: ' + err.message);
+      }
+    }
+
+    async function addTask(name) {
+      try {
+        await api.post('tasks', { name: name, completed: false });
+        await reloadData();
+      } catch (err) {
+        showError('Failed to add task: ' + err.message);
+      }
+    }
+
+    async function deleteTask(taskId) {
+      try {
+        await api.delete('tasks/' + taskId);
+        if (selectedTaskId === taskId) selectedTaskId = null;
+        await reloadData();
+      } catch (err) {
+        showError('Failed to delete task: ' + err.message);
+      }
+    }
+
+    // ── Session Actions ──
+    async function deleteSession(sessionId) {
+      try {
+        await api.delete('sessions/' + sessionId);
+        await reloadData();
+      } catch (err) {
+        showError('Failed to delete session: ' + err.message);
+      }
+    }
+
+    async function clearAllSessions() {
+      const sessions = appData?.sessions || [];
+      if (sessions.length === 0) return;
+
+      for (const session of sessions) {
+        try {
+          await api.delete('sessions/' + session.id);
+        } catch (err) {
+          showError('Failed to delete session ' + session.id + ': ' + err.message);
+        }
+      }
+      await reloadData();
+    }
+
+    // ── Settings Change ──
+    async function handleSettingsChange() {
+      const workEl = document.getElementById('setting-work');
+      const breakEl = document.getElementById('setting-break');
+      const longEl = document.getElementById('setting-long');
+      const cycleEl = document.getElementById('setting-cycle');
+
+      if (!workEl || !breakEl || !longEl || !cycleEl) return;
+
+      const patch = {
+        workMinutes: parseInt(workEl.value, 10) || 25,
+        breakMinutes: parseInt(breakEl.value, 10) || 5,
+        longBreakMinutes: parseInt(longEl.value, 10) || 15,
+        longBreakAfter: parseInt(cycleEl.value, 10) || 4,
+      };
+
+      try {
+        await api.patch('settings', patch);
+        await reloadData();
+
+        // If timer isn't running, update the display to reflect new durations
+        if (!timerRunning) {
+          resetTimerToMode();
+          renderTimerDisplay();
+          renderSessionCounter();
+        }
+      } catch (err) {
+        showError('Failed to update settings: ' + err.message);
+      }
+    }
+
+    // ── Data Loading ──
+    async function reloadData() {
+      try {
+        appData = await api.get('');
+        renderAfterStateChange();
+      } catch (err) {
+        showError('Failed to load data: ' + err.message);
+        const loading = document.getElementById('loading');
+        if (loading) loading.textContent = 'Failed to load. Is the tag served with API access enabled?';
+      }
+    }
+
+    // Re-render UI while preserving timer state
+    function renderAfterStateChange() {
+      if (!appData) return;
+
+      const titleEl = document.getElementById('app-title');
+      titleEl.value = appData.title || 'Untitled';
+
+      const main = document.getElementById('main-content');
+      const loading = document.getElementById('loading');
+      if (loading) loading.remove();
+
+      main.innerHTML = '';
+      main.appendChild(renderTimerPanel());
+      main.appendChild(renderTasksPanel());
+      main.appendChild(renderSessionsPanel());
+
+      renderTimerDisplay();
+      renderTimerControls();
+      renderSessionCounter();
+    }
+
+    // ── Demonstrate reads at startup ──
+    async function demoReads() {
+      if (!appData?.tasks?.length) return;
+      // Read a single task to demonstrate deep GET path
+      try {
+        await api.get('tasks/' + appData.tasks[0].id);
+      } catch {
+        // Non-critical, just for the demo log
+      }
+    }
+
+    // ── Demonstrate PUT by replacing a task on startup ──
+    async function demoPut() {
+      if (!appData?.tasks?.length) return;
+      const task = appData.tasks[appData.tasks.length - 1];
+      try {
+        await api.put('tasks/' + task.id, {
+          name: task.name,
+          completed: task.completed,
+        });
+      } catch {
+        // Non-critical, just for the demo log
+      }
+    }
+
+    // ── Keyboard Shortcuts ──
+    document.addEventListener('keydown', (e) => {
+      // Ignore if typing in an input
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+      if (e.code === 'Space') {
+        e.preventDefault();
+        if (timerRunning) {
+          stopTimer();
+        } else {
+          startTimer();
+        }
+      }
+
+      if (e.key === 'Escape') {
+        if (timerRunning) {
+          stopTimer();
+        }
+      }
+    });
+
+    // ── Init ──
+    async function init() {
+      await reloadData();
+      await demoReads();
+      await demoPut();
+    }
+
+    init();
+  </script>
+</body>
+</html>

@@ -1,0 +1,35 @@
+{
+  "title": "Polls",
+  "polls": [
+    {
+      "id": 1,
+      "question": "What is your favorite programming language?",
+      "closed": false,
+      "options": [
+        { "id": 1, "text": "JavaScript", "votes": 8 },
+        { "id": 2, "text": "Python", "votes": 12 },
+        { "id": 3, "text": "Go", "votes": 6 },
+        { "id": 4, "text": "Rust", "votes": 4 }
+      ]
+    },
+    {
+      "id": 2,
+      "question": "Preferred code editor?",
+      "closed": false,
+      "options": [
+        { "id": 1, "text": "VS Code", "votes": 15 },
+        { "id": 2, "text": "Neovim", "votes": 7 },
+        { "id": 3, "text": "JetBrains", "votes": 9 }
+      ]
+    },
+    {
+      "id": 3,
+      "question": "Tabs or spaces?",
+      "closed": true,
+      "options": [
+        { "id": 1, "text": "Tabs", "votes": 10 },
+        { "id": 2, "text": "Spaces", "votes": 14 }
+      ]
+    }
+  ]
+}

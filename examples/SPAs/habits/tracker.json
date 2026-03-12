@@ -1,0 +1,31 @@
+{
+  "title": "Atomic Habits",
+  "habits": [
+    {
+      "id": 1,
+      "name": "Read 10 pages",
+      "identity": "I am a reader",
+      "cue": "After morning coffee"
+    },
+    {
+      "id": 2,
+      "name": "Meditate 5 min",
+      "identity": "I am mindful",
+      "cue": "After waking up"
+    },
+    {
+      "id": 3,
+      "name": "Write 100 words",
+      "identity": "I am a writer",
+      "cue": "After lunch"
+    }
+  ],
+  "log": [
+    { "id": 1, "habitId": 1, "date": "2026-03-10", "done": true },
+    { "id": 2, "habitId": 1, "date": "2026-03-09", "done": true },
+    { "id": 3, "habitId": 1, "date": "2026-03-08", "done": true },
+    { "id": 4, "habitId": 2, "date": "2026-03-10", "done": true },
+    { "id": 5, "habitId": 2, "date": "2026-03-09", "done": true },
+    { "id": 6, "habitId": 3, "date": "2026-03-10", "done": true }
+  ]
+}

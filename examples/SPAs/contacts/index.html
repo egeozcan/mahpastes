@@ -1,0 +1,1418 @@
+<!--
+  mahpastes Contacts / Address Book — JSON API Demo SPA
+
+  Setup:
+  1. Create a tag in mahpastes (e.g., "contacts")
+  2. Upload this file (index.html) into that tag
+  3. Upload contacts.json (in the same directory) into the same tag
+  4. Serve the tag with API access set to "readwrite"
+  5. Open the served URL in your browser
+
+  This address book exercises every JSON API method (GET, POST, PUT, PATCH, DELETE)
+  through deeply nested paths. Watch the API log panel at the bottom to see
+  each call as it happens.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Contacts — mahpastes</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --stone-50:  #fafaf9;
+      --stone-100: #f5f5f4;
+      --stone-200: #e7e5e4;
+      --stone-300: #d6d3d1;
+      --stone-400: #a8a29e;
+      --stone-500: #78716c;
+      --stone-600: #57534e;
+      --stone-700: #44403c;
+      --stone-800: #292524;
+      --stone-900: #1c1917;
+      --white:     #ffffff;
+      --red-500:   #ef4444;
+      --red-50:    #fef2f2;
+      /* Log-panel-only accent colors */
+      --log-get:     #78716c;
+      --log-post:    #059669;
+      --log-patch:   #d97706;
+      --log-put:     #2563eb;
+      --log-delete:  #ef4444;
+    }
+
+    html { font-size: 16px; }
+
+    body {
+      font-family: 'IBM Plex Mono', monospace;
+      background: var(--stone-50);
+      color: var(--stone-800);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--stone-300); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--stone-400); }
+
+    /* ── App Header ── */
+    .app-header {
+      padding: 1.25rem 1.5rem 1rem;
+      border-bottom: 1px solid var(--stone-200);
+      background: var(--stone-50);
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      flex-shrink: 0;
+    }
+
+    .app-title {
+      font-size: 0.875rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--stone-800);
+      cursor: pointer;
+      padding: 0.25rem 0.5rem;
+      border-radius: 0.375rem;
+      border: 1px solid transparent;
+      transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+      background: none;
+      outline: none;
+      font-family: inherit;
+    }
+
+    .app-title:hover { border-color: var(--stone-200); background: var(--white); }
+    .app-title:focus { border-color: var(--stone-400); background: var(--white); }
+
+    .app-subtitle {
+      font-size: 0.625rem;
+      font-weight: 500;
+      color: var(--stone-400);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    /* ── Two-Pane Layout ── */
+    .app-body {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+    }
+
+    /* ── Sidebar ── */
+    .sidebar {
+      width: 200px;
+      flex-shrink: 0;
+      border-right: 1px solid var(--stone-200);
+      background: var(--white);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .sidebar-header {
+      padding: 0.75rem 0.75rem 0.5rem;
+      border-bottom: 1px solid var(--stone-100);
+    }
+
+    .sidebar-label {
+      font-size: 0.5625rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--stone-500);
+    }
+
+    .sidebar-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 0.375rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.125rem;
+    }
+
+    .group-item {
+      display: flex;
+      align-items: center;
+      gap: 0.375rem;
+      padding: 0.4rem 0.5rem;
+      border-radius: 0.25rem;
+      cursor: pointer;
+      transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+      border: none;
+      background: none;
+      width: 100%;
+      text-align: left;
+      font-family: inherit;
+      position: relative;
+    }
+
+    .group-item:hover { background: var(--stone-100); }
+
+    .group-item.active {
+      background: var(--stone-800);
+      color: var(--white);
+    }
+
+    .group-item.active:hover { background: var(--stone-700); }
+
+    .group-item-name {
+      flex: 1;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: inherit;
+    }
+
+    .group-item-count {
+      font-size: 0.5625rem;
+      font-weight: 500;
+      color: var(--stone-400);
+      background: var(--stone-50);
+      border: 1px solid var(--stone-200);
+      border-radius: 9999px;
+      padding: 0.1rem 0.45rem;
+      flex-shrink: 0;
+      transition: all 150ms;
+    }
+
+    .group-item.active .group-item-count {
+      color: var(--stone-300);
+      background: var(--stone-700);
+      border-color: var(--stone-600);
+    }
+
+    .group-item-actions {
+      display: flex;
+      gap: 0.1rem;
+      opacity: 0;
+      flex-shrink: 0;
+      transition: opacity 150ms;
+    }
+
+    .group-item:hover .group-item-actions { opacity: 1; }
+    .group-item.active:hover .group-item-actions { opacity: 1; }
+
+    .group-action-btn {
+      padding: 0.15rem;
+      background: none;
+      border: none;
+      border-radius: 0.2rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 150ms;
+      color: var(--stone-400);
+    }
+
+    .group-action-btn:hover { color: var(--stone-600); background: var(--stone-100); }
+    .group-action-btn.delete:hover { color: var(--red-500); background: var(--red-50); }
+
+    .group-item.active .group-action-btn { color: var(--stone-400); }
+    .group-item.active .group-action-btn:hover { color: var(--white); background: var(--stone-600); }
+    .group-item.active .group-action-btn.delete:hover { color: var(--red-500); background: var(--red-50); }
+
+    /* ── Add Group Button ── */
+    .add-group-area {
+      padding: 0.375rem;
+      border-top: 1px solid var(--stone-100);
+    }
+
+    .add-group-btn {
+      width: 100%;
+      padding: 0.5rem;
+      border: 2px dashed var(--stone-200);
+      border-radius: 0.25rem;
+      background: none;
+      color: var(--stone-400);
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.5625rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 150ms;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.3rem;
+    }
+
+    .add-group-btn:hover {
+      border-color: var(--stone-300);
+      color: var(--stone-600);
+      background: var(--stone-50);
+    }
+
+    /* ── Group rename inline input ── */
+    .group-rename-input {
+      flex: 1;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      padding: 0.1rem 0.25rem;
+      border: 1px solid var(--stone-400);
+      border-radius: 0.2rem;
+      background: var(--white);
+      color: var(--stone-800);
+      outline: none;
+      min-width: 0;
+    }
+
+    /* ── Main Content ── */
+    .main-content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .content-header {
+      padding: 0.75rem 1rem 0.5rem;
+      border-bottom: 1px solid var(--stone-100);
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      flex-shrink: 0;
+    }
+
+    .content-header-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .content-title {
+      font-size: 0.6875rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--stone-600);
+    }
+
+    .content-count {
+      font-size: 0.5625rem;
+      font-weight: 500;
+      color: var(--stone-400);
+      background: var(--stone-50);
+      border: 1px solid var(--stone-200);
+      border-radius: 9999px;
+      padding: 0.1rem 0.45rem;
+    }
+
+    /* ── Search ── */
+    .search-input {
+      width: 100%;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.625rem;
+      padding: 0.4rem 0.5rem 0.4rem 1.75rem;
+      border: 1px solid var(--stone-200);
+      border-radius: 0.25rem;
+      background: var(--white);
+      color: var(--stone-800);
+      outline: none;
+      transition: all 150ms;
+    }
+
+    .search-input::placeholder { color: var(--stone-400); }
+    .search-input:focus { border-color: var(--stone-400); box-shadow: 0 0 0 2px var(--stone-100); }
+
+    .search-wrapper {
+      position: relative;
+    }
+
+    .search-icon {
+      position: absolute;
+      left: 0.5rem;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--stone-400);
+      pointer-events: none;
+    }
+
+    /* ── Contacts List ── */
+    .contacts-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 0.5rem 0.75rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.375rem;
+    }
+
+    .contact-card {
+      background: var(--white);
+      border: 1px solid var(--stone-200);
+      border-radius: 0.375rem;
+      padding: 0.625rem 0.75rem;
+      display: flex;
+      align-items: flex-start;
+      gap: 0.625rem;
+      transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+      position: relative;
+    }
+
+    .contact-card:hover {
+      border-color: var(--stone-300);
+      transform: scale(1.02);
+    }
+
+    .contact-avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: var(--stone-200);
+      color: var(--stone-600);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.75rem;
+      font-weight: 600;
+      flex-shrink: 0;
+      text-transform: uppercase;
+    }
+
+    .contact-info {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+    }
+
+    .contact-name {
+      font-size: 0.6875rem;
+      font-weight: 600;
+      color: var(--stone-800);
+      line-height: 1.3;
+    }
+
+    .contact-email {
+      font-size: 0.5625rem;
+      font-weight: 400;
+      color: var(--stone-600);
+      line-height: 1.3;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .contact-phone {
+      font-size: 0.5625rem;
+      font-weight: 400;
+      color: var(--stone-500);
+      line-height: 1.3;
+    }
+
+    .contact-note {
+      font-size: 0.5625rem;
+      font-weight: 400;
+      color: var(--stone-400);
+      font-style: italic;
+      line-height: 1.3;
+      margin-top: 0.1rem;
+    }
+
+    .contact-actions {
+      display: flex;
+      gap: 0.15rem;
+      opacity: 0;
+      transition: opacity 150ms;
+      flex-shrink: 0;
+      margin-top: 0.15rem;
+    }
+
+    .contact-card:hover .contact-actions { opacity: 1; }
+
+    .contact-action-btn {
+      padding: 0.2rem;
+      color: var(--stone-400);
+      background: none;
+      border: none;
+      border-radius: 0.25rem;
+      cursor: pointer;
+      transition: all 150ms;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .contact-action-btn:hover { color: var(--stone-600); background: var(--stone-100); }
+    .contact-action-btn.delete:hover { color: var(--red-500); background: var(--red-50); }
+
+    /* ── Empty State ── */
+    .empty-state {
+      font-size: 0.5625rem;
+      color: var(--stone-400);
+      text-align: center;
+      padding: 2rem 1rem;
+      font-style: italic;
+    }
+
+    .no-selection-state {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--stone-400);
+      font-size: 0.6875rem;
+      font-style: italic;
+    }
+
+    /* ── Add Contact Form ── */
+    .add-contact-area {
+      padding: 0.625rem 0.75rem;
+      border-top: 1px solid var(--stone-100);
+      flex-shrink: 0;
+    }
+
+    .add-contact-form {
+      display: flex;
+      flex-direction: column;
+      gap: 0.375rem;
+    }
+
+    .add-contact-form-label {
+      font-size: 0.5625rem;
+      font-weight: 600;
+      color: var(--stone-500);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .add-contact-row {
+      display: flex;
+      gap: 0.375rem;
+    }
+
+    .add-contact-input {
+      flex: 1;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.625rem;
+      padding: 0.375rem 0.5rem;
+      border: 1px solid var(--stone-200);
+      border-radius: 0.25rem;
+      background: var(--white);
+      color: var(--stone-800);
+      outline: none;
+      transition: all 150ms;
+      min-width: 0;
+    }
+
+    .add-contact-input::placeholder { color: var(--stone-400); }
+    .add-contact-input:focus { border-color: var(--stone-400); box-shadow: 0 0 0 2px var(--stone-100); }
+
+    .add-contact-actions {
+      display: flex;
+      gap: 0.375rem;
+      justify-content: flex-end;
+      margin-top: 0.125rem;
+    }
+
+    /* ── Edit Contact Form ── */
+    .contact-edit-form {
+      display: flex;
+      flex-direction: column;
+      gap: 0.375rem;
+      padding: 0.625rem 0.75rem;
+      background: var(--stone-50);
+      border: 1px solid var(--stone-200);
+      border-radius: 0.375rem;
+    }
+
+    .contact-edit-form label {
+      font-size: 0.5625rem;
+      font-weight: 600;
+      color: var(--stone-500);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .contact-edit-form input {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.6875rem;
+      padding: 0.375rem 0.5rem;
+      border: 1px solid var(--stone-200);
+      border-radius: 0.25rem;
+      background: var(--white);
+      color: var(--stone-800);
+      outline: none;
+      transition: all 150ms;
+      width: 100%;
+    }
+
+    .contact-edit-form input:focus {
+      border-color: var(--stone-400);
+      box-shadow: 0 0 0 2px var(--stone-100);
+    }
+
+    .edit-hint {
+      font-size: 0.5rem;
+      color: var(--stone-400);
+      font-style: italic;
+    }
+
+    .edit-actions {
+      display: flex;
+      gap: 0.4rem;
+      justify-content: flex-end;
+    }
+
+    /* ── Buttons ── */
+    .btn-primary {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.625rem;
+      font-weight: 500;
+      padding: 0.35rem 0.75rem;
+      background: var(--stone-800);
+      color: var(--white);
+      border: none;
+      border-radius: 0.25rem;
+      cursor: pointer;
+      transition: all 150ms;
+    }
+
+    .btn-primary:hover { background: var(--stone-700); }
+
+    .btn-secondary {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.625rem;
+      font-weight: 500;
+      padding: 0.35rem 0.75rem;
+      background: none;
+      color: var(--stone-600);
+      border: 1px solid var(--stone-200);
+      border-radius: 0.25rem;
+      cursor: pointer;
+      transition: all 150ms;
+    }
+
+    .btn-secondary:hover { border-color: var(--stone-300); background: var(--stone-100); }
+
+    /* ── API Log Panel ── */
+    .log-panel {
+      flex-shrink: 0;
+      border-top: 1px solid var(--stone-200);
+      background: var(--white);
+      transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .log-panel.collapsed .log-body { display: none; }
+
+    .log-header {
+      padding: 0.5rem 1rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .log-header:hover { background: var(--stone-50); }
+
+    .log-header-left {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .log-label {
+      font-size: 0.5625rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--stone-500);
+    }
+
+    .log-count {
+      font-size: 0.5625rem;
+      font-weight: 500;
+      color: var(--stone-400);
+    }
+
+    .log-chevron {
+      transition: transform 200ms;
+      color: var(--stone-400);
+    }
+
+    .log-panel.collapsed .log-chevron { transform: rotate(180deg); }
+
+    .log-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .log-clear-btn {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.5625rem;
+      font-weight: 500;
+      color: var(--stone-400);
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 0.15rem 0.35rem;
+      border-radius: 0.25rem;
+      transition: all 150ms;
+    }
+
+    .log-clear-btn:hover { color: var(--stone-600); background: var(--stone-100); }
+
+    .log-body {
+      max-height: 180px;
+      overflow-y: auto;
+      border-top: 1px solid var(--stone-100);
+    }
+
+    .log-entry {
+      display: flex;
+      align-items: center;
+      gap: 0.625rem;
+      padding: 0.3rem 1rem;
+      font-size: 0.625rem;
+      border-bottom: 1px solid var(--stone-50);
+      transition: background 150ms;
+    }
+
+    .log-entry:hover { background: var(--stone-50); }
+
+    .log-method {
+      font-weight: 600;
+      font-size: 0.5625rem;
+      padding: 0.1rem 0.35rem;
+      border-radius: 0.2rem;
+      color: var(--white);
+      text-transform: uppercase;
+      flex-shrink: 0;
+      min-width: 3.5rem;
+      text-align: center;
+      letter-spacing: 0.03em;
+    }
+
+    .log-method.GET    { background: var(--log-get); }
+    .log-method.POST   { background: var(--log-post); }
+    .log-method.PATCH  { background: var(--log-patch); }
+    .log-method.PUT    { background: var(--log-put); }
+    .log-method.DELETE { background: var(--log-delete); }
+
+    .log-path {
+      flex: 1;
+      color: var(--stone-600);
+      font-size: 0.625rem;
+      font-weight: 400;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .log-status {
+      font-size: 0.5625rem;
+      font-weight: 500;
+      color: var(--stone-500);
+      flex-shrink: 0;
+    }
+
+    .log-status.error { color: var(--red-500); }
+
+    .log-duration {
+      font-size: 0.5625rem;
+      color: var(--stone-400);
+      flex-shrink: 0;
+      min-width: 3rem;
+      text-align: right;
+    }
+
+    .log-time {
+      font-size: 0.5rem;
+      color: var(--stone-400);
+      flex-shrink: 0;
+      min-width: 4.5rem;
+      text-align: right;
+      font-style: italic;
+    }
+
+    /* ── Loading / Error ── */
+    .loading-state {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--stone-400);
+      font-size: 0.75rem;
+    }
+
+    .error-banner {
+      padding: 0.5rem 1rem;
+      background: var(--red-50);
+      color: var(--red-500);
+      font-size: 0.625rem;
+      font-weight: 500;
+      text-align: center;
+      border-bottom: 1px solid var(--stone-200);
+      display: none;
+    }
+
+    .error-banner.visible { display: block; }
+  </style>
+</head>
+<body>
+  <div id="error-banner" class="error-banner" role="alert"></div>
+
+  <header class="app-header">
+    <input
+      id="app-title"
+      class="app-title"
+      type="text"
+      readonly
+      aria-label="Address book title — click to edit"
+      title="Click to rename (PATCH)"
+    >
+    <span class="app-subtitle">mahpastes json api</span>
+  </header>
+
+  <section class="app-body" id="app-body">
+    <nav class="sidebar" id="sidebar" aria-label="Contact groups">
+      <div class="sidebar-header">
+        <span class="sidebar-label">Groups</span>
+      </div>
+      <div class="sidebar-list" id="group-list" role="listbox" aria-label="Contact groups"></div>
+      <div class="add-group-area">
+        <button class="add-group-btn" id="add-group-btn" aria-label="Add new group" title="POST new group">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          <span>Add Group</span>
+        </button>
+      </div>
+    </nav>
+
+    <main class="main-content" id="main-content">
+      <div class="no-selection-state" id="no-selection">Select a group to view contacts</div>
+    </main>
+  </section>
+
+  <footer class="log-panel" id="log-panel" role="log" aria-label="API request log">
+    <div class="log-header" id="log-header">
+      <div class="log-header-left">
+        <span class="log-label">API Log</span>
+        <span class="log-count" id="log-count">0 calls</span>
+      </div>
+      <div class="log-header-actions">
+        <button class="log-clear-btn" id="log-clear" title="Clear log" onclick="event.stopPropagation()">Clear</button>
+        <svg class="log-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="18 15 12 9 6 15"></polyline>
+        </svg>
+      </div>
+    </div>
+    <div class="log-body" id="log-body"></div>
+  </footer>
+
+  <script>
+    'use strict';
+
+    // ── Text escaping to prevent XSS ──
+    const ESC_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+    const esc = (s) => s == null ? '' : String(s).replace(/[&<>"']/g, (c) => ESC_MAP[c]);
+
+    // ── API Client ──
+    const API_BASE = '/_api/contacts';
+    const logEntries = [];
+
+    const api = {
+      async request(method, path, body) {
+        const url = API_BASE + (path ? '/' + path : '');
+        const start = performance.now();
+        const opts = { method, credentials: 'same-origin' };
+        if (body !== undefined) {
+          opts.headers = { 'Content-Type': 'application/json' };
+          opts.body = JSON.stringify(body);
+        }
+        let res;
+        try {
+          res = await fetch(url, opts);
+        } catch (err) {
+          const ms = Math.round(performance.now() - start);
+          logApiCall(method, url, 0, ms);
+          throw new Error('Network error: ' + err.message);
+        }
+        const ms = Math.round(performance.now() - start);
+        const data = res.status !== 204 ? await res.json().catch(() => null) : null;
+        logApiCall(method, url, res.status, ms);
+        if (!res.ok) throw new Error(data?.error || res.statusText);
+        return data;
+      },
+      get:    (p) => api.request('GET', p),
+      post:   (p, b) => api.request('POST', p, b),
+      put:    (p, b) => api.request('PUT', p, b),
+      patch:  (p, b) => api.request('PATCH', p, b),
+      delete: (p) => api.request('DELETE', p),
+    };
+
+    // ── API Log Panel ──
+    const logBody = document.getElementById('log-body');
+    const logCountEl = document.getElementById('log-count');
+    const logPanel = document.getElementById('log-panel');
+    const logHeader = document.getElementById('log-header');
+    const logClear = document.getElementById('log-clear');
+
+    function logApiCall(method, url, status, ms) {
+      const entry = { method, url, status, ms, time: new Date() };
+      logEntries.push(entry);
+      renderLogEntry(entry);
+      logCountEl.textContent = logEntries.length + ' call' + (logEntries.length !== 1 ? 's' : '');
+    }
+
+    function renderLogEntry(entry) {
+      const row = document.createElement('div');
+      row.className = 'log-entry';
+      const statusClass = entry.status >= 400 || entry.status === 0 ? ' error' : '';
+      const timeStr = entry.time.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      row.innerHTML = `
+        <span class="log-method ${esc(entry.method)}">${esc(entry.method)}</span>
+        <span class="log-path" title="${esc(entry.url)}">${esc(entry.url)}</span>
+        <span class="log-status${statusClass}">${entry.status || 'ERR'}</span>
+        <span class="log-duration">${entry.ms}ms</span>
+        <span class="log-time">${timeStr}</span>
+      `;
+      logBody.appendChild(row);
+      logBody.scrollTop = logBody.scrollHeight;
+    }
+
+    logHeader.addEventListener('click', () => {
+      logPanel.classList.toggle('collapsed');
+    });
+
+    logClear.addEventListener('click', () => {
+      logEntries.length = 0;
+      logBody.innerHTML = '';
+      logCountEl.textContent = '0 calls';
+    });
+
+    // ── Error Banner ──
+    const errorBanner = document.getElementById('error-banner');
+
+    function showError(msg) {
+      errorBanner.textContent = msg;
+      errorBanner.classList.add('visible');
+      setTimeout(() => errorBanner.classList.remove('visible'), 4000);
+    }
+
+    // ── SVG Icons ──
+    const icons = {
+      edit: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`,
+      trash: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>`,
+      plus: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`,
+      search: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`,
+      replace: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>`,
+    };
+
+    // ── App State ──
+    let data = null;
+    let activeGroupId = null;
+    let searchQuery = '';
+
+    // ── App Title Editing ──
+    const appTitleEl = document.getElementById('app-title');
+
+    appTitleEl.addEventListener('click', () => {
+      appTitleEl.removeAttribute('readonly');
+      appTitleEl.focus();
+      appTitleEl.select();
+    });
+
+    appTitleEl.addEventListener('blur', async () => {
+      appTitleEl.setAttribute('readonly', '');
+      const newTitle = appTitleEl.value.trim();
+      if (!newTitle || newTitle === data?.title) return;
+      try {
+        await api.patch('', { title: newTitle });
+        await loadData();
+      } catch (err) {
+        showError('Failed to rename: ' + err.message);
+        appTitleEl.value = data?.title || '';
+      }
+    });
+
+    appTitleEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); appTitleEl.blur(); }
+      if (e.key === 'Escape') { appTitleEl.value = data?.title || ''; appTitleEl.blur(); }
+    });
+
+    // ── Add Group ──
+    document.getElementById('add-group-btn').addEventListener('click', async () => {
+      const name = prompt('Group name:');
+      if (!name || !name.trim()) return;
+      try {
+        await api.post('groups', { name: name.trim(), contacts: [] });
+        await loadData();
+      } catch (err) {
+        showError('Failed to add group: ' + err.message);
+      }
+    });
+
+    // ── Render Sidebar Groups ──
+    function renderGroups() {
+      if (!data) return;
+
+      appTitleEl.value = data.title || 'Contacts';
+
+      const listEl = document.getElementById('group-list');
+      listEl.innerHTML = '';
+
+      const groups = data.groups || [];
+      for (const group of groups) {
+        const contactCount = (group.contacts || []).length;
+        const isActive = group.id === activeGroupId;
+        const canDelete = contactCount === 0;
+
+        const item = document.createElement('div');
+        item.className = 'group-item' + (isActive ? ' active' : '');
+        item.setAttribute('role', 'option');
+        item.setAttribute('aria-selected', isActive ? 'true' : 'false');
+        if (isActive) item.setAttribute('aria-current', 'true');
+        item.tabIndex = 0;
+
+        item.innerHTML = `
+          <span class="group-item-name">${esc(group.name)}</span>
+          <span class="group-item-count">${contactCount}</span>
+          <div class="group-item-actions">
+            <button class="group-action-btn rename" title="Rename group (PATCH)" aria-label="Rename group">${icons.edit}</button>
+            ${canDelete ? `<button class="group-action-btn delete" title="Delete empty group (DELETE)" aria-label="Delete group">${icons.trash}</button>` : ''}
+          </div>
+        `;
+
+        // Select group on click
+        item.addEventListener('click', (e) => {
+          if (e.target.closest('.group-action-btn')) return;
+          activeGroupId = group.id;
+          searchQuery = '';
+          renderGroups();
+          renderMainContent();
+        });
+
+        // Keyboard support
+        item.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' && !e.target.closest('.group-action-btn')) {
+            activeGroupId = group.id;
+            searchQuery = '';
+            renderGroups();
+            renderMainContent();
+          }
+        });
+
+        // Rename button
+        const renameBtn = item.querySelector('.group-action-btn.rename');
+        renameBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          showGroupRenameInput(group, item);
+        });
+
+        // Delete button
+        const deleteBtn = item.querySelector('.group-action-btn.delete');
+        if (deleteBtn) {
+          deleteBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            deleteGroup(group.id);
+          });
+        }
+
+        listEl.appendChild(item);
+      }
+    }
+
+    // ── Inline Group Rename ──
+    function showGroupRenameInput(group, itemEl) {
+      const nameSpan = itemEl.querySelector('.group-item-name');
+      const originalName = group.name;
+
+      const input = document.createElement('input');
+      input.className = 'group-rename-input';
+      input.type = 'text';
+      input.value = originalName;
+      input.setAttribute('aria-label', 'New group name');
+
+      nameSpan.replaceWith(input);
+      input.focus();
+      input.select();
+
+      const commit = async () => {
+        const newName = input.value.trim();
+        if (!newName || newName === originalName) {
+          renderGroups();
+          return;
+        }
+        try {
+          await api.patch(`groups/${group.id}`, { name: newName });
+          await loadData();
+        } catch (err) {
+          showError('Failed to rename group: ' + err.message);
+          renderGroups();
+        }
+      };
+
+      input.addEventListener('blur', commit);
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+        if (e.key === 'Escape') { input.value = originalName; input.blur(); }
+      });
+    }
+
+    // ── Delete Group ──
+    async function deleteGroup(groupId) {
+      try {
+        await api.delete(`groups/${groupId}`);
+        if (activeGroupId === groupId) activeGroupId = null;
+        await loadData();
+      } catch (err) {
+        showError('Failed to delete group: ' + err.message);
+      }
+    }
+
+    // ── Render Main Content ──
+    function renderMainContent() {
+      const mainEl = document.getElementById('main-content');
+
+      if (activeGroupId === null) {
+        mainEl.innerHTML = '<div class="no-selection-state" id="no-selection">Select a group to view contacts</div>';
+        return;
+      }
+
+      const group = (data?.groups || []).find((g) => g.id === activeGroupId);
+      if (!group) {
+        mainEl.innerHTML = '<div class="no-selection-state">Group not found</div>';
+        return;
+      }
+
+      const contacts = group.contacts || [];
+      const filtered = filterContacts(contacts, searchQuery);
+
+      mainEl.innerHTML = `
+        <div class="content-header">
+          <div class="content-header-row">
+            <span class="content-title">${esc(group.name)}</span>
+            <span class="content-count">${contacts.length} contact${contacts.length !== 1 ? 's' : ''}</span>
+          </div>
+          <div class="search-wrapper">
+            <span class="search-icon">${icons.search}</span>
+            <input
+              id="search-input"
+              class="search-input"
+              type="text"
+              placeholder="Filter by name, email, or phone..."
+              value="${esc(searchQuery)}"
+              aria-label="Search contacts in this group"
+            >
+          </div>
+        </div>
+        <div class="contacts-list" id="contacts-list"></div>
+        <div class="add-contact-area" id="add-contact-area">
+          <div class="add-contact-form">
+            <span class="add-contact-form-label">New Contact</span>
+            <div class="add-contact-row">
+              <input id="new-name" class="add-contact-input" type="text" placeholder="Name *" aria-label="Contact name" required>
+              <input id="new-email" class="add-contact-input" type="email" placeholder="Email" aria-label="Contact email">
+            </div>
+            <div class="add-contact-row">
+              <input id="new-phone" class="add-contact-input" type="tel" placeholder="Phone" aria-label="Contact phone">
+              <input id="new-note" class="add-contact-input" type="text" placeholder="Note" aria-label="Contact note">
+            </div>
+            <div class="add-contact-actions">
+              <button class="btn-primary" id="add-contact-btn" title="POST new contact" aria-label="Add contact">Add Contact</button>
+            </div>
+          </div>
+        </div>
+      `;
+
+      // Render contact cards
+      renderContactCards(group.id, filtered);
+
+      // Search input
+      const searchInput = document.getElementById('search-input');
+      searchInput.addEventListener('input', (e) => {
+        searchQuery = e.target.value;
+        const freshGroup = (data?.groups || []).find((g) => g.id === activeGroupId);
+        if (freshGroup) {
+          renderContactCards(freshGroup.id, filterContacts(freshGroup.contacts || [], searchQuery));
+        }
+      });
+
+      // Add contact form
+      const addBtn = document.getElementById('add-contact-btn');
+      addBtn.addEventListener('click', () => addContact(group.id));
+
+      // Enter key on inputs submits form
+      const inputs = mainEl.querySelectorAll('.add-contact-input');
+      inputs.forEach((input) => {
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') addContact(group.id);
+        });
+      });
+    }
+
+    // ── Filter Contacts ──
+    function filterContacts(contacts, query) {
+      if (!query || !query.trim()) return contacts;
+      const q = query.toLowerCase().trim();
+      return contacts.filter((c) => {
+        return (c.name || '').toLowerCase().includes(q) ||
+               (c.email || '').toLowerCase().includes(q) ||
+               (c.phone || '').toLowerCase().includes(q);
+      });
+    }
+
+    // ── Render Contact Cards ──
+    function renderContactCards(groupId, contacts) {
+      const listEl = document.getElementById('contacts-list');
+      if (!listEl) return;
+      listEl.innerHTML = '';
+
+      if (contacts.length === 0) {
+        listEl.innerHTML = searchQuery
+          ? '<div class="empty-state">No contacts match your search</div>'
+          : '<div class="empty-state">No contacts in this group yet</div>';
+        return;
+      }
+
+      for (const contact of contacts) {
+        listEl.appendChild(renderContactCard(groupId, contact));
+      }
+    }
+
+    function renderContactCard(groupId, contact) {
+      const card = document.createElement('div');
+      card.className = 'contact-card';
+      card.dataset.contactId = contact.id;
+
+      const initial = (contact.name || '?').charAt(0);
+      const emailLine = contact.email ? `<span class="contact-email">${esc(contact.email)}</span>` : '';
+      const phoneLine = contact.phone ? `<span class="contact-phone">${esc(contact.phone)}</span>` : '';
+      const noteLine = contact.note ? `<span class="contact-note">${esc(contact.note)}</span>` : '';
+
+      card.innerHTML = `
+        <div class="contact-avatar" aria-hidden="true">${esc(initial)}</div>
+        <div class="contact-info">
+          <span class="contact-name">${esc(contact.name)}</span>
+          ${emailLine}
+          ${phoneLine}
+          ${noteLine}
+        </div>
+        <div class="contact-actions">
+          <button class="contact-action-btn edit" title="Edit contact (PATCH / PUT)" aria-label="Edit contact">${icons.edit}</button>
+          <button class="contact-action-btn delete" title="Delete contact (DELETE)" aria-label="Delete contact">${icons.trash}</button>
+        </div>
+      `;
+
+      // Edit
+      card.querySelector('.contact-action-btn.edit').addEventListener('click', (e) => {
+        e.stopPropagation();
+        showEditForm(groupId, contact, card);
+      });
+
+      // Delete
+      card.querySelector('.contact-action-btn.delete').addEventListener('click', (e) => {
+        e.stopPropagation();
+        deleteContact(groupId, contact.id);
+      });
+
+      return card;
+    }
+
+    // ── Edit Contact Form ──
+    function showEditForm(groupId, contact, cardEl) {
+      const form = document.createElement('div');
+      form.className = 'contact-edit-form';
+      form.innerHTML = `
+        <div>
+          <label for="edit-name-${contact.id}">Name</label>
+          <input id="edit-name-${contact.id}" type="text" value="${esc(contact.name)}" />
+        </div>
+        <div>
+          <label for="edit-email-${contact.id}">Email</label>
+          <input id="edit-email-${contact.id}" type="email" value="${esc(contact.email || '')}" />
+        </div>
+        <div>
+          <label for="edit-phone-${contact.id}">Phone</label>
+          <input id="edit-phone-${contact.id}" type="tel" value="${esc(contact.phone || '')}" />
+        </div>
+        <div>
+          <label for="edit-note-${contact.id}">Note</label>
+          <input id="edit-note-${contact.id}" type="text" value="${esc(contact.note || '')}" />
+        </div>
+        <div class="edit-hint">Save = PATCH (merge fields) &middot; Replace = PUT (overwrite entire contact)</div>
+        <div class="edit-actions">
+          <button class="btn-secondary cancel-btn">Cancel</button>
+          <button class="btn-secondary replace-btn" title="PUT — replace entire contact object">Replace</button>
+          <button class="btn-primary save-btn" title="PATCH — merge changed fields">Save</button>
+        </div>
+      `;
+
+      cardEl.replaceWith(form);
+
+      const nameInput = form.querySelector(`#edit-name-${contact.id}`);
+      const emailInput = form.querySelector(`#edit-email-${contact.id}`);
+      const phoneInput = form.querySelector(`#edit-phone-${contact.id}`);
+      const noteInput = form.querySelector(`#edit-note-${contact.id}`);
+
+      // Cancel
+      form.querySelector('.cancel-btn').addEventListener('click', () => {
+        renderMainContent();
+      });
+
+      // Escape to cancel
+      form.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') renderMainContent();
+      });
+
+      // Save (PATCH — only changed fields)
+      form.querySelector('.save-btn').addEventListener('click', async () => {
+        const patch = {};
+        const newName = nameInput.value.trim();
+        const newEmail = emailInput.value.trim();
+        const newPhone = phoneInput.value.trim();
+        const newNote = noteInput.value.trim();
+
+        if (newName !== (contact.name || '')) patch.name = newName;
+        if (newEmail !== (contact.email || '')) {
+          patch.email = newEmail === '' ? null : newEmail;
+        }
+        if (newPhone !== (contact.phone || '')) {
+          patch.phone = newPhone === '' ? null : newPhone;
+        }
+        if (newNote !== (contact.note || '')) {
+          patch.note = newNote === '' ? null : newNote;
+        }
+
+        if (Object.keys(patch).length === 0) {
+          renderMainContent();
+          return;
+        }
+
+        try {
+          await api.patch(`groups/${groupId}/contacts/${contact.id}`, patch);
+          await loadData();
+        } catch (err) {
+          showError('Failed to update contact: ' + err.message);
+        }
+      });
+
+      // Replace (PUT — full object replacement)
+      form.querySelector('.replace-btn').addEventListener('click', async () => {
+        const fullContact = {
+          name: nameInput.value.trim(),
+          email: emailInput.value.trim() || undefined,
+          phone: phoneInput.value.trim() || undefined,
+          note: noteInput.value.trim() || undefined,
+        };
+        // Clean undefined keys
+        Object.keys(fullContact).forEach((k) => {
+          if (fullContact[k] === undefined) delete fullContact[k];
+        });
+
+        if (!fullContact.name) {
+          showError('Name is required');
+          return;
+        }
+
+        try {
+          await api.put(`groups/${groupId}/contacts/${contact.id}`, fullContact);
+          await loadData();
+        } catch (err) {
+          showError('Failed to replace contact: ' + err.message);
+        }
+      });
+
+      nameInput.focus();
+      nameInput.select();
+    }
+
+    // ── Add Contact ──
+    async function addContact(groupId) {
+      const nameInput = document.getElementById('new-name');
+      const emailInput = document.getElementById('new-email');
+      const phoneInput = document.getElementById('new-phone');
+      const noteInput = document.getElementById('new-note');
+
+      const name = nameInput.value.trim();
+      if (!name) {
+        showError('Name is required');
+        nameInput.focus();
+        return;
+      }
+
+      const contact = { name };
+      const email = emailInput.value.trim();
+      const phone = phoneInput.value.trim();
+      const note = noteInput.value.trim();
+      if (email) contact.email = email;
+      if (phone) contact.phone = phone;
+      if (note) contact.note = note;
+
+      try {
+        await api.post(`groups/${groupId}/contacts`, contact);
+        await loadData();
+      } catch (err) {
+        showError('Failed to add contact: ' + err.message);
+      }
+    }
+
+    // ── Delete Contact ──
+    async function deleteContact(groupId, contactId) {
+      try {
+        await api.delete(`groups/${groupId}/contacts/${contactId}`);
+        await loadData();
+      } catch (err) {
+        showError('Failed to delete contact: ' + err.message);
+      }
+    }
+
+    // ── Load All Data ──
+    async function loadData() {
+      try {
+        data = await api.get('');
+        renderGroups();
+        renderMainContent();
+      } catch (err) {
+        showError('Failed to load data: ' + err.message);
+        const mainEl = document.getElementById('main-content');
+        mainEl.innerHTML = '<div class="no-selection-state">Failed to load. Is the tag served with API access enabled?</div>';
+      }
+    }
+
+    // ── Demonstrate GET on a single group at startup ──
+    async function demoReadGroup() {
+      if (!data?.groups?.length) return;
+      try {
+        await api.get(`groups/${data.groups[0].id}`);
+      } catch {
+        // Non-critical, just for the demo log
+      }
+    }
+
+    // ── Init ──
+    async function init() {
+      await loadData();
+      await demoReadGroup();
+      // Auto-select first group if available
+      if (data?.groups?.length && activeGroupId === null) {
+        activeGroupId = data.groups[0].id;
+        renderGroups();
+        renderMainContent();
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>

@@ -1,0 +1,1317 @@
+<!--
+  mahpastes Expense Tracker — JSON API Demo SPA
+
+  Setup:
+  1. Create a tag in mahpastes (e.g., "expenses")
+  2. Upload this file (index.html) into that tag
+  3. Upload expenses.json (in the same directory) into the same tag
+  4. Serve the tag with API access set to "readwrite"
+  5. Open the served URL in your browser
+
+  This tracker exercises every JSON API method (GET, POST, PUT, PATCH, DELETE)
+  through deeply nested paths. Watch the API log panel at the bottom to see
+  each call as it happens.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Expense Tracker — mahpastes</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --stone-50:  #fafaf9;
+      --stone-100: #f5f5f4;
+      --stone-200: #e7e5e4;
+      --stone-300: #d6d3d1;
+      --stone-400: #a8a29e;
+      --stone-500: #78716c;
+      --stone-600: #57534e;
+      --stone-700: #44403c;
+      --stone-800: #292524;
+      --stone-900: #1c1917;
+      --white:     #ffffff;
+      --red-500:   #ef4444;
+      --red-50:    #fef2f2;
+      /* Log-panel-only accent colors */
+      --log-get:     #78716c;
+      --log-post:    #059669;
+      --log-patch:   #d97706;
+      --log-put:     #2563eb;
+      --log-delete:  #ef4444;
+    }
+
+    html { font-size: 16px; }
+
+    body {
+      font-family: 'IBM Plex Mono', monospace;
+      background: var(--stone-50);
+      color: var(--stone-800);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--stone-300); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--stone-400); }
+
+    /* ── Header ── */
+    .tracker-header {
+      padding: 1.25rem 1.5rem 1rem;
+      border-bottom: 1px solid var(--stone-200);
+      background: var(--stone-50);
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      flex-shrink: 0;
+    }
+
+    .tracker-title {
+      font-size: 0.875rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--stone-800);
+      cursor: pointer;
+      padding: 0.25rem 0.5rem;
+      border-radius: 0.375rem;
+      border: 1px solid transparent;
+      transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+      background: none;
+      outline: none;
+      font-family: inherit;
+    }
+
+    .tracker-title:hover { border-color: var(--stone-200); background: var(--white); }
+    .tracker-title:focus { border-color: var(--stone-400); background: var(--white); }
+
+    .tracker-subtitle {
+      font-size: 0.625rem;
+      font-weight: 500;
+      color: var(--stone-400);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .header-summary {
+      margin-left: auto;
+      display: flex;
+      align-items: baseline;
+      gap: 0.5rem;
+      flex-shrink: 0;
+    }
+
+    .summary-spent {
+      font-size: 0.6875rem;
+      font-weight: 600;
+      color: var(--stone-800);
+    }
+
+    .summary-separator {
+      font-size: 0.5625rem;
+      color: var(--stone-400);
+    }
+
+    .summary-budget {
+      font-size: 0.625rem;
+      font-weight: 500;
+      color: var(--stone-500);
+    }
+
+    /* ── Categories Area ── */
+    .categories-wrapper {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding: 1.25rem 1.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      align-items: stretch;
+    }
+
+    /* ── Category Card ── */
+    .category-card {
+      background: var(--white);
+      border: 1px solid var(--stone-200);
+      border-radius: 0.375rem;
+      display: flex;
+      flex-direction: column;
+      transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .category-card:hover { border-color: var(--stone-300); }
+
+    .category-header {
+      padding: 0.75rem 0.75rem 0.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      border-bottom: 1px solid var(--stone-100);
+    }
+
+    .category-name {
+      font-size: 0.6875rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--stone-600);
+      flex: 1;
+      cursor: pointer;
+      padding: 0.2rem 0.35rem;
+      border-radius: 0.25rem;
+      border: 1px solid transparent;
+      background: none;
+      outline: none;
+      font-family: inherit;
+      min-width: 0;
+      transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .category-name:hover { border-color: var(--stone-200); background: var(--stone-50); }
+    .category-name:focus { border-color: var(--stone-400); background: var(--white); }
+
+    .category-budget-group {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      flex-shrink: 0;
+    }
+
+    .budget-label {
+      font-size: 0.5625rem;
+      font-weight: 500;
+      color: var(--stone-400);
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+
+    .budget-input {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.625rem;
+      font-weight: 600;
+      color: var(--stone-600);
+      width: 4.5rem;
+      text-align: right;
+      padding: 0.15rem 0.35rem;
+      border-radius: 0.25rem;
+      border: 1px solid transparent;
+      background: none;
+      outline: none;
+      cursor: pointer;
+      transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .budget-input:hover { border-color: var(--stone-200); background: var(--stone-50); }
+    .budget-input:focus { border-color: var(--stone-400); background: var(--white); cursor: text; }
+
+    .category-spent-label {
+      font-size: 0.5625rem;
+      font-weight: 500;
+      color: var(--stone-400);
+      flex-shrink: 0;
+      padding: 0.1rem 0.45rem;
+      background: var(--stone-50);
+      border: 1px solid var(--stone-200);
+      border-radius: 9999px;
+    }
+
+    .category-delete-btn {
+      padding: 0.2rem;
+      color: var(--stone-400);
+      background: none;
+      border: none;
+      border-radius: 0.25rem;
+      cursor: pointer;
+      transition: all 150ms;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .category-delete-btn:hover { color: var(--red-500); background: var(--red-50); }
+    .category-delete-btn:disabled { opacity: 0.3; pointer-events: none; }
+
+    /* ── Progress Bar ── */
+    .progress-bar-track {
+      height: 3px;
+      background: var(--stone-100);
+      overflow: hidden;
+    }
+
+    .progress-bar-fill {
+      height: 100%;
+      background: var(--stone-800);
+      transition: width 300ms cubic-bezier(0.4, 0, 0.2, 1);
+      min-width: 0;
+    }
+
+    .progress-bar-fill.over-budget {
+      background: var(--red-500);
+    }
+
+    /* ── Entries Table ── */
+    .entries-area {
+      flex: 1;
+      overflow-y: auto;
+      min-height: 0;
+    }
+
+    .entries-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .entries-table th {
+      font-size: 0.5625rem;
+      font-weight: 600;
+      color: var(--stone-400);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 0.4rem 0.75rem;
+      text-align: left;
+      border-bottom: 1px solid var(--stone-100);
+      background: var(--stone-50);
+    }
+
+    .entries-table th.amount-col,
+    .entries-table td.amount-col {
+      text-align: right;
+    }
+
+    .entries-table th.date-col,
+    .entries-table td.date-col {
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    .entries-table th.actions-col {
+      width: 3.5rem;
+    }
+
+    .entries-table tr.entry-row {
+      transition: background 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .entries-table tr.entry-row:hover { background: var(--stone-50); }
+
+    .entries-table td {
+      font-size: 0.6875rem;
+      font-weight: 500;
+      color: var(--stone-800);
+      padding: 0.4rem 0.75rem;
+      border-bottom: 1px solid var(--stone-50);
+      vertical-align: middle;
+    }
+
+    .entries-table td.desc-col {
+      color: var(--stone-600);
+      max-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .entries-table td.amount-col {
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+
+    .entries-table td.date-col {
+      font-size: 0.625rem;
+      color: var(--stone-400);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .entry-actions {
+      display: flex;
+      gap: 0.15rem;
+      opacity: 0;
+      transition: opacity 150ms;
+      justify-content: flex-end;
+    }
+
+    .entry-row:hover .entry-actions { opacity: 1; }
+
+    .entry-action-btn {
+      padding: 0.2rem;
+      color: var(--stone-400);
+      background: none;
+      border: none;
+      border-radius: 0.25rem;
+      cursor: pointer;
+      transition: all 150ms;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .entry-action-btn:hover { color: var(--stone-600); background: var(--stone-100); }
+    .entry-action-btn.delete:hover { color: var(--red-500); background: var(--red-50); }
+
+    .empty-entries {
+      font-size: 0.5625rem;
+      color: var(--stone-400);
+      text-align: center;
+      padding: 1rem 0.75rem;
+      font-style: italic;
+    }
+
+    /* ── Entry Edit Form ── */
+    .entry-edit-form {
+      display: flex;
+      gap: 0.5rem;
+      padding: 0.5rem 0.75rem;
+      background: var(--stone-50);
+      border-bottom: 1px solid var(--stone-100);
+      align-items: flex-end;
+    }
+
+    .entry-edit-form .field {
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+      flex: 1;
+    }
+
+    .entry-edit-form .field.amount-field {
+      flex: 0 0 5.5rem;
+    }
+
+    .entry-edit-form .field.date-field {
+      flex: 0 0 7.5rem;
+    }
+
+    .entry-edit-form label {
+      font-size: 0.5625rem;
+      font-weight: 600;
+      color: var(--stone-500);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .entry-edit-form input {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.6875rem;
+      padding: 0.375rem 0.5rem;
+      border: 1px solid var(--stone-200);
+      border-radius: 0.25rem;
+      background: var(--white);
+      color: var(--stone-800);
+      outline: none;
+      transition: all 150ms;
+      width: 100%;
+    }
+
+    .entry-edit-form input:focus {
+      border-color: var(--stone-400);
+      box-shadow: 0 0 0 2px var(--stone-100);
+    }
+
+    .entry-edit-form .form-actions {
+      display: flex;
+      gap: 0.35rem;
+      flex-shrink: 0;
+      align-items: flex-end;
+      padding-bottom: 0.05rem;
+    }
+
+    .replace-hint {
+      font-size: 0.5rem;
+      color: var(--stone-400);
+      font-style: italic;
+      padding: 0 0.75rem 0.35rem;
+      background: var(--stone-50);
+      border-bottom: 1px solid var(--stone-100);
+    }
+
+    /* ── Add Entry Form ── */
+    .add-entry-area {
+      padding: 0.5rem 0.75rem 0.75rem;
+      border-top: 1px solid var(--stone-100);
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+    }
+
+    .add-entry-input {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.625rem;
+      padding: 0.4rem 0.5rem;
+      border: 1px solid var(--stone-200);
+      border-radius: 0.25rem;
+      background: var(--white);
+      color: var(--stone-800);
+      outline: none;
+      transition: all 150ms;
+    }
+
+    .add-entry-input::placeholder { color: var(--stone-400); }
+    .add-entry-input:focus { border-color: var(--stone-400); box-shadow: 0 0 0 2px var(--stone-100); }
+
+    .add-entry-input.desc-input { flex: 1; }
+    .add-entry-input.amount-input { width: 5.5rem; text-align: right; }
+    .add-entry-input.date-input { width: 7.5rem; }
+
+    /* ── Add Category ── */
+    .add-category-btn {
+      width: 100%;
+      min-height: 56px;
+      border: 2px dashed var(--stone-200);
+      border-radius: 0.375rem;
+      background: none;
+      color: var(--stone-400);
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.625rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 150ms;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.35rem;
+      flex-shrink: 0;
+    }
+
+    .add-category-btn:hover {
+      border-color: var(--stone-300);
+      color: var(--stone-600);
+      background: var(--white);
+    }
+
+    /* ── Buttons ── */
+    .btn-primary {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.625rem;
+      font-weight: 500;
+      padding: 0.35rem 0.75rem;
+      background: var(--stone-800);
+      color: var(--white);
+      border: none;
+      border-radius: 0.25rem;
+      cursor: pointer;
+      transition: all 150ms;
+    }
+
+    .btn-primary:hover { background: var(--stone-700); }
+
+    .btn-secondary {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.625rem;
+      font-weight: 500;
+      padding: 0.35rem 0.75rem;
+      background: none;
+      color: var(--stone-600);
+      border: 1px solid var(--stone-200);
+      border-radius: 0.25rem;
+      cursor: pointer;
+      transition: all 150ms;
+    }
+
+    .btn-secondary:hover { border-color: var(--stone-300); background: var(--stone-100); }
+
+    /* ── API Log Panel ── */
+    .log-panel {
+      flex-shrink: 0;
+      border-top: 1px solid var(--stone-200);
+      background: var(--white);
+      transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .log-panel.collapsed .log-body { display: none; }
+
+    .log-header {
+      padding: 0.5rem 1rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .log-header:hover { background: var(--stone-50); }
+
+    .log-header-left {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .log-label {
+      font-size: 0.5625rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--stone-500);
+    }
+
+    .log-count {
+      font-size: 0.5625rem;
+      font-weight: 500;
+      color: var(--stone-400);
+    }
+
+    .log-chevron {
+      transition: transform 200ms;
+      color: var(--stone-400);
+    }
+
+    .log-panel.collapsed .log-chevron { transform: rotate(180deg); }
+
+    .log-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .log-clear-btn {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.5625rem;
+      font-weight: 500;
+      color: var(--stone-400);
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 0.15rem 0.35rem;
+      border-radius: 0.25rem;
+      transition: all 150ms;
+    }
+
+    .log-clear-btn:hover { color: var(--stone-600); background: var(--stone-100); }
+
+    .log-body {
+      max-height: 180px;
+      overflow-y: auto;
+      border-top: 1px solid var(--stone-100);
+    }
+
+    .log-entry {
+      display: flex;
+      align-items: center;
+      gap: 0.625rem;
+      padding: 0.3rem 1rem;
+      font-size: 0.625rem;
+      border-bottom: 1px solid var(--stone-50);
+      transition: background 150ms;
+    }
+
+    .log-entry:hover { background: var(--stone-50); }
+
+    .log-method {
+      font-weight: 600;
+      font-size: 0.5625rem;
+      padding: 0.1rem 0.35rem;
+      border-radius: 0.2rem;
+      color: var(--white);
+      text-transform: uppercase;
+      flex-shrink: 0;
+      min-width: 3.5rem;
+      text-align: center;
+      letter-spacing: 0.03em;
+    }
+
+    .log-method.GET    { background: var(--log-get); }
+    .log-method.POST   { background: var(--log-post); }
+    .log-method.PATCH  { background: var(--log-patch); }
+    .log-method.PUT    { background: var(--log-put); }
+    .log-method.DELETE { background: var(--log-delete); }
+
+    .log-path {
+      flex: 1;
+      color: var(--stone-600);
+      font-size: 0.625rem;
+      font-weight: 400;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .log-status {
+      font-size: 0.5625rem;
+      font-weight: 500;
+      color: var(--stone-500);
+      flex-shrink: 0;
+    }
+
+    .log-status.error { color: var(--red-500); }
+
+    .log-duration {
+      font-size: 0.5625rem;
+      color: var(--stone-400);
+      flex-shrink: 0;
+      min-width: 3rem;
+      text-align: right;
+    }
+
+    .log-time {
+      font-size: 0.5rem;
+      color: var(--stone-400);
+      flex-shrink: 0;
+      min-width: 4.5rem;
+      text-align: right;
+      font-style: italic;
+    }
+
+    /* ── Loading / Error ── */
+    .loading-state {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--stone-400);
+      font-size: 0.75rem;
+    }
+
+    .error-banner {
+      padding: 0.5rem 1rem;
+      background: var(--red-50);
+      color: var(--red-500);
+      font-size: 0.625rem;
+      font-weight: 500;
+      text-align: center;
+      border-bottom: 1px solid var(--stone-200);
+      display: none;
+    }
+
+    .error-banner.visible { display: block; }
+  </style>
+</head>
+<body>
+  <div id="error-banner" class="error-banner" role="alert"></div>
+
+  <header class="tracker-header">
+    <input
+      id="tracker-title"
+      class="tracker-title"
+      type="text"
+      readonly
+      aria-label="Tracker title — click to edit"
+      title="Click to rename tracker (PATCH)"
+    >
+    <span class="tracker-subtitle">mahpastes json api</span>
+    <div class="header-summary" id="header-summary"></div>
+  </header>
+
+  <main class="categories-wrapper" id="categories-wrapper" role="main">
+    <div class="loading-state" id="loading">Loading expenses...</div>
+  </main>
+
+  <footer class="log-panel" id="log-panel" role="log" aria-label="API request log">
+    <div class="log-header" id="log-header">
+      <div class="log-header-left">
+        <span class="log-label">API Log</span>
+        <span class="log-count" id="log-count">0 calls</span>
+      </div>
+      <div class="log-header-actions">
+        <button class="log-clear-btn" id="log-clear" title="Clear log" onclick="event.stopPropagation()">Clear</button>
+        <svg class="log-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="18 15 12 9 6 15"></polyline>
+        </svg>
+      </div>
+    </div>
+    <div class="log-body" id="log-body"></div>
+  </footer>
+
+  <script>
+    'use strict';
+
+    // ── Text escaping to prevent XSS ──
+    const ESC_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+    const esc = (s) => s == null ? '' : String(s).replace(/[&<>"']/g, (c) => ESC_MAP[c]);
+
+    // ── API Client ──
+    const API_BASE = '/_api/expenses';
+    const logEntries = [];
+
+    const api = {
+      async request(method, path, body) {
+        const url = API_BASE + (path ? '/' + path : '');
+        const start = performance.now();
+        const opts = { method, credentials: 'same-origin' };
+        if (body !== undefined) {
+          opts.headers = { 'Content-Type': 'application/json' };
+          opts.body = JSON.stringify(body);
+        }
+        let res;
+        try {
+          res = await fetch(url, opts);
+        } catch (err) {
+          const ms = Math.round(performance.now() - start);
+          logApiCall(method, url, 0, ms);
+          throw new Error('Network error: ' + err.message);
+        }
+        const ms = Math.round(performance.now() - start);
+        const data = res.status !== 204 ? await res.json().catch(() => null) : null;
+        logApiCall(method, url, res.status, ms);
+        if (!res.ok) throw new Error(data?.error || res.statusText);
+        return data;
+      },
+      get:    (p) => api.request('GET', p),
+      post:   (p, b) => api.request('POST', p, b),
+      put:    (p, b) => api.request('PUT', p, b),
+      patch:  (p, b) => api.request('PATCH', p, b),
+      delete: (p) => api.request('DELETE', p),
+    };
+
+    // ── API Log Panel ──
+    const logBody = document.getElementById('log-body');
+    const logCountEl = document.getElementById('log-count');
+    const logPanel = document.getElementById('log-panel');
+    const logHeader = document.getElementById('log-header');
+    const logClear = document.getElementById('log-clear');
+
+    function logApiCall(method, url, status, ms) {
+      const entry = { method, url, status, ms, time: new Date() };
+      logEntries.push(entry);
+      renderLogEntry(entry);
+      logCountEl.textContent = logEntries.length + ' call' + (logEntries.length !== 1 ? 's' : '');
+    }
+
+    function renderLogEntry(entry) {
+      const row = document.createElement('div');
+      row.className = 'log-entry';
+      const statusClass = entry.status >= 400 || entry.status === 0 ? ' error' : '';
+      const timeStr = entry.time.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      row.innerHTML = `
+        <span class="log-method ${esc(entry.method)}">${esc(entry.method)}</span>
+        <span class="log-path" title="${esc(entry.url)}">${esc(entry.url)}</span>
+        <span class="log-status${statusClass}">${entry.status || 'ERR'}</span>
+        <span class="log-duration">${entry.ms}ms</span>
+        <span class="log-time">${timeStr}</span>
+      `;
+      logBody.appendChild(row);
+      logBody.scrollTop = logBody.scrollHeight;
+    }
+
+    logHeader.addEventListener('click', () => {
+      logPanel.classList.toggle('collapsed');
+    });
+
+    logClear.addEventListener('click', () => {
+      logEntries.length = 0;
+      logBody.innerHTML = '';
+      logCountEl.textContent = '0 calls';
+    });
+
+    // ── Error Banner ──
+    const errorBanner = document.getElementById('error-banner');
+
+    function showError(msg) {
+      errorBanner.textContent = msg;
+      errorBanner.classList.add('visible');
+      setTimeout(() => errorBanner.classList.remove('visible'), 4000);
+    }
+
+    // ── State ──
+    let tracker = null;
+    let editingEntryKey = null; // "catId-entryId" when an edit form is open
+
+    // ── SVG Icons ──
+    const icons = {
+      edit: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`,
+      trash: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>`,
+      plus: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`,
+      x: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
+    };
+
+    // ── Currency Formatting ──
+    function formatAmount(n) {
+      return '$' + Number(n || 0).toFixed(2);
+    }
+
+    // ── Compute Totals ──
+    function categorySpent(cat) {
+      return (cat.entries || []).reduce((sum, e) => sum + (e.amount || 0), 0);
+    }
+
+    function totalSpent() {
+      return (tracker?.categories || []).reduce((sum, cat) => sum + categorySpent(cat), 0);
+    }
+
+    function totalBudget() {
+      return (tracker?.categories || []).reduce((sum, cat) => sum + (cat.budget || 0), 0);
+    }
+
+    // ── Today's Date ──
+    function todayISO() {
+      const d = new Date();
+      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    }
+
+    // ── Render ──
+    function render() {
+      if (!tracker) return;
+
+      // Title
+      const titleEl = document.getElementById('tracker-title');
+      titleEl.value = tracker.title || 'Untitled';
+
+      // Summary
+      const summaryEl = document.getElementById('header-summary');
+      const spent = totalSpent();
+      const budget = totalBudget();
+      summaryEl.innerHTML = `
+        <span class="summary-spent">${esc(formatAmount(spent))}</span>
+        <span class="summary-separator">/</span>
+        <span class="summary-budget">${esc(formatAmount(budget))}</span>
+      `;
+
+      // Categories
+      const wrapper = document.getElementById('categories-wrapper');
+      const loading = document.getElementById('loading');
+      if (loading) loading.remove();
+
+      const scrollTop = wrapper.scrollTop;
+      wrapper.innerHTML = '';
+
+      const categories = tracker.categories || [];
+      for (const cat of categories) {
+        wrapper.appendChild(renderCategory(cat));
+      }
+
+      // Add category button
+      const addBtn = document.createElement('button');
+      addBtn.className = 'add-category-btn';
+      addBtn.innerHTML = `${icons.plus}<span>Add Category</span>`;
+      addBtn.title = 'POST to categories array';
+      addBtn.setAttribute('aria-label', 'Add new category');
+      addBtn.addEventListener('click', addCategory);
+      wrapper.appendChild(addBtn);
+
+      wrapper.scrollTop = scrollTop;
+    }
+
+    function renderCategory(cat) {
+      const cardEl = document.createElement('section');
+      cardEl.className = 'category-card';
+      cardEl.dataset.categoryId = cat.id;
+      cardEl.setAttribute('aria-label', 'Category: ' + (cat.name || 'Unnamed'));
+
+      const entries = cat.entries || [];
+      const spent = categorySpent(cat);
+      const budget = cat.budget || 0;
+      const pct = budget > 0 ? Math.min((spent / budget) * 100, 100) : 0;
+      const overBudget = spent > budget && budget > 0;
+      const canDelete = entries.length === 0;
+
+      // Header
+      const header = document.createElement('div');
+      header.className = 'category-header';
+      header.innerHTML = `
+        <input
+          class="category-name"
+          type="text"
+          value="${esc(cat.name)}"
+          readonly
+          aria-label="Category name — click to rename"
+          title="Click to rename category (PATCH)"
+        >
+        <div class="category-budget-group">
+          <span class="budget-label">Budget</span>
+          <input
+            class="budget-input"
+            type="text"
+            value="${esc(formatAmount(budget))}"
+            readonly
+            aria-label="Category budget — click to edit"
+            title="Click to edit budget (PATCH)"
+          >
+        </div>
+        <span class="category-spent-label">${esc(formatAmount(spent))} spent</span>
+        <button
+          class="category-delete-btn"
+          title="${canDelete ? 'Delete category (DELETE)' : 'Remove all entries first'}"
+          ${canDelete ? '' : 'disabled'}
+          aria-label="Delete category"
+        >${icons.x}</button>
+      `;
+      cardEl.appendChild(header);
+
+      // Category name editing
+      const nameInput = header.querySelector('.category-name');
+      nameInput.addEventListener('click', () => {
+        nameInput.removeAttribute('readonly');
+        nameInput.focus();
+        nameInput.select();
+      });
+      nameInput.addEventListener('blur', () => handleCategoryRename(cat.id, nameInput));
+      nameInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); nameInput.blur(); }
+        if (e.key === 'Escape') { nameInput.value = cat.name; nameInput.blur(); }
+      });
+
+      // Budget editing
+      const budgetInput = header.querySelector('.budget-input');
+      budgetInput.addEventListener('click', () => {
+        budgetInput.removeAttribute('readonly');
+        budgetInput.value = String(budget);
+        budgetInput.focus();
+        budgetInput.select();
+      });
+      budgetInput.addEventListener('blur', () => handleBudgetChange(cat.id, budgetInput, budget));
+      budgetInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); budgetInput.blur(); }
+        if (e.key === 'Escape') { budgetInput.value = formatAmount(budget); budgetInput.setAttribute('readonly', ''); }
+      });
+
+      // Category delete
+      const deleteBtn = header.querySelector('.category-delete-btn');
+      deleteBtn.addEventListener('click', () => deleteCategory(cat.id));
+
+      // Progress bar
+      const progressTrack = document.createElement('div');
+      progressTrack.className = 'progress-bar-track';
+      progressTrack.innerHTML = `<div class="progress-bar-fill${overBudget ? ' over-budget' : ''}" style="width: ${pct}%"></div>`;
+      cardEl.appendChild(progressTrack);
+
+      // Entries area
+      const entriesArea = document.createElement('div');
+      entriesArea.className = 'entries-area';
+
+      if (entries.length === 0) {
+        entriesArea.innerHTML = '<div class="empty-entries">No entries yet</div>';
+      } else {
+        const table = document.createElement('table');
+        table.className = 'entries-table';
+        table.innerHTML = `
+          <thead>
+            <tr>
+              <th>Description</th>
+              <th class="amount-col">Amount</th>
+              <th class="date-col">Date</th>
+              <th class="actions-col"></th>
+            </tr>
+          </thead>
+        `;
+        const tbody = document.createElement('tbody');
+
+        for (const entry of entries) {
+          const isEditing = editingEntryKey === cat.id + '-' + entry.id;
+
+          if (isEditing) {
+            // Edit form row
+            const editTr = document.createElement('tr');
+            editTr.innerHTML = '<td colspan="4"></td>';
+            const editTd = editTr.querySelector('td');
+            editTd.style.padding = '0';
+            editTd.appendChild(renderEditForm(cat.id, entry));
+            tbody.appendChild(editTr);
+          } else {
+            // Normal row
+            const tr = document.createElement('tr');
+            tr.className = 'entry-row';
+            tr.innerHTML = `
+              <td class="desc-col" title="${esc(entry.description)}">${esc(entry.description)}</td>
+              <td class="amount-col">${esc(formatAmount(entry.amount))}</td>
+              <td class="date-col">${esc(entry.date || '')}</td>
+              <td>
+                <div class="entry-actions">
+                  <button class="entry-action-btn edit" title="Edit entry (PATCH / PUT)" aria-label="Edit entry">${icons.edit}</button>
+                  <button class="entry-action-btn delete" title="Delete entry (DELETE)" aria-label="Delete entry">${icons.trash}</button>
+                </div>
+              </td>
+            `;
+
+            tr.querySelector('.entry-action-btn.edit').addEventListener('click', () => {
+              editingEntryKey = cat.id + '-' + entry.id;
+              render();
+            });
+
+            tr.querySelector('.entry-action-btn.delete').addEventListener('click', () => {
+              deleteEntry(cat.id, entry.id);
+            });
+
+            tbody.appendChild(tr);
+          }
+        }
+
+        table.appendChild(tbody);
+        entriesArea.appendChild(table);
+      }
+
+      cardEl.appendChild(entriesArea);
+
+      // Add entry form
+      const addArea = document.createElement('div');
+      addArea.className = 'add-entry-area';
+      addArea.innerHTML = `
+        <input class="add-entry-input desc-input" type="text" placeholder="Description..." aria-label="New entry description" title="Enter description">
+        <input class="add-entry-input amount-input" type="number" step="0.01" min="0" placeholder="0.00" aria-label="New entry amount" title="Enter amount">
+        <input class="add-entry-input date-input" type="date" value="${todayISO()}" aria-label="New entry date" title="Select date">
+        <button class="btn-primary add-entry-submit" title="POST — add new entry" aria-label="Add entry">Add</button>
+      `;
+
+      const descInput = addArea.querySelector('.desc-input');
+      const amountInput = addArea.querySelector('.amount-input');
+      const dateInput = addArea.querySelector('.date-input');
+      const addEntryBtn = addArea.querySelector('.add-entry-submit');
+
+      function submitEntry() {
+        const desc = descInput.value.trim();
+        const amount = parseFloat(amountInput.value);
+        const date = dateInput.value;
+        if (!desc) { descInput.focus(); return; }
+        if (isNaN(amount) || amount <= 0) { amountInput.focus(); return; }
+        addEntry(cat.id, desc, amount, date || todayISO());
+        descInput.value = '';
+        amountInput.value = '';
+        dateInput.value = todayISO();
+      }
+
+      addEntryBtn.addEventListener('click', submitEntry);
+      descInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') submitEntry(); });
+      amountInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') submitEntry(); });
+
+      cardEl.appendChild(addArea);
+
+      return cardEl;
+    }
+
+    // ── Entry Edit Form ──
+    function renderEditForm(catId, entry) {
+      const wrapper = document.createElement('div');
+
+      const form = document.createElement('div');
+      form.className = 'entry-edit-form';
+      form.innerHTML = `
+        <div class="field">
+          <label>Description</label>
+          <input type="text" value="${esc(entry.description)}" class="edit-desc" />
+        </div>
+        <div class="field amount-field">
+          <label>Amount</label>
+          <input type="number" step="0.01" min="0" value="${entry.amount || 0}" class="edit-amount" />
+        </div>
+        <div class="field date-field">
+          <label>Date</label>
+          <input type="date" value="${esc(entry.date || '')}" class="edit-date" />
+        </div>
+        <div class="form-actions">
+          <button class="btn-secondary cancel-btn" aria-label="Cancel editing">Cancel</button>
+          <button class="btn-secondary replace-btn" title="PUT — replace entire entry" aria-label="Replace entry">Replace</button>
+          <button class="btn-primary save-btn" title="PATCH — merge changed fields" aria-label="Save entry changes">Save</button>
+        </div>
+      `;
+
+      const hint = document.createElement('div');
+      hint.className = 'replace-hint';
+      hint.innerHTML = 'Save = PATCH (merge fields) &middot; Replace = PUT (overwrite entire entry)';
+
+      wrapper.appendChild(form);
+      wrapper.appendChild(hint);
+
+      const descInput = form.querySelector('.edit-desc');
+      const amountInput = form.querySelector('.edit-amount');
+      const dateInput = form.querySelector('.edit-date');
+
+      // Cancel
+      form.querySelector('.cancel-btn').addEventListener('click', () => {
+        editingEntryKey = null;
+        render();
+      });
+
+      // Escape to cancel
+      form.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          editingEntryKey = null;
+          render();
+        }
+      });
+
+      // Save (PATCH)
+      form.querySelector('.save-btn').addEventListener('click', async () => {
+        const patch = {};
+        const newDesc = descInput.value.trim();
+        const newAmount = parseFloat(amountInput.value);
+        const newDate = dateInput.value;
+
+        if (newDesc !== entry.description) patch.description = newDesc;
+        if (!isNaN(newAmount) && newAmount !== entry.amount) patch.amount = newAmount;
+        if (newDate !== entry.date) patch.date = newDate;
+
+        if (Object.keys(patch).length === 0) {
+          editingEntryKey = null;
+          render();
+          return;
+        }
+
+        try {
+          await api.patch(`categories/${catId}/entries/${entry.id}`, patch);
+          editingEntryKey = null;
+          await loadTracker();
+        } catch (err) {
+          showError('Failed to update entry: ' + err.message);
+        }
+      });
+
+      // Replace (PUT)
+      form.querySelector('.replace-btn').addEventListener('click', async () => {
+        const fullEntry = {
+          description: descInput.value.trim(),
+          amount: parseFloat(amountInput.value) || 0,
+          date: dateInput.value || todayISO(),
+        };
+
+        try {
+          await api.put(`categories/${catId}/entries/${entry.id}`, fullEntry);
+          editingEntryKey = null;
+          await loadTracker();
+        } catch (err) {
+          showError('Failed to replace entry: ' + err.message);
+        }
+      });
+
+      // Enter to save
+      descInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') form.querySelector('.save-btn').click(); });
+      amountInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') form.querySelector('.save-btn').click(); });
+
+      setTimeout(() => { descInput.focus(); descInput.select(); }, 0);
+
+      return wrapper;
+    }
+
+    // ── Tracker Title Editing ──
+    const trackerTitleEl = document.getElementById('tracker-title');
+
+    trackerTitleEl.addEventListener('click', () => {
+      trackerTitleEl.removeAttribute('readonly');
+      trackerTitleEl.focus();
+      trackerTitleEl.select();
+    });
+
+    trackerTitleEl.addEventListener('blur', async () => {
+      trackerTitleEl.setAttribute('readonly', '');
+      const newTitle = trackerTitleEl.value.trim();
+      if (!newTitle || newTitle === tracker?.title) return;
+      try {
+        await api.patch('', { title: newTitle });
+        await loadTracker();
+      } catch (err) {
+        showError('Failed to rename tracker: ' + err.message);
+        trackerTitleEl.value = tracker?.title || '';
+      }
+    });
+
+    trackerTitleEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); trackerTitleEl.blur(); }
+      if (e.key === 'Escape') { trackerTitleEl.value = tracker?.title || ''; trackerTitleEl.blur(); }
+    });
+
+    // ── Category Actions ──
+    async function handleCategoryRename(catId, inputEl) {
+      inputEl.setAttribute('readonly', '');
+      const cat = tracker?.categories?.find((c) => c.id === catId);
+      const newName = inputEl.value.trim();
+      if (!newName || newName === cat?.name) return;
+      try {
+        await api.patch(`categories/${catId}`, { name: newName });
+        await loadTracker();
+      } catch (err) {
+        showError('Failed to rename category: ' + err.message);
+        inputEl.value = cat?.name || '';
+      }
+    }
+
+    async function handleBudgetChange(catId, inputEl, oldBudget) {
+      inputEl.setAttribute('readonly', '');
+      const newBudget = parseFloat(inputEl.value);
+      if (isNaN(newBudget) || newBudget < 0 || newBudget === oldBudget) {
+        inputEl.value = formatAmount(oldBudget);
+        return;
+      }
+      try {
+        await api.patch(`categories/${catId}`, { budget: newBudget });
+        await loadTracker();
+      } catch (err) {
+        showError('Failed to update budget: ' + err.message);
+        inputEl.value = formatAmount(oldBudget);
+      }
+    }
+
+    async function addCategory() {
+      const name = prompt('Category name:');
+      if (!name || !name.trim()) return;
+      const budgetStr = prompt('Monthly budget:', '100');
+      const budget = parseFloat(budgetStr);
+      if (isNaN(budget) || budget < 0) return;
+      try {
+        await api.post('categories', { name: name.trim(), budget, entries: [] });
+        await loadTracker();
+      } catch (err) {
+        showError('Failed to add category: ' + err.message);
+      }
+    }
+
+    async function deleteCategory(catId) {
+      try {
+        await api.delete(`categories/${catId}`);
+        await loadTracker();
+      } catch (err) {
+        showError('Failed to delete category: ' + err.message);
+      }
+    }
+
+    // ── Entry Actions ──
+    async function addEntry(catId, description, amount, date) {
+      try {
+        await api.post(`categories/${catId}/entries`, { description, amount, date });
+        await loadTracker();
+      } catch (err) {
+        showError('Failed to add entry: ' + err.message);
+      }
+    }
+
+    async function deleteEntry(catId, entryId) {
+      try {
+        await api.delete(`categories/${catId}/entries/${entryId}`);
+        await loadTracker();
+      } catch (err) {
+        showError('Failed to delete entry: ' + err.message);
+      }
+    }
+
+    // ── Load Tracker Data ──
+    async function loadTracker() {
+      try {
+        tracker = await api.get('');
+        render();
+      } catch (err) {
+        showError('Failed to load expenses: ' + err.message);
+        const wrapper = document.getElementById('categories-wrapper');
+        const loading = document.getElementById('loading');
+        if (loading) loading.textContent = 'Failed to load expenses. Is the tag served with API access enabled?';
+      }
+    }
+
+    // ── Demonstrate GET on a single category at startup ──
+    async function demoReadCategory() {
+      if (!tracker?.categories?.length) return;
+      try {
+        await api.get(`categories/${tracker.categories[0].id}`);
+      } catch {
+        // Non-critical, just for the demo log
+      }
+    }
+
+    // ── Init ──
+    async function init() {
+      await loadTracker();
+      await demoReadCategory();
+    }
+
+    init();
+  </script>
+</body>
+</html>
