@@ -325,13 +325,15 @@ async function createTag(name) {
     }
 }
 
-// Create tag without showing toast (for bulk operations like folder drops)
+// Create tag without showing toast (for bulk operations like folder drops).
+// Returns {tag, error} — tag is the created/existing tag, error is a string if creation failed.
 async function createTagSilent(name) {
     try {
-        return await window.go.main.App.CreateTag(name);
+        const tag = await window.go.main.App.CreateTag(name);
+        return { tag, error: null };
     } catch (error) {
         console.error('Error creating tag:', error);
-        return null;
+        return { tag: null, error: error.message || String(error) };
     }
 }
 

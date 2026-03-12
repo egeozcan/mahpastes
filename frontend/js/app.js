@@ -727,6 +727,9 @@ async function traverseDropItems(items) {
         if (!entry) continue;
 
         if (entry.isDirectory) {
+            // Skip dotdirs at the top level (e.g. .git)
+            if (entry.name.startsWith('.')) continue;
+
             // Read .gitignore from the top-level dropped directory
             const gitignoreContent = await readGitignoreFromDir(entry);
             const ignoreFn = buildIgnoreFn(gitignoreContent);
@@ -830,11 +833,14 @@ async function handleFolderDrop(folderFiles, looseFiles, dirPaths) {
 
     // Create tags for each directory
     const tagNameToId = {};
+    const failedTags = new Set(); // tag names that failed to create
     for (const dir of sortedDirs) {
         const tagName = basePrefix + dir;
-        const tag = await createTagSilent(tagName);
+        const { tag, error } = await createTagSilent(tagName);
         if (tag) {
             tagNameToId[tagName] = tag.id;
+        } else if (error) {
+            failedTags.add(tagName);
         }
     }
 
@@ -848,7 +854,7 @@ async function handleFolderDrop(folderFiles, looseFiles, dirPaths) {
     // returned an existing tag or the ID was already present)
     for (const dir of sortedDirs) {
         const tagName = basePrefix + dir;
-        if (!tagNameToId[tagName]) {
+        if (!tagNameToId[tagName] && !failedTags.has(tagName)) {
             const existing = allTags.find(t => t.name === tagName);
             if (existing) tagNameToId[tagName] = existing.id;
         }
@@ -866,8 +872,16 @@ async function handleFolderDrop(folderFiles, looseFiles, dirPaths) {
         groups[tagName].push(file);
     }
 
-    // Upload each group with its tag
+    // Upload each group with its tag, skipping groups whose tag failed to create
+    let uploadedCount = 0;
+    let skippedCount = 0;
+    let failedCount = 0;
     for (const [tagName, files] of Object.entries(groups)) {
+        if (failedTags.has(tagName)) {
+            skippedCount += files.length;
+            console.warn(`Skipping ${files.length} file(s) for failed tag "${tagName}"`);
+            continue;
+        }
         const tagId = tagNameToId[tagName] || 0;
         const fileDataArray = [];
         for (const file of files) {
@@ -876,8 +890,10 @@ async function handleFolderDrop(folderFiles, looseFiles, dirPaths) {
         }
         try {
             await window.go.main.App.UploadFiles(fileDataArray, minutes, tagId);
+            uploadedCount += files.length;
         } catch (error) {
             console.error('Error uploading folder group:', error);
+            failedCount += files.length;
         }
     }
 
@@ -894,12 +910,25 @@ async function handleFolderDrop(folderFiles, looseFiles, dirPaths) {
         }
         try {
             await window.go.main.App.UploadFiles(fileDataArray, minutes, autoTagID);
+            uploadedCount += looseFiles.length;
         } catch (error) {
             console.error('Error uploading loose files:', error);
+            failedCount += looseFiles.length;
         }
     }
 
-    showToast('Folder uploaded!');
+    // Report results accurately
+    if (failedCount > 0 || skippedCount > 0) {
+        const parts = [];
+        if (uploadedCount > 0) parts.push(`${uploadedCount} uploaded`);
+        if (skippedCount > 0) parts.push(`${skippedCount} skipped (invalid tag)`);
+        if (failedCount > 0) parts.push(`${failedCount} failed`);
+        showToast(`Folder import: ${parts.join(', ')}.`);
+    } else if (uploadedCount > 0) {
+        showToast('Folder uploaded!');
+    } else {
+        showToast('No files to upload.');
+    }
     loadClips();
 }
 
