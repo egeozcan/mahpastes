@@ -1139,6 +1139,60 @@ On macOS, this triggers a native pasteboard drag with the file URI. The user see
 
 ---
 
+## Serve File Upload API
+
+The tag serve system exposes a file upload endpoint for HTML apps hosted within a served tag. This is not a Wails binding — it's an HTTP endpoint on the tag's serve port.
+
+### POST /_api/_upload
+
+Upload a file as a new clip, tagged to the served tag or a subtag.
+
+**Requirements:** `apiAccess` must be `"readwrite"`, valid `_mp_serve_key` cookie.
+
+**Request:** `multipart/form-data` with fields:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `file` | binary | Yes | File data (max 10 MB) |
+| `tag` | string | No | Relative subtag path under served tag |
+| `content_type` | string | No | Override auto-detected content type |
+
+**Response (201 Created):**
+```json
+{
+  "id": 42,
+  "filename": "photo.png",
+  "content_type": "image/png",
+  "tag": "myapp/exports",
+  "tag_id": 7
+}
+```
+
+**Errors:**
+
+| Status | Body | Condition |
+|--------|------|-----------|
+| 400 | `{"error": "..."}` | Missing file, invalid tag path |
+| 401 | `{"error": "..."}` | No auth cookie |
+| 403 | `{"error": "..."}` | Read-only mode |
+| 413 | `{"error": "..."}` | File > 10 MB |
+
+**JavaScript usage:**
+```javascript
+const formData = new FormData();
+formData.append('file', blob, 'screenshot.png');
+formData.append('tag', 'renders');  // optional subtag
+
+const res = await fetch('/_api/_upload', {
+  method: 'POST',
+  credentials: 'include',
+  body: formData,
+});
+const { id, filename, content_type, tag, tag_id } = await res.json();
+```
+
+---
+
 ## Events
 
 Events emitted from Go to JavaScript:
