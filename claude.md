@@ -25,6 +25,9 @@ make test         # Run e2e tests
 make test-headed  # Run e2e tests with visible browser
 make test-debug   # Run e2e tests with Playwright inspector
 make screenshots  # Capture documentation screenshots
+make mp            # Build mp CLI for current platform
+make mp-install    # Install mp to /usr/local/bin
+make mp-cross      # Cross-compile mp for all platforms
 make help         # Show all targets
 ```
 
@@ -201,6 +204,7 @@ mahpastes/
 │   └── api_*.go          # Lua APIs (clips, tags, storage, http, fs, utils, task, toast, image, modal)
 ├── plugins/              # Example/bundled plugins
 │   └── fal-ai.lua        # FAL.AI image processing plugin
+├── cmd/mp/               # CLI binary (stateless REST API client)
 ├── frontend/
 │   ├── index.html        # Single HTML file with all markup
 │   ├── js/
@@ -230,6 +234,63 @@ mahpastes/
     ├── fixtures/         # Test fixtures (AppHelper)
     └── helpers/          # Test utilities and selectors
 ```
+
+## CLI (`mp`)
+
+The `mp` binary is a stateless CLI for mahpastes, talking to the REST API (`/api/v1/*`).
+
+### Setup
+
+```bash
+make mp                              # Build
+export MP_API_KEY=mp_your_key_here   # Required
+export MP_API_URL=http://localhost:44557  # Optional, this is the default
+```
+
+### Command Groups
+
+| Group | Purpose |
+|-------|---------|
+| `mp clip` | List, upload, get, delete, rename, archive, expire, download, metadata |
+| `mp tag` | Create, update, delete, assign/remove, list clips, hidden tags |
+| `mp dedup` | List duplicate groups, merge, deduplicate all |
+| `mp watch` | Add/remove/update watch folders, pause/resume, status |
+| `mp plugin` | Install/remove/enable/disable, storage, run actions, updates |
+| `mp serve` | Start/stop/list tag HTTP servers |
+| `mp api` | Check API connectivity |
+| `mp backup` | Create/restore backup ZIPs |
+| `mp clipboard` | Copy clip content or file reference to system clipboard |
+| `mp completion` | Shell completion for bash/zsh/fish/powershell |
+
+### Key Patterns
+
+- `--json` flag on any command for machine-readable output
+- `--stdin` flag on bulk commands reads IDs from stdin
+- Tags can be referenced by name or ID
+- `mp clip data <id> > file.png` outputs raw content to stdout
+- Auth via `MP_API_KEY` env var (Bearer token), no config files
+- Exit codes: 0 success, 1 general error, 2 connection error, 3 auth error
+
+### Architecture
+
+```
+cmd/mp/
+├── main.go        # Root command, --json flag
+├── client/
+│   └── client.go  # HTTP client (auth, errors, JSON/multipart helpers)
+├── output.go      # Human/JSON formatting (printTable, printJSON, printKeyValue)
+├── clip.go        # clip subcommands
+├── tag.go         # tag subcommands
+├── dedup.go       # dedup subcommands
+├── watch.go       # watch subcommands
+├── plugin.go      # plugin subcommands
+├── serve.go       # serve subcommands
+├── api.go         # api subcommands
+├── backup.go      # backup subcommands
+└── clipboard.go   # clipboard subcommands
+```
+
+Pure Go, no CGo — cross-compiles for macOS, Linux, Windows.
 
 ## Code Style
 

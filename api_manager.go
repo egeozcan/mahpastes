@@ -1,6 +1,7 @@
 package main
 
 import (
+	"archive/zip"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -13,6 +14,7 @@ import (
 	"mime"
 	"mime/multipart"
 	"net"
+	"os"
 	"net/http"
 	"path/filepath"
 	"strconv"
@@ -20,6 +22,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"go-clipboard/plugin"
 )
 
 // APIStatus describes the current state of the API server.
@@ -114,6 +118,72 @@ func (am *APIManager) Start(port int, bindAll bool) (APIStatus, error) {
 	mux.HandleFunc("GET /api/v1/serve", am.authMiddleware(am.requireRole("viewer", am.handleListServers)))
 	mux.HandleFunc("POST /api/v1/serve", am.authMiddleware(am.requireRole("admin", am.handleStartServer)))
 	mux.HandleFunc("DELETE /api/v1/serve/{tagId}", am.authMiddleware(am.requireRole("admin", am.handleStopServer)))
+
+	// Clip extended operations
+	mux.HandleFunc("PATCH /api/v1/clips/{id}", am.authMiddleware(am.requireRole("editor", am.handleRenameClip)))
+	mux.HandleFunc("PUT /api/v1/clips/{id}/expiration", am.authMiddleware(am.requireRole("editor", am.handleSetExpiration)))
+	mux.HandleFunc("DELETE /api/v1/clips/{id}/expiration", am.authMiddleware(am.requireRole("editor", am.handleCancelExpiration)))
+	mux.HandleFunc("POST /api/v1/clips/bulk/delete", am.authMiddleware(am.requireRole("editor", am.handleBulkDelete)))
+	mux.HandleFunc("POST /api/v1/clips/bulk/archive", am.authMiddleware(am.requireRole("editor", am.handleBulkArchive)))
+	mux.HandleFunc("POST /api/v1/clips/bulk/unarchive", am.authMiddleware(am.requireRole("editor", am.handleBulkUnarchive)))
+	mux.HandleFunc("POST /api/v1/clips/bulk/expire", am.authMiddleware(am.requireRole("editor", am.handleBulkSetExpiration)))
+	mux.HandleFunc("POST /api/v1/clips/bulk/cancel-expire", am.authMiddleware(am.requireRole("editor", am.handleBulkCancelExpiration)))
+	mux.HandleFunc("POST /api/v1/clips/bulk/tag", am.authMiddleware(am.requireRole("editor", am.handleBulkAddTag)))
+	mux.HandleFunc("POST /api/v1/clips/bulk/untag", am.authMiddleware(am.requireRole("editor", am.handleBulkRemoveTag)))
+	mux.HandleFunc("POST /api/v1/clips/bulk/download", am.authMiddleware(am.requireRole("viewer", am.handleBulkDownload)))
+	mux.HandleFunc("POST /api/v1/clips/bulk/copy", am.authMiddleware(am.requireRole("editor", am.handleBulkCopyToClipboard)))
+
+	// Clip metadata
+	mux.HandleFunc("GET /api/v1/clips/{id}/metadata", am.authMiddleware(am.requireRole("viewer", am.handleGetMetadata)))
+	mux.HandleFunc("PUT /api/v1/clips/{id}/metadata", am.authMiddleware(am.requireRole("editor", am.handleSetMetadataBulk)))
+	mux.HandleFunc("PUT /api/v1/clips/{id}/metadata/{key}", am.authMiddleware(am.requireRole("editor", am.handleSetMetadata)))
+	mux.HandleFunc("DELETE /api/v1/clips/{id}/metadata/{key}", am.authMiddleware(am.requireRole("editor", am.handleDeleteMetadata)))
+
+	// Tags extended
+	mux.HandleFunc("GET /api/v1/tags/{id}/children", am.authMiddleware(am.requireRole("viewer", am.handleGetChildTags)))
+	mux.HandleFunc("GET /api/v1/tags/{id}/clips", am.authMiddleware(am.requireRole("viewer", am.handleGetTagClips)))
+	mux.HandleFunc("GET /api/v1/tags/hidden", am.authMiddleware(am.requireRole("viewer", am.handleGetHiddenTags)))
+	mux.HandleFunc("PUT /api/v1/tags/hidden", am.authMiddleware(am.requireRole("admin", am.handleSetHiddenTags)))
+
+	// Deduplication
+	mux.HandleFunc("GET /api/v1/dedup", am.authMiddleware(am.requireRole("viewer", am.handleListDuplicates)))
+	mux.HandleFunc("POST /api/v1/dedup/{clipId}/merge", am.authMiddleware(am.requireRole("editor", am.handleMergeDuplicates)))
+	mux.HandleFunc("POST /api/v1/dedup/all", am.authMiddleware(am.requireRole("admin", am.handleDeduplicateAll)))
+
+	// Watch folders
+	mux.HandleFunc("GET /api/v1/watch", am.authMiddleware(am.requireRole("viewer", am.handleListWatchFolders)))
+	mux.HandleFunc("GET /api/v1/watch/status", am.authMiddleware(am.requireRole("viewer", am.handleWatchStatus)))
+	mux.HandleFunc("PUT /api/v1/watch/global-pause", am.authMiddleware(am.requireRole("admin", am.handleGlobalPause)))
+	mux.HandleFunc("DELETE /api/v1/watch/global-pause", am.authMiddleware(am.requireRole("admin", am.handleGlobalResume)))
+	mux.HandleFunc("GET /api/v1/watch/{id}", am.authMiddleware(am.requireRole("viewer", am.handleGetWatchFolder)))
+	mux.HandleFunc("POST /api/v1/watch", am.authMiddleware(am.requireRole("admin", am.handleAddWatchFolder)))
+	mux.HandleFunc("PUT /api/v1/watch/{id}", am.authMiddleware(am.requireRole("admin", am.handleUpdateWatchFolder)))
+	mux.HandleFunc("DELETE /api/v1/watch/{id}", am.authMiddleware(am.requireRole("admin", am.handleRemoveWatchFolder)))
+	mux.HandleFunc("PUT /api/v1/watch/{id}/pause", am.authMiddleware(am.requireRole("admin", am.handlePauseWatchFolder)))
+	mux.HandleFunc("DELETE /api/v1/watch/{id}/pause", am.authMiddleware(am.requireRole("admin", am.handleResumeWatchFolder)))
+	mux.HandleFunc("POST /api/v1/watch/{id}/process", am.authMiddleware(am.requireRole("admin", am.handleProcessExisting)))
+
+	// Plugins
+	mux.HandleFunc("GET /api/v1/plugins", am.authMiddleware(am.requireRole("viewer", am.handleListPlugins)))
+	mux.HandleFunc("GET /api/v1/plugins/actions", am.authMiddleware(am.requireRole("viewer", am.handleListPluginActions)))
+	mux.HandleFunc("POST /api/v1/plugins", am.authMiddleware(am.requireRole("admin", am.handleInstallPlugin)))
+	mux.HandleFunc("POST /api/v1/plugins/check-updates", am.authMiddleware(am.requireRole("admin", am.handleCheckPluginUpdates)))
+	mux.HandleFunc("DELETE /api/v1/plugins/{id}", am.authMiddleware(am.requireRole("admin", am.handleRemovePlugin)))
+	mux.HandleFunc("PUT /api/v1/plugins/{id}/enable", am.authMiddleware(am.requireRole("admin", am.handleEnablePlugin)))
+	mux.HandleFunc("PUT /api/v1/plugins/{id}/disable", am.authMiddleware(am.requireRole("admin", am.handleDisablePlugin)))
+	mux.HandleFunc("GET /api/v1/plugins/{id}/storage", am.authMiddleware(am.requireRole("admin", am.handleGetPluginStorageAll)))
+	mux.HandleFunc("GET /api/v1/plugins/{id}/storage/{key}", am.authMiddleware(am.requireRole("admin", am.handleGetPluginStorage)))
+	mux.HandleFunc("PUT /api/v1/plugins/{id}/storage/{key}", am.authMiddleware(am.requireRole("admin", am.handleSetPluginStorage)))
+	mux.HandleFunc("POST /api/v1/plugins/{id}/actions/{actionId}", am.authMiddleware(am.requireRole("editor", am.handleExecutePluginAction)))
+	mux.HandleFunc("POST /api/v1/plugins/{id}/update", am.authMiddleware(am.requireRole("admin", am.handleUpdatePlugin)))
+
+	// Backup
+	mux.HandleFunc("GET /api/v1/backup", am.authMiddleware(am.requireRole("admin", am.handleCreateBackup)))
+	mux.HandleFunc("POST /api/v1/backup/restore", am.authMiddleware(am.requireRole("admin", am.handleRestoreBackup)))
+
+	// Clipboard
+	mux.HandleFunc("POST /api/v1/clipboard/copy", am.authMiddleware(am.requireRole("editor", am.handleCopyToClipboard)))
+	mux.HandleFunc("POST /api/v1/clipboard/copy-file", am.authMiddleware(am.requireRole("editor", am.handleCopyFileToClipboard)))
 
 	handler := am.corsMiddleware(mux)
 
@@ -318,7 +388,7 @@ func (am *APIManager) RevokeKey(id int64) error {
 func (am *APIManager) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
 
 		if r.Method == http.MethodOptions {
@@ -1230,6 +1300,1351 @@ func (am *APIManager) handleStopServer(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		am.jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- Clip Extended Handlers ---
+
+func (am *APIManager) handleRenameClip(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+
+	id, err := parseIntParam(r.PathValue("id"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid clip id")
+		return
+	}
+
+	if err := am.enforceTagScope(keyCtx, id); err != nil {
+		am.jsonError(w, http.StatusForbidden, err.Error())
+		return
+	}
+
+	var body struct {
+		Filename string `json:"filename"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	if body.Filename == "" {
+		am.jsonError(w, http.StatusBadRequest, "filename is required")
+		return
+	}
+
+	if err := am.app.RenameClip(id, body.Filename); err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to rename clip")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (am *APIManager) handleSetExpiration(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+
+	id, err := parseIntParam(r.PathValue("id"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid clip id")
+		return
+	}
+
+	if err := am.enforceTagScope(keyCtx, id); err != nil {
+		am.jsonError(w, http.StatusForbidden, err.Error())
+		return
+	}
+
+	var body struct {
+		Minutes int `json:"minutes"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	if body.Minutes <= 0 {
+		am.jsonError(w, http.StatusBadRequest, "minutes must be positive")
+		return
+	}
+
+	if err := am.app.SetExpiration(id, body.Minutes); err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to set expiration")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (am *APIManager) handleCancelExpiration(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+
+	id, err := parseIntParam(r.PathValue("id"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid clip id")
+		return
+	}
+
+	if err := am.enforceTagScope(keyCtx, id); err != nil {
+		am.jsonError(w, http.StatusForbidden, err.Error())
+		return
+	}
+
+	if err := am.app.CancelExpiration(id); err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to cancel expiration")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- Bulk Handlers ---
+
+func (am *APIManager) handleBulkDelete(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+
+	var body struct {
+		IDs []int64 `json:"ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	if len(body.IDs) == 0 {
+		am.jsonError(w, http.StatusBadRequest, "ids is required")
+		return
+	}
+
+	for _, id := range body.IDs {
+		if err := am.enforceTagScope(keyCtx, id); err != nil {
+			am.jsonError(w, http.StatusForbidden, err.Error())
+			return
+		}
+	}
+
+	if err := am.app.BulkDelete(body.IDs); err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to bulk delete")
+		return
+	}
+
+	am.jsonOK(w, map[string]int{"deleted": len(body.IDs)})
+}
+
+func (am *APIManager) handleBulkArchive(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+
+	var body struct {
+		IDs []int64 `json:"ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	if len(body.IDs) == 0 {
+		am.jsonError(w, http.StatusBadRequest, "ids is required")
+		return
+	}
+
+	for _, id := range body.IDs {
+		if err := am.enforceTagScope(keyCtx, id); err != nil {
+			am.jsonError(w, http.StatusForbidden, err.Error())
+			return
+		}
+	}
+
+	if err := am.app.BulkArchive(body.IDs); err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to bulk archive")
+		return
+	}
+
+	am.jsonOK(w, map[string]int{"archived": len(body.IDs)})
+}
+
+func (am *APIManager) handleBulkUnarchive(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+
+	var body struct {
+		IDs []int64 `json:"ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	if len(body.IDs) == 0 {
+		am.jsonError(w, http.StatusBadRequest, "ids is required")
+		return
+	}
+
+	for _, id := range body.IDs {
+		if err := am.enforceTagScope(keyCtx, id); err != nil {
+			am.jsonError(w, http.StatusForbidden, err.Error())
+			return
+		}
+	}
+
+	count := 0
+	for _, id := range body.IDs {
+		_, err := am.app.db.Exec("UPDATE clips SET is_archived = 0 WHERE id = ?", id)
+		if err == nil {
+			count++
+		}
+	}
+
+	am.jsonOK(w, map[string]int{"unarchived": count})
+}
+
+func (am *APIManager) handleBulkSetExpiration(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+
+	var body struct {
+		IDs     []int64 `json:"ids"`
+		Minutes int     `json:"minutes"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	if len(body.IDs) == 0 {
+		am.jsonError(w, http.StatusBadRequest, "ids is required")
+		return
+	}
+
+	if body.Minutes <= 0 {
+		am.jsonError(w, http.StatusBadRequest, "minutes must be positive")
+		return
+	}
+
+	for _, id := range body.IDs {
+		if err := am.enforceTagScope(keyCtx, id); err != nil {
+			am.jsonError(w, http.StatusForbidden, err.Error())
+			return
+		}
+	}
+
+	if err := am.app.BulkSetExpiration(body.IDs, body.Minutes); err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to bulk set expiration")
+		return
+	}
+
+	am.jsonOK(w, map[string]int{"updated": len(body.IDs)})
+}
+
+func (am *APIManager) handleBulkCancelExpiration(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+
+	var body struct {
+		IDs []int64 `json:"ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	if len(body.IDs) == 0 {
+		am.jsonError(w, http.StatusBadRequest, "ids is required")
+		return
+	}
+
+	for _, id := range body.IDs {
+		if err := am.enforceTagScope(keyCtx, id); err != nil {
+			am.jsonError(w, http.StatusForbidden, err.Error())
+			return
+		}
+	}
+
+	if err := am.app.BulkCancelExpiration(body.IDs); err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to bulk cancel expiration")
+		return
+	}
+
+	am.jsonOK(w, map[string]int{"updated": len(body.IDs)})
+}
+
+func (am *APIManager) handleBulkAddTag(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+
+	var body struct {
+		IDs   []int64 `json:"ids"`
+		TagID int64   `json:"tag_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	if len(body.IDs) == 0 {
+		am.jsonError(w, http.StatusBadRequest, "ids is required")
+		return
+	}
+
+	if body.TagID == 0 {
+		am.jsonError(w, http.StatusBadRequest, "tag_id is required")
+		return
+	}
+
+	for _, id := range body.IDs {
+		if err := am.enforceTagScope(keyCtx, id); err != nil {
+			am.jsonError(w, http.StatusForbidden, err.Error())
+			return
+		}
+	}
+
+	if err := am.app.BulkAddTag(body.IDs, body.TagID); err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to bulk add tag")
+		return
+	}
+
+	am.jsonOK(w, map[string]int{"tagged": len(body.IDs)})
+}
+
+func (am *APIManager) handleBulkRemoveTag(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+
+	var body struct {
+		IDs   []int64 `json:"ids"`
+		TagID int64   `json:"tag_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	if len(body.IDs) == 0 {
+		am.jsonError(w, http.StatusBadRequest, "ids is required")
+		return
+	}
+
+	if body.TagID == 0 {
+		am.jsonError(w, http.StatusBadRequest, "tag_id is required")
+		return
+	}
+
+	for _, id := range body.IDs {
+		if err := am.enforceTagScope(keyCtx, id); err != nil {
+			am.jsonError(w, http.StatusForbidden, err.Error())
+			return
+		}
+	}
+
+	if err := am.app.BulkRemoveTag(body.IDs, body.TagID); err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to bulk remove tag")
+		return
+	}
+
+	am.jsonOK(w, map[string]int{"untagged": len(body.IDs)})
+}
+
+func (am *APIManager) handleBulkDownload(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+
+	var body struct {
+		IDs []int64 `json:"ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	if len(body.IDs) == 0 {
+		am.jsonError(w, http.StatusBadRequest, "ids is required")
+		return
+	}
+
+	for _, id := range body.IDs {
+		if err := am.enforceTagScope(keyCtx, id); err != nil {
+			am.jsonError(w, http.StatusForbidden, err.Error())
+			return
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", "attachment; filename=\"clips.zip\"")
+
+	zw := zip.NewWriter(w)
+
+	for _, id := range body.IDs {
+		var data []byte
+		var filename sql.NullString
+		err := am.app.db.QueryRow("SELECT data, filename FROM clips WHERE id = ?", id).Scan(&data, &filename)
+		if err != nil {
+			continue
+		}
+
+		name := filename.String
+		if name == "" {
+			name = fmt.Sprintf("clip_%d", id)
+		}
+
+		fw, err := zw.Create(name)
+		if err != nil {
+			continue
+		}
+		fw.Write(data)
+	}
+
+	zw.Close()
+}
+
+func (am *APIManager) handleBulkCopyToClipboard(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+
+	var body struct {
+		IDs []int64 `json:"ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	if len(body.IDs) == 0 {
+		am.jsonError(w, http.StatusBadRequest, "ids is required")
+		return
+	}
+
+	for _, id := range body.IDs {
+		if err := am.enforceTagScope(keyCtx, id); err != nil {
+			am.jsonError(w, http.StatusForbidden, err.Error())
+			return
+		}
+	}
+
+	if am.app.clipboardService == nil {
+		am.jsonError(w, http.StatusInternalServerError, "clipboard service not available")
+		return
+	}
+
+	if err := am.app.clipboardService.BulkCopyFilesToClipboard(body.IDs); err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to copy to clipboard")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- Metadata Handlers ---
+
+func (am *APIManager) handleGetMetadata(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+
+	id, err := parseIntParam(r.PathValue("id"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid clip id")
+		return
+	}
+
+	if err := am.enforceTagScope(keyCtx, id); err != nil {
+		am.jsonError(w, http.StatusForbidden, err.Error())
+		return
+	}
+
+	meta, err := am.app.GetClipMetadata(id)
+	if err != nil {
+		am.jsonError(w, http.StatusNotFound, "clip not found")
+		return
+	}
+	if meta == nil {
+		meta = map[string]string{}
+	}
+
+	am.jsonOK(w, meta)
+}
+
+func (am *APIManager) handleSetMetadataBulk(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+
+	id, err := parseIntParam(r.PathValue("id"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid clip id")
+		return
+	}
+
+	if err := am.enforceTagScope(keyCtx, id); err != nil {
+		am.jsonError(w, http.StatusForbidden, err.Error())
+		return
+	}
+
+	var metadata map[string]string
+	if err := json.NewDecoder(r.Body).Decode(&metadata); err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	if err := am.app.SetClipMetadataBulk(id, metadata); err != nil {
+		am.jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (am *APIManager) handleSetMetadata(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+
+	id, err := parseIntParam(r.PathValue("id"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid clip id")
+		return
+	}
+
+	if err := am.enforceTagScope(keyCtx, id); err != nil {
+		am.jsonError(w, http.StatusForbidden, err.Error())
+		return
+	}
+
+	key := r.PathValue("key")
+	if key == "" {
+		am.jsonError(w, http.StatusBadRequest, "metadata key is required")
+		return
+	}
+
+	var body struct {
+		Value string `json:"value"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	if err := am.app.SetClipMetadata(id, key, body.Value); err != nil {
+		am.jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (am *APIManager) handleDeleteMetadata(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+
+	id, err := parseIntParam(r.PathValue("id"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid clip id")
+		return
+	}
+
+	if err := am.enforceTagScope(keyCtx, id); err != nil {
+		am.jsonError(w, http.StatusForbidden, err.Error())
+		return
+	}
+
+	key := r.PathValue("key")
+	if key == "" {
+		am.jsonError(w, http.StatusBadRequest, "metadata key is required")
+		return
+	}
+
+	if err := am.app.DeleteClipMetadata(id, key); err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to delete metadata")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- Tag Extended Handlers ---
+
+func (am *APIManager) handleGetChildTags(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+
+	id, err := parseIntParam(r.PathValue("id"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid tag id")
+		return
+	}
+
+	// Tag-scoped keys can only view children within their scope
+	if keyCtx.ScopedTagID > 0 {
+		var tagName string
+		if err := am.app.db.QueryRow("SELECT name FROM tags WHERE id = ?", id).Scan(&tagName); err != nil {
+			am.jsonError(w, http.StatusNotFound, "tag not found")
+			return
+		}
+		if !am.isTagInScope(tagName, keyCtx.ScopedTagID) {
+			am.jsonOK(w, []Tag{})
+			return
+		}
+	}
+
+	children, err := am.app.GetChildTags(id)
+	if err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to get child tags")
+		return
+	}
+	if children == nil {
+		children = []Tag{}
+	}
+
+	am.jsonOK(w, children)
+}
+
+func (am *APIManager) handleGetTagClips(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+
+	tagID, err := parseIntParam(r.PathValue("id"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid tag id")
+		return
+	}
+
+	// Tag-scoped keys can only view clips for tags within their scope
+	if keyCtx.ScopedTagID > 0 {
+		var tagName string
+		if err := am.app.db.QueryRow("SELECT name FROM tags WHERE id = ?", tagID).Scan(&tagName); err != nil {
+			am.jsonError(w, http.StatusNotFound, "tag not found")
+			return
+		}
+		if !am.isTagInScope(tagName, keyCtx.ScopedTagID) {
+			am.jsonOK(w, apiClipListResponse{Clips: []apiClipResponse{}, Total: 0, Limit: 50, Offset: 0})
+			return
+		}
+	}
+
+	// Parse pagination
+	limit := 50
+	offset := 0
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 200 {
+			limit = n
+		}
+	}
+	if v := r.URL.Query().Get("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			offset = n
+		}
+	}
+
+	// Count
+	var totalCount int
+	am.app.db.QueryRow(`
+		SELECT COUNT(*) FROM clips c
+		JOIN clip_tags ct ON c.id = ct.clip_id
+		WHERE ct.tag_id = ?`, tagID).Scan(&totalCount)
+
+	// Fetch
+	rows, err := am.app.db.Query(`
+		SELECT c.id, c.content_type, c.filename, LENGTH(c.data), c.is_archived, c.created_at
+		FROM clips c
+		JOIN clip_tags ct ON c.id = ct.clip_id
+		WHERE ct.tag_id = ?
+		ORDER BY c.created_at DESC
+		LIMIT ? OFFSET ?`, tagID, limit, offset)
+	if err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to query clips")
+		return
+	}
+	defer rows.Close()
+
+	clips := []apiClipResponse{}
+	for rows.Next() {
+		var c apiClipResponse
+		var filename sql.NullString
+		var isArchived int
+
+		if err := rows.Scan(&c.ID, &c.ContentType, &filename, &c.Size, &isArchived, &c.CreatedAt); err != nil {
+			continue
+		}
+		c.Filename = filename.String
+		c.IsArchived = isArchived == 1
+		c.Tags, _ = am.app.GetClipTags(c.ID)
+		if c.Tags == nil {
+			c.Tags = []Tag{}
+		}
+		clips = append(clips, c)
+	}
+
+	am.jsonOK(w, apiClipListResponse{
+		Clips:  clips,
+		Total:  totalCount,
+		Limit:  limit,
+		Offset: offset,
+	})
+}
+
+func (am *APIManager) handleGetHiddenTags(w http.ResponseWriter, r *http.Request) {
+	ids, err := am.app.GetHiddenTags()
+	if err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to get hidden tags")
+		return
+	}
+	if ids == nil {
+		ids = []int64{}
+	}
+
+	am.jsonOK(w, map[string][]int64{"ids": ids})
+}
+
+func (am *APIManager) handleSetHiddenTags(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		IDs []int64 `json:"ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	if err := am.app.SetHiddenTags(body.IDs); err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to set hidden tags")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- Dedup Handlers ---
+
+func (am *APIManager) handleListDuplicates(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+	if keyCtx.ScopedTagID > 0 {
+		am.jsonError(w, http.StatusForbidden, "dedup operations are not available for tag-scoped keys")
+		return
+	}
+
+	groups, err := am.app.GetDuplicateGroups()
+	if err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to get duplicate groups")
+		return
+	}
+	if groups == nil {
+		groups = []DuplicateGroup{}
+	}
+
+	am.jsonOK(w, map[string]interface{}{
+		"groups": groups,
+		"total":  len(groups),
+	})
+}
+
+func (am *APIManager) handleMergeDuplicates(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+
+	clipID, err := parseIntParam(r.PathValue("clipId"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid clip id")
+		return
+	}
+
+	if err := am.enforceTagScope(keyCtx, clipID); err != nil {
+		am.jsonError(w, http.StatusForbidden, err.Error())
+		return
+	}
+
+	if err := am.app.MergeDuplicates(clipID); err != nil {
+		am.jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (am *APIManager) handleDeduplicateAll(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+	if keyCtx.ScopedTagID > 0 {
+		am.jsonError(w, http.StatusForbidden, "dedup operations are not available for tag-scoped keys")
+		return
+	}
+
+	removed, err := am.app.DeduplicateAll()
+	if err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to deduplicate")
+		return
+	}
+
+	am.jsonOK(w, map[string]int{"removed": removed})
+}
+
+// --- Watch Folder Handlers ---
+
+func (am *APIManager) handleListWatchFolders(w http.ResponseWriter, r *http.Request) {
+	folders, err := am.app.GetWatchedFolders()
+	if err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to list watch folders")
+		return
+	}
+	if folders == nil {
+		folders = []WatchedFolder{}
+	}
+
+	am.jsonOK(w, map[string]interface{}{
+		"folders": folders,
+		"total":   len(folders),
+	})
+}
+
+func (am *APIManager) handleWatchStatus(w http.ResponseWriter, r *http.Request) {
+	status := am.app.GetWatchStatus()
+	am.jsonOK(w, status)
+}
+
+func (am *APIManager) handleGetWatchFolder(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIntParam(r.PathValue("id"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid watch folder id")
+		return
+	}
+
+	folder, err := am.app.GetWatchedFolderByID(id)
+	if err != nil {
+		am.jsonError(w, http.StatusNotFound, "watch folder not found")
+		return
+	}
+
+	am.jsonOK(w, folder)
+}
+
+func (am *APIManager) handleAddWatchFolder(w http.ResponseWriter, r *http.Request) {
+	var config WatchedFolderConfig
+	if err := json.NewDecoder(r.Body).Decode(&config); err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	if config.Path == "" {
+		am.jsonError(w, http.StatusBadRequest, "path is required")
+		return
+	}
+
+	folder, err := am.app.AddWatchedFolder(config)
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	am.app.RefreshWatches()
+
+	if config.ProcessExisting && folder != nil {
+		go am.app.ProcessExistingFilesInFolder(folder.ID)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(folder)
+}
+
+func (am *APIManager) handleUpdateWatchFolder(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIntParam(r.PathValue("id"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid watch folder id")
+		return
+	}
+
+	// Decode into raw map so we know which fields were actually provided
+	var rawFields map[string]json.RawMessage
+	if err := json.NewDecoder(r.Body).Decode(&rawFields); err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	if err := am.app.UpdateWatchedFolderPartial(id, rawFields); err != nil {
+		am.jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	am.app.RefreshWatches()
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (am *APIManager) handleRemoveWatchFolder(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIntParam(r.PathValue("id"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid watch folder id")
+		return
+	}
+
+	if err := am.app.RemoveWatchedFolder(id); err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to remove watch folder")
+		return
+	}
+
+	am.app.RefreshWatches()
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (am *APIManager) handlePauseWatchFolder(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIntParam(r.PathValue("id"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid watch folder id")
+		return
+	}
+
+	if err := am.app.SetFolderPaused(id, true); err != nil {
+		am.jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	am.app.RefreshWatches()
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (am *APIManager) handleResumeWatchFolder(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIntParam(r.PathValue("id"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid watch folder id")
+		return
+	}
+
+	if err := am.app.SetFolderPaused(id, false); err != nil {
+		am.jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	am.app.RefreshWatches()
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (am *APIManager) handleGlobalPause(w http.ResponseWriter, r *http.Request) {
+	if err := am.app.SetGlobalWatchPaused(true); err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to set global pause")
+		return
+	}
+
+	am.app.RefreshWatches()
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (am *APIManager) handleGlobalResume(w http.ResponseWriter, r *http.Request) {
+	if err := am.app.SetGlobalWatchPaused(false); err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to resume global watch")
+		return
+	}
+
+	am.app.RefreshWatches()
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (am *APIManager) handleProcessExisting(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIntParam(r.PathValue("id"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid watch folder id")
+		return
+	}
+
+	if err := am.app.ProcessExistingFilesInFolder(id); err != nil {
+		am.jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- Plugin Handlers ---
+
+func (am *APIManager) handleListPlugins(w http.ResponseWriter, r *http.Request) {
+	if am.app.db == nil {
+		am.jsonOK(w, map[string]interface{}{
+			"plugins": []PluginInfo{},
+			"total":   0,
+		})
+		return
+	}
+
+	rows, err := am.app.db.Query(`
+		SELECT id, name, version, enabled, status
+		FROM plugins ORDER BY name
+	`)
+	if err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to query plugins")
+		return
+	}
+	defer rows.Close()
+
+	var plugins []PluginInfo
+	for rows.Next() {
+		var p PluginInfo
+		var enabled int
+		if err := rows.Scan(&p.ID, &p.Name, &p.Version, &enabled, &p.Status); err != nil {
+			log.Printf("handleListPlugins: failed to scan row: %v", err)
+			continue
+		}
+		p.Enabled = enabled == 1
+
+		// Augment with manifest info from loaded plugin
+		if am.app.pluginManager != nil {
+			for _, loaded := range am.app.pluginManager.GetPlugins() {
+				if loaded.ID == p.ID && loaded.Manifest != nil {
+					p.Description = loaded.Manifest.Description
+					p.Author = loaded.Manifest.Author
+					p.Events = loaded.Manifest.Events
+					p.Settings = loaded.Manifest.Settings
+					break
+				}
+			}
+		}
+
+		plugins = append(plugins, p)
+	}
+
+	if plugins == nil {
+		plugins = []PluginInfo{}
+	}
+
+	am.jsonOK(w, map[string]interface{}{
+		"plugins": plugins,
+		"total":   len(plugins),
+	})
+}
+
+func (am *APIManager) handleListPluginActions(w http.ResponseWriter, r *http.Request) {
+	response, err := am.app.getPluginUIActions()
+	if err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to get plugin actions")
+		return
+	}
+
+	am.jsonOK(w, response)
+}
+
+func (am *APIManager) handleInstallPlugin(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Source string `json:"source"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	if body.Source == "" {
+		am.jsonError(w, http.StatusBadRequest, "source is required")
+		return
+	}
+
+	info, err := am.app.installPluginFromSource(body.Source)
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(info)
+}
+
+func (am *APIManager) handleRemovePlugin(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIntParam(r.PathValue("id"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid plugin id")
+		return
+	}
+
+	if am.app.pluginManager == nil {
+		am.jsonError(w, http.StatusInternalServerError, "plugin manager not available")
+		return
+	}
+
+	if err := am.app.pluginManager.RemovePlugin(id); err != nil {
+		am.jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (am *APIManager) handleEnablePlugin(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIntParam(r.PathValue("id"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid plugin id")
+		return
+	}
+
+	if am.app.pluginManager == nil {
+		am.jsonError(w, http.StatusInternalServerError, "plugin manager not available")
+		return
+	}
+
+	if err := am.app.pluginManager.EnablePlugin(id); err != nil {
+		am.jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (am *APIManager) handleDisablePlugin(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIntParam(r.PathValue("id"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid plugin id")
+		return
+	}
+
+	if am.app.pluginManager == nil {
+		am.jsonError(w, http.StatusInternalServerError, "plugin manager not available")
+		return
+	}
+
+	if err := am.app.pluginManager.DisablePlugin(id); err != nil {
+		am.jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (am *APIManager) handleGetPluginStorageAll(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIntParam(r.PathValue("id"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid plugin id")
+		return
+	}
+
+	storage, err := am.app.getAllPluginStorage(id)
+	if err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to get plugin storage")
+		return
+	}
+
+	am.jsonOK(w, storage)
+}
+
+func (am *APIManager) handleGetPluginStorage(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIntParam(r.PathValue("id"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid plugin id")
+		return
+	}
+
+	key := r.PathValue("key")
+	if key == "" {
+		am.jsonError(w, http.StatusBadRequest, "key is required")
+		return
+	}
+
+	value, err := am.app.getPluginStorage(id, key)
+	if err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to get plugin storage value")
+		return
+	}
+
+	am.jsonOK(w, map[string]string{
+		"key":   key,
+		"value": value,
+	})
+}
+
+func (am *APIManager) handleSetPluginStorage(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIntParam(r.PathValue("id"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid plugin id")
+		return
+	}
+
+	key := r.PathValue("key")
+	if key == "" {
+		am.jsonError(w, http.StatusBadRequest, "key is required")
+		return
+	}
+
+	var body struct {
+		Value string `json:"value"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	if err := am.app.setPluginStorage(id, key, body.Value); err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to set plugin storage value")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (am *APIManager) handleExecutePluginAction(w http.ResponseWriter, r *http.Request) {
+	pluginID, err := parseIntParam(r.PathValue("id"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid plugin id")
+		return
+	}
+
+	actionID := r.PathValue("actionId")
+	if actionID == "" {
+		am.jsonError(w, http.StatusBadRequest, "action id is required")
+		return
+	}
+
+	var body struct {
+		ClipIDs []int64                `json:"clip_ids"`
+		Options map[string]interface{} `json:"options"`
+	}
+	// Body is optional for actions that don't need clip IDs or options
+	json.NewDecoder(r.Body).Decode(&body)
+
+	result, err := am.app.executePluginAction(pluginID, actionID, body.ClipIDs, body.Options)
+	if err != nil {
+		am.jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	am.jsonOK(w, result)
+}
+
+func (am *APIManager) handleCheckPluginUpdates(w http.ResponseWriter, r *http.Request) {
+	if am.app.pluginManager == nil {
+		am.jsonOK(w, map[string]interface{}{
+			"updates": []*plugin.PluginUpdateInfo{},
+		})
+		return
+	}
+
+	uc := am.app.pluginManager.GetUpdateChecker()
+	if uc == nil {
+		am.jsonOK(w, map[string]interface{}{
+			"updates": []*plugin.PluginUpdateInfo{},
+		})
+		return
+	}
+
+	uc.CheckAll()
+	updates := uc.GetUpdates()
+	if updates == nil {
+		updates = []*plugin.PluginUpdateInfo{}
+	}
+
+	am.jsonOK(w, map[string]interface{}{
+		"updates": updates,
+	})
+}
+
+func (am *APIManager) handleUpdatePlugin(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIntParam(r.PathValue("id"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid plugin id")
+		return
+	}
+
+	result, err := am.app.updatePlugin(id)
+	if err != nil {
+		am.jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	am.jsonOK(w, result)
+}
+
+// --- Backup Handlers ---
+
+func (am *APIManager) handleCreateBackup(w http.ResponseWriter, r *http.Request) {
+	tmpFile, err := os.CreateTemp("", "mahpastes-backup-*.zip")
+	if err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to create temp file")
+		return
+	}
+	tmpPath := tmpFile.Name()
+	tmpFile.Close()
+	defer os.Remove(tmpPath)
+
+	if err := am.app.CreateBackup(tmpPath); err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to create backup: "+err.Error())
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", `attachment; filename="mahpastes-backup.zip"`)
+	http.ServeFile(w, r, tmpPath)
+}
+
+func (am *APIManager) handleRestoreBackup(w http.ResponseWriter, r *http.Request) {
+	ct := r.Header.Get("Content-Type")
+	if ct == "" {
+		am.jsonError(w, http.StatusBadRequest, "missing Content-Type header")
+		return
+	}
+
+	mediaType, params, _ := mime.ParseMediaType(ct)
+	if !strings.HasPrefix(mediaType, "multipart/") {
+		am.jsonError(w, http.StatusBadRequest, "expected multipart/form-data")
+		return
+	}
+
+	reader := multipart.NewReader(r.Body, params["boundary"])
+	part, err := reader.NextPart()
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "failed to read multipart data")
+		return
+	}
+
+	tmpFile, err := os.CreateTemp("", "mahpastes-restore-*.zip")
+	if err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to create temp file")
+		return
+	}
+	tmpPath := tmpFile.Name()
+	defer os.Remove(tmpPath)
+
+	if _, err := io.Copy(tmpFile, part); err != nil {
+		tmpFile.Close()
+		am.jsonError(w, http.StatusBadRequest, "failed to read upload data")
+		return
+	}
+	tmpFile.Close()
+
+	if err := am.app.ConfirmRestoreBackup(tmpPath); err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to restore backup: "+err.Error())
+		return
+	}
+
+	am.jsonOK(w, map[string]string{"status": "restored"})
+}
+
+// --- Clipboard Handlers ---
+
+func (am *APIManager) handleCopyToClipboard(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+
+	var body struct {
+		ClipID int64 `json:"clip_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	if err := am.enforceTagScope(keyCtx, body.ClipID); err != nil {
+		am.jsonError(w, http.StatusForbidden, err.Error())
+		return
+	}
+
+	if am.app.clipboardService == nil {
+		am.jsonError(w, http.StatusInternalServerError, "clipboard service not available")
+		return
+	}
+
+	if err := am.app.clipboardService.CopyClipContents(body.ClipID); err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to copy to clipboard: "+err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (am *APIManager) handleCopyFileToClipboard(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+
+	var body struct {
+		ClipID int64 `json:"clip_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	if err := am.enforceTagScope(keyCtx, body.ClipID); err != nil {
+		am.jsonError(w, http.StatusForbidden, err.Error())
+		return
+	}
+
+	if am.app.clipboardService == nil {
+		am.jsonError(w, http.StatusInternalServerError, "clipboard service not available")
+		return
+	}
+
+	if err := am.app.clipboardService.CopyFileToClipboard(body.ClipID); err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to copy file to clipboard: "+err.Error())
 		return
 	}
 
