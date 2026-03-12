@@ -185,6 +185,7 @@ mahpastes/
 ├── plugin_service.go     # Plugin frontend API (separate struct for Wails binding limit)
 ├── plugins.go            # Plugin install/uninstall helpers
 ├── serve_json_api.go     # JSON API handler for served tags (/_api prefix)
+├── serve_file_upload.go  # File upload handler for served tags (/_api/_upload)
 ├── serve_manager.go      # Tag HTTP server lifecycle and routing
 ├── serve_service.go      # Serve frontend API (separate struct for Wails binding limit)
 ├── temp_clip_store.go    # Leased temp file management for transfers
@@ -363,6 +364,23 @@ HTML clips served from a tag can read/write JSON clips in the same tag via REST 
 **Reserved tag names**: `CreateTag` rejects any tag where a path segment equals `_api` (e.g., `_api`, `work/_api`). Substrings are fine (e.g., `my_api_stuff`).
 
 **Key files**: `serve_json_api.go` (JSON handler, path navigation, CRUD operations), `serve_manager.go` (cookie setting, `/_api` routing, `tagServer` struct fields).
+
+### Tag Serve File Upload API
+
+HTML apps served from a tag can upload files as new clips via `POST /_api/_upload`.
+
+**Endpoint**: `POST /_api/_upload` with `Content-Type: multipart/form-data`. Requires `apiAccess == "readwrite"` and valid `_mp_serve_key` cookie.
+
+**Form fields**:
+- `file` (required) — the file to upload (10 MB max)
+- `tag` (optional) — relative subtag path under the served tag (e.g., `child/grandchild`). Auto-creates tags if needed.
+- `content_type` (optional) — override content type auto-detection
+
+**Tag resolution**: If serving tag `a/b` and tag field is `c/d`, the clip is tagged `a/b/c/d`. Empty tag field → served tag itself. Path traversal (`..`) and `_api` segments are rejected.
+
+**Response**: `201 Created` with `{"id", "filename", "content_type", "tag", "tag_id"}`.
+
+**Key files**: `serve_file_upload.go` (upload handler, tag validation), `serve_manager.go` (`/_api/_upload` routing).
 
 ### Plugin UI Actions
 
