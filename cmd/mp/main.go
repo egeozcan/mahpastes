@@ -29,6 +29,15 @@ By default, mp connects to http://localhost:44557.`,
 
 func init() {
 	rootCmd.PersistentFlags().BoolVar(&jsonOutput, "json", false, "Output results as JSON")
+	rootCmd.AddCommand(clipCmd)
+	rootCmd.AddCommand(tagCmd)
+	rootCmd.AddCommand(dedupCmd)
+	rootCmd.AddCommand(watchCmd)
+	rootCmd.AddCommand(pluginCmd)
+	rootCmd.AddCommand(serveCmd)
+	rootCmd.AddCommand(apiCmd)
+	rootCmd.AddCommand(backupCmd)
+	rootCmd.AddCommand(clipboardCmd)
 }
 
 func main() {

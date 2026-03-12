@@ -266,7 +266,7 @@ func (c *Client) ResolveTagID(nameOrID string) (int64, error) {
 		ID   int64  `json:"id"`
 		Name string `json:"name"`
 	}
-	if err := c.GetJSON("/api/tags", &tags); err != nil {
+	if err := c.GetJSON("/api/v1/tags", &tags); err != nil {
 		return 0, fmt.Errorf("fetch tags: %w", err)
 	}
 
