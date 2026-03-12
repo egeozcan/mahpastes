@@ -270,6 +270,10 @@ Object.assign(window.__testHelpers, {
       loadClips();
     }
   },
+  handleFolderDrop: (folderFiles, looseFiles, dirPaths) => handleFolderDrop(folderFiles, looseFiles, dirPaths),
+  confirmFolderDrop: (fileCount, maxDepth) => confirmFolderDrop(fileCount, maxDepth),
+  parseGitignore: (content) => parseGitignore(content),
+  buildIgnoreFn: (content) => buildIgnoreFn(content),
 });
 
 // --- Event Listeners ---
