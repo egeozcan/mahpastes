@@ -1,5 +1,5 @@
 import { test, expect } from '../../fixtures/test-fixtures';
-import { generateTestImage, generateTestText } from '../../helpers/test-data';
+import { generateTestImage } from '../../helpers/test-data';
 
 test.describe('Folder Drop', () => {
   test.afterEach(async ({ app }) => {
