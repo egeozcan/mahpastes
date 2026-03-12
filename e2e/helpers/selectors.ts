@@ -330,6 +330,7 @@ export const selectors = {
     // Folder mode
     folderModeButton: '[data-testid="folder-mode-button"]',
     folderCard: (name: string) => `[data-testid="folder-card-${name}"]`,
+    homeIcon: '[data-testid="folder-home-icon"]',
   },
 
   // Watch folder auto-tag

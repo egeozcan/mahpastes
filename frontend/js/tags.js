@@ -189,6 +189,31 @@ function updateActiveTagsDisplay() {
                 // Folder mode: breadcrumb-style navigation
                 const deepestTag = allTags.find(t => t.id === activeTagFilters[activeTagFilters.length - 1]);
                 if (deepestTag) {
+                    // Home icon for root navigation
+                    const homeBtn = document.createElement('button');
+                    homeBtn.className = 'p-1 rounded transition-colors text-stone-400 hover:text-stone-600 hover:bg-stone-100';
+                    homeBtn.setAttribute('data-testid', 'folder-home-icon');
+                    homeBtn.setAttribute('data-drop-target', 'root');
+                    homeBtn.setAttribute('aria-label', 'Root folder');
+                    homeBtn.innerHTML = `
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" />
+                        </svg>
+                    `;
+                    homeBtn.addEventListener('click', () => {
+                        activeTagFilters.length = 0;
+                        updateActiveTagsDisplay();
+                        renderTagFilterDropdown();
+                        loadClips();
+                    });
+                    activeTagsContainer.appendChild(homeBtn);
+
+                    // Separator after home
+                    const homeSep = document.createElement('span');
+                    homeSep.className = 'text-stone-300 text-xs';
+                    homeSep.textContent = '/';
+                    activeTagsContainer.appendChild(homeSep);
+
                     const segments = deepestTag.name.split('/');
                     let path = '';
                     for (let i = 0; i < segments.length; i++) {
@@ -208,6 +233,7 @@ function updateActiveTagsDisplay() {
                         pill.className = 'inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium text-white';
                         pill.style.backgroundColor = segTag.color;
                         pill.dataset.testid = `tag-pill-${segTag.name}`;
+                        pill.setAttribute('data-drop-target', String(segTag.id));
                         pill.innerHTML = `
                             ${escapeHTML(segments[i])}
                             <button class="hover:opacity-75" aria-label="Remove ${segTag.name} filter">
