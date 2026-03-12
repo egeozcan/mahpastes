@@ -26,6 +26,9 @@ func main() {
 	serveService := NewServeService(app)
 	apiService := NewAPIService(app)
 
+	// Wire service references so App can delegate to them from API endpoints
+	app.clipboardService = clipboardService
+
 	// Create the transfer file handler and store it on the app for token registration.
 	transferHandler := &TransferFileHandler{app: app}
 	app.transferHandler = transferHandler

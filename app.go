@@ -34,16 +34,17 @@ const maxMetadataPairs = 50
 
 // App struct holds the application state
 type App struct {
-	ctx             context.Context
-	db              *sql.DB
-	tempDir         string
-	tempStore       *TempClipStore
-	transferHandler *TransferFileHandler
-	mu              sync.Mutex
-	watcherManager  *WatcherManager
-	serveManager    *ServeManager
-	apiManager      *APIManager
-	pluginManager   *plugin.Manager
+	ctx              context.Context
+	db               *sql.DB
+	tempDir          string
+	tempStore        *TempClipStore
+	transferHandler  *TransferFileHandler
+	mu               sync.Mutex
+	watcherManager   *WatcherManager
+	serveManager     *ServeManager
+	apiManager       *APIManager
+	pluginManager    *plugin.Manager
+	clipboardService *ClipboardService
 }
 
 // NewApp creates a new App instance
@@ -2634,4 +2635,290 @@ func (a *App) SetClipMetadataBulk(clipID int64, metadata map[string]string) erro
 		}
 		return nil
 	})
+}
+
+// --- Delegation helpers for APIManager ---
+// These unexported methods let APIManager (same package) call through to
+// PluginService / ClipboardService functionality without holding direct
+// references to those service structs.
+
+// getPluginUIActions returns all UI actions from enabled plugins.
+func (a *App) getPluginUIActions() (*UIActionsResponse, error) {
+	if a.pluginManager == nil {
+		return &UIActionsResponse{
+			LightboxButtons: []PluginUIAction{},
+			CardActions:     []PluginUIAction{},
+			GlobalActions:   []PluginUIAction{},
+		}, nil
+	}
+
+	response := &UIActionsResponse{
+		LightboxButtons: []PluginUIAction{},
+		CardActions:     []PluginUIAction{},
+		GlobalActions:   []PluginUIAction{},
+	}
+
+	plugins := a.pluginManager.GetPlugins()
+	for _, p := range plugins {
+		if !p.Enabled || p.Manifest == nil || p.Manifest.UI == nil {
+			continue
+		}
+
+		for _, btn := range p.Manifest.UI.LightboxButtons {
+			response.LightboxButtons = append(response.LightboxButtons, PluginUIAction{
+				PluginID:   p.ID,
+				PluginName: p.Name,
+				ID:         btn.ID,
+				Label:      btn.Label,
+				Icon:       btn.Icon,
+				Async:      btn.Async,
+				Options:    btn.Options,
+				FileTypes:  btn.FileTypes,
+				MaxSize:    btn.MaxSize,
+			})
+		}
+
+		for _, action := range p.Manifest.UI.CardActions {
+			response.CardActions = append(response.CardActions, PluginUIAction{
+				PluginID:   p.ID,
+				PluginName: p.Name,
+				ID:         action.ID,
+				Label:      action.Label,
+				Icon:       action.Icon,
+				Async:      action.Async,
+				Options:    action.Options,
+				FileTypes:  action.FileTypes,
+				MaxSize:    action.MaxSize,
+			})
+		}
+
+		for _, action := range p.Manifest.UI.GlobalActions {
+			response.GlobalActions = append(response.GlobalActions, PluginUIAction{
+				PluginID:   p.ID,
+				PluginName: p.Name,
+				ID:         action.ID,
+				Label:      action.Label,
+				Icon:       action.Icon,
+				Async:      action.Async,
+				Options:    action.Options,
+			})
+		}
+	}
+
+	return response, nil
+}
+
+// installPluginFromSource installs a plugin from a URL or file path.
+func (a *App) installPluginFromSource(source string) (*PluginInfo, error) {
+	if a.pluginManager == nil {
+		return nil, fmt.Errorf("plugin manager not initialized")
+	}
+
+	var p *plugin.Plugin
+	var err error
+
+	if strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://") {
+		cachedSource := a.pluginManager.PopPendingInstall(source)
+		if cachedSource != "" {
+			p, err = a.pluginManager.ImportPluginFromSource(cachedSource, source)
+		} else {
+			p, err = a.pluginManager.ImportPluginFromURL(source)
+		}
+	} else {
+		p, err = a.pluginManager.ImportPlugin(source)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return pluginToInfo(p), nil
+}
+
+// executePluginAction calls a plugin's on_ui_action handler.
+func (a *App) executePluginAction(pluginID int64, actionID string, clipIDs []int64, options map[string]interface{}) (*ActionResult, error) {
+	if a.pluginManager == nil {
+		return &ActionResult{Success: false, Error: "plugin manager not initialized"}, nil
+	}
+
+	result, err := a.pluginManager.ExecuteUIAction(pluginID, actionID, clipIDs, options)
+	if err != nil {
+		return &ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
+	return result, nil
+}
+
+// getAllPluginStorage retrieves all storage key-value pairs for a plugin.
+func (a *App) getAllPluginStorage(pluginID int64) (map[string]string, error) {
+	if a.db == nil {
+		return map[string]string{}, nil
+	}
+
+	rows, err := a.db.Query(`
+		SELECT key, value FROM plugin_storage WHERE plugin_id = ?
+	`, pluginID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[string]string)
+	for rows.Next() {
+		var key string
+		var value []byte
+		if err := rows.Scan(&key, &value); err != nil {
+			continue
+		}
+		result[key] = string(value)
+	}
+
+	return result, nil
+}
+
+// getPluginStorage retrieves a value from a plugin's storage.
+func (a *App) getPluginStorage(pluginID int64, key string) (string, error) {
+	if a.db == nil {
+		return "", fmt.Errorf("database not initialized")
+	}
+
+	var value string
+	err := a.db.QueryRow(`
+		SELECT value FROM plugin_storage WHERE plugin_id = ? AND key = ?
+	`, pluginID, key).Scan(&value)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return value, nil
+}
+
+// setPluginStorage sets a value in a plugin's storage.
+func (a *App) setPluginStorage(pluginID int64, key, value string) error {
+	if a.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+
+	_, err := a.db.Exec(`
+		INSERT INTO plugin_storage (plugin_id, key, value)
+		VALUES (?, ?, ?)
+		ON CONFLICT (plugin_id, key) DO UPDATE SET value = ?
+	`, pluginID, key, value, value)
+	return err
+}
+
+// updatePlugin fetches the latest version from the source URL and applies the update.
+func (a *App) updatePlugin(pluginID int64) (*UpdateResult, error) {
+	if a.pluginManager == nil {
+		return &UpdateResult{Error: "plugin manager not initialized"}, nil
+	}
+
+	var sourceURL, currentVersion string
+	err := a.db.QueryRow("SELECT source_url, version FROM plugins WHERE id = ?", pluginID).Scan(&sourceURL, &currentVersion)
+	if err != nil {
+		return &UpdateResult{Error: "plugin not found"}, nil
+	}
+	if sourceURL == "" {
+		return &UpdateResult{Error: "plugin was not installed from a URL"}, nil
+	}
+
+	source, err := plugin.FetchPluginSource(sourceURL)
+	if err != nil {
+		return &UpdateResult{Error: fmt.Sprintf("failed to fetch update: %v", err)}, nil
+	}
+
+	remoteManifest, err := plugin.ParseManifest(source)
+	if err != nil {
+		return &UpdateResult{Error: fmt.Sprintf("invalid remote plugin: %v", err)}, nil
+	}
+
+	if !plugin.IsNewerVersion(currentVersion, remoteManifest.Version) {
+		return &UpdateResult{Error: fmt.Sprintf("remote version %s is not newer than installed %s", remoteManifest.Version, currentVersion)}, nil
+	}
+
+	// Get current manifest for permission comparison
+	a.pluginManager.RLock()
+	loaded, ok := a.pluginManager.GetPluginByID(pluginID)
+	a.pluginManager.RUnlock()
+
+	var currentManifest *plugin.Manifest
+	if ok && loaded.Manifest != nil {
+		currentManifest = loaded.Manifest
+	} else {
+		currentManifest = &plugin.Manifest{}
+	}
+
+	hasChanges := plugin.ManifestsHavePermissionChanges(currentManifest, remoteManifest)
+
+	if hasChanges {
+		preview := &PluginPreview{
+			Name:        remoteManifest.Name,
+			Version:     remoteManifest.Version,
+			Description: remoteManifest.Description,
+			Author:      remoteManifest.Author,
+			Network:     remoteManifest.Network,
+			Filesystem:  remoteManifest.Filesystem,
+			Clipboard:   remoteManifest.Clipboard,
+			Events:      remoteManifest.Events,
+			Source:      sourceURL,
+		}
+		a.pluginManager.StorePendingUpdate(pluginID, source)
+		return &UpdateResult{NeedsReview: true, Preview: preview}, nil
+	}
+
+	info, err := a.applyPluginUpdate(pluginID, source, remoteManifest, sourceURL)
+	if err != nil {
+		return &UpdateResult{Error: err.Error()}, nil
+	}
+
+	if uc := a.pluginManager.GetUpdateChecker(); uc != nil {
+		uc.ClearUpdate(pluginID)
+	}
+
+	return &UpdateResult{Success: true, PluginInfo: info}, nil
+}
+
+// applyPluginUpdate writes updated source, reloads the plugin, and updates the DB record.
+func (a *App) applyPluginUpdate(pluginID int64, source string, manifest *plugin.Manifest, sourceURL string) (*PluginInfo, error) {
+	var filename string
+	err := a.db.QueryRow("SELECT filename FROM plugins WHERE id = ?", pluginID).Scan(&filename)
+	if err != nil {
+		return nil, fmt.Errorf("plugin not found: %w", err)
+	}
+
+	destPath := filepath.Join(a.pluginManager.PluginsDir(), filename)
+
+	oldContent, readErr := os.ReadFile(destPath)
+
+	if err := os.WriteFile(destPath, []byte(source), 0644); err != nil {
+		return nil, fmt.Errorf("failed to write updated plugin: %w", err)
+	}
+
+	a.pluginManager.UnloadPlugin(pluginID)
+
+	p := &plugin.Plugin{
+		ID: pluginID, Filename: filename, Name: manifest.Name,
+		Version: manifest.Version, Enabled: true, Status: "enabled",
+	}
+	if err := a.pluginManager.LoadPluginPublic(p); err != nil {
+		if readErr == nil {
+			_ = os.WriteFile(destPath, oldContent, 0644)
+			oldP := &plugin.Plugin{
+				ID: pluginID, Filename: filename, Enabled: true, Status: "enabled",
+			}
+			_ = a.pluginManager.LoadPluginPublic(oldP)
+		}
+		return nil, fmt.Errorf("failed to reload plugin (rolled back): %w", err)
+	}
+
+	_, err = a.db.Exec(`
+		UPDATE plugins SET name = ?, version = ?, enabled = 1, status = 'enabled', error_count = 0, source_url = ?
+		WHERE id = ?
+	`, manifest.Name, manifest.Version, sourceURL, pluginID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update plugin record: %w", err)
+	}
+
+	return pluginToInfo(p), nil
 }
