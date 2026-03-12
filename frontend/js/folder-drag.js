@@ -192,6 +192,9 @@ function _isValidDrop(payload, target) {
 }
 
 // --- Drop execution ---
+// Calls Go bindings directly (not wails-api.js wrappers) to avoid
+// duplicate toasts — this module provides its own feedback via
+// screen reader announcements and error toasts.
 
 async function _executeDrop(payload, target) {
     try {
