@@ -131,6 +131,36 @@ func (am *APIManager) Start(port int, bindAll bool) (APIStatus, error) {
 	mux.HandleFunc("POST /api/v1/clips/bulk/download", am.authMiddleware(am.requireRole("viewer", am.handleBulkDownload)))
 	mux.HandleFunc("POST /api/v1/clips/bulk/copy", am.authMiddleware(am.requireRole("editor", am.handleBulkCopyToClipboard)))
 
+	// Clip metadata
+	mux.HandleFunc("GET /api/v1/clips/{id}/metadata", am.authMiddleware(am.requireRole("viewer", am.handleGetMetadata)))
+	mux.HandleFunc("PUT /api/v1/clips/{id}/metadata", am.authMiddleware(am.requireRole("editor", am.handleSetMetadataBulk)))
+	mux.HandleFunc("PUT /api/v1/clips/{id}/metadata/{key}", am.authMiddleware(am.requireRole("editor", am.handleSetMetadata)))
+	mux.HandleFunc("DELETE /api/v1/clips/{id}/metadata/{key}", am.authMiddleware(am.requireRole("editor", am.handleDeleteMetadata)))
+
+	// Tags extended
+	mux.HandleFunc("GET /api/v1/tags/{id}/children", am.authMiddleware(am.requireRole("viewer", am.handleGetChildTags)))
+	mux.HandleFunc("GET /api/v1/tags/{id}/clips", am.authMiddleware(am.requireRole("viewer", am.handleGetTagClips)))
+	mux.HandleFunc("GET /api/v1/tags/hidden", am.authMiddleware(am.requireRole("viewer", am.handleGetHiddenTags)))
+	mux.HandleFunc("PUT /api/v1/tags/hidden", am.authMiddleware(am.requireRole("admin", am.handleSetHiddenTags)))
+
+	// Deduplication
+	mux.HandleFunc("GET /api/v1/dedup", am.authMiddleware(am.requireRole("viewer", am.handleListDuplicates)))
+	mux.HandleFunc("POST /api/v1/dedup/{clipId}/merge", am.authMiddleware(am.requireRole("editor", am.handleMergeDuplicates)))
+	mux.HandleFunc("POST /api/v1/dedup/all", am.authMiddleware(am.requireRole("admin", am.handleDeduplicateAll)))
+
+	// Watch folders
+	mux.HandleFunc("GET /api/v1/watch", am.authMiddleware(am.requireRole("viewer", am.handleListWatchFolders)))
+	mux.HandleFunc("GET /api/v1/watch/status", am.authMiddleware(am.requireRole("viewer", am.handleWatchStatus)))
+	mux.HandleFunc("PUT /api/v1/watch/global-pause", am.authMiddleware(am.requireRole("admin", am.handleGlobalPause)))
+	mux.HandleFunc("DELETE /api/v1/watch/global-pause", am.authMiddleware(am.requireRole("admin", am.handleGlobalResume)))
+	mux.HandleFunc("GET /api/v1/watch/{id}", am.authMiddleware(am.requireRole("viewer", am.handleGetWatchFolder)))
+	mux.HandleFunc("POST /api/v1/watch", am.authMiddleware(am.requireRole("admin", am.handleAddWatchFolder)))
+	mux.HandleFunc("PUT /api/v1/watch/{id}", am.authMiddleware(am.requireRole("admin", am.handleUpdateWatchFolder)))
+	mux.HandleFunc("DELETE /api/v1/watch/{id}", am.authMiddleware(am.requireRole("admin", am.handleRemoveWatchFolder)))
+	mux.HandleFunc("PUT /api/v1/watch/{id}/pause", am.authMiddleware(am.requireRole("admin", am.handlePauseWatchFolder)))
+	mux.HandleFunc("DELETE /api/v1/watch/{id}/pause", am.authMiddleware(am.requireRole("admin", am.handleResumeWatchFolder)))
+	mux.HandleFunc("POST /api/v1/watch/{id}/process", am.authMiddleware(am.requireRole("admin", am.handleProcessExisting)))
+
 	handler := am.corsMiddleware(mux)
 
 	am.server = &http.Server{
@@ -1592,6 +1622,464 @@ func (am *APIManager) handleBulkCopyToClipboard(w http.ResponseWriter, r *http.R
 
 	if err := am.app.clipboardService.BulkCopyFilesToClipboard(body.IDs); err != nil {
 		am.jsonError(w, http.StatusInternalServerError, "failed to copy to clipboard")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- Metadata Handlers ---
+
+func (am *APIManager) handleGetMetadata(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+
+	id, err := parseIntParam(r.PathValue("id"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid clip id")
+		return
+	}
+
+	if err := am.enforceTagScope(keyCtx, id); err != nil {
+		am.jsonError(w, http.StatusForbidden, err.Error())
+		return
+	}
+
+	meta, err := am.app.GetClipMetadata(id)
+	if err != nil {
+		am.jsonError(w, http.StatusNotFound, "clip not found")
+		return
+	}
+	if meta == nil {
+		meta = map[string]string{}
+	}
+
+	am.jsonOK(w, meta)
+}
+
+func (am *APIManager) handleSetMetadataBulk(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+
+	id, err := parseIntParam(r.PathValue("id"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid clip id")
+		return
+	}
+
+	if err := am.enforceTagScope(keyCtx, id); err != nil {
+		am.jsonError(w, http.StatusForbidden, err.Error())
+		return
+	}
+
+	var metadata map[string]string
+	if err := json.NewDecoder(r.Body).Decode(&metadata); err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	if err := am.app.SetClipMetadataBulk(id, metadata); err != nil {
+		am.jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (am *APIManager) handleSetMetadata(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+
+	id, err := parseIntParam(r.PathValue("id"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid clip id")
+		return
+	}
+
+	if err := am.enforceTagScope(keyCtx, id); err != nil {
+		am.jsonError(w, http.StatusForbidden, err.Error())
+		return
+	}
+
+	key := r.PathValue("key")
+	if key == "" {
+		am.jsonError(w, http.StatusBadRequest, "metadata key is required")
+		return
+	}
+
+	var body struct {
+		Value string `json:"value"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	if err := am.app.SetClipMetadata(id, key, body.Value); err != nil {
+		am.jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (am *APIManager) handleDeleteMetadata(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+
+	id, err := parseIntParam(r.PathValue("id"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid clip id")
+		return
+	}
+
+	if err := am.enforceTagScope(keyCtx, id); err != nil {
+		am.jsonError(w, http.StatusForbidden, err.Error())
+		return
+	}
+
+	key := r.PathValue("key")
+	if key == "" {
+		am.jsonError(w, http.StatusBadRequest, "metadata key is required")
+		return
+	}
+
+	if err := am.app.DeleteClipMetadata(id, key); err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to delete metadata")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- Tag Extended Handlers ---
+
+func (am *APIManager) handleGetChildTags(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIntParam(r.PathValue("id"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid tag id")
+		return
+	}
+
+	children, err := am.app.GetChildTags(id)
+	if err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to get child tags")
+		return
+	}
+	if children == nil {
+		children = []Tag{}
+	}
+
+	am.jsonOK(w, children)
+}
+
+func (am *APIManager) handleGetTagClips(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+
+	tagID, err := parseIntParam(r.PathValue("id"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid tag id")
+		return
+	}
+
+	// Tag-scoped keys can only view clips for tags within their scope
+	if keyCtx.ScopedTagID > 0 {
+		var tagName string
+		if err := am.app.db.QueryRow("SELECT name FROM tags WHERE id = ?", tagID).Scan(&tagName); err != nil {
+			am.jsonError(w, http.StatusNotFound, "tag not found")
+			return
+		}
+		if !am.isTagInScope(tagName, keyCtx.ScopedTagID) {
+			am.jsonOK(w, apiClipListResponse{Clips: []apiClipResponse{}, Total: 0, Limit: 50, Offset: 0})
+			return
+		}
+	}
+
+	// Parse pagination
+	limit := 50
+	offset := 0
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 200 {
+			limit = n
+		}
+	}
+	if v := r.URL.Query().Get("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			offset = n
+		}
+	}
+
+	// Count
+	var totalCount int
+	am.app.db.QueryRow(`
+		SELECT COUNT(*) FROM clips c
+		JOIN clip_tags ct ON c.id = ct.clip_id
+		WHERE ct.tag_id = ?`, tagID).Scan(&totalCount)
+
+	// Fetch
+	rows, err := am.app.db.Query(`
+		SELECT c.id, c.content_type, c.filename, LENGTH(c.data), c.is_archived, c.created_at
+		FROM clips c
+		JOIN clip_tags ct ON c.id = ct.clip_id
+		WHERE ct.tag_id = ?
+		ORDER BY c.created_at DESC
+		LIMIT ? OFFSET ?`, tagID, limit, offset)
+	if err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to query clips")
+		return
+	}
+	defer rows.Close()
+
+	clips := []apiClipResponse{}
+	for rows.Next() {
+		var c apiClipResponse
+		var filename sql.NullString
+		var isArchived int
+
+		if err := rows.Scan(&c.ID, &c.ContentType, &filename, &c.Size, &isArchived, &c.CreatedAt); err != nil {
+			continue
+		}
+		c.Filename = filename.String
+		c.IsArchived = isArchived == 1
+		c.Tags, _ = am.app.GetClipTags(c.ID)
+		if c.Tags == nil {
+			c.Tags = []Tag{}
+		}
+		clips = append(clips, c)
+	}
+
+	am.jsonOK(w, apiClipListResponse{
+		Clips:  clips,
+		Total:  totalCount,
+		Limit:  limit,
+		Offset: offset,
+	})
+}
+
+func (am *APIManager) handleGetHiddenTags(w http.ResponseWriter, r *http.Request) {
+	ids, err := am.app.GetHiddenTags()
+	if err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to get hidden tags")
+		return
+	}
+	if ids == nil {
+		ids = []int64{}
+	}
+
+	am.jsonOK(w, map[string][]int64{"ids": ids})
+}
+
+func (am *APIManager) handleSetHiddenTags(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		IDs []int64 `json:"ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	if err := am.app.SetHiddenTags(body.IDs); err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to set hidden tags")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- Dedup Handlers ---
+
+func (am *APIManager) handleListDuplicates(w http.ResponseWriter, r *http.Request) {
+	groups, err := am.app.GetDuplicateGroups()
+	if err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to get duplicate groups")
+		return
+	}
+	if groups == nil {
+		groups = []DuplicateGroup{}
+	}
+
+	am.jsonOK(w, map[string]interface{}{
+		"groups": groups,
+		"total":  len(groups),
+	})
+}
+
+func (am *APIManager) handleMergeDuplicates(w http.ResponseWriter, r *http.Request) {
+	clipID, err := parseIntParam(r.PathValue("clipId"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid clip id")
+		return
+	}
+
+	if err := am.app.MergeDuplicates(clipID); err != nil {
+		am.jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (am *APIManager) handleDeduplicateAll(w http.ResponseWriter, r *http.Request) {
+	removed, err := am.app.DeduplicateAll()
+	if err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to deduplicate")
+		return
+	}
+
+	am.jsonOK(w, map[string]int{"removed": removed})
+}
+
+// --- Watch Folder Handlers ---
+
+func (am *APIManager) handleListWatchFolders(w http.ResponseWriter, r *http.Request) {
+	folders, err := am.app.GetWatchedFolders()
+	if err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to list watch folders")
+		return
+	}
+	if folders == nil {
+		folders = []WatchedFolder{}
+	}
+
+	am.jsonOK(w, map[string]interface{}{
+		"folders": folders,
+		"total":   len(folders),
+	})
+}
+
+func (am *APIManager) handleWatchStatus(w http.ResponseWriter, r *http.Request) {
+	status := am.app.GetWatchStatus()
+	am.jsonOK(w, status)
+}
+
+func (am *APIManager) handleGetWatchFolder(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIntParam(r.PathValue("id"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid watch folder id")
+		return
+	}
+
+	folder, err := am.app.GetWatchedFolderByID(id)
+	if err != nil {
+		am.jsonError(w, http.StatusNotFound, "watch folder not found")
+		return
+	}
+
+	am.jsonOK(w, folder)
+}
+
+func (am *APIManager) handleAddWatchFolder(w http.ResponseWriter, r *http.Request) {
+	var config WatchedFolderConfig
+	if err := json.NewDecoder(r.Body).Decode(&config); err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	if config.Path == "" {
+		am.jsonError(w, http.StatusBadRequest, "path is required")
+		return
+	}
+
+	folder, err := am.app.AddWatchedFolder(config)
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(folder)
+}
+
+func (am *APIManager) handleUpdateWatchFolder(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIntParam(r.PathValue("id"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid watch folder id")
+		return
+	}
+
+	var config WatchedFolderConfig
+	if err := json.NewDecoder(r.Body).Decode(&config); err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	if err := am.app.UpdateWatchedFolder(id, config); err != nil {
+		am.jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (am *APIManager) handleRemoveWatchFolder(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIntParam(r.PathValue("id"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid watch folder id")
+		return
+	}
+
+	if err := am.app.RemoveWatchedFolder(id); err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to remove watch folder")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (am *APIManager) handlePauseWatchFolder(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIntParam(r.PathValue("id"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid watch folder id")
+		return
+	}
+
+	if err := am.app.SetFolderPaused(id, true); err != nil {
+		am.jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (am *APIManager) handleResumeWatchFolder(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIntParam(r.PathValue("id"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid watch folder id")
+		return
+	}
+
+	if err := am.app.SetFolderPaused(id, false); err != nil {
+		am.jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (am *APIManager) handleGlobalPause(w http.ResponseWriter, r *http.Request) {
+	if err := am.app.SetGlobalWatchPaused(true); err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to set global pause")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (am *APIManager) handleGlobalResume(w http.ResponseWriter, r *http.Request) {
+	if err := am.app.SetGlobalWatchPaused(false); err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to resume global watch")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (am *APIManager) handleProcessExisting(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIntParam(r.PathValue("id"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid watch folder id")
+		return
+	}
+
+	if err := am.app.ProcessExistingFilesInFolder(id); err != nil {
+		am.jsonError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
