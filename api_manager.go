@@ -1,6 +1,8 @@
 package main
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -114,6 +116,20 @@ func (am *APIManager) Start(port int, bindAll bool) (APIStatus, error) {
 	mux.HandleFunc("GET /api/v1/serve", am.authMiddleware(am.requireRole("viewer", am.handleListServers)))
 	mux.HandleFunc("POST /api/v1/serve", am.authMiddleware(am.requireRole("admin", am.handleStartServer)))
 	mux.HandleFunc("DELETE /api/v1/serve/{tagId}", am.authMiddleware(am.requireRole("admin", am.handleStopServer)))
+
+	// Clip extended operations
+	mux.HandleFunc("PATCH /api/v1/clips/{id}", am.authMiddleware(am.requireRole("editor", am.handleRenameClip)))
+	mux.HandleFunc("PUT /api/v1/clips/{id}/expiration", am.authMiddleware(am.requireRole("editor", am.handleSetExpiration)))
+	mux.HandleFunc("DELETE /api/v1/clips/{id}/expiration", am.authMiddleware(am.requireRole("editor", am.handleCancelExpiration)))
+	mux.HandleFunc("POST /api/v1/clips/bulk/delete", am.authMiddleware(am.requireRole("editor", am.handleBulkDelete)))
+	mux.HandleFunc("POST /api/v1/clips/bulk/archive", am.authMiddleware(am.requireRole("editor", am.handleBulkArchive)))
+	mux.HandleFunc("POST /api/v1/clips/bulk/unarchive", am.authMiddleware(am.requireRole("editor", am.handleBulkUnarchive)))
+	mux.HandleFunc("POST /api/v1/clips/bulk/expire", am.authMiddleware(am.requireRole("editor", am.handleBulkSetExpiration)))
+	mux.HandleFunc("POST /api/v1/clips/bulk/cancel-expire", am.authMiddleware(am.requireRole("editor", am.handleBulkCancelExpiration)))
+	mux.HandleFunc("POST /api/v1/clips/bulk/tag", am.authMiddleware(am.requireRole("editor", am.handleBulkAddTag)))
+	mux.HandleFunc("POST /api/v1/clips/bulk/untag", am.authMiddleware(am.requireRole("editor", am.handleBulkRemoveTag)))
+	mux.HandleFunc("POST /api/v1/clips/bulk/download", am.authMiddleware(am.requireRole("viewer", am.handleBulkDownload)))
+	mux.HandleFunc("POST /api/v1/clips/bulk/copy", am.authMiddleware(am.requireRole("editor", am.handleBulkCopyToClipboard)))
 
 	handler := am.corsMiddleware(mux)
 
@@ -318,7 +334,7 @@ func (am *APIManager) RevokeKey(id int64) error {
 func (am *APIManager) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
 
 		if r.Method == http.MethodOptions {
@@ -1230,6 +1246,352 @@ func (am *APIManager) handleStopServer(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		am.jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- Clip Extended Handlers ---
+
+func (am *APIManager) handleRenameClip(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+
+	id, err := parseIntParam(r.PathValue("id"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid clip id")
+		return
+	}
+
+	if err := am.enforceTagScope(keyCtx, id); err != nil {
+		am.jsonError(w, http.StatusForbidden, err.Error())
+		return
+	}
+
+	var body struct {
+		Filename string `json:"filename"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	if body.Filename == "" {
+		am.jsonError(w, http.StatusBadRequest, "filename is required")
+		return
+	}
+
+	if err := am.app.RenameClip(id, body.Filename); err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to rename clip")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (am *APIManager) handleSetExpiration(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+
+	id, err := parseIntParam(r.PathValue("id"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid clip id")
+		return
+	}
+
+	if err := am.enforceTagScope(keyCtx, id); err != nil {
+		am.jsonError(w, http.StatusForbidden, err.Error())
+		return
+	}
+
+	var body struct {
+		Minutes int `json:"minutes"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	if body.Minutes <= 0 {
+		am.jsonError(w, http.StatusBadRequest, "minutes must be positive")
+		return
+	}
+
+	if err := am.app.SetExpiration(id, body.Minutes); err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to set expiration")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (am *APIManager) handleCancelExpiration(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+
+	id, err := parseIntParam(r.PathValue("id"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid clip id")
+		return
+	}
+
+	if err := am.enforceTagScope(keyCtx, id); err != nil {
+		am.jsonError(w, http.StatusForbidden, err.Error())
+		return
+	}
+
+	if err := am.app.CancelExpiration(id); err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to cancel expiration")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- Bulk Handlers ---
+
+func (am *APIManager) handleBulkDelete(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		IDs []int64 `json:"ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	if len(body.IDs) == 0 {
+		am.jsonError(w, http.StatusBadRequest, "ids is required")
+		return
+	}
+
+	if err := am.app.BulkDelete(body.IDs); err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to bulk delete")
+		return
+	}
+
+	am.jsonOK(w, map[string]int{"deleted": len(body.IDs)})
+}
+
+func (am *APIManager) handleBulkArchive(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		IDs []int64 `json:"ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	if len(body.IDs) == 0 {
+		am.jsonError(w, http.StatusBadRequest, "ids is required")
+		return
+	}
+
+	if err := am.app.BulkArchive(body.IDs); err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to bulk archive")
+		return
+	}
+
+	am.jsonOK(w, map[string]int{"archived": len(body.IDs)})
+}
+
+func (am *APIManager) handleBulkUnarchive(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		IDs []int64 `json:"ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	if len(body.IDs) == 0 {
+		am.jsonError(w, http.StatusBadRequest, "ids is required")
+		return
+	}
+
+	count := 0
+	for _, id := range body.IDs {
+		_, err := am.app.db.Exec("UPDATE clips SET is_archived = 0 WHERE id = ?", id)
+		if err == nil {
+			count++
+		}
+	}
+
+	am.jsonOK(w, map[string]int{"unarchived": count})
+}
+
+func (am *APIManager) handleBulkSetExpiration(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		IDs     []int64 `json:"ids"`
+		Minutes int     `json:"minutes"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	if len(body.IDs) == 0 {
+		am.jsonError(w, http.StatusBadRequest, "ids is required")
+		return
+	}
+
+	if body.Minutes <= 0 {
+		am.jsonError(w, http.StatusBadRequest, "minutes must be positive")
+		return
+	}
+
+	if err := am.app.BulkSetExpiration(body.IDs, body.Minutes); err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to bulk set expiration")
+		return
+	}
+
+	am.jsonOK(w, map[string]int{"updated": len(body.IDs)})
+}
+
+func (am *APIManager) handleBulkCancelExpiration(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		IDs []int64 `json:"ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	if len(body.IDs) == 0 {
+		am.jsonError(w, http.StatusBadRequest, "ids is required")
+		return
+	}
+
+	if err := am.app.BulkCancelExpiration(body.IDs); err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to bulk cancel expiration")
+		return
+	}
+
+	am.jsonOK(w, map[string]int{"updated": len(body.IDs)})
+}
+
+func (am *APIManager) handleBulkAddTag(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		IDs   []int64 `json:"ids"`
+		TagID int64   `json:"tag_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	if len(body.IDs) == 0 {
+		am.jsonError(w, http.StatusBadRequest, "ids is required")
+		return
+	}
+
+	if body.TagID == 0 {
+		am.jsonError(w, http.StatusBadRequest, "tag_id is required")
+		return
+	}
+
+	if err := am.app.BulkAddTag(body.IDs, body.TagID); err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to bulk add tag")
+		return
+	}
+
+	am.jsonOK(w, map[string]int{"tagged": len(body.IDs)})
+}
+
+func (am *APIManager) handleBulkRemoveTag(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		IDs   []int64 `json:"ids"`
+		TagID int64   `json:"tag_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	if len(body.IDs) == 0 {
+		am.jsonError(w, http.StatusBadRequest, "ids is required")
+		return
+	}
+
+	if body.TagID == 0 {
+		am.jsonError(w, http.StatusBadRequest, "tag_id is required")
+		return
+	}
+
+	if err := am.app.BulkRemoveTag(body.IDs, body.TagID); err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to bulk remove tag")
+		return
+	}
+
+	am.jsonOK(w, map[string]int{"untagged": len(body.IDs)})
+}
+
+func (am *APIManager) handleBulkDownload(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		IDs []int64 `json:"ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	if len(body.IDs) == 0 {
+		am.jsonError(w, http.StatusBadRequest, "ids is required")
+		return
+	}
+
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+
+	for _, id := range body.IDs {
+		var data []byte
+		var filename sql.NullString
+		err := am.app.db.QueryRow("SELECT data, filename FROM clips WHERE id = ?", id).Scan(&data, &filename)
+		if err != nil {
+			continue
+		}
+
+		name := filename.String
+		if name == "" {
+			name = fmt.Sprintf("clip_%d", id)
+		}
+
+		fw, err := zw.Create(name)
+		if err != nil {
+			continue
+		}
+		fw.Write(data)
+	}
+
+	if err := zw.Close(); err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to create zip archive")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", "attachment; filename=\"clips.zip\"")
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", buf.Len()))
+	w.Write(buf.Bytes())
+}
+
+func (am *APIManager) handleBulkCopyToClipboard(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		IDs []int64 `json:"ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	if len(body.IDs) == 0 {
+		am.jsonError(w, http.StatusBadRequest, "ids is required")
+		return
+	}
+
+	if am.app.clipboardService == nil {
+		am.jsonError(w, http.StatusInternalServerError, "clipboard service not available")
+		return
+	}
+
+	if err := am.app.clipboardService.BulkCopyFilesToClipboard(body.IDs); err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to copy to clipboard")
 		return
 	}
 
