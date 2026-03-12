@@ -44,6 +44,8 @@ export function DeleteClipMetadata(arg1:number,arg2:string):Promise<void>;
 
 export function DeleteTag(arg1:number):Promise<void>;
 
+export function FindClipsByFilenameAndTag(arg1:Array<string>,arg2:number):Promise<Array<main.ClipMatch>>;
+
 export function GetChildTags(arg1:number):Promise<Array<main.Tag>>;
 
 export function GetClipData(arg1:number):Promise<main.ClipData>;

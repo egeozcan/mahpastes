@@ -86,6 +86,10 @@ export function DeleteTag(arg1) {
   return window['go']['main']['App']['DeleteTag'](arg1);
 }
 
+export function FindClipsByFilenameAndTag(arg1, arg2) {
+  return window['go']['main']['App']['FindClipsByFilenameAndTag'](arg1, arg2);
+}
+
 export function GetChildTags(arg1) {
   return window['go']['main']['App']['GetChildTags'](arg1);
 }

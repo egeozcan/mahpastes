@@ -159,6 +159,22 @@ export namespace main {
 	        this.filename = source["filename"];
 	    }
 	}
+	export class ClipMatch {
+	    id: number;
+	    filename: string;
+	    content_hash: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ClipMatch(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.filename = source["filename"];
+	        this.content_hash = source["content_hash"];
+	    }
+	}
 	export class Tag {
 	    id: number;
 	    name: string;

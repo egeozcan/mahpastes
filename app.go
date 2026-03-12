@@ -853,6 +853,64 @@ func (a *App) UpdateClipData(id int64, contentType string, base64Data string, fi
 	return nil
 }
 
+// ClipMatch represents a clip matching a filename search.
+type ClipMatch struct {
+	ID          int64  `json:"id"`
+	Filename    string `json:"filename"`
+	ContentHash string `json:"content_hash"`
+}
+
+// FindClipsByFilenameAndTag returns clips matching any of the given filenames
+// within a specific tag. When tagID is 0, matches untagged clips only.
+func (a *App) FindClipsByFilenameAndTag(filenames []string, tagID int64) ([]ClipMatch, error) {
+	if len(filenames) == 0 {
+		return nil, nil
+	}
+
+	// Build placeholder string for IN clause
+	placeholders := make([]string, len(filenames))
+	args := make([]interface{}, len(filenames))
+	for i, fn := range filenames {
+		placeholders[i] = "?"
+		args[i] = fn
+	}
+	inClause := strings.Join(placeholders, ", ")
+
+	var query string
+	if tagID > 0 {
+		query = fmt.Sprintf(`
+			SELECT c.id, c.filename, c.content_hash
+			FROM clips c
+			JOIN clip_tags ct ON c.id = ct.clip_id
+			WHERE ct.tag_id = ? AND c.filename IN (%s)
+			AND c.archived = 0`, inClause)
+		args = append([]interface{}{tagID}, args...)
+	} else {
+		query = fmt.Sprintf(`
+			SELECT c.id, c.filename, c.content_hash
+			FROM clips c
+			WHERE c.filename IN (%s)
+			AND c.archived = 0
+			AND c.id NOT IN (SELECT clip_id FROM clip_tags)`, inClause)
+	}
+
+	rows, err := a.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find clips by filename: %w", err)
+	}
+	defer rows.Close()
+
+	var matches []ClipMatch
+	for rows.Next() {
+		var m ClipMatch
+		if err := rows.Scan(&m.ID, &m.Filename, &m.ContentHash); err != nil {
+			return nil, fmt.Errorf("failed to scan clip match: %w", err)
+		}
+		matches = append(matches, m)
+	}
+	return matches, nil
+}
+
 // RenameClip changes only the filename of a clip.
 func (a *App) RenameClip(id int64, newFilename string) error {
 	newFilename = strings.TrimSpace(newFilename)
