@@ -41,47 +41,49 @@ func runWatchList(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	var folders []struct {
-		ID        int64  `json:"id"`
-		Path      string `json:"path"`
-		Filter    string `json:"filter"`
-		Paused    bool   `json:"paused"`
-		AutoTag   string `json:"auto_tag"`
-		AutoTagID int64  `json:"auto_tag_id"`
+	var envelope struct {
+		Folders []struct {
+			ID            int64    `json:"id"`
+			Path          string   `json:"path"`
+			FilterMode    string   `json:"filter_mode"`
+			FilterPresets []string `json:"filter_presets"`
+			FilterRegex   string   `json:"filter_regex"`
+			AutoArchive   bool     `json:"auto_archive"`
+			AutoTagID     *int64   `json:"auto_tag_id"`
+			IsPaused      bool     `json:"is_paused"`
+		} `json:"folders"`
+		Total int `json:"total"`
 	}
 
-	if err := c.GetJSON("/api/v1/watch", &folders); err != nil {
+	if err := c.GetJSON("/api/v1/watch", &envelope); err != nil {
 		return err
 	}
 
 	if jsonOutput {
-		printJSON(folders)
+		printJSON(envelope)
 		return nil
 	}
 
-	if len(folders) == 0 {
+	if len(envelope.Folders) == 0 {
 		fmt.Println("No watch folders configured.")
 		return nil
 	}
 
 	headers := []string{"ID", "PATH", "FILTER", "PAUSED", "AUTO_TAG"}
-	rows := make([][]string, len(folders))
-	for i, f := range folders {
+	rows := make([][]string, len(envelope.Folders))
+	for i, f := range envelope.Folders {
 		paused := "no"
-		if f.Paused {
+		if f.IsPaused {
 			paused = "yes"
 		}
-		autoTag := f.AutoTag
-		if autoTag == "" && f.AutoTagID > 0 {
-			autoTag = strconv.FormatInt(f.AutoTagID, 10)
-		}
-		if autoTag == "" {
-			autoTag = "-"
+		autoTag := "-"
+		if f.AutoTagID != nil && *f.AutoTagID > 0 {
+			autoTag = strconv.FormatInt(*f.AutoTagID, 10)
 		}
 		rows[i] = []string{
 			strconv.FormatInt(f.ID, 10),
 			f.Path,
-			f.Filter,
+			f.FilterMode,
 			paused,
 			autoTag,
 		}
@@ -142,18 +144,23 @@ func runWatchAdd(cmd *cobra.Command, args []string) error {
 	}
 
 	body := map[string]interface{}{
-		"path":   args[0],
-		"filter": watchAddFilter,
+		"path":        args[0],
+		"filter_mode": watchAddFilter,
 	}
 
 	if watchAddPresets != "" {
-		body["presets"] = strings.Split(watchAddPresets, ",")
+		body["filter_presets"] = strings.Split(watchAddPresets, ",")
 	}
 	if watchAddRegex != "" {
-		body["regex"] = watchAddRegex
+		body["filter_regex"] = watchAddRegex
 	}
 	if watchAddAutoTag != "" {
-		body["auto_tag"] = watchAddAutoTag
+		// Resolve tag name to ID
+		tagID, err := c.ResolveTagID(watchAddAutoTag)
+		if err != nil {
+			return fmt.Errorf("resolving auto-tag: %w", err)
+		}
+		body["auto_tag_id"] = tagID
 	}
 	if watchAddAutoArchive {
 		body["auto_archive"] = true
@@ -230,16 +237,24 @@ func runWatchUpdate(cmd *cobra.Command, args []string) error {
 	body := map[string]interface{}{}
 
 	if cmd.Flags().Changed("filter") {
-		body["filter"] = watchUpdateFilter
+		body["filter_mode"] = watchUpdateFilter
 	}
 	if cmd.Flags().Changed("presets") {
-		body["presets"] = strings.Split(watchUpdatePresets, ",")
+		body["filter_presets"] = strings.Split(watchUpdatePresets, ",")
 	}
 	if cmd.Flags().Changed("regex") {
-		body["regex"] = watchUpdateRegex
+		body["filter_regex"] = watchUpdateRegex
 	}
 	if cmd.Flags().Changed("auto-tag") {
-		body["auto_tag"] = watchUpdateAutoTag
+		if watchUpdateAutoTag == "" {
+			body["auto_tag_id"] = nil
+		} else {
+			tagID, err := c.ResolveTagID(watchUpdateAutoTag)
+			if err != nil {
+				return fmt.Errorf("resolving auto-tag: %w", err)
+			}
+			body["auto_tag_id"] = tagID
+		}
 	}
 	if cmd.Flags().Changed("auto-archive") {
 		body["auto_archive"] = watchUpdateAutoArchive

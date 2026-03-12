@@ -2321,19 +2321,50 @@ func boolToInt(b bool) int {
 	return 0
 }
 
-// UpdateWatchedFolder updates an existing watched folder config
+// UpdateWatchedFolder updates an existing watched folder config.
+// Zero-value fields in config are treated as "not provided" and keep existing values.
 func (a *App) UpdateWatchedFolder(id int64, config WatchedFolderConfig) error {
-	var presetsJSON []byte
-	if len(config.FilterPresets) > 0 {
-		presetsJSON, _ = json.Marshal(config.FilterPresets)
+	existing, err := a.GetWatchedFolderByID(id)
+	if err != nil {
+		return fmt.Errorf("watch folder not found: %w", err)
 	}
 
-	_, err := a.db.Exec(`
+	filterMode := existing.FilterMode
+	if config.FilterMode != "" {
+		filterMode = config.FilterMode
+	}
+
+	filterPresets := existing.FilterPresets
+	if len(config.FilterPresets) > 0 {
+		filterPresets = config.FilterPresets
+	}
+
+	filterRegex := existing.FilterRegex
+	if config.FilterRegex != "" {
+		filterRegex = config.FilterRegex
+	}
+
+	autoArchive := existing.AutoArchive
+	if config.AutoArchive {
+		autoArchive = true
+	}
+
+	autoTagID := existing.AutoTagID
+	if config.AutoTagID != nil {
+		autoTagID = config.AutoTagID
+	}
+
+	var presetsJSON []byte
+	if len(filterPresets) > 0 {
+		presetsJSON, _ = json.Marshal(filterPresets)
+	}
+
+	_, err = a.db.Exec(`
 		UPDATE watched_folders
 		SET filter_mode = ?, filter_presets = ?, filter_regex = ?, auto_archive = ?, auto_tag_id = ?
 		WHERE id = ?
-	`, config.FilterMode, string(presetsJSON), config.FilterRegex,
-		boolToInt(config.AutoArchive), config.AutoTagID, id)
+	`, filterMode, string(presetsJSON), filterRegex,
+		boolToInt(autoArchive), autoTagID, id)
 	if err != nil {
 		return fmt.Errorf("failed to update watched folder: %w", err)
 	}

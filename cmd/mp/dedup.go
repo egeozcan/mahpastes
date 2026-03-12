@@ -44,31 +44,34 @@ func runDedupList(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	var groups []struct {
-		ContentHash string `json:"content_hash"`
-		Filename    string `json:"filename"`
-		ContentType string `json:"content_type"`
-		Count       int    `json:"count"`
-		OldestID    int64  `json:"oldest_id"`
+	var envelope struct {
+		Groups []struct {
+			ContentHash string `json:"content_hash"`
+			Filename    string `json:"filename"`
+			ContentType string `json:"content_type"`
+			Count       int    `json:"count"`
+			OldestID    int64  `json:"oldest_id"`
+		} `json:"groups"`
+		Total int `json:"total"`
 	}
 
-	if err := c.GetJSON("/api/v1/dedup", &groups); err != nil {
+	if err := c.GetJSON("/api/v1/dedup", &envelope); err != nil {
 		return err
 	}
 
 	if jsonOutput {
-		printJSON(groups)
+		printJSON(envelope)
 		return nil
 	}
 
-	if len(groups) == 0 {
+	if len(envelope.Groups) == 0 {
 		fmt.Println("No duplicates found.")
 		return nil
 	}
 
 	headers := []string{"HASH", "FILENAME", "TYPE", "COUNT", "OLDEST_ID"}
-	rows := make([][]string, len(groups))
-	for i, g := range groups {
+	rows := make([][]string, len(envelope.Groups))
+	for i, g := range envelope.Groups {
 		hash := g.ContentHash
 		if len(hash) > 12 {
 			hash = hash[:12]

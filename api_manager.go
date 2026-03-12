@@ -1404,6 +1404,8 @@ func (am *APIManager) handleCancelExpiration(w http.ResponseWriter, r *http.Requ
 // --- Bulk Handlers ---
 
 func (am *APIManager) handleBulkDelete(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+
 	var body struct {
 		IDs []int64 `json:"ids"`
 	}
@@ -1415,6 +1417,13 @@ func (am *APIManager) handleBulkDelete(w http.ResponseWriter, r *http.Request) {
 	if len(body.IDs) == 0 {
 		am.jsonError(w, http.StatusBadRequest, "ids is required")
 		return
+	}
+
+	for _, id := range body.IDs {
+		if err := am.enforceTagScope(keyCtx, id); err != nil {
+			am.jsonError(w, http.StatusForbidden, err.Error())
+			return
+		}
 	}
 
 	if err := am.app.BulkDelete(body.IDs); err != nil {
@@ -1426,6 +1435,8 @@ func (am *APIManager) handleBulkDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (am *APIManager) handleBulkArchive(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+
 	var body struct {
 		IDs []int64 `json:"ids"`
 	}
@@ -1437,6 +1448,13 @@ func (am *APIManager) handleBulkArchive(w http.ResponseWriter, r *http.Request) 
 	if len(body.IDs) == 0 {
 		am.jsonError(w, http.StatusBadRequest, "ids is required")
 		return
+	}
+
+	for _, id := range body.IDs {
+		if err := am.enforceTagScope(keyCtx, id); err != nil {
+			am.jsonError(w, http.StatusForbidden, err.Error())
+			return
+		}
 	}
 
 	if err := am.app.BulkArchive(body.IDs); err != nil {
@@ -1448,6 +1466,8 @@ func (am *APIManager) handleBulkArchive(w http.ResponseWriter, r *http.Request) 
 }
 
 func (am *APIManager) handleBulkUnarchive(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+
 	var body struct {
 		IDs []int64 `json:"ids"`
 	}
@@ -1459,6 +1479,13 @@ func (am *APIManager) handleBulkUnarchive(w http.ResponseWriter, r *http.Request
 	if len(body.IDs) == 0 {
 		am.jsonError(w, http.StatusBadRequest, "ids is required")
 		return
+	}
+
+	for _, id := range body.IDs {
+		if err := am.enforceTagScope(keyCtx, id); err != nil {
+			am.jsonError(w, http.StatusForbidden, err.Error())
+			return
+		}
 	}
 
 	count := 0
@@ -1473,6 +1500,8 @@ func (am *APIManager) handleBulkUnarchive(w http.ResponseWriter, r *http.Request
 }
 
 func (am *APIManager) handleBulkSetExpiration(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+
 	var body struct {
 		IDs     []int64 `json:"ids"`
 		Minutes int     `json:"minutes"`
@@ -1492,6 +1521,13 @@ func (am *APIManager) handleBulkSetExpiration(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	for _, id := range body.IDs {
+		if err := am.enforceTagScope(keyCtx, id); err != nil {
+			am.jsonError(w, http.StatusForbidden, err.Error())
+			return
+		}
+	}
+
 	if err := am.app.BulkSetExpiration(body.IDs, body.Minutes); err != nil {
 		am.jsonError(w, http.StatusInternalServerError, "failed to bulk set expiration")
 		return
@@ -1501,6 +1537,8 @@ func (am *APIManager) handleBulkSetExpiration(w http.ResponseWriter, r *http.Req
 }
 
 func (am *APIManager) handleBulkCancelExpiration(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+
 	var body struct {
 		IDs []int64 `json:"ids"`
 	}
@@ -1512,6 +1550,13 @@ func (am *APIManager) handleBulkCancelExpiration(w http.ResponseWriter, r *http.
 	if len(body.IDs) == 0 {
 		am.jsonError(w, http.StatusBadRequest, "ids is required")
 		return
+	}
+
+	for _, id := range body.IDs {
+		if err := am.enforceTagScope(keyCtx, id); err != nil {
+			am.jsonError(w, http.StatusForbidden, err.Error())
+			return
+		}
 	}
 
 	if err := am.app.BulkCancelExpiration(body.IDs); err != nil {
@@ -1523,6 +1568,8 @@ func (am *APIManager) handleBulkCancelExpiration(w http.ResponseWriter, r *http.
 }
 
 func (am *APIManager) handleBulkAddTag(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+
 	var body struct {
 		IDs   []int64 `json:"ids"`
 		TagID int64   `json:"tag_id"`
@@ -1540,6 +1587,13 @@ func (am *APIManager) handleBulkAddTag(w http.ResponseWriter, r *http.Request) {
 	if body.TagID == 0 {
 		am.jsonError(w, http.StatusBadRequest, "tag_id is required")
 		return
+	}
+
+	for _, id := range body.IDs {
+		if err := am.enforceTagScope(keyCtx, id); err != nil {
+			am.jsonError(w, http.StatusForbidden, err.Error())
+			return
+		}
 	}
 
 	if err := am.app.BulkAddTag(body.IDs, body.TagID); err != nil {
@@ -1551,6 +1605,8 @@ func (am *APIManager) handleBulkAddTag(w http.ResponseWriter, r *http.Request) {
 }
 
 func (am *APIManager) handleBulkRemoveTag(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+
 	var body struct {
 		IDs   []int64 `json:"ids"`
 		TagID int64   `json:"tag_id"`
@@ -1570,6 +1626,13 @@ func (am *APIManager) handleBulkRemoveTag(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	for _, id := range body.IDs {
+		if err := am.enforceTagScope(keyCtx, id); err != nil {
+			am.jsonError(w, http.StatusForbidden, err.Error())
+			return
+		}
+	}
+
 	if err := am.app.BulkRemoveTag(body.IDs, body.TagID); err != nil {
 		am.jsonError(w, http.StatusInternalServerError, "failed to bulk remove tag")
 		return
@@ -1579,6 +1642,8 @@ func (am *APIManager) handleBulkRemoveTag(w http.ResponseWriter, r *http.Request
 }
 
 func (am *APIManager) handleBulkDownload(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+
 	var body struct {
 		IDs []int64 `json:"ids"`
 	}
@@ -1590,6 +1655,13 @@ func (am *APIManager) handleBulkDownload(w http.ResponseWriter, r *http.Request)
 	if len(body.IDs) == 0 {
 		am.jsonError(w, http.StatusBadRequest, "ids is required")
 		return
+	}
+
+	for _, id := range body.IDs {
+		if err := am.enforceTagScope(keyCtx, id); err != nil {
+			am.jsonError(w, http.StatusForbidden, err.Error())
+			return
+		}
 	}
 
 	var buf bytes.Buffer
@@ -1627,6 +1699,8 @@ func (am *APIManager) handleBulkDownload(w http.ResponseWriter, r *http.Request)
 }
 
 func (am *APIManager) handleBulkCopyToClipboard(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+
 	var body struct {
 		IDs []int64 `json:"ids"`
 	}
@@ -1638,6 +1712,13 @@ func (am *APIManager) handleBulkCopyToClipboard(w http.ResponseWriter, r *http.R
 	if len(body.IDs) == 0 {
 		am.jsonError(w, http.StatusBadRequest, "ids is required")
 		return
+	}
+
+	for _, id := range body.IDs {
+		if err := am.enforceTagScope(keyCtx, id); err != nil {
+			am.jsonError(w, http.StatusForbidden, err.Error())
+			return
+		}
 	}
 
 	if am.app.clipboardService == nil {

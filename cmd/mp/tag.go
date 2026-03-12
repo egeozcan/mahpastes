@@ -106,7 +106,7 @@ Hierarchical tags use "/" as a separator (e.g., "work/client1").
 Parent tags are created automatically if they don't exist.`,
 	Example: `  mp tag create photos
   mp tag create work/client1
-  mp tag create "design assets" --color "#ff0000"`,
+  mp tag create "design assets"`,
 	Args: cobra.ExactArgs(1),
 	RunE: runTagCreate,
 }
@@ -118,12 +118,8 @@ func runTagCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	name := args[0]
-	color, _ := cmd.Flags().GetString("color")
 
 	body := map[string]string{"name": name}
-	if color != "" {
-		body["color"] = color
-	}
 
 	var created struct {
 		ID    int64  `json:"id"`
@@ -629,9 +625,6 @@ func formatSize(bytes int64) string {
 func init() {
 	// tag list
 	tagListCmd.Flags().String("children-of", "", "List children of a specific tag (name or ID)")
-
-	// tag create
-	tagCreateCmd.Flags().String("color", "", "Tag color as hex (e.g., \"#ff0000\")")
 
 	// tag update
 	tagUpdateCmd.Flags().String("name", "", "New tag name")

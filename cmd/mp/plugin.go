@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -40,31 +41,34 @@ func runPluginList(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	var plugins []struct {
-		ID      string `json:"id"`
-		Name    string `json:"name"`
-		Version string `json:"version"`
-		Enabled bool   `json:"enabled"`
-		Status  string `json:"status"`
+	var envelope struct {
+		Plugins []struct {
+			ID      int64  `json:"id"`
+			Name    string `json:"name"`
+			Version string `json:"version"`
+			Enabled bool   `json:"enabled"`
+			Status  string `json:"status"`
+		} `json:"plugins"`
+		Total int `json:"total"`
 	}
 
-	if err := c.GetJSON("/api/v1/plugins", &plugins); err != nil {
+	if err := c.GetJSON("/api/v1/plugins", &envelope); err != nil {
 		return err
 	}
 
 	if jsonOutput {
-		printJSON(plugins)
+		printJSON(envelope)
 		return nil
 	}
 
-	if len(plugins) == 0 {
+	if len(envelope.Plugins) == 0 {
 		fmt.Println("No plugins installed.")
 		return nil
 	}
 
 	headers := []string{"ID", "NAME", "VERSION", "ENABLED", "STATUS"}
-	rows := make([][]string, len(plugins))
-	for i, p := range plugins {
+	rows := make([][]string, len(envelope.Plugins))
+	for i, p := range envelope.Plugins {
 		enabled := "no"
 		if p.Enabled {
 			enabled = "yes"
@@ -78,7 +82,7 @@ func runPluginList(cmd *cobra.Command, args []string) error {
 			status = "-"
 		}
 		rows[i] = []string{
-			p.ID,
+			strconv.FormatInt(p.ID, 10),
 			p.Name,
 			version,
 			enabled,
@@ -118,7 +122,7 @@ func runPluginInstall(cmd *cobra.Command, args []string) error {
 	body := map[string]string{"source": args[0]}
 
 	var result struct {
-		ID   string `json:"id"`
+		ID   int64  `json:"id"`
 		Name string `json:"name"`
 	}
 
@@ -131,7 +135,7 @@ func runPluginInstall(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	fmt.Printf("Installed: %s (ID: %s)\n", result.Name, result.ID)
+	fmt.Printf("Installed: %s (ID: %d)\n", result.Name, result.ID)
 	return nil
 }
 
@@ -143,8 +147,8 @@ var pluginRemoveCmd = &cobra.Command{
 	Long: `Uninstall a plugin and remove its files.
 
 This does not delete any clips or data created by the plugin.`,
-	Example: `  # Remove a plugin
-  mp plugin remove my-plugin`,
+	Example: `  # Remove a plugin by ID
+  mp plugin remove 1`,
 	Args: cobra.ExactArgs(1),
 	RunE: runPluginRemove,
 }
@@ -155,9 +159,12 @@ func runPluginRemove(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	id := args[0]
+	id, err := strconv.ParseInt(args[0], 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid plugin ID: %s", args[0])
+	}
 
-	if err := c.Delete(fmt.Sprintf("/api/v1/plugins/%s", id)); err != nil {
+	if err := c.Delete(fmt.Sprintf("/api/v1/plugins/%d", id)); err != nil {
 		return err
 	}
 
@@ -166,7 +173,7 @@ func runPluginRemove(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	fmt.Printf("Removed plugin %s\n", id)
+	fmt.Printf("Removed plugin %d\n", id)
 	return nil
 }
 
@@ -176,7 +183,7 @@ var pluginEnableCmd = &cobra.Command{
 	Use:   "enable <id>",
 	Short: "Enable a disabled plugin",
 	Long:  `Enable a plugin so it can handle events and run actions.`,
-	Example: `  mp plugin enable my-plugin`,
+	Example: `  mp plugin enable 1`,
 	Args:    cobra.ExactArgs(1),
 	RunE:    runPluginEnable,
 }
@@ -187,9 +194,12 @@ func runPluginEnable(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	id := args[0]
+	id, err := strconv.ParseInt(args[0], 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid plugin ID: %s", args[0])
+	}
 
-	if err := c.PutJSON(fmt.Sprintf("/api/v1/plugins/%s/enable", id), nil, nil); err != nil {
+	if err := c.PutJSON(fmt.Sprintf("/api/v1/plugins/%d/enable", id), nil, nil); err != nil {
 		return err
 	}
 
@@ -198,7 +208,7 @@ func runPluginEnable(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	fmt.Printf("Enabled plugin %s\n", id)
+	fmt.Printf("Enabled plugin %d\n", id)
 	return nil
 }
 
@@ -208,7 +218,7 @@ var pluginDisableCmd = &cobra.Command{
 	Use:   "disable <id>",
 	Short: "Disable an enabled plugin",
 	Long:  `Disable a plugin. It remains installed but will not handle events or run actions.`,
-	Example: `  mp plugin disable my-plugin`,
+	Example: `  mp plugin disable 1`,
 	Args:    cobra.ExactArgs(1),
 	RunE:    runPluginDisable,
 }
@@ -219,9 +229,12 @@ func runPluginDisable(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	id := args[0]
+	id, err := strconv.ParseInt(args[0], 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid plugin ID: %s", args[0])
+	}
 
-	if err := c.PutJSON(fmt.Sprintf("/api/v1/plugins/%s/disable", id), nil, nil); err != nil {
+	if err := c.PutJSON(fmt.Sprintf("/api/v1/plugins/%d/disable", id), nil, nil); err != nil {
 		return err
 	}
 
@@ -230,7 +243,7 @@ func runPluginDisable(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	fmt.Printf("Disabled plugin %s\n", id)
+	fmt.Printf("Disabled plugin %d\n", id)
 	return nil
 }
 
@@ -244,13 +257,13 @@ var pluginRunCmd = &cobra.Command{
 Use --clip to pass clip IDs to the action and --option to set
 action option values in key=value format.`,
 	Example: `  # Run an action
-  mp plugin run my-plugin process-image --clip 42
+  mp plugin run 1 process-image --clip 42
 
   # Run with multiple clips and options
-  mp plugin run my-plugin transform --clip 1 --clip 2 --option quality=high --option format=png
+  mp plugin run 1 transform --clip 1 --clip 2 --option quality=high --option format=png
 
   # Run and show result as JSON
-  mp plugin run my-plugin analyze --clip 42 --json`,
+  mp plugin run 1 analyze --clip 42 --json`,
 	Args: cobra.ExactArgs(2),
 	RunE: runPluginRun,
 }
@@ -271,7 +284,10 @@ func runPluginRun(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	pluginID := args[0]
+	pluginID, err := strconv.ParseInt(args[0], 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid plugin ID: %s", args[0])
+	}
 	actionID := args[1]
 
 	body := map[string]interface{}{}
@@ -294,7 +310,7 @@ func runPluginRun(cmd *cobra.Command, args []string) error {
 
 	var result map[string]interface{}
 
-	if err := c.PostJSON(fmt.Sprintf("/api/v1/plugins/%s/actions/%s", pluginID, actionID), body, &result); err != nil {
+	if err := c.PostJSON(fmt.Sprintf("/api/v1/plugins/%d/actions/%s", pluginID, actionID), body, &result); err != nil {
 		return err
 	}
 
@@ -334,10 +350,10 @@ var pluginStorageListCmd = &cobra.Command{
 	Short: "List all storage keys for a plugin",
 	Long:  `Display all key-value pairs stored by a plugin.`,
 	Example: `  # List storage for a plugin
-  mp plugin storage list my-plugin
+  mp plugin storage list 1
 
   # List as JSON
-  mp plugin storage list my-plugin --json`,
+  mp plugin storage list 1 --json`,
 	Args: cobra.ExactArgs(1),
 	RunE: runPluginStorageList,
 }
@@ -348,10 +364,13 @@ func runPluginStorageList(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	pluginID := args[0]
+	pluginID, err := strconv.ParseInt(args[0], 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid plugin ID: %s", args[0])
+	}
 
 	var storage map[string]string
-	if err := c.GetJSON(fmt.Sprintf("/api/v1/plugins/%s/storage", pluginID), &storage); err != nil {
+	if err := c.GetJSON(fmt.Sprintf("/api/v1/plugins/%d/storage", pluginID), &storage); err != nil {
 		return err
 	}
 
@@ -380,8 +399,8 @@ var pluginStorageGetCmd = &cobra.Command{
 	Use:   "get <plugin-id> <key>",
 	Short: "Get a storage value",
 	Long:  `Get the value of a specific key from a plugin's storage.`,
-	Example: `  mp plugin storage get my-plugin api_key
-  mp plugin storage get my-plugin api_key --json`,
+	Example: `  mp plugin storage get 1 api_key
+  mp plugin storage get 1 api_key --json`,
 	Args: cobra.ExactArgs(2),
 	RunE: runPluginStorageGet,
 }
@@ -392,13 +411,16 @@ func runPluginStorageGet(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	pluginID := args[0]
+	pluginID, err := strconv.ParseInt(args[0], 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid plugin ID: %s", args[0])
+	}
 	key := args[1]
 
 	var result struct {
 		Value string `json:"value"`
 	}
-	if err := c.GetJSON(fmt.Sprintf("/api/v1/plugins/%s/storage/%s", pluginID, key), &result); err != nil {
+	if err := c.GetJSON(fmt.Sprintf("/api/v1/plugins/%d/storage/%s", pluginID, key), &result); err != nil {
 		return err
 	}
 
@@ -417,8 +439,8 @@ var pluginStorageSetCmd = &cobra.Command{
 	Use:   "set <plugin-id> <key> <value>",
 	Short: "Set a storage value",
 	Long:  `Set a key-value pair in a plugin's storage.`,
-	Example: `  mp plugin storage set my-plugin api_key sk-12345
-  mp plugin storage set my-plugin threshold "0.8"`,
+	Example: `  mp plugin storage set 1 api_key sk-12345
+  mp plugin storage set 1 threshold "0.8"`,
 	Args: cobra.ExactArgs(3),
 	RunE: runPluginStorageSet,
 }
@@ -429,12 +451,15 @@ func runPluginStorageSet(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	pluginID := args[0]
+	pluginID, err := strconv.ParseInt(args[0], 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid plugin ID: %s", args[0])
+	}
 	key := args[1]
 	value := args[2]
 
 	body := map[string]string{"value": value}
-	if err := c.PutJSON(fmt.Sprintf("/api/v1/plugins/%s/storage/%s", pluginID, key), body, nil); err != nil {
+	if err := c.PutJSON(fmt.Sprintf("/api/v1/plugins/%d/storage/%s", pluginID, key), body, nil); err != nil {
 		return err
 	}
 
@@ -443,7 +468,7 @@ func runPluginStorageSet(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	fmt.Printf("Set %s for plugin %s\n", key, pluginID)
+	fmt.Printf("Set %s for plugin %d\n", key, pluginID)
 	return nil
 }
 
@@ -461,7 +486,7 @@ actually updating them.`,
   mp plugin update --check
 
   # Update a specific plugin
-  mp plugin update my-plugin`,
+  mp plugin update 1`,
 	RunE: runPluginUpdate,
 }
 
@@ -479,7 +504,7 @@ func runPluginUpdate(cmd *cobra.Command, args []string) error {
 
 	if pluginUpdateCheck {
 		var updates []struct {
-			ID             string `json:"id"`
+			ID             int64  `json:"id"`
 			Name           string `json:"name"`
 			CurrentVersion string `json:"current_version"`
 			LatestVersion  string `json:"latest_version"`
@@ -503,7 +528,7 @@ func runPluginUpdate(cmd *cobra.Command, args []string) error {
 		rows := make([][]string, len(updates))
 		for i, u := range updates {
 			rows[i] = []string{
-				u.ID,
+				strconv.FormatInt(u.ID, 10),
 				u.Name,
 				u.CurrentVersion,
 				u.LatestVersion,
@@ -519,15 +544,18 @@ func runPluginUpdate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("plugin ID is required (or use --check to check for updates)")
 	}
 
-	pluginID := args[0]
+	pluginID, err := strconv.ParseInt(args[0], 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid plugin ID: %s", args[0])
+	}
 
 	var result struct {
-		ID      string `json:"id"`
+		ID      int64  `json:"id"`
 		Name    string `json:"name"`
 		Version string `json:"version"`
 	}
 
-	if err := c.PostJSON(fmt.Sprintf("/api/v1/plugins/%s/update", pluginID), nil, &result); err != nil {
+	if err := c.PostJSON(fmt.Sprintf("/api/v1/plugins/%d/update", pluginID), nil, &result); err != nil {
 		return err
 	}
 
@@ -540,7 +568,7 @@ func runPluginUpdate(cmd *cobra.Command, args []string) error {
 	if version == "" {
 		version = "latest"
 	}
-	fmt.Printf("Updated plugin %s to %s\n", pluginID, version)
+	fmt.Printf("Updated plugin %d to %s\n", pluginID, version)
 	return nil
 }
 
