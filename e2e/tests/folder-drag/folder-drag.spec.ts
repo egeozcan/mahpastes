@@ -370,9 +370,10 @@ test.describe('Folder Drag-and-Drop', () => {
     // The folder should still be visible (move failed)
     await app.expectFolderVisible('shared');
 
-    // An error toast should appear
+    // An error toast with conflict message should appear
     const toast = app.page.locator(selectors.toast.container);
     await expect(toast).toBeVisible({ timeout: 5000 });
+    await expect(toast).toContainText(/already exists/i);
   });
 
   // ==================== Edge Cases ====================

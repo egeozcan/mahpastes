@@ -234,7 +234,8 @@ async function _executeDrop(payload, target) {
             await loadClips();
         }
     } catch (err) {
-        showToast(err.message || 'Failed to move item.', 'error');
+        const msg = (err && (err.message || String(err))) || 'Failed to move item.';
+        showToast(msg, 'error');
         _announceDragResult('Move failed.');
     }
 }
