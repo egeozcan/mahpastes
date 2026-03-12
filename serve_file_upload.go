@@ -72,7 +72,7 @@ func (sm *ServeManager) handleFileUpload(w http.ResponseWriter, r *http.Request,
 
 	// Parse multipart form with size limit.
 	if err := r.ParseMultipartForm(maxUploadSize); err != nil {
-		jsonAPIError(w, http.StatusRequestEntityTooLarge, "file too large (max 10 MB)")
+		jsonAPIError(w, http.StatusBadRequest, "invalid multipart form")
 		return
 	}
 
@@ -100,16 +100,14 @@ func (sm *ServeManager) handleFileUpload(w http.ResponseWriter, r *http.Request,
 	if contentType == "" {
 		contentType = header.Header.Get("Content-Type")
 	}
-	if contentType == "" || contentType == "application/octet-stream" || contentType == "text/plain" {
-		if contentType == "text/plain" || contentType == "" {
-			trimmed := strings.TrimSpace(string(data))
-			if strings.HasPrefix(trimmed, "<!DOCTYPE html") || strings.HasPrefix(trimmed, "<!doctype html") {
-				contentType = "text/html"
-			} else if isJSON(trimmed) {
-				contentType = "application/json"
-			} else if contentType == "" {
-				contentType = "application/octet-stream"
-			}
+	if contentType == "text/plain" || contentType == "" {
+		trimmed := strings.TrimSpace(string(data))
+		if strings.HasPrefix(trimmed, "<!DOCTYPE html") {
+			contentType = "text/html"
+		} else if isJSON(trimmed) {
+			contentType = "application/json"
+		} else if contentType == "" {
+			contentType = "application/octet-stream"
 		}
 	}
 
