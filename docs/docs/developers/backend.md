@@ -16,6 +16,7 @@ The backend is written in Go using the Wails framework. It handles data storage,
 ├── backup.go            ZIP backup and restore
 ├── plugin_service.go    Plugin frontend API (separate struct)
 ├── plugins.go           Plugin install/uninstall helpers
+├── serve_file_upload.go File upload handler for served tags
 ├── clipboard_service.go Clipboard copy service (Wails-bound)
 ├── clipboard_darwin.go  macOS clipboard implementation
 ├── clipboard_windows.go Windows clipboard implementation
