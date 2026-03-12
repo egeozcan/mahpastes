@@ -197,6 +197,13 @@ func (sm *ServeManager) makeHandler(ts *tagServer) http.Handler {
 			return
 		}
 
+		// Route /_api/_upload to file upload handler (must come before general /_api).
+		if ts.apiAccess != "none" && (r.URL.Path == "/_api/_upload" || strings.HasPrefix(r.URL.Path, "/_api/_upload/")) {
+			atomic.AddInt64(&ts.requestCount, 1)
+			sm.handleFileUpload(w, r, ts)
+			return
+		}
+
 		// Route /_api/* requests to the JSON API handler only when API is enabled.
 		// When disabled, fall through to normal file/subtag resolution so existing
 		// clips or subtags named "_api" remain reachable.
