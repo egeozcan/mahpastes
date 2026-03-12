@@ -293,6 +293,7 @@ function _cleanupDrag() {
     }
 
     _currentPayload = null;
+    window.__internalDragActive = false;
 }
 
 // --- Main init function ---
@@ -323,6 +324,9 @@ function initFolderDrag() {
         if (!payload) return;
 
         _currentPayload = payload;
+
+        // Suppress the upload drop overlay
+        window.__internalDragActive = true;
 
         // Set transfer data
         e.dataTransfer.setData('application/x-folder-drag', JSON.stringify(payload));
