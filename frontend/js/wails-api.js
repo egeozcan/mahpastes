@@ -453,8 +453,13 @@ async function createTagSilent(name) {
         const tag = await window.go.main.App.CreateTag(name);
         return { tag, error: null };
     } catch (error) {
+        const msg = error.message || String(error);
+        // "already exists" is not a real failure — the tag is usable
+        if (msg.includes('already exists')) {
+            return { tag: null, error: null };
+        }
         console.error('Error creating tag:', error);
-        return { tag: null, error: error.message || String(error) };
+        return { tag: null, error: msg };
     }
 }
 
