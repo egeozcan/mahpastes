@@ -524,6 +524,215 @@ async function handleFiles(files) {
     upload(fileDataArray);
 }
 
+// --- Directory Traversal Helpers ---
+
+/**
+ * Parse .gitignore content into a filter function.
+ * Supports exact names, simple globs (*.ext), directory patterns (name/).
+ * Comments (#) and blank lines are skipped. No negation or nested support.
+ * @param {string} content - Raw .gitignore file content
+ * @returns {(name: string, isDirectory: boolean) => boolean} - Returns true if the name should be ignored
+ */
+function parseGitignore(content) {
+    const rules = [];
+    const lines = content.split('\n');
+
+    for (const raw of lines) {
+        const line = raw.trim();
+        if (!line || line.startsWith('#')) continue;
+
+        // Directory-only pattern (trailing slash)
+        if (line.endsWith('/')) {
+            const name = line.slice(0, -1);
+            rules.push({ name, dirOnly: true, regex: null });
+        } else if (line.includes('*') || line.includes('?')) {
+            // Glob pattern — convert to regex
+            const escaped = line
+                .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+                .replace(/\*/g, '.*')
+                .replace(/\?/g, '.');
+            const regex = new RegExp('^' + escaped + '$');
+            rules.push({ name: null, dirOnly: false, regex });
+        } else {
+            // Exact name match (files and dirs)
+            rules.push({ name: line, dirOnly: false, regex: null });
+        }
+    }
+
+    return (name, isDirectory) => {
+        for (const rule of rules) {
+            if (rule.regex) {
+                if (rule.regex.test(name)) return true;
+            } else if (rule.dirOnly) {
+                if (isDirectory && name === rule.name) return true;
+            } else {
+                if (name === rule.name) return true;
+            }
+        }
+        return false;
+    };
+}
+
+/**
+ * Combine dotfile filtering with optional gitignore rules.
+ * Always skips names starting with '.' (dotfiles/dotdirs).
+ * @param {string|null} gitignoreContent - Raw .gitignore content, or null
+ * @returns {(name: string, isDirectory: boolean) => boolean} - Returns true if the name should be ignored
+ */
+function buildIgnoreFn(gitignoreContent) {
+    const gitignoreFn = gitignoreContent ? parseGitignore(gitignoreContent) : null;
+
+    return (name, isDirectory) => {
+        // Always skip dotfiles/dotdirs
+        if (name.startsWith('.')) return true;
+        if (gitignoreFn && gitignoreFn(name, isDirectory)) return true;
+        return false;
+    };
+}
+
+/**
+ * Read all entries from a DirectoryReader, handling batched reads.
+ * The readEntries API may return partial results; must call repeatedly until empty.
+ * @param {FileSystemDirectoryReader} reader
+ * @returns {Promise<FileSystemEntry[]>}
+ */
+async function readAllEntries(reader) {
+    const entries = [];
+    let batch;
+    do {
+        batch = await new Promise((resolve, reject) => {
+            reader.readEntries(resolve, reject);
+        });
+        entries.push(...batch);
+    } while (batch.length > 0);
+    return entries;
+}
+
+/**
+ * Promisified wrapper for FileSystemFileEntry.file().
+ * @param {FileSystemFileEntry} fileEntry
+ * @returns {Promise<File>}
+ */
+function entryToFile(fileEntry) {
+    return new Promise((resolve, reject) => {
+        fileEntry.file(resolve, reject);
+    });
+}
+
+/**
+ * Try to read .gitignore from a directory entry.
+ * @param {FileSystemDirectoryEntry} dirEntry
+ * @returns {Promise<string|null>} - .gitignore content or null if not found
+ */
+async function readGitignoreFromDir(dirEntry) {
+    try {
+        const gitignoreEntry = await new Promise((resolve, reject) => {
+            dirEntry.getFile('.gitignore', {}, resolve, reject);
+        });
+        const file = await entryToFile(gitignoreEntry);
+        return await file.text();
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Recursively traverse a directory entry, collecting {relativePath, file} objects.
+ * @param {FileSystemEntry} entry - File or directory entry
+ * @param {string} basePath - Current path prefix (e.g., "mydir/sub")
+ * @param {(name: string, isDirectory: boolean) => boolean} ignoreFn - Returns true to skip
+ * @param {Set<string>} dirPaths - Accumulates directory relative paths for empty folder tracking
+ * @returns {Promise<Array<{relativePath: string, file: File}>>}
+ */
+async function traverseEntry(entry, basePath, ignoreFn, dirPaths) {
+    if (entry.isFile) {
+        if (ignoreFn(entry.name, false)) return [];
+        const file = await entryToFile(entry);
+        const relativePath = basePath ? basePath + '/' + entry.name : entry.name;
+        return [{ relativePath, file }];
+    }
+
+    if (entry.isDirectory) {
+        if (ignoreFn(entry.name, true)) return [];
+        const dirPath = basePath ? basePath + '/' + entry.name : entry.name;
+        dirPaths.add(dirPath);
+
+        const reader = entry.createReader();
+        const entries = await readAllEntries(reader);
+        const results = [];
+
+        for (const child of entries) {
+            const childResults = await traverseEntry(child, dirPath, ignoreFn, dirPaths);
+            results.push(...childResults);
+        }
+
+        return results;
+    }
+
+    return [];
+}
+
+/**
+ * Check if any DataTransferItem in the list is a directory.
+ * @param {DataTransferItemList} items
+ * @returns {boolean}
+ */
+function hasDirectoryEntries(items) {
+    for (let i = 0; i < items.length; i++) {
+        const entry = items[i].webkitGetAsEntry?.();
+        if (entry && entry.isDirectory) return true;
+    }
+    return false;
+}
+
+/**
+ * Traverse all dropped items, separating folder contents from loose files.
+ * For each top-level directory, reads .gitignore if present and builds an ignore function.
+ * Loose files use dotfile-only filtering.
+ * @param {DataTransferItemList} items
+ * @returns {Promise<{folderFiles: Array<{relativePath: string, file: File}>, looseFiles: File[], dirPaths: Set<string>, maxDepth: number}>}
+ */
+async function traverseDropItems(items) {
+    const folderFiles = [];
+    const looseFiles = [];
+    const dirPaths = new Set();
+
+    for (let i = 0; i < items.length; i++) {
+        const entry = items[i].webkitGetAsEntry?.();
+        if (!entry) continue;
+
+        if (entry.isDirectory) {
+            // Read .gitignore from the top-level dropped directory
+            const gitignoreContent = await readGitignoreFromDir(entry);
+            const ignoreFn = buildIgnoreFn(gitignoreContent);
+
+            dirPaths.add(entry.name);
+            const reader = entry.createReader();
+            const children = await readAllEntries(reader);
+
+            for (const child of children) {
+                const results = await traverseEntry(child, entry.name, ignoreFn, dirPaths);
+                folderFiles.push(...results);
+            }
+        } else if (entry.isFile) {
+            // Loose file — skip dotfiles only
+            if (!entry.name.startsWith('.')) {
+                const file = await entryToFile(entry);
+                looseFiles.push(file);
+            }
+        }
+    }
+
+    // Calculate max depth from directory paths
+    let maxDepth = 0;
+    for (const p of dirPaths) {
+        const depth = p.split('/').length;
+        if (depth > maxDepth) maxDepth = depth;
+    }
+
+    return { folderFiles, looseFiles, dirPaths, maxDepth };
+}
+
 async function handleText(text) {
     if (isViewingArchive) {
         showToast('Switch to Active view to upload.');
