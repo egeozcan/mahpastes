@@ -883,14 +883,14 @@ func (a *App) FindClipsByFilenameAndTag(filenames []string, tagID int64) ([]Clip
 			FROM clips c
 			JOIN clip_tags ct ON c.id = ct.clip_id
 			WHERE ct.tag_id = ? AND c.filename IN (%s)
-			AND c.archived = 0`, inClause)
+			AND c.is_archived = 0`, inClause)
 		args = append([]interface{}{tagID}, args...)
 	} else {
 		query = fmt.Sprintf(`
 			SELECT c.id, c.filename, c.content_hash
 			FROM clips c
 			WHERE c.filename IN (%s)
-			AND c.archived = 0
+			AND c.is_archived = 0
 			AND c.id NOT IN (SELECT clip_id FROM clip_tags)`, inClause)
 	}
 

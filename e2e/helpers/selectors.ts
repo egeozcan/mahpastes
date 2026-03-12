@@ -287,6 +287,17 @@ export const selectors = {
     cancelButton: '#confirm-no-btn',
   },
 
+  // Conflict dialog (upload duplicate detection)
+  conflict: {
+    dialog: '#conflict-dialog',
+    title: '#conflict-title',
+    message: '#conflict-message',
+    fileList: '#conflict-file-list',
+    overwriteButton: '#conflict-overwrite-btn',
+    keepButton: '#conflict-keep-btn',
+    skipButton: '#conflict-skip-btn',
+  },
+
   // Prompt dialog
   prompt: {
     dialog: '#prompt-dialog',
