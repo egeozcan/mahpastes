@@ -214,27 +214,37 @@ func (c *Client) DeleteJSON(path string, result interface{}) error {
 // UploadFile uploads a file via multipart form POST.
 // extraFields are added as form fields alongside the file.
 func (c *Client) UploadFile(path string, filename string, reader io.Reader, extraFields map[string]string, result interface{}) error {
-	var buf bytes.Buffer
-	w := multipart.NewWriter(&buf)
+	pr, pw := io.Pipe()
+	w := multipart.NewWriter(pw)
 
-	for k, v := range extraFields {
-		if err := w.WriteField(k, v); err != nil {
-			return fmt.Errorf("write field %s: %w", k, err)
+	// Write multipart body in a goroutine so it streams into the request
+	var writeErr error
+	go func() {
+		defer pw.Close()
+
+		for k, v := range extraFields {
+			if err := w.WriteField(k, v); err != nil {
+				writeErr = fmt.Errorf("write field %s: %w", k, err)
+				return
+			}
 		}
-	}
 
-	part, err := w.CreateFormFile("file", filename)
-	if err != nil {
-		return fmt.Errorf("create form file: %w", err)
-	}
-	if _, err := io.Copy(part, reader); err != nil {
-		return fmt.Errorf("copy file data: %w", err)
-	}
-	if err := w.Close(); err != nil {
-		return fmt.Errorf("close multipart writer: %w", err)
-	}
+		part, err := w.CreateFormFile("file", filename)
+		if err != nil {
+			writeErr = fmt.Errorf("create form file: %w", err)
+			return
+		}
+		if _, err := io.Copy(part, reader); err != nil {
+			writeErr = fmt.Errorf("copy file data: %w", err)
+			return
+		}
+		if err := w.Close(); err != nil {
+			writeErr = fmt.Errorf("close multipart writer: %w", err)
+			return
+		}
+	}()
 
-	req, err := http.NewRequest("POST", c.BaseURL+path, &buf)
+	req, err := http.NewRequest("POST", c.BaseURL+path, pr)
 	if err != nil {
 		return err
 	}
@@ -245,6 +255,9 @@ func (c *Client) UploadFile(path string, filename string, reader io.Reader, extr
 		return err
 	}
 	defer resp.Body.Close()
+	if writeErr != nil {
+		return writeErr
+	}
 	if err := checkResponse(resp); err != nil {
 		return err
 	}

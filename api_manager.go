@@ -2,7 +2,6 @@ package main
 
 import (
 	"archive/zip"
-	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -1664,8 +1663,10 @@ func (am *APIManager) handleBulkDownload(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	var buf bytes.Buffer
-	zw := zip.NewWriter(&buf)
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", "attachment; filename=\"clips.zip\"")
+
+	zw := zip.NewWriter(w)
 
 	for _, id := range body.IDs {
 		var data []byte
@@ -1687,15 +1688,7 @@ func (am *APIManager) handleBulkDownload(w http.ResponseWriter, r *http.Request)
 		fw.Write(data)
 	}
 
-	if err := zw.Close(); err != nil {
-		am.jsonError(w, http.StatusInternalServerError, "failed to create zip archive")
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/zip")
-	w.Header().Set("Content-Disposition", "attachment; filename=\"clips.zip\"")
-	w.Header().Set("Content-Length", fmt.Sprintf("%d", buf.Len()))
-	w.Write(buf.Bytes())
+	zw.Close()
 }
 
 func (am *APIManager) handleBulkCopyToClipboard(w http.ResponseWriter, r *http.Request) {
@@ -1857,10 +1850,25 @@ func (am *APIManager) handleDeleteMetadata(w http.ResponseWriter, r *http.Reques
 // --- Tag Extended Handlers ---
 
 func (am *APIManager) handleGetChildTags(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+
 	id, err := parseIntParam(r.PathValue("id"))
 	if err != nil {
 		am.jsonError(w, http.StatusBadRequest, "invalid tag id")
 		return
+	}
+
+	// Tag-scoped keys can only view children within their scope
+	if keyCtx.ScopedTagID > 0 {
+		var tagName string
+		if err := am.app.db.QueryRow("SELECT name FROM tags WHERE id = ?", id).Scan(&tagName); err != nil {
+			am.jsonError(w, http.StatusNotFound, "tag not found")
+			return
+		}
+		if !am.isTagInScope(tagName, keyCtx.ScopedTagID) {
+			am.jsonOK(w, []Tag{})
+			return
+		}
 	}
 
 	children, err := am.app.GetChildTags(id)
@@ -1991,6 +1999,12 @@ func (am *APIManager) handleSetHiddenTags(w http.ResponseWriter, r *http.Request
 // --- Dedup Handlers ---
 
 func (am *APIManager) handleListDuplicates(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+	if keyCtx.ScopedTagID > 0 {
+		am.jsonError(w, http.StatusForbidden, "dedup operations are not available for tag-scoped keys")
+		return
+	}
+
 	groups, err := am.app.GetDuplicateGroups()
 	if err != nil {
 		am.jsonError(w, http.StatusInternalServerError, "failed to get duplicate groups")
@@ -2007,9 +2021,16 @@ func (am *APIManager) handleListDuplicates(w http.ResponseWriter, r *http.Reques
 }
 
 func (am *APIManager) handleMergeDuplicates(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+
 	clipID, err := parseIntParam(r.PathValue("clipId"))
 	if err != nil {
 		am.jsonError(w, http.StatusBadRequest, "invalid clip id")
+		return
+	}
+
+	if err := am.enforceTagScope(keyCtx, clipID); err != nil {
+		am.jsonError(w, http.StatusForbidden, err.Error())
 		return
 	}
 
@@ -2022,6 +2043,12 @@ func (am *APIManager) handleMergeDuplicates(w http.ResponseWriter, r *http.Reque
 }
 
 func (am *APIManager) handleDeduplicateAll(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+	if keyCtx.ScopedTagID > 0 {
+		am.jsonError(w, http.StatusForbidden, "dedup operations are not available for tag-scoped keys")
+		return
+	}
+
 	removed, err := am.app.DeduplicateAll()
 	if err != nil {
 		am.jsonError(w, http.StatusInternalServerError, "failed to deduplicate")
@@ -2088,6 +2115,12 @@ func (am *APIManager) handleAddWatchFolder(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	am.app.RefreshWatches()
+
+	if config.ProcessExisting && folder != nil {
+		go am.app.ProcessExistingFilesInFolder(folder.ID)
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(folder)
@@ -2112,6 +2145,7 @@ func (am *APIManager) handleUpdateWatchFolder(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	am.app.RefreshWatches()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -2127,6 +2161,7 @@ func (am *APIManager) handleRemoveWatchFolder(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	am.app.RefreshWatches()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -2142,6 +2177,7 @@ func (am *APIManager) handlePauseWatchFolder(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	am.app.RefreshWatches()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -2157,6 +2193,7 @@ func (am *APIManager) handleResumeWatchFolder(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	am.app.RefreshWatches()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -2166,6 +2203,7 @@ func (am *APIManager) handleGlobalPause(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	am.app.RefreshWatches()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -2175,6 +2213,7 @@ func (am *APIManager) handleGlobalResume(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	am.app.RefreshWatches()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -2555,11 +2594,18 @@ func (am *APIManager) handleRestoreBackup(w http.ResponseWriter, r *http.Request
 // --- Clipboard Handlers ---
 
 func (am *APIManager) handleCopyToClipboard(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+
 	var body struct {
 		ClipID int64 `json:"clip_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		am.jsonError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	if err := am.enforceTagScope(keyCtx, body.ClipID); err != nil {
+		am.jsonError(w, http.StatusForbidden, err.Error())
 		return
 	}
 
@@ -2577,11 +2623,18 @@ func (am *APIManager) handleCopyToClipboard(w http.ResponseWriter, r *http.Reque
 }
 
 func (am *APIManager) handleCopyFileToClipboard(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+
 	var body struct {
 		ClipID int64 `json:"clip_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		am.jsonError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	if err := am.enforceTagScope(keyCtx, body.ClipID); err != nil {
+		am.jsonError(w, http.StatusForbidden, err.Error())
 		return
 	}
 
