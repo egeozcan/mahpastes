@@ -396,6 +396,15 @@ document.getElementById('prompt-input').addEventListener('keydown', (e) => {
     }
 });
 
+// Conflict Dialog Listeners
+document.getElementById('conflict-overwrite-btn').addEventListener('click', () => closeConflictDialog('overwrite'));
+document.getElementById('conflict-keep-btn').addEventListener('click', () => closeConflictDialog('keep'));
+document.getElementById('conflict-skip-btn').addEventListener('click', () => closeConflictDialog('skip'));
+
+document.getElementById('conflict-dialog').addEventListener('click', (e) => {
+    if (e.target.id === 'conflict-dialog') closeConflictDialog('skip');
+});
+
 // Delete All Temp Files
 deleteAllTempBtn.addEventListener('click', deleteAllTempFiles);
 
@@ -872,9 +881,10 @@ async function handleFolderDrop(folderFiles, looseFiles, dirPaths) {
         groups[tagName].push(file);
     }
 
-    // Upload each group with its tag, skipping groups whose tag failed to create
+    // Upload each group with its tag, checking for conflicts
     let uploadedCount = 0;
     let skippedCount = 0;
+    let overwrittenCount = 0;
     let failedCount = 0;
     for (const [tagName, files] of Object.entries(groups)) {
         if (failedTags.has(tagName)) {
@@ -888,12 +898,35 @@ async function handleFolderDrop(folderFiles, looseFiles, dirPaths) {
             const fileData = await fileToFileData(file);
             fileDataArray.push(fileData);
         }
-        try {
-            await window.go.main.App.UploadFiles(fileDataArray, minutes, tagId);
-            uploadedCount += files.length;
-        } catch (error) {
-            console.error('Error uploading folder group:', error);
-            failedCount += files.length;
+
+        const result = await checkAndResolveConflicts(fileDataArray, tagId);
+        if (!result) {
+            skippedCount += files.length;
+            continue;
+        }
+
+        // Overwrite existing clips
+        for (const { clipID, fileData } of result.toOverwrite) {
+            try {
+                await window.go.main.App.UpdateClipData(clipID, fileData.content_type, fileData.data, fileData.name);
+                overwrittenCount++;
+            } catch (error) {
+                console.error('Error overwriting clip:', error);
+                failedCount++;
+            }
+        }
+
+        skippedCount += result.skippedCount;
+
+        // Upload new files
+        if (result.toUpload.length > 0) {
+            try {
+                await window.go.main.App.UploadFiles(result.toUpload, minutes, tagId);
+                uploadedCount += result.toUpload.length;
+            } catch (error) {
+                console.error('Error uploading folder group:', error);
+                failedCount += result.toUpload.length;
+            }
         }
     }
 
@@ -908,20 +941,39 @@ async function handleFolderDrop(folderFiles, looseFiles, dirPaths) {
             const fileData = await fileToFileData(file);
             fileDataArray.push(fileData);
         }
-        try {
-            await window.go.main.App.UploadFiles(fileDataArray, minutes, autoTagID);
-            uploadedCount += looseFiles.length;
-        } catch (error) {
-            console.error('Error uploading loose files:', error);
-            failedCount += looseFiles.length;
+
+        const result = await checkAndResolveConflicts(fileDataArray, autoTagID);
+        if (result) {
+            for (const { clipID, fileData } of result.toOverwrite) {
+                try {
+                    await window.go.main.App.UpdateClipData(clipID, fileData.content_type, fileData.data, fileData.name);
+                    overwrittenCount++;
+                } catch (error) {
+                    console.error('Error overwriting clip:', error);
+                    failedCount++;
+                }
+            }
+            skippedCount += result.skippedCount;
+            if (result.toUpload.length > 0) {
+                try {
+                    await window.go.main.App.UploadFiles(result.toUpload, minutes, autoTagID);
+                    uploadedCount += result.toUpload.length;
+                } catch (error) {
+                    console.error('Error uploading loose files:', error);
+                    failedCount += result.toUpload.length;
+                }
+            }
+        } else {
+            skippedCount += looseFiles.length;
         }
     }
 
     // Report results accurately
-    if (failedCount > 0 || skippedCount > 0) {
+    if (failedCount > 0 || skippedCount > 0 || overwrittenCount > 0) {
         const parts = [];
         if (uploadedCount > 0) parts.push(`${uploadedCount} uploaded`);
-        if (skippedCount > 0) parts.push(`${skippedCount} skipped (invalid tag)`);
+        if (overwrittenCount > 0) parts.push(`${overwrittenCount} overwritten`);
+        if (skippedCount > 0) parts.push(`${skippedCount} skipped`);
         if (failedCount > 0) parts.push(`${failedCount} failed`);
         showToast(`Folder import: ${parts.join(', ')}.`);
     } else if (uploadedCount > 0) {
@@ -1030,6 +1082,11 @@ window.addEventListener('load', async () => {
             id: 'toggle-archive', label: 'Toggle Archive View', category: 'navigation',
             defaultKey: 'a', context: 'gallery',
             callback: () => toggleViewMode()
+        });
+        ShortcutManager.register({
+            id: 'toggle-folder', label: 'Toggle Folder Mode', category: 'navigation',
+            defaultKey: 'f', context: 'gallery',
+            callback: () => toggleFolderMode()
         });
         ShortcutManager.register({
             id: 'open-watch', label: 'Open Watch View', category: 'navigation',

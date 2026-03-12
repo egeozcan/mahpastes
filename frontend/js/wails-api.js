@@ -110,10 +110,31 @@ async function upload(files) {
         if (isFolderMode() && activeTagFilters.length > 0) {
             autoTagID = activeTagFilters[activeTagFilters.length - 1];
         }
-        await window.go.main.App.UploadFiles(files, minutes, autoTagID);
-        showToast('Upload successful!');
+
+        const result = await checkAndResolveConflicts(files, autoTagID);
+        if (!result) return; // user cancelled
+
+        // Overwrite existing clips
+        for (const { clipID, fileData } of result.toOverwrite) {
+            await window.go.main.App.UpdateClipData(clipID, fileData.content_type, fileData.data, fileData.name);
+        }
+
+        // Upload new files
+        if (result.toUpload.length > 0) {
+            await window.go.main.App.UploadFiles(result.toUpload, minutes, autoTagID);
+        }
+
+        const totalProcessed = result.toUpload.length + result.toOverwrite.length;
+        if (totalProcessed > 0 || result.skippedCount > 0) {
+            const parts = [];
+            if (result.toUpload.length > 0) parts.push(`${result.toUpload.length} uploaded`);
+            if (result.toOverwrite.length > 0) parts.push(`${result.toOverwrite.length} overwritten`);
+            if (result.skippedCount > 0) parts.push(`${result.skippedCount} skipped`);
+            showToast(parts.join(', ') + '.');
+        }
+
         if (!isViewingArchive) {
-            loadClips(); // Refresh gallery only if looking at active
+            loadClips();
         }
     } catch (error) {
         console.error('Error uploading:', error);
@@ -279,6 +300,102 @@ async function fileToFileData(file) {
         reader.onerror = reject;
         reader.readAsDataURL(file);
     });
+}
+
+/**
+ * Compute SHA-256 hex hash of base64-encoded data.
+ * Uses Web Crypto API to match the Go backend's computeContentHash.
+ */
+async function computeFileHash(base64Data) {
+    const binary = atob(base64Data);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', bytes);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * Check incoming files against existing clips in the target tag.
+ * Silently skips identical-content files; prompts user for different-content conflicts.
+ *
+ * @param {Array<{name: string, content_type: string, data: string}>} fileDataArray
+ * @param {number} tagID - Target tag ID (0 for untagged)
+ * @returns {Promise<{toUpload: Array, toOverwrite: Array<{clipID: number, fileData: object}>, skippedCount: number} | null>}
+ *          Returns null if the user cancelled / closed the dialog.
+ */
+async function checkAndResolveConflicts(fileDataArray, tagID) {
+    const filenames = fileDataArray.map(f => f.name);
+    let matches;
+    try {
+        matches = await window.go.main.App.FindClipsByFilenameAndTag(filenames, tagID);
+    } catch (err) {
+        console.error('Error checking for duplicates:', err);
+        return { toUpload: fileDataArray, toOverwrite: [], skippedCount: 0 };
+    }
+
+    if (!matches || matches.length === 0) {
+        return { toUpload: fileDataArray, toOverwrite: [], skippedCount: 0 };
+    }
+
+    // Build a map: filename → { clipID, existingHash }
+    const matchMap = {};
+    for (const m of matches) {
+        matchMap[m.filename] = { clipID: m.id, existingHash: m.content_hash };
+    }
+
+    // Separate files into: no conflict, identical (skip), different content (conflict)
+    const noConflict = [];
+    const identical = [];
+    const conflicts = []; // { fileData, clipID }
+
+    for (const fd of fileDataArray) {
+        const match = matchMap[fd.name];
+        if (!match) {
+            noConflict.push(fd);
+            continue;
+        }
+        const incomingHash = await computeFileHash(fd.data);
+        if (incomingHash === match.existingHash) {
+            identical.push(fd);
+        } else {
+            conflicts.push({ fileData: fd, clipID: match.clipID });
+        }
+    }
+
+    // If all matches were identical content, skip silently
+    if (conflicts.length === 0) {
+        if (identical.length > 0) {
+            showToast(`${identical.length} identical file${identical.length === 1 ? '' : 's'} skipped.`);
+        }
+        return { toUpload: noConflict, toOverwrite: [], skippedCount: identical.length };
+    }
+
+    // Show conflict dialog and wait for user choice
+    const resolution = await new Promise(resolve => {
+        showConflictDialog(conflicts.map(c => c.fileData.name), resolve);
+    });
+
+    if (resolution === 'overwrite') {
+        return {
+            toUpload: noConflict,
+            toOverwrite: conflicts.map(c => ({ clipID: c.clipID, fileData: c.fileData })),
+            skippedCount: identical.length,
+        };
+    } else if (resolution === 'keep') {
+        return {
+            toUpload: [...noConflict, ...conflicts.map(c => c.fileData)],
+            toOverwrite: [],
+            skippedCount: identical.length,
+        };
+    } else {
+        // 'skip'
+        return {
+            toUpload: noConflict,
+            toOverwrite: [],
+            skippedCount: identical.length + conflicts.length,
+        };
+    }
 }
 
 // Get clip data (for images and editor)
