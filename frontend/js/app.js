@@ -992,8 +992,9 @@ async function handleText(text) {
 
     // Convert text to base64
     const base64 = btoa(unescape(encodeURIComponent(text)));
+    const ts = Date.now();
     const fileData = {
-        name: 'pasted_text.txt',
+        name: `pasted_text_${ts}.txt`,
         content_type: 'text/plain',
         data: base64
     };
