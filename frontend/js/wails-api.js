@@ -53,6 +53,7 @@ async function loadClips({ focusFirst = false } = {}) {
         // Render folder cards in folder mode
         if (isFolderMode()) {
             await renderFolderCards();
+            if (typeof initFolderDrag === 'function') initFolderDrag();
         }
 
         if (clips && clips.length > 0) {
