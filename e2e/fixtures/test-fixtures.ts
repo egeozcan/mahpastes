@@ -952,9 +952,12 @@ export class AppHelper {
 
   async drawOnCanvas(from: Point, to: Point): Promise<void> {
     const canvas = this.page.locator(selectors.editor.canvas);
-    await canvas.click({ position: from });
+    const box = await canvas.boundingBox();
+    if (!box) throw new Error('Canvas not visible');
+
+    await this.page.mouse.move(box.x + from.x, box.y + from.y);
     await this.page.mouse.down();
-    await this.page.mouse.move(to.x, to.y);
+    await this.page.mouse.move(box.x + to.x, box.y + to.y);
     await this.page.mouse.up();
   }
 

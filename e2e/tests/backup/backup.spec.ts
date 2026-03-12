@@ -122,9 +122,9 @@ test.describe('Backup & Restore', () => {
       const image2 = await createTempFile(generateTestImage(50, 50, [0, 255, 0]), 'png');
       const image3 = await createTempFile(generateTestImage(50, 50, [0, 0, 255]), 'png');
       await app.uploadFiles([image2, image3]);
+      await app.expectClipCount(3);
       await app.createTag('Tag2');
       await app.createTag('Tag3');
-      await app.expectClipCount(3);
 
       // Restore from backup (should replace with original 1 clip)
       await app.page.evaluate(async (backupFile) => {

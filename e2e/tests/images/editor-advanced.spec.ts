@@ -410,7 +410,10 @@ test.describe('Advanced Editor Tools', () => {
       // Drag inside the selection to move it
       await app.drawOnCanvas({ x: 75, y: 75 }, { x: 150, y: 150 });
 
-      // Moving should keep the select tool active and enable undo
+      // Commit the moved selection (undo is saved on commit, not on move)
+      await app.page.keyboard.press('Enter');
+
+      // Moving and committing should keep the select tool active and enable undo
       const isActive = await app.isToolActive('select');
       expect(isActive).toBe(true);
       const undoEnabled = await app.isUndoEnabled();
