@@ -325,6 +325,16 @@ async function createTag(name) {
     }
 }
 
+// Create tag without showing toast (for bulk operations like folder drops)
+async function createTagSilent(name) {
+    try {
+        return await window.go.main.App.CreateTag(name);
+    } catch (error) {
+        console.error('Error creating tag:', error);
+        return null;
+    }
+}
+
 async function updateTag(id, name, color) {
     try {
         await window.go.main.App.UpdateTag(id, name, color);

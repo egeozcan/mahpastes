@@ -2,11 +2,12 @@
 window.__testHelpers = {};
 
 let confirmCallback = null;
+let confirmCancelCallback = null;
 let confirmFocusTrapCleanup = null;
 let promptCallback = null;
 let promptFocusTrapCleanup = null;
 
-function showConfirmDialog(title, message, callback) {
+function showConfirmDialog(title, message, callback, cancelCallback) {
     const dialog = document.getElementById('confirm-dialog');
     const dialogContent = dialog.querySelector('div');
     const titleEl = document.getElementById('confirm-title');
@@ -15,6 +16,7 @@ function showConfirmDialog(title, message, callback) {
     titleEl.textContent = title;
     messageEl.innerHTML = message;
     confirmCallback = callback;
+    confirmCancelCallback = cancelCallback || null;
 
     dialog.removeAttribute('inert');
     dialog.classList.remove('opacity-0', 'pointer-events-none');
@@ -42,12 +44,17 @@ function closeConfirmDialog() {
     dialog.classList.add('opacity-0', 'pointer-events-none');
     dialogContent.classList.remove('scale-100');
     dialogContent.classList.add('scale-95');
+
+    const cancelCb = confirmCancelCallback;
     confirmCallback = null;
+    confirmCancelCallback = null;
     dialog.setAttribute('inert', '');
 
     if (lastFocusedElement) {
         lastFocusedElement.focus();
     }
+
+    if (cancelCb) cancelCb();
 }
 
 function showPromptDialog(title, defaultValue, callback) {

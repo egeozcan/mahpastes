@@ -302,13 +302,33 @@ document.addEventListener('dragleave', e => {
     }
 }, false);
 
-document.addEventListener('drop', e => {
+document.addEventListener('drop', async e => {
     e.preventDefault();
     if (window.__internalDragActive) return;
     dragCounter = 0;
     dropOverlay.classList.add('opacity-0');
     dropOverlay.classList.remove('opacity-100');
-    if (e.dataTransfer.files.length > 0) {
+
+    const items = e.dataTransfer.items;
+    if (!items || items.length === 0) return;
+
+    // Check if any item is a directory
+    if (hasDirectoryEntries(items)) {
+        const { folderFiles, looseFiles, dirPaths, maxDepth } = await traverseDropItems(items);
+        const totalFiles = folderFiles.length + looseFiles.length;
+        if (totalFiles === 0 && dirPaths.size === 0) return;
+
+        const proceed = await confirmFolderDrop(totalFiles, maxDepth);
+        if (!proceed) return;
+
+        if (isFolderMode()) {
+            await handleFolderDrop(folderFiles, looseFiles, dirPaths);
+        } else {
+            // Non-folder mode: flatten everything
+            const allFiles = [...looseFiles, ...folderFiles.map(f => f.file)];
+            handleFiles(allFiles);
+        }
+    } else if (e.dataTransfer.files.length > 0) {
         handleFiles(e.dataTransfer.files);
     }
 }, false);
@@ -342,6 +362,7 @@ headerAddBtn.addEventListener('click', () => fileInput.click());
 // Confirm Dialog Listeners
 document.getElementById('confirm-yes-btn').addEventListener('click', async () => {
     if (confirmCallback) await confirmCallback();
+    confirmCancelCallback = null; // Prevent cancel callback when confirmed
     closeConfirmDialog();
 });
 
@@ -731,6 +752,151 @@ async function traverseDropItems(items) {
     }
 
     return { folderFiles, looseFiles, dirPaths, maxDepth };
+}
+
+// --- Folder Drop Helpers ---
+
+/**
+ * Show a confirmation dialog for folder drops. Returns a promise that resolves
+ * to true (proceed) or false (cancel).
+ * @param {number} fileCount - Total number of files to upload
+ * @param {number} maxDepth - Maximum nesting depth of directories
+ * @returns {Promise<boolean>}
+ */
+function confirmFolderDrop(fileCount, maxDepth) {
+    const warnings = [];
+    if (fileCount > 50) {
+        warnings.push(`This folder contains ${fileCount} files.`);
+    }
+    if (isFolderMode() && maxDepth > 5) {
+        warnings.push(`Folder nesting is ${maxDepth} levels deep.`);
+    }
+    if (warnings.length === 0) return Promise.resolve(true);
+
+    const message = warnings.join(' ') + ' Continue uploading?';
+
+    return new Promise(resolve => {
+        showConfirmDialog(
+            'Large Folder Drop',
+            message,
+            () => resolve(true),
+            () => resolve(false)
+        );
+    });
+}
+
+/**
+ * Handle folder drop in folder mode — creates nested tags and uploads files
+ * into the appropriate tag folders.
+ * @param {Array<{relativePath: string, file: File}>} folderFiles - Files from directories
+ * @param {File[]} looseFiles - Top-level loose files
+ * @param {Set<string>} dirPaths - All directory relative paths (including empty dirs)
+ */
+async function handleFolderDrop(folderFiles, looseFiles, dirPaths) {
+    if (isViewingArchive) {
+        showToast('Switch to Active view to upload.');
+        return;
+    }
+
+    // Determine base tag prefix from current folder context
+    let basePrefix = '';
+    if (activeTagFilters.length > 0) {
+        const currentTagId = activeTagFilters[activeTagFilters.length - 1];
+        const currentTag = allTags.find(t => t.id === currentTagId);
+        if (currentTag) {
+            basePrefix = currentTag.name + '/';
+        }
+    }
+
+    // Collect ALL unique directory paths including intermediates
+    const allDirs = new Set();
+    for (const dp of dirPaths) {
+        const parts = dp.split('/');
+        for (let i = 1; i <= parts.length; i++) {
+            allDirs.add(parts.slice(0, i).join('/'));
+        }
+    }
+
+    // Sort by depth (parent-first) so parent tags are created before children
+    const sortedDirs = Array.from(allDirs).sort((a, b) => {
+        const depthA = a.split('/').length;
+        const depthB = b.split('/').length;
+        return depthA - depthB;
+    });
+
+    // Create tags for each directory
+    const tagNameToId = {};
+    for (const dir of sortedDirs) {
+        const tagName = basePrefix + dir;
+        const tag = await createTagSilent(tagName);
+        if (tag) {
+            tagNameToId[tagName] = tag.id;
+        }
+    }
+
+    // Refresh allTags after creation
+    const updatedTags = await getAllTags();
+    allTags.length = 0;
+    allTags.push(...updatedTags);
+    renderTagFilterDropdown();
+
+    // Re-map tag names to IDs from the refreshed list (in case createTagSilent
+    // returned an existing tag or the ID was already present)
+    for (const dir of sortedDirs) {
+        const tagName = basePrefix + dir;
+        if (!tagNameToId[tagName]) {
+            const existing = allTags.find(t => t.name === tagName);
+            if (existing) tagNameToId[tagName] = existing.id;
+        }
+    }
+
+    const minutes = typeof getUploadExpirationMinutes === 'function' ? getUploadExpirationMinutes() : 0;
+
+    // Group folderFiles by their immediate parent folder tag
+    const groups = {};
+    for (const { relativePath, file } of folderFiles) {
+        const parts = relativePath.split('/');
+        const folder = parts.slice(0, -1).join('/');
+        const tagName = basePrefix + folder;
+        if (!groups[tagName]) groups[tagName] = [];
+        groups[tagName].push(file);
+    }
+
+    // Upload each group with its tag
+    for (const [tagName, files] of Object.entries(groups)) {
+        const tagId = tagNameToId[tagName] || 0;
+        const fileDataArray = [];
+        for (const file of files) {
+            const fileData = await fileToFileData(file);
+            fileDataArray.push(fileData);
+        }
+        try {
+            await window.go.main.App.UploadFiles(fileDataArray, minutes, tagId);
+        } catch (error) {
+            console.error('Error uploading folder group:', error);
+        }
+    }
+
+    // Handle loose files with current folder's autoTagID
+    if (looseFiles.length > 0) {
+        let autoTagID = 0;
+        if (activeTagFilters.length > 0) {
+            autoTagID = activeTagFilters[activeTagFilters.length - 1];
+        }
+        const fileDataArray = [];
+        for (const file of looseFiles) {
+            const fileData = await fileToFileData(file);
+            fileDataArray.push(fileData);
+        }
+        try {
+            await window.go.main.App.UploadFiles(fileDataArray, minutes, autoTagID);
+        } catch (error) {
+            console.error('Error uploading loose files:', error);
+        }
+    }
+
+    showToast('Folder uploaded!');
+    loadClips();
 }
 
 async function handleText(text) {
