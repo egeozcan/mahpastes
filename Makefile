@@ -16,7 +16,7 @@ else
     PLUGIN_DIR := $(HOME)/Library/Application Support/mahpastes/plugins
 endif
 
-.PHONY: dev build clean install uninstall bindings test screenshots
+.PHONY: dev build clean install uninstall bindings mp mp-install mp-cross test screenshots
 
 ## Development
 
@@ -76,6 +76,24 @@ uninstall: ## Remove installed app
 	rm -rf $(INSTALL_DIR)/$(APP_NAME).app
 	@echo "Removed $(APP_NAME) from $(INSTALL_DIR)"
 endif
+
+## CLI
+
+mp: ## Build mp CLI for current platform
+	go build -o build/bin/mp ./cmd/mp
+
+mp-install: mp ## Install mp to /usr/local/bin (macOS/Linux)
+ifeq ($(OS),Windows_NT)
+	copy build\bin\mp.exe $(USERPROFILE)\go\bin\mp.exe
+else
+	cp build/bin/mp /usr/local/bin/mp
+endif
+
+mp-cross: ## Cross-compile mp for all platforms
+	GOOS=darwin GOARCH=amd64 go build -o build/bin/mp-darwin-amd64 ./cmd/mp
+	GOOS=darwin GOARCH=arm64 go build -o build/bin/mp-darwin-arm64 ./cmd/mp
+	GOOS=linux GOARCH=amd64 go build -o build/bin/mp-linux-amd64 ./cmd/mp
+	GOOS=windows GOARCH=amd64 go build -o build/bin/mp-windows-amd64.exe ./cmd/mp
 
 ## Testing
 
