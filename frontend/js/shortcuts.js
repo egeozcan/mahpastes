@@ -472,6 +472,13 @@ const ShortcutManager = (() => {
     // --- Modal Overlay Escape ---
 
     function closeTopModalOverlay() {
+        // Upload conflict dialog
+        const conflictDialog = document.getElementById('conflict-dialog');
+        if (conflictDialog && !conflictDialog.classList.contains('opacity-0')) {
+            if (typeof closeConflictDialog === 'function') closeConflictDialog('skip');
+            return true;
+        }
+
         // Plugin result modal takes highest priority
         const resultModal = document.getElementById('plugin-result-modal');
         if (resultModal && !resultModal.classList.contains('opacity-0')) {

@@ -339,9 +339,12 @@ async function checkAndResolveConflicts(fileDataArray, tagID) {
     }
 
     // Build a map: filename → { clipID, existingHash }
+    // Results are ordered by id DESC, so first match per filename is the most recent.
     const matchMap = {};
     for (const m of matches) {
-        matchMap[m.filename] = { clipID: m.id, existingHash: m.content_hash };
+        if (!matchMap[m.filename]) {
+            matchMap[m.filename] = { clipID: m.id, existingHash: m.content_hash };
+        }
     }
 
     // Separate files into: no conflict, identical (skip), different content (conflict)

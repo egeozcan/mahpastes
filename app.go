@@ -883,7 +883,8 @@ func (a *App) FindClipsByFilenameAndTag(filenames []string, tagID int64) ([]Clip
 			FROM clips c
 			JOIN clip_tags ct ON c.id = ct.clip_id
 			WHERE ct.tag_id = ? AND c.filename IN (%s)
-			AND c.is_archived = 0`, inClause)
+			AND c.is_archived = 0
+			ORDER BY c.id DESC`, inClause)
 		args = append([]interface{}{tagID}, args...)
 	} else {
 		query = fmt.Sprintf(`
@@ -891,7 +892,8 @@ func (a *App) FindClipsByFilenameAndTag(filenames []string, tagID int64) ([]Clip
 			FROM clips c
 			WHERE c.filename IN (%s)
 			AND c.is_archived = 0
-			AND c.id NOT IN (SELECT clip_id FROM clip_tags)`, inClause)
+			AND c.id NOT IN (SELECT clip_id FROM clip_tags)
+			ORDER BY c.id DESC`, inClause)
 	}
 
 	rows, err := a.db.Query(query, args...)
