@@ -209,7 +209,7 @@ async function _executeDrop(payload, target) {
             }
             selectedIds.clear();
             updateBulkToolbar();
-            loadClips();
+            await loadClips();
         } else if (payload.type === 'folder') {
             const draggedFolderId = payload.ids[0];
             const draggedTag = allTags.find(t => t.id === draggedFolderId);
@@ -231,7 +231,7 @@ async function _executeDrop(payload, target) {
             await window.go.main.App.UpdateTag(draggedTag.id, newName, draggedTag.color);
             _announceDragResult(`Moved folder "${shortName}" to ${target.tagId === null ? 'root' : getShortTagName(allTags.find(t => t.id === target.tagId)?.name || 'folder')}.`);
             await loadTags();
-            loadClips();
+            await loadClips();
         }
     } catch (err) {
         showToast(err.message || 'Failed to move item.', 'error');
@@ -385,7 +385,7 @@ function initFolderDrag() {
         }
     });
 
-    galleryEl.addEventListener('drop', (e) => {
+    galleryEl.addEventListener('drop', async (e) => {
         if (!_currentPayload) return;
         e.preventDefault();
         const target = _resolveDropTarget(e);
@@ -393,10 +393,11 @@ function initFolderDrag() {
             _unhighlightTarget(_currentHighlightedTarget);
             _currentHighlightedTarget = null;
         }
-        if (target && _isValidDrop(_currentPayload, target)) {
-            _executeDrop(_currentPayload, target);
-        }
+        const payload = _currentPayload;
         _cleanupDrag();
+        if (target && _isValidDrop(payload, target)) {
+            await _executeDrop(payload, target);
+        }
     });
 
     // --- Breadcrumb event delegation ---
@@ -434,7 +435,7 @@ function initFolderDrag() {
             }
         });
 
-        breadcrumbEl.addEventListener('drop', (e) => {
+        breadcrumbEl.addEventListener('drop', async (e) => {
             if (!_currentPayload) return;
             e.preventDefault();
             const target = _resolveDropTarget(e);
@@ -442,10 +443,11 @@ function initFolderDrag() {
                 _unhighlightTarget(_currentHighlightedTarget);
                 _currentHighlightedTarget = null;
             }
-            if (target && _isValidDrop(_currentPayload, target)) {
-                _executeDrop(_currentPayload, target);
-            }
+            const payload = _currentPayload;
             _cleanupDrag();
+            if (target && _isValidDrop(payload, target)) {
+                await _executeDrop(payload, target);
+            }
         });
 
         breadcrumbEl.addEventListener('dragend', () => {
