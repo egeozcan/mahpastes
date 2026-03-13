@@ -91,6 +91,12 @@ Tags outside the subtree are not visible or modifiable.
 - Scoped admin keys can start and stop serving for their scoped tag
 - Attempting to serve a different tag returns `403 Forbidden`
 - Serve management is restricted to the exact scoped tag, not its subtags
+- **List servers** only returns servers for the scoped tag
+
+### Deduplication Restrictions
+
+- **List duplicates** and **deduplicate all** are not available for tag-scoped keys and return `403 Forbidden`
+- **Merge duplicates** enforces tag scope on the survivor clip
 
 Unscoped keys (scope: "All tags") have access to all clips and tags within their role.
 
@@ -140,13 +146,34 @@ Query parameters:
 | `archived` | bool | -- | Filter by archive status (`true` / `false`) |
 | `search` | string | -- | Search filename and text content |
 
+Response:
+
+```json
+{
+  "clips": [
+    {
+      "id": 1,
+      "filename": "screenshot.png",
+      "content_type": "image/png",
+      "size": 204800,
+      "is_archived": false,
+      "created_at": "2025-01-15T10:30:00Z",
+      "tags": [{ "id": 3, "name": "work", "color": "#e74c3c", "count": 5 }]
+    }
+  ],
+  "total": 42,
+  "limit": 50,
+  "offset": 0
+}
+```
+
 #### Get clip metadata
 
 ```
 GET /api/v1/clips/{id}
 ```
 
-Returns the clip object with `id`, `filename`, `content_type`, `size`, `created_at`, `is_archived`, `tags`, and other fields.
+Returns a single clip object with `id`, `filename`, `content_type`, `size`, `created_at`, `is_archived`, and `tags`.
 
 #### Download clip data
 
@@ -154,7 +181,7 @@ Returns the clip object with `id`, `filename`, `content_type`, `size`, `created_
 GET /api/v1/clips/{id}/data
 ```
 
-Returns the raw file bytes with the clip's original content type and `Content-Length` header.
+Returns the raw file bytes with the clip's original content type, `Content-Length`, and `Content-Disposition` headers. The `Content-Disposition` header is set to `attachment` with the clip's filename when available.
 
 #### Upload a clip
 
@@ -165,7 +192,9 @@ Content-Type: multipart/form-data
 
 Send a file part in the multipart body (100 MB max). Optional `?filename=` query parameter overrides the uploaded filename.
 
-Duplicate uploads (matching content hash) return the existing clip instead of creating a new one.
+Returns `201 Created` with the clip object on success.
+
+Duplicate uploads (matching content hash) return the existing clip instead of creating a new one. When a tag-scoped key uploads a duplicate, the scoped tag is applied to the existing clip.
 
 #### Delete a clip
 
@@ -195,6 +224,8 @@ Content-Type: application/json
 { "filename": "new-name.png" }
 ```
 
+Returns `204 No Content` on success.
+
 #### Set / Cancel expiration
 
 ```
@@ -206,13 +237,13 @@ Content-Type: application/json
 { "minutes": 60 }
 ```
 
-The clip is automatically deleted after the specified number of minutes.
+The clip is automatically deleted after the specified number of minutes. The `minutes` value must be positive.
 
 ```
 DELETE /api/v1/clips/{id}/expiration
 ```
 
-Cancels a pending expiration.
+Cancels a pending expiration. Returns `204 No Content`.
 
 ---
 
@@ -244,7 +275,7 @@ Content-Type: application/json
 { "source": "screenshot", "project": "docs" }
 ```
 
-Atomically replaces all existing metadata with the provided pairs.
+Atomically replaces all existing metadata with the provided pairs. Returns `204 No Content`.
 
 #### Set a single key
 
@@ -256,6 +287,8 @@ Content-Type: application/json
 ```json
 { "value": "screenshot" }
 ```
+
+Returns `204 No Content`.
 
 #### Delete a single key
 
@@ -273,6 +306,8 @@ Returns `204 No Content`.
 |--------|------|----------|-------------|
 | `PUT` | `/clips/{id}/tags/{tagId}` | editor | Assign a tag to a clip |
 | `DELETE` | `/clips/{id}/tags/{tagId}` | editor | Remove a tag from a clip |
+
+Returns `204 No Content` on success.
 
 :::note Tree Exclusivity
 Assigning a tag automatically removes any existing tags from the same root tree. For example, adding `work/client2` removes `work/client1` if both share the `work` root.
@@ -294,7 +329,7 @@ All bulk endpoints accept a JSON body with an `ids` array. Minimum role is **edi
 | `POST` | `/clips/bulk/tag` | editor | Add a tag to multiple clips |
 | `POST` | `/clips/bulk/untag` | editor | Remove a tag from multiple clips |
 | `POST` | `/clips/bulk/download` | viewer | Download multiple clips as a ZIP |
-| `POST` | `/clips/bulk/copy` | editor | Copy clip content to system clipboard |
+| `POST` | `/clips/bulk/copy` | editor | Copy clip files to system clipboard |
 
 #### Request bodies
 
@@ -322,15 +357,31 @@ All bulk endpoints accept a JSON body with an `ids` array. Minimum role is **edi
 { "ids": [1, 2, 3] }
 ```
 
-Returns a `application/zip` response containing the clip files.
+Returns an `application/zip` response containing the clip files.
 
 **Copy:**
 
 ```json
-{ "ids": [1] }
+{ "ids": [1, 2, 3] }
 ```
 
-Copies the first clip's content to the system clipboard.
+Copies the clip files to the system clipboard. Returns `204 No Content`.
+
+#### Response bodies
+
+Most bulk operations return a JSON object with the count of affected items:
+
+| Endpoint | Response |
+|----------|----------|
+| `bulk/delete` | `{ "deleted": 3 }` |
+| `bulk/archive` | `{ "archived": 3 }` |
+| `bulk/unarchive` | `{ "unarchived": 3 }` |
+| `bulk/expire` | `{ "updated": 3 }` |
+| `bulk/cancel-expire` | `{ "updated": 3 }` |
+| `bulk/tag` | `{ "tagged": 3 }` |
+| `bulk/untag` | `{ "untagged": 3 }` |
+| `bulk/download` | Binary ZIP file |
+| `bulk/copy` | `204 No Content` |
 
 ---
 
@@ -347,6 +398,14 @@ Copies the first clip's content to the system clipboard.
 | `GET` | `/tags/hidden` | viewer | Get hidden tag IDs |
 | `PUT` | `/tags/hidden` | admin | Set hidden tag IDs |
 
+#### List tags
+
+```
+GET /api/v1/tags
+```
+
+Returns an array of tag objects, each with `id`, `name`, `color`, and `count` (number of clips using the tag). Tag-scoped keys only see their scoped tag and its descendants.
+
 #### Create a tag
 
 ```
@@ -358,7 +417,7 @@ Content-Type: application/json
 { "name": "work/client1" }
 ```
 
-Use `/` separators to create hierarchical tags. Parent tags are created automatically if they don't exist.
+Use `/` separators to create hierarchical tags. Parent tags are created automatically if they don't exist. Returns `201 Created` with the new tag object.
 
 :::note Reserved Names
 Tag names cannot contain `_api` as a path segment. See [Tag Serve](tag-serve.md#reserved-tag-names) for details.
@@ -374,6 +433,8 @@ Content-Type: application/json
 ```json
 { "name": "work/client2", "color": "#e74c3c" }
 ```
+
+Returns `204 No Content`.
 
 #### Delete a tag
 
@@ -401,8 +462,14 @@ Query parameters:
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `limit` | int | 50 | Results per page |
+| `limit` | int | 50 | Results per page (max 200) |
 | `offset` | int | 0 | Pagination offset |
+
+Returns a paginated clip list in the same envelope format as [List clips](#list-clips):
+
+```json
+{ "clips": [...], "total": 12, "limit": 50, "offset": 0 }
+```
 
 #### Get / Set hidden tags
 
@@ -421,7 +488,7 @@ Content-Type: application/json
 { "ids": [1, 2] }
 ```
 
-Replaces the full list of hidden tag IDs.
+Replaces the full list of hidden tag IDs. Returns `204 No Content`.
 
 ---
 
@@ -433,13 +500,32 @@ Replaces the full list of hidden tag IDs.
 | `POST` | `/dedup/{clipId}/merge` | editor | Merge duplicates (keeps specified clip) |
 | `POST` | `/dedup/all` | admin | Deduplicate all groups at once |
 
+:::note Tag-Scoped Keys
+Listing duplicates and deduplicating all are not available for tag-scoped keys. These endpoints return `403 Forbidden` when called with a scoped key.
+:::
+
 #### List duplicates
 
 ```
 GET /api/v1/dedup
 ```
 
-Returns an array of duplicate groups. Each group contains clips that share the same content hash.
+Returns duplicate groups. Each group contains clips that share the same content hash.
+
+```json
+{
+  "groups": [
+    {
+      "content_hash": "abc123...",
+      "filename": "screenshot.png",
+      "content_type": "image/png",
+      "count": 3,
+      "oldest_id": 1
+    }
+  ],
+  "total": 2
+}
+```
 
 #### Merge duplicates
 
@@ -447,7 +533,7 @@ Returns an array of duplicate groups. Each group contains clips that share the s
 POST /api/v1/dedup/{clipId}/merge
 ```
 
-Keeps the specified clip as the survivor. Tags from all duplicates are merged onto it, then the duplicates are deleted.
+Keeps the specified clip as the survivor. Tags from all duplicates are merged onto it, then the duplicates are deleted. Returns `204 No Content`.
 
 #### Deduplicate all
 
@@ -456,6 +542,10 @@ POST /api/v1/dedup/all
 ```
 
 Iterates over all duplicate groups and merges each one, keeping the oldest clip in each group.
+
+```json
+{ "removed": 5 }
+```
 
 ---
 
@@ -475,6 +565,35 @@ Iterates over all duplicate groups and merges each one, keeping the oldest clip 
 | `PUT` | `/watch/global-pause` | admin | Pause all watchers |
 | `DELETE` | `/watch/global-pause` | admin | Resume all watchers |
 
+#### List watch folders
+
+```
+GET /api/v1/watch
+```
+
+Returns all configured watch folders:
+
+```json
+{
+  "folders": [
+    {
+      "id": 1,
+      "path": "/Users/me/Screenshots",
+      "filter_mode": "presets",
+      "filter_presets": ["images"],
+      "filter_regex": "",
+      "process_existing": false,
+      "auto_archive": false,
+      "auto_tag_id": 5,
+      "is_paused": false,
+      "created_at": "2025-01-15T10:30:00Z",
+      "exists": true
+    }
+  ],
+  "total": 1
+}
+```
+
 #### Add a watch folder
 
 ```
@@ -489,18 +608,22 @@ Content-Type: application/json
   "filter_presets": ["images"],
   "filter_regex": "",
   "auto_tag_id": 5,
-  "auto_archive": false
+  "auto_archive": false,
+  "process_existing": false
 }
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `path` | string | Absolute path to the folder |
-| `filter_mode` | string | `"all"`, `"presets"`, or `"regex"` |
-| `filter_presets` | string[] | Preset names when `filter_mode` is `"presets"` |
-| `filter_regex` | string | Regex pattern when `filter_mode` is `"regex"` |
-| `auto_tag_id` | int | Tag ID to auto-apply to imports (0 for none) |
+| `path` | string | Absolute path to the folder (required) |
+| `filter_mode` | string | `"all"`, `"presets"`, or `"custom"` |
+| `filter_presets` | string[] | Preset names when `filter_mode` is `"presets"` (e.g. `["images", "videos", "documents"]`) |
+| `filter_regex` | string | Regex pattern when `filter_mode` is `"custom"` |
+| `auto_tag_id` | int | Tag ID to auto-apply to imports (`null` or `0` for none) |
 | `auto_archive` | bool | Auto-archive imported files |
+| `process_existing` | bool | Import existing files in the folder immediately |
+
+Returns `201 Created` with the folder object. When `process_existing` is `true`, the import runs in the background after the folder is created.
 
 #### Update a watch folder
 
@@ -509,7 +632,13 @@ PUT /api/v1/watch/{id}
 Content-Type: application/json
 ```
 
-Same body fields as the add endpoint.
+Supports partial updates -- only include the fields you want to change. Omitted fields keep their current values.
+
+```json
+{ "filter_mode": "all", "auto_archive": true }
+```
+
+Returns `204 No Content`.
 
 #### Pause / Resume a folder
 
@@ -535,7 +664,7 @@ Returns `204 No Content`.
 POST /api/v1/watch/{id}/process
 ```
 
-Triggers a one-time scan of all existing files in the folder.
+Triggers a one-time scan of all existing files in the folder. Returns `204 No Content`.
 
 ---
 
@@ -556,6 +685,33 @@ Triggers a one-time scan of all existing files in the folder.
 | `POST` | `/plugins/{id}/actions/{actionId}` | editor | Execute a plugin action |
 | `POST` | `/plugins/{id}/update` | admin | Update a plugin |
 
+#### List plugins
+
+```
+GET /api/v1/plugins
+```
+
+Returns all installed plugins:
+
+```json
+{
+  "plugins": [
+    {
+      "id": 1,
+      "name": "fal-ai",
+      "version": "1.0.0",
+      "description": "FAL.AI image processing",
+      "author": "mahpastes",
+      "enabled": true,
+      "status": "loaded",
+      "events": ["clip:created"],
+      "settings": []
+    }
+  ],
+  "total": 1
+}
+```
+
 #### Install a plugin
 
 ```
@@ -572,6 +728,8 @@ Pass a URL or local file path in the `source` field:
 ```json
 { "source": "/Users/me/plugins/my-plugin.lua" }
 ```
+
+Returns `201 Created` with the plugin info object.
 
 #### Remove a plugin
 
@@ -613,6 +771,8 @@ Content-Type: application/json
 { "value": "my-api-key-here" }
 ```
 
+Returns `204 No Content`.
+
 #### Execute a plugin action
 
 ```
@@ -632,7 +792,11 @@ Pass `clip_ids` to identify the target clip(s) and `options` for any form fields
 POST /api/v1/plugins/check-updates
 ```
 
-Returns update availability info for all installed plugins.
+Returns update availability info for all installed plugins:
+
+```json
+{ "updates": [...] }
+```
 
 #### Update a plugin
 
@@ -651,6 +815,31 @@ Downloads and installs the latest version from the plugin's source URL.
 | `GET` | `/serve` | viewer | List running tag servers |
 | `POST` | `/serve` | admin | Start serving a tag |
 | `DELETE` | `/serve/{tagId}` | admin | Stop serving a tag |
+
+#### List servers
+
+```
+GET /api/v1/serve
+```
+
+Returns all running tag servers. Tag-scoped keys only see servers for their scoped tag.
+
+```json
+{
+  "servers": [
+    {
+      "tag_id": 5,
+      "tag_name": "my-site",
+      "port": 44557,
+      "bind_all": false,
+      "url": "http://127.0.0.1:44557",
+      "running": true,
+      "request_count": 42,
+      "api_access": "readwrite"
+    }
+  ]
+}
+```
 
 #### Start serving
 
@@ -716,6 +905,8 @@ Content-Type: multipart/form-data
 
 Upload a backup ZIP file as a multipart form. This replaces the current database and clip data.
 
+Returns `{ "status": "restored" }` on success.
+
 ---
 
 ### Clipboard
@@ -736,7 +927,7 @@ Content-Type: application/json
 { "clip_id": 1 }
 ```
 
-Copies the clip's raw content (text or image data) to the system clipboard.
+Copies the clip's raw content (text or image data) to the system clipboard. Returns `204 No Content`.
 
 #### Copy as file
 
@@ -749,7 +940,7 @@ Content-Type: application/json
 { "clip_id": 1 }
 ```
 
-Places a file reference on the system clipboard (macOS: NSPasteboard file URL, Windows: PowerShell SetFileDropList). You can then paste the clip as a file into Finder, Explorer, or other apps.
+Places a file reference on the system clipboard (macOS: NSPasteboard file URL, Windows: PowerShell SetFileDropList). You can then paste the clip as a file into Finder, Explorer, or other apps. Returns `204 No Content`.
 
 ## Error Responses
 
