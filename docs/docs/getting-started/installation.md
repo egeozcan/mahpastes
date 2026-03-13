@@ -95,8 +95,27 @@ The `mp` CLI is a standalone binary that talks to mahpastes over the REST API. I
 
 ```bash
 make mp            # Build for current platform
-make mp-install    # Install to /usr/local/bin
+make mp-install    # Install to your user bin dir (or GOBIN if set)
 make mp-cross      # Cross-compile for all platforms
+```
+
+Default install locations:
+
+- macOS/Linux: `~/.local/bin` unless `GOBIN` is set
+- Windows: `GOBIN`, then `%GOPATH%\bin`, then `%USERPROFILE%\go\bin`
+
+On macOS and Linux, if `~/.local/bin` is not already in your `PATH`, add it in your shell profile:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+On Windows, make sure the resolved install directory is in your `PATH`.
+
+If you want a different location, override the target directory:
+
+```bash
+make mp-install MP_INSTALL_DIR=/usr/local/bin
 ```
 
 ### Configure API Access

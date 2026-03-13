@@ -16,7 +16,24 @@ Build and install the binary:
 make mp-install
 ```
 
-This places `mp` in `/usr/local/bin`.
+By default this installs `mp` into a user-writable bin directory:
+
+- macOS/Linux: `~/.local/bin` unless `GOBIN` is set
+- Windows: `GOBIN`, then `%GOPATH%\bin`, then `%USERPROFILE%\go\bin`
+
+If `~/.local/bin` is not in your `PATH`, add it in your shell profile:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+On Windows, make sure the resolved install directory is in your `PATH`.
+
+If you prefer a different install directory, run:
+
+```bash
+make mp-install MP_INSTALL_DIR=/usr/local/bin
+```
 
 ### Configure
 
