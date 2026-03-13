@@ -247,6 +247,148 @@ If using Apple Silicon (M1/M2/M3):
 
 **Solution:** Right-click and save image first, then drag file.
 
+## REST API Issues
+
+### Connection Refused
+
+**Symptoms:** API calls fail with "connection refused."
+
+**Solutions:**
+1. Verify mahpastes is running
+2. Open **Settings** > **API** and confirm the API is enabled
+3. Check the port matches your `MP_API_URL` (default `http://localhost:44557`)
+
+### 401 Unauthorized
+
+**Symptoms:** API calls return 401.
+
+**Solutions:**
+1. Check your `MP_API_KEY` environment variable is set correctly
+2. Verify the key has not been revoked in **Settings** > **API**
+3. Confirm the key prefix is `mp_`
+
+### 403 Forbidden
+
+**Symptoms:** API calls return 403.
+
+**Solutions:**
+1. The key may lack the required role for the requested operation
+2. Scoped keys can only access clips within their assigned tag -- verify the key's scope in **Settings** > **API**
+
+### Port Already in Use
+
+**Symptoms:** API fails to start, logs show "address already in use."
+
+**Solutions:**
+1. Change the API port in **Settings** > **API**
+2. Find and stop the process using the port:
+   ```bash
+   lsof -i :44557
+   ```
+
+## CLI (`mp`) Issues
+
+### "MP_API_KEY environment variable is required"
+
+**Symptoms:** Any `mp` command fails immediately.
+
+**Solution:** Export your API key before running commands:
+```bash
+export MP_API_KEY=mp_your_key_here
+```
+
+Add this line to your shell profile (`~/.zshrc` or `~/.bashrc`) for persistence.
+
+### "Cannot connect to mahpastes"
+
+**Symptoms:** Commands fail with exit code 2.
+
+**Solutions:**
+1. Verify the mahpastes desktop app is running
+2. Confirm the API is enabled in **Settings** > **API**
+3. If using a custom URL, check `MP_API_URL`:
+   ```bash
+   export MP_API_URL=http://localhost:44557
+   mp api status
+   ```
+
+### "Authentication failed"
+
+**Symptoms:** Commands fail with exit code 3.
+
+**Solutions:**
+1. Verify `MP_API_KEY` is set to a valid, non-revoked key
+2. Regenerate the key in **Settings** > **API** if needed
+3. Check for extra whitespace or quotes in the key value
+
+## Plugin Issues
+
+### Plugin Auto-Disabled
+
+**Symptoms:** Plugin stops running; shows as disabled.
+
+**Cause:** After 3 consecutive errors, plugins are automatically disabled.
+
+**Solutions:**
+1. Check the plugin logs for error details
+2. Fix the underlying issue in the plugin script
+3. Re-enable the plugin in the **Plugins** panel
+
+### Permission Denied
+
+**Symptoms:** Plugin fails with a permission error.
+
+**Cause:** The plugin tried to access network or filesystem resources without declaring them in its manifest.
+
+**Solution:** Add the required permission to the plugin's manifest:
+- `network = ["example.com"]` for HTTP requests
+- `filesystem = true` for file access
+- `clipboard = true` for clipboard writes
+
+### Sandbox Timeout
+
+**Symptoms:** Plugin execution is killed mid-run.
+
+**Cause:** Plugins have execution time limits:
+- Event handlers: 30 seconds
+- UI actions: 5 minutes
+
+**Solutions:**
+1. Optimize long-running plugin logic
+2. For actions that genuinely need time, set `async = true` in the action manifest to run in a background goroutine
+
+## Tag Serve Issues
+
+### 401 on `/_api` Requests
+
+**Symptoms:** JSON API calls to a served tag return 401 Unauthorized.
+
+**Cause:** The `/_api` endpoints use cookie authentication. The `_mp_serve_key` cookie is set when you visit the served page.
+
+**Solution:** Load the served tag's page in a browser first -- the cookie is set automatically. Subsequent `/_api` requests from that page will authenticate via the cookie.
+
+### File Upload Rejected
+
+**Symptoms:** `POST /_api/_upload` returns 400 or 403.
+
+**Checklist:**
+1. File must be under 10 MB
+2. Path in the `tag` form field must not contain `..` or `_api` segments
+3. API access must be `readwrite` (not `read` or `none`)
+4. Request must include a valid `_mp_serve_key` cookie
+
+### JSON API Returns 404
+
+**Symptoms:** `GET /_api/...` returns 404 for all paths.
+
+**Cause:** API access is set to `"none"` (the default).
+
+**Solution:** Stop and restart the tag server with API access enabled:
+- **Read-only:** `--api-access read`
+- **Full CRUD:** `--api-access readwrite`
+
+In the UI, set the API access dropdown when starting the serve.
+
 ## Getting Help
 
 If issues persist:

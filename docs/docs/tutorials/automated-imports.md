@@ -18,7 +18,7 @@ Set up watch folders to automatically capture files as they're created. No manua
 
 ### Basic Setup
 
-1. Open the menu drawer and click **Watch**
+1. Click the hamburger menu, then click the **Watch** tab
 2. Click **Add Folder**
 3. Select the folder to watch
 4. Configure options

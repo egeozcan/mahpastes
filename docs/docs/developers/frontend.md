@@ -40,7 +40,12 @@ frontend/
 │   ├── shortcuts.js     Keyboard shortcut registration and context handling
 │   ├── plugin-review.js Plugin permission review UI
 │   ├── utils.js         Shared utilities
-│   └── wails-api.js     Wails bindings wrapper
+│   ├── wails-api.js     Wails bindings wrapper
+│   ├── serve.js         Tag HTTP server management UI
+│   ├── api-settings.js  REST API settings modal
+│   ├── context-menu.js  Context menu rendering and event handling
+│   ├── folder-drag.js   Drag-and-drop for tag folder reordering
+│   └── roving-tabindex.js  Keyboard grid/list navigation
 └── wailsjs/
     ├── go/main/App.js               Generated App bindings
     ├── go/main/PluginService.js     Generated PluginService bindings
@@ -230,6 +235,26 @@ Renders plugin action results in modal dialogs. Supports markdown (via marked + 
 - Render markdown content with sanitized HTML
 - Display base64 images from plugin results
 - Provide copy-to-clipboard and paste-as-clip actions from modal content
+
+### serve.js — Tag Server Management
+
+UI for starting and stopping per-tag HTTP servers. Lets users pick a port, toggle LAN binding, and set JSON API access level (`none`, `read`, `readwrite`). Communicates with `ServeService` Wails bindings.
+
+### api-settings.js — REST API Settings
+
+Settings modal panel for the REST API server. Provides controls to start/stop the API, choose a port, and create or revoke API keys. Communicates with `APIService` Wails bindings.
+
+### context-menu.js — Context Menus
+
+Renders right-click context menus on clip cards and other elements. Handles positioning, keyboard navigation within the menu, and dismissal on outside click or `Escape`.
+
+### folder-drag.js — Folder Drag-and-Drop
+
+Drag-and-drop support for reordering and nesting tag folders. Handles drag handles, drop targets, and visual feedback during drag operations.
+
+### roving-tabindex.js — Keyboard Grid Navigation
+
+Implements the roving tabindex pattern for keyboard navigation across gallery grids and list elements. Arrow keys move focus between items without requiring Tab for each cell.
 
 ## Event Handling
 

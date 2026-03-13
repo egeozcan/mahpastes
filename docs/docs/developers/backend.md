@@ -9,33 +9,38 @@ The backend is written in Go using the Wails framework. It handles data storage,
 ## File Structure
 
 ```
-├── main.go              Entry point, Wails configuration
-├── app.go               Core application logic, exposed APIs
-├── database.go          SQLite setup and migrations
-├── watcher.go           File system watching
-├── backup.go            ZIP backup and restore
-├── plugin_service.go    Plugin frontend API (separate struct)
-├── plugins.go           Plugin install/uninstall helpers
-├── serve_file_upload.go File upload handler for served tags
-├── clipboard_service.go Clipboard copy service (Wails-bound)
-├── clipboard_darwin.go  macOS clipboard implementation
-├── clipboard_windows.go Windows clipboard implementation
-├── clipboard_other.go   Fallback clipboard implementation
-├── transfer_service.go  Drag-out preparation and native drag initiation
-├── transfer_types.go    Transfer system type definitions
+├── main.go                  Entry point, Wails configuration
+├── app.go                   Core application logic, exposed APIs
+├── database.go              SQLite setup and migrations
+├── watcher.go               File system watching
+├── backup.go                ZIP backup and restore
+├── plugin_service.go        Plugin frontend API (Wails-bound)
+├── plugins.go               Plugin install/uninstall helpers
+├── serve_manager.go         Tag serve HTTP server lifecycle and routing
+├── serve_json_api.go        JSON API handler for served tags (/_api prefix)
+├── serve_file_upload.go     File upload handler for served tags (/_api/_upload)
+├── serve_service.go         Tag serve Wails service (start/stop/status)
+├── api_manager.go           REST API HTTP server and route registration
+├── api_service.go           REST API Wails service (start/stop/keys)
+├── clipboard_service.go     Clipboard copy service (Wails-bound)
+├── clipboard_darwin.go      macOS clipboard implementation
+├── clipboard_windows.go     Windows clipboard implementation
+├── clipboard_other.go       Fallback clipboard implementation
+├── transfer_service.go      Drag-out preparation and native drag initiation
+├── transfer_types.go        Transfer system type definitions
 ├── app_transfer_helpers.go  Bridge between App and TempClipStore
-├── temp_clip_store.go   Leased temp file management
+├── temp_clip_store.go       Leased temp file management
 ├── native_drag_darwin.go    macOS native drag implementation
 ├── native_drag_other.go     Fallback native drag stub
-├── tag_hierarchy.go     Tag tree helpers (parent, root, ancestor, descendant checks)
-├── plugin/              Lua plugin system
-│   ├── manager.go       Plugin lifecycle, event dispatch
-│   ├── manifest.go      Manifest parsing, validation
-│   ├── sandbox.go       Sandboxed Lua execution
-│   ├── scheduler.go     Scheduled/recurring plugin tasks
-│   └── api_*.go         Lua APIs (clips, tags, storage, http, fs, utils, task, toast, image, modal)
-├── go.mod               Go module definition
-└── go.sum               Dependency checksums
+├── tag_hierarchy.go         Tag tree helpers (parent, root, ancestor, descendant checks)
+├── plugin/                  Lua plugin system
+│   ├── manager.go           Plugin lifecycle, event dispatch
+│   ├── manifest.go          Manifest parsing, validation
+│   ├── sandbox.go           Sandboxed Lua execution
+│   ├── scheduler.go         Scheduled/recurring plugin tasks
+│   └── api_*.go             Lua APIs (clips, tags, storage, http, fs, utils, task, toast, image, modal)
+├── go.mod                   Go module definition
+└── go.sum                   Dependency checksums
 ```
 
 ## Core Components
@@ -50,18 +55,27 @@ func main() {
     pluginService := NewPluginService(app)
     clipboardService := NewClipboardService(app)
     transferService := NewTransferService(app)
+    serveService := NewServeService(app)
+    apiService := NewAPIService(app)
 
     err := wails.Run(&options.App{
         Title:  "mahpastes",
         Width:  1280,
         Height: 800,
         // ... configuration
-        Bind: []interface{}{app, pluginService, clipboardService, transferService},
+        Bind: []interface{}{
+            app, pluginService, clipboardService,
+            transferService, serveService, apiService,
+        },
         OnStartup: app.startup,
         OnShutdown: app.shutdown,
     })
 }
 ```
+
+:::note
+Multiple service structs exist for organizational clarity. The `App` struct alone has 66+ bound methods — Wails handles this fine. Services group related functionality (plugins, clipboard, transfers, tag serving, REST API) into their own files and structs.
+:::
 
 Key configuration:
 - Window size and minimum dimensions

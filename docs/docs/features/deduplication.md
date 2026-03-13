@@ -37,13 +37,13 @@ Metadata is **not** merged -- only tags are combined.
 
 When duplicates exist in your library, a **Deduplicate** button appears in the navigation drawer. Clicking it iterates over all duplicate groups and merges each one using the same logic as per-clip merge.
 
-## Backend API
+## REST API
 
-| Method | Description |
-|--------|-------------|
-| `GetDuplicateGroups()` | Returns groups of clips sharing the same content hash |
-| `MergeDuplicates(ids)` | Merges a set of duplicate clip IDs, keeping the oldest |
-| `DeduplicateAll()` | Merges all duplicate groups at once |
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/v1/dedup` | List all duplicate groups |
+| POST | `/api/v1/dedup/{clipId}/merge` | Merge a specific duplicate group, keeping the oldest clip |
+| POST | `/api/v1/dedup/all` | Deduplicate all groups at once |
 
 ## Related
 

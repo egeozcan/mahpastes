@@ -100,6 +100,7 @@ events = {"app:startup", "clip:created", "clip:deleted"},
 | `clip:deleted` | `on_clip_deleted(clip_id)` | Clip ID (number) |
 | `clip:archived` | `on_clip_archived(data)` | `{id}` |
 | `clip:unarchived` | `on_clip_unarchived(data)` | `{id}` |
+| `clip:renamed` | `on_clip_renamed(data)` | `{id, filename}` |
 | `watch:file_detected` | `on_watch_file_detected(data)` | File info |
 | `watch:import_complete` | `on_watch_import_complete(data)` | Import result |
 | `tag:created` | `on_tag_created(tag)` | Tag object |

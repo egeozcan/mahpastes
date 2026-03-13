@@ -283,6 +283,106 @@ func (a *App) SetClipMetadataBulk(id int64, metadata map[string]string) error
 
 ---
 
+### RenameClip
+
+Rename a clip's filename.
+
+```go
+func (a *App) RenameClip(id int64, newFilename string) error
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `id` | int64 | Clip ID |
+| `newFilename` | string | New filename for the clip |
+
+---
+
+### UpdateClipData
+
+Replace the content of an existing clip.
+
+```go
+func (a *App) UpdateClipData(id int64, data []byte, contentType string) error
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `id` | int64 | Clip ID |
+| `data` | []byte | New content bytes |
+| `contentType` | string | MIME type for the new content |
+
+---
+
+### OpenClipWithDefaultApp
+
+Open a clip with the system's default application for its content type.
+
+```go
+func (a *App) OpenClipWithDefaultApp(id int64) error
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `id` | int64 | Clip ID |
+
+Creates a temp file from the clip and opens it with the OS default handler (e.g., Preview for images on macOS).
+
+---
+
+### OpenClipWithApp
+
+Open a clip with a specific application.
+
+```go
+func (a *App) OpenClipWithApp(id int64, appPath string) error
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `id` | int64 | Clip ID |
+| `appPath` | string | Absolute path to the application (e.g., `/Applications/Photoshop.app`) |
+
+---
+
+### ChooseApplication
+
+Open a macOS file dialog to pick an application.
+
+```go
+func (a *App) ChooseApplication() (string, error)
+```
+
+**Returns:** The absolute path to the selected `.app` bundle, or an empty string if cancelled.
+
+:::note
+macOS only. Returns an error on other platforms.
+:::
+
+---
+
+### FindClipsByFilenameAndTag
+
+Search for clips matching a filename within a specific tag.
+
+```go
+func (a *App) FindClipsByFilenameAndTag(filename string, tagID int64) ([]Clip, error)
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `filename` | string | Filename to match |
+| `tagID` | int64 | Tag ID to scope the search |
+
+**Returns:** Clips that match both the filename and tag.
+
+---
+
 ### GetDuplicateGroups
 
 Get groups of clips that share the same content hash.
@@ -297,13 +397,18 @@ Returns groups where two or more clips have the same SHA-256 content hash.
 
 ### MergeDuplicates
 
-Merge a group of duplicate clips, keeping the oldest.
+Merge the duplicates of a specific clip, keeping it and removing the rest.
 
 ```go
-func (a *App) MergeDuplicates(ids []int64) error
+func (a *App) MergeDuplicates(clipID int64) error
 ```
 
-Keeps the clip with the lowest ID, merges tags from all duplicates onto it (INSERT OR IGNORE), deletes the rest, and bumps the survivor's `created_at` to now.
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `clipID` | int64 | The clip to keep |
+
+Finds all clips sharing the same content hash as `clipID`, merges their tags onto it (INSERT OR IGNORE), deletes the duplicates, and bumps the survivor's `created_at` to now.
 
 ---
 
@@ -490,6 +595,34 @@ Update a watch folder configuration.
 
 ```go
 func (a *App) UpdateWatchedFolder(id int64, config WatchedFolderConfig) error
+```
+
+---
+
+### UpdateWatchedFolderPartial
+
+Partially update a watch folder — only the fields present in the map are changed.
+
+```go
+func (a *App) UpdateWatchedFolderPartial(id int64, updates map[string]interface{}) error
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `id` | int64 | Watch folder ID |
+| `updates` | map[string]interface{} | Key-value pairs to update. Valid keys match `WatchedFolderConfig` fields |
+
+**JavaScript usage:**
+```javascript
+// Pause a folder without touching other settings
+await UpdateWatchedFolderPartial(1, { is_paused: true });
+
+// Change filter mode and regex at once
+await UpdateWatchedFolderPartial(1, {
+  filter_mode: 'regex',
+  filter_regex: '.*\\.png$',
+});
 ```
 
 ---
@@ -947,7 +1080,7 @@ func (a *App) ConfirmRestoreBackup(backupPath string) error
 
 ## Plugin Service Operations
 
-Plugin-related APIs are on the `PluginService` struct (accessed via `window.go.main.PluginService.*` in JavaScript) due to Wails method binding limits.
+Plugin-related APIs are on the `PluginService` struct (accessed via `window.go.main.PluginService.*` in JavaScript).
 
 ### GetPlugins
 
@@ -1033,11 +1166,84 @@ Calls a plugin's `on_ui_action` handler.
 func (s *PluginService) ExecutePluginAction(pluginID int64, actionID string, clipIDs []int64, options map[string]interface{}) (*ActionResult, error)
 ```
 
+### PreviewPluginFromURL
+
+Fetch a plugin from a URL and return a preview without installing it.
+
+```go
+func (s *PluginService) PreviewPluginFromURL(url string) (PluginPreview, error)
+```
+
+**Returns:** A `PluginPreview` containing the plugin's manifest, permissions, and source. Pass this to `ConfirmPluginInstall` to finalize installation.
+
+### PreviewPluginFromPath
+
+Read a plugin from a local file and return a preview without installing it.
+
+```go
+func (s *PluginService) PreviewPluginFromPath(path string) (PluginPreview, error)
+```
+
+### ConfirmPluginInstall
+
+Install a plugin after the user has reviewed its preview.
+
+```go
+func (s *PluginService) ConfirmPluginInstall(preview PluginPreview) error
+```
+
+### GetUpdateCheckInterval
+
+Get the interval (in minutes) between automatic plugin update checks.
+
+```go
+func (s *PluginService) GetUpdateCheckInterval() int
+```
+
+### SetUpdateCheckInterval
+
+Set the automatic plugin update check interval.
+
+```go
+func (s *PluginService) SetUpdateCheckInterval(minutes int) error
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `minutes` | int | Interval in minutes. 0 disables automatic checks |
+
+### CheckForUpdates
+
+Check all installed plugins for available updates.
+
+```go
+func (s *PluginService) CheckForUpdates() []PluginUpdate
+```
+
+**Returns:** A list of plugins with pending updates.
+
+### UpdatePlugin
+
+Download the latest version of a plugin.
+
+```go
+func (s *PluginService) UpdatePlugin(id int64) error
+```
+
+### ConfirmPluginUpdate
+
+Apply a previously downloaded plugin update after user review.
+
+```go
+func (s *PluginService) ConfirmPluginUpdate(id int64) error
+```
+
 ---
 
 ## ClipboardService Operations
 
-Clipboard operations are on the `ClipboardService` struct (accessed via `window.go.main.ClipboardService.*` in JavaScript), separate from `App` to stay within Wails method binding limits.
+Clipboard operations are on the `ClipboardService` struct (accessed via `window.go.main.ClipboardService.*` in JavaScript).
 
 ### CopyFileToClipboard
 
@@ -1136,6 +1342,153 @@ func (s *TransferService) StartNativeDragOut(req StartNativeDragRequest) (bool, 
 **Returns:** `bool` indicating whether the drag was accepted, and an error if the operation failed.
 
 On macOS, this triggers a native pasteboard drag with the file URI. The user sees the file "leave" the app and can drop it into Finder, Mail, Slack, or other apps.
+
+---
+
+## ServeService Operations
+
+Tag HTTP server management, accessed via `window.go.main.ServeService.*` in JavaScript.
+
+### StartServing
+
+Start an HTTP server for a tag's clips.
+
+```go
+func (s *ServeService) StartServing(tagID int64, port int, bindAll bool, apiAccess string) error
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `tagID` | int64 | Tag whose clips to serve |
+| `port` | int | TCP port to listen on |
+| `bindAll` | bool | `true` to bind `0.0.0.0` (LAN-accessible), `false` for `127.0.0.1` only |
+| `apiAccess` | string | JSON API access level: `"none"`, `"read"`, or `"readwrite"` |
+
+---
+
+### StopServing
+
+Stop the HTTP server for a tag.
+
+```go
+func (s *ServeService) StopServing(tagID int64) error
+```
+
+---
+
+### GetServeStatus
+
+Get the status of all running tag servers.
+
+```go
+func (s *ServeService) GetServeStatus() []ServeInfo
+```
+
+**Returns:** A list of `ServeInfo` entries, one per running tag server, containing the tag ID, port, bind address, and API access level.
+
+---
+
+### GetRandomPort
+
+Get an available random TCP port for a new tag server.
+
+```go
+func (s *ServeService) GetRandomPort() (int, error)
+```
+
+**Returns:** An unused port number.
+
+---
+
+## APIService Operations
+
+REST API server management, accessed via `window.go.main.APIService.*` in JavaScript. The REST API exposes clip, tag, and other operations over HTTP for use by the `mp` CLI and external tools.
+
+### StartAPI
+
+Start the REST API HTTP server.
+
+```go
+func (s *APIService) StartAPI(port int) error
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `port` | int | TCP port to listen on |
+
+---
+
+### StopAPI
+
+Stop the REST API HTTP server.
+
+```go
+func (s *APIService) StopAPI() error
+```
+
+---
+
+### GetAPIStatus
+
+Get the current status of the REST API server.
+
+```go
+func (s *APIService) GetAPIStatus() APIStatus
+```
+
+**Returns:** An `APIStatus` value indicating whether the server is running, its port, and address.
+
+---
+
+### CreateAPIKey
+
+Create a new API key for authenticating REST API requests.
+
+```go
+func (s *APIService) CreateAPIKey(name string, role string, scopedTagID int64) (string, error)
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `name` | string | Human-readable label for the key |
+| `role` | string | Permission role (e.g., `"admin"`, `"read"`) |
+| `scopedTagID` | int64 | Tag ID to scope access to (0 for unrestricted) |
+
+**Returns:** The raw API key string (prefixed `mp_`). This is the only time the full key is returned — store it securely.
+
+:::tip
+Pass the key as `MP_API_KEY` environment variable or as a `Bearer` token in the `Authorization` header.
+:::
+
+---
+
+### ListAPIKeys
+
+List all API keys (without revealing the raw key values).
+
+```go
+func (s *APIService) ListAPIKeys() []APIKeyInfo
+```
+
+**Returns:** Metadata for each key — ID, name, role, scoped tag, creation date, and a masked key prefix.
+
+---
+
+### RevokeAPIKey
+
+Permanently revoke an API key.
+
+```go
+func (s *APIService) RevokeAPIKey(id int64) error
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `id` | int64 | API key ID (from `ListAPIKeys`) |
 
 ---
 

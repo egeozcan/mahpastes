@@ -264,6 +264,40 @@ CREATE TABLE IF NOT EXISTS app_settings (
 |-----|--------|-------------|
 | `plugin_update_interval` | "startup", "6h", "24h", "disabled" | How often to check for plugin updates |
 
+### api_keys
+
+Stores hashed API keys for REST API authentication.
+
+```sql
+CREATE TABLE IF NOT EXISTS api_keys (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    key_hash TEXT NOT NULL UNIQUE,
+    key_prefix TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'admin',
+    scoped_tag_id INTEGER,
+    is_revoked INTEGER NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_used_at DATETIME
+);
+```
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | INTEGER | Auto-incrementing primary key |
+| `name` | TEXT | Human-readable key name |
+| `key_hash` | TEXT | SHA-256 hash of the raw key (unique) |
+| `key_prefix` | TEXT | First 8 characters of the raw key, for identification in listings |
+| `role` | TEXT | `"admin"` (full access) or `"viewer"` (read-only) |
+| `scoped_tag_id` | INTEGER | Tag ID to restrict access to (nullable — NULL means global access) |
+| `is_revoked` | INTEGER | 0 = active, 1 = revoked |
+| `created_at` | DATETIME | When the key was created |
+| `last_used_at` | DATETIME | Last time the key was used for authentication (nullable) |
+
+**Constraints:**
+- `key_hash` must be unique
+- Raw keys are never stored — only the SHA-256 hash is persisted. The raw key is returned once at creation time and cannot be retrieved afterward.
+
 ## Schema Migrations
 
 Migrations are handled inline in `initDB()`:

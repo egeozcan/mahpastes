@@ -153,6 +153,22 @@ Essential shortcuts for power users:
 
 See all shortcuts in [Keyboard Shortcuts](/getting-started/keyboard-shortcuts).
 
+## Folder Mode
+
+Press <span className="keyboard-key">F</span> to switch the gallery into folder mode. Tags act as directories -- each tag shows only its directly tagged clips, and child tags appear as navigable sub-folders. Uploading a clip while inside a folder automatically tags it with that folder's tag.
+
+## CLI for Power Users
+
+The `mp` command-line tool gives you full access to mahpastes from a terminal. Upload clips, manage tags, run bulk operations, and script workflows against the REST API.
+
+```bash
+mp clip list               # List recent clips
+mp clip upload photo.png   # Upload a file
+mp tag list                # List all tags
+```
+
+See [Installation](/getting-started/installation#install-the-cli-mp) for setup instructions.
+
 ## What's Next?
 
 - Set up [Watch Folders](/features/watch-folders) for automatic imports

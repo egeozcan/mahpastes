@@ -87,6 +87,44 @@ make install
 cp -R build/bin/mahpastes.app /Applications/
 ```
 
+## Install the CLI (`mp`)
+
+The `mp` CLI is a standalone binary that talks to mahpastes over the REST API. It requires no CGo and cross-compiles for macOS, Linux, and Windows.
+
+### Build and Install
+
+```bash
+make mp            # Build for current platform
+make mp-install    # Install to /usr/local/bin
+make mp-cross      # Cross-compile for all platforms
+```
+
+### Configure API Access
+
+The CLI authenticates with an API key. Generate one in the desktop app:
+
+1. Open **Settings** (press <span className="keyboard-key">,</span>)
+2. Go to the **API** section
+3. Create a new API key
+
+Then set the environment variable:
+
+```bash
+export MP_API_KEY=mp_your_key_here
+```
+
+:::tip
+Add the export to your shell profile (`~/.zshrc`, `~/.bashrc`) so it persists across sessions.
+:::
+
+The CLI connects to `http://localhost:44557` by default. Override with `MP_API_URL` if needed.
+
+Verify connectivity:
+
+```bash
+mp api check
+```
+
 ## Verify Installation
 
 Launch mahpastes. You should see an empty gallery ready to receive your first clips.

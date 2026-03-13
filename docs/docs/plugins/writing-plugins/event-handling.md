@@ -37,6 +37,7 @@ Event names map to handler function names by replacing `:` with `_` and prefixin
 | `clip:created` | `on_clip_created(clip)` |
 | `watch:file_detected` | `on_watch_file_detected(data)` |
 | `tag:added_to_clip` | `on_tag_added_to_clip(data)` |
+| `clip:renamed` | `on_clip_renamed(data)` |
 
 ## Event Reference
 
@@ -151,6 +152,23 @@ Fired when a clip is restored from the archive.
 function on_clip_unarchived(data)
     log("Clip restored: " .. tostring(data.id))
     storage.delete("archived:" .. data.id)
+end
+```
+
+#### clip:renamed
+
+Fired when a clip is renamed.
+
+**Payload:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | number | Unique clip identifier |
+| `filename` | string | New filename |
+
+```lua
+function on_clip_renamed(data)
+    log("Clip " .. tostring(data.id) .. " renamed to " .. data.filename)
 end
 ```
 

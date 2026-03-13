@@ -29,14 +29,14 @@ The metadata modal shows all existing pairs for the clip. Each row has a delete 
 
 Writes use an atomic read-modify-write inside a database transaction, so concurrent updates do not corrupt data.
 
-## Backend API
+## REST API
 
-| Method | Description |
-|--------|-------------|
-| `GetClipMetadata(id)` | Returns all key-value pairs for a clip |
-| `SetClipMetadata(id, key, value)` | Sets a single key-value pair |
-| `DeleteClipMetadata(id, key)` | Removes a single key |
-| `SetClipMetadataBulk(id, metadata)` | Atomically replaces all metadata |
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/v1/clips/{id}/metadata` | Returns all key-value pairs for a clip |
+| PUT | `/api/v1/clips/{id}/metadata/{key}` | Sets a single key-value pair |
+| DELETE | `/api/v1/clips/{id}/metadata/{key}` | Removes a single key |
+| PUT | `/api/v1/clips/{id}/metadata` | Atomically replaces all metadata |
 
 ## Plugin API
 
@@ -46,7 +46,7 @@ Plugins access metadata through the `metadata` module:
 -- Get all metadata for a clip
 local meta = metadata.get(clip_id)
 
--- Set a key-value pair
+-- Set a single key-value pair
 metadata.set(clip_id, "source", "screenshot")
 
 -- Delete a key
@@ -58,6 +58,13 @@ metadata.set_bulk(clip_id, {
     project = "docs",
 })
 ```
+
+| Function | Arguments | Description |
+|----------|-----------|-------------|
+| `metadata.get` | `clip_id` | Returns a table of all key-value pairs |
+| `metadata.set` | `clip_id, key, value` | Sets a single key-value pair |
+| `metadata.delete` | `clip_id, key` | Removes a key |
+| `metadata.set_bulk` | `clip_id, table` | Atomically replaces all metadata with the given table |
 
 The same limits (key 256 chars, value 4096 chars, 50 pairs) apply to plugin calls.
 

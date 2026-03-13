@@ -20,14 +20,17 @@ mahpastes is built using Wails, a framework for building desktop applications wi
 │  │  • Tailwind CSS     │    │  • SQLite                   │ │
 │  │  • No framework     │    │  • Clipboard integration    │ │
 │  └─────────────────────┘    │  • File system watcher      │ │
+│                             │  • REST API server          │ │
+│                             │  • Tag HTTP servers         │ │
 │                             └─────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────┘
-                                       │
-                                       ▼
-                              ┌────────────────┐
-                              │   SQLite DB    │
-                              │   clips.db     │
-                              └────────────────┘
+                  │                          │
+                  ▼                          ▼
+         ┌────────────────┐       ┌──────────────────┐
+         │   SQLite DB    │       │  HTTP listeners   │
+         │   clips.db     │       │  (REST API, Tag   │
+         └────────────────┘       │   serve servers)  │
+                                  └──────────────────┘
 ```
 
 ## Technology Stack
@@ -55,31 +58,33 @@ mahpastes is built using Wails, a framework for building desktop applications wi
 ### Backend Components
 
 ```
-main.go              Entry point, Wails setup
-app.go               Core application logic, API methods
-database.go          SQLite setup, schema, migrations
-watcher.go           Folder watching, file import
-backup.go            ZIP backup and restore
-clipboard_service.go Clipboard copy service (Wails-bound)
-clipboard_darwin.go  macOS clipboard via NSPasteboard (CGo)
-transfer_service.go  Drag-out preparation and native drag
-transfer_types.go    Transfer system type definitions
+main.go                  Entry point, Wails setup
+app.go                   Core application logic, API methods
+database.go              SQLite setup, schema, migrations
+watcher.go               Folder watching, file import
+backup.go                ZIP backup and restore
+clipboard_service.go     Clipboard copy service (Wails-bound)
+clipboard_darwin.go      macOS clipboard via NSPasteboard (CGo)
+transfer_service.go      Drag-out preparation and native drag
+transfer_types.go        Transfer system type definitions
 app_transfer_helpers.go  Bridge between App and TempClipStore
-temp_clip_store.go   Leased temp file management
+temp_clip_store.go       Leased temp file management
 native_drag_darwin.go    macOS native drag via CGo
-plugin_service.go    Plugin frontend API (separate struct for Wails binding limit)
-plugins.go           Plugin install/uninstall helpers
-serve_manager.go     Tag serve HTTP server management, JSON API routing
-serve_json_api.go    JSON API handler for served tags (/_api prefix)
-serve_service.go     Serve service (Wails-bound)
-api_manager.go       REST API server and key management
-api_service.go       API service (Wails-bound)
-plugin/              Lua plugin system
-├── manager.go       Plugin lifecycle, event dispatch
-├── manifest.go      Manifest parsing, validation
-├── sandbox.go       Sandboxed Lua execution
-├── scheduler.go     Scheduled/recurring plugin tasks
-└── api_*.go         Lua APIs (clips, tags, storage, http, fs, utils, task, toast, image, modal)
+plugin_service.go        Plugin frontend API (Wails-bound)
+plugins.go               Plugin install/uninstall helpers
+serve_manager.go         Tag serve HTTP server lifecycle and routing
+serve_json_api.go        JSON API handler for served tags (/_api prefix)
+serve_file_upload.go     File upload handler for served tags (/_api/_upload)
+serve_service.go         Tag serve Wails service (start/stop/status)
+api_manager.go           REST API HTTP server, route registration, key management
+api_service.go           REST API Wails service (start/stop/keys)
+tag_hierarchy.go         Tag tree helpers (parent, root, ancestor, descendant checks)
+plugin/                  Lua plugin system
+├── manager.go           Plugin lifecycle, event dispatch
+├── manifest.go          Manifest parsing, validation
+├── sandbox.go           Sandboxed Lua execution
+├── scheduler.go         Scheduled/recurring plugin tasks
+└── api_*.go             Lua APIs (clips, tags, storage, http, fs, utils, task, toast, image, modal)
 ```
 
 ### Frontend Components
@@ -114,6 +119,31 @@ frontend/
     ├── main.css         Global styles, scrollbars, form styling
     └── modals.css       Modal-specific styles
 ```
+
+## Wails-Bound Services
+
+The backend exposes multiple Go structs to the frontend via Wails bindings. These exist as separate structs for organizational clarity — not because of binding limits (the `App` struct has 66+ methods that all bind correctly).
+
+| Service | File | Frontend access | Purpose |
+|---------|------|-----------------|---------|
+| `App` | `app.go` | `window.go.main.App.*` | Core clip, tag, watch, backup, and settings operations |
+| `PluginService` | `plugin_service.go` | `window.go.main.PluginService.*` | Plugin lifecycle, UI actions, storage, updates |
+| `ClipboardService` | `clipboard_service.go` | `window.go.main.ClipboardService.*` | Copy clips as files or raw content to system clipboard |
+| `TransferService` | `transfer_service.go` | `window.go.main.TransferService.*` | Drag-out preparation and native OS drag |
+| `ServeService` | `serve_service.go` | `window.go.main.ServeService.*` | Start/stop tag HTTP servers, status queries |
+| `APIService` | `api_service.go` | `window.go.main.APIService.*` | REST API server lifecycle, API key management |
+
+All six structs are bound in `main.go` via the `Bind` option.
+
+## REST API Server
+
+The `api_manager.go` file manages a standalone HTTP server that exposes clip, tag, watch, plugin, and backup operations over a REST interface (`/api/v1/*`). The `mp` CLI and other external tools authenticate with API keys (stored in the `api_keys` table).
+
+Key details:
+- The server listens on a user-configured port (default off).
+- Authentication uses Bearer tokens (`Authorization: Bearer mp_...`).
+- API keys have a name, role, and optional tag scope.
+- `api_service.go` wraps the manager as a Wails-bound struct so the frontend can start/stop the server and manage keys from the **Settings** UI.
 
 ## Data Flow
 

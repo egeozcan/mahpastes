@@ -92,11 +92,11 @@ Explain what you're highlighting:
 
 ### Draw Arrows
 
-Point to specific elements (using Line tool):
+Point to specific elements:
 
-1. Click the **Line** tool in the toolbar
+1. Click the **Arrow** tool in the toolbar (keyboard shortcut: <span className="keyboard-key">W</span>)
 2. Draw from label to target
-3. Add an arrowhead by drawing short angled lines
+3. The arrowhead is added automatically
 
 ### Example: Bug Report Screenshot
 

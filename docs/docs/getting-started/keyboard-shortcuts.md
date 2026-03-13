@@ -33,6 +33,7 @@ Complete reference for all keyboard shortcuts in mahpastes. Press <span classNam
 |----------|--------|
 | <span className="keyboard-key">/</span> | Focus search |
 | <span className="keyboard-key">A</span> | Toggle archive view |
+| <span className="keyboard-key">F</span> | Toggle folder mode |
 | <span className="keyboard-key">W</span> | Open watch folders |
 | <span className="keyboard-key">,</span> | Open settings |
 | <span className="keyboard-key">P</span> | Open plugins |
@@ -61,6 +62,7 @@ When a clip card has keyboard focus:
 | <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">D</span> | Download clip |
 | <span className="keyboard-key">T</span> | Tag clip |
 | <span className="keyboard-key">Space</span> | Select / deselect |
+| <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">Enter</span> | Open context menu |
 
 ## Bulk Actions
 

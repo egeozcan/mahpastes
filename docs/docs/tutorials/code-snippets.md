@@ -70,7 +70,7 @@ Search tips:
 ### Copy and Paste
 
 1. Find your snippet
-2. Open the clip menu (three dots) and click **Copy Contents**
+2. Open the clip menu (three dots), hover over **Copy**, and click **Copy Contents**
 3. Paste into your editor
 
 ### Modify Before Using
@@ -88,7 +88,7 @@ Often you need to customize a snippet:
 Some tools work better with file paths:
 
 1. Open the clip menu (three dots)
-2. Click **Copy Path**
+2. Hover over **Copy**, then click **Copy Path**
 3. Path is copied to clipboard
 4. Use in terminal:
 

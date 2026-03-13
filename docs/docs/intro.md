@@ -55,7 +55,7 @@ sidebar_position: 1
 | **Text Editor** | Edit text, code, JSON, and HTML clips directly |
 | **Watch Folders** | Automatically import files from folders |
 | **Bulk Actions** | Select multiple clips to copy, archive, download, or delete |
-| **Tags** | Color-coded labels to organize and filter clips |
+| **Tags** | Color-coded tags with hierarchical trees and folder mode for directory-style navigation |
 | **Clip Metadata** | Attach key-value pairs to any clip |
 | **Duplicate Detection** | SHA-256 content hashing with merge support |
 | **Sorting** | Sort gallery by date, name, size, or type |
@@ -63,7 +63,8 @@ sidebar_position: 1
 | **Plugins** | Extend functionality with Lua scripts |
 | **Backup & Restore** | Export all data to portable ZIP, restore anywhere |
 | **Tag Serve** | Start HTTP servers per tag to serve clips as browsable file listings |
-| **REST API** | Authenticated JSON API with role-based access control |
+| **REST API** | Authenticated JSON API with tag-scoped API keys |
+| **CLI** | Command-line interface (`mp`) for automation and scripting via REST API |
 | **Open With** | Open clips in external applications |
 
 ## How It Works
