@@ -151,8 +151,8 @@ When the image editor is open:
 | <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">S</span> | Save As (create a new clip) |
 | <span className="keyboard-key">]</span> | Increase brush size |
 | <span className="keyboard-key">[</span> | Decrease brush size |
-| <span className="keyboard-key">}</span> | Increase opacity |
-| <span className="keyboard-key">{</span> | Decrease opacity |
+| <span className="keyboard-key">&#125;</span> | Increase opacity |
+| <span className="keyboard-key">&#123;</span> | Decrease opacity |
 | <span className="keyboard-key">Esc</span> | Cancel active selection/crop, or close editor |
 
 :::tip Undo History
