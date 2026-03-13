@@ -124,4 +124,4 @@ Bulk delete cannot be undone. Make sure you've selected the right clips before c
 - [Image Comparison](./image-comparison.md) -- compare two selected images
 - [Tags](./tags.md) -- bulk tagging workflow
 - [Auto-Delete](./auto-delete.md) -- bulk expiration actions
-- [Keyboard Shortcuts](/getting-started/keyboard-shortcuts) -- shortcut keys for bulk operations
+- [Keyboard Shortcuts](../getting-started/keyboard-shortcuts) -- shortcut keys for bulk operations

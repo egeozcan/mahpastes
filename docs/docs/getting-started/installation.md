@@ -157,6 +157,6 @@ Your first clip should appear in the gallery.
 
 ## Next Steps
 
-- Learn the basics in [Quick Start](/getting-started/quick-start)
-- See [keyboard shortcuts](/getting-started/keyboard-shortcuts)
-- Set up [watch folders](/features/watch-folders) for automatic imports
+- Learn the basics in [Quick Start](./quick-start)
+- See [keyboard shortcuts](./keyboard-shortcuts)
+- Set up [watch folders](../features/watch-folders) for automatic imports

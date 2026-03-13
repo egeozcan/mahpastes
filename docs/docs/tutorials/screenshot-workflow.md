@@ -61,7 +61,7 @@ If your screenshot was saved to disk:
 1. Drag the file from Finder/Explorer
 2. Drop onto mahpastes window
 
-Or set up a [Watch Folder](/features/watch-folders) for automatic import.
+Or set up a [Watch Folder](../features/watch-folders) for automatic import.
 
 ## Step 3: Annotate the Screenshot
 

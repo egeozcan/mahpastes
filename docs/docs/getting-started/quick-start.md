@@ -90,7 +90,7 @@ Use the search bar to filter the clips currently shown in the gallery:
 
 Set per-clip expiration at upload time using the bottom bar dropdown, or on existing clips via the context menu. Presets: 15 minutes, 1 hour, 6 hours, 24 hours, 7 days.
 
-See [Auto-Delete](/features/auto-delete) for details.
+See [Auto-Delete](../features/auto-delete) for details.
 
 ## Using the Archive
 
@@ -163,7 +163,7 @@ Essential shortcuts for power users:
 | <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">Y</span> | Redo (in editor) |
 | <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">S</span> | Save As (in editor) |
 
-See all shortcuts in [Keyboard Shortcuts](/getting-started/keyboard-shortcuts).
+See all shortcuts in [Keyboard Shortcuts](./keyboard-shortcuts).
 
 ## Folder Mode
 
@@ -179,10 +179,10 @@ mp clip upload photo.png   # Upload a file
 mp tag list                # List all tags
 ```
 
-See [Installation](/getting-started/installation#install-the-cli-mp) for setup instructions.
+See [Installation](./installation#install-the-cli-mp) for setup instructions.
 
 ## What's Next?
 
-- Set up [Watch Folders](/features/watch-folders) for automatic imports
-- Learn about [Image Comparison](/features/image-comparison)
-- Read the full [Features guide](/features/clipboard-management)
+- Set up [Watch Folders](../features/watch-folders) for automatic imports
+- Learn about [Image Comparison](../features/image-comparison)
+- Read the full [Features guide](../features/clipboard-management)
