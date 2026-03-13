@@ -22,21 +22,21 @@ sidebar_position: 1
     <div className="feature-card">
       <h3>Getting Started</h3>
       <p>Install mahpastes and learn the basics in under 5 minutes.</p>
-      <a href="/getting-started/installation">Install now →</a>
+      <a href="getting-started/installation">Install now →</a>
     </div>
   </div>
   <div className="col col--4">
     <div className="feature-card">
       <h3>Features</h3>
       <p>Clipboard management, image editing, tags, and more.</p>
-      <a href="/features/clipboard-management">View features →</a>
+      <a href="features/clipboard-management">View features →</a>
     </div>
   </div>
   <div className="col col--4">
     <div className="feature-card">
       <h3>For Developers</h3>
       <p>Understand the architecture and contribute to mahpastes.</p>
-      <a href="/developers/architecture">Read docs →</a>
+      <a href="developers/architecture">Read docs →</a>
     </div>
   </div>
 </div>
@@ -89,5 +89,5 @@ All data is stored locally in a SQLite database. Nothing leaves your machine.
 ## Get Help
 
 - Browse the documentation using the sidebar
-- Check [Troubleshooting](/reference/troubleshooting) for common issues
+- Check [Troubleshooting](reference/troubleshooting) for common issues
 - Report bugs on [GitHub Issues](https://github.com/egeozcan/mahpastes/issues)
