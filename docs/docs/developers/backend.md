@@ -27,18 +27,27 @@ The backend is written in Go using the Wails framework. It handles data storage,
 ├── clipboard_windows.go     Windows clipboard implementation
 ├── clipboard_other.go       Fallback clipboard implementation
 ├── transfer_service.go      Drag-out preparation and native drag initiation
+├── transfer_handler.go      HTTP handler for transfer file serving
 ├── transfer_types.go        Transfer system type definitions
 ├── app_transfer_helpers.go  Bridge between App and TempClipStore
 ├── temp_clip_store.go       Leased temp file management
 ├── native_drag_darwin.go    macOS native drag implementation
+├── native_drag_windows.go   Windows native drag implementation
 ├── native_drag_other.go     Fallback native drag stub
+├── open_darwin.go           macOS open-with-default-app
+├── open_windows.go          Windows open-with-default-app
+├── open_other.go            Fallback open-with-default-app stub
 ├── tag_hierarchy.go         Tag tree helpers (parent, root, ancestor, descendant checks)
 ├── plugin/                  Lua plugin system
 │   ├── manager.go           Plugin lifecycle, event dispatch
 │   ├── manifest.go          Manifest parsing, validation
 │   ├── sandbox.go           Sandboxed Lua execution
 │   ├── scheduler.go         Scheduled/recurring plugin tasks
-│   └── api_*.go             Lua APIs (clips, tags, storage, http, fs, utils, task, toast, image, modal)
+│   ├── fetch.go             Plugin source fetching (URL/file)
+│   ├── semver.go            Semantic versioning helpers
+│   ├── update_checker.go    Automatic plugin update checking
+│   ├── permission_diff.go   Permission change detection across versions
+│   └── api_*.go             Lua APIs (clips, tags, storage, http, fs, utils, task, toast, image, modal, metadata)
 ├── go.mod                   Go module definition
 └── go.sum                   Dependency checksums
 ```
@@ -89,12 +98,17 @@ The main `App` struct and all exposed methods:
 
 ```go
 type App struct {
-    ctx            context.Context
-    db             *sql.DB
-    tempDir        string
-    mu             sync.Mutex
-    watcherManager *WatcherManager
-    pluginManager  *plugin.Manager
+    ctx              context.Context
+    db               *sql.DB
+    tempDir          string
+    tempStore        *TempClipStore
+    transferHandler  *TransferFileHandler
+    mu               sync.Mutex
+    watcherManager   *WatcherManager
+    serveManager     *ServeManager
+    apiManager       *APIManager
+    pluginManager    *plugin.Manager
+    clipboardService *ClipboardService
 }
 ```
 
@@ -108,7 +122,7 @@ func (a *App) shutdown(ctx context.Context)  // Cleanup on exit
 ```go
 func (a *App) GetClips(archived bool, tagIDs []int64, hiddenTagIDs []int64, sortField string, sortDir string) ([]ClipPreview, error)
 func (a *App) GetClipData(id int64) (*ClipData, error)
-func (a *App) UploadFiles(files []FileData, expMins int, autoTagID int64) error
+func (a *App) UploadFiles(files []FileData, expirationMinutes int, autoTagID int64) error
 func (a *App) DeleteClip(id int64) error
 func (a *App) ToggleArchive(id int64) error
 ```
@@ -173,7 +187,7 @@ func startCleanupJob(db *sql.DB) {
     ticker := time.NewTicker(1 * time.Minute)
     go func() {
         for range ticker.C {
-            db.Exec("DELETE FROM clips WHERE expires_at <= CURRENT_TIMESTAMP")
+            db.Exec("DELETE FROM clips WHERE expires_at IS NOT NULL AND expires_at <= CURRENT_TIMESTAMP")
         }
     }()
 }
@@ -218,14 +232,16 @@ Lightweight clip data for gallery display:
 
 ```go
 type ClipPreview struct {
-    ID          int64      `json:"id"`
-    ContentType string     `json:"content_type"`
-    Filename    string     `json:"filename"`
-    CreatedAt   time.Time  `json:"created_at"`
-    ExpiresAt   *time.Time `json:"expires_at"`
-    Preview     string     `json:"preview"`    // First 500 chars for text
-    IsArchived  bool       `json:"is_archived"`
-    Size        int64      `json:"size"`       // Clip size in bytes
+    ID             int64      `json:"id"`
+    ContentType    string     `json:"content_type"`
+    Filename       string     `json:"filename"`
+    CreatedAt      time.Time  `json:"created_at"`
+    ExpiresAt      *time.Time `json:"expires_at"`
+    Preview        string     `json:"preview"`         // First 500 chars for text
+    IsArchived     bool       `json:"is_archived"`
+    Tags           []Tag      `json:"tags"`
+    Size           int64      `json:"size"`            // Clip size in bytes
+    DuplicateCount int        `json:"duplicate_count"`
 }
 ```
 
@@ -298,8 +314,10 @@ func (a *App) GetClipData(id int64) (*ClipData, error) {
 Binary content is base64 encoded for JSON transport:
 
 ```go
-// Encoding for response
-if !strings.HasPrefix(contentType, "text/") {
+// Encoding for response — text and JSON are returned raw, everything else is base64
+if strings.HasPrefix(contentType, "text/") || contentType == "application/json" {
+    clip.Data = string(data)
+} else {
     clip.Data = base64.StdEncoding.EncodeToString(data)
 }
 
@@ -312,15 +330,15 @@ data, err := base64.StdEncoding.DecodeString(file.Data)
 Automatic detection for text content:
 
 ```go
-func (a *App) UploadFiles(files []FileData, expMins int, autoTagID int64) error {
+func (a *App) UploadFiles(files []FileData, expirationMinutes int, autoTagID int64) error {
     for _, file := range files {
         contentType := file.ContentType
 
         if contentType == "text/plain" || contentType == "" {
-            textData := string(data)
-            if strings.HasPrefix(textData, "<!DOCTYPE html") {
+            trimmedText := strings.TrimSpace(string(data))
+            if strings.HasPrefix(trimmedText, "<!DOCTYPE html") {
                 contentType = "text/html"
-            } else if isJSON(textData) {
+            } else if isJSON(trimmedText) {
                 contentType = "application/json"
             }
         }
@@ -333,15 +351,15 @@ func (a *App) UploadFiles(files []FileData, expMins int, autoTagID int64) error 
 
 ### Mutex Usage
 
-Protect shared state with mutexes:
+Protect shared state with mutexes. For example, `CreateTempFile` delegates to `TempClipStore` which manages leased temporary files with its own synchronization:
 
 ```go
 func (a *App) CreateTempFile(id int64) (string, error) {
-    // ...
-    a.mu.Lock()
-    tempFilePath := filepath.Join(a.tempDir, safeName)
-    a.mu.Unlock()
-    // ...
+    item, err := a.prepareClipTransferItem(id, "legacy_create_temp")
+    if err != nil {
+        return "", err
+    }
+    return item.AbsPath, nil
 }
 ```
 
@@ -369,8 +387,8 @@ func (w *WatcherManager) processFile(filePath string) {
 Send events from Go to JavaScript:
 
 ```go
-// Emit import notification
-runtime.EventsEmit(a.ctx, "watch:import", filename)
+// Emit import notification (sends full ClipPreview for UI refresh)
+runtime.EventsEmit(a.ctx, "watch:import", clip)
 
 // Emit error
 runtime.EventsEmit(a.ctx, "watch:error", map[string]string{
@@ -400,10 +418,12 @@ func getDataDir() (string, error) {
 
 ```go
 require (
+    github.com/fsnotify/fsnotify v1.9.0
     github.com/wailsapp/wails/v2 v2.11.0
-    modernc.org/sqlite v1.45.0
-    github.com/fsnotify/fsnotify v1.7.0
+    github.com/yuin/gopher-lua v1.1.1
     golang.design/x/clipboard v0.7.0
+    golang.org/x/image v0.35.0
+    modernc.org/sqlite v1.45.0
 )
 ```
 

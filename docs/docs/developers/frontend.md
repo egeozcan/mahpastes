@@ -4,7 +4,7 @@ sidebar_position: 2
 
 # Frontend Architecture
 
-The frontend is built with vanilla JavaScript, Tailwind CSS, and HTML. No framework, no build step (except Tailwind compilation).
+The frontend is a single-page Wails webview app built with vanilla JavaScript, Tailwind CSS, and HTML. JavaScript is loaded as classic browser scripts in a fixed order from `index.html`; the only build step is Tailwind CSS compilation.
 
 ## File Structure
 
@@ -19,12 +19,24 @@ frontend/
 │   └── output.css       Compiled Tailwind
 ├── css/
 │   ├── main.css         Global styles, scrollbars, form styling
-│   └── modals.css       Modal-specific styles
+│   └── modals.css       Modal-specific styles (lightbox, editor, comparison)
 ├── js/
-│   ├── app.js           Core app logic, event handlers
-│   ├── ui.js            Card rendering, gallery management
-│   ├── editor.js        Image editor canvas logic
-│   ├── modals.js        All modal/lightbox/editor logic
+│   ├── app.js           Core app logic, event handlers, view state
+│   ├── ui.js            Card rendering, gallery management, view mode toggle
+│   ├── editor.js        Image/text editor wiring (delegates to editor/ modules)
+│   ├── editor/
+│   │   ├── editor-core.js    Canvas management, undo/redo, event dispatch
+│   │   ├── tool-brush.js     Brush and eraser tools
+│   │   ├── tool-shapes.js    Line, rectangle, circle tools
+│   │   ├── tool-arrow.js     Arrow tool
+│   │   ├── tool-text.js      Text overlay tool
+│   │   ├── tool-crop.js      Crop tool with aspect ratio
+│   │   ├── tool-select.js    Selection tool
+│   │   ├── tool-anonymize.js Pixelate/blur anonymization tool
+│   │   ├── tool-eyedropper.js Color picker tool
+│   │   ├── tool-zoom.js      Zoom controls
+│   │   └── tool-transform.js Rotate/flip transforms
+│   ├── modals.js        Lightbox viewer, comparison modal, gesture handling
 │   ├── tags.js          Tag management UI
 │   ├── settings.js      Settings modal
 │   ├── plugins.js       Plugin management UI
@@ -36,12 +48,12 @@ frontend/
 │   ├── modal-renderer.js       Plugin result modal rendering
 │   ├── metadata.js      Clip metadata UI
 │   ├── sort.js          Gallery sorting controls
-│   ├── tooltips.js      Tooltip management
 │   ├── shortcuts.js     Keyboard shortcut registration and context handling
 │   ├── plugin-review.js Plugin permission review UI
-│   ├── utils.js         Shared utilities
-│   ├── wails-api.js     Wails bindings wrapper
-│   ├── serve.js         Tag HTTP server management UI
+│   ├── tooltips.js      Tooltip enable/disable and hover behavior
+│   ├── utils.js         Shared utilities (confirm/prompt dialogs, toasts, escapeHTML)
+│   ├── wails-api.js     Wails bindings wrapper (loadClips, upload, fileToFileData)
+│   ├── serve.js         Tag HTTP server management UI, view switching
 │   ├── api-settings.js  REST API settings modal
 │   ├── context-menu.js  Context menu rendering and event handling
 │   ├── folder-drag.js   Drag-and-drop for tag folder reordering
@@ -51,6 +63,9 @@ frontend/
     ├── go/main/PluginService.js     Generated PluginService bindings
     ├── go/main/ClipboardService.js  Generated ClipboardService bindings
     ├── go/main/TransferService.js   Generated TransferService bindings
+    ├── go/main/ServeService.js      Generated ServeService bindings
+    ├── go/main/APIService.js        Generated APIService bindings
+    ├── go/main/*.d.ts               Generated TypeScript definitions for bindings
     └── runtime/runtime.js           Wails runtime
 ```
 
@@ -79,84 +94,79 @@ let currentLightboxIndex = -1;     // Lightbox position
 ```javascript
 handleFiles(files)      // Process dropped/pasted files
 handleText(text)        // Process pasted text
-loadClips()             // Fetch and render gallery
-toggleViewMode()        // Switch Active/Archive
+toggleFolderMode()      // Toggle folder-mode navigation
+getUploadExpirationMinutes() // Read the upload expiry selector
+loadTags()              // Fetch tags and initialize tag UI
 ```
 
 ### ui.js — UI Interactions
 
-Handles user interface behaviors.
+Handles gallery rendering, card behavior, folder cards, and selection UI.
 
 **Key responsibilities:**
 - Gallery rendering
 - Clip card generation
-- Lightbox navigation
-- Comparison modal
-- Toast notifications
-- Bulk actions
+- Checkbox and Shift-click selection
+- Search filtering in the rendered gallery
+- Folder-mode card rendering
+- Bulk toolbar state
 
 **Key functions:**
 ```javascript
-renderClips(clips)      // Render gallery grid
 createClipCard(clip)    // Build individual card HTML
-openLightbox(index)     // Open image viewer
-closeLightbox()         // Close image viewer
-showToast(message)      // Show notification
+toggleViewMode()        // Switch active/archive mode
+renderFolderCards()     // Build folder cards from tag hierarchy
+navigateToFolder(id)    // Enter a tag folder in folder mode
+updateBulkToolbar()     // Show/hide bulk actions based on selection
 ```
 
 ### editor.js — Image/Text Editing
 
 Canvas-based image editor and text editor.
 
-**Image editor features:**
-- Tools: brush, line, rectangle, circle, text, eraser
+**Editor features:**
+- Text editing for `text/*` and `application/json`
+- Image editing for `image/*`
+- Tools: select, crop, brush, eraser, line, arrow, rectangle, circle, text, anonymize, eyedropper
 - Undo/redo (50 steps)
-- Color picker
-- Stroke width
-- Keyboard shortcuts
+- Rotate/flip transforms
+- Save in place or save as a new clip
 
 **Key functions:**
 ```javascript
-openImageEditor(clipId)    // Open image in editor
-openTextEditor(clipId)     // Open text in editor
-saveImageEdit()            // Save annotated image
-setupEditorListeners()     // Initialize editor events
+openEditor(clipId)         // Open image/text editor for a clip
+saveEditorInPlace()        // Overwrite the current clip
+saveEditorContent()        // Save edits as a new clip
+setupEditorListeners()     // Wire buttons, sliders, and tool controls
 ```
 
 **Canvas handling:**
 ```javascript
 const canvas = document.getElementById('editor-canvas');
-const ctx = canvas.getContext('2d');
+const overlayCanvas = document.getElementById('editor-overlay-canvas');
 
-// Drawing state
-let isDrawing = false;
-let currentTool = 'brush';
-let history = [];           // Undo stack
-let historyIndex = -1;      // Current position
+const tools = new Map();
+let activeToolName = null;
+let undoStack = [];
+let redoStack = [];
 ```
 
-### modals.js — Modal Management
-
-Generic modal handling and confirm dialogs.
+### modals.js — Lightbox And Comparison
 
 **Key functions:**
 ```javascript
-openModal(modalId)        // Show a modal
-closeModal(modalId)       // Hide a modal
-showConfirmDialog(opts)   // Confirmation prompt
-closeConfirmDialog()      // Close confirmation
+openLightbox(index)        // Show the image lightbox
+closeLightbox()            // Hide the lightbox
+openComparisonModal()      // Compare two selected images
+closeComparisonModal()     // Close the comparison view
+initLightboxGestures()     // Wheel, swipe, pan, and pinch handling
 ```
 
 **Focus trapping:**
-Modals trap keyboard focus for accessibility:
+The lightbox and comparison modal trap keyboard focus for accessibility and manage their own keyboard handling:
 ```javascript
-modal.addEventListener('keydown', e => {
-    if (e.key === 'Tab') {
-        // Trap focus within modal
-    }
-    if (e.key === 'Escape') {
-        closeModal(modalId);
-    }
+lightbox.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeLightbox();
 });
 ```
 
@@ -167,15 +177,18 @@ Watch folder configuration UI.
 **Key responsibilities:**
 - Folder list display
 - Add/edit folder modal
-- Filter configuration
+- Filter configuration (`all`, preset checkboxes, or regex)
+- Auto-tag assignment
+- Optional processing of existing files when adding a folder
 - Pause controls
 - Status indicators
 
 **Key functions:**
 ```javascript
 loadWatchFolders()           // Fetch and render folders
-openAddFolderModal()         // Show add dialog
-saveWatchFolder()            // Save configuration
+openAddFolderDialog()        // Pick a folder, then open the modal
+openFolderModal(path)        // Configure a new watched folder
+saveFolderConfig()           // Persist add/edit changes
 toggleFolderPause(id)        // Pause/resume folder
 toggleGlobalPause()          // Global pause toggle
 ```
@@ -186,28 +199,22 @@ Helper functions used across modules.
 
 **Key functions:**
 ```javascript
-fileToFileData(file)      // Convert File to API format
-formatBytes(bytes)        // Human-readable size
-formatDate(date)          // Format timestamp
-debounce(fn, delay)       // Debounce function
-escapeHtml(str)           // XSS prevention
+showConfirmDialog(...)    // Shared confirm modal
+showPromptDialog(...)     // Shared prompt modal
+showToast(message)        // Toast notifications
+trapFocus(container)      // Focus trap helper
+copyToClipboard(text)     // Clipboard helper for plain text
+escapeHTML(str)           // XSS prevention
 ```
 
 ### wails-api.js — Backend Wrapper
 
-Wraps Wails bindings with error handling.
+Wraps `window.go.main.*` Wails bindings with higher-level UI helpers.
 
 ```javascript
-import * as App from '../wailsjs/go/main/App';
-
-export async function getClips(archived) {
-    try {
-        return await App.GetClips(archived);
-    } catch (error) {
-        console.error('Failed to get clips:', error);
-        throw error;
-    }
-}
+const clips = await window.go.main.App.GetClips(false, [], [], 'date', 'desc');
+const clipData = await window.go.main.App.GetClipData(42);
+await window.go.main.App.BulkDownloadToFile([1, 2, 3]);
 ```
 
 ### transfer.js — Drag-Out Transfers
@@ -284,13 +291,9 @@ dropZone.addEventListener('drop', e => {
 
 ```javascript
 document.addEventListener('keydown', e => {
-    // Cmd+C: context-dependent copy
-    // - Lightbox open: copy clip contents
-    // - Clips selected: copy as files
-    // - Text selected: standard browser copy (not intercepted)
-
-    // Editor shortcuts: Cmd+Z (undo), Cmd+Shift+Z (redo), Cmd+S (save), Escape (close)
-    // Lightbox shortcuts: Arrow keys (navigate), Escape (close menu, then lightbox)
+    // ShortcutManager resolves context first:
+    // clip, bulk, lightbox, editor, comparison, gallery, global.
+    // app.js registers the actions; shortcuts.js handles dispatch and overrides.
 });
 ```
 
@@ -299,29 +302,25 @@ document.addEventListener('keydown', e => {
 ### Calling Go Functions
 
 ```javascript
-import { GetClips, UploadFiles } from '../wailsjs/go/main/App';
-
 // GetClips takes archived flag, tag filter IDs, hidden tag IDs, sort field, and sort direction
-const clips = await GetClips(false, [], [], 'date', 'desc');
+const clips = await window.go.main.App.GetClips(false, [], [], 'date', 'desc');
 
-// With parameters
-await UploadFiles(fileDataArray, expirationMinutes);
+// UploadFiles accepts file data, expiration minutes, and optional auto-tag ID
+await window.go.main.App.UploadFiles(fileDataArray, expirationMinutes, autoTagID);
 
-// Plugin service bindings are separate
-import { GetPlugins } from '../wailsjs/go/main/PluginService';
+// Service-specific bindings are exposed under window.go.main.*
+const plugins = await window.go.main.PluginService.GetPlugins();
 ```
 
 ### Listening to Events
 
 ```javascript
-import { EventsOn } from '../wailsjs/runtime/runtime';
-
-EventsOn('watch:import', (filename) => {
+window.runtime.EventsOn('watch:import', (filename) => {
     showToast(`Imported: ${filename}`);
     loadClips();
 });
 
-EventsOn('watch:error', (data) => {
+window.runtime.EventsOn('watch:error', (data) => {
     showToast(`Error importing ${data.file}: ${data.error}`, 'error');
 });
 ```
@@ -330,7 +329,7 @@ EventsOn('watch:error', (data) => {
 
 ### Tailwind Usage
 
-The app uses Tailwind's `stone` color scale exclusively:
+The app is built mostly around Tailwind's `stone` palette, with accent colors such as `emerald`, `red`, and `amber` for status and warnings:
 
 ```html
 <div class="flex items-center gap-2 p-4 bg-stone-50 rounded-lg">
@@ -384,7 +383,7 @@ Modals in `css/modals.css`:
 ```bash
 cd frontend
 npm install              # Install Tailwind
-npm run watch            # Watch CSS changes
+npm run dev              # Watch CSS changes
 
 # In root directory
 wails dev               # Start dev server
@@ -441,12 +440,15 @@ Use async/await for clarity:
 ```javascript
 // Good
 async function loadAndRender() {
-    const clips = await getClips(false);
-    renderClips(clips);
+    const clips = await window.go.main.App.GetClips(false, [], [], 'date', 'desc');
+    for (const clip of clips) {
+        await createClipCard(clip);
+    }
 }
 
 // Less clear
 function loadAndRender() {
-    getClips(false).then(clips => renderClips(clips));
+    window.go.main.App.GetClips(false, [], [], 'date', 'desc')
+        .then(clips => Promise.all(clips.map(createClipCard)));
 }
 ```

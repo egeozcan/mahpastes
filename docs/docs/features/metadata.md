@@ -12,12 +12,13 @@ Attach arbitrary key-value pairs to any clip. Metadata is stored as a JSON colum
 
 1. Right-click a clip card (or click the three-dot menu)
 2. Select **Metadata**
-3. In the modal, type a key and value
-4. Click **Add** to save the pair
+3. Click **Add Field** to create a new row
+4. Type a key and value in the row
+5. Click **Save** to persist all changes
 
 ## Editing and Deleting
 
-The metadata modal shows all existing pairs for the clip. Each row has a delete button to remove that key. Edit a value by deleting and re-adding the key.
+The metadata modal shows all existing pairs for the clip as editable input fields. Edit a key or value inline, then click **Save**. Each row has a delete button to remove that pair. All changes are saved atomically when you click **Save**.
 
 ## Limits
 

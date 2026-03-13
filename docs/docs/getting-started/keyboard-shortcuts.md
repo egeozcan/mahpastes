@@ -127,15 +127,39 @@ When the image editor is open:
 
 | Shortcut | Action |
 |----------|--------|
+| <span className="keyboard-key">B</span> | Brush tool |
+| <span className="keyboard-key">E</span> | Eraser tool |
+| <span className="keyboard-key">L</span> | Line tool |
+| <span className="keyboard-key">W</span> | Arrow tool |
+| <span className="keyboard-key">U</span> | Rectangle tool |
+| <span className="keyboard-key">O</span> | Circle tool |
+| <span className="keyboard-key">T</span> | Text tool |
+| <span className="keyboard-key">I</span> | Eyedropper tool |
+| <span className="keyboard-key">V</span> | Select tool |
+| <span className="keyboard-key">X</span> | Anonymize tool |
+| <span className="keyboard-key">C</span> | Crop tool |
+| <span className="keyboard-key">R</span> | Rotate 90° clockwise |
+| <span className="keyboard-key">Shift</span> + <span className="keyboard-key">R</span> | Rotate 90° counter-clockwise |
 | <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">Z</span> | Undo last action |
 | <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">Y</span> | Redo undone action |
 | <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">Shift</span> + <span className="keyboard-key">Z</span> | Redo (alternative) |
-| <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">S</span> | Save as new clip |
-| <span className="keyboard-key">Esc</span> | Close editor |
+| <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">A</span> | Select all |
+| <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">C</span> | Copy selection |
+| <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">V</span> | Paste selection |
+| <span className="keyboard-key">Delete</span> | Delete selection |
+| <span className="keyboard-key">Enter</span> | Confirm crop or active selection |
+| <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">S</span> | Save As (create a new clip) |
+| <span className="keyboard-key">]</span> | Increase brush size |
+| <span className="keyboard-key">[</span> | Decrease brush size |
+| <span className="keyboard-key">}</span> | Increase opacity |
+| <span className="keyboard-key">{</span> | Decrease opacity |
+| <span className="keyboard-key">Esc</span> | Cancel active selection/crop, or close editor |
 
 :::tip Undo History
 The image editor maintains up to 50 undo steps.
 :::
+
+There is no default keyboard shortcut for the editor's in-place **Save** button.
 
 ## Text Placement (Editor)
 
@@ -174,9 +198,9 @@ The image editor maintains up to 50 undo steps.
 ### Image Annotation Flow
 
 1. Open image editor
-2. Select a tool from the toolbar (Brush, Line, Rectangle, Circle, Text, Eraser)
+2. Select a tool from the toolbar (Select, Crop, Brush, Eraser, Line, Arrow, Rectangle, Circle, Text, Anonymize, Eyedropper)
 3. <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">Z</span> if you make a mistake
-4. <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">S</span> to save
+4. <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">S</span> to save as a new clip
 
 ### Bulk Operations
 

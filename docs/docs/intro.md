@@ -51,7 +51,7 @@ sidebar_position: 1
 | **Archive** | Keep important clips separate from active workspace |
 | **Lightbox** | Full-screen image viewer with zoom, pan, and navigation |
 | **Image Editor** | Annotate with brush, shapes, and text |
-| **Image Comparison** | Compare two images with fade or slider modes |
+| **Image Comparison** | Compare two images with fade, slider, or diff modes |
 | **Text Editor** | Edit text, code, JSON, and HTML clips directly |
 | **Watch Folders** | Automatically import files from folders |
 | **Bulk Actions** | Select multiple clips to copy, archive, download, or delete |
@@ -63,7 +63,7 @@ sidebar_position: 1
 | **Plugins** | Extend functionality with Lua scripts |
 | **Backup & Restore** | Export all data to portable ZIP, restore anywhere |
 | **Tag Serve** | Start HTTP servers per tag to serve clips as browsable file listings |
-| **REST API** | Authenticated JSON API with tag-scoped API keys |
+| **REST API** | Authenticated JSON API with role-based keys (admin/editor/viewer) and optional tag scoping |
 | **CLI** | Command-line interface (`mp`) for automation and scripting via REST API |
 | **Open With** | Open clips in external applications |
 

@@ -103,8 +103,8 @@ make mp-cross      # Cross-compile for all platforms
 
 The CLI authenticates with an API key. Generate one in the desktop app:
 
-1. Open **Settings** (press <span className="keyboard-key">,</span>)
-2. Go to the **API** section
+1. Click the **API** button in the toolbar to open the API settings modal
+2. Start the API server if it is not already running
 3. Create a new API key
 
 Then set the environment variable:
@@ -122,7 +122,7 @@ The CLI connects to `http://localhost:44557` by default. Override with `MP_API_U
 Verify connectivity:
 
 ```bash
-mp api check
+mp api status
 ```
 
 ## Verify Installation

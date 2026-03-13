@@ -301,7 +301,7 @@ Add this line to your shell profile (`~/.zshrc` or `~/.bashrc`) for persistence.
 
 ### "Cannot connect to mahpastes"
 
-**Symptoms:** Commands fail with exit code 2.
+**Symptoms:** Commands fail with the message "Cannot connect to mahpastes. Is the app running with the API enabled?"
 
 **Solutions:**
 1. Verify the mahpastes desktop app is running
@@ -312,7 +312,7 @@ Add this line to your shell profile (`~/.zshrc` or `~/.bashrc`) for persistence.
    mp api status
    ```
 
-### "Authentication failed"
+### "Authentication failed. Check MP_API_KEY."
 
 **Symptoms:** Commands fail with exit code 3.
 
@@ -341,8 +341,8 @@ Add this line to your shell profile (`~/.zshrc` or `~/.bashrc`) for persistence.
 **Cause:** The plugin tried to access network or filesystem resources without declaring them in its manifest.
 
 **Solution:** Add the required permission to the plugin's manifest:
-- `network = ["example.com"]` for HTTP requests
-- `filesystem = true` for file access
+- `network = { ["example.com"] = {"GET", "POST"} }` for HTTP requests (specify allowed domains and methods)
+- `filesystem = { read = true }` or `filesystem = { read = true, write = true }` for file access
 - `clipboard = true` for clipboard writes
 
 ### Sandbox Timeout

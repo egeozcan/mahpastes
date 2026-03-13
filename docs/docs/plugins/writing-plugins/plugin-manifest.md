@@ -101,10 +101,10 @@ events = {"app:startup", "clip:created", "clip:deleted"},
 | `clip:archived` | `on_clip_archived(data)` | `{id}` |
 | `clip:unarchived` | `on_clip_unarchived(data)` | `{id}` |
 | `clip:renamed` | `on_clip_renamed(data)` | `{id, filename}` |
-| `watch:file_detected` | `on_watch_file_detected(data)` | File info |
-| `watch:import_complete` | `on_watch_import_complete(data)` | Import result |
-| `tag:created` | `on_tag_created(tag)` | Tag object |
-| `tag:updated` | `on_tag_updated(tag)` | Tag object |
+| `watch:file_detected` | `on_watch_file_detected(data)` | `{path, folder_id}` |
+| `watch:import_complete` | `on_watch_import_complete(data)` | `{clip_id, source_path, folder_id}` |
+| `tag:created` | `on_tag_created(tag)` | `{id, name, color}` |
+| `tag:updated` | `on_tag_updated(tag)` | `{id, name, color}` |
 | `tag:deleted` | `on_tag_deleted(tag_id)` | Tag ID (number) |
 | `tag:added_to_clip` | `on_tag_added_to_clip(data)` | `{clip_id, tag_id}` |
 | `tag:removed_from_clip` | `on_tag_removed_from_clip(data)` | `{clip_id, tag_id}` |

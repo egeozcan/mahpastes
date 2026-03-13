@@ -304,15 +304,16 @@ func (a *App) RenameClip(id int64, newFilename string) error
 Replace the content of an existing clip.
 
 ```go
-func (a *App) UpdateClipData(id int64, data []byte, contentType string) error
+func (a *App) UpdateClipData(id int64, contentType string, base64Data string, filename string) error
 ```
 
 **Parameters:**
 | Name | Type | Description |
 |------|------|-------------|
 | `id` | int64 | Clip ID |
-| `data` | []byte | New content bytes |
 | `contentType` | string | MIME type for the new content |
+| `base64Data` | string | New content as a base64-encoded string |
+| `filename` | string | New filename for the clip |
 
 ---
 
@@ -367,19 +368,28 @@ macOS only. Returns an error on other platforms.
 
 ### FindClipsByFilenameAndTag
 
-Search for clips matching a filename within a specific tag.
+Search for clips matching any of the given filenames within a specific tag.
 
 ```go
-func (a *App) FindClipsByFilenameAndTag(filename string, tagID int64) ([]Clip, error)
+func (a *App) FindClipsByFilenameAndTag(filenames []string, tagID int64) ([]ClipMatch, error)
 ```
 
 **Parameters:**
 | Name | Type | Description |
 |------|------|-------------|
-| `filename` | string | Filename to match |
-| `tagID` | int64 | Tag ID to scope the search |
+| `filenames` | []string | Filenames to match |
+| `tagID` | int64 | Tag ID to scope the search. When 0, matches untagged clips only |
 
 **Returns:** Clips that match both the filename and tag.
+
+**ClipMatch structure:**
+```go
+type ClipMatch struct {
+    ID          int64  `json:"id"`
+    Filename    string `json:"filename"`
+    ContentHash string `json:"content_hash"`
+}
+```
 
 ---
 
@@ -417,8 +427,10 @@ Finds all clips sharing the same content hash as `clipID`, merges their tags ont
 Merge all duplicate groups at once.
 
 ```go
-func (a *App) DeduplicateAll() error
+func (a *App) DeduplicateAll() (int, error)
 ```
+
+**Returns:** The total number of duplicate clips removed, and an error if any.
 
 ---
 
@@ -604,14 +616,14 @@ func (a *App) UpdateWatchedFolder(id int64, config WatchedFolderConfig) error
 Partially update a watch folder — only the fields present in the map are changed.
 
 ```go
-func (a *App) UpdateWatchedFolderPartial(id int64, updates map[string]interface{}) error
+func (a *App) UpdateWatchedFolderPartial(id int64, fields map[string]json.RawMessage) error
 ```
 
 **Parameters:**
 | Name | Type | Description |
 |------|------|-------------|
 | `id` | int64 | Watch folder ID |
-| `updates` | map[string]interface{} | Key-value pairs to update. Valid keys match `WatchedFolderConfig` fields |
+| `fields` | map[string]json.RawMessage | Key-value pairs to update. Valid keys match `WatchedFolderConfig` fields. Values are raw JSON to be unmarshalled into the correct types |
 
 **JavaScript usage:**
 ```javascript
@@ -1090,10 +1102,10 @@ func (s *PluginService) GetPlugins() ([]PluginInfo, error)
 
 ### ImportPlugin
 
-Opens a file dialog to import a `.lua` plugin file.
+Opens a file dialog and returns a preview for review. The frontend should call `ConfirmPluginInstall(path)` after user approves.
 
 ```go
-func (s *PluginService) ImportPlugin() (*PluginInfo, error)
+func (s *PluginService) ImportPlugin() (*PluginPreview, error)
 ```
 
 ### ImportPluginFromPath
@@ -1171,17 +1183,17 @@ func (s *PluginService) ExecutePluginAction(pluginID int64, actionID string, cli
 Fetch a plugin from a URL and return a preview without installing it.
 
 ```go
-func (s *PluginService) PreviewPluginFromURL(url string) (PluginPreview, error)
+func (s *PluginService) PreviewPluginFromURL(rawURL string) (*PluginPreview, error)
 ```
 
-**Returns:** A `PluginPreview` containing the plugin's manifest, permissions, and source. Pass this to `ConfirmPluginInstall` to finalize installation.
+**Returns:** A `PluginPreview` containing the plugin's manifest, permissions, and source. Pass the source URL to `ConfirmPluginInstall` to finalize installation.
 
 ### PreviewPluginFromPath
 
 Read a plugin from a local file and return a preview without installing it.
 
 ```go
-func (s *PluginService) PreviewPluginFromPath(path string) (PluginPreview, error)
+func (s *PluginService) PreviewPluginFromPath(path string) (*PluginPreview, error)
 ```
 
 ### ConfirmPluginInstall
@@ -1189,55 +1201,77 @@ func (s *PluginService) PreviewPluginFromPath(path string) (PluginPreview, error
 Install a plugin after the user has reviewed its preview.
 
 ```go
-func (s *PluginService) ConfirmPluginInstall(preview PluginPreview) error
+func (s *PluginService) ConfirmPluginInstall(source string) (*PluginInfo, error)
 ```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `source` | string | The plugin source — a URL (`http://` or `https://`) or a local file path |
+
+**Returns:** The installed plugin's info.
 
 ### GetUpdateCheckInterval
 
-Get the interval (in minutes) between automatic plugin update checks.
+Get the current plugin update check interval setting.
 
 ```go
-func (s *PluginService) GetUpdateCheckInterval() int
+func (s *PluginService) GetUpdateCheckInterval() (string, error)
 ```
+
+**Returns:** The interval as a string (e.g., `"startup"`, `"6h"`, `"24h"`, `"disabled"`). Defaults to `"24h"`.
 
 ### SetUpdateCheckInterval
 
 Set the automatic plugin update check interval.
 
 ```go
-func (s *PluginService) SetUpdateCheckInterval(minutes int) error
+func (s *PluginService) SetUpdateCheckInterval(interval string) error
 ```
 
 **Parameters:**
 | Name | Type | Description |
 |------|------|-------------|
-| `minutes` | int | Interval in minutes. 0 disables automatic checks |
+| `interval` | string | One of `"startup"`, `"6h"`, `"24h"`, or `"disabled"` |
 
 ### CheckForUpdates
 
 Check all installed plugins for available updates.
 
 ```go
-func (s *PluginService) CheckForUpdates() []PluginUpdate
+func (s *PluginService) CheckForUpdates() ([]*plugin.PluginUpdateInfo, error)
 ```
 
-**Returns:** A list of plugins with pending updates.
+**Returns:** A list of plugins with pending updates, and an error if the check fails.
 
 ### UpdatePlugin
 
-Download the latest version of a plugin.
+Fetch the latest version of a plugin from its source URL. If new permissions are required, returns a preview for re-review instead of applying the update.
 
 ```go
-func (s *PluginService) UpdatePlugin(id int64) error
+func (s *PluginService) UpdatePlugin(pluginID int64) (*UpdateResult, error)
+```
+
+**UpdateResult structure:**
+```go
+type UpdateResult struct {
+    Success     bool           `json:"success"`
+    NeedsReview bool           `json:"needs_review"`
+    Preview     *PluginPreview `json:"preview,omitempty"`
+    PluginInfo  *PluginInfo    `json:"plugin_info,omitempty"`
+    Error       string         `json:"error,omitempty"`
+}
 ```
 
 ### ConfirmPluginUpdate
 
-Apply a previously downloaded plugin update after user review.
+Apply a previously downloaded plugin update after user review of new permissions.
 
 ```go
-func (s *PluginService) ConfirmPluginUpdate(id int64) error
+func (s *PluginService) ConfirmPluginUpdate(pluginID int64) (*PluginInfo, error)
 ```
+
+**Returns:** The updated plugin's info.
 
 ---
 
@@ -1354,8 +1388,10 @@ Tag HTTP server management, accessed via `window.go.main.ServeService.*` in Java
 Start an HTTP server for a tag's clips.
 
 ```go
-func (s *ServeService) StartServing(tagID int64, port int, bindAll bool, apiAccess string) error
+func (s *ServeService) StartServing(tagID int64, port int, bindAll bool, apiAccess string) (ServeInfo, error)
 ```
+
+**Returns:** A `ServeInfo` describing the running server (tag ID, port, URL, etc.), and an error if the server could not be started.
 
 **Parameters:**
 | Name | Type | Description |
@@ -1410,13 +1446,16 @@ REST API server management, accessed via `window.go.main.APIService.*` in JavaSc
 Start the REST API HTTP server.
 
 ```go
-func (s *APIService) StartAPI(port int) error
+func (s *APIService) StartAPI(port int, bindAll bool) (APIStatus, error)
 ```
 
 **Parameters:**
 | Name | Type | Description |
 |------|------|-------------|
 | `port` | int | TCP port to listen on |
+| `bindAll` | bool | `true` to bind `0.0.0.0` (LAN-accessible), `false` for `127.0.0.1` only |
+
+**Returns:** An `APIStatus` describing the running server, and an error if the server could not be started.
 
 ---
 
@@ -1447,7 +1486,7 @@ func (s *APIService) GetAPIStatus() APIStatus
 Create a new API key for authenticating REST API requests.
 
 ```go
-func (s *APIService) CreateAPIKey(name string, role string, scopedTagID int64) (string, error)
+func (s *APIService) CreateAPIKey(name string, role string, scopedTagID int64) (*APIKeyCreateResult, error)
 ```
 
 **Parameters:**
@@ -1457,7 +1496,15 @@ func (s *APIService) CreateAPIKey(name string, role string, scopedTagID int64) (
 | `role` | string | Permission role (e.g., `"admin"`, `"read"`) |
 | `scopedTagID` | int64 | Tag ID to scope access to (0 for unrestricted) |
 
-**Returns:** The raw API key string (prefixed `mp_`). This is the only time the full key is returned — store it securely.
+**APIKeyCreateResult structure:**
+```go
+type APIKeyCreateResult struct {
+    Key  string     `json:"key"`   // The raw API key (prefixed mp_), shown only once
+    Info APIKeyInfo `json:"info"`  // Key metadata
+}
+```
+
+**Returns:** The result containing the raw API key string (prefixed `mp_`) and key metadata. This is the only time the full key is returned — store it securely.
 
 :::tip
 Pass the key as `MP_API_KEY` environment variable or as a `Bearer` token in the `Authorization` header.
@@ -1470,7 +1517,7 @@ Pass the key as `MP_API_KEY` environment variable or as a `Bearer` token in the 
 List all API keys (without revealing the raw key values).
 
 ```go
-func (s *APIService) ListAPIKeys() []APIKeyInfo
+func (s *APIService) ListAPIKeys() ([]APIKeyInfo, error)
 ```
 
 **Returns:** Metadata for each key — ID, name, role, scoped tag, creation date, and a masked key prefix.
@@ -1555,10 +1602,10 @@ Events emitted from Go to JavaScript:
 Emitted when a file is imported from a watched folder.
 
 ```go
-runtime.EventsEmit(ctx, "watch:import", filename)
+runtime.EventsEmit(ctx, "watch:import", clip)
 ```
 
-**Payload:** `string` - The filename that was imported.
+**Payload:** `ClipPreview` - The full clip preview data for the imported clip (see `ClipPreview` structure under `GetClips`).
 
 ### watch:error
 
@@ -1577,8 +1624,8 @@ runtime.EventsEmit(ctx, "watch:error", map[string]string{
 ```javascript
 import { EventsOn } from '../wailsjs/runtime/runtime';
 
-EventsOn('watch:import', (filename) => {
-    console.log(`Imported: ${filename}`);
+EventsOn('watch:import', (clip) => {
+    console.log(`Imported: ${clip.filename} (id=${clip.id})`);
 });
 
 EventsOn('watch:error', (data) => {

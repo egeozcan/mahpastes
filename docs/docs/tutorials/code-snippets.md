@@ -11,7 +11,7 @@ Use mahpastes as a personal code snippet library. Store, organize, and reuse cod
 - **Quick access**: Faster than searching through old projects
 - **Cross-project**: Snippets available regardless of current project
 - **Editable**: Modify snippets before using
-- **Searchable**: Find snippets by filename
+- **Searchable**: Find snippets by filename or file type
 
 ## Saving Code Snippets
 
@@ -26,7 +26,7 @@ The code is saved as a text clip.
 
 ### Tips for Saving
 
-**Use descriptive paste context**: When you paste, the clip is named `pasted_text.txt`. For better organization, consider:
+**Use descriptive paste context**: When you paste, the clip is named `pasted_text_<timestamp>.txt`. For better organization, consider:
 
 1. Creating a text file with a descriptive name
 2. Pasting your code into it
@@ -54,53 +54,56 @@ Benefits:
 
 ### Use Search
 
-Filter clips by filename:
+Filter snippets by filename or file type:
 
 1. Type in the search bar
 2. Results filter instantly
 3. Find your snippet quickly
 
+Search matches filename and file type, not the full snippet body.
+
 Search tips:
-- Search by language: "python", "react", "sql"
-- Search by purpose: "retry", "pagination", "auth"
-- Search by project: "myapp", "api"
+- Include the language in the filename: `python`, `react`, `sql`
+- Include the snippet purpose in the filename: `retry`, `pagination`, `auth`
+- Include the project name in the filename when it matters
 
 ## Using Snippets
 
 ### Copy and Paste
 
 1. Find your snippet
-2. Open the clip menu (three dots), hover over **Copy**, and click **Copy Contents**
+2. Open the clip menu (three dots), hover over **Copy**, and click **Contents**
 3. Paste into your editor
 
 ### Modify Before Using
 
 Often you need to customize a snippet:
 
-1. Click the edit button on the snippet
+1. Open the clip menu (three dots) and click **Edit**
 2. Modify the code in the editor
 3. Either:
-   - Save with **Save As** (creates a new updated clip)
-   - Copy the text and cancel (keeps original)
+   - Click **Save** to overwrite the current clip
+   - Click **Save As** (creates a new clip with your changes)
+   - Copy the text and close the editor (keeps original unchanged)
 
 ### Copy Path for CLI
 
 Some tools work better with file paths:
 
 1. Open the clip menu (three dots)
-2. Hover over **Copy**, then click **Copy Path**
+2. Hover over **Copy**, then click **Path**
 3. Path is copied to clipboard
 4. Use in terminal:
 
 ```bash
 # View with syntax highlighting (if bat installed)
-bat $(pbpaste)
+bat "$(pbpaste)"
 
 # Source a shell script
-source $(pbpaste)
+source "$(pbpaste)"
 
 # Run a Python script
-python $(pbpaste)
+python "$(pbpaste)"
 ```
 
 ## Snippet Categories
@@ -201,7 +204,7 @@ git log --oneline --graph --all --decorate
 
 1. Find relevant snippets
 2. Select multiple (Shift-click)
-3. Download as ZIP
+3. Download them as a ZIP archive
 4. Share with team
 5. Each person imports into their mahpastes
 
@@ -226,8 +229,7 @@ Each snippet should do one thing:
 
 When you improve a snippet:
 1. Edit it in mahpastes
-2. Save the updated version
-3. Old version is replaced
+2. Use **Save** to overwrite it, or **Save As** to keep the original and create a new version
 
 ### Version Control Alternative
 

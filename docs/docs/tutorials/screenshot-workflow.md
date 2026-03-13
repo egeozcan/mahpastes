@@ -70,7 +70,7 @@ Make your screenshot more useful with annotations.
 ### Open the Editor
 
 1. Find your screenshot in the gallery
-2. Click the edit button
+2. Right-click (or click the three-dot menu) and select **Edit**
 3. The image editor opens
 
 ### Add Highlights
@@ -110,31 +110,32 @@ Point to specific elements:
 
 ### Copy to Clipboard
 
-1. Click the copy button on the clip
+1. Right-click the clip (or click the three-dot menu) and open **Copy** > **Contents** or **File**
 2. Paste into your destination (Slack, email, etc.)
 
 ### Copy Path (for Terminal/CLI)
 
-1. Click the path icon
-2. mahpastes creates a temp file
-3. Path is copied to clipboard
-4. Use in terminal commands:
+1. Right-click the clip (or click the three-dot menu) and open **Copy** > **Path**
+2. mahpastes creates a temp file and copies its path to clipboard
+3. Use in terminal commands:
 
 ```bash
-# Attach to GitHub issue
-gh issue create --body "See screenshot" --attach $(pbpaste)
+# Open it locally (macOS example)
+open "$(pbpaste)"
+
+# Copy it somewhere permanent
+cp "$(pbpaste)" ~/Desktop/bug-screenshot.png
 
 # Upload somewhere
 curl -F "file=@$(pbpaste)" https://upload.example.com
-
-# Open in Preview (macOS)
-open $(pbpaste)
 ```
+
+If you are not on macOS, replace `pbpaste` with your platform's clipboard command.
 
 ### Save to Disk
 
-1. Click the download button
-2. Choose save location
+1. Right-click the clip (or click the three-dot menu) and select **Save**
+2. Choose a save location in the native file dialog
 3. Share the file as needed
 
 ## Automated Screenshot Workflow
@@ -148,9 +149,9 @@ Set up automatic import for zero-friction capture.
    - macOS: `~/Desktop` or custom location
    - Windows: Often `Pictures/Screenshots`
    - Linux: Varies by tool
-3. Filter: Images preset
-4. Auto-archive: Off (keep in main gallery)
-5. Save
+3. Under **File Types**, check **Images**
+4. Auto-archive: Leave unchecked (keep in main gallery)
+5. Click **Add Folder**
 
 ### The Result
 

@@ -277,8 +277,7 @@ Then:
 
 Check watch status regularly:
 - Green = actively watching
-- Yellow = paused
-- Red = folder missing or error
+- Yellow/Amber = paused or folder missing
 
 ## Troubleshooting
 

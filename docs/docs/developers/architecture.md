@@ -65,11 +65,19 @@ watcher.go               Folder watching, file import
 backup.go                ZIP backup and restore
 clipboard_service.go     Clipboard copy service (Wails-bound)
 clipboard_darwin.go      macOS clipboard via NSPasteboard (CGo)
+clipboard_windows.go     Windows clipboard via PowerShell
+clipboard_other.go       Unsupported platform stub
 transfer_service.go      Drag-out preparation and native drag
+transfer_handler.go      HTTP handler for transfer file serving (DownloadURL)
 transfer_types.go        Transfer system type definitions
 app_transfer_helpers.go  Bridge between App and TempClipStore
 temp_clip_store.go       Leased temp file management
 native_drag_darwin.go    macOS native drag via CGo
+native_drag_windows.go   Windows native drag stub
+native_drag_other.go     Unsupported platform stub
+open_darwin.go           Open file with default app (macOS)
+open_windows.go          Open file with default app (Windows)
+open_other.go            Unsupported platform stub
 plugin_service.go        Plugin frontend API (Wails-bound)
 plugins.go               Plugin install/uninstall helpers
 serve_manager.go         Tag serve HTTP server lifecycle and routing
@@ -84,7 +92,12 @@ plugin/                  Lua plugin system
 ├── manifest.go          Manifest parsing, validation
 ├── sandbox.go           Sandboxed Lua execution
 ├── scheduler.go         Scheduled/recurring plugin tasks
-└── api_*.go             Lua APIs (clips, tags, storage, http, fs, utils, task, toast, image, modal)
+├── fetch.go             Plugin fetching and downloading
+├── semver.go            Semantic versioning helpers
+├── update_checker.go    Plugin update checking
+├── permission_diff.go   Permission diff logic for plugin updates
+├── fonts/               Bundled fonts for image overlay
+└── api_*.go             Lua APIs (clips, tags, storage, http, fs, utils, task, toast, image, modal, metadata)
 ```
 
 ### Frontend Components
@@ -111,6 +124,9 @@ frontend/
 │   ├── tooltips.js      Tooltip management
 │   ├── shortcuts.js     Keyboard shortcut registration and context handling
 │   ├── plugin-review.js Plugin permission review UI
+│   ├── context-menu.js  Shared context menu module
+│   ├── folder-drag.js   Folder drag-and-drop for moving clips between folders
+│   ├── roving-tabindex.js  Reusable roving tabindex keyboard navigation
 │   ├── utils.js         Shared utilities
 │   ├── wails-api.js     Wails bindings wrapper
 │   ├── serve.js         Tag serve view UI
@@ -122,7 +138,7 @@ frontend/
 
 ## Wails-Bound Services
 
-The backend exposes multiple Go structs to the frontend via Wails bindings. These exist as separate structs for organizational clarity — not because of binding limits (the `App` struct has 66+ methods that all bind correctly).
+The backend exposes multiple Go structs to the frontend via Wails bindings. These exist as separate structs for organizational clarity — not because of binding limits (the `App` struct has 90+ methods that all bind correctly).
 
 | Service | File | Frontend access | Purpose |
 |---------|------|-----------------|---------|
@@ -268,12 +284,17 @@ let currentLightboxIndex = -1;    // Current lightbox position
 ```go
 // App struct in app.go
 type App struct {
-    ctx            context.Context
-    db             *sql.DB
-    tempDir        string
-    mu             sync.Mutex
-    watcherManager *WatcherManager
-    pluginManager  *plugin.Manager
+    ctx              context.Context
+    db               *sql.DB
+    tempDir          string
+    tempStore        *TempClipStore
+    transferHandler  *TransferFileHandler
+    mu               sync.Mutex
+    watcherManager   *WatcherManager
+    serveManager     *ServeManager
+    apiManager       *APIManager
+    pluginManager    *plugin.Manager
+    clipboardService *ClipboardService
 }
 ```
 
@@ -297,12 +318,12 @@ Go emits events that JavaScript listens for:
 
 ```go
 // Backend emits
-runtime.EventsEmit(a.ctx, "watch:import", filename)
+runtime.EventsEmit(a.ctx, "watch:import", clip)
 
 // Frontend listens
-runtime.EventsOn("watch:import", (filename) => {
-    showToast(`Imported: ${filename}`);
-    loadClips();
+window.runtime.EventsOn("watch:import", (clip) => {
+    showToast(`Imported: ${clip.filename}`);
+    // Update gallery if clip matches current view filters
 });
 ```
 
@@ -338,11 +359,12 @@ try {
 
 ## Security Considerations
 
-### Local Only
+### Local First
 
 - All data stays on the user's machine
-- No network requests (except Wails dev mode and plugin HTTP APIs)
-- No cloud sync or external APIs (plugins may make network requests with user permission)
+- No cloud sync or external APIs
+- Optional HTTP servers: REST API (authenticated with Bearer tokens) and tag serve servers (cookie-based auth) can listen on configurable ports
+- Plugins may make network requests with user permission
 
 ### File System Access
 

@@ -33,7 +33,7 @@ The main window shows your clips in a grid layout:
 
 ![Gallery view](/img/screenshots/gallery.png)
 
-The bottom bar shows the clip count, sort options, and expiry dropdown for new uploads.
+The bottom bar shows the clip count, an **+ Add** button, and an expiry dropdown for new uploads. Sort options are in the header bar next to the search field.
 
 ![Bottom bar](/img/screenshots/bottom-bar.png)
 
@@ -43,12 +43,17 @@ Open the clip context menu (three dots on each card) to access actions:
 
 | Button | Action |
 |--------|--------|
-| **Copy Contents** | Copy content back to clipboard |
-| **Copy File** | Copy the clip as a file to clipboard |
-| **Copy Path** | Create temp file and copy its path |
-| **Edit** | Open in image or text editor |
-| **Archive** | Move to archive |
-| **Save** | Save to disk |
+| **Open** | Open with your default application |
+| **Open With...** | Choose an application to open this clip |
+| **Copy** | Submenu with **Path** (temp file path), **File** (file to clipboard), and **Contents** (for text, JSON, and images) |
+| **Save** | Open the native save dialog and export a copy to disk |
+| **Edit** | Open supported image, text, or JSON clips in the built-in editor |
+| **Tags** | Add or remove tags |
+| **Metadata** | View and edit file metadata |
+| **Rename** | Change the filename |
+| **Set Expiration** | Schedule auto-deletion after a time period (or cancel an existing expiration) |
+| **Archive** | Move to archive (or **Restore** in archive view) |
+| **Merge Duplicates** | Merge identical copies when duplicates exist |
 | **Delete** | Remove permanently |
 
 ![Clip card menu](/img/screenshots/card-menu.png)
@@ -57,7 +62,7 @@ Open the clip context menu (three dots on each card) to access actions:
 
 ### Copy Back to Clipboard
 
-Use a clip's three-dot menu and click **Copy Contents**, then paste it anywhere.
+Use a clip's three-dot menu and choose **Copy** -> **Contents**, then paste it anywhere.
 
 For images in the lightbox, <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">C</span> also copies the active clip contents.
 
@@ -66,19 +71,19 @@ For images in the lightbox, <span className="keyboard-key">Cmd</span>/<span clas
 Need to reference a file in terminal or another app? Use **Copy Path**:
 
 1. Open the clip menu (three dots)
-2. Click **Copy Path**
+2. Open **Copy** -> **Path**
 3. mahpastes creates a temporary file
 4. The file path is copied to your clipboard
 5. Paste the path wherever you need it
 
-Temp files are cleaned up when you quit mahpastes.
+Temp files created by **Copy Path** are leased temporary files. mahpastes cleans them up periodically and again when the app exits.
 
 ### Search and Filter
 
-Use the search bar to filter clips:
+Use the search bar to filter the clips currently shown in the gallery:
 
 - Type a filename to find specific clips
-- Filter by type (images, text, etc.)
+- Search by file type or MIME text (for example `image` or `text/plain`)
 - Results update instantly
 
 ## Clip Expiration
@@ -109,34 +114,41 @@ In Archive view, open a clip's menu and click **Restore** to move it back to the
 
 ### Edit Images
 
-1. Click the edit button on an image clip
+1. Open an image clip's menu and click **Edit**
 2. Use the toolbar to annotate:
+   - **Select** — Select and move annotations
+   - **Crop** — Crop the image
    - **Brush** — Freehand drawing
+   - **Eraser** — Erase drawn content
    - **Line** — Draw straight lines
+   - **Arrow** — Draw arrows
    - **Rectangle** — Draw rectangles
    - **Circle** — Draw circles
    - **Text** — Add text annotations
-   - **Eraser** — Erase annotations
-3. Click **Save As** to create a new clip with your edits
+   - **Anonymize** — Pixelate a region
+   - **Eyedropper** — Pick a color from the image
+3. Click **Save** to overwrite the original clip, or **Save As** to create a new clip with your edits
 
 ### Edit Text
 
-1. Click the edit button on a text clip
+1. Open a text clip's menu and click **Edit**
 2. Modify the content in the editor
-3. Click **Save As** to create a new clip with the changes
+3. Click **Save** to overwrite the original, or **Save As** to create a new clip with the changes
 
 ## Bulk Operations
 
 Select multiple clips for batch operations:
 
 1. Click the checkbox on each clip you want to select
+   You can also Shift-click checkboxes to select a range.
 2. Use the bulk action bar that appears:
-   - **Copy** — Copy selected clips as files to system clipboard
+   - **Compare** — Compare two selected images side-by-side (visible when exactly 2 images are selected)
    - **Tag** — Add or remove tags from selected clips
+   - **Expire** / **Clear Expiry** — Set or remove expiration on selected clips
+   - **Copy** — Copy selected clips as files to system clipboard
+   - **Download** — Save the selected clips as a ZIP file via the native save dialog
    - **Archive** — Move selected to archive
-   - **Download** — Save as ZIP file
    - **Delete** — Remove all selected
-   - **Compare** — Compare two selected images side-by-side
 
 ## Keyboard Shortcuts
 
@@ -149,7 +161,7 @@ Essential shortcuts for power users:
 | <span className="keyboard-key">Esc</span> | Close modal/dialog |
 | <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">Z</span> | Undo (in editor) |
 | <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">Y</span> | Redo (in editor) |
-| <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">S</span> | Save (in editor) |
+| <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">S</span> | Save As (in editor) |
 
 See all shortcuts in [Keyboard Shortcuts](/getting-started/keyboard-shortcuts).
 

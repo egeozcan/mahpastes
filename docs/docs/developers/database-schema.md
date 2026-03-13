@@ -274,11 +274,12 @@ CREATE TABLE IF NOT EXISTS api_keys (
     name TEXT NOT NULL,
     key_hash TEXT NOT NULL UNIQUE,
     key_prefix TEXT NOT NULL,
-    role TEXT NOT NULL DEFAULT 'admin',
+    role TEXT NOT NULL DEFAULT 'viewer',
     scoped_tag_id INTEGER,
-    is_revoked INTEGER NOT NULL DEFAULT 0,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    last_used_at DATETIME
+    is_revoked INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    last_used_at DATETIME,
+    FOREIGN KEY (scoped_tag_id) REFERENCES tags(id) ON DELETE CASCADE
 );
 ```
 
@@ -288,7 +289,7 @@ CREATE TABLE IF NOT EXISTS api_keys (
 | `name` | TEXT | Human-readable key name |
 | `key_hash` | TEXT | SHA-256 hash of the raw key (unique) |
 | `key_prefix` | TEXT | First 8 characters of the raw key, for identification in listings |
-| `role` | TEXT | `"admin"` (full access) or `"viewer"` (read-only) |
+| `role` | TEXT | `"viewer"` (read-only, default) or `"admin"` (full access) |
 | `scoped_tag_id` | INTEGER | Tag ID to restrict access to (nullable — NULL means global access) |
 | `is_revoked` | INTEGER | 0 = active, 1 = revoked |
 | `created_at` | DATETIME | When the key was created |
@@ -296,6 +297,7 @@ CREATE TABLE IF NOT EXISTS api_keys (
 
 **Constraints:**
 - `key_hash` must be unique
+- Foreign key on `scoped_tag_id` with cascading delete when tag is removed
 - Raw keys are never stored — only the SHA-256 hash is persisted. The raw key is returned once at creation time and cannot be retrieved afterward.
 
 ## Schema Migrations
@@ -309,12 +311,12 @@ db.Exec(createTableSQL)
 // Migrations (idempotent - ALTER TABLE silently fails if column exists)
 db.Exec("ALTER TABLE clips ADD COLUMN is_archived INTEGER DEFAULT 0")
 db.Exec("ALTER TABLE clips ADD COLUMN expires_at DATETIME")
+db.Exec("ALTER TABLE clips ADD COLUMN content_hash TEXT DEFAULT ''")
+db.Exec("CREATE INDEX IF NOT EXISTS idx_clips_content_hash ON clips(content_hash)")
+db.Exec("ALTER TABLE clips ADD COLUMN metadata TEXT DEFAULT '{}'")
 db.Exec("ALTER TABLE watched_folders ADD COLUMN auto_tag_id INTEGER")
 db.Exec("ALTER TABLE plugin_permissions ADD COLUMN pending_reconfirm INTEGER DEFAULT 0")
 db.Exec("ALTER TABLE plugins ADD COLUMN source_url TEXT DEFAULT ''")
-db.Exec("ALTER TABLE clips ADD COLUMN content_hash TEXT DEFAULT ''")
-db.Exec("ALTER TABLE clips ADD COLUMN metadata TEXT DEFAULT '{}'")
-db.Exec("CREATE INDEX IF NOT EXISTS idx_clips_content_hash ON clips(content_hash)")
 ```
 
 Migrations use `ALTER TABLE` which silently fails if column exists.
@@ -326,7 +328,10 @@ Migrations use `ALTER TABLE` which silently fails if column exists.
 All pragmas are set in the DSN string so they apply to every pooled connection:
 
 ```go
-dsn := dbPath + "?_busy_timeout=5000&_journal_mode=wal&_foreign_keys=on"
+dsn := dbPath +
+    "?_pragma=busy_timeout%3D5000" +
+    "&_pragma=journal_mode%3Dwal" +
+    "&_pragma=foreign_keys%3Don"
 db, err := sql.Open("sqlite", dsn)
 ```
 
@@ -334,7 +339,7 @@ db, err := sql.Open("sqlite", dsn)
 |--------|-------|---------|
 | `busy_timeout` | 5000 | Wait up to 5 seconds when database is locked |
 | `journal_mode` | WAL | Write-Ahead Logging for better read/write concurrency |
-| `foreign_keys` | ON | Required for CASCADE deletes on `clip_tags`, `plugin_permissions`, `plugin_storage` |
+| `foreign_keys` | ON | Required for CASCADE deletes on `clip_tags`, `plugin_permissions`, `plugin_storage`, `api_keys` |
 
 Setting pragmas via DSN (not `db.Exec`) is important because `sql.Open` may use a connection pool. A `db.Exec("PRAGMA ...")` call only applies to one connection, while DSN-based pragmas apply to all connections the pool creates.
 

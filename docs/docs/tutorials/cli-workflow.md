@@ -297,16 +297,15 @@ mp clip get 42 --json | jq '.filename'
 | Code | Meaning |
 |------|---------|
 | 0 | Success |
-| 1 | General error |
-| 2 | Connection error (app not running or API not enabled) |
+| 1 | General error (includes connection failures) |
 | 3 | Authentication error (invalid or revoked key) |
 
 Use exit codes in scripts:
 
 ```bash
 mp api status > /dev/null 2>&1
-if [ $? -eq 2 ]; then
-  echo "mahpastes is not running"
+if [ $? -ne 0 ]; then
+  echo "mahpastes is not reachable or key is invalid"
 fi
 ```
 

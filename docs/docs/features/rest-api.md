@@ -146,7 +146,7 @@ Query parameters:
 GET /api/v1/clips/{id}
 ```
 
-Returns the clip object with `id`, `filename`, `content_type`, `size`, `created_at`, `archived`, `tags`, and other fields.
+Returns the clip object with `id`, `filename`, `content_type`, `size`, `created_at`, `is_archived`, `tags`, and other fields.
 
 #### Download clip data
 
@@ -563,16 +563,14 @@ POST /api/v1/plugins
 Content-Type: application/json
 ```
 
-Install from a URL:
+Pass a URL or local file path in the `source` field:
 
 ```json
-{ "url": "https://example.com/plugin.lua" }
+{ "source": "https://example.com/plugin.lua" }
 ```
 
-Install from a local path:
-
 ```json
-{ "path": "/Users/me/plugins/my-plugin.lua" }
+{ "source": "/Users/me/plugins/my-plugin.lua" }
 ```
 
 #### Remove a plugin
@@ -604,7 +602,7 @@ Returns all key-value pairs for the plugin.
 GET /api/v1/plugins/{id}/storage/{key}
 ```
 
-Returns `{ "value": "..." }`.
+Returns `{ "key": "...", "value": "..." }`.
 
 ```
 PUT /api/v1/plugins/{id}/storage/{key}
@@ -623,10 +621,10 @@ Content-Type: application/json
 ```
 
 ```json
-{ "clip_id": 42, "options": { "style": "watercolor" } }
+{ "clip_ids": [42], "options": { "style": "watercolor" } }
 ```
 
-Pass `clip_id` to identify the target clip and `options` for any form fields defined in the action manifest.
+Pass `clip_ids` to identify the target clip(s) and `options` for any form fields defined in the action manifest. Both fields are optional.
 
 #### Check for updates
 
