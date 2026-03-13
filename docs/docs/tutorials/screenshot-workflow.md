@@ -70,8 +70,12 @@ Make your screenshot more useful with annotations.
 ### Open the Editor
 
 1. Find your screenshot in the gallery
-2. Right-click (or click the three-dot menu) and select **Edit**
+2. Open the clip menu (three dots) and select **Edit**
 3. The image editor opens
+
+:::tip
+Clicking an image preview opens the lightbox viewer, not the editor. To reach the editor, use the clip menu on the card or the **Actions** menu inside the lightbox.
+:::
 
 ### Add Highlights
 
@@ -110,12 +114,12 @@ Point to specific elements:
 
 ### Copy to Clipboard
 
-1. Right-click the clip (or click the three-dot menu) and open **Copy** > **Contents** or **File**
+1. Open the clip menu (three dots), hover over **Copy**, and click **Contents** or **File**
 2. Paste into your destination (Slack, email, etc.)
 
 ### Copy Path (for Terminal/CLI)
 
-1. Right-click the clip (or click the three-dot menu) and open **Copy** > **Path**
+1. Open the clip menu (three dots), hover over **Copy**, and click **Path**
 2. mahpastes creates a temp file and copies its path to clipboard
 3. Use in terminal commands:
 
@@ -134,7 +138,7 @@ If you are not on macOS, replace `pbpaste` with your platform's clipboard comman
 
 ### Save to Disk
 
-1. Right-click the clip (or click the three-dot menu) and select **Save**
+1. Open the clip menu (three dots) and select **Save**
 2. Choose a save location in the native file dialog
 3. Share the file as needed
 
@@ -144,14 +148,14 @@ Set up automatic import for zero-friction capture.
 
 ### Configure Watch Folder
 
-1. Open Watch Folders settings
-2. Add your screenshots folder:
+1. Open the menu drawer and click the **Watch** tab
+2. Click **Add Folder** and select your screenshots folder:
    - macOS: `~/Desktop` or custom location
    - Windows: Often `Pictures/Screenshots`
    - Linux: Varies by tool
-3. Under **File Types**, check **Images**
-4. Auto-archive: Leave unchecked (keep in main gallery)
-5. Click **Add Folder**
+3. Set **Filter Mode** to **Presets** and check **Images**
+4. Leave **Auto-Archive** unchecked (keep in main gallery)
+5. Click **Save**
 
 ### The Result
 

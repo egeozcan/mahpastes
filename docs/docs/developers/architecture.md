@@ -43,6 +43,10 @@ mahpastes is built using Wails, a framework for building desktop applications wi
 | Database | SQLite 3 | Local data storage |
 | Clipboard | golang.design/x/clipboard | Cross-platform clipboard |
 | File Watch | fsnotify | Filesystem events |
+| Plugins | gopher-lua | Lua scripting sandbox |
+| CLI | cobra | `mp` CLI command framework |
+| EXIF | goexif | Image metadata extraction |
+| COM (Windows) | go-ole | OLE drag-and-drop interop |
 
 ### Frontend (Web)
 
@@ -73,7 +77,7 @@ transfer_types.go        Transfer system type definitions
 app_transfer_helpers.go  Bridge between App and TempClipStore
 temp_clip_store.go       Leased temp file management
 native_drag_darwin.go    macOS native drag via CGo
-native_drag_windows.go   Windows native drag stub
+native_drag_windows.go   Windows native drag (full COM OLE DoDragDrop implementation)
 native_drag_other.go     Unsupported platform stub
 open_darwin.go           Open file with default app (macOS)
 open_windows.go          Open file with default app (Windows)
@@ -138,7 +142,7 @@ frontend/
 
 ## Wails-Bound Services
 
-The backend exposes multiple Go structs to the frontend via Wails bindings. These exist as separate structs for organizational clarity — not because of binding limits (the `App` struct has 90+ methods that all bind correctly).
+The backend exposes multiple Go structs to the frontend via Wails bindings. As the source code comment in `main.go` notes, services are separate structs to stay under the Wails ~49 method binding limit. In practice the `App` struct has grown to 70 exported methods and all bind correctly, so the limit may not be enforced. The separate services remain as an organizational boundary, grouping related functionality into dedicated files and structs.
 
 | Service | File | Frontend access | Purpose |
 |---------|------|-----------------|---------|

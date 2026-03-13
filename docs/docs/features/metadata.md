@@ -4,7 +4,7 @@ sidebar_position: 5.5
 
 # Clip Metadata
 
-Attach arbitrary key-value pairs to any clip. Metadata is stored as a JSON column on the clips table and backed up with your data.
+Attach arbitrary key-value pairs to any clip. Both keys and values are **strings**. Metadata is stored as a JSON column on the clips table and backed up with your data.
 
 ![Metadata modal](/img/screenshots/metadata-modal.png)
 
@@ -27,17 +27,24 @@ The metadata modal shows all existing pairs for the clip as editable input field
 | Key length | 256 characters |
 | Value length | 4096 characters |
 | Pairs per clip | 50 |
+| Key content | Cannot be empty |
 
 Writes use an atomic read-modify-write inside a database transaction, so concurrent updates do not corrupt data.
 
+:::note
+Metadata is not searchable or filterable in the gallery. It is informational -- you use the metadata modal, REST API, or plugin API to read and write it.
+:::
+
 ## REST API
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/v1/clips/{id}/metadata` | Returns all key-value pairs for a clip |
-| PUT | `/api/v1/clips/{id}/metadata/{key}` | Sets a single key-value pair |
-| DELETE | `/api/v1/clips/{id}/metadata/{key}` | Removes a single key |
-| PUT | `/api/v1/clips/{id}/metadata` | Atomically replaces all metadata |
+| Method | Endpoint | Min Role | Description |
+|--------|----------|----------|-------------|
+| GET | `/api/v1/clips/{id}/metadata` | viewer | Returns all key-value pairs for a clip |
+| PUT | `/api/v1/clips/{id}/metadata/{key}` | editor | Sets a single key-value pair |
+| DELETE | `/api/v1/clips/{id}/metadata/{key}` | editor | Removes a single key |
+| PUT | `/api/v1/clips/{id}/metadata` | editor | Atomically replaces all metadata |
+
+For full request/response details, see the [REST API reference](./rest-api.md).
 
 ## Plugin API
 
@@ -60,12 +67,12 @@ metadata.set_bulk(clip_id, {
 })
 ```
 
-| Function | Arguments | Description |
-|----------|-----------|-------------|
-| `metadata.get` | `clip_id` | Returns a table of all key-value pairs |
-| `metadata.set` | `clip_id, key, value` | Sets a single key-value pair |
-| `metadata.delete` | `clip_id, key` | Removes a key |
-| `metadata.set_bulk` | `clip_id, table` | Atomically replaces all metadata with the given table |
+| Function | Arguments | Returns | Description |
+|----------|-----------|---------|-------------|
+| `metadata.get` | `clip_id` | `table` or `nil, error` | Returns a table of all key-value pairs |
+| `metadata.set` | `clip_id, key, value` | `true` or `false, error` | Sets a single key-value pair |
+| `metadata.delete` | `clip_id, key` | `true` or `false, error` | Removes a key |
+| `metadata.set_bulk` | `clip_id, table` | `true` or `false, error` | Atomically replaces all metadata with the given table |
 
 The same limits (key 256 chars, value 4096 chars, 50 pairs) apply to plugin calls.
 

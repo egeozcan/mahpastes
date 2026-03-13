@@ -34,15 +34,16 @@ func (a *App) GetClips(archived bool, tagIDs []int64, hiddenTagIDs []int64, sort
 **ClipPreview structure:**
 ```go
 type ClipPreview struct {
-    ID          int64      `json:"id"`
-    ContentType string     `json:"content_type"`
-    Filename    string     `json:"filename"`
-    CreatedAt   time.Time  `json:"created_at"`
-    ExpiresAt   *time.Time `json:"expires_at"`
-    Preview     string     `json:"preview"`      // Text preview (500 chars max)
-    IsArchived  bool       `json:"is_archived"`
-    Tags        []Tag      `json:"tags"`          // Tags assigned to this clip
-    Size        int64      `json:"size"`          // Clip size in bytes
+    ID             int64      `json:"id"`
+    ContentType    string     `json:"content_type"`
+    Filename       string     `json:"filename"`
+    CreatedAt      time.Time  `json:"created_at"`
+    ExpiresAt      *time.Time `json:"expires_at"`
+    Preview        string     `json:"preview"`         // Text preview (500 chars max)
+    IsArchived     bool       `json:"is_archived"`
+    Tags           []Tag      `json:"tags"`             // Tags assigned to this clip
+    Size           int64      `json:"size"`             // Clip size in bytes
+    DuplicateCount int        `json:"duplicate_count"`  // Number of duplicates sharing the same content hash
 }
 ```
 

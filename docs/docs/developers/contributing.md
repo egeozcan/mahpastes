@@ -58,48 +58,76 @@ This starts the app with:
 ### Available Make Targets
 
 ```bash
-make dev        # Start dev server with hot reload
-make build      # Clean production build
-make install    # Build, kill running app, install to /Applications, launch
-make bindings   # Regenerate frontend bindings after Go changes
-make test       # Run e2e tests
-make test-headed # Run e2e tests with visible browser
-make test-debug # Run e2e tests with Playwright inspector
-make help       # Show all targets
+make dev          # Start dev server with hot reload
+make build        # Clean production build
+make clean        # Remove build artifacts
+make install      # Build, kill running app, install to /Applications, launch
+make uninstall    # Remove installed app from /Applications
+make bindings     # Regenerate frontend bindings after Go changes
+make test         # Run e2e tests
+make test-headed  # Run e2e tests with visible browser
+make test-debug   # Run e2e tests with Playwright inspector
+make screenshots  # Capture documentation screenshots via Playwright
+make mp           # Build mp CLI for current platform
+make mp-install   # Install mp to a user bin dir (or GOBIN if set)
+make mp-cross     # Cross-compile mp for all platforms
+make help         # Show all targets
 ```
 
 ## Project Structure
 
 ```
 mahpastes/
-├── Makefile             # Build, install, test targets
-├── main.go              # Entry point
-├── app.go               # Core logic, API
-├── database.go          # SQLite
-├── watcher.go           # File watching
-├── backup.go            # ZIP backup and restore
-├── clipboard_service.go # Clipboard copy service (Wails-bound)
-├── transfer_service.go  # Drag-out preparation and native drag
-├── transfer_types.go    # Transfer system type definitions
-├── app_transfer_helpers.go # Bridge between App and TempClipStore
-├── temp_clip_store.go   # Leased temp file management
-├── native_drag_darwin.go # macOS native drag via CGo
-├── plugin_service.go    # Plugin frontend API
-├── plugins.go           # Plugin helpers
-├── plugin/              # Lua plugin system
-├── plugins/             # Bundled plugin files
-├── go.mod               # Go dependencies
-├── wails.json           # Wails config
+├── Makefile                 # Build, install, test targets
+├── wails.json               # Wails build and dev configuration
+├── go.mod                   # Go module definition
+├── main.go                  # Entry point, Wails setup
+├── app.go                   # Core application logic, 70+ API methods
+├── database.go              # SQLite setup, schema, migrations
+├── watcher.go               # Folder watching, file import
+├── backup.go                # ZIP backup and restore
+├── tag_hierarchy.go         # Tag tree helpers (parent, root, descendant checks)
+├── clipboard_service.go     # Clipboard copy service (Wails-bound)
+├── clipboard_darwin.go      # macOS clipboard via NSPasteboard (CGo)
+├── clipboard_windows.go     # Windows clipboard via PowerShell
+├── clipboard_other.go       # Unsupported platform stub
+├── transfer_service.go      # Drag-out preparation and native drag
+├── transfer_handler.go      # HTTP handler for transfer file serving
+├── transfer_types.go        # Transfer system type definitions
+├── app_transfer_helpers.go  # Bridge between App and TempClipStore
+├── temp_clip_store.go       # Leased temp file management
+├── native_drag_darwin.go    # macOS native drag via CGo
+├── native_drag_windows.go   # Windows native drag via OLE DoDragDrop
+├── native_drag_other.go     # Unsupported platform stub
+├── open_darwin.go           # Open file with default app (macOS)
+├── open_windows.go          # Open file with default app (Windows)
+├── open_other.go            # Unsupported platform stub
+├── plugin_service.go        # Plugin frontend API (Wails-bound)
+├── plugins.go               # Plugin install/uninstall helpers
+├── serve_manager.go         # Tag serve HTTP server lifecycle and routing
+├── serve_json_api.go        # JSON API handler for served tags
+├── serve_file_upload.go     # File upload handler for served tags
+├── serve_service.go         # Tag serve Wails service (start/stop/status)
+├── api_manager.go           # REST API HTTP server and route registration
+├── api_service.go           # REST API Wails service (start/stop/keys)
+├── plugin/                  # Lua plugin system
+├── plugins/                 # Bundled plugin files (9 example plugins)
+├── cmd/mp/                  # CLI binary (stateless REST API client)
 ├── frontend/
-│   ├── index.html       # Main UI
-│   ├── js/              # JavaScript modules (~20 files)
-│   ├── css/             # Styles
-│   └── package.json     # Frontend deps
-├── e2e/                 # Playwright tests
-│   ├── tests/           # Test files by feature
-│   ├── fixtures/        # Test fixtures (AppHelper)
-│   └── helpers/         # Test utilities and selectors
-└── build/               # Build output
+│   ├── index.html           # Main UI (single HTML file)
+│   ├── js/                  # JavaScript modules (26 files incl. editor/)
+│   │   ├── app.js           # Core app logic
+│   │   ├── ui.js            # Gallery rendering
+│   │   ├── editor.js        # Editor wiring
+│   │   ├── editor/          # Modular editor tools (11 files)
+│   │   └── ...              # Tags, plugins, watch, transfer, etc.
+│   ├── css/                 # Styles (main.css, modals.css)
+│   └── package.json         # Frontend deps (Tailwind)
+├── e2e/                     # Playwright e2e tests
+│   ├── tests/               # Test files by feature
+│   ├── fixtures/            # Test fixtures (AppHelper)
+│   └── helpers/             # Test utilities and selectors
+└── build/                   # Build output
 ```
 
 ## Making Changes
@@ -127,7 +155,7 @@ mahpastes/
    }
    ```
 
-   **Note:** The App struct currently has 66+ methods and all bind correctly. Multiple services (`PluginService`, `ClipboardService`, `TransferService`) exist as separate structs for organizational clarity, not because of a binding limit.
+   **Note:** The App struct currently has 70+ methods and all bind correctly. Multiple services (`PluginService`, `ClipboardService`, `TransferService`, `ServeService`, `APIService`) exist as separate structs to stay under the Wails ~49 method binding limit (see comment in `main.go`), though the limit may not be enforced given the App struct's method count. They also serve as an organizational boundary, grouping related functionality into dedicated files.
 
 2. Regenerate bindings: `make bindings`
 

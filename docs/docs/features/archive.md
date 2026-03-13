@@ -28,7 +28,7 @@ Keep important clips separate from your active workspace. The archive provides l
 
 ## Viewing the Archive
 
-Click the archive button in the header (box icon), or open the menu drawer and click **Archive**.
+Click the archive button in the header (box icon), or open the navigation drawer and click **Archive**. You can also press <span className="keyboard-key">A</span> to toggle between the main gallery and the archive view.
 
 The archive view shows:
 - All archived clips in a grid
@@ -57,16 +57,23 @@ The archive view shows:
 ### Expiration
 
 :::warning
-Archiving a clip does **not** remove any existing expiration. If a clip has an auto-delete timer, it will still expire even when archived. The cleanup job runs regardless of archive status. To keep an archived clip permanently, cancel its expiration first.
+Archiving a clip does **not** remove any existing expiration. If a clip has an auto-delete timer, it will still expire even when archived. The cleanup job runs regardless of archive status. To keep an archived clip permanently, cancel its expiration first. See [Auto-Delete](./auto-delete.md) for details.
 :::
+
+### Plugin Events
+
+Archiving and unarchiving a clip emits plugin events (`clip:archived` and `clip:unarchived`). Plugins that subscribe to these events in their manifest can react to archive state changes.
 
 ### All Features Available
 
-Archived clips support all operations:
-- Copy to clipboard
-- Copy path
+Archived clips support the same context menu operations as active clips:
+- Open / Open With
+- Copy (Path, File, or Contents)
+- Save to disk
 - Edit (images and text)
-- Download
+- Tags and Metadata
+- Rename
+- Set or Cancel Expiration
 - Delete
 
 ### Search
@@ -149,8 +156,6 @@ Keep in main gallery:
 2. Archive valuable clips
 3. Delete unused clips
 4. Keep both views manageable
-
-## Tips
 
 ### Naming
 

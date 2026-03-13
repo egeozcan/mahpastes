@@ -380,23 +380,35 @@ Modals in `css/modals.css`:
 
 ### Development
 
+`wails dev` handles everything automatically -- it runs `npm install` and starts the Tailwind CSS watcher via `wails.json` configuration (`frontend:install` and `frontend:dev:watcher`):
+
+```bash
+# From the project root -- this is all you need
+wails dev
+```
+
+If you need to run the frontend build steps manually (e.g., to debug a Tailwind issue):
+
 ```bash
 cd frontend
 npm install              # Install Tailwind
 npm run dev              # Watch CSS changes
-
-# In root directory
-wails dev               # Start dev server
 ```
 
 ### Production
 
+`wails build` runs `npm install` and `npm run build` automatically before bundling:
+
+```bash
+# From the project root
+wails build
+```
+
+To run the frontend build step in isolation:
+
 ```bash
 cd frontend
-npm run build           # Build Tailwind CSS
-
-# In root directory
-wails build             # Build app
+npm run build           # Build and minify Tailwind CSS
 ```
 
 ## Best Practices

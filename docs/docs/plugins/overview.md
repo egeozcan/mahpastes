@@ -54,8 +54,8 @@ Each plugin is a single `.lua` file containing:
 ### Sandboxed Execution
 
 Plugins run in a sandboxed Lua environment:
-- No access to system commands or dangerous globals (`dofile`, `loadfile`, `load`, `rawget`, `rawset`, etc.)
-- Network requests restricted to declared domains (100 requests/min, 10MB response limit)
+- No access to system commands or dangerous globals (`dofile`, `loadfile`, `load`, `loadstring`, `rawequal`, `rawget`, `rawset`, `getmetatable`, `setmetatable`, `collectgarbage`)
+- Network requests restricted to declared domains (100 requests/min, 50MB response limit)
 - Filesystem access requires user approval (50 ops/min, 50MB file size limit)
 - 30-second execution timeout per handler (5 minutes for async UI actions)
 - 50MB memory limit per plugin

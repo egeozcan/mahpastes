@@ -71,7 +71,9 @@ The project includes a Makefile with convenient targets:
 ```bash
 make dev        # Start dev server with hot reload
 make build      # Clean production build
+make clean      # Remove build artifacts
 make install    # Build, kill running app, install to /Applications, launch
+make uninstall  # Remove installed app
 make bindings   # Regenerate frontend bindings after Go changes
 make test       # Run e2e tests
 make help       # Show all targets
@@ -122,7 +124,7 @@ make mp-install MP_INSTALL_DIR=/usr/local/bin
 
 The CLI authenticates with an API key. Generate one in the desktop app:
 
-1. Click the **API** button in the toolbar to open the API settings modal
+1. Open the menu drawer (press <span className="keyboard-key">M</span> or click the menu button) and click **API**
 2. Start the API server if it is not already running
 3. Create a new API key
 

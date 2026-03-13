@@ -64,7 +64,10 @@ mahpastes runs a cleanup job that:
 - Runs every 60 seconds
 - Checks for expired clips
 - Deletes them from the database
-- Frees up storage space
+
+### View Filtering
+
+Expired clips are also filtered out of the gallery view in real time. All clip queries exclude rows where the expiration timestamp has passed, so a clip may vanish from the UI before the background job deletes it from the database. The cleanup job then permanently removes the database record up to 60 seconds later.
 
 ### What Gets Deleted
 
@@ -114,3 +117,17 @@ Auto-deleted clips cannot be recovered. To avoid losing content:
 - Use no expiry for anything you might need later
 - Archive important clips (but note this does not cancel expiration)
 - Create backups regularly
+
+## REST API & CLI
+
+You can manage expiration programmatically through the [REST API](./rest-api.md) or the `mp` CLI:
+
+```bash
+# Set expiration via CLI
+mp clip expire <id> --minutes 60
+
+# Cancel expiration via CLI
+mp clip expire <id> --clear
+```
+
+See the [REST API reference](./rest-api.md#set--cancel-expiration) for the `PUT` and `DELETE` endpoints on `/api/v1/clips/{id}/expiration`.

@@ -9,11 +9,16 @@ sidebar_position: 1
 
 ## Why mahpastes?
 
-- **Privacy first** — All data stays on your machine
+- **Privacy first** — All data stays on your machine in a SQLite database
 - **Universal clipboard** — Store images, text, code, JSON, HTML, and files
 - **Built-in editing** — Annotate images and edit text without leaving the app
+- **Tags and folders** — Hierarchical color-coded tags with a folder mode for directory-style navigation
 - **Archive and auto-delete** — Archive important clips, auto-delete temporary ones
 - **Watch folders** — Automatically import files from designated folders
+- **REST API and CLI** — Automate workflows with authenticated API access and the `mp` command-line tool
+- **Plugins** — Extend functionality with sandboxed Lua scripts
+- **Tag serve** — Turn any tag into a local HTTP server with an optional JSON API and file upload endpoint
+- **Deduplication** — SHA-256 content hashing detects duplicates and supports merging
 
 ## Quick Links
 
@@ -69,12 +74,13 @@ sidebar_position: 1
 
 ## How It Works
 
-1. **Capture** — Paste from clipboard or drag files into the app
-2. **Organize** — Search, filter, archive important clips
-3. **Edit** — Annotate images or modify text directly
-4. **Retrieve** — Copy back to clipboard or export to file
+1. **Capture** — Paste from clipboard, drag files in, or let watch folders import automatically
+2. **Organize** — Tag clips into hierarchical trees, search, filter, and archive
+3. **Edit** — Annotate images or modify text directly in the built-in editors
+4. **Retrieve** — Copy back to clipboard, drag out to other apps, or export to file
+5. **Automate** — Script workflows with the REST API, `mp` CLI, or Lua plugins
 
-All data is stored locally in a SQLite database. Nothing leaves your machine.
+All data is stored locally in a SQLite database. Nothing leaves your machine unless you choose to serve a tag over HTTP or a plugin makes a network request you have approved.
 
 ![mahpastes gallery](/img/screenshots/gallery.png)
 
@@ -89,5 +95,8 @@ All data is stored locally in a SQLite database. Nothing leaves your machine.
 ## Get Help
 
 - Browse the documentation using the sidebar
+- Set up the [CLI](getting-started/installation#install-the-cli-mp) for terminal-based workflows
+- Follow the [CLI workflow tutorial](tutorials/cli-workflow) to script common tasks with `mp`
+- Integrate with the [REST API](features/rest-api) for programmatic access
 - Check [Troubleshooting](reference/troubleshooting) for common issues
 - Report bugs on [GitHub Issues](https://github.com/egeozcan/mahpastes/issues)

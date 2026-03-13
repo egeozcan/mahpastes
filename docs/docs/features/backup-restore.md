@@ -4,16 +4,16 @@ sidebar_position: 10
 
 # Backup & Restore
 
-Back up your mahpastes data and restore it on any machine. Backups include all clips, tags, plugins, and settings.
+Back up your mahpastes data and restore it on any machine. Backups include all clips, tags, plugins, and watch folder configurations.
 
 ## Overview
 
 The backup system creates a portable ZIP file containing:
 - All clips (images, text, files)
 - Tags and clip-tag associations
-- Installed plugins and their storage
+- Installed plugins, their storage, and permissions
 - Watch folder configurations
-- Application settings (excluding sensitive data)
+- The `settings` table (watch folder pause state), with sensitive rows filtered out
 
 ## Creating a Backup
 
@@ -44,7 +44,7 @@ After restore:
 - All clips and tags are restored
 - Plugins are restored but permissions require re-confirmation
 - Watch folders are restored but paused (re-enable manually)
-- Settings are restored (except API keys and secrets)
+- App preferences (`app_settings`) and API keys are **not** part of the backup and remain unchanged on the target machine
 
 ## What's Included
 
@@ -52,23 +52,24 @@ After restore:
 
 | Data | Notes |
 |------|-------|
-| Clips | Full content (images, text, files) |
-| Tags | Names, colors, clip associations |
-| Plugins | Lua files and plugin storage |
-| Watch folders | Paths and configurations (paused on restore) |
-| Settings | General preferences |
+| Clips | Full content (images, text, files) with metadata |
+| Tags | Names, colors, clip-tag associations |
+| Plugins | Lua source files, plugin storage, and permissions (permissions are marked for re-confirmation on restore) |
+| Watch folders | Paths, filter configurations, auto-archive/auto-tag settings (all folders are paused on restore) |
+| Settings | The `settings` table (stores watch folder pause state). Rows matching sensitive patterns are excluded -- see below. |
 
-:::note Two Settings Tables
-The database has two separate settings tables: `settings` (stores watch folder pause state) and `app_settings` (stores actual app configuration like preferences). Both are included in backups and restored together.
+:::note
+The `app_settings` table (app preferences like plugin update interval) and the `api_keys` table are **not** included in backups. These remain untouched on the target machine during restore.
 :::
 
 ### Excluded from Backup
 
 | Data | Reason |
 |------|--------|
-| API keys | Security (re-enter after restore) |
-| Passwords/tokens | Security |
-| Temporary files | Regenerated as needed |
+| `app_settings` table | App preferences are not part of the backup scope |
+| `api_keys` table | API keys are not part of the backup scope (re-create after restore) |
+| Sensitive `settings` rows | Any row in the `settings` table whose key contains `api_key`, `secret`, `password`, or `token` is filtered out |
+| Temporary transfer files | Regenerated as needed |
 
 ## Backup File Format
 
@@ -89,8 +90,9 @@ The `manifest.json` contains:
 - Format version (for compatibility)
 - App version that created the backup
 - Creation timestamp
-- Summary (clip count, tag count, etc.)
-- List of excluded sensitive settings
+- Platform (the OS that created the backup)
+- Summary (clip count, tag count, plugin count, watch folder count)
+- List of excluded sensitive setting keys
 
 ## Version Compatibility
 
@@ -154,11 +156,13 @@ This replaces all their data. For partial sharing, use bulk export instead.
 
 ### Sensitive Data
 
-Backups intentionally exclude:
-- API keys (fal.ai, etc.)
-- Any setting containing "password", "secret", "token", or "api_key"
+The `api_keys` and `app_settings` tables are not part of the backup scope at all. Within the `settings` table, rows whose key contains any of the following patterns are filtered out:
+- `api_key`
+- `secret`
+- `password`
+- `token`
 
-After restore, re-enter these values in Settings.
+After restoring to a new machine, re-create any API keys through Settings.
 
 ### Backup File Security
 
@@ -194,11 +198,13 @@ After restore, plugin permissions are marked for re-confirmation:
 
 ### Missing Data After Restore
 
-**Sensitive settings**: API keys are excluded. Re-enter them.
+**API keys**: The `api_keys` table is not backed up. Re-create keys in Settings.
 
-**Watch folders paused**: Manually resume watching in Watch Folders settings.
+**App preferences**: The `app_settings` table is not backed up. Re-configure preferences on the new machine.
 
-**Plugin permissions**: Confirm permissions in the Plugins panel.
+**Watch folders paused**: All watch folders are paused on restore. Manually resume them in the Watch view.
+
+**Plugin permissions**: All permissions are marked for re-confirmation. Review and approve them in the Plugins panel.
 
 ### Clips Not Showing
 
@@ -211,25 +217,25 @@ After restore, clips should appear immediately. If not:
 
 ### Backup Process
 
-1. Database is exported as SQL INSERT statements
-2. Binary data (images) encoded as hex literals
-3. Plugin files copied from data directory
-4. Manifest generated with metadata
-5. All files zipped together
+1. Eight database tables are exported as SQL INSERT statements: `clips`, `tags`, `clip_tags`, `settings` (with sensitive rows filtered), `watched_folders`, `plugins`, `plugin_storage`, `plugin_permissions`
+2. Binary data (images) is encoded as hex literals in the SQL output
+3. Plugin `.lua` files are copied from the data directory
+4. Manifest generated with metadata (version, platform, summary, excluded keys)
+5. All files are zipped together
 
 ### Restore Process
 
-1. Backup validated (manifest check)
+1. Backup validated (manifest and `database.sql` checks)
 2. Watch folders stopped
-3. Existing data cleared from all tables (in transaction)
-4. SQL statements executed
-5. Plugin permissions marked for reconfirmation
-6. Watch folders marked as paused
-7. Transaction committed
+3. Existing data cleared from all eight tables (inside a transaction)
+4. SQL INSERT statements executed from `database.sql`
+5. All plugin permissions marked as `pending_reconfirm`
+6. All watch folders marked as paused
+7. Transaction committed -- if any step above fails, the transaction rolls back and no data changes
 8. Transfer temp files cleared
-9. Plugin files extracted from backup
+9. Existing plugin files removed, then backup plugin `.lua` files extracted
 10. Plugin manager reloaded
-11. Watch folders restarted
+11. Watch folders restarted (but all are paused per step 6)
 
 ### Atomic Restore
 
@@ -237,3 +243,17 @@ The restore uses a database transaction:
 - Either everything restores or nothing changes
 - Interrupted restore won't corrupt data
 - Original data only cleared if restore succeeds
+
+## REST API & CLI
+
+You can create and restore backups programmatically through the [REST API](./rest-api.md) or the `mp` CLI:
+
+```bash
+# Create a backup (downloads the ZIP)
+mp backup create --output ~/backups/mahpastes-backup.zip
+
+# Restore from a backup
+mp backup restore ~/backups/mahpastes-backup.zip
+```
+
+See the [REST API reference](./rest-api.md#backup) for the `GET /api/v1/backup` and `POST /api/v1/backup/restore` endpoints.

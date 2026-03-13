@@ -10,6 +10,8 @@ Serve the clips in a tag as files over a local HTTP server.
 
 Tag serve starts a per-tag HTTP server that exposes every non-archived clip in that tag as a downloadable file. Each tag gets its own server on a random available port. Requests are served directly from the database -- no files are written to disk.
 
+All responses include CORS headers (`Access-Control-Allow-Origin: *`) so the served content is accessible from any origin, including the Wails webview. The server also handles `OPTIONS` preflight requests, returning the allowed methods and headers with a `204 No Content` status.
+
 Use cases:
 
 - Preview a collection of images or HTML files in a browser
@@ -54,7 +56,7 @@ The response format depends on the `Accept` header:
 
 | Accept header | Response |
 |--------------|----------|
-| `application/json` | JSON array of `{ name, size, content_type }` objects |
+| `application/json` | JSON array of `{ name, size, content_type, type }` objects |
 | anything else | Styled HTML page with a file table |
 
 ### File Access
@@ -94,10 +96,12 @@ Each entry in the directory listing includes a `type` field:
 
 ```json
 [
-  { "name": "report.pdf", "size": 204800, "content_type": "application/pdf", "type": "file" },
-  { "name": "client1/", "type": "directory" }
+  { "name": "client1", "type": "directory" },
+  { "name": "report.pdf", "size": 204800, "content_type": "application/pdf", "type": "file" }
 ]
 ```
+
+Directory entries appear first, followed by file entries. Directory entries have `size: 0` and an empty `content_type`.
 
 **HTML response** shows folder icons next to directory entries to distinguish them from files.
 
@@ -123,9 +127,11 @@ The access level can only be changed while the server is stopped.
 
 ### Authentication
 
-When the API is enabled, the tag server sets an HTTP-only cookie (`_mp_serve_key`) on every response. HTML pages served from the same tag automatically receive this cookie, so `fetch()` calls to `/_api/` work with `credentials: 'include'`.
+When the API is enabled, the tag server sets an HTTP-only `SameSite=Strict` cookie (`_mp_serve_key`) on **every response** -- including normal file and directory responses, not only `/_api` calls. This means any HTML page loaded from the tag server automatically receives the cookie on first load, so subsequent `fetch()` calls to `/_api/` work with `credentials: 'include'`.
 
-Requests without a valid cookie receive `401 Unauthorized`.
+The cookie value is a random 32-byte hex token generated when the server starts. It is validated with constant-time comparison.
+
+Requests to `/_api` without a valid cookie receive `401 Unauthorized`.
 
 ### URL Structure
 
@@ -138,15 +144,89 @@ Requests without a valid cookie receive `401 Unauthorized`.
 
 ### HTTP Methods
 
-| Method | Path | Behavior |
-|--------|------|----------|
-| `GET` | `/_api/users` | Return full contents of `users.json` |
-| `GET` | `/_api/users/3` | Return array element where `id` is 3 |
-| `POST` | `/_api/users` | Append to array, auto-assign `id` |
-| `PUT` | `/_api/users/3` | Replace element with `id` 3 |
-| `PATCH` | `/_api/users/3` | Merge fields into element (RFC 7396) |
-| `DELETE` | `/_api/users/3` | Remove element from array |
-| `PUT` | `/_api/config/theme` | Set nested key in `config.json` |
+| Method | Path | Status | Response body | Behavior |
+|--------|------|--------|---------------|----------|
+| `GET` | `/_api/users` | `200` | JSON value | Return full contents of `users.json` |
+| `GET` | `/_api/users/3` | `200` | JSON value | Return array element where `id` is 3 |
+| `POST` | `/_api/users` | `201` | Created object | Append to array, auto-assign `id` |
+| `PUT` | `/_api/users/3` | `200` | Replaced value | Replace element with `id` 3 |
+| `PATCH` | `/_api/users/3` | `200` | Merged object | Merge fields into element (RFC 7396) |
+| `DELETE` | `/_api/users/3` | `204` | _(empty)_ | Remove element from array |
+| `DELETE` | `/_api/users` | `400` | Error | Cannot delete root -- use `PUT` to replace |
+| `PUT` | `/_api/config/theme` | `200` | Replaced value | Set nested key in `config.json` |
+
+### Path Navigation
+
+The `{jsonPath}` portion of the URL navigates into the JSON structure at arbitrary depth:
+
+- **Object keys** -- each segment resolves to a key in a JSON object (e.g., `/_api/config/ui/theme` navigates into `config.json` > `ui` > `theme`)
+- **Array elements** -- numeric segments match the `id` field of objects inside an array (e.g., `/_api/users/3` finds the element where `id` is 3)
+
+You can combine both in a single path to reach deeply nested values. For example, given a `project.json` clip:
+
+```json
+{
+  "teams": [
+    {
+      "id": 1,
+      "name": "Engineering",
+      "members": [
+        { "id": 10, "name": "Alice", "role": "lead" },
+        { "id": 11, "name": "Bob", "role": "dev" }
+      ]
+    }
+  ]
+}
+```
+
+- `/_api/project/teams/1` -- returns the Engineering team object
+- `/_api/project/teams/1/name` -- returns `"Engineering"`
+- `/_api/project/teams/1/members/10` -- returns Alice's object
+- `/_api/project/teams/1/members/10/role` -- returns `"lead"`
+
+Each segment alternates between object key lookup and array `id` lookup depending on the type encountered at that level.
+
+### Method Behavior
+
+**POST** appends to an array and auto-assigns an `id` field (max existing id + 1). The request body must be a JSON object -- arrays and primitives are rejected with `400 Bad Request`. The target at the given path must also be an array, or the server returns `400`.
+
+**PUT** replaces the value at the given path. When the path does not fully exist, intermediate objects are created automatically (upsert). For example, `PUT /_api/config/ui/theme` with body `"dark"` creates the `ui` object inside `config.json` if it is missing, then sets `theme` on it. This works at any depth -- every missing key along the path becomes a new empty object. When replacing an array element by `id`, the `id` field is preserved on the new object.
+
+**PATCH** applies a JSON Merge Patch ([RFC 7396](https://www.rfc-editor.org/rfc/rfc7396)). The request body and the target value at the given path must both be JSON objects -- if either is an array or a primitive, the server returns `400 Bad Request`. Key behaviors:
+
+- Present keys overwrite the existing value
+- Keys set to `null` are **deleted** from the target (not set to `null` -- the key is removed entirely)
+- Nested objects are merged recursively -- if both the existing value and the patch value for a key are objects, PATCH recurses into them instead of replacing
+
+For example, given `{"a": 1, "b": 2, "c": {"x": 10}}`, a PATCH body of `{"b": null, "c": {"y": 20}}` produces `{"a": 1, "c": {"x": 10, "y": 20}}` -- `b` is removed and `c` is merged.
+
+**DELETE** removes a key from an object or an element from an array. Deleting the root path (e.g., `DELETE /_api/users` with no further path) returns `400 Bad Request` with the message `"cannot delete root -- use PUT to replace"`. Target a specific key or element instead.
+
+### Concurrency
+
+Each JSON clip has its own mutex. When a write request (POST, PUT, PATCH, DELETE) arrives, the server acquires the mutex for that clip's filename before reading, modifying, and writing back the data. This means:
+
+- Concurrent writes to the **same** clip are serialized -- they execute one at a time in arrival order
+- Concurrent writes to **different** clips in the same tag run in parallel with no contention
+- GET requests do not acquire the mutex and are never blocked
+
+### Error Responses
+
+All JSON API errors return a JSON body with a single `error` key containing a human-readable message:
+
+```json
+{ "error": "clip not found: users.json" }
+```
+
+The `Content-Type` header on error responses is `application/json`. CORS headers (`Access-Control-Allow-Origin: *`) are included on error responses as well.
+
+| Status | Meaning |
+|--------|---------|
+| `400` | Invalid request -- missing clip name, non-object POST/PATCH body, non-object PATCH target, non-array POST target, or attempting to delete root |
+| `401` | Missing or invalid auth cookie |
+| `403` | API is in read-only mode and a write method was attempted |
+| `404` | Clip not found, or key/element not found at the given path |
+| `405` | HTTP method not supported |
 
 ### Example
 
@@ -160,9 +240,11 @@ From an `index.html` in the same tag:
 
 ```javascript
 // Read all todos
-const todos = await fetch('/_api/todos', { credentials: 'include' }).then(r => r.json());
+const todos = await fetch('/_api/todos', {
+  credentials: 'include'
+}).then(r => r.json());
 
-// Add a new todo (id auto-assigned)
+// Add a new todo (id auto-assigned) -- returns 201
 const newTodo = await fetch('/_api/todos', {
   method: 'POST',
   credentials: 'include',
@@ -171,12 +253,18 @@ const newTodo = await fetch('/_api/todos', {
 }).then(r => r.json());
 // newTodo = { id: 2, text: "Walk dog", done: false }
 
-// Mark as done
+// Mark as done -- returns 200 with merged object
 await fetch('/_api/todos/2', {
   method: 'PATCH',
   credentials: 'include',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({ done: true })
+});
+
+// Delete a todo -- returns 204 with no body
+await fetch('/_api/todos/2', {
+  method: 'DELETE',
+  credentials: 'include',
 });
 ```
 
@@ -208,6 +296,19 @@ Form fields:
 | `tag` | No | Relative subtag path (e.g., `photos/vacation`). Creates tag if it doesn't exist |
 | `content_type` | No | Override auto-detected content type |
 
+### Content Type Detection
+
+When you omit the `content_type` field, the server determines the content type automatically using this priority:
+
+1. The `content_type` form field (if provided) -- use this to override all auto-detection
+2. The `Content-Type` header from the multipart file part (set by the browser based on the file extension)
+3. Content sniffing (applied when the multipart header is `text/plain` or empty):
+   - Files whose content starts with `<!DOCTYPE html` are detected as `text/html`
+   - Files whose content is valid JSON are detected as `application/json`
+4. Falls back to `application/octet-stream`
+
+Content sniffing at step 3 only runs when the multipart header does not provide a specific type. If the browser sends a concrete type like `image/png`, that value is used directly without sniffing.
+
 ### Tag Targeting
 
 Uploaded files are tagged to the served tag by default. Use the `tag` field to target a subtag:
@@ -218,7 +319,7 @@ Uploaded files are tagged to the served tag by default. Use the `tag` field to t
 | `myapp` | `data` | `myapp/data` |
 | `myapp` | `data/images` | `myapp/data/images` |
 
-Tags are auto-created if they don't exist yet, including intermediate parents.
+Tags are auto-created if they don't exist yet, including intermediate parents. The `tag` field is validated -- path traversal (`..`, `.`) and the reserved `_api` segment are rejected.
 
 ### Example
 
@@ -267,11 +368,12 @@ await fetch('/_api/_upload', {
 
 | Status | Meaning |
 |--------|---------|
-| 400 | Missing file, invalid tag path |
-| 401 | Missing or invalid auth cookie |
-| 403 | API is in read-only mode |
-| 413 | File exceeds 10 MB limit |
-| 404 | API access is disabled |
+| `400` | Missing file, invalid multipart form, or invalid tag path |
+| `401` | Missing or invalid auth cookie |
+| `403` | API access is set to read-only (requires readwrite) |
+| `404` | API access is disabled (the `/_api` prefix is not routed) |
+| `405` | HTTP method other than POST |
+| `413` | File exceeds 10 MB limit |
 
 ## Activity Indicators
 

@@ -87,7 +87,7 @@ Automatically apply a tag to all imported files:
 ### Process Existing Files
 
 When adding a new watch folder:
-- **Enabled**: Import all existing files in the folder
+- **Enabled**: Import all existing files in the folder immediately. Source files are removed after import, the same as with live watching.
 - **Disabled**: Only import new files going forward
 
 ## Managing Watch Folders
@@ -190,14 +190,16 @@ Videos are imported and archived for later review.
 
 ### How It Works
 
-1. mahpastes uses filesystem events (fsnotify)
-2. New file creation triggers import
-3. File is read and stored as a clip
-4. Events are debounced (500ms) for stability
-5. The original file is deleted from the watched folder after successful import
+1. mahpastes uses filesystem events ([fsnotify](https://github.com/fsnotify/fsnotify)) to monitor each folder
+2. Only file **Create** and **Write** events trigger imports -- other events (rename, chmod, remove) are ignored
+3. Hidden files (filenames starting with `.`) are automatically skipped
+4. Events are debounced (500ms) to let files finish writing before import
+5. The file is read and stored as a clip
+6. If auto-archive or auto-tag is configured, those are applied to the new clip
+7. The original file is deleted from the watched folder after successful import
 
 :::note Source File Removal
-Imported files are automatically removed from the watched folder after they are successfully stored in mahpastes. This prevents duplicate imports and keeps the watched folder clean.
+Imported files are automatically removed from the watched folder after they are successfully stored in mahpastes. The file is only deleted once the database commit is confirmed. This prevents duplicate imports and keeps the watched folder clean.
 :::
 
 ### Debouncing
@@ -206,6 +208,15 @@ Files are imported after 500ms of stability:
 - Prevents importing partially-written files
 - Waits for large files to finish writing
 - Handles rapid file creation gracefully
+
+### Plugin Events
+
+Watch folders emit two plugin events during the import lifecycle:
+
+1. **`watch:file_detected`** -- fires before the file is imported, with the file path and folder ID
+2. **`watch:import_complete`** -- fires after the clip is stored (and auto-archived/auto-tagged if applicable), with the new clip ID, source path, and folder ID
+
+Plugins that subscribe to these events in their manifest can react to watch folder imports, for example to run image processing or apply additional tags.
 
 ### Error Handling
 
@@ -265,3 +276,23 @@ Avoid watching:
 2. Use more specific filters
 3. Disable "process existing" for large folders
 4. Avoid watching very active directories
+
+## REST API & CLI
+
+You can manage watch folders programmatically through the [REST API](./rest-api.md) or the `mp` CLI:
+
+```bash
+# List watch folders
+mp watch list
+
+# Add a new watch folder
+mp watch add ~/Screenshots --filter-mode presets --presets images
+
+# Pause a folder
+mp watch pause <id>
+
+# Process existing files in a folder
+mp watch process <id>
+```
+
+See the [REST API reference](./rest-api.md#watch-folders) for the full set of watch folder endpoints.

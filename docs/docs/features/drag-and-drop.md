@@ -8,24 +8,28 @@ Drag clips directly from mahpastes into other applications on your system.
 
 ## Overview
 
-mahpastes supports dragging clips out of the app and dropping them into other programs. This works like dragging a file from Finder -- the receiving app gets a real file it can open, attach, or process.
+mahpastes supports dragging clips out of the app and dropping them into other programs. This works like dragging a file from Finder or Explorer -- the receiving app gets a real file it can open, attach, or process.
 
 Supported drop targets include:
-- **Finder** -- drop to save as a file
+- **Finder / Explorer** -- drop to save as a file
 - **Mail / Outlook** -- drop to attach
 - **Slack / Discord** -- drop to share
 - **Any app** that accepts file drops
+
+:::note Folder Mode
+Drag handles are hidden when folder mode is active. Switch back to normal gallery view to drag clips out.
+:::
 
 ## How to Drag a Clip
 
 Each clip card has a grip icon (drag handle) on the left side. The drag handle goes through a preparation sequence:
 
-1. **Hover** over the drag handle -- a 1-second arming countdown begins (shown as a progress animation)
-2. **Preparing** -- the app fetches the clip data from the backend and writes a temporary file (shown as a spinner)
-3. **Ready** -- the handle returns to the grip icon, indicating the clip is ready to drag
-4. **Drag** -- click and hold the handle, drag to the target app, release to drop
+1. **Hover** over the drag handle -- the app first checks whether a temp file already exists from a previous hover. If not, a 1-second arming countdown begins (shown as a circular progress animation).
+2. **Preparing** -- after the countdown, the app fetches the clip data from the backend and writes a temporary file to disk (shown as a spinner).
+3. **Ready** -- the handle returns to the grip icon, indicating the clip is ready to drag.
+4. **Drag** -- click and hold the handle, drag to the target app, release to drop.
 
-The preparation happens automatically on hover. If the clip was already prepared from a previous hover, the ready state is immediate.
+If you click the drag handle before it reaches the **Ready** state, preparation starts immediately. Once a clip has been prepared, subsequent hovers skip the countdown and show the ready state right away (until the temp file's 60-minute lease expires).
 
 ## What Gets Transferred
 
@@ -43,19 +47,29 @@ The file keeps its original filename. If the clip was pasted without a filename,
 
 | Platform | Status | Mechanism |
 |----------|--------|-----------|
-| **macOS** | Fully supported | NSView.dragFile (CGo) + `file://` URI via DataTransfer |
-| **Windows** | Fully supported | OLE DoDragDrop (COM) + HTTP transfer URL via DataTransfer |
-| **Linux** | Planned | Not yet supported |
+| **macOS** | Fully supported | Native drag via NSView.dragFile (CGo) |
+| **Windows** | Fully supported | DataTransfer DownloadURL backed by an HTTP transfer handler |
+| **Linux** | Planned | Not yet implemented |
 
-On macOS, drag-out uses native pasteboard APIs to provide file URIs that work with all standard macOS apps. On Windows, drag-out uses OLE DoDragDrop with HTTP transfer URLs.
+### macOS
+
+On macOS, dragging a clip triggers a native OS drag operation using `NSView.dragFile`. The app passes a `file://` URI pointing to the prepared temp file, so every standard macOS drop target (Finder, Mail, Slack, etc.) receives a real file reference. This is initiated directly from a mouse event for reliable behavior.
+
+### Windows
+
+On Windows, drag-out uses Chromium's `DownloadURL` DataTransfer type. Because Chromium rejects `file://` URIs in DownloadURL with a network error, the app serves the temp file over a local HTTP endpoint (`/transfer/{token}/{filename}`) with a one-time random token for authorization. The receiving app downloads the file from that URL, producing a standard file drop (CF_HDROP). Multiple DataTransfer types (`text/uri-list`, `DownloadURL`, `text/plain`, etc.) are set for broad compatibility.
+
+### Linux
+
+Linux drag-out is planned for a future release. A placeholder strategy (`linux-fileuri-v1`) exists in the codebase but is not yet functional.
 
 ## Temporary Files
 
-Temp files created for drag-out (and Copy Path/Copy File) are stored in `clip_temp_files/` inside the app's data directory. They are:
+Temp files created for drag-out (and Copy Path / Copy File) are stored in `clip_temp_files/` inside the app's data directory. They are:
 
-- Reused if you drag the same clip again
-- Given a 60-minute lease, after which they are pruned
-- Pruned every 10 minutes for stale or orphaned files
+- Reused if you drag the same clip again within the lease window
+- Given a 60-minute lease, refreshed each time the file is accessed
+- Pruned every 10 minutes -- stale files (past their lease) and orphaned files (whose clip was deleted) are removed
 - Fully cleaned up when mahpastes exits
 
 You don't need to manage these files manually.
@@ -64,7 +78,8 @@ You don't need to manage these files manually.
 
 - Drag images directly into email compose windows to attach them
 - Drag text clips into editors to insert the content
-- Drag multiple clips by selecting them first with bulk select, then using bulk actions to copy or download
+- You cannot drag multiple clips at once -- use [Bulk Actions](./bulk-actions.md) to copy or download several clips together
+- If the drag handle stays in the spinner state for a long time, the clip data may be very large
 
 ## Related
 

@@ -141,8 +141,8 @@ When the image editor is open:
 | <span className="keyboard-key">R</span> | Rotate 90° clockwise |
 | <span className="keyboard-key">Shift</span> + <span className="keyboard-key">R</span> | Rotate 90° counter-clockwise |
 | <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">Z</span> | Undo last action |
-| <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">Y</span> | Redo undone action |
-| <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">Shift</span> + <span className="keyboard-key">Z</span> | Redo (alternative) |
+| <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">Shift</span> + <span className="keyboard-key">Z</span> | Redo undone action |
+| <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">Y</span> | Redo (alternative) |
 | <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">A</span> | Select all |
 | <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">C</span> | Copy selection |
 | <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">V</span> | Paste selection |

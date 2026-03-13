@@ -13,7 +13,7 @@ mahpastes handles these content types:
 | Type | Examples | How It's Displayed |
 |------|----------|-------------------|
 | **Images** | PNG, JPG, GIF, WebP, BMP, TIFF, SVG | Thumbnail preview |
-| **Text** | Plain text, notes | Text preview (first 500 chars) |
+| **Text** | Plain text, notes | Text preview (first 500 characters) |
 | **Code** | Any programming language | Monospace text preview |
 | **JSON** | API responses, configs | Formatted JSON preview |
 | **HTML** | Web page snippets | HTML source preview |
@@ -118,8 +118,8 @@ Click the three-dot menu button on any clip card, or right-click anywhere on the
 - **Open With** -- opens a file dialog to choose an application
 - **Copy** (submenu) -- expands to show **Path**, **File**, and **Contents**
   - **Path** -- creates a temporary file and copies the absolute path to clipboard
-  - **File** -- copies the clip as a file to the system clipboard (macOS via NSPasteboard, Windows via PowerShell)
-  - **Contents** -- copies raw text or image data to the system clipboard (available for text/\*, application/json, and image/\* types)
+  - **File** -- copies the clip as a file to the system clipboard (macOS via NSPasteboard, Windows via PowerShell; not supported on Linux)
+  - **Contents** -- copies raw text or image data to the system clipboard (available for text/\*, application/json, and image/\* types; non-PNG images are converted to PNG before copying)
 - **Save** -- opens a native save dialog to export the clip to disk
 - **Edit** -- opens the image editor or text editor (shown for editable types)
 - **Tags** -- opens the tag popover
@@ -143,8 +143,9 @@ Files created via "Copy Path" are stored in a temp directory and cleaned up peri
 Filter clips by filename and content type:
 
 - Type in the search bar to filter
-- Search is case-insensitive substring matching
+- Search is case-insensitive substring matching against the filename and MIME type
 - Results update as you type
+- Press <span className="keyboard-key">Enter</span> to move focus to the first visible result
 - Filters only the currently visible cards (does not search clip contents)
 - Works in both the main gallery and archive views (whichever is active)
 
@@ -193,10 +194,10 @@ When pasting from clipboard, images are typically captured as PNG.
 mahpastes distinguishes between:
 
 - **Plain text**: Regular text content
-- **HTML**: Content starting with `<!DOCTYPE html`
-- **JSON**: Valid JSON objects or arrays
+- **HTML**: Content whose trimmed body starts with `<!DOCTYPE html` (case-sensitive prefix match)
+- **JSON**: Any string that parses as valid JSON
 
-Detection happens on paste.
+Detection runs at upload time when the incoming content type is `text/plain` or empty. Files uploaded with an explicit non-text content type keep their original type.
 
 ### Binary Files
 
@@ -213,12 +214,12 @@ Control the order of clips in the gallery using the sort popover in the bottom b
 
 | Sort Field | Description |
 |------------|-------------|
-| **Date** | Creation timestamp (default) |
-| **Name** | Filename, alphabetical |
-| **Size** | Clip data size in bytes |
-| **Type** | Content MIME type |
+| **Date added** | Creation timestamp (default, newest first) |
+| **Filename** | Alphabetical by filename |
+| **File size** | Clip data size in bytes |
+| **Content type** | MIME type string |
 
-Click the active sort field to toggle between ascending and descending. Click a different field to switch to it. The sort preference (field and direction) is persisted to the settings table and restored on app launch. A secondary tiebreaker of `created_at` + `id` keeps the order stable.
+Click the active sort field to toggle between ascending and descending. Click a different field to switch to it (defaults to descending). The sort preference (field and direction) is persisted to the settings table and restored on app launch. A secondary tiebreaker of `created_at` + `id` keeps the order stable when two clips share the same value for the primary sort field.
 
 ## Limits and Performance
 

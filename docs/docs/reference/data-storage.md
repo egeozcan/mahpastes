@@ -45,11 +45,14 @@ Temp files have a 60-minute lease. A prune job runs every 10 minutes to remove s
 | Filename | Original name (if available) |
 | Timestamps | Creation time, expiration time |
 | Archive status | Boolean flag |
+| Content hash | SHA-256 hash for [deduplication](../features/deduplication.md) |
+| Metadata | JSON key-value pairs per clip |
 | Tags | Name and color |
 | Clip-tag associations | Many-to-many relationship |
-| Watch folders | Path and configuration |
-| Plugins | Filename, name, status, permissions |
+| Watch folders | Path, filter settings, auto-archive, auto-tag |
+| Plugins | Filename, name, version, status, source URL, permissions (with re-confirmation flag after restore) |
 | Plugin storage | Plugin-scoped key-value data |
+| API keys | Name, hashed key, role, optional tag scope, revocation status |
 | Settings | Key-value pairs (e.g., hidden_tags, global_watch_paused) |
 | App settings | Internal service settings (e.g., plugin_update_interval) |
 
@@ -59,6 +62,10 @@ Temp files have a 60-minute lease. A prune job runs every 10 minutes to remove s
 - Images are stored as-is (PNG, JPG, etc.)
 - Text is stored as UTF-8
 - No compression applied
+
+### Content Hashes
+
+Every clip has a SHA-256 content hash computed at upload time. Existing clips without hashes are backfilled automatically on startup. These hashes power the [deduplication](../features/deduplication.md) feature.
 
 ## Backup
 
@@ -74,11 +81,16 @@ This backs up clips, tags, plugins, watch folders, and settings. See [Backup & R
 
 ### Manual Backup (Advanced)
 
-For direct database backup, copy the database file:
+For direct database backup, copy the database file. The example below shows the macOS path -- substitute your platform's path from the table above.
 
 ```bash
+# macOS
 cp ~/Library/Application\ Support/mahpastes/clips.db ~/backup/clips.db
 ```
+
+:::warning
+Quit mahpastes before copying the database file. Copying while the app is running may produce a corrupt backup due to WAL journaling.
+:::
 
 ### Restore
 
@@ -91,6 +103,7 @@ cp ~/Library/Application\ Support/mahpastes/clips.db ~/backup/clips.db
 3. Restart mahpastes
 
 ```bash
+# macOS
 cp ~/backup/clips.db ~/Library/Application\ Support/mahpastes/clips.db
 ```
 
@@ -134,10 +147,18 @@ rm -rf ~/Library/Application\ Support/mahpastes/
 
 ### Moving to New Computer
 
-1. Export important clips as ZIP using bulk download
-2. Copy the database file to new machine
-3. Install mahpastes on new machine
-4. Place database file in correct location
+The recommended approach is to use the built-in backup:
+
+1. Create a backup via **Settings** > **Backup & Restore** > **Create Backup**
+2. Transfer the ZIP file to your new machine
+3. Install mahpastes on the new machine
+4. Restore via **Settings** > **Backup & Restore** > **Restore from Backup**
+
+Alternatively, you can copy the database file directly:
+
+1. Quit mahpastes on the old machine
+2. Copy `clips.db` to the new machine's [data directory](#database)
+3. Start mahpastes on the new machine
 
 ### Version Compatibility
 

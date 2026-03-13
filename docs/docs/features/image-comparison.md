@@ -53,13 +53,18 @@ Shows pixel-level differences between the two images.
 
 **How it works:**
 - Pixels that differ are highlighted; identical pixels are dimmed
-- A threshold slider (0--100) controls sensitivity -- lower values catch smaller differences (values below 1 are clamped to 1 by the backend)
+- A threshold slider (1--100) controls sensitivity -- lower values catch smaller differences
 - A similarity percentage score is displayed, showing how closely the images match
+- The default threshold is 30 when switching to Diff mode via keyboard shortcut
 
 **Best for:**
 - Finding subtle changes between revisions
 - Verifying that two images are identical
 - QA and regression testing of visual output
+
+:::note
+Diff images are cached per threshold value during a comparison session. Changing the threshold triggers a new backend computation, but returning to a previously used threshold value loads instantly from cache.
+:::
 
 ## Controls
 
@@ -69,7 +74,7 @@ Click the **Swap** button (or press <span className="keyboard-key">S</span>) to 
 
 ### Image Info
 
-Displays dimensions, file size, and content type for both images in the comparison header.
+Displays dimensions, file size, and content type for both images in the comparison header. A warning indicator appears when the two images have different dimensions.
 
 ### Zoom
 
@@ -164,7 +169,7 @@ Enable Stretch mode when comparing images of different dimensions. This aligns t
 ## Defaults
 
 - Mode: Fade
-- Slider/opacity position: 50%
+- Slider/opacity position: 50% (Diff mode defaults threshold to 30)
 - Alignment: Center / Middle
 - Stretch: Off
 

@@ -115,7 +115,7 @@ Creates a new clip.
 
 **Returns:** Table with `id` field (e.g., `{id = 123}`), or `nil, error_message`
 
-**Size limit:** 10MB maximum for clip data.
+**Size limit:** 50MB maximum for clip data.
 
 **Example:**
 ```lua
@@ -177,7 +177,7 @@ Downloads content from a URL and creates a new clip. The URL domain must be in t
 
 **Returns:** Table with `id` field (e.g., `{id = 123}`), or `nil, error_message`
 
-**Size limit:** 10MB maximum download size.
+**Size limit:** 50MB maximum download size.
 
 **Example:**
 ```lua
@@ -545,7 +545,7 @@ Plugin = {
 - Allowed HTTP methods must be specified per domain
 - Redirects are validated: each hop is checked against the domain allowlist, and HTTPS is enforced
 - Request timeout: 5 minutes
-- Max response size: 10MB
+- Max response size: 50MB
 - Rate limit: 100 requests per minute
 
 ### http.get(url, options?)
@@ -802,7 +802,7 @@ toast.show("Processing...")  -- defaults to "info"
 
 Track progress of long-running operations. Tasks show a progress indicator in the UI.
 
-### task.start(name)
+### task.start(name, total?)
 
 Starts a new task and returns a task ID. Shows a progress bar in the UI.
 
@@ -810,17 +810,18 @@ Starts a new task and returns a task ID. Shows a progress bar in the UI.
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | name | string | Yes | Display name for the task |
+| total | number | No | Total number of steps (default: 1) |
 
 **Returns:** Task ID (number)
 
 **Example:**
 ```lua
-local task_id = task.start("Processing images")
+local task_id = task.start("Processing images", 5)
 ```
 
 ---
 
-### task.progress(task_id, percentage, message?)
+### task.progress(task_id, current)
 
 Updates a task's progress.
 
@@ -828,22 +829,23 @@ Updates a task's progress.
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | task_id | number | Yes | Task ID from `task.start` |
-| percentage | number | Yes | Progress percentage (0-100) |
-| message | string | No | Status message |
+| current | number | Yes | Current step number (compared against `total` from `task.start`) |
 
 **Returns:** `true` on success, or `false, error_message`
 
 **Example:**
 ```lua
+local task_id = task.start("Processing images", 5)
 for i = 1, 5 do
   -- Process item...
-  task.progress(task_id, (i / 5) * 100, "Processing item " .. i)
+  task.progress(task_id, i)
 end
+task.complete(task_id)
 ```
 
 ---
 
-### task.complete(task_id, message?)
+### task.complete(task_id)
 
 Marks a task as completed.
 
@@ -851,13 +853,12 @@ Marks a task as completed.
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | task_id | number | Yes | Task ID from `task.start` |
-| message | string | No | Completion message |
 
 **Returns:** `true` on success, or `false, error_message`
 
 **Example:**
 ```lua
-task.complete(task_id, "Done!")
+task.complete(task_id)
 ```
 
 ---
@@ -1065,7 +1066,7 @@ Writes text to the system clipboard.
 |------|------|----------|-------------|
 | text | string | Yes | Text to copy |
 
-**Returns:** `true` on success, or `false, error_message`
+**Returns:** `true` on success, or `nil, error_message`
 
 :::warning
 Requires `clipboard = true` in the plugin manifest.
@@ -1185,8 +1186,8 @@ Resizes an image clip and returns the result as raw data.
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | clip_id | number | Yes | Source clip ID |
-| width | number | Yes | Target width (0 to auto-scale). Max 10000. |
-| height | number | Yes | Target height (0 to auto-scale). Max 10000. |
+| width | number | Yes | Target width (must be positive). Max 10000. |
+| height | number | Yes | Target height (must be positive). Max 10000. |
 | opts | table | No | Options |
 | opts.fit | string | No | Fit mode: `"fill"` (default), `"contain"`, or `"cover"` |
 
@@ -1240,7 +1241,7 @@ Creates a canvas and composites multiple image layers onto it. Up to 50 layers.
 
 ---
 
-### image.convert(clip_id, format, quality?)
+### image.convert(clip_id, format, opts?)
 
 Converts an image clip to a different format.
 
@@ -1249,14 +1250,15 @@ Converts an image clip to a different format.
 |------|------|----------|-------------|
 | clip_id | number | Yes | Source clip ID |
 | format | string | Yes | Target format: `"png"`, `"jpeg"`, or `"jpg"` |
-| quality | number | No | JPEG quality (1-100). Only applies to JPEG output. |
+| opts | table | No | Options |
+| opts.quality | number | No | JPEG quality (1-100, default: 85). Only applies to JPEG output. |
 
 **Returns:** Table with `data` (base64-encoded image) and `mime_type`, or `nil, error_message`
 
 **Example:**
 ```lua
 -- Convert PNG to JPEG at 85% quality
-local result = image.convert(123, "jpeg", 85)
+local result = image.convert(123, "jpeg", { quality = 85 })
 if result then
   clips.create({
     data = result.data,
@@ -1294,7 +1296,7 @@ Returns a flat array of grayscale luminance values (0-255). Useful for ASCII art
 | width | number | Yes | Target sample width |
 | height | number | Yes | Target sample height |
 
-**Returns:** Table with `width`, `height`, and `pixels` (flat array of luminance values), or `nil, error_message`
+**Returns:** Flat array of luminance values (integers 0-255, row-major order), or `nil, error_message`. The array length is `width * height`.
 
 **Limit:** Max 1 million pixels (width * height).
 
@@ -1309,7 +1311,7 @@ Returns EXIF metadata from an image clip.
 |------|------|----------|-------------|
 | clip_id | number | Yes | Clip ID |
 
-**Returns:** Table with fields like `camera_make`, `camera_model`, `lens`, `iso`, `aperture`, `shutter_speed`, `focal_length`, `date`, `gps_lat`, `gps_lon`. Missing fields are `nil`. Returns `nil, error_message` on failure.
+**Returns:** Table with fields like `camera_make`, `camera_model`, `lens`, `iso`, `aperture`, `shutter_speed`, `focal_length`, `date`, and `gps` (a nested table with `latitude` and `longitude`). Missing fields are `nil`. Returns an empty table for images without EXIF data (e.g., PNGs). Returns `nil, error_message` on failure.
 
 ---
 
@@ -1347,7 +1349,7 @@ Opens a modal dialog showing plugin output. Supports markdown, plain text, and i
 | opts | table | Yes | Modal options |
 | opts.title | string | Yes | Modal title (max 200 characters) |
 | opts.content | string | Yes | Content to display (max 1MB) |
-| opts.format | string | No | `"markdown"` (default), `"text"`, or `"image"` |
+| opts.format | string | Yes | `"markdown"`, `"text"`, or `"image"` |
 | opts.copy_data | string | No | Data placed on clipboard when user clicks Copy (max 1MB) |
 | opts.paste_data | string | No | Data to create a new clip when user clicks Paste (max 10MB) |
 | opts.paste_data_base64 | boolean | No | If true, `paste_data` is base64-encoded binary |
@@ -1394,9 +1396,9 @@ Plugins operate within strict resource limits to ensure system stability:
 | File operations | 50 per minute |
 | Storage | 10 MB per plugin |
 | Toast notifications | 5 per minute |
-| Clip data size | 10 MB maximum |
+| Clip data size | 50 MB maximum |
 | File read size | 50 MB maximum |
-| HTTP response size | 10 MB maximum |
+| HTTP response size | 50 MB maximum |
 | HTTP request timeout | 5 minutes |
 | Modal title | 200 characters |
 | Modal content | 1 MB |

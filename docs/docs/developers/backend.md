@@ -83,7 +83,7 @@ func main() {
 ```
 
 :::note
-Multiple service structs exist for organizational clarity. The `App` struct alone has 66+ bound methods — Wails handles this fine. Services group related functionality (plugins, clipboard, transfers, tag serving, REST API) into their own files and structs.
+As the source code comment notes, the separate service structs exist to stay under the Wails ~49 method binding limit. In practice the `App` struct alone has 70+ bound methods and Wails handles this fine, so the limit may not be enforced. Services now group related functionality (plugins, clipboard, transfers, tag serving, REST API) into their own files and structs for organizational clarity.
 :::
 
 Key configuration:
@@ -419,6 +419,9 @@ func getDataDir() (string, error) {
 ```go
 require (
     github.com/fsnotify/fsnotify v1.9.0
+    github.com/go-ole/go-ole v1.3.0
+    github.com/rwcarlsen/goexif v0.0.0-20190401172101-9e8deecbddbd
+    github.com/spf13/cobra v1.10.2
     github.com/wailsapp/wails/v2 v2.11.0
     github.com/yuin/gopher-lua v1.1.1
     golang.design/x/clipboard v0.7.0
@@ -426,6 +429,18 @@ require (
     modernc.org/sqlite v1.45.0
 )
 ```
+
+| Package | Purpose |
+|---------|---------|
+| `fsnotify` | Filesystem event watching for watch folders |
+| `go-ole` | Windows COM interop for OLE drag-and-drop |
+| `goexif` | EXIF metadata extraction from images |
+| `cobra` | CLI framework for the `mp` binary (`cmd/mp/`) |
+| `wails/v2` | Desktop application framework (Go backend + web frontend) |
+| `gopher-lua` | Lua VM for the plugin sandbox |
+| `x/clipboard` | Cross-platform clipboard read/write |
+| `x/image` | Extended image format support (WebP) |
+| `sqlite` | Pure-Go SQLite driver (no CGo dependency for the database) |
 
 ## Building
 
@@ -451,7 +466,17 @@ wails build -platform linux/amd64
 
 ## Testing
 
-The project uses Playwright for end-to-end testing:
+### Go Unit Tests
+
+The backend includes Go unit tests alongside the Playwright e2e suite. Run them with:
+
+```bash
+go test ./...
+```
+
+Test files cover the transfer system, temp clip store, tag hierarchy, serve security, file uploads, and the plugin subsystem (manifest parsing, fetch, semver, permission diffing, update checking).
+
+### End-to-End Tests (Playwright)
 
 ```bash
 cd e2e && npm test              # Run all tests

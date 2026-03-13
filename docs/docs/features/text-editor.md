@@ -11,7 +11,7 @@ Edit text and code clips directly within mahpastes. Modify content, fix typos, o
 1. Click the menu button (three dots) on any text-based clip and select **Edit**
 2. The editor opens full-screen with a dark theme (dark background, light text)
 3. Make your changes
-4. Click **Save As** to create a new clip with the changes
+4. Click **Save** to overwrite the original, or **Save As** to create a new clip with the changes
 
 :::note
 Clicking a text preview in the gallery also opens the editor directly.
@@ -63,7 +63,8 @@ Standard text editing operations work as expected:
 | <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">V</span> | Paste |
 | <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">X</span> | Cut |
 | <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">Z</span> | Undo |
-| <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">Y</span> | Redo |
+| <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">Shift</span> + <span className="keyboard-key">Z</span> | Redo |
+| <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">Y</span> | Redo (alternative) |
 | <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">S</span> | Save as new clip |
 | <span className="keyboard-key">Esc</span> | Close editor |
 
@@ -114,12 +115,16 @@ Edit HTML source code directly.
 
 ## Saving Changes
 
-### Save
+### Save (Overwrite)
 
-Click **Save As** (or press <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">S</span>) to create a new clip with your edits. The original clip is preserved unchanged, and the edited version is saved with `_edited` appended to the filename.
+Click **Save** to overwrite the original clip with your edits. The filename remains the same and the content type is preserved.
+
+### Save as New Clip
+
+Click **Save As** (or press <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">S</span>) to create a new clip with your edits. The original clip is preserved unchanged, and the new clip is saved with `_edited` appended to the filename.
 
 :::note Content Type
-The content type (text/plain, application/json, etc.) is preserved when saving.
+The content type (text/plain, application/json, etc.) is preserved when saving with either method.
 :::
 
 ### Cancel

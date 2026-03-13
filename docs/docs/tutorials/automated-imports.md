@@ -187,11 +187,20 @@ The folder is no longer watched. Existing clips remain.
 
 ### File Detection
 
-1. mahpastes monitors folder using filesystem events
-2. New file creation triggers processing
-3. File is read after 500ms debounce (ensures complete write)
-4. File is imported as a clip
-5. Original file is deleted (moved to mahpastes)
+1. mahpastes monitors the folder using filesystem events (via `fsnotify`)
+2. New file creation or write triggers processing
+3. File is read after a 500ms debounce period (ensures the write is complete)
+4. File content is stored in the mahpastes database as a new clip
+5. Original file is deleted from disk after a confirmed import
+
+### Auto-Archive and Auto-Tag
+
+After a file is imported:
+
+1. If **Auto-Archive** is enabled, the new clip is moved to the archive immediately
+2. If **Auto-Tag** is set, the configured tag is applied to the new clip
+
+Both happen before the frontend is notified, so the clip appears in its final state.
 
 ### Debouncing
 
@@ -202,10 +211,12 @@ Files are processed after 500ms of stability:
 
 ### Error Handling
 
-If import fails:
-- Error notification is shown
-- Original file is preserved
-- Other files continue processing
+If an import fails:
+- An error notification is shown via a toast in the app
+- The original file is preserved on disk (it is only deleted after a confirmed import)
+- Other files in the folder continue processing normally
+
+Hidden files (those starting with `.`) are always skipped.
 
 ## Workflow Examples
 
@@ -275,9 +286,11 @@ Then:
 
 ### Monitor Status
 
-Check watch status regularly:
-- Green = actively watching
-- Yellow/Amber = paused or folder missing
+Check watch status in the menu drawer:
+
+- A green dot appears on the **Watch** tab when at least one folder is actively watching
+- Paused folders display an amber **Paused** label and their card appears dimmed
+- Missing folders display an amber **Folder not found** badge
 
 ## Troubleshooting
 

@@ -14,7 +14,7 @@ Tags are labels you can attach to clips. They help you:
 - Keep long-running work organized
 
 Each tag has:
-- A name (for example: `work`, `screenshots`, `reference`)
+- A name (for example: `work`, `screenshots`, `reference`) -- up to 50 characters
 - An automatically assigned color
 
 ## Creating and Assigning Tags
@@ -84,7 +84,11 @@ Create a subtag the same way as a regular tag -- just include `/` in the name:
 2. Type a path like `work/client1/projectABC`
 3. Press Enter or click **Add**
 
-Intermediate tags are auto-created if they do not already exist. Creating `work/client1/projectABC` also creates `work` and `work/client1` if they are missing. Intermediate tags inherit the color of the root parent.
+Intermediate tags are auto-created if they do not already exist. Creating `work/client1/projectABC` also creates `work` and `work/client1` if they are missing. Intermediate tags inherit the color of the nearest existing ancestor tag (see [Tag Colors](#tag-colors)).
+
+:::info Reserved names
+Tag names cannot contain `_api` as an exact path segment (e.g., `_api` or `work/_api` are rejected). This segment is reserved for the [Tag Serve JSON API](./tag-serve.md). Substrings like `my_api_stuff` are fine.
+:::
 
 ### Rename and Delete Behavior
 
@@ -102,11 +106,17 @@ A clip can only occupy **one position** in any given tag tree. When you assign a
 - Assigning `work/client2` to a clip that has `work/client1` removes `work/client1`
 - Tags from **different trees** are unaffected -- a clip can have both `work/client1` and `photos/vacation`
 
-Ancestor tags are **implied**. A clip tagged `work/client1` automatically appears when you filter by `work`, without needing to be explicitly tagged with `work`.
+Ancestor tags are **implied**. A clip tagged `work/client1` automatically appears when you filter by `work`, without needing to be explicitly tagged with `work`. See [Hierarchical Filtering](#hierarchical-filtering) for details.
+
+Tree exclusivity also applies to [bulk tagging](./bulk-actions.md). When you bulk-add a tag to multiple clips, the same-tree removal runs for each clip individually.
 
 ### Card Tag Pills
 
-Tag pills on clip cards always show the **full path**. For example, a clip tagged `work/client1/projectABC` shows a pill labeled `work/client1/projectABC`. Hovering the pill also displays the full path as a tooltip.
+Tag pills on clip cards show the **full path** for subtags (names containing `/`). For example, a clip tagged `work/client1/projectABC` shows a pill labeled `work/client1/projectABC`. Top-level tags (no `/`) show just the tag name. Hovering any pill displays the full tag name as a tooltip.
+
+Each card shows a maximum of **3 tag pills**. When a clip has more than 3 tags, the remaining count appears as a `+N` indicator.
+
+Clicking a tag pill adds that tag as a filter, which is equivalent to selecting it in the tag filter dropdown.
 
 ## Hierarchical Filtering
 
@@ -131,15 +141,20 @@ Click the folder toggle button next to the sort controls. The button uses a soli
 - **At root level (no tag filter):** Folder cards for each top-level tag, plus only **untagged clips** (clips with no tags at all). Tagged clips are only accessible by navigating into their folder.
 - **Inside a folder:** Folder cards for immediate child subtags, plus clips tagged **directly** with that folder's tag. Clips that only have a deeper subtag (e.g., `work/client1`) do not appear at the parent level (`work`) -- they belong in the subfolder.
 
+Each folder card displays the tag's color, the short name (leaf segment), and a clip count. The count includes all clips tagged with that tag **and** all of its descendants, so you can see the total size of the subtree at a glance.
+
 ### Navigating
 
 - Click a folder card to navigate deeper into that subtag
-- A **breadcrumb trail** appears in the active tags area showing the current path
-- Click any breadcrumb segment to jump back to that level
+- A **breadcrumb trail** appears in the active tags area showing the current path (home icon, then each segment separated by `/`)
+- Click any breadcrumb segment's `x` button to jump back to that segment's parent level
+- Click the **home icon** to return to the root level
 
 ### Auto-Tagging on Upload
 
 When you upload or paste a clip while inside a folder, the clip is automatically tagged with that folder's tag. This means adding content while "inside" a folder puts it in that folder -- no manual tagging needed. Uploading at the root level (no folder selected) does not auto-tag.
+
+Drag-and-drop uploads follow the same rule. Dropping files into the app while navigated to a folder auto-tags those clips with the current folder's tag.
 
 ### Tag Filter in Folder Mode
 
@@ -155,14 +170,13 @@ Folder mode is a view-only toggle. It is **not persisted** across sessions -- cl
 
 Hiding a parent tag in settings hides **all of its descendants** from the default gallery view.
 
-- The **Settings > Hidden Tags** panel only shows top-level tags. Toggling a top-level tag hides the entire subtree.
-- Orphaned subtags (those whose parent was deleted) appear at the top level in the hidden tags list.
+- The **Settings > Hidden Tags** panel shows top-level tags and orphaned subtags (those whose parent was deleted). Toggling a top-level tag hides the entire subtree.
 - Subtags of a hidden parent still appear in the filter dropdown (dimmed to indicate they are hidden). This lets you filter by them when needed.
 - **Filtering by a subtag of a hidden parent reveals the clips.** The hidden ancestor is excluded from the hidden list for the scope of that filter, so matching clips appear normally.
 
 ## Tag Colors
 
-Tag colors are assigned automatically in a rotating palette when tags are created. Subtags inherit their color from the root parent tag.
+Tag colors are assigned automatically from a rotating palette when tags are created. Subtags inherit their color from the **nearest existing ancestor** tag. If no ancestor exists (for example, when you create `work/client1` and `work` does not exist yet), `work` gets a color from the palette and `work/client1` inherits that color.
 
 ## Current Limitations
 
@@ -177,3 +191,5 @@ Today, tag management is done through assignment popovers:
 
 - [Bulk Actions](./bulk-actions.md) -- apply tags to multiple clips at once
 - [Clipboard Management](./clipboard-management.md) -- tag clips via the context menu
+- [Tag Serve](./tag-serve.md) -- serve clips in a tag over HTTP
+- [REST API](./rest-api.md) -- manage tags and hidden tags via the API

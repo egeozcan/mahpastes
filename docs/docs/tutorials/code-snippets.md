@@ -11,7 +11,7 @@ Use mahpastes as a personal code snippet library. Store, organize, and reuse cod
 - **Quick access**: Faster than searching through old projects
 - **Cross-project**: Snippets available regardless of current project
 - **Editable**: Modify snippets before using
-- **Searchable**: Find snippets by filename or file type
+- **Searchable**: Find snippets by filename or content type
 
 ## Saving Code Snippets
 
@@ -54,13 +54,13 @@ Benefits:
 
 ### Use Search
 
-Filter snippets by filename or file type:
+Filter snippets by filename or content type:
 
 1. Type in the search bar
 2. Results filter instantly
 3. Find your snippet quickly
 
-Search matches filename and file type, not the full snippet body.
+Search matches against the filename and content type (MIME type), not the full snippet body. For example, searching `text` matches clips with a `text/plain` content type, and searching `python` matches a file named `python-retry.py`.
 
 Search tips:
 - Include the language in the filename: `python`, `react`, `sql`
@@ -105,6 +105,8 @@ source "$(pbpaste)"
 # Run a Python script
 python "$(pbpaste)"
 ```
+
+If you are not on macOS, replace `pbpaste` with your platform's clipboard command.
 
 ## Snippet Categories
 

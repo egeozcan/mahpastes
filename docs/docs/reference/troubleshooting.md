@@ -25,7 +25,7 @@ xattr -cr /Applications/mahpastes.app
 
 ### macOS: App Won't Open (Apple Silicon)
 
-If using Apple Silicon (M1/M2/M3):
+If using Apple Silicon (M-series):
 1. Ensure you downloaded the Universal build
 2. Try the Intel build via Rosetta if issues persist
 
@@ -37,9 +37,10 @@ If using Apple Silicon (M1/M2/M3):
 
 **Solutions:**
 1. Ensure mahpastes window is focused
-2. Check if viewing Archive (can't paste to archive)
-3. Verify clipboard has content
-4. Try drag and drop instead
+2. Click outside any text field -- paste is disabled when a search box, form input, or text area is focused (the keystroke goes to the field instead)
+3. Check if viewing Archive (can't paste to archive)
+4. Verify clipboard has content
+5. Try drag and drop instead
 
 ### Clips Not Appearing
 
@@ -59,7 +60,7 @@ If using Apple Silicon (M1/M2/M3):
 1. Close any other apps accessing the database
 2. Close SQLite tools if open
 3. Restart mahpastes
-4. If persists, delete WAL files (mahpastes closed first):
+4. If persists, delete WAL files (quit mahpastes first). macOS path shown -- substitute your platform's path from [Data Storage](data-storage.md#database):
    ```bash
    rm ~/Library/Application\ Support/mahpastes/clips.db-wal
    rm ~/Library/Application\ Support/mahpastes/clips.db-shm
@@ -117,7 +118,7 @@ If using Apple Silicon (M1/M2/M3):
 
 ### Watch Folder Shows Error
 
-**Symptoms:** Folder shows red/warning status.
+**Symptoms:** Folder shows an amber "Folder not found" badge.
 
 **Causes:**
 - Folder was deleted or moved
@@ -196,7 +197,7 @@ If using Apple Silicon (M1/M2/M3):
 **Symptoms:** Clips disappeared unexpectedly.
 
 **Possible causes:**
-1. Expiration triggered (check expiration settings)
+1. Expiration triggered -- expiration is set per-clip at upload time and runs on a 1-minute cleanup cycle
 2. Accidentally deleted
 3. Database corruption (rare)
 
@@ -211,8 +212,9 @@ If using Apple Silicon (M1/M2/M3):
 
 **Solutions:**
 1. Restore from backup if available
-2. Try database recovery:
+2. Try database recovery (quit mahpastes first, macOS path shown -- substitute your platform's path from [Data Storage](data-storage.md#database)):
    ```bash
+   cd ~/Library/Application\ Support/mahpastes/
    sqlite3 clips.db ".recover" | sqlite3 recovered.db
    mv recovered.db clips.db
    ```
@@ -351,11 +353,12 @@ Add this line to your shell profile (`~/.zshrc` or `~/.bashrc`) for persistence.
 
 **Cause:** Plugins have execution time limits:
 - Event handlers: 30 seconds
-- UI actions: 5 minutes
+- UI actions (synchronous): 5 minutes
+- UI actions with `async = true`: 5 minutes, but run in a background goroutine so the UI is not blocked
 
 **Solutions:**
 1. Optimize long-running plugin logic
-2. For actions that genuinely need time, set `async = true` in the action manifest to run in a background goroutine
+2. For actions that genuinely need time, set `async = true` in the action manifest so execution happens in the background and the UI stays responsive
 
 ## Tag Serve Issues
 
