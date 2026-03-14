@@ -77,7 +77,7 @@ transfer_types.go        Transfer system type definitions
 app_transfer_helpers.go  Bridge between App and TempClipStore
 temp_clip_store.go       Leased temp file management
 native_drag_darwin.go    macOS native drag via CGo
-native_drag_windows.go   Windows native drag (full COM OLE DoDragDrop implementation)
+native_drag_windows.go   Windows native drag via COM OLE DoDragDrop
 native_drag_other.go     Unsupported platform stub
 open_darwin.go           Open file with default app (macOS)
 open_windows.go          Open file with default app (Windows)
@@ -112,7 +112,18 @@ frontend/
 ├── js/
 │   ├── app.js           Core application logic
 │   ├── ui.js            Card rendering, gallery management
-│   ├── editor.js        Image editor canvas logic
+│   ├── editor/          Modular image editor
+│   │   ├── editor-core.js   Core editor canvas logic
+│   │   ├── tool-anonymize.js Anonymize/blur tool
+│   │   ├── tool-arrow.js    Arrow drawing tool
+│   │   ├── tool-brush.js    Brush/freehand tool
+│   │   ├── tool-crop.js     Crop tool
+│   │   ├── tool-eyedropper.js Color picker tool
+│   │   ├── tool-select.js   Selection tool
+│   │   ├── tool-shapes.js   Shape drawing tool
+│   │   ├── tool-text.js     Text overlay tool
+│   │   ├── tool-transform.js Transform/resize tool
+│   │   └── tool-zoom.js     Zoom/pan tool
 │   ├── modals.js        All modal/lightbox/editor logic
 │   ├── tags.js          Tag management UI
 │   ├── settings.js      Settings modal
@@ -142,7 +153,7 @@ frontend/
 
 ## Wails-Bound Services
 
-The backend exposes multiple Go structs to the frontend via Wails bindings. As the source code comment in `main.go` notes, services are separate structs to stay under the Wails ~49 method binding limit. In practice the `App` struct has grown to 70 exported methods and all bind correctly, so the limit may not be enforced. The separate services remain as an organizational boundary, grouping related functionality into dedicated files and structs.
+The backend exposes multiple Go structs to the frontend via Wails bindings. As the source code comment in `main.go` notes, services were originally separate structs to stay under the Wails ~49 method binding limit. In practice the `App` struct has 72+ exported methods and all bind correctly, so the limit may not be enforced. The separate services remain as an organizational boundary, grouping related functionality into dedicated files and structs.
 
 | Service | File | Frontend access | Purpose |
 |---------|------|-----------------|---------|

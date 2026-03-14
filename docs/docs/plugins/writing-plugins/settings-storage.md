@@ -86,7 +86,9 @@ end
 - **Key length:** Maximum 256 characters
 - **Value length:** Maximum 1MB per value
 
-If you exceed these limits, `storage.set()` will return `false` with an error message.
+:::note
+These storage limits are documented as design guidelines but are **not currently enforced** in the implementation. `storage.set()` will accept values exceeding these limits without returning an error. This may change in a future version, so it is best practice to stay within the documented limits.
+:::
 
 ## User-Configurable Settings
 

@@ -58,8 +58,8 @@ After restore:
 | Watch folders | Paths, filter configurations, auto-archive/auto-tag settings (all folders are paused on restore) |
 | Settings | The `settings` table (stores watch folder pause state). Rows matching sensitive patterns are excluded -- see below. |
 
-:::note
-The `app_settings` table (app preferences like plugin update interval) and the `api_keys` table are **not** included in backups. These remain untouched on the target machine during restore.
+:::note Two Settings Tables
+The database has two separate settings tables: `settings` (stores watch folder pause state) and `app_settings` (stores app preferences like plugin update interval). Only `settings` is included in backups. `app_settings` and `api_keys` are **not** included in backups -- these remain untouched on the target machine during restore.
 :::
 
 ### Excluded from Backup
@@ -68,8 +68,9 @@ The `app_settings` table (app preferences like plugin update interval) and the `
 |------|--------|
 | `app_settings` table | App preferences are not part of the backup scope |
 | `api_keys` table | API keys are not part of the backup scope (re-create after restore) |
+| `clip_metadata` table | Not exported -- metadata key-value pairs are lost on restore |
 | Sensitive `settings` rows | Any row in the `settings` table whose key contains `api_key`, `secret`, `password`, or `token` is filtered out |
-| Temporary transfer files | Regenerated as needed |
+| Temporary files | Regenerated as needed |
 
 ## Backup File Format
 
@@ -227,7 +228,7 @@ After restore, clips should appear immediately. If not:
 
 1. Backup validated (manifest and `database.sql` checks)
 2. Watch folders stopped
-3. Existing data cleared from all eight tables (inside a transaction)
+3. Existing data cleared from these tables (inside a transaction): `clip_tags`, `clips`, `tags`, `settings`, `watched_folders`, `plugin_storage`, `plugin_permissions`, `plugins`
 4. SQL INSERT statements executed from `database.sql`
 5. All plugin permissions marked as `pending_reconfirm`
 6. All watch folders marked as paused

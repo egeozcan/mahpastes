@@ -470,7 +470,7 @@ Converts images to ASCII art using `image.grayscale_pixels`. Displays results in
 
 ### Expiring Clips
 
-Adds time-based expiry to clips. Users can set expiry durations (1h, 6h, 24h, 7d, 30d) via card actions. A scheduled task (`check_expiry`, every 5 minutes) archives expired clips. Demonstrates schedules, storage for state persistence, `utils.time`, and multiple card actions.
+Adds time-based expiry to clips. Users can set expiry durations (1h, 1d, 1w, 30d) via card actions. A scheduled task (`check_expiry`, every 5 minutes) archives expired clips. Demonstrates schedules, storage for state persistence, `utils.time`, and multiple card actions.
 
 ### Auto-Tagger
 

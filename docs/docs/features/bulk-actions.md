@@ -75,6 +75,10 @@ Move all selected clips to the archive:
 
 When you are viewing the Archive, this button changes to **Restore** and moves selected clips back to the main gallery.
 
+:::warning Bulk Restore Bug
+The bulk archive operation currently always sets clips to archived (`is_archived = 1`) regardless of context. Clicking **Restore** in the archive view re-archives the selected clips instead of restoring them. Use single-clip restore via the context menu as a workaround.
+:::
+
 ### Download as ZIP
 
 Export all selected clips as a single ZIP file:

@@ -289,7 +289,7 @@ CREATE TABLE IF NOT EXISTS api_keys (
 | `name` | TEXT | Human-readable key name |
 | `key_hash` | TEXT | SHA-256 hash of the raw key (unique) |
 | `key_prefix` | TEXT | First 8 characters of the raw key, for identification in listings |
-| `role` | TEXT | `"viewer"` (read-only, default) or `"admin"` (full access) |
+| `role` | TEXT | `"viewer"` (read-only, default), `"editor"` (create/modify clips and tags), or `"admin"` (full access) |
 | `scoped_tag_id` | INTEGER | Tag ID to restrict access to (nullable — NULL means global access) |
 | `is_revoked` | INTEGER | 0 = active, 1 = revoked |
 | `created_at` | DATETIME | When the key was created |
@@ -359,16 +359,19 @@ func (a *App) shutdown(ctx context.Context) {
 
 Basic query (no tag filters):
 ```sql
-SELECT id, content_type, filename, created_at, expires_at,
-       SUBSTR(data, 1, 500), is_archived
-FROM clips
-WHERE is_archived = ?
-  AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
-ORDER BY created_at DESC
+SELECT c.id, c.content_type, c.filename, c.created_at, c.expires_at,
+       SUBSTR(c.data, 1, 500), c.is_archived, LENGTH(c.data),
+       (SELECT COUNT(*) FROM clips c2
+        WHERE c2.content_hash = c.content_hash
+          AND c2.content_hash != '' AND c2.id != c.id)
+FROM clips c
+WHERE c.is_archived = ?
+  AND (c.expires_at IS NULL OR c.expires_at > CURRENT_TIMESTAMP)
+ORDER BY c.created_at DESC
 LIMIT 50
 ```
 
-Note: Only first 500 bytes of data fetched for preview. When tag filters or hidden tags are active, the query uses JOINs with `clip_tags` for filtering.
+Note: Only first 500 bytes of data fetched for preview. `LENGTH(c.data)` provides the file size and the subquery counts duplicates sharing the same `content_hash`. When tag filters or hidden tags are active, the query uses EXISTS/NOT EXISTS with `clip_tags` for filtering.
 
 ### Get full clip data
 
@@ -381,8 +384,13 @@ WHERE id = ?
 ### Insert new clip
 
 ```sql
-INSERT INTO clips (content_type, data, filename, expires_at)
+-- UploadFileAndGetID (single file, no expiration)
+INSERT INTO clips (content_type, data, filename, content_hash)
 VALUES (?, ?, ?, ?)
+
+-- UploadFiles (batch upload with optional expiration)
+INSERT INTO clips (content_type, data, filename, expires_at, content_hash)
+VALUES (?, ?, ?, ?, ?)
 ```
 
 ### Toggle archive status
@@ -409,8 +417,8 @@ Runs every 60 seconds via cleanup job.
 -- Bulk delete
 DELETE FROM clips WHERE id IN (?, ?, ?)
 
--- Bulk archive toggle
-UPDATE clips SET is_archived = NOT is_archived WHERE id IN (?, ?, ?)
+-- Bulk archive (always archives — does not toggle)
+UPDATE clips SET is_archived = 1 WHERE id IN (?, ?, ?)
 ```
 
 ## Data Storage Paths

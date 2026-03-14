@@ -1487,15 +1487,12 @@ func (am *APIManager) handleBulkUnarchive(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	count := 0
-	for _, id := range body.IDs {
-		_, err := am.app.db.Exec("UPDATE clips SET is_archived = 0 WHERE id = ?", id)
-		if err == nil {
-			count++
-		}
+	if err := am.app.BulkUnarchive(body.IDs); err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to bulk unarchive")
+		return
 	}
 
-	am.jsonOK(w, map[string]int{"unarchived": count})
+	am.jsonOK(w, map[string]int{"unarchived": len(body.IDs)})
 }
 
 func (am *APIManager) handleBulkSetExpiration(w http.ResponseWriter, r *http.Request) {

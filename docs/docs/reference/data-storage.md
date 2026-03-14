@@ -42,15 +42,16 @@ Temp files have a 60-minute lease. A prune job runs every 10 minutes to remove s
 |------|---------|
 | Clip content | Full binary data as BLOB |
 | Content type | MIME type string |
+| Content hash | SHA-256 hash for deduplication |
 | Filename | Original name (if available) |
 | Timestamps | Creation time, expiration time |
 | Archive status | Boolean flag |
-| Content hash | SHA-256 hash for [deduplication](../features/deduplication.md) |
 | Metadata | JSON key-value pairs per clip |
 | Tags | Name and color |
 | Clip-tag associations | Many-to-many relationship |
 | Watch folders | Path, filter settings, auto-archive, auto-tag |
-| Plugins | Filename, name, version, status, source URL, permissions (with re-confirmation flag after restore) |
+| Plugins | Filename, name, version, status, source URL |
+| Plugin permissions | Permission type, path, pending reconfirm flag (re-confirmation required after restore) |
 | Plugin storage | Plugin-scoped key-value data |
 | API keys | Name, hashed key, role, optional tag scope, revocation status |
 | Settings | Key-value pairs (e.g., hidden_tags, global_watch_paused) |

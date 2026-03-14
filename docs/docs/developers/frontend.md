@@ -20,6 +20,9 @@ frontend/
 ├── css/
 │   ├── main.css         Global styles, scrollbars, form styling
 │   └── modals.css       Modal-specific styles (lightbox, editor, comparison)
+├── vendor/
+│   ├── marked.min.js    Markdown parser (for plugin result modals)
+│   └── purify.min.js    DOMPurify HTML sanitizer
 ├── js/
 │   ├── app.js           Core app logic, event handlers, view state
 │   ├── ui.js            Card rendering, gallery management, view mode toggle
@@ -66,6 +69,7 @@ frontend/
     ├── go/main/ServeService.js      Generated ServeService bindings
     ├── go/main/APIService.js        Generated APIService bindings
     ├── go/main/*.d.ts               Generated TypeScript definitions for bindings
+    ├── go/models.ts                 Generated Go struct type definitions
     └── runtime/runtime.js           Wails runtime
 ```
 
@@ -344,13 +348,24 @@ The app is built mostly around Tailwind's `stone` palette, with accent colors su
 For complex components, custom CSS in `css/main.css`:
 
 ```css
-.clip-card {
-    transition: transform 0.2s, box-shadow 0.2s;
+/* Card context menu dropdown */
+.card-menu-dropdown {
+    background-color: white;
+    border-radius: 0.375rem;
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1),
+                0 4px 6px -2px rgba(0, 0, 0, 0.05);
+    border: 1px solid #e7e5e4;
+    padding: 0.25rem 0;
+    z-index: 110;
+    min-width: 140px;
 }
 
-.clip-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+/* Gallery card focus state */
+#gallery > li:focus-visible {
+    outline: 2px solid #a8a29e;
+    outline-offset: 2px;
+    transform: scale(1.02);
+    z-index: 1;
 }
 ```
 
@@ -359,20 +374,27 @@ For complex components, custom CSS in `css/main.css`:
 Modals in `css/modals.css`:
 
 ```css
-.modal {
+.modal-backdrop {
     position: fixed;
     inset: 0;
+    background-color: rgba(28, 25, 23, 0.4);
+    backdrop-filter: blur(4px);
+    z-index: 150;
     display: flex;
     align-items: center;
     justify-content: center;
-    background: rgba(0, 0, 0, 0.5);
+    padding: 1rem;
+    transition: opacity 0.2s ease;
 }
 
 .modal-content {
     background: white;
     border-radius: 0.5rem;
-    max-width: 90vw;
-    max-height: 90vh;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+    width: 100%;
+    overflow: hidden;
+    transform: scale(0.95);
+    transition: transform 0.2s ease;
 }
 ```
 

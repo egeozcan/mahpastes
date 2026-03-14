@@ -1818,7 +1818,7 @@ func (a *App) BulkDelete(ids []int64) error {
 	return nil
 }
 
-// BulkArchive toggles the archived status of multiple clips
+// BulkArchive archives multiple clips
 func (a *App) BulkArchive(ids []int64) error {
 	if len(ids) == 0 {
 		return nil
@@ -1835,6 +1835,27 @@ func (a *App) BulkArchive(ids []int64) error {
 	_, err := a.db.Exec(query, args...)
 	if err != nil {
 		return fmt.Errorf("failed to bulk archive: %w", err)
+	}
+	return nil
+}
+
+// BulkUnarchive restores multiple clips from the archive
+func (a *App) BulkUnarchive(ids []int64) error {
+	if len(ids) == 0 {
+		return nil
+	}
+
+	placeholders := make([]string, len(ids))
+	args := make([]interface{}, len(ids))
+	for i, id := range ids {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+
+	query := fmt.Sprintf("UPDATE clips SET is_archived = 0 WHERE id IN (%s)", strings.Join(placeholders, ","))
+	_, err := a.db.Exec(query, args...)
+	if err != nil {
+		return fmt.Errorf("failed to bulk unarchive: %w", err)
 	}
 	return nil
 }

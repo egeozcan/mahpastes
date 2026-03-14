@@ -43,7 +43,7 @@ type ClipPreview struct {
     IsArchived     bool       `json:"is_archived"`
     Tags           []Tag      `json:"tags"`             // Tags assigned to this clip
     Size           int64      `json:"size"`             // Clip size in bytes
-    DuplicateCount int        `json:"duplicate_count"`  // Number of duplicates sharing the same content hash
+    DuplicateCount int        `json:"duplicate_count"`  // Number of other clips with same content hash
 }
 ```
 
@@ -408,7 +408,7 @@ Returns groups where two or more clips have the same SHA-256 content hash.
 
 ### MergeDuplicates
 
-Merge the duplicates of a specific clip, keeping it and removing the rest.
+Merge duplicates of a specific clip, keeping the oldest (lowest ID) and removing the rest.
 
 ```go
 func (a *App) MergeDuplicates(clipID int64) error
@@ -417,9 +417,9 @@ func (a *App) MergeDuplicates(clipID int64) error
 **Parameters:**
 | Name | Type | Description |
 |------|------|-------------|
-| `clipID` | int64 | The clip to keep |
+| `clipID` | int64 | Any clip in the duplicate group (the oldest clip by ID is always kept) |
 
-Finds all clips sharing the same content hash as `clipID`, merges their tags onto it (INSERT OR IGNORE), deletes the duplicates, and bumps the survivor's `created_at` to now.
+Finds all clips sharing the same content hash as `clipID`, ordered by ID ascending. The oldest clip (lowest ID) is kept as the survivor. Tags from all duplicates are merged onto the survivor (INSERT OR IGNORE), the duplicates are deleted, and the survivor's `created_at` is bumped to now.
 
 ---
 
@@ -1101,6 +1101,21 @@ Plugin-related APIs are on the `PluginService` struct (accessed via `window.go.m
 func (s *PluginService) GetPlugins() ([]PluginInfo, error)
 ```
 
+**PluginInfo structure:**
+```go
+type PluginInfo struct {
+    ID          int64          `json:"id"`
+    Name        string         `json:"name"`
+    Version     string         `json:"version"`
+    Description string         `json:"description"`
+    Author      string         `json:"author"`
+    Enabled     bool           `json:"enabled"`
+    Status      string         `json:"status"`
+    Events      []string       `json:"events"`
+    Settings    []SettingField `json:"settings"`
+}
+```
+
 ### ImportPlugin
 
 Opens a file dialog and returns a preview for review. The frontend should call `ConfirmPluginInstall(path)` after user approves.
@@ -1142,7 +1157,7 @@ func (s *PluginService) GetAllPluginStorage(pluginID int64) (map[string]string, 
 
 ### GetPluginUIActions
 
-Returns all UI actions (lightbox buttons, card actions) from enabled plugins.
+Returns all UI actions (lightbox buttons, card actions, global actions) from enabled plugins.
 
 ```go
 func (s *PluginService) GetPluginUIActions() (*UIActionsResponse, error)
@@ -1153,6 +1168,7 @@ func (s *PluginService) GetPluginUIActions() (*UIActionsResponse, error)
 type UIActionsResponse struct {
     LightboxButtons []PluginUIAction `json:"lightbox_buttons"`
     CardActions     []PluginUIAction `json:"card_actions"`
+    GlobalActions   []PluginUIAction `json:"global_actions"`
 }
 
 type PluginUIAction struct {
@@ -1424,6 +1440,20 @@ func (s *ServeService) GetServeStatus() []ServeInfo
 
 **Returns:** A list of `ServeInfo` entries, one per running tag server, containing the tag ID, port, bind address, and API access level.
 
+**ServeInfo structure:**
+```go
+type ServeInfo struct {
+    TagID        int64  `json:"tag_id"`
+    TagName      string `json:"tag_name"`
+    Port         int    `json:"port"`
+    BindAll      bool   `json:"bind_all"`
+    URL          string `json:"url"`
+    Running      bool   `json:"running"`
+    RequestCount int64  `json:"request_count"`
+    ApiAccess    string `json:"api_access"`
+}
+```
+
 ---
 
 ### GetRandomPort
@@ -1480,6 +1510,17 @@ func (s *APIService) GetAPIStatus() APIStatus
 
 **Returns:** An `APIStatus` value indicating whether the server is running, its port, and address.
 
+**APIStatus structure:**
+```go
+type APIStatus struct {
+    Running      bool   `json:"running"`
+    Port         int    `json:"port"`
+    BindAll      bool   `json:"bind_all"`
+    URL          string `json:"url"`
+    RequestCount int64  `json:"request_count"`
+}
+```
+
 ---
 
 ### CreateAPIKey
@@ -1494,7 +1535,7 @@ func (s *APIService) CreateAPIKey(name string, role string, scopedTagID int64) (
 | Name | Type | Description |
 |------|------|-------------|
 | `name` | string | Human-readable label for the key |
-| `role` | string | Permission role (e.g., `"admin"`, `"read"`) |
+| `role` | string | Permission role: `"viewer"`, `"editor"`, or `"admin"` |
 | `scopedTagID` | int64 | Tag ID to scope access to (0 for unrestricted) |
 
 **APIKeyCreateResult structure:**
@@ -1522,6 +1563,21 @@ func (s *APIService) ListAPIKeys() ([]APIKeyInfo, error)
 ```
 
 **Returns:** Metadata for each key — ID, name, role, scoped tag, creation date, and a masked key prefix.
+
+**APIKeyInfo structure:**
+```go
+type APIKeyInfo struct {
+    ID            int64   `json:"id"`
+    Name          string  `json:"name"`
+    KeyPrefix     string  `json:"key_prefix"`
+    Role          string  `json:"role"`
+    ScopedTagID   *int64  `json:"scoped_tag_id"`
+    ScopedTagName string  `json:"scoped_tag_name"`
+    IsRevoked     bool    `json:"is_revoked"`
+    CreatedAt     string  `json:"created_at"`
+    LastUsedAt    *string `json:"last_used_at"`
+}
+```
 
 ---
 
@@ -1631,5 +1687,30 @@ EventsOn('watch:import', (clip) => {
 
 EventsOn('watch:error', (data) => {
     console.error(`Error importing ${data.file}: ${data.error}`);
+});
+```
+
+### clip:duplicate
+
+Emitted when a newly uploaded clip is a duplicate of an existing clip (same content hash). Fired from both `UploadFileAndGetID` and `UploadFiles`.
+
+```go
+runtime.EventsEmit(ctx, "clip:duplicate", map[string]interface{}{
+    "id":    clipID,
+    "count": dupCount,
+})
+```
+
+**Payload:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | int64 | The ID of the newly created clip |
+| `count` | int | Number of other existing clips with the same content hash |
+
+**JavaScript listener:**
+```javascript
+EventsOn('clip:duplicate', (data) => {
+    console.log(`Clip ${data.id} has ${data.count} duplicate(s)`);
 });
 ```

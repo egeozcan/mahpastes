@@ -128,13 +128,13 @@ The status indicator shows:
 - **Paused**: Folders or global watching is paused
 - **Errors**: Issues with specific folders
 
-### Folder Status Icons
+### Folder Status Indicators
 
-| Icon | Meaning |
-|------|---------|
-| Green dot | Actively watching |
-| Yellow pause | Paused |
-| Red warning | Folder missing or error |
+| Indicator | Meaning |
+|-----------|---------|
+| Full opacity card | Actively watching |
+| Dimmed card (50% opacity) + **Paused** text label | Paused |
+| **Folder not found** amber badge | Watched folder no longer exists on disk |
 
 ## Use Cases
 

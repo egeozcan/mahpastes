@@ -810,7 +810,7 @@ Starts a new task and returns a task ID. Shows a progress bar in the UI.
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | name | string | Yes | Display name for the task |
-| total | number | No | Total number of steps (default: 1) |
+| total | number | No | Total number of steps (default: 1). Used with `task.progress` to track completion. |
 
 **Returns:** Task ID (number)
 
@@ -823,13 +823,13 @@ local task_id = task.start("Processing images", 5)
 
 ### task.progress(task_id, current)
 
-Updates a task's progress.
+Updates a task's progress. The `current` value is an absolute count relative to the `total` passed to `task.start`.
 
 **Parameters:**
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | task_id | number | Yes | Task ID from `task.start` |
-| current | number | Yes | Current step number (compared against `total` from `task.start`) |
+| current | number | Yes | Current step number (0 to `total` from `task.start`) |
 
 **Returns:** `true` on success, or `false, error_message`
 
@@ -847,7 +847,7 @@ task.complete(task_id)
 
 ### task.complete(task_id)
 
-Marks a task as completed.
+Marks a task as completed. Automatically sets progress to the total.
 
 **Parameters:**
 | Name | Type | Required | Description |
@@ -1066,7 +1066,7 @@ Writes text to the system clipboard.
 |------|------|----------|-------------|
 | text | string | Yes | Text to copy |
 
-**Returns:** `true` on success, or `nil, error_message`
+**Returns:** `true` on success, or `nil, error_message` if clipboard access is not permitted
 
 :::warning
 Requires `clipboard = true` in the plugin manifest.
@@ -1296,7 +1296,7 @@ Returns a flat array of grayscale luminance values (0-255). Useful for ASCII art
 | width | number | Yes | Target sample width |
 | height | number | Yes | Target sample height |
 
-**Returns:** Flat array of luminance values (integers 0-255, row-major order), or `nil, error_message`. The array length is `width * height`.
+**Returns:** Flat array of luminance values (integers 0-255, length = width * height, row-major order), or `nil, error_message`
 
 **Limit:** Max 1 million pixels (width * height).
 
@@ -1394,7 +1394,7 @@ Plugins operate within strict resource limits to ensure system stability:
 | Memory | 50 MB per plugin |
 | HTTP requests | 100 per minute |
 | File operations | 50 per minute |
-| Storage | 10 MB per plugin |
+| Storage | 10 MB per plugin (not currently enforced) |
 | Toast notifications | 5 per minute |
 | Clip data size | 50 MB maximum |
 | File read size | 50 MB maximum |

@@ -62,14 +62,14 @@ make dev          # Start dev server with hot reload
 make build        # Clean production build
 make clean        # Remove build artifacts
 make install      # Build, kill running app, install to /Applications, launch
-make uninstall    # Remove installed app from /Applications
+make uninstall    # Remove installed app
 make bindings     # Regenerate frontend bindings after Go changes
 make test         # Run e2e tests
 make test-headed  # Run e2e tests with visible browser
 make test-debug   # Run e2e tests with Playwright inspector
 make screenshots  # Capture documentation screenshots via Playwright
 make mp           # Build mp CLI for current platform
-make mp-install   # Install mp to a user bin dir (or GOBIN if set)
+make mp-install   # Install mp to user bin dir (or GOBIN if set)
 make mp-cross     # Cross-compile mp for all platforms
 make help         # Show all targets
 ```
@@ -82,7 +82,7 @@ mahpastes/
 ├── wails.json               # Wails build and dev configuration
 ├── go.mod                   # Go module definition
 ├── main.go                  # Entry point, Wails setup
-├── app.go                   # Core application logic, 70+ API methods
+├── app.go                   # Core application logic, 72+ API methods
 ├── database.go              # SQLite setup, schema, migrations
 ├── watcher.go               # Folder watching, file import
 ├── backup.go                # ZIP backup and restore
@@ -97,7 +97,7 @@ mahpastes/
 ├── app_transfer_helpers.go  # Bridge between App and TempClipStore
 ├── temp_clip_store.go       # Leased temp file management
 ├── native_drag_darwin.go    # macOS native drag via CGo
-├── native_drag_windows.go   # Windows native drag via OLE DoDragDrop
+├── native_drag_windows.go   # Windows native drag via COM OLE DoDragDrop
 ├── native_drag_other.go     # Unsupported platform stub
 ├── open_darwin.go           # Open file with default app (macOS)
 ├── open_windows.go          # Open file with default app (Windows)
@@ -113,12 +113,13 @@ mahpastes/
 ├── plugin/                  # Lua plugin system
 ├── plugins/                 # Bundled plugin files (9 example plugins)
 ├── cmd/mp/                  # CLI binary (stateless REST API client)
+├── examples/                # Example plugins and SPAs
+├── docs/                    # Documentation source
 ├── frontend/
 │   ├── index.html           # Main UI (single HTML file)
 │   ├── js/                  # JavaScript modules (26 files incl. editor/)
 │   │   ├── app.js           # Core app logic
 │   │   ├── ui.js            # Gallery rendering
-│   │   ├── editor.js        # Editor wiring
 │   │   ├── editor/          # Modular editor tools (11 files)
 │   │   └── ...              # Tags, plugins, watch, transfer, etc.
 │   ├── css/                 # Styles (main.css, modals.css)
@@ -143,7 +144,7 @@ mahpastes/
 
 1. Edit HTML/CSS/JS in `frontend/`
 2. Changes hot-reload automatically
-3. If editing Tailwind classes, ensure `npm run watch` is running
+3. If editing Tailwind classes, ensure `npm run dev` is running
 
 ### Adding New API Methods
 
@@ -155,17 +156,17 @@ mahpastes/
    }
    ```
 
-   **Note:** The App struct currently has 70+ methods and all bind correctly. Multiple services (`PluginService`, `ClipboardService`, `TransferService`, `ServeService`, `APIService`) exist as separate structs to stay under the Wails ~49 method binding limit (see comment in `main.go`), though the limit may not be enforced given the App struct's method count. They also serve as an organizational boundary, grouping related functionality into dedicated files.
+   **Note:** The App struct currently has 72+ methods and all bind correctly. Multiple services (`PluginService`, `ClipboardService`, `TransferService`, `ServeService`, `APIService`) exist as separate structs to stay under the Wails ~49 method binding limit (see comment in `main.go`), though the limit may not be enforced given the App struct's method count. They also serve as an organizational boundary, grouping related functionality into dedicated files.
 
 2. Regenerate bindings: `make bindings`
 
 3. Call from JavaScript:
    ```javascript
-   import { MyNewMethod } from '../wailsjs/go/main/App';
-   const result = await MyNewMethod("param");
+   const result = await window.go.main.App.MyNewMethod("param");
 
-   // For PluginService methods:
-   import { GetPlugins } from '../wailsjs/go/main/PluginService';
+   // For service-specific methods:
+   const plugins = await window.go.main.PluginService.GetPlugins();
+   await window.go.main.ServeService.StartServing(tagID, port, false, "none");
    ```
 
 ## Code Style

@@ -13,6 +13,8 @@ export function BulkArchive(arg1:Array<number>):Promise<void>;
 
 export function BulkCancelExpiration(arg1:Array<number>):Promise<void>;
 
+export function BulkUnarchive(arg1:Array<number>):Promise<void>;
+
 export function BulkDelete(arg1:Array<number>):Promise<void>;
 
 export function BulkDownloadToFile(arg1:Array<number>):Promise<void>;

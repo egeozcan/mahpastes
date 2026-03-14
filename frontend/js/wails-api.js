@@ -249,13 +249,19 @@ async function bulkDelete() {
 async function bulkArchive() {
     if (selectedIds.size === 0) return;
     try {
-        await window.go.main.App.BulkArchive(Array.from(selectedIds));
-        showToast(isViewingArchive ? `Restored ${selectedIds.size} clips.` : `Archived ${selectedIds.size} clips.`);
+        const ids = Array.from(selectedIds);
+        if (isViewingArchive) {
+            await window.go.main.App.BulkUnarchive(ids);
+            showToast(`Restored ${selectedIds.size} clips.`);
+        } else {
+            await window.go.main.App.BulkArchive(ids);
+            showToast(`Archived ${selectedIds.size} clips.`);
+        }
         selectedIds.clear();
         loadClips();
     } catch (error) {
         console.error('Error in bulk archive:', error);
-        showToast('Bulk archive failed.');
+        showToast(isViewingArchive ? 'Bulk restore failed.' : 'Bulk archive failed.');
     }
 }
 

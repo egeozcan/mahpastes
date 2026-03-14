@@ -52,6 +52,10 @@ The archive view shows:
 2. Click **Restore** in the bulk action bar
 3. All selected clips return to gallery
 
+:::warning Bulk Restore Bug
+The bulk archive operation currently always sets clips to archived (`is_archived = 1`) regardless of context. This means clicking **Restore** in the archive view re-archives the selected clips instead of restoring them. Use single-clip restore via the context menu as a workaround.
+:::
+
 ## Archive Behavior
 
 ### Expiration

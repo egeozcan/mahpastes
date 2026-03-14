@@ -116,7 +116,7 @@ Filter by tag:
 mp clip list --tag work --limit 10
 ```
 
-Search by filename:
+Search by filename or content:
 
 ```bash
 mp clip list --search report
@@ -196,6 +196,32 @@ mp clip expire 5 6 7 --duration 7d
 Bulk commands accept `--stdin` to read one ID per line from stdin. This pairs well with `jq` and other pipeline tools.
 :::
 
+## Renaming and Unarchiving
+
+Rename a clip:
+
+```bash
+mp clip rename 42 new-name.png
+```
+
+Unarchive clips:
+
+```bash
+mp clip unarchive 42
+mp clip unarchive 1 2 3
+```
+
+## Clip Metadata
+
+Each clip can have arbitrary key-value metadata:
+
+```bash
+mp clip metadata list 42
+mp clip metadata get 42 author
+mp clip metadata set 42 author "John Doe"
+mp clip metadata delete 42 author
+```
+
 ## Tag Management
 
 Create a tag (parent tags are created automatically):
@@ -232,6 +258,31 @@ List children of a tag:
 
 ```bash
 mp tag list --children-of work
+```
+
+List clips with a specific tag:
+
+```bash
+mp tag clips photos --limit 20
+```
+
+Update a tag's name or color:
+
+```bash
+mp tag update photos --name "my photos" --color "#00ff00"
+```
+
+Delete a tag:
+
+```bash
+mp tag delete photos
+```
+
+View or set hidden tags:
+
+```bash
+mp tag hidden
+mp tag hidden --set "1,2,3"
 ```
 
 ## Watch Folders
@@ -271,6 +322,111 @@ Check watch system status:
 
 ```bash
 mp watch status
+```
+
+Update a watch folder's settings:
+
+```bash
+mp watch update 1 --filter presets --presets images,videos
+```
+
+Remove a watch folder:
+
+```bash
+mp watch remove 1
+```
+
+Process existing files in a watch folder:
+
+```bash
+mp watch process 1
+```
+
+## Deduplication
+
+List groups of duplicate clips:
+
+```bash
+mp dedup list
+```
+
+Merge duplicates for a specific clip (keeps the specified clip, removes others):
+
+```bash
+mp dedup merge 42
+```
+
+Remove all duplicates across the library:
+
+```bash
+mp dedup all
+```
+
+## Plugins
+
+List installed plugins:
+
+```bash
+mp plugin list
+```
+
+Install, enable, disable, or remove:
+
+```bash
+mp plugin install https://example.com/my-plugin.lua
+mp plugin enable 1
+mp plugin disable 1
+mp plugin remove 1
+```
+
+Run a plugin action:
+
+```bash
+mp plugin run 1 process-image --clip 42 --option quality=high
+```
+
+Check for updates or update a specific plugin:
+
+```bash
+mp plugin update --check
+mp plugin update 1
+```
+
+Manage plugin storage:
+
+```bash
+mp plugin storage list 1
+mp plugin storage get 1 api_key
+mp plugin storage set 1 api_key sk-12345
+```
+
+## Tag Serving
+
+Start an HTTP server for a tag's clips:
+
+```bash
+mp serve start my-site --port 8080 --api-access readwrite
+```
+
+List running servers:
+
+```bash
+mp serve list
+```
+
+Stop a server:
+
+```bash
+mp serve stop my-site
+```
+
+## Clipboard
+
+Copy clip contents or a file reference to the system clipboard (requires the desktop app):
+
+```bash
+mp clipboard copy 42
+mp clipboard copy-file 42
 ```
 
 ## Backups
@@ -314,7 +470,8 @@ mp clip get 42 --json | jq '.filename'
 | Code | Meaning |
 |------|---------|
 | 0 | Success |
-| 1 | General error (includes connection failures) |
+| 1 | General error |
+| 2 | Connection error (API unreachable) |
 | 3 | Authentication error (invalid or revoked key) |
 
 Use exit codes in scripts:

@@ -87,6 +87,10 @@ make install
 
 # Or manually
 cp -R build/bin/mahpastes.app /Applications/
+xattr -cr /Applications/mahpastes.app
+# Copy bundled plugins
+mkdir -p ~/Library/Application\ Support/mahpastes/plugins
+cp plugins/*.lua ~/Library/Application\ Support/mahpastes/plugins/
 ```
 
 ## Install the CLI (`mp`)

@@ -83,7 +83,7 @@ func main() {
 ```
 
 :::note
-As the source code comment notes, the separate service structs exist to stay under the Wails ~49 method binding limit. In practice the `App` struct alone has 70+ bound methods and Wails handles this fine, so the limit may not be enforced. Services now group related functionality (plugins, clipboard, transfers, tag serving, REST API) into their own files and structs for organizational clarity.
+As the source code comment notes, the separate service structs were created to stay under the Wails ~49 method binding limit. In practice the `App` struct alone has 72+ bound methods and Wails handles this fine, so the limit may not be enforced. Services group related functionality (plugins, clipboard, transfers, tag serving, REST API) into their own files and structs for organizational clarity.
 :::
 
 Key configuration:
@@ -419,9 +419,9 @@ func getDataDir() (string, error) {
 ```go
 require (
     github.com/fsnotify/fsnotify v1.9.0
-    github.com/go-ole/go-ole v1.3.0
-    github.com/rwcarlsen/goexif v0.0.0-20190401172101-9e8deecbddbd
-    github.com/spf13/cobra v1.10.2
+    github.com/go-ole/go-ole v1.3.0          // Windows COM/OLE for native drag
+    github.com/rwcarlsen/goexif v0.0.0-...    // EXIF metadata reading
+    github.com/spf13/cobra v1.10.2            // CLI framework for mp
     github.com/wailsapp/wails/v2 v2.11.0
     github.com/yuin/gopher-lua v1.1.1
     golang.design/x/clipboard v0.7.0

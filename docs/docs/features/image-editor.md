@@ -4,7 +4,7 @@ sidebar_position: 2
 
 # Image Editor
 
-Annotate and modify images directly within mahpastes. Draw shapes, add text, crop, anonymize regions, and transform images -- all without leaving the app.
+Annotate and modify images directly within mahpastes. Supports highlights, shapes, text, freehand drawing, cropping, selections, anonymization, and transform operations -- all without leaving the app.
 
 ## Opening the Editor
 
@@ -61,12 +61,10 @@ Draw a line with an arrowhead at the endpoint. The arrowhead scales proportional
 
 **How to use:**
 1. Click to set start point
-2. Drag toward the target
+2. Drag to endpoint
 3. Release to complete -- the arrowhead appears at the endpoint
 
-Hold <span className="keyboard-key">Shift</span> while dragging to snap to 45-degree increments, just like the Line tool.
-
-While dragging, a dashed preview shows the arrow before you commit it.
+Hold <span className="keyboard-key">Shift</span> while dragging to snap to 45-degree increments. While dragging, a dashed preview shows the arrow before you commit it.
 
 ### Rectangle Tool
 
@@ -104,7 +102,7 @@ Add text labels and annotations.
 | Property | Options |
 |----------|---------|
 | Font | Arial, sans-serif |
-| Font size | Adjustable (default 16px) |
+| Font size | Independent setting, default 16px |
 | Color | Any color via picker |
 
 **How to use:**
@@ -225,11 +223,24 @@ Rotate and flip the entire image using the toolbar buttons.
 
 Rotation changes the canvas dimensions (width and height are swapped). The zoom level adjusts to fit the new dimensions automatically.
 
+### Zoom and Pan
+
+Control the view of the canvas without modifying the image.
+
+| Action | Method |
+|--------|--------|
+| Zoom in/out | <span className="keyboard-key">Ctrl</span>/<span className="keyboard-key">Cmd</span> + scroll wheel, or toolbar buttons |
+| Pan | Hold <span className="keyboard-key">Space</span> and drag |
+| Zoom to fit | Toolbar button (auto-fits on open) |
+| Zoom to 100% | Toolbar button |
+
+The current zoom percentage is displayed in the toolbar.
+
 ## Toolbar Options
 
 ### Color Picker
 
-Click the color swatch to open the browser's native color picker. Enter hex values or use the visual picker to choose any color. The default brush color is a warm dark gray (`#44403c`).
+Click the color swatch to open the browser's native color picker. Enter hex values or use the visual picker to choose any color. The default drawing color is a warm dark gray (`#44403c`).
 
 ### Stroke Width
 
@@ -352,7 +363,7 @@ Every tool and common action has a keyboard shortcut.
 
 ### Save (Overwrite)
 
-Click **Save** to overwrite the original clip with your edits. The filename remains the same.
+Click **Save** to overwrite the original clip with your edits. The original clip's content is replaced in place. The filename remains the same.
 
 ### Save as New Clip
 
@@ -393,7 +404,7 @@ The editor supports touch drawing on touchscreen devices. Touch events are mappe
 
 ## Limitations
 
-- **Canvas max 4000px**: Images are downscaled to a maximum of 4000 pixels on the longest dimension
+- **Canvas max 4000px**: Images are downscaled to a maximum of 4000 pixels on either dimension
 - **No layers**: Annotations are flattened on save
 - **Raster only**: SVG images are rasterized for editing
 - **Single text line**: The Text tool commits a single line per placement -- for multiline text, place multiple text annotations

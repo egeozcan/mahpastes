@@ -78,7 +78,7 @@ Click any image clip's preview to open it in a full-screen lightbox.
 **Bottom bar:**
 - Position counter (e.g. "1/5"), filename, and image resolution
 - Zoom slider with percentage display
-- **Actions** menu with Open, Open With, Copy (Path / File / Contents), Save, Edit, Tags, Metadata, Set Expiration / Cancel Expiration, Merge Duplicates (if duplicates exist), Archive, Delete
+- **Actions** menu with Open, Open With, Copy (Path / File / Contents), Save, Edit, Tags, Metadata, Rename, Set Expiration / Cancel Expiration, Merge Duplicates (if duplicates exist), Archive, Delete
 - Plugin action menu (if plugins define lightbox actions)
 
 **Keyboard shortcuts:**
@@ -124,6 +124,7 @@ Click the three-dot menu button on any clip card, or right-click anywhere on the
 - **Edit** -- opens the image editor or text editor (shown for editable types)
 - **Tags** -- opens the tag popover
 - **Metadata** -- opens the metadata modal for viewing and editing key-value pairs
+- **Rename** -- opens a prompt to change the clip's filename
 - **Set Expiration** -- opens expiration preset popover (shown when clip has no expiry)
 - **Cancel Expiration** -- removes expiration (shown when clip has an active expiry)
 - **Archive** / **Restore** -- toggles archive state
