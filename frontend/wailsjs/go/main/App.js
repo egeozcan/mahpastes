@@ -278,6 +278,10 @@ export function UpdateWatchedFolder(arg1, arg2) {
   return window['go']['main']['App']['UpdateWatchedFolder'](arg1, arg2);
 }
 
+export function UpdateWatchedFolderPartial(arg1, arg2) {
+  return window['go']['main']['App']['UpdateWatchedFolderPartial'](arg1, arg2);
+}
+
 export function UploadFileAndGetID(arg1) {
   return window['go']['main']['App']['UploadFileAndGetID'](arg1);
 }
