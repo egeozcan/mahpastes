@@ -37,6 +37,8 @@ func (e *APIError) Error() string {
 // ExitCode returns the appropriate CLI exit code for this API error.
 func (e *APIError) ExitCode() int {
 	switch e.StatusCode {
+	case 0:
+		return ExitConnection
 	case http.StatusUnauthorized:
 		return ExitAuth
 	case http.StatusForbidden:

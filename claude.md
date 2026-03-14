@@ -61,11 +61,15 @@ Tests are organized by feature in `e2e/tests/`:
 - `bulk/` - Multi-select operations
 - `clips/` - Upload, view, delete, archive operations
 - `edge-cases/` - Error handling, expiration
+- `folder-drag/` - Folder drag operations
 - `images/` - Lightbox, editor, comparison
+- `metadata/` - Clip metadata CRUD
 - `plugins/` - Plugin system (install, events, APIs, scheduling)
 - `search/` - Filtering functionality
 - `screenshots/` - Documentation screenshot capture
+- `serve/` - Tag HTTP serving and API features
 - `shortcuts/` - Keyboard shortcut tests
+- `sort/` - Clip sorting functionality
 - `tags/` - Tag CRUD, filtering, hidden tags, folder mode, tree exclusivity
 - `watch/` - Watch folders feature
 
@@ -114,7 +118,9 @@ The app uses Tailwind's `stone` color scale exclusively:
 - **Interactive**: `bg-stone-800` (buttons), `hover:bg-stone-700`
 - **Accents**: Only `stone` variants - no blue, green, or other colors except:
   - Error states: `red-500`, `red-50`
-  - Success indicator: `emerald-500` (watch indicator only)
+  - Success indicator: `emerald-500` (watch/serve indicator)
+  - Warnings: `amber-50`, `amber-100`, `amber-200`, `amber-500`, `amber-700` (backup restore, shortcut conflicts, write permission badges)
+  - Info: `blue-100`, `blue-700` (read permission badges)
 
 ### Typography
 
@@ -175,23 +181,30 @@ The app uses Tailwind's `stone` color scale exclusively:
 mahpastes/
 ├── Makefile              # Build, install, test targets
 ├── app.go                # Main Wails app logic
+├── api_manager.go        # REST API server (/api/v1/*) for mp CLI
+├── api_service.go        # API management Wails binding (start/stop/keys)
 ├── app_transfer_helpers.go # Bridge between App and TempClipStore
 ├── backup.go             # ZIP backup and restore
-├── clipboard_service.go  # Clipboard copy service (separate struct for Wails binding limit)
+├── clipboard_service.go  # Clipboard copy service (separate struct)
 ├── clipboard_darwin.go   # macOS clipboard via NSPasteboard (CGo)
 ├── clipboard_windows.go  # Windows clipboard via PowerShell
 ├── clipboard_other.go    # Unsupported platform stub
 ├── database.go           # SQLite operations
 ├── main.go               # Entry point
 ├── native_drag_darwin.go # macOS native file drag via CGo
+├── native_drag_windows.go # Windows native drag via DataTransfer
 ├── native_drag_other.go  # Unsupported platform stub
-├── plugin_service.go     # Plugin frontend API (separate struct for Wails binding limit)
+├── open_darwin.go        # macOS file-open helper
+├── open_windows.go       # Windows file-open helper
+├── open_other.go         # Unsupported platform stub
+├── plugin_service.go     # Plugin frontend API (separate struct)
 ├── plugins.go            # Plugin install/uninstall helpers
 ├── serve_json_api.go     # JSON API handler for served tags (/_api prefix)
 ├── serve_file_upload.go  # File upload handler for served tags (/_api/_upload)
 ├── serve_manager.go      # Tag HTTP server lifecycle and routing
-├── serve_service.go      # Serve frontend API (separate struct for Wails binding limit)
+├── serve_service.go      # Serve frontend API (separate struct)
 ├── temp_clip_store.go    # Leased temp file management for transfers
+├── transfer_handler.go   # HTTP handler for drag-out file transfers
 ├── transfer_service.go   # Drag-out preparation and native drag initiation
 ├── transfer_types.go     # Transfer system type definitions
 ├── tag_hierarchy.go      # Tag tree helpers (parent, root, ancestor, descendant checks)
@@ -201,24 +214,55 @@ mahpastes/
 │   ├── manifest.go       # Manifest parsing, validation
 │   ├── sandbox.go        # Sandboxed Lua execution
 │   ├── scheduler.go      # Scheduled/recurring plugin tasks
-│   └── api_*.go          # Lua APIs (clips, tags, storage, http, fs, utils, task, toast, image, modal)
-├── plugins/              # Example/bundled plugins
-│   └── fal-ai.lua        # FAL.AI image processing plugin
+│   ├── fetch.go          # Plugin fetching from URLs
+│   ├── semver.go         # Semantic version parsing
+│   ├── update_checker.go # Plugin update checking
+│   ├── permission_diff.go # Permission change detection
+│   └── api_*.go          # Lua APIs (clips, tags, storage, http, fs, utils, task, toast, image, modal, metadata)
+├── plugins/              # Bundled plugins
+│   ├── ascii-art.lua     # ASCII art conversion
+│   ├── auto-tagger.lua   # Automatic clip tagging
+│   ├── exif-viewer.lua   # EXIF metadata viewer
+│   ├── expiring-clips.lua # Auto-expire old clips
+│   ├── fal-ai.lua        # FAL.AI image processing
+│   ├── mahresources.lua  # Mahresources integration
+│   ├── palette-extractor.lua # Color palette extraction
+│   ├── qr-code.lua       # QR code generation
+│   └── watermarker.lua   # Image watermarking
 ├── cmd/mp/               # CLI binary (stateless REST API client)
 ├── frontend/
 │   ├── index.html        # Single HTML file with all markup
 │   ├── js/
 │   │   ├── app.js        # Main app initialization, event handlers
-│   │   ├── editor.js     # Image editor canvas logic
+│   │   ├── api-settings.js # API settings management UI
+│   │   ├── context-menu.js # Context menu functionality
+│   │   ├── editor/       # Modular image editor
+│   │   │   ├── editor-core.js   # Core editor canvas logic
+│   │   │   ├── tool-anonymize.js # Anonymize/blur tool
+│   │   │   ├── tool-arrow.js    # Arrow drawing tool
+│   │   │   ├── tool-brush.js    # Brush/freehand tool
+│   │   │   ├── tool-crop.js     # Crop tool
+│   │   │   ├── tool-eyedropper.js # Color picker tool
+│   │   │   ├── tool-select.js   # Selection tool
+│   │   │   ├── tool-shapes.js   # Shape drawing tool
+│   │   │   ├── tool-text.js     # Text overlay tool
+│   │   │   ├── tool-transform.js # Transform/resize tool
+│   │   │   └── tool-zoom.js     # Zoom/pan tool
+│   │   ├── folder-drag.js # Folder drag interaction
+│   │   ├── metadata.js   # Clip metadata handling
 │   │   ├── modal-renderer.js # Plugin result modal rendering
 │   │   ├── modals.js     # All modal/lightbox/editor logic
 │   │   ├── plugin-icons.js # Plugin icon rendering
 │   │   ├── plugin-review.js # Plugin permission review UI
 │   │   ├── plugins.js    # Plugin management UI
+│   │   ├── roving-tabindex.js # Accessible roving tabindex pattern
+│   │   ├── serve.js      # Tag serve UI
 │   │   ├── settings.js   # Settings modal
 │   │   ├── shortcuts.js  # ShortcutManager for keyboard shortcut registration and context handling
+│   │   ├── sort.js       # Clip sorting UI
 │   │   ├── tags.js       # Tag management UI
 │   │   ├── task-queue.js # Plugin task progress UI
+│   │   ├── tooltips.js   # Tooltip system
 │   │   ├── transfer.js   # Drag-out transfer state management
 │   │   ├── transfer-strategies.js # Platform-specific drag data adapters
 │   │   ├── ui.js         # Card rendering, gallery management
@@ -229,6 +273,10 @@ mahpastes/
 │   │   ├── main.css      # Global styles, scrollbars, form styling
 │   │   └── modals.css    # Modal-specific styles
 │   └── wailsjs/          # Generated Wails bindings
+├── examples/             # Example plugins and SPAs
+│   ├── plugins/          # Example plugin scripts
+│   └── SPAs/             # Example single-page apps for tag serve
+├── docs/                 # Documentation source
 └── e2e/                  # Playwright tests
     ├── tests/            # Test files by feature
     ├── fixtures/         # Test fixtures (AppHelper)
@@ -260,7 +308,6 @@ export MP_API_URL=http://localhost:44557  # Optional, this is the default
 | `mp api` | Check API connectivity |
 | `mp backup` | Create/restore backup ZIPs |
 | `mp clipboard` | Copy clip content or file reference to system clipboard |
-| `mp completion` | Shell completion for bash/zsh/fish/powershell |
 
 ### Key Patterns
 
@@ -292,6 +339,23 @@ cmd/mp/
 
 Pure Go, no CGo — cross-compiles for macOS, Linux, Windows.
 
+## REST API (`/api/v1/*`)
+
+The app exposes a REST API via `api_manager.go` that the `mp` CLI and external tools consume.
+
+### Key Files
+
+- `api_manager.go` - HTTP server with ~40+ endpoints, auth middleware, CORS
+- `api_service.go` - Wails-bound `APIService` struct for frontend control (start/stop API, manage keys)
+
+### Authentication
+
+API keys with roles (`viewer`, `editor`, `admin`). Auth via `Authorization: Bearer <key>` header or `MP_API_KEY` env var in the CLI.
+
+### Endpoints
+
+Routes cover all major features: clips, tags, watch folders, plugins, backup, dedup, clipboard, metadata, and serve management. All under `/api/v1/`.
+
 ## Code Style
 
 ### JavaScript
@@ -322,18 +386,20 @@ The app has a Lua-based plugin system that allows extending functionality.
 - `plugin/manager.go` - Plugin lifecycle management, event dispatch
 - `plugin/sandbox.go` - Sandboxed Lua execution environment
 - `plugin/manifest.go` - Plugin manifest parsing, event validation
-- `plugin/api_*.go` - Lua APIs exposed to plugins (clips, tags, storage, http, fs, utils, task, toast, image, modal)
+- `plugin/api_*.go` - Lua APIs exposed to plugins (clips, tags, storage, http, fs, utils, task, toast, image, modal, metadata)
 - `plugin/scheduler.go` - Scheduled/recurring plugin tasks
 - `plugin_service.go` - Frontend API for plugin management (separate from App due to Wails method limit)
 
 ### Wails Method Binding Limit
 
-**NOTE**: Wails was previously believed to have a ~49 method limit per bound struct, but the App struct currently has 66+ methods and all bind correctly. Multiple services exist as separate structs for organizational clarity:
+**NOTE**: The App struct currently has 97+ exported methods and all bind correctly. Multiple services exist as separate structs for organizational clarity:
 - `PluginService` in `plugin_service.go` - Plugin-related APIs (TryAcquireModalGuard, IsPluginURLAllowed, GetPluginUIActions, ExecutePluginAction, ImportPluginFromPath, GetPluginPermissions, RevokePluginPermission, GetPluginStorage, SetPluginStorage, GetAllPluginStorage, etc.)
 - `ClipboardService` in `clipboard_service.go` - Clipboard copy operations
 - `TransferService` in `transfer_service.go` - Drag-out/transfer operations
+- `ServeService` in `serve_service.go` - Tag HTTP serving operations
+- `APIService` in `api_service.go` - REST API management (start/stop, API keys)
 
-Frontend accesses via `window.go.main.PluginService.*`, `window.go.main.ClipboardService.*`, `window.go.main.TransferService.*`.
+Frontend accesses via `window.go.main.PluginService.*`, `window.go.main.ClipboardService.*`, `window.go.main.TransferService.*`, `window.go.main.ServeService.*`, `window.go.main.APIService.*`.
 
 ### Event System
 
@@ -341,7 +407,7 @@ Events are emitted via `pluginManager.EmitEvent(eventName, data)`. Plugins subsc
 
 **Current events** (defined in `plugin/manifest.go:ValidEvents()`):
 - `app:startup`, `app:shutdown` - App lifecycle
-- `clip:created`, `clip:deleted`, `clip:archived`, `clip:unarchived` - Clip operations
+- `clip:created`, `clip:deleted`, `clip:archived`, `clip:unarchived`, `clip:renamed` - Clip operations
 - `watch:file_detected`, `watch:import_complete` - Watch folder events
 - `tag:created`, `tag:updated`, `tag:deleted`, `tag:added_to_clip`, `tag:removed_from_clip` - Tag operations
 
@@ -368,6 +434,7 @@ APIs are registered in `plugin/manager.go` when loading plugins. Each API module
 | `log` | `api_utils.go` | Global function for logging (not a module) |
 | `json` | `api_utils.go` | encode, decode |
 | `base64` | `api_utils.go` | encode, decode |
+| `metadata` | `api_metadata.go` | get, set, delete, set_bulk (clip metadata key-value pairs) |
 | `modal` | `api_modal.go` | show (display plugin result modal with markdown/image/text content) |
 
 **To add a new API module**:
@@ -470,7 +537,7 @@ The transfer system handles copying clips as files to the system clipboard and d
 
 ### Architecture
 
-Three separate Wails-bound services (`ClipboardService`, `TransferService`, `PluginService`) exist alongside `App` to stay under the Wails ~49 method limit per struct.
+Five separate Wails-bound services (`ClipboardService`, `TransferService`, `PluginService`, `ServeService`, `APIService`) exist alongside `App` for organizational clarity.
 
 ### Key Files
 
@@ -484,7 +551,9 @@ Three separate Wails-bound services (`ClipboardService`, `TransferService`, `Plu
 - `app_transfer_helpers.go` - Bridge between App and TempClipStore
 - `temp_clip_store.go` - Leased temp file management for transfers
 - `native_drag_darwin.go` - macOS native file drag via CGo
+- `native_drag_windows.go` - Windows drag via DataTransfer API
 - `native_drag_other.go` - Unsupported platform stub
+- `transfer_handler.go` - HTTP handler for drag-out file transfers
 
 **Frontend JS**:
 - `transfer.js` - Drag-out transfer state management
@@ -503,7 +572,7 @@ Three separate Wails-bound services (`ClipboardService`, `TransferService`, `Plu
 |-----------|-------|---------|-------|
 | Copy as file | NSPasteboard (CGo) | PowerShell SetFileDropList | Not supported |
 | Copy raw content | golang.design/x/clipboard | Same | Same |
-| Drag out | NSView.dragFile + file-uri-v1 | Planned | Planned |
+| Drag out | NSView.dragFile + file-uri-v1 | DataTransfer file-uri-v1 | Planned |
 
 ## Common Tasks
 
