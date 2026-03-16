@@ -1,0 +1,21 @@
+{
+  "title": "My Journal",
+  "entries": [
+    {
+      "id": 1,
+      "date": "2026-03-14",
+      "mood": "good",
+      "content": "Started working on the mood board and journal SPAs today. The tag serve system is coming together nicely — being able to serve HTML clips as full applications with a JSON API backend is surprisingly powerful.\n\nThe masonry grid for the mood board looks great with the dark theme.",
+      "photos": [],
+      "created": "2026-03-14T20:30:00Z"
+    },
+    {
+      "id": 2,
+      "date": "2026-03-15",
+      "mood": "great",
+      "content": "Beautiful spring day. Took the camera out for some street photography. The light was perfect around golden hour — warm and low, casting long shadows across the buildings.\n\nUploaded a few favorites to the mood board.",
+      "photos": [],
+      "created": "2026-03-15T21:00:00Z"
+    }
+  ]
+}

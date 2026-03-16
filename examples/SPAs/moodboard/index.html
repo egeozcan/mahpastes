@@ -1,0 +1,1278 @@
+<!--
+  mahpastes Mood Board — Image Inspiration Collector SPA
+
+  Setup:
+  1. Create a tag in mahpastes (e.g., "moodboard")
+  2. Upload this file (index.html) into that tag
+  3. Upload board.json (in the same directory) into the same tag
+  4. Serve the tag with API access set to "readwrite"
+  5. Open the served URL in your browser
+  6. Drag and drop images onto the board, or click the upload zone
+
+  This board exercises the JSON API (GET, POST, PATCH, DELETE) and
+  the file upload API (POST /_api/_upload). Watch the API log panel
+  at the bottom to see each call as it happens.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mood Board — mahpastes</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;1,400&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg-deep:      #0a0a0a;
+      --bg-surface:   #141414;
+      --bg-card:      #1a1a1a;
+      --bg-elevated:  #222222;
+      --bg-hover:     #2a2a2a;
+      --border-subtle:#2a2a2a;
+      --border-hover: #3a3a3a;
+      --text-primary: #e8e4df;
+      --text-secondary:#a09a93;
+      --text-muted:   #6b6560;
+      --text-faint:   #4a4540;
+      --accent-warm:  #c8a882;
+      --accent-glow:  #d4b896;
+      --glass-bg:     rgba(20, 20, 20, 0.75);
+      --glass-border: rgba(255, 255, 255, 0.08);
+      --glass-blur:   20px;
+      --red-soft:     #e05252;
+      --red-bg:       rgba(224, 82, 82, 0.12);
+      --green-soft:   #5cb87a;
+      --green-bg:     rgba(92, 184, 122, 0.12);
+      --log-get:      #6b6560;
+      --log-post:     #5cb87a;
+      --log-patch:    #d4a04a;
+      --log-put:      #5a8fd4;
+      --log-delete:   #e05252;
+      --radius-sm:    6px;
+      --radius-md:    10px;
+      --radius-lg:    16px;
+      --ease-out:     cubic-bezier(0.16, 1, 0.3, 1);
+      --ease-smooth:  cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    html { font-size: 16px; }
+
+    body {
+      font-family: 'JetBrains Mono', monospace;
+      background: var(--bg-deep);
+      color: var(--text-primary);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow-x: hidden;
+      position: relative;
+    }
+
+    /* -- Grain texture overlay -- */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      pointer-events: none;
+      opacity: 0.035;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+      background-repeat: repeat;
+      background-size: 256px 256px;
+    }
+
+    body > * { position: relative; z-index: 1; }
+
+    /* -- Scrollbar -- */
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border-subtle); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--border-hover); }
+
+    /* -- Header -- */
+    .site-header {
+      padding: 2rem 2.5rem 1.5rem;
+      display: flex;
+      align-items: baseline;
+      gap: 1rem;
+      flex-shrink: 0;
+      border-bottom: 1px solid var(--border-subtle);
+      background: var(--bg-deep);
+    }
+
+    .board-title {
+      font-family: 'Syne', sans-serif;
+      font-size: 1.75rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--text-primary);
+      cursor: pointer;
+      padding: 0.15rem 0.4rem;
+      border-radius: var(--radius-sm);
+      border: 1px solid transparent;
+      transition: all 200ms var(--ease-smooth);
+      background: none;
+      outline: none;
+      width: auto;
+      min-width: 120px;
+    }
+
+    .board-title:hover { border-color: var(--border-subtle); }
+    .board-title:focus { border-color: var(--accent-warm); background: var(--bg-surface); }
+
+    .board-subtitle {
+      font-size: 0.6rem;
+      font-weight: 400;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+    }
+
+    .image-count {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.65rem;
+      font-weight: 300;
+      color: var(--text-muted);
+      margin-left: auto;
+      padding: 0.25rem 0.75rem;
+      border: 1px solid var(--border-subtle);
+      border-radius: 9999px;
+    }
+
+    /* -- Main content area -- */
+    .main-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 2rem 2.5rem;
+    }
+
+    /* -- Error banner -- */
+    .error-banner {
+      padding: 0.6rem 1.5rem;
+      background: var(--red-bg);
+      color: var(--red-soft);
+      font-size: 0.7rem;
+      font-weight: 500;
+      text-align: center;
+      border-bottom: 1px solid rgba(224, 82, 82, 0.15);
+      display: none;
+      flex-shrink: 0;
+    }
+
+    .error-banner.visible { display: block; }
+
+    /* -- Upload drop zone -- */
+    .drop-zone {
+      border: 2px dashed var(--border-subtle);
+      border-radius: var(--radius-lg);
+      padding: 3rem 2rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 1rem;
+      cursor: pointer;
+      transition: all 250ms var(--ease-smooth);
+      margin-bottom: 2.5rem;
+      background: transparent;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .drop-zone::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(ellipse at center, rgba(200, 168, 130, 0.03), transparent 70%);
+      opacity: 0;
+      transition: opacity 300ms var(--ease-smooth);
+      pointer-events: none;
+    }
+
+    .drop-zone:hover {
+      border-color: var(--border-hover);
+      background: var(--bg-surface);
+    }
+
+    .drop-zone:hover::before { opacity: 1; }
+
+    .drop-zone.drag-active {
+      border-color: var(--accent-warm);
+      background: rgba(200, 168, 130, 0.04);
+      transform: scale(1.005);
+    }
+
+    .drop-zone.drag-active::before { opacity: 1; }
+
+    .drop-zone-icon {
+      color: var(--text-muted);
+      transition: color 200ms, transform 200ms;
+    }
+
+    .drop-zone:hover .drop-zone-icon { color: var(--text-secondary); }
+    .drop-zone.drag-active .drop-zone-icon { color: var(--accent-warm); transform: scale(1.1); }
+
+    .drop-zone-label {
+      font-family: 'Syne', sans-serif;
+      font-size: 0.85rem;
+      font-weight: 500;
+      color: var(--text-muted);
+      transition: color 200ms;
+    }
+
+    .drop-zone:hover .drop-zone-label { color: var(--text-secondary); }
+    .drop-zone.drag-active .drop-zone-label { color: var(--accent-warm); }
+
+    .drop-zone-hint {
+      font-size: 0.6rem;
+      color: var(--text-faint);
+      font-weight: 300;
+    }
+
+    .drop-zone-input { display: none; }
+
+    /* -- Uploading indicator -- */
+    .uploading-indicator {
+      display: none;
+      align-items: center;
+      gap: 0.6rem;
+      font-size: 0.7rem;
+      color: var(--accent-warm);
+      margin-bottom: 1.5rem;
+    }
+
+    .uploading-indicator.visible { display: flex; }
+
+    .uploading-spinner {
+      width: 14px;
+      height: 14px;
+      border: 2px solid var(--border-subtle);
+      border-top-color: var(--accent-warm);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* -- Masonry grid -- */
+    .masonry-grid {
+      column-count: 4;
+      column-gap: 1rem;
+    }
+
+    @media (max-width: 1400px) { .masonry-grid { column-count: 3; } }
+    @media (max-width: 1000px) { .masonry-grid { column-count: 2; } }
+    @media (max-width: 600px)  { .masonry-grid { column-count: 1; } }
+
+    /* -- Image card -- */
+    .image-card {
+      break-inside: avoid;
+      margin-bottom: 1rem;
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      position: relative;
+      cursor: pointer;
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      transition: border-color 200ms var(--ease-smooth), transform 200ms var(--ease-out);
+      opacity: 0;
+      transform: translateY(12px);
+      animation: cardFadeIn 400ms var(--ease-out) forwards;
+    }
+
+    .image-card:hover {
+      border-color: var(--border-hover);
+      transform: translateY(-2px);
+    }
+
+    @keyframes cardFadeIn {
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .image-card img {
+      display: block;
+      width: 100%;
+      height: auto;
+      background: var(--bg-surface);
+      transition: opacity 300ms var(--ease-smooth);
+    }
+
+    .image-card img.loading { opacity: 0; }
+    .image-card img.loaded  { opacity: 1; }
+
+    /* -- Glass overlay on hover -- */
+    .image-overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      padding: 1rem;
+      background: linear-gradient(to top, rgba(10, 10, 10, 0.85) 0%, rgba(10, 10, 10, 0.3) 50%, transparent 100%);
+      backdrop-filter: blur(2px);
+      opacity: 0;
+      transition: opacity 250ms var(--ease-smooth);
+      pointer-events: none;
+    }
+
+    .image-card:hover .image-overlay {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .overlay-caption {
+      font-family: 'Syne', sans-serif;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 0.25rem;
+      line-height: 1.3;
+    }
+
+    .overlay-notes {
+      font-size: 0.65rem;
+      font-weight: 300;
+      color: var(--text-secondary);
+      line-height: 1.4;
+      max-height: 2.8em;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .overlay-filename {
+      font-size: 0.55rem;
+      font-weight: 300;
+      color: var(--text-muted);
+      margin-top: 0.4rem;
+    }
+
+    .overlay-actions {
+      position: absolute;
+      top: 0.6rem;
+      right: 0.6rem;
+      display: flex;
+      gap: 0.35rem;
+    }
+
+    .overlay-action-btn {
+      width: 28px;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--glass-bg);
+      backdrop-filter: blur(var(--glass-blur));
+      border: 1px solid var(--glass-border);
+      border-radius: var(--radius-sm);
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: all 150ms var(--ease-smooth);
+      padding: 0;
+    }
+
+    .overlay-action-btn:hover {
+      background: rgba(30, 30, 30, 0.9);
+      color: var(--text-primary);
+      border-color: rgba(255, 255, 255, 0.15);
+    }
+
+    .overlay-action-btn.delete:hover {
+      color: var(--red-soft);
+      border-color: rgba(224, 82, 82, 0.3);
+      background: rgba(224, 82, 82, 0.15);
+    }
+
+    /* -- Empty state -- */
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 4rem 2rem;
+      gap: 1rem;
+    }
+
+    .empty-state-icon { color: var(--text-faint); }
+
+    .empty-state-title {
+      font-family: 'Syne', sans-serif;
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: var(--text-secondary);
+    }
+
+    .empty-state-text {
+      font-size: 0.7rem;
+      font-weight: 300;
+      color: var(--text-muted);
+      text-align: center;
+      max-width: 320px;
+      line-height: 1.6;
+    }
+
+    /* -- Edit modal -- */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      background: rgba(0, 0, 0, 0.7);
+      backdrop-filter: blur(8px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+      opacity: 0;
+      transition: opacity 200ms var(--ease-smooth);
+    }
+
+    .modal-backdrop.visible {
+      display: flex;
+      opacity: 1;
+    }
+
+    .modal-panel {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      width: 100%;
+      max-width: 480px;
+      padding: 2rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+      transform: scale(0.96);
+      transition: transform 200ms var(--ease-out);
+    }
+
+    .modal-backdrop.visible .modal-panel { transform: scale(1); }
+
+    .modal-title {
+      font-family: 'Syne', sans-serif;
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .modal-field { display: flex; flex-direction: column; gap: 0.4rem; }
+
+    .modal-label {
+      font-size: 0.6rem;
+      font-weight: 500;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .modal-input,
+    .modal-textarea {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.75rem;
+      padding: 0.6rem 0.75rem;
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      background: var(--bg-surface);
+      color: var(--text-primary);
+      outline: none;
+      transition: border-color 200ms var(--ease-smooth);
+      width: 100%;
+    }
+
+    .modal-input::placeholder,
+    .modal-textarea::placeholder { color: var(--text-faint); }
+
+    .modal-input:focus,
+    .modal-textarea:focus { border-color: var(--accent-warm); }
+
+    .modal-textarea {
+      resize: vertical;
+      min-height: 80px;
+      line-height: 1.5;
+    }
+
+    .modal-actions {
+      display: flex;
+      gap: 0.6rem;
+      justify-content: flex-end;
+      padding-top: 0.5rem;
+    }
+
+    .btn {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.65rem;
+      font-weight: 500;
+      padding: 0.5rem 1.1rem;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: all 150ms var(--ease-smooth);
+      border: none;
+      outline: none;
+    }
+
+    .btn-primary {
+      background: var(--accent-warm);
+      color: var(--bg-deep);
+    }
+
+    .btn-primary:hover { background: var(--accent-glow); }
+
+    .btn-ghost {
+      background: none;
+      color: var(--text-secondary);
+      border: 1px solid var(--border-subtle);
+    }
+
+    .btn-ghost:hover { border-color: var(--border-hover); background: var(--bg-hover); }
+
+    .btn-danger {
+      background: var(--red-bg);
+      color: var(--red-soft);
+      border: 1px solid rgba(224, 82, 82, 0.2);
+    }
+
+    .btn-danger:hover { background: rgba(224, 82, 82, 0.2); }
+
+    /* -- Confirm dialog -- */
+    .confirm-bar {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      padding: 0.5rem 0;
+    }
+
+    .confirm-text {
+      font-size: 0.7rem;
+      color: var(--red-soft);
+      flex: 1;
+    }
+
+    /* -- Loading state -- */
+    .loading-state {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-muted);
+      font-size: 0.8rem;
+      font-weight: 300;
+      padding: 4rem;
+    }
+
+    /* -- API Log Panel -- */
+    .log-panel {
+      flex-shrink: 0;
+      border-top: 1px solid var(--border-subtle);
+      background: var(--bg-surface);
+      transition: all 200ms var(--ease-smooth);
+    }
+
+    .log-panel.collapsed .log-body { display: none; }
+
+    .log-header {
+      padding: 0.5rem 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .log-header:hover { background: var(--bg-card); }
+
+    .log-header-left {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+
+    .log-label {
+      font-size: 0.55rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text-muted);
+    }
+
+    .log-count {
+      font-size: 0.55rem;
+      font-weight: 400;
+      color: var(--text-faint);
+    }
+
+    .log-chevron {
+      transition: transform 200ms var(--ease-smooth);
+      color: var(--text-faint);
+    }
+
+    .log-panel.collapsed .log-chevron { transform: rotate(180deg); }
+
+    .log-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .log-clear-btn {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.55rem;
+      font-weight: 400;
+      color: var(--text-faint);
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 0.15rem 0.4rem;
+      border-radius: var(--radius-sm);
+      transition: all 150ms;
+    }
+
+    .log-clear-btn:hover { color: var(--text-secondary); background: var(--bg-hover); }
+
+    .log-body {
+      max-height: 180px;
+      overflow-y: auto;
+      border-top: 1px solid var(--border-subtle);
+    }
+
+    .log-entry {
+      display: flex;
+      align-items: center;
+      gap: 0.625rem;
+      padding: 0.3rem 1.5rem;
+      font-size: 0.6rem;
+      border-bottom: 1px solid rgba(42, 42, 42, 0.4);
+      transition: background 150ms;
+    }
+
+    .log-entry:hover { background: var(--bg-card); }
+
+    .log-method {
+      font-weight: 600;
+      font-size: 0.5rem;
+      padding: 0.1rem 0.4rem;
+      border-radius: 3px;
+      color: var(--bg-deep);
+      text-transform: uppercase;
+      flex-shrink: 0;
+      min-width: 3.5rem;
+      text-align: center;
+      letter-spacing: 0.04em;
+    }
+
+    .log-method.GET    { background: var(--log-get); color: var(--text-primary); }
+    .log-method.POST   { background: var(--log-post); }
+    .log-method.PATCH  { background: var(--log-patch); }
+    .log-method.PUT    { background: var(--log-put); }
+    .log-method.DELETE { background: var(--log-delete); }
+
+    .log-path {
+      flex: 1;
+      color: var(--text-secondary);
+      font-size: 0.6rem;
+      font-weight: 400;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .log-status {
+      font-size: 0.55rem;
+      font-weight: 500;
+      color: var(--text-muted);
+      flex-shrink: 0;
+    }
+
+    .log-status.error { color: var(--red-soft); }
+
+    .log-duration {
+      font-size: 0.55rem;
+      color: var(--text-faint);
+      flex-shrink: 0;
+      min-width: 3rem;
+      text-align: right;
+    }
+
+    .log-time {
+      font-size: 0.5rem;
+      color: var(--text-faint);
+      flex-shrink: 0;
+      min-width: 4.5rem;
+      text-align: right;
+      font-style: italic;
+    }
+
+    /* -- Focus visible for keyboard nav -- */
+    :focus-visible {
+      outline: 2px solid var(--accent-warm);
+      outline-offset: 2px;
+    }
+
+    /* -- Screen reader only -- */
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border-width: 0;
+    }
+  </style>
+</head>
+<body>
+  <div id="error-banner" class="error-banner" role="alert" aria-live="assertive"></div>
+
+  <header class="site-header">
+    <input
+      id="board-title"
+      class="board-title"
+      type="text"
+      readonly
+      aria-label="Board title, click to edit"
+      title="Click to rename board"
+    >
+    <span class="board-subtitle">mahpastes mood board</span>
+    <span class="image-count" id="image-count" aria-live="polite">0 images</span>
+  </header>
+
+  <main class="main-content" id="main-content" role="main" aria-label="Mood board gallery">
+    <div class="loading-state" id="loading-state">Loading board...</div>
+  </main>
+
+  <!-- Edit Modal -->
+  <div class="modal-backdrop" id="edit-modal" role="dialog" aria-modal="true" aria-label="Edit image details">
+    <div class="modal-panel">
+      <h2 class="modal-title">Edit Image</h2>
+      <div class="modal-field">
+        <label class="modal-label" for="modal-caption">Caption</label>
+        <input class="modal-input" id="modal-caption" type="text" placeholder="Add a caption...">
+      </div>
+      <div class="modal-field">
+        <label class="modal-label" for="modal-notes">Notes</label>
+        <textarea class="modal-textarea" id="modal-notes" placeholder="Add notes or inspiration thoughts..."></textarea>
+      </div>
+      <div id="modal-confirm-area"></div>
+      <div class="modal-actions">
+        <button class="btn btn-danger" id="modal-delete-btn" type="button">Delete</button>
+        <div style="flex:1"></div>
+        <button class="btn btn-ghost" id="modal-cancel-btn" type="button">Cancel</button>
+        <button class="btn btn-primary" id="modal-save-btn" type="button">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <footer class="log-panel collapsed" id="log-panel" role="log" aria-label="API request log">
+    <div class="log-header" id="log-header">
+      <div class="log-header-left">
+        <span class="log-label">API Log</span>
+        <span class="log-count" id="log-count">0 calls</span>
+      </div>
+      <div class="log-header-actions">
+        <button class="log-clear-btn" id="log-clear" title="Clear log" onclick="event.stopPropagation()">Clear</button>
+        <svg class="log-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="18 15 12 9 6 15"></polyline>
+        </svg>
+      </div>
+    </div>
+    <div class="log-body" id="log-body"></div>
+  </footer>
+
+  <script>
+    'use strict';
+
+    // -- XSS prevention --
+    const ESC_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+    const esc = (s) => s == null ? '' : String(s).replace(/[&<>"']/g, (c) => ESC_MAP[c]);
+
+    // -- API Client --
+    const API_BASE = '/_api/board';
+    const logEntries = [];
+
+    const api = {
+      async request(method, path, body) {
+        const url = API_BASE + (path ? '/' + path : '');
+        const opts = { method, credentials: 'same-origin' };
+        if (body !== undefined) {
+          opts.headers = { 'Content-Type': 'application/json' };
+          opts.body = JSON.stringify(body);
+        }
+        const t0 = performance.now();
+        let res;
+        try {
+          res = await fetch(url, opts);
+        } catch (err) {
+          const ms = Math.round(performance.now() - t0);
+          logApiCall(method, url, 0, ms);
+          throw new Error('Network error: ' + err.message);
+        }
+        const ms = Math.round(performance.now() - t0);
+        const data = res.status !== 204 ? await res.json().catch(() => null) : null;
+        logApiCall(method, url, res.status, ms);
+        if (!res.ok) throw new Error(data?.error || res.statusText);
+        return data;
+      },
+      get:    (p) => api.request('GET', p),
+      post:   (p, b) => api.request('POST', p, b),
+      put:    (p, b) => api.request('PUT', p, b),
+      patch:  (p, b) => api.request('PATCH', p, b),
+      delete: (p) => api.request('DELETE', p),
+    };
+
+    // -- File upload --
+    async function uploadFile(file) {
+      const form = new FormData();
+      form.append('file', file);
+      const t0 = performance.now();
+      const res = await fetch('/_api/_upload', {
+        method: 'POST',
+        credentials: 'same-origin',
+        body: form
+      });
+      const ms = Math.round(performance.now() - t0);
+      const data = await res.json().catch(() => null);
+      logApiCall('POST', '/_api/_upload', res.status, ms);
+      if (!res.ok) throw new Error(data?.error || 'Upload failed');
+      return data;
+    }
+
+    // -- API Log Panel --
+    const logBody = document.getElementById('log-body');
+    const logCountEl = document.getElementById('log-count');
+    const logPanel = document.getElementById('log-panel');
+    const logHeader = document.getElementById('log-header');
+    const logClear = document.getElementById('log-clear');
+
+    function logApiCall(method, url, status, ms) {
+      const entry = { method, url, status, ms, time: new Date() };
+      logEntries.push(entry);
+      renderLogEntry(entry);
+      logCountEl.textContent = logEntries.length + ' call' + (logEntries.length !== 1 ? 's' : '');
+    }
+
+    function renderLogEntry(entry) {
+      const row = document.createElement('div');
+      row.className = 'log-entry';
+      const statusClass = entry.status >= 400 || entry.status === 0 ? ' error' : '';
+      const timeStr = entry.time.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      row.innerHTML = `
+        <span class="log-method ${esc(entry.method)}">${esc(entry.method)}</span>
+        <span class="log-path" title="${esc(entry.url)}">${esc(entry.url)}</span>
+        <span class="log-status${statusClass}">${esc(entry.status || 'ERR')}</span>
+        <span class="log-duration">${esc(entry.ms)}ms</span>
+        <span class="log-time">${esc(timeStr)}</span>
+      `;
+      logBody.appendChild(row);
+      logBody.scrollTop = logBody.scrollHeight;
+    }
+
+    logHeader.addEventListener('click', () => {
+      logPanel.classList.toggle('collapsed');
+    });
+
+    logClear.addEventListener('click', () => {
+      logEntries.length = 0;
+      logBody.innerHTML = '';
+      logCountEl.textContent = '0 calls';
+    });
+
+    // -- Error Banner --
+    const errorBanner = document.getElementById('error-banner');
+    let errorTimer = null;
+
+    function showError(msg) {
+      errorBanner.textContent = msg;
+      errorBanner.classList.add('visible');
+      if (errorTimer) clearTimeout(errorTimer);
+      errorTimer = setTimeout(() => errorBanner.classList.remove('visible'), 4000);
+    }
+
+    // -- Board State --
+    let board = null;
+    let editingImageId = null;
+
+    // -- SVG Icons --
+    const icons = {
+      upload: `<svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>`,
+      edit: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`,
+      trash: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>`,
+      emptyBoard: `<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="0.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>`,
+    };
+
+    // -- Render Board --
+    function render() {
+      if (!board) return;
+
+      const titleEl = document.getElementById('board-title');
+      titleEl.value = board.title || 'Untitled';
+
+      const images = board.images || [];
+      const countEl = document.getElementById('image-count');
+      countEl.textContent = images.length + ' image' + (images.length !== 1 ? 's' : '');
+
+      const main = document.getElementById('main-content');
+      const loadingEl = document.getElementById('loading-state');
+      if (loadingEl) loadingEl.remove();
+
+      main.innerHTML = '';
+
+      // Drop zone
+      const dropZone = document.createElement('div');
+      dropZone.className = 'drop-zone';
+      dropZone.id = 'drop-zone';
+      dropZone.setAttribute('role', 'button');
+      dropZone.setAttribute('tabindex', '0');
+      dropZone.setAttribute('aria-label', 'Upload images by dragging or clicking');
+      dropZone.innerHTML = `
+        <span class="drop-zone-icon">${icons.upload}</span>
+        <span class="drop-zone-label">Drop images here or click to browse</span>
+        <span class="drop-zone-hint">PNG, JPG, GIF, WebP, SVG</span>
+        <input class="drop-zone-input" id="file-input" type="file" accept="image/*" multiple aria-hidden="true">
+      `;
+      main.appendChild(dropZone);
+
+      // Uploading indicator
+      const uploadingEl = document.createElement('div');
+      uploadingEl.className = 'uploading-indicator';
+      uploadingEl.id = 'uploading-indicator';
+      uploadingEl.innerHTML = `<span class="uploading-spinner"></span><span id="uploading-text">Uploading...</span>`;
+      main.appendChild(uploadingEl);
+
+      // Gallery or empty state
+      if (images.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'empty-state';
+        empty.innerHTML = `
+          <span class="empty-state-icon">${icons.emptyBoard}</span>
+          <h2 class="empty-state-title">No images yet</h2>
+          <p class="empty-state-text">
+            Drop images onto the board or click the upload zone above to start collecting inspiration.
+          </p>
+        `;
+        main.appendChild(empty);
+      } else {
+        const grid = document.createElement('div');
+        grid.className = 'masonry-grid';
+        grid.setAttribute('role', 'list');
+        grid.setAttribute('aria-label', 'Image gallery');
+
+        for (let i = 0; i < images.length; i++) {
+          grid.appendChild(renderImageCard(images[i], i));
+        }
+
+        main.appendChild(grid);
+      }
+
+      // Re-bind drop zone events
+      setupDropZone();
+    }
+
+    function renderImageCard(image, index) {
+      const card = document.createElement('div');
+      card.className = 'image-card';
+      card.setAttribute('role', 'listitem');
+      card.style.animationDelay = (index * 60) + 'ms';
+
+      const caption = image.caption || '';
+      const notes = image.notes || '';
+      const filename = image.filename || '';
+
+      const img = document.createElement('img');
+      img.src = '/' + encodeURIComponent(filename);
+      img.alt = caption || filename;
+      img.className = 'loading';
+      img.loading = 'lazy';
+      img.addEventListener('load', () => { img.classList.remove('loading'); img.classList.add('loaded'); });
+      img.addEventListener('error', () => { img.alt = 'Failed to load: ' + esc(filename); img.classList.remove('loading'); img.classList.add('loaded'); });
+      card.appendChild(img);
+
+      const overlay = document.createElement('div');
+      overlay.className = 'image-overlay';
+      overlay.innerHTML = `
+        <div class="overlay-actions">
+          <button class="overlay-action-btn edit" aria-label="Edit image details" title="Edit caption and notes">
+            ${icons.edit}
+          </button>
+          <button class="overlay-action-btn delete" aria-label="Delete image" title="Delete image">
+            ${icons.trash}
+          </button>
+        </div>
+        ${caption ? `<div class="overlay-caption">${esc(caption)}</div>` : ''}
+        ${notes ? `<div class="overlay-notes">${esc(notes)}</div>` : ''}
+        ${(!caption && !notes) ? `<div class="overlay-caption" style="color: var(--text-muted); font-weight: 400; font-style: italic; font-size: 0.7rem;">Click to add details</div>` : ''}
+        <div class="overlay-filename">${esc(filename)}</div>
+      `;
+      card.appendChild(overlay);
+
+      // Edit button
+      overlay.querySelector('.overlay-action-btn.edit').addEventListener('click', (e) => {
+        e.stopPropagation();
+        openEditModal(image);
+      });
+
+      // Delete button
+      overlay.querySelector('.overlay-action-btn.delete').addEventListener('click', (e) => {
+        e.stopPropagation();
+        openEditModal(image, true);
+      });
+
+      // Click card to edit
+      card.addEventListener('click', () => {
+        openEditModal(image);
+      });
+
+      return card;
+    }
+
+    // -- Drop Zone Setup --
+    function setupDropZone() {
+      const dropZone = document.getElementById('drop-zone');
+      const fileInput = document.getElementById('file-input');
+      if (!dropZone || !fileInput) return;
+
+      dropZone.addEventListener('click', () => fileInput.click());
+      dropZone.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); }
+      });
+
+      fileInput.addEventListener('change', (e) => {
+        const files = Array.from(e.target.files).filter(f => f.type.startsWith('image/'));
+        if (files.length > 0) handleFiles(files);
+        fileInput.value = '';
+      });
+
+      // Drag events
+      let dragCounter = 0;
+
+      dropZone.addEventListener('dragenter', (e) => {
+        e.preventDefault();
+        dragCounter++;
+        dropZone.classList.add('drag-active');
+      });
+
+      dropZone.addEventListener('dragleave', (e) => {
+        e.preventDefault();
+        dragCounter--;
+        if (dragCounter <= 0) {
+          dragCounter = 0;
+          dropZone.classList.remove('drag-active');
+        }
+      });
+
+      dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+      });
+
+      dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dragCounter = 0;
+        dropZone.classList.remove('drag-active');
+        const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+        if (files.length > 0) handleFiles(files);
+      });
+
+    }
+
+    // Global drag handlers registered once (outside setupDropZone to avoid duplicates on re-render)
+    document.addEventListener('dragover', (e) => e.preventDefault());
+    document.addEventListener('drop', (e) => {
+      e.preventDefault();
+      const dropZone = document.getElementById('drop-zone');
+      // If dropped outside the drop zone on the main area, still accept
+      if (dropZone && !dropZone.contains(e.target)) {
+        const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+        if (files.length > 0) handleFiles(files);
+      }
+    });
+
+    // -- Handle File Uploads --
+    let uploading = false;
+
+    async function handleFiles(files) {
+      if (uploading) return;
+      uploading = true;
+
+      const indicator = document.getElementById('uploading-indicator');
+      const textEl = document.getElementById('uploading-text');
+      if (indicator) indicator.classList.add('visible');
+
+      let successCount = 0;
+      for (let i = 0; i < files.length; i++) {
+        if (textEl) textEl.textContent = `Uploading ${i + 1} of ${files.length}...`;
+        try {
+          const result = await uploadFile(files[i]);
+          // Track in JSON store
+          await api.post('images', {
+            filename: result.filename,
+            content_type: result.content_type,
+            caption: '',
+            notes: '',
+            added: new Date().toISOString(),
+          });
+          successCount++;
+        } catch (err) {
+          showError('Upload failed: ' + err.message);
+        }
+      }
+
+      uploading = false;
+      if (indicator) indicator.classList.remove('visible');
+
+      if (successCount > 0) {
+        await loadBoard();
+      }
+    }
+
+    // -- Edit Modal --
+    const editModal = document.getElementById('edit-modal');
+    const modalCaption = document.getElementById('modal-caption');
+    const modalNotes = document.getElementById('modal-notes');
+    const modalSave = document.getElementById('modal-save-btn');
+    const modalCancel = document.getElementById('modal-cancel-btn');
+    const modalDelete = document.getElementById('modal-delete-btn');
+    const modalConfirmArea = document.getElementById('modal-confirm-area');
+
+    function openEditModal(image, focusDelete) {
+      editingImageId = image.id;
+      modalCaption.value = image.caption || '';
+      modalNotes.value = image.notes || '';
+      modalConfirmArea.innerHTML = '';
+      editModal.classList.add('visible');
+
+      if (focusDelete) {
+        showDeleteConfirm();
+      } else {
+        modalCaption.focus();
+      }
+    }
+
+    function closeEditModal() {
+      editModal.classList.remove('visible');
+      editingImageId = null;
+      modalConfirmArea.innerHTML = '';
+    }
+
+    function showDeleteConfirm() {
+      modalConfirmArea.innerHTML = `
+        <div class="confirm-bar">
+          <span class="confirm-text">Remove this image from the board?</span>
+          <button class="btn btn-ghost" id="confirm-no" type="button">No</button>
+          <button class="btn btn-danger" id="confirm-yes" type="button">Yes, delete</button>
+        </div>
+      `;
+      document.getElementById('confirm-no').addEventListener('click', () => {
+        modalConfirmArea.innerHTML = '';
+      });
+      document.getElementById('confirm-yes').addEventListener('click', () => {
+        deleteImage(editingImageId);
+      });
+    }
+
+    modalCancel.addEventListener('click', closeEditModal);
+
+    modalSave.addEventListener('click', async () => {
+      if (editingImageId == null) return;
+      const patch = {};
+      const newCaption = modalCaption.value.trim();
+      const newNotes = modalNotes.value.trim();
+      const image = (board?.images || []).find(img => img.id === editingImageId);
+      if (!image) { closeEditModal(); return; }
+
+      if (newCaption !== (image.caption || '')) {
+        patch.caption = newCaption || null;
+      }
+      if (newNotes !== (image.notes || '')) {
+        patch.notes = newNotes || null;
+      }
+
+      if (Object.keys(patch).length === 0) {
+        closeEditModal();
+        return;
+      }
+
+      try {
+        await api.patch(`images/${editingImageId}`, patch);
+        closeEditModal();
+        await loadBoard();
+      } catch (err) {
+        showError('Failed to update: ' + err.message);
+      }
+    });
+
+    modalDelete.addEventListener('click', showDeleteConfirm);
+
+    // Escape to close modal
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && editModal.classList.contains('visible')) {
+        closeEditModal();
+      }
+    });
+
+    // Click backdrop to close
+    editModal.addEventListener('click', (e) => {
+      if (e.target === editModal) closeEditModal();
+    });
+
+    async function deleteImage(imageId) {
+      try {
+        await api.delete(`images/${imageId}`);
+        closeEditModal();
+        await loadBoard();
+      } catch (err) {
+        showError('Failed to delete: ' + err.message);
+      }
+    }
+
+    // -- Board Title Editing --
+    const boardTitleEl = document.getElementById('board-title');
+
+    boardTitleEl.addEventListener('click', () => {
+      boardTitleEl.removeAttribute('readonly');
+      boardTitleEl.focus();
+      boardTitleEl.select();
+    });
+
+    boardTitleEl.addEventListener('blur', async () => {
+      boardTitleEl.setAttribute('readonly', '');
+      const newTitle = boardTitleEl.value.trim();
+      if (!newTitle || newTitle === board?.title) return;
+      try {
+        await api.patch('', { title: newTitle });
+        await loadBoard();
+      } catch (err) {
+        showError('Failed to rename board: ' + err.message);
+        boardTitleEl.value = board?.title || '';
+      }
+    });
+
+    boardTitleEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); boardTitleEl.blur(); }
+      if (e.key === 'Escape') { boardTitleEl.value = board?.title || ''; boardTitleEl.blur(); }
+    });
+
+    // -- Load Board Data --
+    async function loadBoard() {
+      try {
+        board = await api.get('');
+        render();
+      } catch (err) {
+        showError('Failed to load board: ' + err.message);
+        const loadingEl = document.getElementById('loading-state');
+        if (loadingEl) loadingEl.textContent = 'Failed to load board. Is the tag served with API access?';
+      }
+    }
+
+    // -- Init --
+    loadBoard();
+  </script>
+</body>
+</html>

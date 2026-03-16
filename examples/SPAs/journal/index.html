@@ -1,0 +1,2161 @@
+<!--
+  mahpastes Daily Journal with Photos — JSON API Demo SPA
+
+  Setup:
+  1. Create a tag in mahpastes (e.g., "journal")
+  2. Upload this file (index.html) into that tag
+  3. Upload journal.json (in the same directory) into the same tag
+  4. Serve the tag with API access set to "readwrite"
+  5. Open the served URL in your browser
+
+  This journal uses the JSON API for entries (GET, POST, PATCH, DELETE)
+  and the file upload API for attaching photos. Watch the API log panel
+  at the bottom to see each call as it happens.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Journal — mahpastes</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,500;0,8..60,600;1,8..60,400;1,8..60,500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      /* Warm cream / parchment palette */
+      --cream-50:    #fdfaf5;
+      --cream-100:   #faf6f0;
+      --cream-200:   #f5efe6;
+      --cream-300:   #ebe3d5;
+      --cream-400:   #ddd3c0;
+
+      /* Sepia / brown tones */
+      --sepia-300:   #c4a882;
+      --sepia-400:   #b09470;
+      --sepia-500:   #8b7355;
+      --sepia-600:   #6b5744;
+      --sepia-700:   #4a3728;
+      --sepia-800:   #3a2a1c;
+      --sepia-900:   #2a1d12;
+
+      /* Amber accents */
+      --amber-400:   #d4a574;
+      --amber-500:   #c4956a;
+      --amber-600:   #a87d52;
+
+      /* Mood colors — warm, muted tones */
+      --mood-great:  #7a9e6c;
+      --mood-good:   #a8b87a;
+      --mood-okay:   #c4b07a;
+      --mood-rough:  #c49a6a;
+      --mood-bad:    #b07a6a;
+
+      /* Status colors — warm versions */
+      --error-bg:    #f5e6e0;
+      --error-text:  #a04030;
+
+      /* Log method badges — warm-shifted */
+      --log-get:     #9a8a70;
+      --log-post:    #6a8a5a;
+      --log-patch:   #b89040;
+      --log-put:     #5a7a9a;
+      --log-delete:  #b06050;
+
+      /* Heatmap intensity */
+      --heat-0:      var(--cream-200);
+      --heat-1:      #e8d8b8;
+      --heat-2:      #d4c090;
+      --heat-3:      #c4a870;
+      --heat-4:      #b09050;
+
+      --font-display: 'Cormorant Garamond', Georgia, 'Times New Roman', serif;
+      --font-body:    'Source Serif 4', Georgia, 'Times New Roman', serif;
+
+      --transition:   300ms ease-out;
+      --radius:       6px;
+    }
+
+    html { font-size: 16px; }
+
+    body {
+      font-family: var(--font-body);
+      background: var(--cream-100);
+      color: var(--sepia-800);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      /* Subtle parchment texture via CSS noise */
+      background-image:
+        repeating-linear-gradient(
+          0deg,
+          transparent,
+          transparent 2px,
+          rgba(139, 115, 85, 0.015) 2px,
+          rgba(139, 115, 85, 0.015) 4px
+        ),
+        repeating-linear-gradient(
+          90deg,
+          transparent,
+          transparent 3px,
+          rgba(139, 115, 85, 0.01) 3px,
+          rgba(139, 115, 85, 0.01) 6px
+        ),
+        radial-gradient(ellipse at 20% 50%, rgba(212, 165, 116, 0.08) 0%, transparent 60%),
+        radial-gradient(ellipse at 80% 50%, rgba(196, 149, 106, 0.06) 0%, transparent 60%);
+    }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--cream-400); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--sepia-300); }
+
+    /* ── Page spine / edge decoration ── */
+    body::before {
+      content: '';
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 4px;
+      height: 100%;
+      background: linear-gradient(
+        180deg,
+        var(--sepia-700) 0%,
+        var(--sepia-600) 15%,
+        var(--amber-500) 50%,
+        var(--sepia-600) 85%,
+        var(--sepia-700) 100%
+      );
+      z-index: 100;
+      box-shadow: 1px 0 6px rgba(74, 55, 40, 0.15);
+    }
+
+    /* ── Error Banner ── */
+    .error-banner {
+      padding: 0.625rem 1.25rem;
+      background: var(--error-bg);
+      color: var(--error-text);
+      font-family: var(--font-body);
+      font-size: 0.8125rem;
+      font-weight: 500;
+      text-align: center;
+      border-bottom: 1px solid rgba(160, 64, 48, 0.15);
+      display: none;
+      animation: fadeSlideIn 300ms ease-out;
+    }
+
+    .error-banner.visible { display: block; }
+
+    @keyframes fadeSlideIn {
+      from { opacity: 0; transform: translateY(-8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to   { opacity: 1; }
+    }
+
+    @keyframes slideUp {
+      from { opacity: 0; transform: translateY(12px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ── Header ── */
+    .journal-header {
+      padding: 1.25rem 1.5rem 1rem 1.75rem;
+      border-bottom: 1px solid var(--cream-300);
+      background: linear-gradient(180deg, var(--cream-50) 0%, var(--cream-100) 100%);
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      flex-shrink: 0;
+    }
+
+    .journal-title-area {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .journal-title {
+      font-family: var(--font-display);
+      font-size: 1.625rem;
+      font-weight: 600;
+      color: var(--sepia-800);
+      letter-spacing: 0.01em;
+      border: none;
+      background: none;
+      outline: none;
+      padding: 0.15rem 0.35rem;
+      border-radius: var(--radius);
+      border: 1px solid transparent;
+      transition: all var(--transition);
+      width: 100%;
+      cursor: pointer;
+    }
+
+    .journal-title:hover { border-color: var(--cream-300); background: var(--cream-50); }
+    .journal-title:focus { border-color: var(--sepia-300); background: var(--cream-50); cursor: text; }
+
+    .journal-subtitle {
+      font-family: var(--font-body);
+      font-size: 0.6875rem;
+      font-weight: 400;
+      color: var(--sepia-400);
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      margin-top: 0.15rem;
+      padding-left: 0.4rem;
+    }
+
+    .header-search {
+      position: relative;
+      flex-shrink: 0;
+    }
+
+    .search-input {
+      font-family: var(--font-body);
+      font-size: 0.8125rem;
+      padding: 0.5rem 0.75rem 0.5rem 2rem;
+      border: 1px solid var(--cream-300);
+      border-radius: var(--radius);
+      background: var(--cream-50);
+      color: var(--sepia-800);
+      outline: none;
+      transition: all var(--transition);
+      width: 200px;
+    }
+
+    .search-input::placeholder { color: var(--sepia-300); font-style: italic; }
+    .search-input:focus { border-color: var(--sepia-400); box-shadow: 0 0 0 3px rgba(139, 115, 85, 0.1); width: 260px; }
+
+    .search-icon {
+      position: absolute;
+      left: 0.6rem;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--sepia-300);
+      pointer-events: none;
+    }
+
+    .search-clear {
+      position: absolute;
+      right: 0.4rem;
+      top: 50%;
+      transform: translateY(-50%);
+      background: none;
+      border: none;
+      color: var(--sepia-400);
+      cursor: pointer;
+      padding: 0.15rem;
+      border-radius: 3px;
+      display: none;
+      transition: all 150ms;
+    }
+
+    .search-clear:hover { color: var(--sepia-600); background: var(--cream-200); }
+    .search-clear.visible { display: flex; }
+
+    /* ── Main layout ── */
+    .journal-main {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+      padding-left: 4px; /* account for spine */
+    }
+
+    /* ── Sidebar (calendar) ── */
+    .sidebar {
+      width: 280px;
+      flex-shrink: 0;
+      border-right: 1px solid var(--cream-300);
+      background: linear-gradient(180deg, var(--cream-50) 0%, var(--cream-100) 100%);
+      overflow-y: auto;
+      padding: 1.25rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+    }
+
+    /* ── Calendar ── */
+    .calendar-section { }
+
+    .calendar-nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 0.875rem;
+    }
+
+    .calendar-month {
+      font-family: var(--font-display);
+      font-size: 1.125rem;
+      font-weight: 600;
+      color: var(--sepia-700);
+    }
+
+    .calendar-nav-btn {
+      background: none;
+      border: 1px solid var(--cream-300);
+      color: var(--sepia-500);
+      border-radius: var(--radius);
+      padding: 0.3rem 0.5rem;
+      cursor: pointer;
+      transition: all var(--transition);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .calendar-nav-btn:hover { background: var(--cream-200); border-color: var(--sepia-300); color: var(--sepia-700); }
+
+    .calendar-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 3px;
+    }
+
+    .calendar-weekday {
+      font-family: var(--font-body);
+      font-size: 0.625rem;
+      font-weight: 600;
+      color: var(--sepia-400);
+      text-align: center;
+      padding: 0.25rem 0;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .calendar-day {
+      aspect-ratio: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--font-body);
+      font-size: 0.6875rem;
+      font-weight: 500;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 200ms ease-out;
+      border: 1.5px solid transparent;
+      position: relative;
+      color: var(--sepia-600);
+      background: var(--cream-200);
+    }
+
+    .calendar-day.empty {
+      background: none;
+      cursor: default;
+      pointer-events: none;
+    }
+
+    .calendar-day.other-month {
+      color: var(--sepia-300);
+      opacity: 0.5;
+    }
+
+    .calendar-day.has-entry { font-weight: 600; }
+
+    .calendar-day.heat-1 { background: var(--heat-1); color: var(--sepia-700); }
+    .calendar-day.heat-2 { background: var(--heat-2); color: var(--sepia-700); }
+    .calendar-day.heat-3 { background: var(--heat-3); color: var(--cream-50); }
+    .calendar-day.heat-4 { background: var(--heat-4); color: var(--cream-50); }
+
+    .calendar-day:not(.empty):hover {
+      border-color: var(--sepia-500);
+      transform: scale(1.08);
+    }
+
+    .calendar-day.selected {
+      border-color: var(--sepia-700);
+      box-shadow: 0 0 0 2px rgba(74, 55, 40, 0.15);
+    }
+
+    .calendar-day.today::after {
+      content: '';
+      position: absolute;
+      bottom: 2px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 4px;
+      height: 4px;
+      background: var(--amber-500);
+      border-radius: 50%;
+    }
+
+    /* Mood dot on calendar day */
+    .calendar-day .mood-dot {
+      position: absolute;
+      top: 2px;
+      right: 2px;
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+    }
+
+    /* ── Heatmap Legend ── */
+    .heatmap-legend {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      margin-top: 0.75rem;
+      justify-content: center;
+    }
+
+    .heatmap-legend-label {
+      font-size: 0.5625rem;
+      color: var(--sepia-400);
+      font-style: italic;
+    }
+
+    .heatmap-legend-swatch {
+      width: 12px;
+      height: 12px;
+      border-radius: 2px;
+    }
+
+    /* ── Recent Entries list ── */
+    .recent-section {
+      border-top: 1px solid var(--cream-300);
+      padding-top: 1rem;
+    }
+
+    .recent-title {
+      font-family: var(--font-display);
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--sepia-600);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 0.625rem;
+    }
+
+    .recent-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+
+    .recent-item {
+      padding: 0.4rem 0.5rem;
+      border-radius: var(--radius);
+      cursor: pointer;
+      transition: all 200ms ease-out;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      border: 1px solid transparent;
+    }
+
+    .recent-item:hover { background: var(--cream-200); border-color: var(--cream-300); }
+    .recent-item.active { background: var(--cream-200); border-color: var(--sepia-300); }
+
+    .recent-item-date {
+      font-family: var(--font-display);
+      font-size: 0.8125rem;
+      font-weight: 500;
+      color: var(--sepia-600);
+      white-space: nowrap;
+    }
+
+    .recent-item-mood {
+      flex-shrink: 0;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+
+    .recent-item-preview {
+      font-size: 0.75rem;
+      color: var(--sepia-400);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex: 1;
+      min-width: 0;
+    }
+
+    /* ── Entry Panel (main content area) ── */
+    .entry-panel {
+      flex: 1;
+      overflow-y: auto;
+      padding: 2rem 2.5rem;
+      display: flex;
+      flex-direction: column;
+      animation: fadeIn 300ms ease-out;
+    }
+
+    .entry-panel.searching { }
+
+    /* ── Entry View ── */
+    .entry-date-header {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .entry-nav-btn {
+      background: none;
+      border: 1px solid var(--cream-300);
+      color: var(--sepia-400);
+      border-radius: var(--radius);
+      padding: 0.4rem 0.6rem;
+      cursor: pointer;
+      transition: all var(--transition);
+      display: flex;
+      align-items: center;
+    }
+
+    .entry-nav-btn:hover { background: var(--cream-200); border-color: var(--sepia-300); color: var(--sepia-700); }
+
+    .entry-date {
+      font-family: var(--font-display);
+      font-size: 2rem;
+      font-weight: 600;
+      color: var(--sepia-700);
+      flex: 1;
+      line-height: 1.2;
+    }
+
+    .entry-date-weekday {
+      font-family: var(--font-display);
+      font-size: 1rem;
+      font-weight: 400;
+      font-style: italic;
+      color: var(--sepia-400);
+    }
+
+    .entry-actions {
+      display: flex;
+      gap: 0.5rem;
+      flex-shrink: 0;
+    }
+
+    /* ── Mood Selector ── */
+    .mood-selector {
+      display: flex;
+      align-items: center;
+      gap: 0.125rem;
+      margin-bottom: 1.5rem;
+      padding: 0.5rem 0;
+    }
+
+    .mood-label {
+      font-family: var(--font-body);
+      font-size: 0.75rem;
+      font-weight: 500;
+      color: var(--sepia-400);
+      margin-right: 0.625rem;
+      font-style: italic;
+    }
+
+    .mood-btn {
+      background: none;
+      border: 2px solid transparent;
+      border-radius: 50%;
+      padding: 0.4rem;
+      cursor: pointer;
+      transition: all 200ms ease-out;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0.45;
+      position: relative;
+    }
+
+    .mood-btn:hover { opacity: 0.85; transform: scale(1.15); }
+
+    .mood-btn.active {
+      opacity: 1;
+      border-color: currentColor;
+      transform: scale(1.15);
+    }
+
+    .mood-btn svg { width: 22px; height: 22px; }
+
+    .mood-btn[data-mood="great"]  { color: var(--mood-great); }
+    .mood-btn[data-mood="good"]   { color: var(--mood-good); }
+    .mood-btn[data-mood="okay"]   { color: var(--mood-okay); }
+    .mood-btn[data-mood="rough"]  { color: var(--mood-rough); }
+    .mood-btn[data-mood="bad"]    { color: var(--mood-bad); }
+
+    .mood-tooltip {
+      position: absolute;
+      bottom: calc(100% + 6px);
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--sepia-700);
+      color: var(--cream-50);
+      font-family: var(--font-body);
+      font-size: 0.625rem;
+      padding: 0.2rem 0.45rem;
+      border-radius: 3px;
+      white-space: nowrap;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 150ms;
+    }
+
+    .mood-btn:hover .mood-tooltip { opacity: 1; }
+
+    /* ── Content Editor ── */
+    .entry-content-area {
+      margin-bottom: 1.5rem;
+      animation: slideUp 300ms ease-out;
+    }
+
+    .entry-textarea {
+      width: 100%;
+      min-height: 200px;
+      font-family: var(--font-body);
+      font-size: 1rem;
+      line-height: 1.75;
+      color: var(--sepia-800);
+      background: var(--cream-50);
+      border: 1px solid var(--cream-300);
+      border-radius: var(--radius);
+      padding: 1.25rem 1.5rem;
+      outline: none;
+      resize: vertical;
+      transition: all var(--transition);
+      /* Ruled paper effect */
+      background-image: repeating-linear-gradient(
+        transparent,
+        transparent 27px,
+        rgba(139, 115, 85, 0.06) 27px,
+        rgba(139, 115, 85, 0.06) 28px
+      );
+      background-position: 0 1.25rem;
+    }
+
+    .entry-textarea::placeholder { color: var(--sepia-300); font-style: italic; }
+
+    .entry-textarea:focus {
+      border-color: var(--sepia-400);
+      box-shadow: 0 0 0 3px rgba(139, 115, 85, 0.08);
+    }
+
+    .entry-save-row {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 0.75rem;
+      margin-top: 0.625rem;
+    }
+
+    .save-indicator {
+      font-size: 0.75rem;
+      color: var(--sepia-300);
+      font-style: italic;
+      opacity: 0;
+      transition: opacity 300ms;
+    }
+
+    .save-indicator.visible { opacity: 1; }
+
+    /* ── Buttons ── */
+    .btn-primary {
+      font-family: var(--font-body);
+      font-size: 0.8125rem;
+      font-weight: 500;
+      padding: 0.5rem 1.125rem;
+      background: var(--sepia-700);
+      color: var(--cream-50);
+      border: none;
+      border-radius: var(--radius);
+      cursor: pointer;
+      transition: all var(--transition);
+      letter-spacing: 0.02em;
+    }
+
+    .btn-primary:hover { background: var(--sepia-600); }
+
+    .btn-secondary {
+      font-family: var(--font-body);
+      font-size: 0.8125rem;
+      font-weight: 500;
+      padding: 0.5rem 1.125rem;
+      background: none;
+      color: var(--sepia-600);
+      border: 1px solid var(--cream-300);
+      border-radius: var(--radius);
+      cursor: pointer;
+      transition: all var(--transition);
+    }
+
+    .btn-secondary:hover { border-color: var(--sepia-300); background: var(--cream-200); }
+
+    .btn-danger {
+      font-family: var(--font-body);
+      font-size: 0.8125rem;
+      font-weight: 500;
+      padding: 0.5rem 1.125rem;
+      background: none;
+      color: var(--error-text);
+      border: 1px solid rgba(160, 64, 48, 0.2);
+      border-radius: var(--radius);
+      cursor: pointer;
+      transition: all var(--transition);
+    }
+
+    .btn-danger:hover { background: var(--error-bg); border-color: rgba(160, 64, 48, 0.3); }
+
+    .btn-icon {
+      background: none;
+      border: 1px solid var(--cream-300);
+      color: var(--sepia-400);
+      border-radius: var(--radius);
+      padding: 0.4rem;
+      cursor: pointer;
+      transition: all var(--transition);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .btn-icon:hover { color: var(--sepia-700); background: var(--cream-200); border-color: var(--sepia-300); }
+
+    /* ── Photo Gallery ── */
+    .photos-section {
+      margin-bottom: 1.5rem;
+      animation: slideUp 300ms ease-out;
+    }
+
+    .photos-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 0.75rem;
+    }
+
+    .photos-title {
+      font-family: var(--font-display);
+      font-size: 1rem;
+      font-weight: 500;
+      font-style: italic;
+      color: var(--sepia-500);
+    }
+
+    .photo-upload-btn {
+      font-family: var(--font-body);
+      font-size: 0.75rem;
+      font-weight: 500;
+      padding: 0.35rem 0.75rem;
+      background: none;
+      color: var(--sepia-500);
+      border: 1px dashed var(--sepia-300);
+      border-radius: var(--radius);
+      cursor: pointer;
+      transition: all var(--transition);
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+
+    .photo-upload-btn:hover { background: var(--cream-200); border-color: var(--sepia-400); color: var(--sepia-700); }
+
+    .photo-upload-input { display: none; }
+
+    .photos-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 0.75rem;
+    }
+
+    .photo-card {
+      aspect-ratio: 1;
+      border-radius: var(--radius);
+      overflow: hidden;
+      cursor: pointer;
+      position: relative;
+      border: 1px solid var(--cream-300);
+      transition: all 250ms ease-out;
+      background: var(--cream-200);
+    }
+
+    .photo-card:hover {
+      border-color: var(--sepia-400);
+      transform: scale(1.03);
+      box-shadow: 0 4px 16px rgba(74, 55, 40, 0.12);
+    }
+
+    .photo-card img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .photo-remove {
+      position: absolute;
+      top: 0.35rem;
+      right: 0.35rem;
+      background: rgba(42, 29, 18, 0.7);
+      color: var(--cream-100);
+      border: none;
+      border-radius: 50%;
+      width: 22px;
+      height: 22px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      transition: opacity 200ms;
+      font-size: 0.7rem;
+    }
+
+    .photo-card:hover .photo-remove { opacity: 1; }
+    .photo-remove:hover { background: rgba(176, 64, 48, 0.85); }
+
+    .photos-empty {
+      padding: 1.5rem;
+      text-align: center;
+      color: var(--sepia-300);
+      font-style: italic;
+      font-size: 0.875rem;
+      border: 1px dashed var(--cream-300);
+      border-radius: var(--radius);
+      cursor: pointer;
+      transition: all var(--transition);
+    }
+
+    .photos-empty:hover { background: var(--cream-200); border-color: var(--sepia-300); }
+
+    /* ── Lightbox ── */
+    .lightbox {
+      position: fixed;
+      inset: 0;
+      background: rgba(42, 29, 18, 0.88);
+      z-index: 200;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      animation: fadeIn 200ms ease-out;
+      backdrop-filter: blur(4px);
+    }
+
+    .lightbox.visible { display: flex; }
+
+    .lightbox img {
+      max-width: 90vw;
+      max-height: 90vh;
+      border-radius: 8px;
+      box-shadow: 0 8px 40px rgba(0, 0, 0, 0.4);
+      cursor: default;
+    }
+
+    .lightbox-close {
+      position: absolute;
+      top: 1.5rem;
+      right: 1.5rem;
+      background: rgba(250, 246, 240, 0.15);
+      border: none;
+      color: var(--cream-100);
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 200ms;
+      font-size: 1.25rem;
+    }
+
+    .lightbox-close:hover { background: rgba(250, 246, 240, 0.25); }
+
+    /* ── Empty State ── */
+    .empty-state {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem;
+      text-align: center;
+      animation: fadeIn 400ms ease-out;
+    }
+
+    .empty-state-icon {
+      color: var(--cream-400);
+      margin-bottom: 1.5rem;
+      opacity: 0.6;
+    }
+
+    .empty-state-title {
+      font-family: var(--font-display);
+      font-size: 1.375rem;
+      font-weight: 500;
+      font-style: italic;
+      color: var(--sepia-400);
+      margin-bottom: 0.5rem;
+    }
+
+    .empty-state-text {
+      font-size: 0.875rem;
+      color: var(--sepia-300);
+      max-width: 320px;
+      line-height: 1.6;
+    }
+
+    .empty-state .btn-primary { margin-top: 1.25rem; }
+
+    /* ── Search Results ── */
+    .search-results {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .search-results-header {
+      font-family: var(--font-display);
+      font-size: 1.125rem;
+      font-weight: 500;
+      font-style: italic;
+      color: var(--sepia-500);
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid var(--cream-300);
+    }
+
+    .search-result-card {
+      padding: 1rem 1.25rem;
+      background: var(--cream-50);
+      border: 1px solid var(--cream-300);
+      border-radius: var(--radius);
+      cursor: pointer;
+      transition: all var(--transition);
+    }
+
+    .search-result-card:hover {
+      border-color: var(--sepia-300);
+      background: var(--cream-200);
+    }
+
+    .search-result-date {
+      font-family: var(--font-display);
+      font-size: 0.9375rem;
+      font-weight: 600;
+      color: var(--sepia-600);
+      margin-bottom: 0.25rem;
+    }
+
+    .search-result-content {
+      font-size: 0.8125rem;
+      color: var(--sepia-500);
+      line-height: 1.5;
+      /* Clamp to 3 lines */
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .search-highlight {
+      background: rgba(212, 165, 116, 0.35);
+      border-radius: 2px;
+      padding: 0 2px;
+    }
+
+    .search-no-results {
+      text-align: center;
+      padding: 3rem 1rem;
+      color: var(--sepia-400);
+      font-style: italic;
+      font-size: 0.9375rem;
+    }
+
+    /* ── Delete Confirmation ── */
+    .confirm-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(42, 29, 18, 0.5);
+      z-index: 150;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      animation: fadeIn 200ms ease-out;
+    }
+
+    .confirm-overlay.visible { display: flex; }
+
+    .confirm-dialog {
+      background: var(--cream-50);
+      border: 1px solid var(--cream-300);
+      border-radius: 10px;
+      padding: 2rem;
+      max-width: 380px;
+      width: 90%;
+      text-align: center;
+      box-shadow: 0 16px 48px rgba(42, 29, 18, 0.2);
+    }
+
+    .confirm-title {
+      font-family: var(--font-display);
+      font-size: 1.25rem;
+      font-weight: 600;
+      color: var(--sepia-800);
+      margin-bottom: 0.5rem;
+    }
+
+    .confirm-text {
+      font-size: 0.875rem;
+      color: var(--sepia-500);
+      margin-bottom: 1.5rem;
+      line-height: 1.5;
+    }
+
+    .confirm-actions {
+      display: flex;
+      gap: 0.75rem;
+      justify-content: center;
+    }
+
+    /* ── Loading state ── */
+    .loading-state {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--sepia-400);
+      font-family: var(--font-display);
+      font-size: 1rem;
+      font-style: italic;
+    }
+
+    /* ── API Log Panel ── */
+    .log-panel {
+      flex-shrink: 0;
+      border-top: 1px solid var(--cream-300);
+      background: var(--cream-50);
+      transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .log-panel.collapsed .log-body { display: none; }
+
+    .log-header {
+      padding: 0.5rem 1rem 0.5rem 1.25rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .log-header:hover { background: var(--cream-200); }
+
+    .log-header-left {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .log-label {
+      font-family: var(--font-body);
+      font-size: 0.6875rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--sepia-500);
+    }
+
+    .log-count {
+      font-family: var(--font-body);
+      font-size: 0.6875rem;
+      font-weight: 500;
+      color: var(--sepia-400);
+    }
+
+    .log-chevron {
+      transition: transform 200ms;
+      color: var(--sepia-400);
+    }
+
+    .log-panel.collapsed .log-chevron { transform: rotate(180deg); }
+
+    .log-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .log-clear-btn {
+      font-family: var(--font-body);
+      font-size: 0.6875rem;
+      font-weight: 500;
+      color: var(--sepia-400);
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 0.15rem 0.35rem;
+      border-radius: 4px;
+      transition: all 150ms;
+    }
+
+    .log-clear-btn:hover { color: var(--sepia-600); background: var(--cream-200); }
+
+    .log-body {
+      max-height: 180px;
+      overflow-y: auto;
+      border-top: 1px solid var(--cream-300);
+    }
+
+    .log-entry {
+      display: flex;
+      align-items: center;
+      gap: 0.625rem;
+      padding: 0.3rem 1rem 0.3rem 1.25rem;
+      font-family: var(--font-body);
+      font-size: 0.75rem;
+      border-bottom: 1px solid var(--cream-100);
+      transition: background 150ms;
+    }
+
+    .log-entry:hover { background: var(--cream-200); }
+
+    .log-method {
+      font-weight: 600;
+      font-size: 0.625rem;
+      padding: 0.1rem 0.4rem;
+      border-radius: 3px;
+      color: var(--cream-50);
+      text-transform: uppercase;
+      flex-shrink: 0;
+      min-width: 3.5rem;
+      text-align: center;
+      letter-spacing: 0.03em;
+      font-family: var(--font-body);
+    }
+
+    .log-method.GET    { background: var(--log-get); }
+    .log-method.POST   { background: var(--log-post); }
+    .log-method.PATCH  { background: var(--log-patch); }
+    .log-method.PUT    { background: var(--log-put); }
+    .log-method.DELETE { background: var(--log-delete); }
+
+    .log-path {
+      flex: 1;
+      color: var(--sepia-500);
+      font-size: 0.75rem;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .log-status {
+      font-size: 0.6875rem;
+      font-weight: 500;
+      color: var(--sepia-500);
+      flex-shrink: 0;
+    }
+
+    .log-status.error { color: var(--error-text); }
+
+    .log-duration {
+      font-size: 0.6875rem;
+      color: var(--sepia-400);
+      flex-shrink: 0;
+      min-width: 3rem;
+      text-align: right;
+    }
+
+    .log-time {
+      font-size: 0.625rem;
+      color: var(--sepia-400);
+      flex-shrink: 0;
+      min-width: 4.5rem;
+      text-align: right;
+      font-style: italic;
+    }
+
+    /* ── Responsive ── */
+    @media (max-width: 768px) {
+      .sidebar { width: 100%; max-height: 280px; border-right: none; border-bottom: 1px solid var(--cream-300); }
+      .journal-main { flex-direction: column; }
+      .entry-panel { padding: 1.25rem; }
+      .entry-date { font-size: 1.5rem; }
+      .search-input { width: 150px; }
+      .search-input:focus { width: 180px; }
+      .header-search { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div id="error-banner" class="error-banner" role="alert" aria-live="polite"></div>
+
+  <header class="journal-header" role="banner">
+    <div class="journal-title-area">
+      <input
+        id="journal-title"
+        class="journal-title"
+        type="text"
+        readonly
+        aria-label="Journal title — click to edit"
+        title="Click to rename journal"
+      >
+      <div class="journal-subtitle">mahpastes daily journal</div>
+    </div>
+    <div class="header-search">
+      <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input
+        id="search-input"
+        class="search-input"
+        type="text"
+        placeholder="Search entries..."
+        aria-label="Search journal entries"
+      >
+      <button id="search-clear" class="search-clear" aria-label="Clear search">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="journal-main" role="main">
+    <aside class="sidebar" role="complementary" aria-label="Calendar and recent entries">
+      <section class="calendar-section" aria-label="Calendar heatmap">
+        <nav class="calendar-nav">
+          <button id="cal-prev" class="calendar-nav-btn" aria-label="Previous month">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+          </button>
+          <span id="cal-month" class="calendar-month"></span>
+          <button id="cal-next" class="calendar-nav-btn" aria-label="Next month">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+          </button>
+        </nav>
+        <div id="calendar-grid" class="calendar-grid" role="grid" aria-label="Monthly calendar"></div>
+        <div class="heatmap-legend">
+          <span class="heatmap-legend-label">Less</span>
+          <div class="heatmap-legend-swatch" style="background: var(--heat-0);"></div>
+          <div class="heatmap-legend-swatch" style="background: var(--heat-1);"></div>
+          <div class="heatmap-legend-swatch" style="background: var(--heat-2);"></div>
+          <div class="heatmap-legend-swatch" style="background: var(--heat-3);"></div>
+          <div class="heatmap-legend-swatch" style="background: var(--heat-4);"></div>
+          <span class="heatmap-legend-label">More</span>
+        </div>
+      </section>
+      <section class="recent-section" aria-label="Recent entries">
+        <div class="recent-title">Recent Entries</div>
+        <div id="recent-list" class="recent-list"></div>
+      </section>
+    </aside>
+
+    <section id="entry-panel" class="entry-panel" aria-label="Journal entry">
+      <div class="loading-state" id="loading">Opening journal...</div>
+    </section>
+  </div>
+
+  <!-- Lightbox -->
+  <div id="lightbox" class="lightbox" role="dialog" aria-label="Photo viewer" tabindex="-1">
+    <button class="lightbox-close" aria-label="Close lightbox">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
+    <img id="lightbox-img" src="" alt="Full size photo">
+  </div>
+
+  <!-- Confirm dialog -->
+  <div id="confirm-overlay" class="confirm-overlay" role="dialog" aria-modal="true" aria-label="Confirm action">
+    <div class="confirm-dialog">
+      <div class="confirm-title" id="confirm-title">Delete Entry?</div>
+      <div class="confirm-text" id="confirm-text">This action cannot be undone.</div>
+      <div class="confirm-actions">
+        <button class="btn-secondary" id="confirm-cancel">Cancel</button>
+        <button class="btn-danger" id="confirm-ok">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- API Log Panel -->
+  <footer class="log-panel collapsed" id="log-panel" role="log" aria-label="API request log">
+    <div class="log-header" id="log-header">
+      <div class="log-header-left">
+        <span class="log-label">API Log</span>
+        <span class="log-count" id="log-count">0 calls</span>
+      </div>
+      <div class="log-header-actions">
+        <button class="log-clear-btn" id="log-clear" title="Clear log" onclick="event.stopPropagation()">Clear</button>
+        <svg class="log-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="18 15 12 9 6 15"></polyline>
+        </svg>
+      </div>
+    </div>
+    <div class="log-body" id="log-body"></div>
+  </footer>
+
+  <script>
+    'use strict';
+
+    // ── XSS Prevention ──
+    const ESC_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+    const esc = (s) => s == null ? '' : String(s).replace(/[&<>"']/g, (c) => ESC_MAP[c]);
+
+    // ── API Client ──
+    const API_BASE = '/_api/journal';
+    const logEntries = [];
+
+    const api = {
+      async request(method, path, body) {
+        const url = API_BASE + (path ? '/' + path : '');
+        const opts = { method, credentials: 'same-origin' };
+        if (body !== undefined) {
+          opts.headers = { 'Content-Type': 'application/json' };
+          opts.body = JSON.stringify(body);
+        }
+        const t0 = performance.now();
+        let res;
+        try {
+          res = await fetch(url, opts);
+        } catch (err) {
+          const ms = Math.round(performance.now() - t0);
+          logApiCall(method, url, 0, ms);
+          throw new Error('Network error: ' + err.message);
+        }
+        const ms = Math.round(performance.now() - t0);
+        const data = res.status !== 204 ? await res.json().catch(() => null) : null;
+        logApiCall(method, url, res.status, ms);
+        if (!res.ok) throw new Error(data?.error || res.statusText);
+        return data;
+      },
+      get:    (p) => api.request('GET', p),
+      post:   (p, b) => api.request('POST', p, b),
+      put:    (p, b) => api.request('PUT', p, b),
+      patch:  (p, b) => api.request('PATCH', p, b),
+      delete: (p) => api.request('DELETE', p),
+    };
+
+    // ── File Upload ──
+    async function uploadFile(file) {
+      const form = new FormData();
+      form.append('file', file);
+      const t0 = performance.now();
+      const res = await fetch('/_api/_upload', {
+        method: 'POST',
+        credentials: 'same-origin',
+        body: form,
+      });
+      const ms = Math.round(performance.now() - t0);
+      const data = await res.json().catch(() => null);
+      logApiCall('POST', '/_api/_upload', res.status, ms);
+      if (!res.ok) throw new Error(data?.error || 'Upload failed');
+      return data;
+    }
+
+    // ── API Log Panel ──
+    const logBody = document.getElementById('log-body');
+    const logCountEl = document.getElementById('log-count');
+    const logPanel = document.getElementById('log-panel');
+    const logHeader = document.getElementById('log-header');
+    const logClear = document.getElementById('log-clear');
+
+    function logApiCall(method, url, status, ms) {
+      const entry = { method, url, status, ms, time: new Date() };
+      logEntries.push(entry);
+      renderLogEntry(entry);
+      logCountEl.textContent = logEntries.length + ' call' + (logEntries.length !== 1 ? 's' : '');
+    }
+
+    function renderLogEntry(entry) {
+      const row = document.createElement('div');
+      row.className = 'log-entry';
+      const statusClass = entry.status >= 400 || entry.status === 0 ? ' error' : '';
+      const timeStr = entry.time.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      row.innerHTML = `
+        <span class="log-method ${esc(entry.method)}">${esc(entry.method)}</span>
+        <span class="log-path" title="${esc(entry.url)}">${esc(entry.url)}</span>
+        <span class="log-status${statusClass}">${entry.status || 'ERR'}</span>
+        <span class="log-duration">${entry.ms}ms</span>
+        <span class="log-time">${timeStr}</span>
+      `;
+      logBody.appendChild(row);
+      logBody.scrollTop = logBody.scrollHeight;
+    }
+
+    logHeader.addEventListener('click', () => logPanel.classList.toggle('collapsed'));
+
+    logClear.addEventListener('click', () => {
+      logEntries.length = 0;
+      logBody.innerHTML = '';
+      logCountEl.textContent = '0 calls';
+    });
+
+    // ── Error Banner ──
+    const errorBanner = document.getElementById('error-banner');
+    let errorTimer = null;
+
+    function showError(msg) {
+      errorBanner.textContent = msg;
+      errorBanner.classList.add('visible');
+      if (errorTimer) clearTimeout(errorTimer);
+      errorTimer = setTimeout(() => errorBanner.classList.remove('visible'), 4000);
+    }
+
+    // ── Confirm Dialog ──
+    const confirmOverlay = document.getElementById('confirm-overlay');
+    const confirmTitle = document.getElementById('confirm-title');
+    const confirmText = document.getElementById('confirm-text');
+    const confirmCancel = document.getElementById('confirm-cancel');
+    const confirmOk = document.getElementById('confirm-ok');
+    let confirmResolver = null;
+
+    function showConfirm(title, text) {
+      return new Promise((resolve) => {
+        confirmTitle.textContent = title;
+        confirmText.textContent = text;
+        confirmOverlay.classList.add('visible');
+        confirmResolver = resolve;
+      });
+    }
+
+    confirmCancel.addEventListener('click', () => {
+      confirmOverlay.classList.remove('visible');
+      if (confirmResolver) { confirmResolver(false); confirmResolver = null; }
+    });
+
+    confirmOk.addEventListener('click', () => {
+      confirmOverlay.classList.remove('visible');
+      if (confirmResolver) { confirmResolver(true); confirmResolver = null; }
+    });
+
+    confirmOverlay.addEventListener('click', (e) => {
+      if (e.target === confirmOverlay) {
+        confirmOverlay.classList.remove('visible');
+        if (confirmResolver) { confirmResolver(false); confirmResolver = null; }
+      }
+    });
+
+    // ── Lightbox ──
+    const lightbox = document.getElementById('lightbox');
+    const lightboxImg = document.getElementById('lightbox-img');
+
+    function openLightbox(src) {
+      lightboxImg.src = src;
+      lightbox.classList.add('visible');
+      lightbox.focus();
+    }
+
+    function closeLightbox() {
+      lightbox.classList.remove('visible');
+      lightboxImg.src = '';
+    }
+
+    lightbox.addEventListener('click', (e) => {
+      if (e.target === lightbox || e.target.closest('.lightbox-close')) closeLightbox();
+    });
+
+    lightbox.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeLightbox();
+    });
+
+    // ── Mood SVG Icons ──
+    const MOOD_ICONS = {
+      great: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/>
+        <path d="M8 14s1.5 2 4 2 4-2 4-2"/>
+        <line x1="9" y1="9" x2="9.01" y2="9"/>
+        <line x1="15" y1="9" x2="15.01" y2="9"/>
+        <path d="M12 2v2M4.93 4.93l1.41 1.41M2 12h2M4.93 19.07l1.41-1.41"/>
+      </svg>`,
+      good: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/>
+        <path d="M8 14s1.5 2 4 2 4-2 4-2"/>
+        <line x1="9" y1="9" x2="9.01" y2="9"/>
+        <line x1="15" y1="9" x2="15.01" y2="9"/>
+      </svg>`,
+      okay: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/>
+        <line x1="8" y1="15" x2="16" y2="15"/>
+        <line x1="9" y1="9" x2="9.01" y2="9"/>
+        <line x1="15" y1="9" x2="15.01" y2="9"/>
+      </svg>`,
+      rough: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/>
+        <path d="M16 16s-1.5-2-4-2-4 2-4 2"/>
+        <line x1="9" y1="9" x2="9.01" y2="9"/>
+        <line x1="15" y1="9" x2="15.01" y2="9"/>
+      </svg>`,
+      bad: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/>
+        <path d="M16 16s-1.5-2-4-2-4 2-4 2"/>
+        <line x1="9" y1="9" x2="9.01" y2="9"/>
+        <line x1="15" y1="9" x2="15.01" y2="9"/>
+        <path d="M8 5l1.5 1.5M16 5l-1.5 1.5"/>
+      </svg>`,
+    };
+
+    const MOOD_LABELS = {
+      great: 'Radiant',
+      good: 'Good',
+      okay: 'Neutral',
+      rough: 'Rough',
+      bad: 'Difficult',
+    };
+
+    const MOOD_COLORS = {
+      great: 'var(--mood-great)',
+      good:  'var(--mood-good)',
+      okay:  'var(--mood-okay)',
+      rough: 'var(--mood-rough)',
+      bad:   'var(--mood-bad)',
+    };
+
+    // ── State ──
+    let journal = null;
+    let selectedDate = todayISO();
+    let calendarYear = new Date().getFullYear();
+    let calendarMonth = new Date().getMonth(); // 0-indexed
+    let searchQuery = '';
+
+    function todayISO() {
+      const d = new Date();
+      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    }
+
+    function formatDateLong(iso) {
+      const d = parseDate(iso);
+      return d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+    }
+
+    function formatDateShort(iso) {
+      const d = parseDate(iso);
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    }
+
+    function formatWeekday(iso) {
+      const d = parseDate(iso);
+      return d.toLocaleDateString('en-US', { weekday: 'long' });
+    }
+
+    function parseDate(iso) {
+      const [y, m, d] = iso.split('-').map(Number);
+      return new Date(y, m - 1, d);
+    }
+
+    function dateISO(year, month, day) {
+      return year + '-' + String(month + 1).padStart(2, '0') + '-' + String(day).padStart(2, '0');
+    }
+
+    function getEntryForDate(iso) {
+      if (!journal?.entries) return null;
+      return journal.entries.find(e => e.date === iso) || null;
+    }
+
+    function getEntriesByDateMap() {
+      const map = {};
+      if (!journal?.entries) return map;
+      for (const entry of journal.entries) {
+        map[entry.date] = entry;
+      }
+      return map;
+    }
+
+    // ── Load Journal ──
+    async function loadJournal() {
+      try {
+        journal = await api.get('');
+        render();
+      } catch (err) {
+        showError('Failed to load journal: ' + err.message);
+        const panel = document.getElementById('entry-panel');
+        const loading = document.getElementById('loading');
+        if (loading) loading.textContent = 'Failed to load journal. Is the tag served with API access enabled?';
+      }
+    }
+
+    // ── Render Everything ──
+    function render() {
+      if (!journal) return;
+      renderTitle();
+      renderCalendar();
+      renderRecentEntries();
+      if (searchQuery) {
+        renderSearchResults();
+      } else {
+        renderEntryPanel();
+      }
+    }
+
+    // ── Title ──
+    function renderTitle() {
+      const titleEl = document.getElementById('journal-title');
+      titleEl.value = journal.title || 'My Journal';
+      document.title = (journal.title || 'Journal') + ' \u2014 mahpastes';
+    }
+
+    // ── Calendar Heatmap ──
+    function renderCalendar() {
+      const monthEl = document.getElementById('cal-month');
+      const gridEl = document.getElementById('calendar-grid');
+      const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+      monthEl.textContent = monthNames[calendarMonth] + ' ' + calendarYear;
+
+      const entryMap = getEntriesByDateMap();
+      const today = todayISO();
+      const firstDay = new Date(calendarYear, calendarMonth, 1).getDay(); // 0=Sun
+      const daysInMonth = new Date(calendarYear, calendarMonth + 1, 0).getDate();
+
+      // Calculate max content length for heatmap scaling
+      let maxLen = 0;
+      for (const entry of (journal?.entries || [])) {
+        if (entry.content) maxLen = Math.max(maxLen, entry.content.length);
+      }
+      if (maxLen === 0) maxLen = 1;
+
+      let html = '';
+      const weekdays = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+      for (const wd of weekdays) {
+        html += `<div class="calendar-weekday" role="columnheader">${wd}</div>`;
+      }
+
+      // Empty cells before first day
+      for (let i = 0; i < firstDay; i++) {
+        html += '<div class="calendar-day empty"></div>';
+      }
+
+      // Day cells
+      for (let d = 1; d <= daysInMonth; d++) {
+        const iso = dateISO(calendarYear, calendarMonth, d);
+        const entry = entryMap[iso];
+        const isToday = iso === today;
+        const isSelected = iso === selectedDate;
+
+        let classes = 'calendar-day';
+        if (isToday) classes += ' today';
+        if (isSelected) classes += ' selected';
+
+        if (entry) {
+          classes += ' has-entry';
+          const len = (entry.content || '').length;
+          const ratio = len / maxLen;
+          if (ratio > 0.75) classes += ' heat-4';
+          else if (ratio > 0.5) classes += ' heat-3';
+          else if (ratio > 0.25) classes += ' heat-2';
+          else classes += ' heat-1';
+        }
+
+        let moodDot = '';
+        if (entry?.mood && MOOD_COLORS[entry.mood]) {
+          moodDot = `<span class="mood-dot" style="background: ${MOOD_COLORS[entry.mood]};"></span>`;
+        }
+
+        html += `<div class="${classes}" data-date="${esc(iso)}" role="gridcell" aria-label="${formatDateLong(iso)}${entry ? ' - has entry' : ''}" tabindex="0">${d}${moodDot}</div>`;
+      }
+
+      gridEl.innerHTML = html;
+
+      // Click handlers on days
+      gridEl.querySelectorAll('.calendar-day:not(.empty)').forEach(cell => {
+        cell.addEventListener('click', () => {
+          selectedDate = cell.dataset.date;
+          searchQuery = '';
+          document.getElementById('search-input').value = '';
+          document.getElementById('search-clear').classList.remove('visible');
+          render();
+        });
+        cell.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            cell.click();
+          }
+        });
+      });
+    }
+
+    // ── Recent Entries ──
+    function renderRecentEntries() {
+      const listEl = document.getElementById('recent-list');
+      if (!journal?.entries?.length) {
+        listEl.innerHTML = '<div style="font-size: 0.75rem; color: var(--sepia-300); font-style: italic; padding: 0.5rem;">No entries yet</div>';
+        return;
+      }
+
+      const sorted = [...journal.entries].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 10);
+      let html = '';
+      for (const entry of sorted) {
+        const isActive = entry.date === selectedDate && !searchQuery;
+        const preview = (entry.content || '').split('\n')[0].slice(0, 50);
+        const moodColor = MOOD_COLORS[entry.mood] || 'var(--cream-400)';
+        html += `<div class="recent-item${isActive ? ' active' : ''}" data-date="${esc(entry.date)}" tabindex="0">
+          <span class="recent-item-mood" style="background: ${moodColor};"></span>
+          <span class="recent-item-date">${esc(formatDateShort(entry.date))}</span>
+          <span class="recent-item-preview">${esc(preview)}</span>
+        </div>`;
+      }
+      listEl.innerHTML = html;
+
+      listEl.querySelectorAll('.recent-item').forEach(item => {
+        const handler = () => {
+          selectedDate = item.dataset.date;
+          // Navigate calendar to that month
+          const d = parseDate(selectedDate);
+          calendarYear = d.getFullYear();
+          calendarMonth = d.getMonth();
+          searchQuery = '';
+          document.getElementById('search-input').value = '';
+          document.getElementById('search-clear').classList.remove('visible');
+          render();
+        };
+        item.addEventListener('click', handler);
+        item.addEventListener('keydown', (e) => { if (e.key === 'Enter') handler(); });
+      });
+    }
+
+    // ── Entry Panel ──
+    function renderEntryPanel() {
+      const panel = document.getElementById('entry-panel');
+      const entry = getEntryForDate(selectedDate);
+
+      const dateStr = formatDateLong(selectedDate);
+      const weekday = formatWeekday(selectedDate);
+
+      let html = '';
+
+      // Date header with navigation
+      html += `<div class="entry-date-header">
+        <button class="entry-nav-btn" id="nav-prev" aria-label="Previous day" title="Previous day">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <div style="flex:1;">
+          <div class="entry-date">${esc(dateStr)}</div>
+          <div class="entry-date-weekday">${esc(weekday)}</div>
+        </div>
+        <div class="entry-actions">`;
+
+      if (entry) {
+        html += `<button class="btn-icon" id="delete-entry-btn" aria-label="Delete entry" title="Delete this entry">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+          </button>`;
+      }
+
+      html += `</div>
+        <button class="entry-nav-btn" id="nav-next" aria-label="Next day" title="Next day">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+        </button>
+      </div>`;
+
+      // Mood selector
+      html += `<div class="mood-selector" role="radiogroup" aria-label="Mood for this day">
+        <span class="mood-label">Mood:</span>`;
+      for (const mood of ['great', 'good', 'okay', 'rough', 'bad']) {
+        const isActive = entry?.mood === mood;
+        html += `<button class="mood-btn${isActive ? ' active' : ''}" data-mood="${mood}" role="radio" aria-checked="${isActive}" aria-label="${MOOD_LABELS[mood]}" title="${MOOD_LABELS[mood]}">
+          ${MOOD_ICONS[mood]}
+          <span class="mood-tooltip">${esc(MOOD_LABELS[mood])}</span>
+        </button>`;
+      }
+      html += '</div>';
+
+      // Content area
+      if (entry) {
+        html += `<div class="entry-content-area">
+          <textarea id="entry-textarea" class="entry-textarea" placeholder="Write your thoughts for today..." aria-label="Entry content">${esc(entry.content || '')}</textarea>
+          <div class="entry-save-row">
+            <span class="save-indicator" id="save-indicator">Saved</span>
+            <button class="btn-primary" id="save-entry-btn">Save Entry</button>
+          </div>
+        </div>`;
+
+        // Photos section
+        html += renderPhotosSection(entry);
+      } else {
+        // Empty state for this day — no entry yet
+        html += `<div class="empty-state">
+          <div class="empty-state-icon">
+            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 20h9"/>
+              <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+            </svg>
+          </div>
+          <div class="empty-state-title">A blank page awaits</div>
+          <div class="empty-state-text">No entry for this day yet. Begin writing to capture your thoughts, moments, and memories.</div>
+          <button class="btn-primary" id="create-entry-btn">Begin Writing</button>
+        </div>`;
+      }
+
+      panel.innerHTML = html;
+
+      // Wire up event listeners
+      const navPrev = document.getElementById('nav-prev');
+      const navNext = document.getElementById('nav-next');
+      if (navPrev) navPrev.addEventListener('click', () => navigateDay(-1));
+      if (navNext) navNext.addEventListener('click', () => navigateDay(1));
+
+      // Mood buttons
+      panel.querySelectorAll('.mood-btn').forEach(btn => {
+        btn.addEventListener('click', () => handleMoodSelect(btn.dataset.mood));
+      });
+
+      // Save button
+      const saveBtn = document.getElementById('save-entry-btn');
+      if (saveBtn) saveBtn.addEventListener('click', saveEntry);
+
+      // Delete button
+      const deleteBtn = document.getElementById('delete-entry-btn');
+      if (deleteBtn) deleteBtn.addEventListener('click', deleteEntry);
+
+      // Create entry button
+      const createBtn = document.getElementById('create-entry-btn');
+      if (createBtn) createBtn.addEventListener('click', createEntry);
+
+      // Photo upload
+      const uploadBtn = document.getElementById('photo-upload-btn');
+      const uploadInput = document.getElementById('photo-upload-input');
+      if (uploadBtn && uploadInput) {
+        uploadBtn.addEventListener('click', () => uploadInput.click());
+        uploadInput.addEventListener('change', handlePhotoUpload);
+      }
+
+      // Photo clicks (lightbox + remove)
+      panel.querySelectorAll('.photo-card').forEach(card => {
+        card.addEventListener('click', (e) => {
+          if (e.target.closest('.photo-remove')) return;
+          openLightbox('/' + card.dataset.filename);
+        });
+      });
+
+      panel.querySelectorAll('.photo-remove').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          removePhoto(btn.dataset.filename);
+        });
+      });
+
+      // Empty photos click
+      const photosEmpty = panel.querySelector('.photos-empty');
+      if (photosEmpty && uploadInput) {
+        photosEmpty.addEventListener('click', () => uploadInput.click());
+      }
+    }
+
+    function renderPhotosSection(entry) {
+      let html = `<div class="photos-section">
+        <div class="photos-header">
+          <span class="photos-title">Photographs</span>
+          <button class="photo-upload-btn" id="photo-upload-btn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Add Photo
+          </button>
+          <input type="file" id="photo-upload-input" class="photo-upload-input" accept="image/*" multiple>
+        </div>`;
+
+      if (entry.photos && entry.photos.length > 0) {
+        html += '<div class="photos-grid">';
+        for (const filename of entry.photos) {
+          html += `<div class="photo-card" data-filename="${esc(filename)}">
+            <img src="/${esc(filename)}" alt="Journal photo" loading="lazy">
+            <button class="photo-remove" data-filename="${esc(filename)}" aria-label="Remove photo" title="Remove from entry">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>`;
+        }
+        html += '</div>';
+      } else {
+        html += '<div class="photos-empty">Click to add photographs for this day</div>';
+      }
+
+      html += '</div>';
+      return html;
+    }
+
+    // ── Search Results ──
+    function renderSearchResults() {
+      const panel = document.getElementById('entry-panel');
+      const query = searchQuery.toLowerCase();
+      const matches = (journal?.entries || []).filter(e =>
+        (e.content || '').toLowerCase().includes(query) ||
+        (e.date || '').includes(query)
+      ).sort((a, b) => b.date.localeCompare(a.date));
+
+      let html = `<div class="search-results">
+        <div class="search-results-header">Found ${matches.length} entr${matches.length === 1 ? 'y' : 'ies'} matching "${esc(searchQuery)}"</div>`;
+
+      if (matches.length === 0) {
+        html += '<div class="search-no-results">No entries match your search.</div>';
+      } else {
+        for (const entry of matches) {
+          const content = entry.content || '';
+          const highlighted = highlightMatch(content, query);
+          html += `<div class="search-result-card" data-date="${esc(entry.date)}">
+            <div class="search-result-date">${esc(formatDateLong(entry.date))}
+              <span style="font-weight: 400; font-style: italic; color: var(--sepia-400); margin-left: 0.5rem;">${esc(formatWeekday(entry.date))}</span>
+            </div>
+            <div class="search-result-content">${highlighted}</div>
+          </div>`;
+        }
+      }
+
+      html += '</div>';
+      panel.innerHTML = html;
+
+      panel.querySelectorAll('.search-result-card').forEach(card => {
+        card.addEventListener('click', () => {
+          selectedDate = card.dataset.date;
+          searchQuery = '';
+          document.getElementById('search-input').value = '';
+          document.getElementById('search-clear').classList.remove('visible');
+          const d = parseDate(selectedDate);
+          calendarYear = d.getFullYear();
+          calendarMonth = d.getMonth();
+          render();
+        });
+      });
+    }
+
+    function highlightMatch(text, query) {
+      const escaped = esc(text);
+      const escapedQuery = esc(query);
+      if (!escapedQuery) return escaped;
+      const regex = new RegExp('(' + escapedQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
+      return escaped.replace(regex, '<span class="search-highlight">$1</span>');
+    }
+
+    // ── Navigation ──
+    function navigateDay(delta) {
+      const d = parseDate(selectedDate);
+      d.setDate(d.getDate() + delta);
+      selectedDate = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+      calendarYear = d.getFullYear();
+      calendarMonth = d.getMonth();
+      render();
+    }
+
+    // ── Mood ──
+    async function handleMoodSelect(mood) {
+      const entry = getEntryForDate(selectedDate);
+      try {
+        if (entry) {
+          // Toggle off if already selected
+          const newMood = entry.mood === mood ? null : mood;
+          await api.patch('entries/' + entry.id, { mood: newMood });
+        } else {
+          // Create new entry with this mood
+          await api.post('entries', {
+            date: selectedDate,
+            mood: mood,
+            content: '',
+            photos: [],
+            created: new Date().toISOString(),
+          });
+        }
+        await loadJournal();
+      } catch (err) {
+        showError('Failed to update mood: ' + err.message);
+      }
+    }
+
+    // ── Create Entry ──
+    async function createEntry() {
+      try {
+        await api.post('entries', {
+          date: selectedDate,
+          mood: null,
+          content: '',
+          photos: [],
+          created: new Date().toISOString(),
+        });
+        await loadJournal();
+        // Focus textarea after render
+        setTimeout(() => {
+          const ta = document.getElementById('entry-textarea');
+          if (ta) ta.focus();
+        }, 50);
+      } catch (err) {
+        showError('Failed to create entry: ' + err.message);
+      }
+    }
+
+    // ── Save Entry ──
+    async function saveEntry() {
+      const entry = getEntryForDate(selectedDate);
+      if (!entry) return;
+      const textarea = document.getElementById('entry-textarea');
+      if (!textarea) return;
+      const newContent = textarea.value;
+      try {
+        await api.patch('entries/' + entry.id, { content: newContent });
+        // Show save indicator
+        const indicator = document.getElementById('save-indicator');
+        if (indicator) {
+          indicator.classList.add('visible');
+          setTimeout(() => indicator.classList.remove('visible'), 2000);
+        }
+        await loadJournal();
+      } catch (err) {
+        showError('Failed to save entry: ' + err.message);
+      }
+    }
+
+    // ── Delete Entry ──
+    async function deleteEntry() {
+      const entry = getEntryForDate(selectedDate);
+      if (!entry) return;
+      const confirmed = await showConfirm(
+        'Delete Entry?',
+        'This will permanently remove your entry for ' + formatDateLong(selectedDate) + '. This cannot be undone.'
+      );
+      if (!confirmed) return;
+      try {
+        await api.delete('entries/' + entry.id);
+        await loadJournal();
+      } catch (err) {
+        showError('Failed to delete entry: ' + err.message);
+      }
+    }
+
+    // ── Photo Upload ──
+    async function handlePhotoUpload(e) {
+      const files = e.target.files;
+      if (!files?.length) return;
+      const entry = getEntryForDate(selectedDate);
+      if (!entry) return;
+
+      for (const file of files) {
+        try {
+          const result = await uploadFile(file);
+          // Re-fetch current entry to get latest photos array (previous
+          // iterations may have added photos and reloaded the journal).
+          const current = getEntryForDate(selectedDate);
+          if (!current) break;
+          const photos = [...(current.photos || []), result.filename];
+          await api.patch('entries/' + current.id, { photos });
+          await loadJournal();
+        } catch (err) {
+          showError('Failed to upload photo: ' + err.message);
+        }
+      }
+
+      // Reset input so the same file can be re-selected
+      e.target.value = '';
+    }
+
+    // ── Remove Photo ──
+    async function removePhoto(filename) {
+      const entry = getEntryForDate(selectedDate);
+      if (!entry) return;
+      const photos = (entry.photos || []).filter(p => p !== filename);
+      try {
+        await api.patch('entries/' + entry.id, { photos });
+        await loadJournal();
+      } catch (err) {
+        showError('Failed to remove photo: ' + err.message);
+      }
+    }
+
+    // ── Journal Title Editing ──
+    const journalTitleEl = document.getElementById('journal-title');
+
+    journalTitleEl.addEventListener('click', () => {
+      journalTitleEl.removeAttribute('readonly');
+      journalTitleEl.focus();
+      journalTitleEl.select();
+    });
+
+    journalTitleEl.addEventListener('blur', async () => {
+      journalTitleEl.setAttribute('readonly', '');
+      const newTitle = journalTitleEl.value.trim();
+      if (!newTitle || newTitle === journal?.title) return;
+      try {
+        await api.patch('', { title: newTitle });
+        await loadJournal();
+      } catch (err) {
+        showError('Failed to rename journal: ' + err.message);
+        journalTitleEl.value = journal?.title || '';
+      }
+    });
+
+    journalTitleEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); journalTitleEl.blur(); }
+      if (e.key === 'Escape') { journalTitleEl.value = journal?.title || ''; journalTitleEl.blur(); }
+    });
+
+    // ── Search ──
+    const searchInput = document.getElementById('search-input');
+    const searchClearBtn = document.getElementById('search-clear');
+    let searchDebounce = null;
+
+    searchInput.addEventListener('input', () => {
+      clearTimeout(searchDebounce);
+      const val = searchInput.value.trim();
+      searchClearBtn.classList.toggle('visible', val.length > 0);
+      searchDebounce = setTimeout(() => {
+        searchQuery = val;
+        render();
+      }, 200);
+    });
+
+    searchClearBtn.addEventListener('click', () => {
+      searchInput.value = '';
+      searchQuery = '';
+      searchClearBtn.classList.remove('visible');
+      render();
+    });
+
+    // ── Keyboard Navigation ──
+    document.addEventListener('keydown', (e) => {
+      // Ctrl/Cmd+S to save — must fire even from inside the textarea
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        saveEntry();
+        return;
+      }
+
+      // Don't capture remaining shortcuts if user is typing in an input/textarea
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+
+      // Lightbox close
+      if (e.key === 'Escape' && lightbox.classList.contains('visible')) {
+        closeLightbox();
+        return;
+      }
+
+      // Confirm dialog
+      if (e.key === 'Escape' && confirmOverlay.classList.contains('visible')) {
+        confirmOverlay.classList.remove('visible');
+        if (confirmResolver) { confirmResolver(false); confirmResolver = null; }
+        return;
+      }
+
+      // Arrow keys for day navigation
+      if (e.key === 'ArrowLeft' && !searchQuery) {
+        e.preventDefault();
+        navigateDay(-1);
+      }
+      if (e.key === 'ArrowRight' && !searchQuery) {
+        e.preventDefault();
+        navigateDay(1);
+      }
+
+      // / to focus search
+      if (e.key === '/' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        searchInput.focus();
+      }
+    });
+
+    // ── Calendar Navigation Buttons ──
+    document.getElementById('cal-prev').addEventListener('click', () => {
+      calendarMonth--;
+      if (calendarMonth < 0) { calendarMonth = 11; calendarYear--; }
+      renderCalendar();
+    });
+
+    document.getElementById('cal-next').addEventListener('click', () => {
+      calendarMonth++;
+      if (calendarMonth > 11) { calendarMonth = 0; calendarYear++; }
+      renderCalendar();
+    });
+
+    // ── Init ──
+    async function init() {
+      await loadJournal();
+    }
+
+    init();
+  </script>
+</body>
+</html>
