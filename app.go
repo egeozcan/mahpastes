@@ -920,6 +920,15 @@ func (a *App) RenameClip(id int64, newFilename string) error {
 	if newFilename == "" {
 		return fmt.Errorf("filename cannot be empty")
 	}
+	if strings.ContainsAny(newFilename, "/\\") {
+		return fmt.Errorf("filename contains path separator")
+	}
+	if strings.Contains(newFilename, "..") {
+		return fmt.Errorf("filename contains path traversal")
+	}
+	if strings.ContainsRune(newFilename, 0) {
+		return fmt.Errorf("filename contains null byte")
+	}
 
 	result, err := a.db.Exec("UPDATE clips SET filename = ? WHERE id = ?", newFilename, id)
 	if err != nil {
