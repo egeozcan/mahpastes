@@ -1676,6 +1676,8 @@ func (am *APIManager) handleBulkDownload(w http.ResponseWriter, r *http.Request)
 		name := filename.String
 		if name == "" {
 			name = fmt.Sprintf("clip_%d", id)
+		} else {
+			name = fmt.Sprintf("%d_%s", id, name)
 		}
 
 		fw, err := zw.Create(name)
