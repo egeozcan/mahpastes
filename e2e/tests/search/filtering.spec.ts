@@ -242,9 +242,15 @@ test.describe('Search and Filtering', () => {
       await app.uploadFile(file1);
       await app.search('existing');
 
-      // Upload another file
+      // Upload another file (use setInputFiles directly since uploadFile waits
+      // for a visible <li>, but the new clip will be hidden by the search filter)
       const file2 = await createTempFile(generateTestText('new-file'), 'txt');
-      await app.uploadFile(file2);
+      await app.page.locator('#file-input').setInputFiles(file2);
+      // Wait for the new clip to appear in the DOM (hidden by search filter)
+      await app.page.waitForFunction(
+        () => document.querySelectorAll('#gallery > li:not([data-folder])').length === 2,
+        { timeout: 10000 }
+      );
 
       // Search should still be applied
       const searchInput = app.page.locator('#search-input');

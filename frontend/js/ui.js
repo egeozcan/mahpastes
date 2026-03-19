@@ -1084,18 +1084,23 @@ function toggleViewMode() {
 
 // Search Logic
 const searchInput = document.getElementById('search-input');
-searchInput.addEventListener('input', (e) => {
-    const query = e.target.value.toLowerCase();
+
+function applySearchFilter() {
+    const query = searchInput.value.toLowerCase();
     const cards = gallery.querySelectorAll('li');
     cards.forEach(card => {
-        const filename = card.dataset.filename || '';
-        const type = card.dataset.type || '';
-        if (filename.includes(query) || type.includes(query)) {
+        if (!query) {
             card.style.display = '';
         } else {
-            card.style.display = 'none';
+            const filename = card.dataset.filename || '';
+            const type = card.dataset.type || '';
+            card.style.display = (filename.includes(query) || type.includes(query)) ? '' : 'none';
         }
     });
+}
+
+searchInput.addEventListener('input', () => {
+    applySearchFilter();
 });
 
 searchInput.addEventListener('keydown', (e) => {
