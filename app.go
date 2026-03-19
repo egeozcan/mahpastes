@@ -1313,7 +1313,11 @@ func (a *App) UpdateTag(id int64, name, color string) error {
 	}
 
 	// Reserve "_api" as a path segment — used by tag serve JSON API.
+	// Also reject empty path segments (leading/trailing/consecutive slashes).
 	for _, seg := range strings.Split(name, "/") {
+		if strings.TrimSpace(seg) == "" {
+			return fmt.Errorf("tag name contains empty path segment")
+		}
 		if seg == "_api" {
 			return fmt.Errorf("tag name contains reserved segment '_api'")
 		}
