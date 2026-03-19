@@ -1021,12 +1021,14 @@ function toggleSelectAll() {
 
     checkboxes.forEach(cb => {
         const id = Number(cb.dataset.id);
-        cb.checked = shouldSelectAll;
         const card = cb.closest('li');
         if (shouldSelectAll) {
+            if (card && card.style.display === 'none') return;
+            cb.checked = true;
             selectedIds.add(id);
             if (card) card.classList.add('has-checked');
         } else {
+            cb.checked = false;
             selectedIds.delete(id);
             if (card) card.classList.remove('has-checked');
         }
