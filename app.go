@@ -1383,7 +1383,7 @@ func (a *App) UpdateTag(id int64, name, color string) error {
 		oldPrefix := oldName + "/"
 		newPrefix := name + "/"
 		_, err = tx.Exec(`UPDATE tags SET name = ? || SUBSTR(name, ?) WHERE name LIKE ?`,
-			newPrefix, len(oldPrefix)+1, oldPrefix+"%")
+			newPrefix, utf8.RuneCountInString(oldPrefix)+1, oldPrefix+"%")
 		if err != nil {
 			if strings.Contains(err.Error(), "UNIQUE") {
 				return fmt.Errorf("tag rename conflicts with an existing tag")
