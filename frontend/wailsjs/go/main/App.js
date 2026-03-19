@@ -22,10 +22,6 @@ export function BulkCancelExpiration(arg1) {
   return window['go']['main']['App']['BulkCancelExpiration'](arg1);
 }
 
-export function BulkUnarchive(arg1) {
-  return window['go']['main']['App']['BulkUnarchive'](arg1);
-}
-
 export function BulkDelete(arg1) {
   return window['go']['main']['App']['BulkDelete'](arg1);
 }
@@ -40,6 +36,10 @@ export function BulkRemoveTag(arg1, arg2) {
 
 export function BulkSetExpiration(arg1, arg2) {
   return window['go']['main']['App']['BulkSetExpiration'](arg1, arg2);
+}
+
+export function BulkUnarchive(arg1) {
+  return window['go']['main']['App']['BulkUnarchive'](arg1);
 }
 
 export function CancelExpiration(arg1) {

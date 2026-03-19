@@ -28,6 +28,8 @@ import "C"
 import (
 	"fmt"
 	"unsafe"
+
+	"golang.design/x/clipboard"
 )
 
 func copyFilesToClipboard(paths []string) error {
@@ -48,5 +50,11 @@ func copyFilesToClipboard(paths []string) error {
 	if result != 0 {
 		return fmt.Errorf("failed to write files to pasteboard")
 	}
+	return nil
+}
+
+// copyImageToClipboard places PNG image data on the macOS clipboard.
+func copyImageToClipboard(pngData []byte) error {
+	clipboard.Write(clipboard.FmtImage, pngData)
 	return nil
 }

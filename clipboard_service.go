@@ -70,8 +70,7 @@ func (s *ClipboardService) CopyClipContents(id int64) error {
 
 	if strings.HasPrefix(contentType, "image/") {
 		if contentType == "image/png" {
-			clipboard.Write(clipboard.FmtImage, data)
-			return nil
+			return copyImageToClipboard(data)
 		}
 		img, _, err := image.Decode(bytes.NewReader(data))
 		if err != nil {
@@ -81,8 +80,7 @@ func (s *ClipboardService) CopyClipContents(id int64) error {
 		if err := png.Encode(&buf, img); err != nil {
 			return fmt.Errorf("failed to encode image as PNG: %w", err)
 		}
-		clipboard.Write(clipboard.FmtImage, buf.Bytes())
-		return nil
+		return copyImageToClipboard(buf.Bytes())
 	}
 
 	return fmt.Errorf("unsupported content type for clipboard copy: %s", contentType)
