@@ -1180,7 +1180,11 @@ func (a *App) CreateTag(name string) (*Tag, error) {
 	}
 
 	// Reserve "_api" as a path segment — used by tag serve JSON API.
+	// Also reject empty path segments (leading/trailing/consecutive slashes).
 	for _, seg := range strings.Split(name, "/") {
+		if strings.TrimSpace(seg) == "" {
+			return nil, fmt.Errorf("tag name contains empty path segment")
+		}
 		if seg == "_api" {
 			return nil, fmt.Errorf("tag name contains reserved segment '_api'")
 		}
