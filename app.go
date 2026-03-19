@@ -1044,6 +1044,40 @@ func (a *App) MergeDuplicates(clipID int64) error {
 		}
 	}
 
+	// Enforce tree exclusivity on the survivor's merged tags.
+	// The INSERT OR IGNORE above may have added tags from the same tree
+	// that the survivor already had a tag in.
+	{
+		rows, err := tx.Query(`
+			SELECT ct.tag_id, t.name FROM clip_tags ct
+			INNER JOIN tags t ON ct.tag_id = t.id
+			WHERE ct.clip_id = ?
+			ORDER BY ct.rowid ASC`, survivorID)
+		if err != nil {
+			return fmt.Errorf("failed to query survivor tags: %w", err)
+		}
+		seenRoots := map[string]bool{}
+		var removeTagIDs []int64
+		for rows.Next() {
+			var tagID int64
+			var tagName string
+			if err := rows.Scan(&tagID, &tagName); err != nil {
+				rows.Close()
+				return fmt.Errorf("failed to scan survivor tag: %w", err)
+			}
+			root := getRootTagName(tagName)
+			if seenRoots[root] {
+				removeTagIDs = append(removeTagIDs, tagID)
+			} else {
+				seenRoots[root] = true
+			}
+		}
+		rows.Close()
+		for _, tagID := range removeTagIDs {
+			tx.Exec("DELETE FROM clip_tags WHERE clip_id = ? AND tag_id = ?", survivorID, tagID)
+		}
+	}
+
 	// Delete clip_tags for duplicates
 	for _, dupID := range duplicateIDs {
 		tx.Exec("DELETE FROM clip_tags WHERE clip_id = ?", dupID)
