@@ -334,4 +334,58 @@ test.describe('Serve - JSON API', () => {
     expect(result.success).toBe(false);
     expect(result.error).toContain('reserved');
   });
+
+  test('PATCH array element should not return 500 when patch includes id field', async ({ app }) => {
+    // Bug: handleJSONPatch calls mergePatch(obj, patch) which modifies the array
+    // element in-place (since navigateJSON returns a reference into the data
+    // structure). Then it calls setJSON(&data, jsonPath, obj) to "write back"
+    // the modified element. setJSON navigates to the parent array and looks for
+    // the element by matching its "id" field against the path segment.
+    //
+    // When the patch body includes an "id" field with a DIFFERENT value,
+    // mergePatch changes obj["id"] in-place BEFORE setJSON tries to locate the
+    // element by the ORIGINAL id from the URL path. setJSON searches for an
+    // element with the original id, but the element now has the new id, so the
+    // lookup fails with "no element with id <original> in array" and the handler
+    // returns 500 Internal Server Error.
+    //
+    // Expected behavior: either reject the id change with 400, or apply it and
+    // return 200. A 500 is never the correct response for valid user input.
+    const data = [
+      { id: 1, name: 'Alice', role: 'dev' },
+      { id: 2, name: 'Bob', role: 'dev' },
+    ];
+    const filePath = createJSONFile('team.json', data);
+    await app.uploadFile(filePath);
+    await app.createTag('api-patch-idbug');
+    await app.addTagToClip('team.json', 'api-patch-idbug');
+
+    const { port } = await app.startServingTag('api-patch-idbug', 'readwrite');
+    const ctx = await createAuthenticatedContext(port);
+    try {
+      // PATCH element with id=1, including an id change in the body.
+      // The server should NOT return 500.
+      const patchRes = await ctx.patch('/_api/team/1', {
+        data: { id: 99, role: 'lead' },
+      });
+      // A well-behaved server returns either:
+      //   200 if the id change is accepted, or
+      //   400 if id changes are disallowed.
+      // It must NOT return 500 (Internal Server Error).
+      expect(patchRes.status()).not.toBe(500);
+
+      // The server strips the id field from the patch (id is immutable),
+      // so the element stays at id=1 with the other fields patched.
+      if (patchRes.status() === 200) {
+        const getOriginal = await ctx.get('/_api/team/1');
+        expect(getOriginal.status()).toBe(200);
+        const body = await getOriginal.json();
+        expect(body.id).toBe(1);       // id is preserved
+        expect(body.role).toBe('lead'); // role was patched
+        expect(body.name).toBe('Alice'); // name unchanged
+      }
+    } finally {
+      await ctx.dispose();
+    }
+  });
 });

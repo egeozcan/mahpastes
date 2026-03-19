@@ -247,6 +247,10 @@ func (sm *ServeManager) handleJSONPatch(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
+	// The "id" field is used for array element identity and must not be
+	// changed via PATCH, as setJSON relies on it for element lookup.
+	delete(patch, "id")
+
 	// RFC 7396 merge: recurse into nested objects, null deletes keys.
 	mergePatch(obj, patch)
 
