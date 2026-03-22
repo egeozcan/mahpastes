@@ -10,6 +10,7 @@ export const selectors = {
     drawerToggle: '#drawer-toggle-btn',
     addButton: '#add-btn',
     archiveButton: '#header-archive-btn',
+    clipControls: '#clip-controls',
   },
 
   // Bottom bar
