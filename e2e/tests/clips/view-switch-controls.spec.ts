@@ -4,7 +4,7 @@ import { selectors } from '../../helpers/selectors';
 test.describe('View Switch Controls Visibility', () => {
   test('should hide clip controls in watch view', async ({ app }) => {
     // Controls visible in clips view
-    await expect(app.page.locator('#clip-controls')).toBeVisible();
+    await expect(app.page.locator(selectors.header.clipControls)).toBeVisible();
     await expect(app.page.locator(selectors.bottomBar.addButton)).toBeVisible();
     await expect(app.page.locator(selectors.bottomBar.expirySelect)).toBeVisible();
     await expect(app.page.locator(selectors.bottomBar.clipCount)).toBeVisible();
@@ -13,7 +13,7 @@ test.describe('View Switch Controls Visibility', () => {
     await app.openWatchView();
 
     // Controls should be hidden
-    await expect(app.page.locator('#clip-controls')).toBeHidden();
+    await expect(app.page.locator(selectors.header.clipControls)).toBeHidden();
     await expect(app.page.locator(selectors.bottomBar.addButton)).toBeHidden();
     await expect(app.page.locator(selectors.bottomBar.expirySelect)).toBeHidden();
     await expect(app.page.locator(selectors.bottomBar.clipCount)).toBeHidden();
@@ -23,7 +23,7 @@ test.describe('View Switch Controls Visibility', () => {
     await app.openWatchView();
     await app.closeWatchView();
 
-    await expect(app.page.locator('#clip-controls')).toBeVisible();
+    await expect(app.page.locator(selectors.header.clipControls)).toBeVisible();
     await expect(app.page.locator(selectors.bottomBar.addButton)).toBeVisible();
     await expect(app.page.locator(selectors.bottomBar.expirySelect)).toBeVisible();
     await expect(app.page.locator(selectors.bottomBar.clipCount)).toBeVisible();
@@ -32,7 +32,7 @@ test.describe('View Switch Controls Visibility', () => {
   test('should hide clip controls in serve view', async ({ app }) => {
     await app.switchToServeView();
 
-    await expect(app.page.locator('#clip-controls')).toBeHidden();
+    await expect(app.page.locator(selectors.header.clipControls)).toBeHidden();
     await expect(app.page.locator(selectors.bottomBar.addButton)).toBeHidden();
     await expect(app.page.locator(selectors.bottomBar.expirySelect)).toBeHidden();
     await expect(app.page.locator(selectors.bottomBar.clipCount)).toBeHidden();
@@ -61,5 +61,18 @@ test.describe('View Switch Controls Visibility', () => {
     // Switch to watch view — popover should close
     await app.openWatchView();
     await expect(app.page.locator(selectors.sort.popover)).toBeHidden();
+  });
+
+  test('should preserve search text across view switch', async ({ app }) => {
+    // Type search text
+    await app.page.locator(selectors.header.searchInput).fill('test-query');
+
+    // Switch to watch and back
+    await app.openWatchView();
+    await app.closeWatchView();
+
+    // Search text should be preserved
+    const value = await app.page.locator(selectors.header.searchInput).inputValue();
+    expect(value).toBe('test-query');
   });
 });
