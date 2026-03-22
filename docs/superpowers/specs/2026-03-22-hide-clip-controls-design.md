@@ -12,13 +12,9 @@ Extend `switchView()` in `frontend/js/serve.js` to toggle visibility of clip-rel
 
 ### Header
 
-- `#search-input` (or its parent wrapper if one exists)
-- `#tag-filter-btn` (and `#tag-filter-badge`)
-- `#sort-btn`
-- Vertical divider between sort and archive buttons
-- `#header-archive-btn`
-- `#folder-mode-btn`
-- `#active-tags-container` (filter pill bar)
+Add `id="clip-controls"` to the existing wrapper `<div>` at line 23 of `index.html` (the `flex-1 max-w-md` div that contains search, tag filter, sort, divider, archive, and folder mode). Toggle this single element to hide/show all header clip controls at once.
+
+Also hide `#active-tags-container` (the filter pill bar below the header).
 
 ### Bottom Bar
 
@@ -26,29 +22,41 @@ Extend `switchView()` in `frontend/js/serve.js` to toggle visibility of clip-rel
 - `#expiry-select`
 - `#clip-count`
 
+`#loading-status` remains visible — it shows plugin task progress which is app-wide, not clip-specific. The `#bottom-bar` footer itself stays visible to house `#loading-status`.
+
 ### Always Visible
 
 - MAHPASTES logo (`#logo-btn`)
 - Hamburger menu (`#drawer-toggle-btn`) with activity indicator
+- `#loading-status` (plugin task progress)
+- `#bottom-bar` container
 
 ## Approach
 
-In `switchView()`, add `classList.toggle('hidden', isNonClipView)` calls for each control listed above. When switching to clips view, controls are shown. When switching to watch or serve, controls are hidden.
+In `switchView()`, toggle `hidden` on `#clip-controls`, `#active-tags-container`, `#add-btn`, `#expiry-select`, and `#clip-count` based on whether the target view is clips or not.
+
+Before hiding, explicitly close any open popovers/dropdowns: call `closeSortPopover()` (or equivalent) and close the tag filter dropdown. The sort popover is appended to `document.body` and would otherwise remain as a floating orphan. Keyboard shortcuts (W/S) bypass click-outside handlers, so relying on those is insufficient.
+
+No transition animation — instant `hidden` toggle via `display: none` is appropriate here since the view is switching entirely, not partially updating.
 
 ## Edge Cases
 
 - **Active filters/search**: State is preserved but hidden. Returning to clips reveals them unchanged.
 - **Bulk toolbar**: Already tied to clip selection state, won't appear in non-clip views naturally.
-- **Tag filter dropdown**: If open when switching views, `switchView()` already triggers view resets that close dropdowns.
+- **Open dropdowns/popovers**: Explicitly closed on view switch (see Approach).
 
 ## Files Modified
 
-- `frontend/js/serve.js` — add hide/show logic in `switchView()`
+- `frontend/index.html` — add `id="clip-controls"` to header wrapper div
+- `frontend/js/serve.js` — add hide/show and popover-close logic in `switchView()`
 
 ## Testing
 
-- Existing e2e tests for view switching in `e2e/tests/watch/` and `e2e/tests/serve/`
-- Verify controls hidden when entering Watch view
-- Verify controls hidden when entering Serve view
-- Verify controls restored when returning to Clips view
+New e2e test assertions (not just relying on existing tests, since this is new behavior):
+
+- Verify `#clip-controls` is hidden when entering Watch view
+- Verify `#clip-controls` is hidden when entering Serve view
+- Verify `#add-btn`, `#expiry-select`, `#clip-count` are hidden in non-clip views
+- Verify all controls restored when returning to Clips view
 - Verify filter/search state preserved across view switches
+- Verify sort popover closes when switching away from clips
