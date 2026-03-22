@@ -42,15 +42,15 @@ test.describe('View Switch Controls Visibility', () => {
     // Create a tag and apply it as a filter so active-tags-container becomes visible
     await app.createTag('filter-test');
     await app.filterByTag('filter-test');
-    await expect(app.page.locator('#active-tags-container')).toBeVisible();
+    await expect(app.page.locator(selectors.tags.activeTagsContainer)).toBeVisible();
 
     // Switch to watch view — active tags bar should hide
     await app.openWatchView();
-    await expect(app.page.locator('#active-tags-container')).toBeHidden();
+    await expect(app.page.locator(selectors.tags.activeTagsContainer)).toBeHidden();
 
     // Return to clips — active tags bar should reappear (filter still active)
     await app.closeWatchView();
-    await expect(app.page.locator('#active-tags-container')).toBeVisible();
+    await expect(app.page.locator(selectors.tags.activeTagsContainer)).toBeVisible();
   });
 
   test('should close sort popover when switching views', async ({ app }) => {

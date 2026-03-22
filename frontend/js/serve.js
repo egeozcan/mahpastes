@@ -54,11 +54,6 @@ function switchView(view) {
 
     // Toggle clip-related controls visibility
     const isClipView = (view === 'clips');
-    const clipControls = document.getElementById('clip-controls');
-    const activeTagsContainer = document.getElementById('active-tags-container');
-    const addBtn = document.getElementById('add-btn');
-    const expirySelect = document.getElementById('expiry-select');
-    const clipCount = document.getElementById('clip-count');
 
     // Close open popovers before hiding (keyboard shortcuts bypass click-outside handlers)
     if (!isClipView) {
@@ -66,15 +61,21 @@ function switchView(view) {
         if (typeof closeTagFilterDropdown === 'function') closeTagFilterDropdown(false);
     }
 
-    if (clipControls) clipControls.classList.toggle('hidden', !isClipView);
-    if (addBtn) addBtn.classList.toggle('hidden', !isClipView);
-    if (expirySelect) expirySelect.classList.toggle('hidden', !isClipView);
-    if (clipCount) clipCount.classList.toggle('hidden', !isClipView);
+    const ccClipControls = document.getElementById('clip-controls');
+    const ccAddBtn = document.getElementById('add-btn');
+    const ccExpirySelect = document.getElementById('expiry-select');
+    const ccClipCount = document.getElementById('clip-count');
+    const ccActiveTags = document.getElementById('active-tags-container');
+
+    if (ccClipControls) ccClipControls.classList.toggle('hidden', !isClipView);
+    if (ccAddBtn) ccAddBtn.classList.toggle('hidden', !isClipView);
+    if (ccExpirySelect) ccExpirySelect.classList.toggle('hidden', !isClipView);
+    if (ccClipCount) ccClipCount.classList.toggle('hidden', !isClipView);
 
     // active-tags-container: hide on departure; restore on return by calling
     // updateActiveTagsDisplay() which correctly shows/hides based on active filters.
-    if (!isClipView && activeTagsContainer) {
-        activeTagsContainer.classList.add('hidden');
+    if (!isClipView && ccActiveTags) {
+        ccActiveTags.classList.add('hidden');
     }
 
     // Show the selected view and trigger its load
