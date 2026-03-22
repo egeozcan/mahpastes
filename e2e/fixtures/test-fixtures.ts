@@ -1508,6 +1508,9 @@ export class AppHelper {
         if (!currentFilters.includes(tagObj.id)) {
           currentFilters.push(tagObj.id);
         }
+        // Update active tags display (pill bar) to reflect new filter
+        // @ts-ignore
+        if (typeof updateActiveTagsDisplay === 'function') updateActiveTagsDisplay();
         // @ts-ignore
         window.__testHelpers.loadClips();
       }

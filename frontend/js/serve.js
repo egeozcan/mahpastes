@@ -52,11 +52,38 @@ function switchView(view) {
     isViewingWatch = (view === 'watch');
     isViewingServe = (view === 'serve');
 
+    // Toggle clip-related controls visibility
+    const isClipView = (view === 'clips');
+    const clipControls = document.getElementById('clip-controls');
+    const activeTagsContainer = document.getElementById('active-tags-container');
+    const addBtn = document.getElementById('add-btn');
+    const expirySelect = document.getElementById('expiry-select');
+    const clipCount = document.getElementById('clip-count');
+
+    // Close open popovers before hiding (keyboard shortcuts bypass click-outside handlers)
+    if (!isClipView) {
+        if (typeof closeSortPopover === 'function') closeSortPopover();
+        if (typeof closeTagFilterDropdown === 'function') closeTagFilterDropdown(false);
+    }
+
+    if (clipControls) clipControls.classList.toggle('hidden', !isClipView);
+    if (addBtn) addBtn.classList.toggle('hidden', !isClipView);
+    if (expirySelect) expirySelect.classList.toggle('hidden', !isClipView);
+    if (clipCount) clipCount.classList.toggle('hidden', !isClipView);
+
+    // active-tags-container: hide on departure; restore on return by calling
+    // updateActiveTagsDisplay() which correctly shows/hides based on active filters.
+    if (!isClipView && activeTagsContainer) {
+        activeTagsContainer.classList.add('hidden');
+    }
+
     // Show the selected view and trigger its load
     switch (view) {
         case 'clips':
             gallery.parentElement.classList.remove('hidden');
             imageCache.clear();
+            // Restore active tags bar if filters are still active
+            if (typeof updateActiveTagsDisplay === 'function') updateActiveTagsDisplay();
             loadClips();
             break;
         case 'watch':
