@@ -1,3 +1,8 @@
+/* Gallery needs relative positioning for marquee overlay */
+#gallery {
+    position: relative;
+}
+
 /* Prevent horizontal scroll from tooltips/absolute elements */
 html {
     overflow-x: clip;

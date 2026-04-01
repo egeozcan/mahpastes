@@ -102,7 +102,6 @@ function initMarqueeSelect({ gallery, selectedIds, updateBulkToolbar }) {
             'border-radius:2px;' +
             'pointer-events:none;' +
             'z-index:20;';
-        gallery.style.position = 'relative';
         gallery.appendChild(overlay);
     }
 
@@ -110,7 +109,6 @@ function initMarqueeSelect({ gallery, selectedIds, updateBulkToolbar }) {
         if (overlay) {
             overlay.remove();
             overlay = null;
-            gallery.style.position = '';
         }
     }
 
