@@ -215,6 +215,104 @@ test.describe('Marquee Selection', () => {
     await expect(selectedCount).toHaveText('1 selected');
   });
 
+  test('should not trigger on right-click', async ({ app }) => {
+    const files = await Promise.all([
+      createTempFile(generateTestImage(50, 50, [255, 0, 0]), 'png'),
+      createTempFile(generateTestImage(50, 50, [0, 255, 0]), 'png'),
+    ]);
+    await app.uploadFiles(files);
+    await app.expectClipCount(2);
+
+    // Select all via checkbox first
+    await app.selectAll();
+    const selectedCount = app.page.locator(selectors.bulk.selectedCount);
+    await expect(selectedCount).toHaveText('2 selected');
+
+    // Right-click on empty space should NOT deselect or trigger marquee
+    const { x: emptyX, y: emptyY } = await getGalleryEmptySpace(app.page);
+    await app.page.mouse.click(emptyX, emptyY, { button: 'right' });
+
+    // Selection should be preserved
+    await expect(selectedCount).toHaveText('2 selected');
+  });
+
+  test('should preserve selection on Shift+click empty space', async ({ app }) => {
+    const files = await Promise.all([
+      createTempFile(generateTestImage(50, 50, [255, 0, 0]), 'png'),
+      createTempFile(generateTestImage(50, 50, [0, 255, 0]), 'png'),
+    ]);
+    await app.uploadFiles(files);
+    await app.expectClipCount(2);
+
+    // Select all via checkbox
+    await app.selectAll();
+    const selectedCount = app.page.locator(selectors.bulk.selectedCount);
+    await expect(selectedCount).toHaveText('2 selected');
+
+    // Shift+click on empty space should NOT deselect
+    const { x: emptyX, y: emptyY } = await getGalleryEmptySpace(app.page);
+    await app.page.keyboard.down('Shift');
+    await app.page.mouse.click(emptyX, emptyY);
+    await app.page.keyboard.up('Shift');
+
+    // Selection should be preserved
+    await expect(selectedCount).toHaveText('2 selected');
+  });
+
+  test('should deselect when marquee misses all clips', async ({ app }) => {
+    const files = await Promise.all([
+      createTempFile(generateTestImage(50, 50, [255, 0, 0]), 'png'),
+      createTempFile(generateTestImage(50, 50, [0, 255, 0]), 'png'),
+    ]);
+    await app.uploadFiles(files);
+    await app.expectClipCount(2);
+
+    // Select all first
+    await app.selectAll();
+    const selectedCount = app.page.locator(selectors.bulk.selectedCount);
+    await expect(selectedCount).toHaveText('2 selected');
+
+    const { x: emptyX, galleryBox } = await getGalleryEmptySpace(app.page);
+
+    // Drag entirely in empty space to the right of clips (no intersection)
+    // Start from far right, drag a small rectangle still in empty space
+    await marqueeDrag(
+      app.page,
+      emptyX,
+      galleryBox.y + 10,
+      emptyX - 15,
+      galleryBox.y + 30
+    );
+
+    // Should have deselected everything since no clips were intersected
+    const toolbar = app.page.locator(selectors.bulk.toolbar);
+    await expect(toolbar).toHaveClass(/opacity-0/);
+  });
+
+  test('should sync Select All checkbox when all clips marquee-selected', async ({ app }) => {
+    const files = await Promise.all([
+      createTempFile(generateTestImage(50, 50, [255, 0, 0]), 'png'),
+      createTempFile(generateTestImage(50, 50, [0, 255, 0]), 'png'),
+    ]);
+    await app.uploadFiles(files);
+    await app.expectClipCount(2);
+
+    const { x: emptyX, y: emptyY, galleryBox } = await getGalleryEmptySpace(app.page);
+
+    // Marquee drag across all clips
+    await marqueeDrag(
+      app.page,
+      emptyX,
+      emptyY,
+      galleryBox.x + 5,
+      emptyY
+    );
+
+    // Select All checkbox should be checked
+    const selectAllCheckbox = app.page.locator(selectors.bulk.selectAllCheckbox);
+    await expect(selectAllCheckbox).toBeChecked();
+  });
+
   test('should show bulk toolbar with correct count after marquee', async ({ app }) => {
     const files = await Promise.all([
       createTempFile(generateTestImage(50, 50, [255, 0, 0]), 'png'),

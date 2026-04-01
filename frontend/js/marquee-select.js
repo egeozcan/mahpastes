@@ -95,6 +95,7 @@ function initMarqueeSelect({ gallery, selectedIds, updateBulkToolbar }) {
     function createOverlay() {
         overlay = document.createElement('div');
         overlay.className = 'marquee-overlay';
+        overlay.setAttribute('aria-hidden', 'true');
         overlay.style.cssText =
             'position:absolute;' +
             'border:2px solid rgba(28,25,23,0.6);' +
@@ -151,7 +152,7 @@ function initMarqueeSelect({ gallery, selectedIds, updateBulkToolbar }) {
     }
 
     function rectsIntersect(a, b) {
-        return !(a.right < b.left || a.left > b.right || a.bottom < b.top || a.top > b.bottom);
+        return !(a.right <= b.left || a.left >= b.right || a.bottom <= b.top || a.top >= b.bottom);
     }
 
     function syncSelection(next) {
