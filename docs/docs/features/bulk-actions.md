@@ -21,6 +21,20 @@ Selected clips show a ring highlight and a checkmark indicator.
 
 ![Bulk actions toolbar](/img/screenshots/bulk-actions.png)
 
+### Marquee Selection
+
+Click and drag on the empty space between clip cards to draw a selection rectangle. Any clip that the rectangle touches gets selected -- just like selecting files in Finder or Explorer.
+
+1. Click on the empty space in the gallery grid (between or after cards)
+2. Drag to draw a selection rectangle
+3. Release to confirm the selection
+
+**Modifier keys:**
+- **Plain drag**: Replaces the current selection with the marquee selection
+- <span className="keyboard-key">Shift</span> **+ drag**: Adds the marquee selection to any existing selection
+
+Marquee selection works in both the normal gallery view and folder mode.
+
 ### Selection Indicator
 
 When clips are selected:
@@ -143,6 +157,7 @@ When clips are selected, these shortcuts are available:
 
 ## Tips
 
+- Click and drag on empty space to marquee-select multiple clips at once
 - Use <span className="keyboard-key">Shift</span>-click to select a range of consecutive clips quickly
 - Double-check your selection before deleting -- delete is permanent
 - Consider archiving instead of deleting if you might need clips later
