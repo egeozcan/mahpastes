@@ -54,6 +54,7 @@ export const selectors = {
     clipType: '#gallery > li span',
     expirationBadge: '.absolute.top-2.left-2',
     emptyState: '#empty-state',
+    marqueeOverlay: '.marquee-overlay',
   },
 
   // Clip card actions (now in dropdown menu)
