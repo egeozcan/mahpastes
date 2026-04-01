@@ -21,11 +21,19 @@ function initMarqueeSelect({ gallery, selectedIds, updateBulkToolbar }) {
     let shiftHeld = false;
     let rafId = null;
 
-    gallery.addEventListener('mousedown', onMouseDown);
+    // Listen on <main> so the empty area below the gallery also triggers marquee
+    const mainEl = gallery.closest('main');
+    const sectionEl = gallery.parentElement;
+    mainEl.addEventListener('mousedown', onMouseDown);
+
+    function isEmptySpace(target) {
+        return target === gallery || target === sectionEl ||
+            (target === mainEl && gallery.offsetHeight > 0);
+    }
 
     function onMouseDown(e) {
-        // Only trigger on the gallery background (empty space), not on cards
-        if (e.target !== gallery) return;
+        // Only trigger on empty space (gallery gaps, section, or main below cards)
+        if (!isEmptySpace(e.target)) return;
         // Left click only
         if (e.button !== 0) return;
         // Guard against folder drag in progress
