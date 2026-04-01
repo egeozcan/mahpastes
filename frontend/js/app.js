@@ -1023,6 +1023,13 @@ window.addEventListener('load', async () => {
             await initTransferCapabilities();
         }
 
+        // Marquee (rubber-band) selection
+        initMarqueeSelect({
+            gallery: document.getElementById('gallery'),
+            selectedIds,
+            updateBulkToolbar,
+        });
+
         // Load sort preferences
         try {
             const savedField = await window.go.main.App.GetSetting('sort_field');

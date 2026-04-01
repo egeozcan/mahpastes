@@ -112,28 +112,28 @@ test.describe('Marquee Selection', () => {
     await app.uploadFiles(files);
     await app.expectClipCount(3);
 
-    // Select the first clip via checkbox
-    await app.selectClip(filenames[0]);
+    // Select the middle clip via checkbox
+    await app.selectClip(filenames[1]);
     const selectedCount = app.page.locator(selectors.bulk.selectedCount);
     await expect(selectedCount).toHaveText('1 selected');
 
-    // Get position of the last clip
-    const lastClip = app.page.locator(selectors.gallery.clipCardByName(filenames[2]));
-    const lastClipBox = await lastClip.boundingBox();
+    // Get position of the rightmost clip (oldest = filenames[0], shown last in newest-first sort)
+    const rightClip = app.page.locator(selectors.gallery.clipCardByName(filenames[0]));
+    const rightClipBox = await rightClip.boundingBox();
 
     const { x: emptyX } = await getGalleryEmptySpace(app.page);
 
-    // Shift+marquee drag over the last clip only
+    // Shift+marquee drag over only the rightmost clip
     await marqueeDrag(
       app.page,
       emptyX,
-      lastClipBox!.y + lastClipBox!.height / 2,
-      lastClipBox!.x + lastClipBox!.width / 2,
-      lastClipBox!.y + lastClipBox!.height / 2,
+      rightClipBox!.y + rightClipBox!.height / 2,
+      rightClipBox!.x + rightClipBox!.width / 2,
+      rightClipBox!.y + rightClipBox!.height / 2,
       { shift: true }
     );
 
-    // Should now have 2 selected (first from checkbox + last from shift-marquee)
+    // Should now have 2 selected (middle from checkbox + rightmost from shift-marquee)
     await expect(selectedCount).toHaveText('2 selected');
   });
 
@@ -162,7 +162,7 @@ test.describe('Marquee Selection', () => {
   test('should work in folder mode', async ({ app }) => {
     // Create a tag and enable folder mode
     await app.createTag('test-folder');
-    await app.enableFolderMode();
+    await app.toggleFolderMode();
 
     const files = await Promise.all([
       createTempFile(generateTestImage(50, 50, [255, 0, 0]), 'png'),
