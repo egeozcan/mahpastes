@@ -241,23 +241,33 @@ The ring persists envelope **ciphertext** — not metadata references — to a n
 1. **Clips are mutable.** The existing app flows permit content replacement ([app.go:837](app.go:837)), rename ([app.go:917](app.go:917)), and metadata edits ([app.go:2751](app.go:2751)). A ring that stored only a reference and re-read + re-encrypted at replay time would either re-send stale state as if it were live, or — worse — reuse the original GCM nonce against a mutated plaintext, which breaks AES-GCM's confidentiality guarantee.
 2. **Replay from mid-clip must be complete.** Large clips span multiple envelopes. A follower that disconnects mid-clip resumes with `since_seq` pointing inside the chunk sequence. Regenerating the final `clip_end` envelope requires the original SHA-256 of the plaintext-at-first-send; a metadata-only ring cannot reconstruct this if the source clip has been edited.
 
-**Table rows** (full schema in §7.1): `{id, publication_id, seq, kind, envelope_bytes, ts}`. `envelope_bytes` is the complete on-wire envelope — `nonce || ciphertext || GCM tag` — ready to be written to a follower's stream. `kind` is informational, used for stats and debugging; it does not affect replay logic.
+**Table rows** (full schema in §7.1): `{id, publication_id, seq, kind, envelope_bytes, ts}`. `envelope_bytes` stores the **complete on-wire frame** as defined in §5.3 — `u32 length || nonce || ciphertext || GCM tag` — so retransmit can issue `conn.Write(envelope_bytes)` without reconstructing anything. `kind` is informational, used for stats and debugging; it does not affect replay logic.
 
 **Snapshot semantics.** Once envelopes for a clip are committed to the ring, subsequent mutations of the source clip (edit, rename, metadata update, delete) do **not** trigger new envelopes and do **not** affect retransmit. Each follower receives the exact plaintext the publisher observed at first-send time. This satisfies the §2 non-goal that edits do not propagate, and is what makes the ring immune to the nonce-reuse hazard.
 
-**Eviction.** Publisher deletes old rows on each write:
+**Eviction.** The 1h TTL is enforced by three mechanisms that together guarantee no row beyond the window is ever served or retained:
+
+1. **Replay query filters by `ts`.** The retransmit path never returns rows older than the window, regardless of whether a sweep has run. This is load-bearing correctness for idle publications, restart, and restore.
+2. **Write-time sweep.** Each clip-emission transaction runs the same eviction DML that removes old/over-cap rows for that publication.
+3. **Periodic sweep.** A `ShareManager` timer fires at startup and every 15 minutes thereafter, running the eviction DML across all publications. This reclaims disk when publications sit idle and after a backup restore that brings in stale rows.
+
+The eviction DML:
 
 ```sql
+-- Age eviction (1h TTL): primary guarantee, matches §2 offline-catch-up spec.
 DELETE FROM share_ring
- WHERE publication_id = ?
-   AND (ts < ? - 3600                              -- > 1h old
-        OR (SELECT SUM(LENGTH(envelope_bytes))
-              FROM share_ring
-             WHERE publication_id = ?) > 268435456  -- > 256 MiB per publication
-            AND seq = (SELECT MIN(seq) FROM share_ring WHERE publication_id = ?));
-```
+ WHERE ts < strftime('%s','now') - 3600;
 
-Age eviction (1h TTL) is the primary guarantee and matches the offline-catch-up spec in §2. The byte-cap (256 MiB per publication) is a runaway-disk safeguard; over it, oldest rows evict first.
+-- Byte-cap per publication (256 MiB): runaway-disk safeguard, oldest first.
+-- Executed per publication_id where SUM(LENGTH(envelope_bytes)) exceeds the cap.
+DELETE FROM share_ring
+ WHERE id IN (
+   SELECT id FROM share_ring
+    WHERE publication_id = ?
+    ORDER BY seq ASC
+    LIMIT ?                                       -- rows to drop to get under cap
+ );
+```
 
 **Retransmit path.** On handshake with `since_seq > 0`:
 
@@ -265,10 +275,11 @@ Age eviction (1h TTL) is the primary guarantee and matches the offline-catch-up 
 SELECT envelope_bytes FROM share_ring
  WHERE publication_id = ?
    AND seq > ?
+   AND ts >= strftime('%s','now') - 3600          -- TTL enforced at read-time
  ORDER BY seq;
 ```
 
-Stream each row's bytes to the follower as-is. No decryption, no re-encryption, no reads against the live `clips` table. If some requested seq has already been evicted (1h window passed), the result set starts at a higher seq than `since_seq + 1`; the follower observes the seq jump and accepts the gap. If no rows match at all, the publisher sends nothing on the retransmit path and goes straight to live; the follower's local `last_seq` advances only as new envelopes arrive.
+Stream each row's bytes to the follower as-is — no decryption, no re-encryption, no reads against the live `clips` table. Because `envelope_bytes` contains the full framed envelope including the `u32 length` prefix, a single `conn.Write(envelope_bytes)` per row produces a valid on-wire frame. If some requested seq has been evicted or aged out, the result set starts at a higher seq than `since_seq + 1`; the follower observes the seq jump and accepts the gap. If no rows match at all, the publisher sends nothing on the retransmit path and goes straight to live; the follower's local `last_seq` advances only as new envelopes arrive.
 
 **Bonus: restart-safe catch-up.** Because the ring is on disk, it survives publisher crashes/restarts within the 1h window. A follower reconnecting after a brief publisher bounce can still receive the envelopes it missed, provided the restart happened within the TTL. This is a strict improvement over the previous in-memory spec and costs nothing.
 
@@ -317,7 +328,7 @@ CREATE TABLE share_ring (
     publication_id INTEGER NOT NULL,              -- FK → shares.id
     seq            INTEGER NOT NULL,              -- envelope seq within this publication
     kind           TEXT    NOT NULL,              -- 'clip_start' | 'clip_chunk' | 'clip_end' | 'gap'
-    envelope_bytes BLOB    NOT NULL,              -- full on-wire envelope: nonce || ciphertext || tag
+    envelope_bytes BLOB    NOT NULL,              -- full on-wire frame: u32 length || nonce || ciphertext || tag
     ts             INTEGER NOT NULL,              -- unix seconds, for 1h TTL eviction
     FOREIGN KEY (publication_id) REFERENCES shares(id) ON DELETE CASCADE
 );
@@ -364,7 +375,8 @@ If the target install has no existing identity file (first run since install, or
    - For each `shares` row with `status = 'active'`, register a publication (stream handler ready for incoming followers).
    - For each `shares` row with `status = 'invalid'`, register it in the UI list only — no handler registered, no streams served.
    - For each `follows` row, schedule a background reconnect loop (dials via DHT `FindPeer(peerID)` → `AddrInfo`).
-4. `shareStagingJanitor()` starts: walks `<data-dir>/share-staging/` and removes any file older than 24h. Runs once at startup, then every 6h.
+4. `shareRingSweeper()` starts: runs the §6.3 eviction DML once at startup (reclaims any stale rows from restored backups or from a prior long downtime), then every 15 minutes thereafter.
+5. `shareStagingJanitor()` starts: walks `<data-dir>/share-staging/` and removes any file older than 24h. Runs once at startup, then every 6h.
 
 ### 8.2 Shutdown
 
@@ -382,7 +394,7 @@ If the target install has no existing identity file (first run since install, or
 2. For each matching publication, open a single DB transaction covering the full `clip_start..clip_end` burst:
    - Read the clip's metadata and blob size from SQLite. Stream the blob in 1 MiB slices (`SUBSTR(clips.data, offset+1, 1048576)`) — never load the whole blob into memory.
    - Compute the plaintext SHA-256 incrementally while streaming, for use in the final `clip_end`.
-   - For each envelope (`clip_start`, N × `clip_chunk`, `clip_end`): allocate the next `seq`, generate a fresh random 12-byte nonce, build AAD as `share_id || seq`, AES-256-GCM encrypt, and `INSERT INTO share_ring(publication_id, seq, kind, envelope_bytes, ts)`.
+   - For each envelope (`clip_start`, N × `clip_chunk`, `clip_end`): allocate the next `seq`, generate a fresh random 12-byte nonce, build AAD as `share_id || seq`, AES-256-GCM encrypt, **prepend the `u32 length` prefix** so `envelope_bytes` holds the complete framed on-wire form defined in §5.3, then `INSERT INTO share_ring(publication_id, seq, kind, envelope_bytes, ts)`.
    - Update `shares.last_seq` once at the end of the burst.
    - Run ring eviction (age + byte-cap) for this publication.
 3. Commit the transaction. After commit, enqueue the envelopes to every connected follower's send scheduler (live fan-out). New envelopes always flow through `share_ring` first, so live and catch-up paths are serving from the same authoritative store.
@@ -445,7 +457,7 @@ Tests use two parallel `AppHelper` instances paired by passing the publisher's s
 ### 9.2 Go unit tests
 
 - `share_codec_test.go` — roundtrip encode/decode, reject missing prefix, reject wrong version, reject malformed CBOR. Asserts encoded length ≤ 140 chars.
-- `share_protocol_test.go` — handshake accepts valid HMAC, rejects mismatched HMAC and unknown `share_id`; envelope GCM roundtrip; chunked clip assembly (start / N chunks / end) with SHA-256 verification; seq ordering preserved; `share_ring` evicts at 1h TTL and at 256 MiB per-publication byte cap; retransmit streams row ciphertext without decrypting; ring survives a simulated restart (close + reopen DB, catch-up still works); mutating the source clip's content/filename/metadata after send leaves replayed envelopes unchanged.
+- `share_protocol_test.go` — handshake accepts valid HMAC, rejects mismatched HMAC and unknown `share_id`; envelope GCM roundtrip; chunked clip assembly (start / N chunks / end) with SHA-256 verification; seq ordering preserved; `share_ring` evicts at 1h TTL and at 256 MiB per-publication byte cap; retransmit streams row `envelope_bytes` as framed wire bytes (follower decodes without manual length injection); ring survives a simulated restart (close + reopen DB, catch-up still works); TTL enforced at read time (with `ts` backdated more than 1h, replay returns an empty set even if the sweeper has not run); periodic sweep clears aged rows for an idle publication; mutating the source clip's content/filename/metadata after send leaves replayed envelopes unchanged.
 - `share_identity_test.go` — keypair persists across `Init` calls; regenerates if file missing; corrupt file returns a typed error rather than panicking.
 - `share_manager_test.go` — `ResumeAll` replays `active` rows only; `invalid` rows are surfaced without handler registration; `OnClipCreated` fans out to matching publications only; chunk emission for a 3 MiB clip produces 5 envelopes (`clip_start` + 3 × `clip_chunk` + `clip_end`); per-follower scheduler sheds connection when byte cap exceeded.
 
@@ -479,6 +491,8 @@ Per CLAUDE.md, the existing `e2e` suite must pass before and after the change. N
 - ~~Crypto safety against existing clip mutability (app.go:837/917/2751)?~~ → ring persists ciphertext, not references; replay does not re-read or re-encrypt the live clip.
 - ~~Trust-model vs discovery contradiction?~~ → libp2p baseline services (Identify/DHT/relay/DCUtR) are enabled and characterized accurately; application-protocol whitelist enforces publication isolation; `AgentVersion` set to neutral.
 - ~~clip_end reconstruction on mid-clip replay?~~ → the ring stores full envelopes, including `clip_end`, so any `since_seq` resumes correctly.
+- ~~Ring entries unframed for retransmit?~~ → `envelope_bytes` stores the complete on-wire frame including the `u32 length` prefix; retransmit is a straight `conn.Write`.
+- ~~1h TTL bypassed on idle / restored-backup rows?~~ → TTL enforced in the replay query's `WHERE` clause; periodic sweep every 15 min + one at startup reclaims disk.
 - ~~Backup/restore identity handling?~~ → explicit user choice (Take over / Keep / Cancel) when target install already has an identity.
 
 ## 12. Future work (not in this spec)
