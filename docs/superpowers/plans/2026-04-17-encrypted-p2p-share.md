@@ -1646,13 +1646,18 @@ func (m *ShareManager) Stop() {
 }
 
 // publication — publisher-side per-tag state.
+//
+// followers is keyed by the libp2p stream pointer (not peer.ID) so a single
+// peer may hold up to MaxStreamsPerPeer concurrent streams against the same
+// publication, which the cap check in Task 5.2 enforces by iteration. fmu
+// guards the map; Task 5.2 takes it for atomic cap-check-then-insert.
 type publication struct {
 	id        int64
 	tagID     int64
 	shareID   []byte // 16 bytes
 	symkey    []byte // 32 bytes
 	status    string // "active" | "invalid"
-	followers map[peer.ID]*followerConn
+	followers map[network.Stream]*followerConn
 	fmu       sync.Mutex
 }
 
@@ -1662,14 +1667,21 @@ func (p *publication) closeAllFollowers() {
 	for _, fc := range p.followers {
 		fc.close()
 	}
-	p.followers = map[peer.ID]*followerConn{}
+	p.followers = map[network.Stream]*followerConn{}
 }
 
-// followerConn — one connected follower's stream + send queue. Implemented in
-// Phase 5.3.
+// followerConn — one connected follower's stream + send queue.
+//
+// peerID is the remote peer at connect time, stored so the Task 5.2 handler
+// can count concurrent streams from the same peer when applying the per-peer
+// cap. The byte-capped send queue fields (queue, pending, onClose, mu,
+// closed) are added in Phase 6.3; this stub compiles on its own and the
+// Phase 6.3 additions are strict extensions.
 type followerConn struct {
+	peerID peer.ID
 	stream network.Stream
-	// queue is implemented in Phase 5.3
+	writer io.Writer
+	// Expanded with queue + pending + onClose + mu + closed in Task 6.3.
 }
 
 func (fc *followerConn) close() {
@@ -1917,7 +1929,7 @@ func (m *ShareManager) registerPublication(id, tagID int64, shareID, symkey []by
 		shareID:   append([]byte(nil), shareID...),
 		symkey:    append([]byte(nil), symkey...),
 		status:    status,
-		followers: map[peer.ID]*followerConn{},
+		followers: map[network.Stream]*followerConn{},
 	}
 }
 
@@ -2004,8 +2016,8 @@ func (m *ShareManager) handlePublisherStream(s network.Stream) {
 
 	// Register for live fan-out. Keyed by the libp2p stream pointer so we can
 	// track multiple concurrent streams from the same peer (up to MaxStreamsPerPeer).
+	// newFollowerConn reads peerID from the stream's connection.
 	fc := newFollowerConn(s, s)
-	fc.peerID = peerID
 	pub.fmu.Lock()
 	pub.followers[s] = fc
 	pub.fmu.Unlock()
@@ -2022,26 +2034,7 @@ func (m *ShareManager) handlePublisherStream(s network.Stream) {
 }
 ```
 
-This change requires updating the `publication` struct's `followers` map key type from `peer.ID` to `network.Stream` (the stream pointer itself), and adding `peerID` to `followerConn`. Update both in Task 5.1 (go back and apply this change before continuing):
-
-```go
-// In Task 5.1's publication struct, replace:
-//   followers map[peer.ID]*followerConn
-// with:
-//   followers map[network.Stream]*followerConn
-//
-// In Task 6.3's followerConn struct, add a peerID field:
-//   type followerConn struct {
-//       peerID  peer.ID
-//       stream  network.Stream
-//       // ... rest unchanged
-//   }
-//
-// And update liveFanOut (Task 6.2) — the iteration variable is still the
-// stream pointer but we don't need the key for fan-out, just iterate values.
-```
-
-Add the new `bytes` and `io` imports at the top of `share_manager.go` if not already present.
+The `publication.followers` map (keyed by `network.Stream`) and the `followerConn.peerID` field used above are already defined in Task 5.1's struct snippet, so this handler compiles directly. Add the `bytes` and `io` imports at the top of `share_manager.go` if not already present.
 
 - [ ] **Step 4: Run — verify pass.**
 
@@ -2556,16 +2549,19 @@ Expected: FAIL / undefined.
 
 - [ ] **Step 3: Implement the scheduler.**
 
-Replace `followerConn` and `liveFanOut` in `share_manager.go`:
+Extend the existing `followerConn` struct from Task 5.1 with the queue-related fields, then add the scheduler methods and `newFollowerConn`. `peerID`, `stream`, and `writer` are kept as declared in Task 5.1; `queue`, `pending`, `onClose`, `mu`, `closed` are the new additions:
 
 ```go
 // followerConn owns one follower's stream + a bounded async send queue.
+// peerID/stream/writer were declared in Task 5.1; this task adds the queue
+// machinery.
 type followerConn struct {
+	peerID  peer.ID
 	stream  network.Stream
-	writer  io.Writer     // indirection for tests
-	queue   chan []byte   // buffered channel, EnvelopesCap slots
-	pending int64         // atomic: bytes sitting in queue
-	onClose func()        // test hook
+	writer  io.Writer    // indirection for tests
+	queue   chan []byte  // buffered channel, SendQueueEnvelopesCap slots
+	pending int64        // bytes sitting in queue; guarded by mu
+	onClose func()       // test hook
 	mu      sync.Mutex
 	closed  bool
 }
@@ -2575,6 +2571,9 @@ func newFollowerConn(s network.Stream, w io.Writer) *followerConn {
 		stream: s,
 		writer: w,
 		queue:  make(chan []byte, SendQueueEnvelopesCap),
+	}
+	if s != nil {
+		fc.peerID = s.Conn().RemotePeer()
 	}
 	go fc.runSender()
 	return fc
