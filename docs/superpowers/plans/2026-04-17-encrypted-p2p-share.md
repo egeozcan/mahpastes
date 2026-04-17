@@ -1686,8 +1686,16 @@ type follow struct {
 	localTagID   int64
 	lastSeq      uint64
 	status       string
+	// ctx / cancel are the follow-lifetime handles. Cancel them to stop the
+	// follow permanently (Unfollow). They stay alive across reconnects.
 	ctx          context.Context
 	cancel       context.CancelFunc
+	// mu guards sessionCancel, which points at the current session's cancel
+	// function (if any). Set by followSession on entry, cleared on exit.
+	// DisconnectFollowForTest uses this to cancel only the live session
+	// without touching follow-lifetime state.
+	mu            sync.Mutex
+	sessionCancel context.CancelFunc
 }
 
 // defaultStaticRelays returns a placeholder relay list. In production libp2p
@@ -2853,18 +2861,42 @@ func (m *ShareManager) runFollowLoop(f *follow) {
 	}
 }
 
-// followSession dials, handshakes, and streams until the stream closes.
+// followSession dials, handshakes, and streams until either the stream
+// closes on its own or the per-session context is canceled (e.g. by
+// DisconnectFollowForTest). Returns when the session ends for any reason;
+// the caller (runFollowLoop) then decides whether to reconnect.
 func (m *ShareManager) followSession(f *follow) error {
-	if err := m.dialByPeerID(f.ctx, f.remotePeerID); err != nil {
+	// Derive a fresh session context from the follow-lifetime ctx. Publish
+	// its cancel under f.mu so DisconnectFollowForTest can kill just this
+	// session without touching f.ctx / f.cancel.
+	sessCtx, sessCancel := context.WithCancel(f.ctx)
+	f.mu.Lock()
+	f.sessionCancel = sessCancel
+	f.mu.Unlock()
+	defer func() {
+		f.mu.Lock()
+		f.sessionCancel = nil
+		f.mu.Unlock()
+		sessCancel()
+	}()
+
+	if err := m.dialByPeerID(sessCtx, f.remotePeerID); err != nil {
 		m.setFollowStatus(f, "offline")
 		return err
 	}
-	s, err := m.host.NewStream(f.ctx, f.remotePeerID, ShareProtocolID)
+	s, err := m.host.NewStream(sessCtx, f.remotePeerID, ShareProtocolID)
 	if err != nil {
 		m.setFollowStatus(f, "offline")
 		return err
 	}
 	defer s.Reset()
+
+	// Cancel the stream whenever the session context is canceled (covers
+	// DisconnectFollowForTest which may fire mid-read on consumeStream).
+	go func() {
+		<-sessCtx.Done()
+		_ = s.Reset()
+	}()
 
 	shareID := DeriveShareID(f.symkey)
 	hs := BuildHandshake(f.symkey, shareID, f.lastSeq)
@@ -2874,17 +2906,19 @@ func (m *ShareManager) followSession(f *follow) error {
 	}
 	m.setFollowStatus(f, "connected")
 
-	return m.consumeStream(f, s)
+	return m.consumeStream(sessCtx, f, s)
 }
 
-// consumeStream reads frames forever and dispatches to the clip assembler.
-func (m *ShareManager) consumeStream(f *follow, r io.Reader) error {
+// consumeStream reads frames until the session context is canceled or the
+// stream closes. Takes the session ctx (not the follow-lifetime ctx) so
+// DisconnectFollowForTest ends reads promptly without killing the follow.
+func (m *ShareManager) consumeStream(sessCtx context.Context, f *follow, r io.Reader) error {
 	asm := newClipAssembler(filepath.Join(m.dataDir, ShareStagingDirName))
 	shareID := DeriveShareID(f.symkey)
 	for {
 		select {
-		case <-f.ctx.Done():
-			return f.ctx.Err()
+		case <-sessCtx.Done():
+			return sessCtx.Err()
 		default:
 		}
 		frame, err := ReadFrame(r)
@@ -4564,32 +4598,45 @@ Write each of the following spec files following the same pattern. Each task = 1
 
   And on `ShareManager`:
   ```go
-  // DisconnectFollowForTest cancels the follow's current session context so
-  // the runFollowLoop goroutine drops the stream; the row stays, last_seq
-  // stays, and the reconnect backoff loop will redial.
+  // DisconnectFollowForTest cancels the follow's CURRENT SESSION context so
+  // the active session exits (unblocks consumeStream, resets the stream)
+  // but the follow-lifetime context, the follows row, and last_seq all
+  // stay. The runFollowLoop re-enters its backoff → reconnect path.
+  //
+  // Thread safety: reads and swaps f.sessionCancel under f.mu. Never
+  // touches f.ctx or f.cancel — those belong to Unfollow.
   func (m *ShareManager) DisconnectFollowForTest(id int64) error {
   	m.mu.RLock()
   	f, ok := m.follows[id]
   	m.mu.RUnlock()
   	if !ok { return fmt.Errorf("no follow %d", id) }
-  	// Replace the session context with a fresh one so the current session
-  	// exits but the follow keeps reconnecting.
-  	oldCancel := f.cancel
-  	ctx, cancel := context.WithCancel(m.ctx)
-  	f.ctx = ctx
-  	f.cancel = cancel
-  	oldCancel() // unblocks consumeStream and triggers reconnect
+
+  	f.mu.Lock()
+  	cancel := f.sessionCancel
+  	f.mu.Unlock()
+  	if cancel == nil {
+  		// No live session to kill. Nothing to do — the loop is already
+  		// between sessions (in its backoff wait); it will redial shortly.
+  		return nil
+  	}
+  	cancel()
   	return nil
   }
   ```
 
-  **Test body:**
-  1. Publisher A shares tag; follower B follows with `local = 'inbox'`.
-  2. Wait for first clip to arrive (verify transport works).
-  3. `DisconnectFollowForTest(followID)` on B. Assert connection status flips to `offline`.
-  4. A pushes a new clip while B is disconnected. Verify it lands in A's `share_ring`.
-  5. Poll B for up to 10s; assert it auto-reconnects (backoff) and the new clip arrives with `since_seq` matching the pre-disconnect `last_seq + expected-envelope-count`.
-  6. Verify B's `follows.last_seq` advanced monotonically (did not reset to 0).
+  **Test body — important: distinguish `since_seq` (handshake input, the resume point) from `last_seq` (persistent state, advances after catch-up).**
+
+  1. Publisher A shares tag `recipes`; follower B follows into local tag `inbox`.
+  2. A uploads clip 1 (tagged `recipes`). Wait until B's clip count reaches 1 and B's `follows.last_seq > 0`. Capture `L1 = B.follows.last_seq`.
+  3. Call `ShareService.DisconnectFollowForTest(followID)` on B. Poll B's `GetShareStatus` until the follow's status reports `offline`. (This proves the live session ended without the row being deleted — compare against `Unfollow`, which would make the follow disappear entirely.)
+  4. A uploads clip 2 (still tagged `recipes`) while B is disconnected. Confirm `shares.last_seq` on A advanced and `share_ring` holds the new envelopes.
+  5. Do **not** call `Follow` again — rely on B's `runFollowLoop` to reconnect on backoff. Poll B's clip count for up to 15s.
+  6. **Assertions (phrased so a literal implementation gets it right):**
+     - B's clip count is now 2 (clip 2 arrived via ring catch-up).
+     - B's `follows.last_seq > L1` (advanced past the captured resume point).
+     - B's `follows.last_seq` equals A's current `shares.last_seq` (fully caught up).
+     - The row's `id` is unchanged (this is the same follow, not a fresh subscription).
+     - **Resume-point check (optional but preferred):** wire a test hook `LastHandshakeSinceSeqForTest()` on the publisher that records the most recent handshake's `since_seq`, and assert it equals `L1`. If that hook is too much scope, skip — the three assertions above are already sufficient to distinguish catch-up from fresh-subscription behavior, because a fresh subscription would either reset `last_seq` to 0 or produce a new `follows.id`.
 - [ ] `share-offline-dropped.spec.ts` — Direct SQL: `UPDATE share_ring SET ts = ts - 7200` to age all rows; reconnect; assert follower does NOT receive the pre-aged clips.
 - [ ] `share-snapshot.spec.ts` — Publisher pushes clip; deletes/renames the source clip; follower reconnects — receives original bytes.
 - [ ] `share-publisher-restart.spec.ts` — publisher pushes; stop+restart the App (use whatever `app.restart()` helper exists or add one); follower reconnects within 1h — receives.
