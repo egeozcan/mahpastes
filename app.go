@@ -45,6 +45,7 @@ type App struct {
 	apiManager       *APIManager
 	pluginManager    *plugin.Manager
 	clipboardService *ClipboardService
+	shareManager     *ShareManager
 }
 
 // NewApp creates a new App instance

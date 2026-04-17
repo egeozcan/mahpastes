@@ -25,6 +25,7 @@ func main() {
 	transferService := NewTransferService(app)
 	serveService := NewServeService(app)
 	apiService := NewAPIService(app)
+	shareService := NewShareService(app)
 
 	// Wire service references so App can delegate to them from API endpoints
 	app.clipboardService = clipboardService
@@ -58,6 +59,7 @@ func main() {
 			transferService,
 			serveService,
 			apiService,
+			shareService,
 		},
 		Mac: &mac.Options{
 			TitleBar: &mac.TitleBar{
