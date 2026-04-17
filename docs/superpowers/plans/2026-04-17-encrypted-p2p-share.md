@@ -391,13 +391,14 @@ Insert immediately before the final `backfillContentHashes(db)` call in `databas
 ```go
 // Create shares table (publisher-side publications)
 if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS shares (
-	id         INTEGER PRIMARY KEY AUTOINCREMENT,
-	tag_id     INTEGER NOT NULL,
-	symkey     BLOB    NOT NULL,
-	share_id   BLOB    NOT NULL UNIQUE,
-	last_seq   INTEGER NOT NULL DEFAULT 0,
-	status     TEXT    NOT NULL DEFAULT 'active',
-	created_at INTEGER NOT NULL,
+	id          INTEGER PRIMARY KEY AUTOINCREMENT,
+	tag_id      INTEGER NOT NULL,
+	symkey      BLOB    NOT NULL,
+	share_id    BLOB    NOT NULL UNIQUE,
+	last_seq    INTEGER NOT NULL DEFAULT 0,
+	clips_sent  INTEGER NOT NULL DEFAULT 0,
+	status      TEXT    NOT NULL DEFAULT 'active',
+	created_at  INTEGER NOT NULL,
 	FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
 )`); err != nil {
 	log.Printf("Warning: Failed to create shares table: %v", err)
@@ -408,13 +409,14 @@ if _, err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_shares_tag_id ON sha
 
 // Create follows table (follower-side subscriptions)
 if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS follows (
-	id             INTEGER PRIMARY KEY AUTOINCREMENT,
-	remote_peer_id TEXT    NOT NULL,
-	symkey         BLOB    NOT NULL,
-	local_tag_id   INTEGER NOT NULL,
-	last_seq       INTEGER NOT NULL DEFAULT 0,
-	last_seen_at   INTEGER,
-	created_at     INTEGER NOT NULL,
+	id              INTEGER PRIMARY KEY AUTOINCREMENT,
+	remote_peer_id  TEXT    NOT NULL,
+	symkey          BLOB    NOT NULL,
+	local_tag_id    INTEGER NOT NULL,
+	last_seq        INTEGER NOT NULL DEFAULT 0,
+	clips_received  INTEGER NOT NULL DEFAULT 0,
+	last_seen_at    INTEGER,
+	created_at      INTEGER NOT NULL,
 	FOREIGN KEY (local_tag_id) REFERENCES tags(id) ON DELETE RESTRICT
 )`); err != nil {
 	log.Printf("Warning: Failed to create follows table: %v", err)
@@ -1841,7 +1843,50 @@ func TestPublisherStreamRejectsWrongHMAC(t *testing.T) {
 		t.Fatal("expected stream reset; got data")
 	}
 }
+
+func TestPublisherStreamRejectsOverPublicationCap(t *testing.T) {
+	// Fill pub.followers up to MaxStreamsPerPublication with stub entries so
+	// the handler's cap check trips on the next real stream.
+	ctx := context.Background()
+	db := newTestDB(t)
+	dir := t.TempDir()
+	m, _ := NewShareManager(ctx, db, dir)
+	defer m.Stop()
+
+	symkey := bytes.Repeat([]byte{0xDE}, 32)
+	shareID := DeriveShareID(symkey)
+	res, _ := db.Exec(`INSERT INTO shares (tag_id, symkey, share_id, last_seq, status, created_at) VALUES (1, ?, ?, 0, 'active', ?)`, symkey, shareID, time.Now().Unix())
+	pubID, _ := res.LastInsertId()
+	m.registerPublication(pubID, 1, shareID, symkey, "active")
+
+	// Cram the followers map with MaxStreamsPerPublication stub entries.
+	pub := m.publications[pubID]
+	pub.fmu.Lock()
+	for i := 0; i < MaxStreamsPerPublication; i++ {
+		// Use a unique sentinel pointer value as the key; stream is nil but
+		// close() guards against that.
+		var sentinel network.Stream
+		pub.followers[sentinel] = &followerConn{}
+		// Note: map keys must differ — if nil collapses, use a real stub with
+		// a dummy stream impl in test-only code. See note below.
+	}
+	pub.fmu.Unlock()
+
+	follower, _ := libp2p.New()
+	defer follower.Close()
+	pubInfo := peer.AddrInfo{ID: m.Host().ID(), Addrs: m.Host().Addrs()}
+	s := openFollowerStream(t, follower, pubInfo, symkey, shareID, 0)
+	s.SetReadDeadline(time.Now().Add(2 * time.Second))
+	buf := make([]byte, 1)
+	if _, err := s.Read(buf); err == nil {
+		t.Fatal("expected stream reset after cap exceeded; got data")
+	}
+}
 ```
+
+**Note:** the nil-stream stub above won't work because map keys collapse. Implement the test's saturation step by spinning up `MaxStreamsPerPublication` real concurrent follower streams (small loop using the `openFollowerStream` helper). Assert the `(cap+1)`-th stream closes immediately. Keep the loop bounded to avoid test flakiness — `MaxStreamsPerPublication` is 128 by default; if that's too heavy for CI, temporarily lower the constant via a test-only override or ship a Go build tag.
+
+A simpler alternative: add a thin testable helper on `ShareManager` like `forCapTest_setStreamLimit(n int)` that swaps the constant for the duration of the test, and verify the cap with a small loop (e.g. n=2).
 
 - [ ] **Step 2: Verify fail.**
 
@@ -1914,11 +1959,26 @@ func (m *ShareManager) handlePublisherStream(s network.Stream) {
 
 	peerID := s.Conn().RemotePeer()
 
-	// Enforce per-peer concurrency cap.
-	if m.countStreamsFromPeer(pub, peerID) >= MaxStreamsPerPeer {
+	// Enforce both caps from spec §8.5 under the publication lock so the
+	// decision and insertion happen atomically.
+	pub.fmu.Lock()
+	if len(pub.followers) >= MaxStreamsPerPublication {
+		pub.fmu.Unlock()
 		_ = s.Reset()
 		return
 	}
+	perPeer := 0
+	for _, fc := range pub.followers {
+		if fc.peerID == peerID {
+			perPeer++
+		}
+	}
+	if perPeer >= MaxStreamsPerPeer {
+		pub.fmu.Unlock()
+		_ = s.Reset()
+		return
+	}
+	pub.fmu.Unlock()
 
 	// Retransmit first (catch-up).
 	rows, err := RingRetransmit(m.db, pub.id, hs.SinceSeq, time.Now().Unix())
@@ -1934,30 +1994,43 @@ func (m *ShareManager) handlePublisherStream(s network.Stream) {
 		}
 	}
 
-	// Register for live fan-out.
+	// Register for live fan-out. Keyed by the libp2p stream pointer so we can
+	// track multiple concurrent streams from the same peer (up to MaxStreamsPerPeer).
+	fc := newFollowerConn(s, s)
+	fc.peerID = peerID
 	pub.fmu.Lock()
-	pub.followers[peerID] = &followerConn{stream: s}
+	pub.followers[s] = fc
 	pub.fmu.Unlock()
 
-	// Keep this goroutine alive until the stream closes, so the stream stays
-	// reachable from live fan-out. When the stream closes, remove the entry.
+	// Keep this goroutine alive until the stream closes. When the stream
+	// closes, remove the entry. The read-drain catches client-side close.
 	go func() {
-		// Drain reads so client-side closes are visible.
 		_, _ = io.Copy(io.Discard, s)
 		pub.fmu.Lock()
-		delete(pub.followers, peerID)
+		delete(pub.followers, s)
 		pub.fmu.Unlock()
+		fc.close()
 	}()
 }
+```
 
-func (m *ShareManager) countStreamsFromPeer(p *publication, peerID peer.ID) int {
-	p.fmu.Lock()
-	defer p.fmu.Unlock()
-	if _, ok := p.followers[peerID]; ok {
-		return 1
-	}
-	return 0
-}
+This change requires updating the `publication` struct's `followers` map key type from `peer.ID` to `network.Stream` (the stream pointer itself), and adding `peerID` to `followerConn`. Update both in Task 5.1 (go back and apply this change before continuing):
+
+```go
+// In Task 5.1's publication struct, replace:
+//   followers map[peer.ID]*followerConn
+// with:
+//   followers map[network.Stream]*followerConn
+//
+// In Task 6.3's followerConn struct, add a peerID field:
+//   type followerConn struct {
+//       peerID  peer.ID
+//       stream  network.Stream
+//       // ... rest unchanged
+//   }
+//
+// And update liveFanOut (Task 6.2) — the iteration variable is still the
+// stream pointer but we don't need the key for fan-out, just iterate values.
 ```
 
 Add the new `bytes` and `io` imports at the top of `share_manager.go` if not already present.
@@ -2384,7 +2457,9 @@ func (m *ShareManager) emitClipForPublication(
 	m.liveFanOut(p, endEnv)
 
 	// Bump last_seq.
-	if _, err := tx.Exec(`UPDATE shares SET last_seq = ? WHERE id = ?`, int64(nextSeq), p.id); err != nil {
+	// Bump last_seq AND clips_sent (one clip_end = one published clip).
+	// Counter incremented alongside last_seq so they're always in sync.
+	if _, err := tx.Exec(`UPDATE shares SET last_seq = ?, clips_sent = clips_sent + 1 WHERE id = ?`, int64(nextSeq), p.id); err != nil {
 		return err
 	}
 
@@ -2858,6 +2933,9 @@ func (m *ShareManager) consumeStream(f *follow, r io.Reader) error {
 			inSeq = p.Seq
 			if err := asm.onEnd(p, m.db, f.localTagID); err != nil {
 				log.Printf("share: assemble failed: %v", err)
+			} else {
+				// Assembly succeeded → bump clips_received.
+				_, _ = m.db.Exec(`UPDATE follows SET clips_received = clips_received + 1 WHERE id = ?`, f.id)
 			}
 		case KindGap:
 			var p GapPayload
@@ -3395,8 +3473,9 @@ func (m *ShareManager) GetShareStatus() (shares []ShareInfo, follows []FollowInf
 	for _, p := range m.publications {
 		var tagName string
 		m.db.QueryRow(`SELECT name FROM tags WHERE id = ?`, p.tagID).Scan(&tagName)
-		var lastSeq, createdAt int64
-		m.db.QueryRow(`SELECT last_seq, created_at FROM shares WHERE id = ?`, p.id).Scan(&lastSeq, &createdAt)
+		var clipsSent, createdAt int64
+		// Authoritative counters live in the DB; no envelope-count heuristics.
+		m.db.QueryRow(`SELECT clips_sent, created_at FROM shares WHERE id = ?`, p.id).Scan(&clipsSent, &createdAt)
 		p.fmu.Lock()
 		fCount := len(p.followers)
 		p.fmu.Unlock()
@@ -3408,28 +3487,27 @@ func (m *ShareManager) GetShareStatus() (shares []ShareInfo, follows []FollowInf
 		shares = append(shares, ShareInfo{
 			ID: p.id, TagID: p.tagID, TagName: tagName,
 			ShareString: shareStr, Status: p.status,
-			Followers: fCount, ClipsPushed: lastSeq / 3, // rough estimate: 3 envelopes per clip
+			Followers: fCount, ClipsPushed: clipsSent,
 			CreatedAt: createdAt,
 		})
 	}
 
 	for _, f := range m.follows {
 		var localTagName string
-		var createdAt, lastSeqDB, lastSeen int64
+		var createdAt, lastSeqDB, clipsRecv int64
 		var lastSeenSQL sql.NullInt64
 		m.db.QueryRow(`SELECT name FROM tags WHERE id = ?`, f.localTagID).Scan(&localTagName)
-		m.db.QueryRow(`SELECT created_at, last_seq, last_seen_at FROM follows WHERE id = ?`, f.id).Scan(&createdAt, &lastSeqDB, &lastSeenSQL)
+		m.db.QueryRow(`SELECT created_at, last_seq, clips_received, last_seen_at FROM follows WHERE id = ?`, f.id).Scan(&createdAt, &lastSeqDB, &clipsRecv, &lastSeenSQL)
 		var lastSeenPtr *int64
 		if lastSeenSQL.Valid {
 			v := lastSeenSQL.Int64
 			lastSeenPtr = &v
 		}
-		_ = lastSeen
 		follows = append(follows, FollowInfo{
 			ID: f.id, RemotePeerID: f.remotePeerID.String(),
 			LocalTagID: f.localTagID, LocalTagName: localTagName,
 			Status: f.status,
-			ClipsReceived: lastSeqDB / 3,
+			ClipsReceived: clipsRecv,
 			LastSeq: lastSeqDB, LastSeenAt: lastSeenPtr,
 			CreatedAt: createdAt,
 		})
@@ -3918,7 +3996,7 @@ git commit -m "feat(share): vendor qrcode-generator for client-side QR rendering
       li.innerHTML = `
         <div class="min-w-0 flex-1">
           <div class="text-sm font-medium text-stone-800 truncate">${s.tag_name}${s.status === 'invalid' ? ' <span class=\"text-amber-700\">(Re-share needed)</span>' : ''}</div>
-          <div class="text-[11px] text-stone-500">${s.followers} followers · since ${relTime(s.created_at)}</div>
+          <div class="text-[11px] text-stone-500">${s.followers} followers · ${s.clips_pushed} clips pushed · since ${relTime(s.created_at)}</div>
         </div>
         <div class="flex gap-2 shrink-0">
           <button class="share-copy-link border border-stone-200 hover:bg-stone-100 text-stone-600 text-[11px] font-medium py-1.5 px-3 rounded-md" data-id="${s.id}" data-share="${s.share_string}">Copy link</button>
@@ -3939,7 +4017,7 @@ git commit -m "feat(share): vendor qrcode-generator for client-side QR rendering
       li.innerHTML = `
         <div class="min-w-0 flex-1">
           <div class="text-sm font-medium text-stone-800 truncate">${f.local_tag_name}</div>
-          <div class="text-[11px] text-stone-500">${status} · since ${relTime(f.created_at)}</div>
+          <div class="text-[11px] text-stone-500">${status} · ${f.clips_received} clips received · since ${relTime(f.created_at)}</div>
         </div>
         <div class="flex gap-2 shrink-0">
           <button class="share-unfollow border border-stone-200 hover:bg-red-50 hover:border-red-300 text-stone-600 hover:text-red-600 text-[11px] font-medium py-1.5 px-3 rounded-md" data-id="${f.id}">Unfollow</button>
@@ -4208,14 +4286,21 @@ git commit -m "feat(share): include share_identity.key in backup ZIP"
 - Modify: `backup.go`, `app.go`
 - Modify: `frontend/js/settings.js` (or wherever backup restore UI lives)
 
-- [ ] **Step 1: Add a new App-level Wails method that inspects the ZIP and returns whether it contains an identity + whether the target already has one.**
+**Key insight about mahpastes restore semantics.** `backup.RestoreBackup` is a **full DB replace** — after it returns, every row in `shares` / `follows` / `share_ring` came from the backup. So any post-restore DML against those tables is operating on backup rows, not on the install's prior rows. The "takeover" path therefore must NOT run `UPDATE shares SET status = 'invalid'` after restore — that would invalidate exactly the publications the user wants to keep. Instead, capture whatever warning information the UI needs *before* restore, and use the post-restore phase only for the `keep` path (where restored-but-foreign-identity shares genuinely are invalid on this install).
+
+- [ ] **Step 1: Add `BackupInspect` that captures pre-restore state.**
 
 ```go
-// BackupInspect opens a backup ZIP without unpacking and reports what's
-// inside for the restore UI (identity collision detection).
+// BackupInspection is the read-only snapshot shown to the user before
+// they commit to a restore. It carries:
+//   - whether the backup contains an identity at all
+//   - whether this install already has an identity (collision signal)
+//   - the tag names of publications that will be lost if restore proceeds
+//     (so the UI can list them under the "takeover" warning path)
 type BackupInspection struct {
-	HasIdentity       bool `json:"has_identity"`
-	TargetHasIdentity bool `json:"target_has_identity"`
+	HasIdentity           bool     `json:"has_identity"`
+	TargetHasIdentity     bool     `json:"target_has_identity"`
+	TargetPublicationTags []string `json:"target_publication_tags"`
 }
 
 func (a *App) BackupInspect(zipPath string) (BackupInspection, error) {
@@ -4224,6 +4309,19 @@ func (a *App) BackupInspect(zipPath string) (BackupInspection, error) {
 	if fileExists(filepath.Join(dataDir, ShareIdentityFile)) {
 		out.TargetHasIdentity = true
 	}
+
+	// Capture the current install's active publications BEFORE any write.
+	rows, err := a.db.Query(`SELECT t.name FROM shares s JOIN tags t ON t.id = s.tag_id WHERE s.status = 'active' ORDER BY t.name`)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var n string
+			if rows.Scan(&n) == nil {
+				out.TargetPublicationTags = append(out.TargetPublicationTags, n)
+			}
+		}
+	}
+
 	// Crack the ZIP, look for the identity entry.
 	zr, err := zip.OpenReader(zipPath)
 	if err != nil {
@@ -4242,33 +4340,39 @@ func (a *App) BackupInspect(zipPath string) (BackupInspection, error) {
 
 - [ ] **Step 2: Extend the existing restore function to accept an `identityPolicy` string: `"takeover" | "keep" | "none"`.**
 
-Pseudocode additions inside the restore loop:
-
 ```go
 func (a *App) RestoreBackup(zipPath, identityPolicy string) error {
-	// ... existing DB restore ...
+	dataDir, _ := getDataDir()
+
+	// Replace the DB (existing full-restore logic unchanged). After this
+	// returns, every row in shares/follows/share_ring came from the backup.
+	if err := restoreDBFromZip(zipPath); err != nil {
+		return err
+	}
 
 	switch identityPolicy {
 	case "takeover":
-		// Extract share_identity.key from ZIP and overwrite target's copy.
-		// Mark this-install's pre-existing shares rows as 'invalid' so they
-		// show the Re-share CTA (they point to a peer-id that's now gone).
+		// Extract share_identity.key from the ZIP and overwrite the local
+		// copy. Backup rows in `shares` are valid under this identity —
+		// leave `status` alone. Any warning about the install's PRIOR
+		// publications is surfaced in the UI from BackupInspection data,
+		// captured before restore ran.
 		if err := extractIdentityFromZip(zipPath, filepath.Join(dataDir, ShareIdentityFile)); err != nil {
 			return err
 		}
-		if _, err := a.db.Exec(`UPDATE shares SET status = 'invalid'`); err != nil {
-			return err
-		}
 	case "keep":
-		// Do not extract the backup's identity. Mark RESTORED shares (those
-		// that came from the backup — i.e. all of them after restore) as
-		// 'invalid' so the user sees Re-share CTAs.
+		// Backup's identity file is discarded. Restored `shares` rows came
+		// from a different peer-id and won't work under ours — flag them so
+		// the UI shows the Re-share CTA.
 		if _, err := a.db.Exec(`UPDATE shares SET status = 'invalid'`); err != nil {
 			return err
 		}
 	case "none":
-		// Target had no identity. Extract the backup's identity unconditionally.
-		if inspection.HasIdentity {
+		// Target had no prior identity. Extract the backup's identity (if
+		// any). Restored `shares` rows, if present, now work under that
+		// identity — no invalidation.
+		if fileExists(filepath.Join(dataDir, ShareIdentityFile)) == false {
+			// only extract if still missing (race-safe)
 			_ = extractIdentityFromZip(zipPath, filepath.Join(dataDir, ShareIdentityFile))
 		}
 	default:
@@ -4280,20 +4384,36 @@ func (a *App) RestoreBackup(zipPath, identityPolicy string) error {
 
 - [ ] **Step 3: Wire the frontend restore flow.**
 
-In the existing restore UI (search `RestoreBackup` in `frontend/js`), add a prompt before calling `RestoreBackup`:
+In the existing restore UI (search `RestoreBackup` in `frontend/js`), call `BackupInspect` first and feed its `target_publication_tags` into the takeover warning panel:
 
 ```js
 const insp = await window.go.main.App.BackupInspect(zipPath);
 let policy = 'none';
 if (insp.target_has_identity && insp.has_identity) {
-  // Show a modal with three radio choices.
-  policy = await promptIdentityPolicy(); // returns 'takeover' | 'keep' | 'cancel'
+  // Modal with three radios. The "Take over" option shows the captured
+  // list of this install's current publication tags so the user knows
+  // what will stop working after restore.
+  policy = await promptIdentityPolicy(insp.target_publication_tags);
   if (policy === 'cancel') return;
 }
 await window.go.main.App.RestoreBackup(zipPath, policy);
 ```
 
-Implementation of `promptIdentityPolicy` mirrors existing modals: three radio buttons, Confirm button resolves the promise.
+`promptIdentityPolicy(currentTags: string[])` renders a modal like:
+```
+This install already has a share identity.
+Choose how to handle it:
+
+(o) Take over — use the backup's identity
+    ⚠ These publications from this install will stop working:
+    • work/recipes
+    • inbox/from-alice
+
+( ) Keep this install's identity
+    Restored shares will need to be re-shared.
+
+( ) Cancel restore
+```
 
 - [ ] **Step 4: Regenerate bindings.**
 
@@ -4425,7 +4545,51 @@ Write each of the following spec files following the same pattern. Each task = 1
 
 - [ ] `share-create.spec.ts` — Create share, verify string appears; stop, verify `GetShareStatus().shares.length === 0`.
 - [ ] `share-large-clip.spec.ts` — Push an 8 MiB PNG via `generateTestImage(2048, 2048)`; assert follower receives with matching byte length.
-- [ ] `share-offline-catchup.spec.ts` — Use `ShareService.Unfollow` to simulate disconnect; publish a clip; `Follow` again with the same share string — follower receives the clip from ring. (Note: this doesn't exactly model offline/reconnect via network; an alternative is to kill the follower's libp2p host via a test-only backdoor.)
+- [ ] `share-offline-catchup.spec.ts` — Genuine reconnect semantics, not Unfollow/Follow.
+
+  **Why not Unfollow/Follow:** `Unfollow` deletes the `follows` row including `last_seq`. A subsequent `Follow` starts a brand-new subscription with `since_seq = 0`, so the ring's catch-up path is never exercised. The test must preserve the follow row and only sever the transport.
+
+  **Required test-only hook** — add to `share_service.go` behind a `// test-only` comment:
+
+  ```go
+  // DisconnectFollowForTest closes the in-flight follow stream without
+  // removing the follows row, so the next reconnect exercises the real
+  // since_seq-based catch-up path. Exposed for e2e tests that can't kill
+  // libp2p connections from the outside.
+  func (s *ShareService) DisconnectFollowForTest(followID int64) error {
+  	if s.app.shareManager == nil { return fmt.Errorf("share manager not initialized") }
+  	return s.app.shareManager.DisconnectFollowForTest(followID)
+  }
+  ```
+
+  And on `ShareManager`:
+  ```go
+  // DisconnectFollowForTest cancels the follow's current session context so
+  // the runFollowLoop goroutine drops the stream; the row stays, last_seq
+  // stays, and the reconnect backoff loop will redial.
+  func (m *ShareManager) DisconnectFollowForTest(id int64) error {
+  	m.mu.RLock()
+  	f, ok := m.follows[id]
+  	m.mu.RUnlock()
+  	if !ok { return fmt.Errorf("no follow %d", id) }
+  	// Replace the session context with a fresh one so the current session
+  	// exits but the follow keeps reconnecting.
+  	oldCancel := f.cancel
+  	ctx, cancel := context.WithCancel(m.ctx)
+  	f.ctx = ctx
+  	f.cancel = cancel
+  	oldCancel() // unblocks consumeStream and triggers reconnect
+  	return nil
+  }
+  ```
+
+  **Test body:**
+  1. Publisher A shares tag; follower B follows with `local = 'inbox'`.
+  2. Wait for first clip to arrive (verify transport works).
+  3. `DisconnectFollowForTest(followID)` on B. Assert connection status flips to `offline`.
+  4. A pushes a new clip while B is disconnected. Verify it lands in A's `share_ring`.
+  5. Poll B for up to 10s; assert it auto-reconnects (backoff) and the new clip arrives with `since_seq` matching the pre-disconnect `last_seq + expected-envelope-count`.
+  6. Verify B's `follows.last_seq` advanced monotonically (did not reset to 0).
 - [ ] `share-offline-dropped.spec.ts` — Direct SQL: `UPDATE share_ring SET ts = ts - 7200` to age all rows; reconnect; assert follower does NOT receive the pre-aged clips.
 - [ ] `share-snapshot.spec.ts` — Publisher pushes clip; deletes/renames the source clip; follower reconnects — receives original bytes.
 - [ ] `share-publisher-restart.spec.ts` — publisher pushes; stop+restart the App (use whatever `app.restart()` helper exists or add one); follower reconnects within 1h — receives.
@@ -4506,12 +4670,11 @@ Before handing off:
 | §8.2 Shutdown | Task 5.1 (`Stop()`), 8.5 |
 | §8.3 Clip creation | Task 6.2 |
 | §8.4 Error modes | Distributed across handler logic (Task 5.2), reconnect loop (Task 7.1), assembler (Task 7.2) |
-| §8.5 Rate limits | `MaxStreamsPerPeer` enforced in Task 5.2; reconnect backoff in Task 7.1. **TODO during execution:** verify per-publication 128-cap also enforced. Add a counter in `handlePublisherStream` if missing. |
+| §8.5 Rate limits | Both caps enforced in Task 5.2 (`len(pub.followers)` ≥ `MaxStreamsPerPublication` and per-peer loop ≥ `MaxStreamsPerPeer`); reconnect backoff in Task 7.1. |
 | §9.1 E2E tests | Phase 12 |
 | §9.2 Go unit tests | Tasks 1.1, 2.2, 3.1, 3.2, 3.3, 4.1, 5.1, 5.2, 6.2, 6.3, 7.1, 7.2, 8.1 |
 
-**Placeholder scan (fix during execution):**
-- §8.4 `TODO during execution` above — add the 128-cap guard in the publisher handler. Track this as a sub-step in Task 5.2.
+**Placeholder scan:** none remaining. All earlier TODOs folded into explicit plan steps in the previous revision round.
 
 **Type consistency:**
 - `ShareInfo`, `FollowInfo`, `ShareStatus` defined in `share_types.go` (Task 0.3) and Task 8.4; used by tests and service; field names in Go (CamelCase) vs JSON (snake_case) handled via struct tags.
