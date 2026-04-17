@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	cryptoRand "crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/libp2p/go-libp2p"
+	libp2pCrypto "github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -556,5 +558,49 @@ func TestFollowSessionEndFlipsStatusOffline(t *testing.T) {
 	}
 	if !sawOffline {
 		t.Fatal("expected status to flip to 'offline' after DisconnectFollowForTest")
+	}
+}
+
+func TestResumeAllReplaysTables(t *testing.T) {
+	ctx := context.Background()
+	db := newTestDB(t)
+	dir := t.TempDir()
+
+	// Generate a real libp2p peer ID for the pre-seeded follow row so
+	// peer.Decode in ResumeAll accepts it. (Garbage peer IDs are
+	// intentionally skipped by ResumeAll — see log in share_manager.go.)
+	_, pub, _ := libp2pCrypto.GenerateEd25519Key(cryptoRand.Reader)
+	fakePeerID, _ := peer.IDFromPublicKey(pub)
+
+	// Pre-seed a publication and a follow row directly.
+	symkey := bytes.Repeat([]byte{0xAA}, 32)
+	sid := DeriveShareID(symkey)
+	db.Exec(`INSERT INTO tags (id, name, color) VALUES (1, 'x', '#888'), (2, 'inbox', '#888')`)
+	db.Exec(`INSERT INTO shares (tag_id, symkey, share_id, last_seq, status, created_at) VALUES (1, ?, ?, 0, 'active', ?)`, symkey, sid, time.Now().Unix())
+	db.Exec(`INSERT INTO shares (tag_id, symkey, share_id, last_seq, status, created_at) VALUES (?, ?, ?, 0, 'invalid', ?)`, int64(99), bytes.Repeat([]byte{0xBB}, 32), DeriveShareID(bytes.Repeat([]byte{0xBB}, 32)), time.Now().Unix())
+	db.Exec(`INSERT INTO follows (remote_peer_id, symkey, local_tag_id, last_seq, last_seen_at, created_at) VALUES (?, ?, 2, 0, 0, ?)`, fakePeerID.String(), symkey, time.Now().Unix())
+
+	m, _ := NewShareManager(ctx, db, dir)
+	defer m.Stop()
+	if err := m.ResumeAll(); err != nil {
+		t.Fatalf("ResumeAll: %v", err)
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if len(m.publications) != 2 {
+		t.Fatalf("publications %d want 2", len(m.publications))
+	}
+	// Only one should be 'active' with a handler (the other is 'invalid')
+	actives := 0
+	for _, p := range m.publications {
+		if p.status == "active" {
+			actives++
+		}
+	}
+	if actives != 1 {
+		t.Fatalf("actives %d want 1", actives)
+	}
+	if len(m.follows) != 1 {
+		t.Fatalf("follows %d want 1", len(m.follows))
 	}
 }

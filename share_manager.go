@@ -978,6 +978,58 @@ func cryptoPublicKeyFromBytes(raw []byte) (crypto.PubKey, error) {
 	return crypto.UnmarshalEd25519PublicKey(raw)
 }
 
+// ResumeAll loads every persisted publication and follow into memory and
+// starts background loops. Called once from App.startup after Init.
+func (m *ShareManager) ResumeAll() error {
+	// Publications
+	rows, err := m.db.Query(`SELECT id, tag_id, symkey, share_id, status FROM shares`)
+	if err != nil {
+		return fmt.Errorf("query shares: %w", err)
+	}
+	for rows.Next() {
+		var id, tagID int64
+		var symkey, shareID []byte
+		var status string
+		if err := rows.Scan(&id, &tagID, &symkey, &shareID, &status); err != nil {
+			rows.Close()
+			return err
+		}
+		m.registerPublication(id, tagID, shareID, symkey, status)
+	}
+	rows.Close()
+
+	// Follows
+	frows, err := m.db.Query(`SELECT id, remote_peer_id, symkey, local_tag_id, last_seq FROM follows`)
+	if err != nil {
+		return fmt.Errorf("query follows: %w", err)
+	}
+	defer frows.Close()
+	for frows.Next() {
+		var id, localTagID, lastSeqI int64
+		var pidStr string
+		var symkey []byte
+		if err := frows.Scan(&id, &pidStr, &symkey, &localTagID, &lastSeqI); err != nil {
+			return err
+		}
+		pid, err := peer.Decode(pidStr)
+		if err != nil {
+			log.Printf("share: resume skip follow %d: bad peer id %q", id, pidStr)
+			continue
+		}
+		fctx, fcancel := context.WithCancel(m.ctx)
+		f := &follow{
+			id: id, remotePeerID: pid, symkey: symkey,
+			localTagID: localTagID, lastSeq: uint64(lastSeqI),
+			status: "offline", ctx: fctx, cancel: fcancel,
+		}
+		m.mu.Lock()
+		m.follows[id] = f
+		m.mu.Unlock()
+		go m.runFollowLoop(f)
+	}
+	return nil
+}
+
 // DisconnectFollowForTest cancels the follow's CURRENT SESSION context so
 // the active session exits (unblocks consumeStream, resets the stream)
 // but the follow-lifetime context, the follows row, and last_seq all
