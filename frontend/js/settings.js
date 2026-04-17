@@ -206,6 +206,13 @@ function hideRestoreConfirmDialog() {
     restoreConfirmDialog.querySelector(':scope > div').classList.remove('scale-100');
     pendingRestorePath = null;
     pendingIdentityPolicy = 'none';
+    // Reset radio DOM state to match the model so a subsequent open starts clean.
+    const keepRadio = restoreIdentityPanel.querySelector('input[value="keep"]');
+    if (keepRadio) keepRadio.checked = false;
+    const takeoverRadio = restoreIdentityPanel.querySelector('input[value="takeover"]');
+    if (takeoverRadio) takeoverRadio.checked = false;
+    restoreIdentityPanel.classList.add('hidden');
+    restoreTakeoverWarning.classList.add('hidden');
     restoreConfirmDialog.setAttribute('inert', '');
 }
 

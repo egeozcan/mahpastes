@@ -386,6 +386,34 @@ func (a *App) exportDatabaseToSQL(destPath string) (BackupSummary, []string, err
 	if err != nil {
 		return summary, excluded, fmt.Errorf("failed to export plugin_permissions: %w", err)
 	}
+	f.WriteString("\n")
+
+	// Export share tables (shares, follows, share_ring).
+	// These are NOT counted in BackupSummary — extending that struct would change
+	// the manifest JSON schema and break older backups. The tables are still fully
+	// exported and restored; the summary fields just don't reflect their counts.
+	f.WriteString("-- Table: shares\n")
+	_, err = exportTableToSQL(a.db, "shares", f, nil)
+	if err != nil {
+		return summary, excluded, fmt.Errorf("failed to export shares: %w", err)
+	}
+	f.WriteString("\n")
+
+	f.WriteString("-- Table: follows\n")
+	_, err = exportTableToSQL(a.db, "follows", f, nil)
+	if err != nil {
+		return summary, excluded, fmt.Errorf("failed to export follows: %w", err)
+	}
+	f.WriteString("\n")
+
+	// share_ring references shares(id) via FK. Export after shares so that if the
+	// SQL is ever replayed from scratch (not used today but good hygiene) the parent
+	// rows exist first.
+	f.WriteString("-- Table: share_ring\n")
+	_, err = exportTableToSQL(a.db, "share_ring", f, nil)
+	if err != nil {
+		return summary, excluded, fmt.Errorf("failed to export share_ring: %w", err)
+	}
 
 	return summary, excluded, nil
 }
@@ -572,9 +600,14 @@ func (a *App) RestoreBackup(backupPath, identityPolicy string) error {
 	}
 	defer tx.Rollback()
 
-	// Clear all existing data
+	// Clear all existing data. Order matters: child tables before parent tables to
+	// respect FK constraints. share_ring references shares(id), so it goes first;
+	// clip_tags references both clips and tags, so it precedes them.
 	tables := []string{
-		"clip_tags",
+		"share_ring",    // FK → shares(id)
+		"shares",        // FK → tags(id)
+		"follows",       // FK → tags(id)
+		"clip_tags",     // FK → clips, tags
 		"clips",
 		"tags",
 		"settings",
@@ -670,7 +703,7 @@ func (a *App) RestoreBackup(backupPath, identityPolicy string) error {
 	for _, f := range r.File {
 		if strings.HasPrefix(f.Name, "plugins/") && strings.HasSuffix(f.Name, ".lua") {
 			destPath := filepath.Join(dataDir, f.Name)
-			if err := extractZipFile(f, destPath, dataDir); err != nil {
+			if err := extractZipFile(f, destPath, dataDir, 0o644); err != nil {
 				fmt.Printf("Warning: failed to extract plugin %s: %v\n", f.Name, err)
 			}
 		}
@@ -700,13 +733,20 @@ func (a *App) RestoreBackup(backupPath, identityPolicy string) error {
 			}
 		}
 		if identityFile != nil {
-			if err := extractZipFileWithPerms(identityFile, identityPath, dataDir, 0o600); err != nil {
+			if err := extractZipFile(identityFile, identityPath, dataDir, 0o600); err != nil {
 				fmt.Printf("Warning: failed to extract identity file (takeover): %v\n", err)
 			}
 		}
 	case "keep":
 		// Discard backup identity; keep local identity. The restored shares rows
 		// used a different peer id and will not work — mark them invalid.
+		//
+		// This UPDATE runs outside the restore transaction (after tx.Commit()) so
+		// that the newly-inserted rows from the SQL restore are already visible.
+		// Running it inside the transaction would mean the INSERT statements that
+		// follow could not see the effect, and because SQLite processes the SQL
+		// restore statements sequentially after the DELETE pass, the UPDATE would
+		// be overwritten by subsequent INSERTs anyway.
 		if _, err := a.db.Exec("UPDATE shares SET status = 'invalid'"); err != nil {
 			fmt.Printf("Warning: failed to invalidate restored shares: %v\n", err)
 		}
@@ -724,7 +764,7 @@ func (a *App) RestoreBackup(backupPath, identityPolicy string) error {
 				}
 			}
 			if identityFile != nil {
-				if err := extractZipFileWithPerms(identityFile, identityPath, dataDir, 0o600); err != nil {
+				if err := extractZipFile(identityFile, identityPath, dataDir, 0o600); err != nil {
 					fmt.Printf("Warning: failed to extract identity file (none): %v\n", err)
 				}
 			}
@@ -734,41 +774,14 @@ func (a *App) RestoreBackup(backupPath, identityPolicy string) error {
 	return nil
 }
 
-// extractZipFile extracts a single file from a ZIP archive to destPath.
-// baseDir is used to validate the path stays within allowed directory (security).
-func extractZipFile(f *zip.File, destPath string, baseDir string) error {
-	// Security: Validate path doesn't escape base directory (prevent path traversal)
-	cleanDest := filepath.Clean(destPath)
-	cleanBase := filepath.Clean(baseDir)
-	if !strings.HasPrefix(cleanDest, cleanBase+string(os.PathSeparator)) {
-		return fmt.Errorf("invalid file path in ZIP: %s (path traversal attempt)", f.Name)
-	}
-
-	// Ensure parent directory exists
-	if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
-		return err
-	}
-
-	rc, err := f.Open()
-	if err != nil {
-		return err
-	}
-	defer rc.Close()
-
-	destFile, err := os.Create(destPath)
-	if err != nil {
-		return err
-	}
-	defer destFile.Close()
-
-	_, err = io.Copy(destFile, rc)
-	return err
-}
-
-// extractZipFileWithPerms is like extractZipFile but creates the destination
-// file with explicit permissions (perm) instead of relying on umask.
-// Use this when ZIP mode bits cannot be trusted (zip.Writer.Create discards them).
-func extractZipFileWithPerms(f *zip.File, destPath string, baseDir string, perm os.FileMode) error {
+// extractZipFile extracts a single file from a ZIP archive to destPath with
+// explicit file permissions (perm). Callers must always supply a mode because
+// zip.Writer.Create does not preserve Unix mode bits — so the mode stored in
+// the ZIP entry cannot be trusted on extraction.
+//
+// baseDir is used to validate the path stays within the allowed directory
+// (prevents path traversal attacks).
+func extractZipFile(f *zip.File, destPath string, baseDir string, perm os.FileMode) error {
 	// Security: Validate path doesn't escape base directory (prevent path traversal)
 	cleanDest := filepath.Clean(destPath)
 	cleanBase := filepath.Clean(baseDir)
