@@ -365,6 +365,41 @@ func TestOnClipCreatedEmitsChunks(t *testing.T) {
 	}
 }
 
+// blockingWriter never returns from Write — simulates a stalled follower so
+// the send scheduler's byte cap trips.
+type blockingWriter struct{}
+
+func (b *blockingWriter) Write(p []byte) (int, error) {
+	// Block forever. The runSender goroutine will sit here while enqueue
+	// accumulates pending bytes and trips the cap.
+	select {}
+}
+
+func TestSendSchedulerShedsOverCap(t *testing.T) {
+	blocker := &blockingWriter{}
+	fc := newFollowerConn(nil, blocker)
+
+	closed := make(chan struct{}, 1)
+	fc.onClose = func() {
+		select {
+		case closed <- struct{}{}:
+		default:
+		}
+	}
+
+	// 33 × 1 MiB envelopes — 32 MiB cap should trip on or before the 33rd.
+	data := bytes.Repeat([]byte{1}, 1<<20)
+	for i := 0; i < 33; i++ {
+		fc.enqueue(data)
+	}
+
+	select {
+	case <-closed:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("expected connection shed after 32 MiB queued")
+	}
+}
+
 func TestOnClipCreatedSkipsNonMatchingTag(t *testing.T) {
 	ctx := context.Background()
 	db := newTestDB(t)

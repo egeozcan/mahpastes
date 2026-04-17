@@ -161,23 +161,83 @@ func (p *publication) closeAllFollowers() {
 	p.followers = map[network.Stream]*followerConn{}
 }
 
-// followerConn — one connected follower's stream + send queue.
-//
-// peerID is the remote peer at connect time, stored so the Task 5.2 handler
-// can count concurrent streams from the same peer when applying the per-peer
-// cap. The byte-capped send queue fields (queue, pending, onClose, mu,
-// closed) are added in Phase 6.3; this stub compiles on its own and the
-// Phase 6.3 additions are strict extensions.
+// followerConn owns one follower's stream and a bounded async send queue.
+// The sender goroutine drains queue → writer. enqueue is non-blocking and
+// closes the connection if either the envelope slot cap or the total byte
+// cap is exceeded — that's the Task 6.3 back-pressure policy: a stalled
+// follower is dropped, not buffered indefinitely.
 type followerConn struct {
-	peerID peer.ID
-	stream network.Stream
-	writer io.Writer
-	// Expanded with queue + pending + onClose + mu + closed in Task 6.3.
+	peerID  peer.ID
+	stream  network.Stream
+	writer  io.Writer    // indirection so tests can substitute a writer
+	queue   chan []byte  // buffered channel; SendQueueEnvelopesCap slots
+	pending int64        // bytes currently sitting in queue; guarded by mu
+	onClose func()       // test hook; invoked under mu
+	mu      sync.Mutex
+	closed  bool
+}
+
+// enqueue hands env to the sender goroutine. Non-blocking; if either cap is
+// exceeded the connection is closed immediately.
+func (fc *followerConn) enqueue(env []byte) {
+	fc.mu.Lock()
+	if fc.closed {
+		fc.mu.Unlock()
+		return
+	}
+	// Byte cap.
+	if fc.pending+int64(len(env)) > int64(SendQueueBytesCap) {
+		fc.closeLocked()
+		fc.mu.Unlock()
+		return
+	}
+	// Envelope cap (channel buffer).
+	select {
+	case fc.queue <- env:
+		fc.pending += int64(len(env))
+	default:
+		fc.closeLocked()
+	}
+	fc.mu.Unlock()
+}
+
+// runSender drains the queue into the writer. A write error closes the
+// connection; the sender exits when the queue is closed by closeLocked.
+func (fc *followerConn) runSender() {
+	for env := range fc.queue {
+		if _, err := fc.writer.Write(env); err != nil {
+			fc.mu.Lock()
+			fc.closeLocked()
+			fc.mu.Unlock()
+			return
+		}
+		fc.mu.Lock()
+		fc.pending -= int64(len(env))
+		fc.mu.Unlock()
+	}
 }
 
 func (fc *followerConn) close() {
-	if fc != nil && fc.stream != nil {
+	if fc == nil {
+		return
+	}
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+	fc.closeLocked()
+}
+
+// closeLocked must be called with fc.mu held. Idempotent.
+func (fc *followerConn) closeLocked() {
+	if fc.closed {
+		return
+	}
+	fc.closed = true
+	close(fc.queue)
+	if fc.stream != nil {
 		_ = fc.stream.Reset()
+	}
+	if fc.onClose != nil {
+		fc.onClose()
 	}
 }
 
@@ -257,15 +317,20 @@ func (m *ShareManager) setMaxStreamsPerPubForTest(n int) {
 	m.maxStreamsPerPubOverride = n
 }
 
-// newFollowerConn constructs a followerConn, reading the remote peer ID from
-// the stream's connection so the Task 5.2 cap check can count streams per
-// peer. Phase 6.3 will extend this with the byte-capped send queue.
+// newFollowerConn constructs a followerConn with its send queue initialized
+// and a sender goroutine started. Passing a nil stream is supported so tests
+// can drive the scheduler against a synthetic writer.
 func newFollowerConn(s network.Stream, w io.Writer) *followerConn {
-	return &followerConn{
-		peerID: s.Conn().RemotePeer(),
+	fc := &followerConn{
 		stream: s,
 		writer: w,
+		queue:  make(chan []byte, SendQueueEnvelopesCap),
 	}
+	if s != nil {
+		fc.peerID = s.Conn().RemotePeer()
+	}
+	go fc.runSender()
+	return fc
 }
 
 // handlePublisherStream implements:
@@ -606,17 +671,14 @@ func (m *ShareManager) emitClipForPublication(
 	return nil
 }
 
-// liveFanOut writes an envelope to every currently connected follower for
-// this publication. A failing write closes that follower's stream so the
-// follower's reconnect picks up from the ring. Phase 6.3 replaces this with
-// a byte-capped send scheduler.
+// liveFanOut enqueues an envelope onto every connected follower's send
+// queue. enqueue is non-blocking; if either the envelope slot cap or the
+// byte cap is exceeded for a follower, enqueue closes that follower and
+// the drain goroutine in handlePublisherStream will remove the entry.
 func (m *ShareManager) liveFanOut(p *publication, envelope []byte) {
 	p.fmu.Lock()
 	defer p.fmu.Unlock()
-	for pid, fc := range p.followers {
-		if _, err := fc.stream.Write(envelope); err != nil {
-			_ = fc.stream.Reset()
-			delete(p.followers, pid)
-		}
+	for _, fc := range p.followers {
+		fc.enqueue(envelope)
 	}
 }
