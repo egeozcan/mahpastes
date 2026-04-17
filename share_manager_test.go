@@ -234,3 +234,64 @@ func TestPublisherStreamRejectsOverPublicationCap(t *testing.T) {
 		t.Fatal("expected stream reset after cap exceeded; got data")
 	}
 }
+
+func TestStartShareInsertsRowAndRegisters(t *testing.T) {
+	ctx := context.Background()
+	db := newTestDB(t)
+	dir := t.TempDir()
+	m, _ := NewShareManager(ctx, db, dir)
+	defer m.Stop()
+
+	if _, err := db.Exec(`INSERT INTO tags (id, name, color) VALUES (1, 'recipes', '#aaa')`); err != nil {
+		t.Fatal(err)
+	}
+	info, err := m.StartShare(1)
+	if err != nil {
+		t.Fatalf("StartShare: %v", err)
+	}
+	if info.ShareString == "" {
+		t.Fatal("empty share string")
+	}
+	if info.Status != "active" {
+		t.Fatalf("status %q", info.Status)
+	}
+
+	peerID, key, err := DecodeShareString(info.ShareString)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(peerID) != 32 || len(key) != 32 {
+		t.Fatalf("bad sizes: peerID=%d key=%d", len(peerID), len(key))
+	}
+
+	// One-publication-per-tag: second StartShare on the same tag must fail.
+	if _, err := m.StartShare(1); err == nil {
+		t.Fatal("expected duplicate StartShare to fail")
+	}
+}
+
+func TestStopShareClosesAndDeletes(t *testing.T) {
+	ctx := context.Background()
+	db := newTestDB(t)
+	dir := t.TempDir()
+	m, _ := NewShareManager(ctx, db, dir)
+	defer m.Stop()
+	if _, err := db.Exec(`INSERT INTO tags (id, name, color) VALUES (1, 'recipes', '#aaa')`); err != nil {
+		t.Fatal(err)
+	}
+	info, err := m.StartShare(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := m.StopShare(info.TagID); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM shares WHERE id = ?`, info.ID).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("shares row still present")
+	}
+}

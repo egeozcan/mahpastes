@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"database/sql"
 	"fmt"
 	"io"
@@ -352,4 +353,86 @@ func (m *ShareManager) handlePublisherStream(s network.Stream) {
 		pub.fmu.Unlock()
 		fc.close()
 	}()
+}
+
+// StartShare creates a new publication for tagID and returns the share string.
+// One publication per tag — returns an error if one already exists (enforced
+// by UNIQUE INDEX idx_shares_tag_id).
+func (m *ShareManager) StartShare(tagID int64) (ShareInfo, error) {
+	var info ShareInfo
+
+	symkey := make([]byte, 32)
+	if _, err := rand.Read(symkey); err != nil {
+		return info, fmt.Errorf("rand: %w", err)
+	}
+	shareID := DeriveShareID(symkey)
+	now := time.Now().Unix()
+
+	res, err := m.db.Exec(
+		`INSERT INTO shares (tag_id, symkey, share_id, last_seq, status, created_at) VALUES (?, ?, ?, 0, 'active', ?)`,
+		tagID, symkey, shareID, now,
+	)
+	if err != nil {
+		return info, fmt.Errorf("insert share: %w", err)
+	}
+	id, _ := res.LastInsertId()
+
+	var tagName string
+	_ = m.db.QueryRow(`SELECT name FROM tags WHERE id = ?`, tagID).Scan(&tagName)
+
+	pubKeyBytes, err := PublicKeyBytes(m.host.Peerstore().PrivKey(m.host.ID()))
+	if err != nil {
+		return info, fmt.Errorf("pubkey: %w", err)
+	}
+	s, err := EncodeShareString(pubKeyBytes, symkey)
+	if err != nil {
+		return info, fmt.Errorf("encode: %w", err)
+	}
+
+	m.registerPublication(id, tagID, shareID, symkey, "active")
+
+	info = ShareInfo{
+		ID: id, TagID: tagID, TagName: tagName,
+		ShareString: s, Status: "active",
+		Followers: 0, ClipsPushed: 0, CreatedAt: now,
+	}
+	m.emitEvent("share:publication-updated", info)
+	return info, nil
+}
+
+// StopShare closes streams, drops ring entries, and deletes the shares row.
+// ON DELETE CASCADE on share_ring.publication_id makes the ring cleanup
+// transitive.
+func (m *ShareManager) StopShare(tagID int64) error {
+	m.mu.Lock()
+	var pub *publication
+	var id int64
+	for pid, p := range m.publications {
+		if p.tagID == tagID {
+			pub = p
+			id = pid
+			break
+		}
+	}
+	if pub != nil {
+		delete(m.publications, id)
+	}
+	m.mu.Unlock()
+
+	if pub != nil {
+		pub.closeAllFollowers()
+	}
+
+	if _, err := m.db.Exec(`DELETE FROM shares WHERE tag_id = ?`, tagID); err != nil {
+		return fmt.Errorf("delete share: %w", err)
+	}
+	m.emitEvent("share:publication-removed", map[string]any{"tag_id": tagID})
+	return nil
+}
+
+// emitEvent forwards a frontend event if an emitter is installed.
+func (m *ShareManager) emitEvent(name string, data any) {
+	if m.eventFn != nil {
+		m.eventFn(name, data)
+	}
 }
