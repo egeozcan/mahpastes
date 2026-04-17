@@ -81,6 +81,22 @@ export namespace main {
 	        this.request_count = source["request_count"];
 	    }
 	}
+	export class BackupInspection {
+	    has_identity: boolean;
+	    target_has_identity: boolean;
+	    target_publication_tags: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new BackupInspection(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.has_identity = source["has_identity"];
+	        this.target_has_identity = source["target_has_identity"];
+	        this.target_publication_tags = source["target_publication_tags"];
+	    }
+	}
 	export class BackupSummary {
 	    clips: number;
 	    tags: number;

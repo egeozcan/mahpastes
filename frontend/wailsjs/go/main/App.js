@@ -10,6 +10,10 @@ export function AddWatchedFolder(arg1) {
   return window['go']['main']['App']['AddWatchedFolder'](arg1);
 }
 
+export function BackupInspect(arg1) {
+  return window['go']['main']['App']['BackupInspect'](arg1);
+}
+
 export function BulkAddTag(arg1, arg2) {
   return window['go']['main']['App']['BulkAddTag'](arg1, arg2);
 }
@@ -50,8 +54,8 @@ export function ChooseApplication() {
   return window['go']['main']['App']['ChooseApplication']();
 }
 
-export function ConfirmRestoreBackup(arg1) {
-  return window['go']['main']['App']['ConfirmRestoreBackup'](arg1);
+export function ConfirmRestoreBackup(arg1, arg2) {
+  return window['go']['main']['App']['ConfirmRestoreBackup'](arg1, arg2);
 }
 
 export function CopyToClipboard(arg1) {
@@ -218,8 +222,8 @@ export function RenameClip(arg1, arg2) {
   return window['go']['main']['App']['RenameClip'](arg1, arg2);
 }
 
-export function RestoreBackup(arg1) {
-  return window['go']['main']['App']['RestoreBackup'](arg1);
+export function RestoreBackup(arg1, arg2) {
+  return window['go']['main']['App']['RestoreBackup'](arg1, arg2);
 }
 
 export function SaveClipToFile(arg1) {

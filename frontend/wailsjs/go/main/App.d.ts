@@ -7,6 +7,8 @@ export function AddTagToClip(arg1:number,arg2:number):Promise<void>;
 
 export function AddWatchedFolder(arg1:main.WatchedFolderConfig):Promise<main.WatchedFolder>;
 
+export function BackupInspect(arg1:string):Promise<main.BackupInspection>;
+
 export function BulkAddTag(arg1:Array<number>,arg2:number):Promise<void>;
 
 export function BulkArchive(arg1:Array<number>):Promise<void>;
@@ -27,7 +29,7 @@ export function CancelExpiration(arg1:number):Promise<void>;
 
 export function ChooseApplication():Promise<string>;
 
-export function ConfirmRestoreBackup(arg1:string):Promise<void>;
+export function ConfirmRestoreBackup(arg1:string,arg2:string):Promise<void>;
 
 export function CopyToClipboard(arg1:string):Promise<void>;
 
@@ -111,7 +113,7 @@ export function RemoveWatchedFolder(arg1:number):Promise<void>;
 
 export function RenameClip(arg1:number,arg2:string):Promise<void>;
 
-export function RestoreBackup(arg1:string):Promise<void>;
+export function RestoreBackup(arg1:string,arg2:string):Promise<void>;
 
 export function SaveClipToFile(arg1:number):Promise<void>;
 
