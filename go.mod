@@ -15,6 +15,7 @@ require (
 )
 
 require (
+	github.com/fxamacker/cbor/v2 v2.7.0
 	github.com/go-ole/go-ole v1.3.0
 	github.com/spf13/cobra v1.10.2
 )
@@ -22,7 +23,6 @@ require (
 require (
 	github.com/bep/debounce v1.2.1 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
-	github.com/fxamacker/cbor/v2 v2.7.0 // indirect
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
