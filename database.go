@@ -216,6 +216,61 @@ func initDB() (*sql.DB, error) {
 		log.Printf("Warning: Failed to create api_keys table: %v", err)
 	}
 
+	// Create shares table (publisher-side publications)
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS shares (
+		id          INTEGER PRIMARY KEY AUTOINCREMENT,
+		tag_id      INTEGER NOT NULL,
+		symkey      BLOB    NOT NULL,
+		share_id    BLOB    NOT NULL UNIQUE,
+		last_seq    INTEGER NOT NULL DEFAULT 0,
+		clips_sent  INTEGER NOT NULL DEFAULT 0,
+		status      TEXT    NOT NULL DEFAULT 'active',
+		created_at  INTEGER NOT NULL,
+		FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+	)`); err != nil {
+		log.Printf("Warning: Failed to create shares table: %v", err)
+	}
+	if _, err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_shares_tag_id ON shares(tag_id)`); err != nil {
+		log.Printf("Warning: Failed to create idx_shares_tag_id: %v", err)
+	}
+
+	// Create follows table (follower-side subscriptions)
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS follows (
+		id              INTEGER PRIMARY KEY AUTOINCREMENT,
+		remote_peer_id  TEXT    NOT NULL,
+		symkey          BLOB    NOT NULL,
+		local_tag_id    INTEGER NOT NULL,
+		last_seq        INTEGER NOT NULL DEFAULT 0,
+		clips_received  INTEGER NOT NULL DEFAULT 0,
+		last_seen_at    INTEGER,
+		created_at      INTEGER NOT NULL,
+		FOREIGN KEY (local_tag_id) REFERENCES tags(id) ON DELETE RESTRICT
+	)`); err != nil {
+		log.Printf("Warning: Failed to create follows table: %v", err)
+	}
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_follows_peer ON follows(remote_peer_id)`); err != nil {
+		log.Printf("Warning: Failed to create idx_follows_peer: %v", err)
+	}
+
+	// Create share_ring table (persisted envelope ciphertext for catch-up)
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS share_ring (
+		id             INTEGER PRIMARY KEY AUTOINCREMENT,
+		publication_id INTEGER NOT NULL,
+		seq            INTEGER NOT NULL,
+		kind           TEXT    NOT NULL,
+		envelope_bytes BLOB    NOT NULL,
+		ts             INTEGER NOT NULL,
+		FOREIGN KEY (publication_id) REFERENCES shares(id) ON DELETE CASCADE
+	)`); err != nil {
+		log.Printf("Warning: Failed to create share_ring table: %v", err)
+	}
+	if _, err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_share_ring_pub_seq ON share_ring(publication_id, seq)`); err != nil {
+		log.Printf("Warning: Failed to create idx_share_ring_pub_seq: %v", err)
+	}
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_share_ring_ts ON share_ring(ts)`); err != nil {
+		log.Printf("Warning: Failed to create idx_share_ring_ts: %v", err)
+	}
+
 	// Backfill content hashes for existing clips that don't have one
 	backfillContentHashes(db)
 
