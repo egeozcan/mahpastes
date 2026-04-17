@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -434,5 +436,187 @@ func (m *ShareManager) StopShare(tagID int64) error {
 func (m *ShareManager) emitEvent(name string, data any) {
 	if m.eventFn != nil {
 		m.eventFn(name, data)
+	}
+}
+
+// OnClipCreated is the hook called by App after every clip insert. It finds
+// every publication whose tag is on the clip and emits a chunked envelope
+// burst into share_ring (and to any connected followers).
+func (m *ShareManager) OnClipCreated(clipID int64, tagIDs []int64) error {
+	m.mu.RLock()
+	var matches []*publication
+	for _, p := range m.publications {
+		if p.status != "active" {
+			continue
+		}
+		for _, tid := range tagIDs {
+			if tid == p.tagID {
+				matches = append(matches, p)
+				break
+			}
+		}
+	}
+	m.mu.RUnlock()
+	if len(matches) == 0 {
+		return nil
+	}
+
+	var contentType, filename, metaJSON string
+	var totalSize int64
+	err := m.db.QueryRow(
+		`SELECT content_type, COALESCE(filename,''), COALESCE(metadata,'{}'), LENGTH(data) FROM clips WHERE id = ?`,
+		clipID,
+	).Scan(&contentType, &filename, &metaJSON, &totalSize)
+	if err != nil {
+		return fmt.Errorf("read clip %d: %w", clipID, err)
+	}
+
+	metadata := map[string]string{}
+	_ = json.Unmarshal([]byte(metaJSON), &metadata)
+
+	chunkCount := uint32((totalSize + int64(ChunkSize) - 1) / int64(ChunkSize))
+	if chunkCount == 0 {
+		chunkCount = 1 // empty clip still emits one zero-length chunk for symmetry
+	}
+
+	for _, p := range matches {
+		if err := m.emitClipForPublication(p, clipID, contentType, filename, metadata, totalSize, chunkCount); err != nil {
+			log.Printf("share: emit clip %d to pub %d: %v", clipID, p.id, err)
+		}
+	}
+	return nil
+}
+
+func (m *ShareManager) emitClipForPublication(
+	p *publication,
+	clipID int64,
+	contentType, filename string,
+	metadata map[string]string,
+	totalSize int64,
+	chunkCount uint32,
+) error {
+	tx, err := m.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	var seqI int64
+	if err := tx.QueryRow(`SELECT last_seq FROM shares WHERE id = ?`, p.id).Scan(&seqI); err != nil {
+		return fmt.Errorf("read last_seq: %w", err)
+	}
+	lastSeq := uint64(seqI)
+
+	hasher := sha256.New()
+	now := time.Now().Unix()
+	tsMillis := time.Now().UnixMilli()
+	nextSeq := lastSeq + 1
+
+	// 1) clip_start
+	start := ClipStartPayload{
+		Seq: nextSeq, TS: tsMillis, Kind: KindClipStart,
+		ClipID: uint64(clipID), Filename: filename,
+		ContentType: contentType, Metadata: metadata,
+		TotalSize: uint64(totalSize), ChunkCount: chunkCount,
+	}
+	startBytes, _ := MarshalPayload(start)
+	startEnv, err := EncryptEnvelope(p.symkey, p.shareID, nextSeq, startBytes)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(
+		`INSERT INTO share_ring (publication_id, seq, kind, envelope_bytes, ts) VALUES (?, ?, ?, ?, ?)`,
+		p.id, int64(nextSeq), KindClipStart, startEnv, now,
+	); err != nil {
+		return err
+	}
+	m.liveFanOut(p, startEnv)
+	nextSeq++
+
+	// 2) clip_chunk × N — streamed via SUBSTR so we never hold the full blob in RAM.
+	for idx := uint32(0); idx < chunkCount; idx++ {
+		offset := int64(idx) * int64(ChunkSize)
+		length := int64(ChunkSize)
+		if offset+length > totalSize {
+			length = totalSize - offset
+			if length < 0 {
+				length = 0
+			}
+		}
+		var chunk []byte
+		if err := tx.QueryRow(
+			`SELECT SUBSTR(data, ?, ?) FROM clips WHERE id = ?`,
+			offset+1, length, clipID,
+		).Scan(&chunk); err != nil {
+			return fmt.Errorf("read chunk %d: %w", idx, err)
+		}
+		hasher.Write(chunk)
+
+		cp := ClipChunkPayload{
+			Seq: nextSeq, Kind: KindClipChunk,
+			ClipID: uint64(clipID), Index: idx, Data: chunk,
+		}
+		cpBytes, _ := MarshalPayload(cp)
+		cpEnv, err := EncryptEnvelope(p.symkey, p.shareID, nextSeq, cpBytes)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(
+			`INSERT INTO share_ring (publication_id, seq, kind, envelope_bytes, ts) VALUES (?, ?, ?, ?, ?)`,
+			p.id, int64(nextSeq), KindClipChunk, cpEnv, now,
+		); err != nil {
+			return err
+		}
+		m.liveFanOut(p, cpEnv)
+		nextSeq++
+	}
+
+	// 3) clip_end
+	end := ClipEndPayload{
+		Seq: nextSeq, Kind: KindClipEnd,
+		ClipID: uint64(clipID), SHA256: hasher.Sum(nil),
+	}
+	endBytes, _ := MarshalPayload(end)
+	endEnv, err := EncryptEnvelope(p.symkey, p.shareID, nextSeq, endBytes)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(
+		`INSERT INTO share_ring (publication_id, seq, kind, envelope_bytes, ts) VALUES (?, ?, ?, ?, ?)`,
+		p.id, int64(nextSeq), KindClipEnd, endEnv, now,
+	); err != nil {
+		return err
+	}
+	m.liveFanOut(p, endEnv)
+
+	// Bump last_seq AND clips_sent (one clip_end = one published clip). They
+	// stay in sync by construction.
+	if _, err := tx.Exec(`UPDATE shares SET last_seq = ?, clips_sent = clips_sent + 1 WHERE id = ?`, int64(nextSeq), p.id); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+
+	// Ring eviction (age + cap) outside the tx.
+	if err := RingEvict(m.db, time.Now().Unix(), int64(RingBytesCapPerPub)); err != nil {
+		log.Printf("share: evict: %v", err)
+	}
+	return nil
+}
+
+// liveFanOut writes an envelope to every currently connected follower for
+// this publication. A failing write closes that follower's stream so the
+// follower's reconnect picks up from the ring. Phase 6.3 replaces this with
+// a byte-capped send scheduler.
+func (m *ShareManager) liveFanOut(p *publication, envelope []byte) {
+	p.fmu.Lock()
+	defer p.fmu.Unlock()
+	for pid, fc := range p.followers {
+		if _, err := fc.stream.Write(envelope); err != nil {
+			_ = fc.stream.Reset()
+			delete(p.followers, pid)
+		}
 	}
 }

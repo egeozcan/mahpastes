@@ -22,7 +22,11 @@ const (
 
 	// Size limits
 	ChunkSize      = 1 << 20          // 1 MiB plaintext per chunk
-	MaxEnvelopeLen = ChunkSize + 64   // length-prefixed ciphertext cap
+	// MaxEnvelopeLen caps the on-wire body (nonce||ciphertext). Headroom over
+	// ChunkSize must cover: 12B nonce + 16B GCM tag + CBOR payload overhead
+	// (field keys, kind string, length prefixes). Measured worst case for
+	// ClipChunkPayload is ~76B; 256 gives comfortable margin.
+	MaxEnvelopeLen = ChunkSize + 256  // length-prefixed ciphertext cap
 
 	// Ring retention
 	RingTTLSeconds     = 3600            // 1h

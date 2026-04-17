@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"path/filepath"
 	"testing"
@@ -24,11 +25,11 @@ func newTestDB(t *testing.T) *sql.DB {
 	schema := `CREATE TABLE tags (id INTEGER PRIMARY KEY, name TEXT UNIQUE, color TEXT DEFAULT '#888');
 CREATE TABLE clips (id INTEGER PRIMARY KEY, content_type TEXT, data BLOB, filename TEXT, metadata TEXT DEFAULT '{}');
 CREATE TABLE clip_tags (clip_id INTEGER, tag_id INTEGER, PRIMARY KEY(clip_id,tag_id));
-CREATE TABLE shares (id INTEGER PRIMARY KEY, tag_id INTEGER NOT NULL, symkey BLOB NOT NULL, share_id BLOB NOT NULL UNIQUE, last_seq INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'active', created_at INTEGER NOT NULL);
+CREATE TABLE shares (id INTEGER PRIMARY KEY, tag_id INTEGER NOT NULL, symkey BLOB NOT NULL, share_id BLOB NOT NULL UNIQUE, last_seq INTEGER NOT NULL DEFAULT 0, clips_sent INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'active', created_at INTEGER NOT NULL);
 CREATE UNIQUE INDEX idx_shares_tag_id ON shares(tag_id);
-CREATE TABLE follows (id INTEGER PRIMARY KEY, remote_peer_id TEXT, symkey BLOB, local_tag_id INTEGER, last_seq INTEGER DEFAULT 0, last_seen_at INTEGER, created_at INTEGER);
+CREATE TABLE follows (id INTEGER PRIMARY KEY, remote_peer_id TEXT, symkey BLOB, local_tag_id INTEGER, last_seq INTEGER DEFAULT 0, clips_received INTEGER NOT NULL DEFAULT 0, last_seen_at INTEGER, created_at INTEGER);
 CREATE INDEX idx_follows_peer ON follows(remote_peer_id);
-CREATE TABLE share_ring (id INTEGER PRIMARY KEY, publication_id INTEGER, seq INTEGER, kind TEXT, envelope_bytes BLOB, ts INTEGER);
+CREATE TABLE share_ring (id INTEGER PRIMARY KEY, publication_id INTEGER, seq INTEGER, kind TEXT, envelope_bytes BLOB, ts INTEGER, FOREIGN KEY(publication_id) REFERENCES shares(id) ON DELETE CASCADE);
 CREATE UNIQUE INDEX idx_share_ring_pub_seq ON share_ring(publication_id, seq);
 CREATE INDEX idx_share_ring_ts ON share_ring(ts);`
 	if _, err := db.Exec(schema); err != nil {
@@ -293,5 +294,109 @@ func TestStopShareClosesAndDeletes(t *testing.T) {
 	}
 	if n != 0 {
 		t.Fatalf("shares row still present")
+	}
+}
+
+func TestOnClipCreatedEmitsChunks(t *testing.T) {
+	ctx := context.Background()
+	db := newTestDB(t)
+	dir := t.TempDir()
+	m, _ := NewShareManager(ctx, db, dir)
+	defer m.Stop()
+
+	if _, err := db.Exec(`INSERT INTO tags (id, name, color) VALUES (1, 'x', '#aaa')`); err != nil {
+		t.Fatal(err)
+	}
+	info, err := m.StartShare(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 2.5 MiB clip → 3 chunks (ChunkSize = 1 MiB).
+	data := bytes.Repeat([]byte{0x77}, int(2.5*float64(ChunkSize)))
+	r, err := db.Exec(`INSERT INTO clips (content_type, data, filename, metadata) VALUES ('image/png', ?, 'big.png', '{}')`, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clipID, _ := r.LastInsertId()
+	if _, err := db.Exec(`INSERT INTO clip_tags (clip_id, tag_id) VALUES (?, 1)`, clipID); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := m.OnClipCreated(clipID, []int64{1}); err != nil {
+		t.Fatalf("OnClipCreated: %v", err)
+	}
+
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM share_ring WHERE publication_id = ?`, info.ID).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 5 {
+		t.Fatalf("ring count %d want 5 (start + 3 chunks + end)", count)
+	}
+
+	var lastSeq int64
+	if err := db.QueryRow(`SELECT last_seq FROM shares WHERE id = ?`, info.ID).Scan(&lastSeq); err != nil {
+		t.Fatal(err)
+	}
+	if lastSeq != 5 {
+		t.Fatalf("last_seq %d want 5", lastSeq)
+	}
+
+	var envBytes []byte
+	var endSeq int64
+	if err := db.QueryRow(`SELECT seq, envelope_bytes FROM share_ring WHERE publication_id = ? AND kind = ?`, info.ID, KindClipEnd).Scan(&endSeq, &envBytes); err != nil {
+		t.Fatal(err)
+	}
+	m.mu.RLock()
+	pub := m.publications[info.ID]
+	m.mu.RUnlock()
+	pt, err := DecryptEnvelope(pub.symkey, pub.shareID, uint64(endSeq), envBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var end ClipEndPayload
+	if err := UnmarshalPayload(pt, &end); err != nil {
+		t.Fatal(err)
+	}
+	want := sha256.Sum256(data)
+	if !bytes.Equal(end.SHA256, want[:]) {
+		t.Fatal("clip_end sha256 mismatch")
+	}
+}
+
+func TestOnClipCreatedSkipsNonMatchingTag(t *testing.T) {
+	ctx := context.Background()
+	db := newTestDB(t)
+	dir := t.TempDir()
+	m, _ := NewShareManager(ctx, db, dir)
+	defer m.Stop()
+
+	if _, err := db.Exec(`INSERT INTO tags (id, name, color) VALUES (1, 'x', '#aaa'), (2, 'y', '#bbb')`); err != nil {
+		t.Fatal(err)
+	}
+	info, err := m.StartShare(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := db.Exec(`INSERT INTO clips (content_type, data, filename, metadata) VALUES ('text/plain', 'hi', 'a.txt', '{}')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clipID, _ := r.LastInsertId()
+	if _, err := db.Exec(`INSERT INTO clip_tags (clip_id, tag_id) VALUES (?, 2)`, clipID); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := m.OnClipCreated(clipID, []int64{2}); err != nil {
+		t.Fatal(err)
+	}
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM share_ring WHERE publication_id = ?`, info.ID).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("ring count %d want 0 (tag mismatch)", count)
 	}
 }
