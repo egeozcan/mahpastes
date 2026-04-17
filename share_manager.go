@@ -1084,6 +1084,57 @@ func (m *ShareManager) runRingSweeper() {
 	}
 }
 
+// GetShareStatus returns DTOs for every publication and follow currently
+// registered, combining in-memory state with DB counters.
+func (m *ShareManager) GetShareStatus() (shares []ShareInfo, follows []FollowInfo) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	for _, p := range m.publications {
+		var tagName string
+		m.db.QueryRow(`SELECT name FROM tags WHERE id = ?`, p.tagID).Scan(&tagName)
+		var clipsSent, createdAt int64
+		// Authoritative counters live in the DB; no envelope-count heuristics.
+		m.db.QueryRow(`SELECT clips_sent, created_at FROM shares WHERE id = ?`, p.id).Scan(&clipsSent, &createdAt)
+		p.fmu.Lock()
+		fCount := len(p.followers)
+		p.fmu.Unlock()
+
+		// Reconstruct share string from stored key + our pubkey.
+		pubKeyBytes, _ := PublicKeyBytes(m.host.Peerstore().PrivKey(m.host.ID()))
+		shareStr, _ := EncodeShareString(pubKeyBytes, p.symkey)
+
+		shares = append(shares, ShareInfo{
+			ID: p.id, TagID: p.tagID, TagName: tagName,
+			ShareString: shareStr, Status: p.status,
+			Followers: fCount, ClipsPushed: clipsSent,
+			CreatedAt: createdAt,
+		})
+	}
+
+	for _, f := range m.follows {
+		var localTagName string
+		var createdAt, lastSeqDB, clipsRecv int64
+		var lastSeenSQL sql.NullInt64
+		m.db.QueryRow(`SELECT name FROM tags WHERE id = ?`, f.localTagID).Scan(&localTagName)
+		m.db.QueryRow(`SELECT created_at, last_seq, clips_received, last_seen_at FROM follows WHERE id = ?`, f.id).Scan(&createdAt, &lastSeqDB, &clipsRecv, &lastSeenSQL)
+		var lastSeenPtr *int64
+		if lastSeenSQL.Valid {
+			v := lastSeenSQL.Int64
+			lastSeenPtr = &v
+		}
+		follows = append(follows, FollowInfo{
+			ID: f.id, RemotePeerID: f.remotePeerID.String(),
+			LocalTagID: f.localTagID, LocalTagName: localTagName,
+			Status:        f.status,
+			ClipsReceived: clipsRecv,
+			LastSeq:       lastSeqDB, LastSeenAt: lastSeenPtr,
+			CreatedAt: createdAt,
+		})
+	}
+	return
+}
+
 func (m *ShareManager) runStagingJanitor() {
 	dir := filepath.Join(m.dataDir, ShareStagingDirName)
 	cleanup := func() {
