@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -34,6 +35,69 @@ type BackupSummary struct {
 	Tags         int `json:"tags"`
 	Plugins      int `json:"plugins"`
 	WatchFolders int `json:"watch_folders"`
+}
+
+// BackupInspection holds pre-restore state captured before any restore side effect.
+type BackupInspection struct {
+	// HasIdentity is true when the backup ZIP contains share_identity.key.
+	HasIdentity bool `json:"has_identity"`
+	// TargetHasIdentity is true when this install already has share_identity.key on disk.
+	TargetHasIdentity bool `json:"target_has_identity"`
+	// TargetPublicationTags are tag names of currently-active publications on this
+	// install (captured before restore so the UI can warn the user).
+	TargetPublicationTags []string `json:"target_publication_tags"`
+}
+
+// BackupInspect opens a backup ZIP and captures pre-restore state needed for the
+// identity-policy prompt. It performs no write operations — safe to call before
+// showing the confirm dialog.
+func (a *App) BackupInspect(backupPath string) (*BackupInspection, error) {
+	r, err := zip.OpenReader(backupPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open backup: %w", err)
+	}
+	defer r.Close()
+
+	var hasIdentity bool
+	for _, f := range r.File {
+		if f.Name == ShareIdentityFile {
+			hasIdentity = true
+			break
+		}
+	}
+
+	dataDir, err := getDataDir()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get data directory: %w", err)
+	}
+	identityPath := filepath.Join(dataDir, ShareIdentityFile)
+	_, statErr := os.Stat(identityPath)
+	targetHasIdentity := statErr == nil
+
+	var pubTags []string
+	rows, err := a.db.Query(
+		`SELECT t.name FROM shares s JOIN tags t ON t.id = s.tag_id WHERE s.status = 'active' ORDER BY t.name`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query active publications: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, fmt.Errorf("failed to scan publication tag: %w", err)
+		}
+		pubTags = append(pubTags, name)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate publication tags: %w", err)
+	}
+
+	return &BackupInspection{
+		HasIdentity:           hasIdentity,
+		TargetHasIdentity:     targetHasIdentity,
+		TargetPublicationTags: pubTags,
+	}, nil
 }
 
 // sensitiveSettingPatterns defines patterns for settings that should not be backed up
@@ -437,8 +501,26 @@ func ValidateBackup(backupPath string) (*BackupManifest, error) {
 	return &manifest, nil
 }
 
-// RestoreBackup restores data from a backup ZIP file
-func (a *App) RestoreBackup(backupPath string) error {
+// RestoreBackup restores data from a backup ZIP file.
+// identityPolicy controls how a conflict between the backup's identity and
+// this install's identity is resolved:
+//   - "takeover": extract identity from backup, overwrite local identity file.
+//     Restored shares rows are valid under the adopted identity — no invalidation.
+//   - "keep": discard backup identity. Mark restored shares rows invalid because
+//     they came from a different peer id.
+//   - "none": install has no prior identity. Extract backup identity if still
+//     absent on disk (race-safe).
+//
+// Any other value returns an error.
+func (a *App) RestoreBackup(backupPath, identityPolicy string) error {
+	// Validate identity policy before doing any work.
+	switch identityPolicy {
+	case "takeover", "keep", "none":
+		// valid
+	default:
+		return fmt.Errorf("invalid identity policy %q: must be \"takeover\", \"keep\", or \"none\"", identityPolicy)
+	}
+
 	// Validate first
 	manifest, err := ValidateBackup(backupPath)
 	if err != nil {
@@ -601,6 +683,54 @@ func (a *App) RestoreBackup(backupPath string) error {
 		}
 	}
 
+	// Handle identity policy.
+	// The restore transaction has been committed at this point, so the DB now
+	// contains rows from the backup.
+	identityPath := filepath.Join(dataDir, ShareIdentityFile)
+	switch identityPolicy {
+	case "takeover":
+		// Adopt the backup's identity: find and extract share_identity.key from
+		// the ZIP, overwriting any existing file. Permissions must be 0600.
+		// Do NOT invalidate shares — the restored rows are valid under this identity.
+		var identityFile *zip.File
+		for _, f := range r.File {
+			if f.Name == ShareIdentityFile {
+				identityFile = f
+				break
+			}
+		}
+		if identityFile != nil {
+			if err := extractZipFileWithPerms(identityFile, identityPath, dataDir, 0o600); err != nil {
+				fmt.Printf("Warning: failed to extract identity file (takeover): %v\n", err)
+			}
+		}
+	case "keep":
+		// Discard backup identity; keep local identity. The restored shares rows
+		// used a different peer id and will not work — mark them invalid.
+		if _, err := a.db.Exec("UPDATE shares SET status = 'invalid'"); err != nil {
+			fmt.Printf("Warning: failed to invalidate restored shares: %v\n", err)
+		}
+	case "none":
+		// Install had no prior identity. Extract backup identity only if the file
+		// is still absent (race-safe check-then-create; worst case the user ends
+		// up with the file already present and we skip the extract).
+		_, statErr := os.Stat(identityPath)
+		if errors.Is(statErr, os.ErrNotExist) {
+			var identityFile *zip.File
+			for _, f := range r.File {
+				if f.Name == ShareIdentityFile {
+					identityFile = f
+					break
+				}
+			}
+			if identityFile != nil {
+				if err := extractZipFileWithPerms(identityFile, identityPath, dataDir, 0o600); err != nil {
+					fmt.Printf("Warning: failed to extract identity file (none): %v\n", err)
+				}
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -626,6 +756,38 @@ func extractZipFile(f *zip.File, destPath string, baseDir string) error {
 	defer rc.Close()
 
 	destFile, err := os.Create(destPath)
+	if err != nil {
+		return err
+	}
+	defer destFile.Close()
+
+	_, err = io.Copy(destFile, rc)
+	return err
+}
+
+// extractZipFileWithPerms is like extractZipFile but creates the destination
+// file with explicit permissions (perm) instead of relying on umask.
+// Use this when ZIP mode bits cannot be trusted (zip.Writer.Create discards them).
+func extractZipFileWithPerms(f *zip.File, destPath string, baseDir string, perm os.FileMode) error {
+	// Security: Validate path doesn't escape base directory (prevent path traversal)
+	cleanDest := filepath.Clean(destPath)
+	cleanBase := filepath.Clean(baseDir)
+	if !strings.HasPrefix(cleanDest, cleanBase+string(os.PathSeparator)) {
+		return fmt.Errorf("invalid file path in ZIP: %s (path traversal attempt)", f.Name)
+	}
+
+	// Ensure parent directory exists
+	if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+		return err
+	}
+
+	rc, err := f.Open()
+	if err != nil {
+		return err
+	}
+	defer rc.Close()
+
+	destFile, err := os.OpenFile(destPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
 	if err != nil {
 		return err
 	}

@@ -2306,9 +2306,10 @@ func (a *App) ShowRestoreBackupDialog() (*BackupManifest, string, error) {
 	return manifest, openPath, nil
 }
 
-// ConfirmRestoreBackup performs the actual restore after user confirmation
-func (a *App) ConfirmRestoreBackup(backupPath string) error {
-	return a.RestoreBackup(backupPath)
+// ConfirmRestoreBackup performs the actual restore after user confirmation.
+// identityPolicy must be "takeover", "keep", or "none" (see RestoreBackup).
+func (a *App) ConfirmRestoreBackup(backupPath, identityPolicy string) error {
+	return a.RestoreBackup(backupPath, identityPolicy)
 }
 
 // isJSON checks if a string is valid JSON

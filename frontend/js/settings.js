@@ -74,8 +74,13 @@ const restoreConfirmDialog = document.getElementById('restore-confirm-dialog');
 const restoreConfirmCancel = document.getElementById('restore-confirm-cancel');
 const restoreConfirmYes = document.getElementById('restore-confirm-yes');
 const restoreBackupInfo = document.getElementById('restore-backup-info');
+const restoreIdentityPanel = document.getElementById('restore-identity-panel');
+const restoreTakeoverWarning = document.getElementById('restore-takeover-warning');
+const restoreTakeoverPubList = document.getElementById('restore-takeover-pub-list');
 
 let pendingRestorePath = null;
+// Resolved identity policy: "none" when no collision; one of "keep"/"takeover" otherwise.
+let pendingIdentityPolicy = 'none';
 
 async function createBackup() {
     try {
@@ -144,6 +149,39 @@ async function selectRestoreBackup() {
             </div>
         `;
 
+        // Inspect backup for identity collision and capture pre-restore state.
+        let inspection = null;
+        try {
+            inspection = await window.go.main.App.BackupInspect(backupPath);
+        } catch (inspectErr) {
+            console.warn('BackupInspect failed (non-fatal):', inspectErr);
+        }
+
+        const hasCollision = inspection && inspection.has_identity && inspection.target_has_identity;
+        if (hasCollision) {
+            // Show the identity panel; default radio is "keep".
+            pendingIdentityPolicy = 'keep';
+            const keepRadio = restoreIdentityPanel.querySelector('input[value="keep"]');
+            if (keepRadio) keepRadio.checked = true;
+            restoreIdentityPanel.classList.remove('hidden');
+
+            // Populate the takeover warning list (shown only when "takeover" is selected).
+            restoreTakeoverPubList.innerHTML = '';
+            const pubs = (inspection.target_publication_tags || []);
+            pubs.forEach(tag => {
+                const li = document.createElement('li');
+                li.textContent = tag;
+                restoreTakeoverPubList.appendChild(li);
+            });
+            // Takeover warning starts hidden (default is "keep").
+            restoreTakeoverWarning.classList.add('hidden');
+        } else {
+            // No collision — policy is "none"; hide the identity panel.
+            pendingIdentityPolicy = 'none';
+            restoreIdentityPanel.classList.add('hidden');
+            restoreTakeoverWarning.classList.add('hidden');
+        }
+
         // Show confirmation dialog
         showRestoreConfirmDialog();
 
@@ -167,6 +205,7 @@ function hideRestoreConfirmDialog() {
     restoreConfirmDialog.querySelector(':scope > div').classList.add('scale-95');
     restoreConfirmDialog.querySelector(':scope > div').classList.remove('scale-100');
     pendingRestorePath = null;
+    pendingIdentityPolicy = 'none';
     restoreConfirmDialog.setAttribute('inert', '');
 }
 
@@ -180,7 +219,7 @@ async function confirmRestore() {
         restoreConfirmYes.disabled = true;
         restoreConfirmYes.textContent = 'Restoring...';
 
-        await window.go.main.App.ConfirmRestoreBackup(pendingRestorePath);
+        await window.go.main.App.ConfirmRestoreBackup(pendingRestorePath, pendingIdentityPolicy);
 
         hideRestoreConfirmDialog();
         closeSettings();
@@ -199,6 +238,19 @@ async function confirmRestore() {
         restoreConfirmYes.textContent = 'Delete & Restore';
     }
 }
+
+// Update pendingIdentityPolicy and show/hide the takeover warning when the
+// user changes the identity-policy radio selection.
+restoreIdentityPanel.addEventListener('change', (e) => {
+    if (e.target.name === 'identity-policy') {
+        pendingIdentityPolicy = e.target.value;
+        if (pendingIdentityPolicy === 'takeover') {
+            restoreTakeoverWarning.classList.remove('hidden');
+        } else {
+            restoreTakeoverWarning.classList.add('hidden');
+        }
+    }
+});
 
 // Event listeners for backup
 createBackupBtn.addEventListener('click', createBackup);

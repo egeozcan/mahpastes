@@ -2582,7 +2582,9 @@ func (am *APIManager) handleRestoreBackup(w http.ResponseWriter, r *http.Request
 	}
 	tmpFile.Close()
 
-	if err := am.app.ConfirmRestoreBackup(tmpPath); err != nil {
+	// REST API (headless CLI) defaults to "keep": preserve local identity and
+	// mark restored shares invalid rather than silently adopting a remote identity.
+	if err := am.app.ConfirmRestoreBackup(tmpPath, "keep"); err != nil {
 		am.jsonError(w, http.StatusInternalServerError, "failed to restore backup: "+err.Error())
 		return
 	}

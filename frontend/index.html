@@ -632,6 +632,37 @@
                 <div id="restore-backup-info" class="text-xs text-stone-600 space-y-2 mb-4">
                     <!-- Backup info will be inserted by JS -->
                 </div>
+                <!-- Identity collision panel — shown only when both backup and install have an identity -->
+                <div id="restore-identity-panel" class="hidden mb-4">
+                    <div class="bg-amber-50 border border-amber-200 rounded-md p-3 mb-3">
+                        <p class="text-xs font-semibold text-amber-700 mb-1">Identity conflict detected</p>
+                        <p class="text-[11px] text-amber-700">The backup contains a share identity and this install already has one. Choose how to handle it:</p>
+                    </div>
+                    <div class="space-y-2" role="radiogroup" aria-labelledby="restore-identity-label">
+                        <p id="restore-identity-label" class="text-[11px] font-semibold text-stone-500 uppercase tracking-wide">Identity policy</p>
+                        <label class="flex items-start gap-2 cursor-pointer group">
+                            <input type="radio" name="identity-policy" value="keep" checked
+                                class="mt-0.5 accent-stone-800 cursor-pointer">
+                            <span class="text-xs text-stone-700">
+                                <span class="font-medium">Keep my identity</span>
+                                <span class="block text-[11px] text-stone-500">Discard backup identity. Restored publications will be marked invalid (they used a different peer id).</span>
+                            </span>
+                        </label>
+                        <label class="flex items-start gap-2 cursor-pointer group">
+                            <input type="radio" name="identity-policy" value="takeover"
+                                class="mt-0.5 accent-stone-800 cursor-pointer">
+                            <span class="text-xs text-stone-700">
+                                <span class="font-medium">Adopt backup identity</span>
+                                <span class="block text-[11px] text-stone-500">Replace my identity with the backup's. Current publications will stop working.</span>
+                            </span>
+                        </label>
+                        <!-- Takeover warning: lists current active publications that will stop working -->
+                        <div id="restore-takeover-warning" class="hidden ml-5 bg-amber-50 border border-amber-200 rounded-md p-2">
+                            <p class="text-[11px] font-semibold text-amber-700 mb-1">These publications will stop working:</p>
+                            <ul id="restore-takeover-pub-list" class="text-[11px] text-amber-700 list-disc list-inside space-y-0.5"></ul>
+                        </div>
+                    </div>
+                </div>
                 <p class="text-[11px] text-stone-500 text-center">Your current data will be permanently deleted. This action cannot be undone.</p>
             </div>
             <div class="bg-stone-50 px-5 py-3 flex gap-2 justify-end border-t border-stone-100">
