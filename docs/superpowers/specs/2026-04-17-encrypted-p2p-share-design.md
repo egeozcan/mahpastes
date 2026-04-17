@@ -56,16 +56,17 @@ Clicking `Follow` calls `ShareService.Follow(shareString, localTagName)`. The ba
 ### 3.4 Share-string format
 
 ```
-mp-share:v1:<base64url(CBOR{peer_id, addrs, key})>
+mp-share:v1:<base64url(CBOR{peer_id, key})>
 ```
 
-- `peer_id` — 32 raw bytes, the libp2p Ed25519 public key of this install.
-- `addrs` — list of libp2p multiaddrs (direct addrs + relay addrs), populated by libp2p's Identify + AutoRelay.
+- `peer_id` — 32 raw bytes, the libp2p Ed25519 public key of this install. Stable across app restarts.
 - `key` — 32 random bytes, freshly generated per publication.
 
-CBOR rather than raw concat because `addrs` is variable-length and versioning is cleaner. Base64url so the whole string is URL-safe and QR-friendly. Publisher's tag name is explicitly **not** included; followers choose a local tag name themselves.
+No addresses in the string. The string contains only stable fields so a copied link survives publisher restarts, network changes, and relay reservation churn. Addresses are resolved at follow-time via libp2p's DHT; see §5.5.
 
-Typical length: ~180–260 characters over three or four wrapped lines.
+CBOR (rather than raw concat) gives us cheap extensibility: future versions can add optional fields without changing the prefix. Base64url so the whole string is URL-safe and QR-friendly. Publisher's tag name is explicitly **not** included; followers choose a local tag name themselves.
+
+Typical length: ~110–130 characters — a single line.
 
 ## 4. Architecture
 
@@ -148,22 +149,48 @@ Publisher:
 └──────────────┴────────────────┴────────────────────────┘
 ```
 
-- `length` covers `nonce + ciphertext + tag`. Frames the envelope unambiguously.
+- `length` covers `nonce + ciphertext + tag`. Frames the envelope unambiguously. Hard cap: `length ≤ 1 MiB + 64 B overhead`.
 - GCM associated data = `share_id || seq (u64 big-endian)`. Binds each envelope to its publication and position; defeats replay and reorder across or within publications.
-- Plaintext = CBOR:
-  ```
-  {
-    seq: uint64,
-    ts:  int64,                     // unix millis, informational
-    kind: "clip",                   // reserved; future kinds don't bump version
-    clip: {
-      filename:     string,
-      content_type: string,
-      data:         bytes,          // arbitrary binary; screenshots, PDFs, etc.
-      metadata:     { key: value }  // clip metadata k/v pairs
-    }
-  }
-  ```
+
+**Chunked clip transport.** Clips of arbitrary size (screenshots, PDFs, multi-MB binaries) are transmitted as one or more envelopes so that memory cost is bounded. Each envelope's plaintext is one of three CBOR-tagged messages:
+
+```
+// 1. Per-clip header — first envelope of a clip.
+{
+  seq:      uint64,
+  ts:       int64,                 // unix millis, informational
+  kind:     "clip_start",
+  clip_id:  uint64,                // opaque, unique within this stream session
+  filename: string,
+  content_type: string,
+  metadata: { key: value },
+  total_size: uint64,              // total plaintext byte count
+  chunk_count: uint32              // N, number of clip_chunk envelopes that follow
+}
+
+// 2. Body chunk — each envelope carries up to 1 MiB of raw bytes.
+{
+  seq:     uint64,
+  kind:    "clip_chunk",
+  clip_id: uint64,
+  index:   uint32,                 // 0..chunk_count-1
+  data:    bytes                   // at most 1 MiB
+}
+
+// 3. Terminator — signals the clip is complete.
+{
+  seq:     uint64,
+  kind:    "clip_end",
+  clip_id: uint64,
+  sha256:  bytes                   // 32 bytes, SHA-256 of the reassembled plaintext
+}
+```
+
+Every envelope has its own monotonic `seq` so the ring / catch-up protocol treats chunks and clips uniformly. A clip under 1 MiB compiles to exactly three envelopes (`clip_start` + one `clip_chunk` + `clip_end`); for very small clips the start+chunk can be merged into a single envelope of kind `clip_inline` (body under ~900 KB fits in one envelope including metadata) as an optimization — this is a v1.1 concern, spec defers it.
+
+`kind` is a versioned discriminator: future message types (heartbeats, key-rotation hints, etc.) add new kinds without bumping the protocol major.
+
+**Follower-side assembly.** On `clip_start` the follower opens a temp file under `<data-dir>/share-staging/<stream-session>-<clip_id>`, appends each `clip_chunk.data` as envelopes arrive, and on `clip_end` validates the SHA-256 and atomically inserts the clip into SQLite with the configured local tag. Temp-file approach means arbitrarily large clips land without resident-memory pressure. A stream session abandoned mid-clip leaves its staging file on disk; a janitor on startup deletes any `share-staging/*` older than 24h. On `clip_chunk` arriving out of order for the same `clip_id` the stream is considered corrupt (libp2p streams are in-order within a session, so this indicates a bug) and the follower resets and reconnects.
 
 ### 5.4 Trust model
 
@@ -184,6 +211,19 @@ Publisher:
 - Post-compromise security. If the symmetric key leaks, every past envelope captured by an eavesdropper becomes readable. Key rotation requires `Stop` + new share.
 - Publisher-to-follower authorization beyond possession of the key. Anyone with the string is authorized.
 
+### 5.5 Peer discovery
+
+The share string deliberately omits addresses so that copied links survive restarts, IP changes, and relay reservation churn. Address resolution happens at follow-time:
+
+1. **DHT bootstrap.** On startup, both roles connect to the public libp2p bootstrap peers (the standard `libp2p.ChainOptions` default list, ~6 nodes) and join the Kademlia DHT. Publisher runs in `dht.ModeAutoServer`; follower runs in `dht.ModeClient`.
+2. **Publisher reachability.** Publisher enables AutoRelay, which reserves circuit-relay v2 slots on public relays and advertises the resulting `/p2p-circuit` multiaddrs via libp2p Identify. When a DHT peer queries the publisher's peer record, it gets the current relay and direct addresses.
+3. **Follower resolution.** On follow (initial and every reconnect), the follower calls `host.Peerstore()` first (fast path for cached addrs); on miss or all-stale, calls `dht.FindPeer(ctx, peerID)` with a 10s timeout. The returned `AddrInfo` is stored in peerstore with a short TTL and dialed.
+4. **Upgrade.** If the initial dial lands through a relay, libp2p's DCUtR protocol attempts to upgrade to a direct connection in the background. The UI reflects this as `Connected (relayed)` → `Connected` when upgrade succeeds.
+
+**Listener ports** are still random per start (no firewall assumption), which is fine because the DHT record is what followers consult. **Relay reservations** are ephemeral, but the publisher's DHT record is refreshed as addrs change.
+
+**If the DHT or all bootstrap peers are unreachable** (hostile network): follow fails with a clear error. v1 does not ship a fallback. A future knob can let users configure custom bootstrap peers or a private relay.
+
 ## 6. Wire protocol details
 
 ### 6.1 Protocol ID
@@ -194,17 +234,44 @@ Publisher:
 
 Stream liveness uses libp2p's Yamux / QUIC keepalives; no app-level pings. Abnormal close on the follower side triggers exponential-backoff reconnect (1s → 30s cap, full jitter).
 
-### 6.3 Publisher-side ring buffer
+### 6.3 Publisher-side catch-up ring
 
-Per publication, in memory only:
+Per publication, in memory only. The ring does **not** store ciphertext — that would make memory cost unbounded with large clips. Instead each ring entry is a lightweight reference:
 
-- Keyed by `seq`, entries are pre-encrypted envelopes ready to retransmit.
-- Eviction: entries older than 1h OR beyond the 1000-entry cap, whichever comes first.
-- On process restart the ring is empty; `last_seq` is persisted to `shares` so new envelopes never reuse a seq.
+```
+{
+  seq:       uint64,
+  ts:        int64,                // wall-clock timestamp for age eviction
+  kind:      "clip_start" | "clip_chunk" | "clip_end",
+  clip_id:   int64,                // local DB clip id; 0 for clip_end/tombstone
+  chunk_idx: uint32,               // for clip_chunk only
+  nonce:     [12]byte,             // the exact nonce originally used
+  aad:       [24]byte,             // share_id || seq
+  tombstone: bool                  // true if source clip was deleted
+}
+```
 
-### 6.4 Per-follower write queue
+Size per entry: ~96 bytes. A 10 000-entry ring is ~1 MiB resident — trivially affordable.
 
-Per connected follower, bounded to 64 envelopes. If a follower cannot drain the queue (slow network, stalled peer), the publisher closes the connection. The follower reconnects and catches up via the ring buffer; prevents one slow peer from stalling the publisher.
+**Eviction:** entries older than 1h OR beyond 10 000 entries, whichever comes first. Age eviction is the primary guarantee (matches §2 non-goal on catch-up).
+
+**Retransmit path:** when a follower handshakes with `since_seq > 0`, the publisher walks the ring from `since_seq + 1`. For each entry:
+- Read the corresponding chunk from SQLite (the `clips.data` blob slice `[chunk_idx * 1 MiB : (chunk_idx+1) * 1 MiB]`, or the whole thing for `clip_start` / `clip_end`).
+- Re-encrypt with the stored nonce and AAD. Because plaintext is deterministic (we never mutate a clip row post-insert) and the key, nonce, and AAD are identical, the ciphertext is identical to the original. This is not a nonce-reuse vulnerability: GCM security requires nonces be unique across *distinct* plaintexts, not across retransmissions of the same plaintext.
+- Stream to the follower.
+
+**Tombstones:** if a clip was deleted between original send and retransmit, its ring entries are flagged `tombstone=true`. The publisher sends a small `{seq, kind: "gap"}` envelope for each tombstoned seq so the follower advances `last_seq` and does not request them again. No content loss the follower could have recovered anyway — this is the silent-gap case from the non-goals.
+
+**On process restart** the ring is empty; `shares.last_seq` is persisted so new envelopes never reuse a seq, but the publisher cannot serve catch-up for anything from before the restart.
+
+### 6.4 Per-follower send scheduler
+
+Per connected follower, the publisher runs a send scheduler with two bounds:
+
+- **Byte cap:** 32 MiB of envelopes pending write to this peer's stream. If adding the next envelope would exceed, the stream is closed; the follower reconnects and resumes via the ring.
+- **Envelope cap:** 256 envelopes queued. Primarily a defense against pathological chunk-spam from a buggy publisher; the byte cap is the load-bearing limit.
+
+Because individual envelopes are capped at ~1 MiB, one slow follower can hold at most ~32 MiB of memory hostage before the publisher sheds it. Clip body data is pulled from SQLite at enqueue time and held only until written to the stream; retransmit re-reads from SQLite. End-to-end, a publisher serving K followers has peak memory `~= ring_overhead + sum_k(queued_bytes_k) ≤ 1 MiB + K × 32 MiB` plus one in-flight chunk per active clip emission.
 
 ## 7. Data model
 
@@ -217,6 +284,7 @@ CREATE TABLE shares (
     symkey     BLOB    NOT NULL,                  -- 32 bytes
     share_id   BLOB    NOT NULL UNIQUE,           -- SHA-256(symkey)[:16]
     last_seq   INTEGER NOT NULL DEFAULT 0,        -- monotonic, persisted
+    status     TEXT    NOT NULL DEFAULT 'active', -- 'active' | 'invalid' (see §7.3)
     created_at INTEGER NOT NULL,
     FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
 );
@@ -225,7 +293,6 @@ CREATE UNIQUE INDEX idx_shares_tag_id ON shares(tag_id);
 CREATE TABLE follows (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
     remote_peer_id TEXT    NOT NULL,              -- multihash string
-    remote_addrs   TEXT    NOT NULL,              -- JSON array of multiaddrs
     symkey         BLOB    NOT NULL,              -- 32 bytes
     local_tag_id   INTEGER NOT NULL,
     last_seq       INTEGER NOT NULL DEFAULT 0,    -- highest seq accepted locally
@@ -247,10 +314,19 @@ CREATE INDEX idx_follows_peer ON follows(remote_peer_id);
 
 ### 7.3 Backup/restore
 
-`backup.go` already snapshots the SQLite DB; the new tables ride along automatically once the migration lands. The backup ZIP additionally includes `share_identity.key`. On restore:
+`backup.go` already snapshots the SQLite DB; the new tables ride along automatically once the migration lands. The backup ZIP additionally includes `share_identity.key`. Restore is a migration-level event, so identity handling must be an explicit user choice rather than a silent policy — otherwise a user restoring onto a machine where mahpastes already ran once gets silently broken shares.
 
-- If the target install has no existing identity file, the backup's identity is loaded. Existing share strings continue to work.
-- If the target has an identity already, the backup's identity is **not** loaded (to prevent two concurrent installs sharing one peer-id). Existing `shares` rows are loaded but will require `Stop` + re-share to produce valid strings under the target's identity. This is surfaced as a notice on the restore screen.
+**Restore dialog (UI flow):**
+
+After the user selects a backup ZIP, and before any write, the restore screen detects whether the target install already has `share_identity.key`. If yes, it prompts with three options:
+
+1. **Take over — use the backup's identity.** Existing share strings continue to work on this install. Any publications previously started on *this* install become orphaned (their peer-id goes stale immediately); a warning lists them by tag name so the user is not surprised. `share_identity.key` is overwritten with the backup's copy. **Recommended when migrating to a new machine.**
+2. **Keep this install's identity.** The backup's identity file is discarded. Restored `shares` rows are still inserted (for bookkeeping) but flagged `invalid`; cards display a "Re-share needed" state with a one-click `Stop + Share` action. **Recommended when merging a backup into an active second install.**
+3. **Cancel restore.** No changes.
+
+If the target install has no existing identity file (first run since install, or key never generated because no share was ever used), the backup's identity is loaded without prompting — there is nothing to lose. The restore screen surfaces this as an informational notice: "Identity restored from backup."
+
+**Schema:** `shares.status TEXT NOT NULL DEFAULT 'active'` is added to support the `invalid` state. Only `'active'` publications are registered with the `ShareManager`; `'invalid'` ones appear in the UI list with a distinct visual and no operational streams.
 
 ## 8. Lifecycle and error handling
 
@@ -260,9 +336,12 @@ CREATE INDEX idx_follows_peer ON follows(remote_peer_id);
 2. `ShareManager.Init()`:
    - Load or generate `share_identity.key`.
    - Build the libp2p host: QUIC + TCP on random ports, Noise encryption, Yamux muxer, AutoRelay enabled (public libp2p relays by default), DCUtR enabled, single registered protocol handler.
+   - Bootstrap the Kademlia DHT against the public libp2p bootstrap peers; publisher mode is `AutoServer`, follower-only instances run `Client`. Wait up to 10s for the bootstrap to stabilize before `ResumeAll`, but don't block indefinitely — lazy bootstrap is fine for UX.
 3. `ShareManager.ResumeAll()`:
-   - For each `shares` row, register an active publication (makes its handler ready to accept incoming follower streams).
-   - For each `follows` row, schedule a background reconnect loop.
+   - For each `shares` row with `status = 'active'`, register a publication (stream handler ready for incoming followers).
+   - For each `shares` row with `status = 'invalid'`, register it in the UI list only — no handler registered, no streams served.
+   - For each `follows` row, schedule a background reconnect loop (dials via DHT `FindPeer(peerID)` → `AddrInfo`).
+4. `shareStagingJanitor()` starts: walks `<data-dir>/share-staging/` and removes any file older than 24h. Runs once at startup, then every 6h.
 
 ### 8.2 Shutdown
 
@@ -275,9 +354,12 @@ CREATE INDEX idx_follows_peer ON follows(remote_peer_id);
 ### 8.3 Clip creation
 
 `ShareManager.OnClipCreated(clipID, tagIDs)` is called once per new clip, post-commit:
-1. Filter `tagIDs` against the publications map — skip if no match.
-2. For each match: read clip row, build plaintext CBOR, encrypt with publication's key, assign next `seq`, persist `shares.last_seq`.
-3. Append to the ring buffer; fan out to each connected follower's write queue.
+1. Filter `tagIDs` against active publications (`status = 'active'`) — skip if no match.
+2. For each matching publication:
+   - Read the clip's metadata and blob size from SQLite (blob itself is streamed, not fully loaded).
+   - Emit envelopes in order: `clip_start` → `clip_chunk × chunk_count` (1 MiB each, read lazily from the blob via `SUBSTR` or an offset read) → `clip_end` with the SHA-256.
+   - For each envelope: allocate the next `seq`, persist `shares.last_seq` in a single transaction batch, encrypt with the publication's key + fresh random nonce, enqueue onto every connected follower's send scheduler, and record the lightweight reference entry in the ring.
+3. `shares.last_seq` is flushed in a single write per clip (one transaction covers the whole `clip_start..clip_end` burst), keeping DB write amplification proportional to clips, not chunks.
 
 ### 8.4 Error modes and resolution
 
@@ -287,13 +369,22 @@ CREATE INDEX idx_follows_peer ON follows(remote_peer_id);
 | Strict NAT on either side, direct fails | libp2p falls back to circuit-relay; card shows `Connected (relayed)`. |
 | Malformed share string | Client-side parser rejects before any backend call; inline modal error. |
 | Valid string but publisher unreachable on first follow | Backend attempts connection with short timeout; on failure, returns an error; `follows` row is **not** inserted; inline modal error. |
-| Publisher restart while follower connected | Follower stream closes, reconnects, handshakes with `since_seq = last_seq`. Ring buffer empty after restart so recent-gap catch-up is possible only if publisher had been up long enough — otherwise silent gap (accepted per spec). |
+| Publisher restart while follower connected | Follower stream closes, reconnects. Follower queries DHT for the publisher's current addresses, redials, handshakes with `since_seq = last_seq`. Ring is empty after restart so recent-gap catch-up is impossible — silent gap (accepted per spec). |
+| Publisher address change (new network, relay reservation expired) | DHT record updates automatically as addrs change. Follower's next reconnect does a fresh `FindPeer` and dials the new addrs. |
+| DHT unreachable / hostile network | Follow attempt fails with error `DHT lookup failed — check network connectivity`. Follow row is not inserted (for first follow) or follow remains in `Offline · will resume` with backoff (for existing follows). |
+| Strict NAT on either side, direct fails | libp2p falls back to circuit-relay; card shows `Connected (relayed)`. DCUtR attempts upgrade in the background. |
+| Malformed share string | Client-side parser rejects before any backend call; inline modal error. |
+| Valid string but publisher unreachable on first follow | Backend attempts DHT `FindPeer` + dial with short timeout; on failure, returns an error; `follows` row is **not** inserted; inline modal error. |
 | Tag deleted on publisher | `StopShare` called explicitly, streams close, `ON DELETE CASCADE` drops the row, card disappears. |
+| Clip deleted between send and retransmit request | Publisher flags ring entries `tombstone=true` on delete, sends `gap` envelopes so follower advances `last_seq` without waiting. |
 | Tag deleted on follower | Blocked by `ON DELETE RESTRICT`; user is prompted to `Unfollow` first. |
-| Disk full on follower during insert | Envelope is dropped; `last_seq` is **not** advanced. Next reconnect requests that seq; if still in publisher's ring, recovered; otherwise accepted loss. |
-| Slow follower cannot drain write queue | Publisher closes that follower's connection; follower reconnects and catches up from ring. |
+| Disk full on follower during `clip_chunk` staging write | Staging write returns error; follower drops the in-flight clip without advancing `last_seq` past `clip_start`, resets stream. Next reconnect retries from `clip_start.seq`; if still in ring, recovered; otherwise accepted loss. |
+| Staging temp file left behind (crash mid-clip) | Janitor at startup + every 6h removes `share-staging/*` older than 24h. |
+| Malformed chunk order or checksum mismatch on `clip_end` | Follower aborts the clip, deletes the staging file, resets the stream, requests retransmit from `clip_start.seq` on reconnect. |
+| Slow follower exceeds 32 MiB send-queue byte cap | Publisher closes that follower's connection; follower reconnects and catches up from ring. |
 | Follower attempts unknown protocol | Stream `Reset`. |
-| Follower sends bad handshake HMAC | Stream `Reset`. No distinguishing signal — same response as unknown `share_id`. |
+| Follower sends bad handshake HMAC or unknown `share_id` | Stream `Reset`. Indistinguishable responses — no enumeration signal. |
+| Restored backup with invalidated shares | `shares.status = 'invalid'` rows render with "Re-share needed" CTA; no handler registered until user re-shares. |
 
 ### 8.5 Rate limits
 
@@ -311,18 +402,22 @@ Tests use two parallel `AppHelper` instances paired by passing the publisher's s
 
 - `share-create.spec.ts` — create share on A, string appears, Stop, string no longer accepted by B.
 - `share-follow.spec.ts` — A shares tag, B follows into chosen local tag, A adds a binary (PNG) clip, B sees the clip under its local tag within a bounded time.
+- `share-large-clip.spec.ts` — A pushes a multi-MB binary (e.g. 8 MiB image), B reassembles it end-to-end with matching SHA-256; staging file cleaned up on success.
 - `share-offline-catchup.spec.ts` — B disconnects mid-session, A adds a clip, B reconnects within the 1h window → clip delivered.
 - `share-offline-dropped.spec.ts` — simulate gap beyond the ring (fast-forward or direct manipulation of the ring's eviction clock) → clip not delivered, no error surfaced.
+- `share-tombstone.spec.ts` — A pushes clip, B goes offline, A deletes the clip, B reconnects — no error, `last_seq` advances via gap envelope.
+- `share-address-change.spec.ts` — A shares, B follows, A restarts on a different port / address → B's reconnect loop re-resolves via DHT and resumes.
 - `share-persistence.spec.ts` — create share, restart A, string still works against B; follow, restart B, follow resumes.
+- `share-restore.spec.ts` — restore backup over an install with existing identity: prompt shown; `Take over` recovers shares; `Keep` marks them `invalid` with Re-share CTA.
 - `share-ui.spec.ts` — sidebar 2×2 grid renders; Share tab activates; create/follow modals open, validate, close; cards update on Wails events.
 - `share-trust.spec.ts` — attempt to open a stream on a different protocol ID → `Reset`; attempt handshake with wrong HMAC → `Reset`; attempt handshake with unknown `share_id` → `Reset`.
 
 ### 9.2 Go unit tests
 
-- `share_codec_test.go` — roundtrip encode/decode, reject missing prefix, reject wrong version, reject malformed CBOR.
-- `share_protocol_test.go` — handshake accepts valid HMAC, rejects mismatched HMAC and unknown `share_id`; envelope GCM roundtrip; seq ordering preserved; ring evicts at 1h and at capacity cap.
-- `share_identity_test.go` — keypair persists across `Init` calls; regenerates if file missing or corrupt.
-- `share_manager_test.go` — `ResumeAll` replays both tables; `OnClipCreated` fans out to matching publications only.
+- `share_codec_test.go` — roundtrip encode/decode, reject missing prefix, reject wrong version, reject malformed CBOR. Asserts encoded length ≤ 140 chars.
+- `share_protocol_test.go` — handshake accepts valid HMAC, rejects mismatched HMAC and unknown `share_id`; envelope GCM roundtrip; chunked clip assembly (start / N chunks / end) with SHA-256 verification; seq ordering preserved; ring evicts at 1h and at 10 000 entries; retransmit re-reads from SQLite with matching ciphertext; tombstone emits `gap`.
+- `share_identity_test.go` — keypair persists across `Init` calls; regenerates if file missing; corrupt file returns a typed error rather than panicking.
+- `share_manager_test.go` — `ResumeAll` replays `active` rows only; `invalid` rows are surfaced without handler registration; `OnClipCreated` fans out to matching publications only; chunk emission for a 3 MiB clip produces 5 envelopes (`clip_start` + 3 × `clip_chunk` + `clip_end`); per-follower scheduler sheds connection when byte cap exceeded.
 
 ### 9.3 Baseline
 
@@ -330,12 +425,14 @@ Per CLAUDE.md, the existing `e2e` suite must pass before and after the change. N
 
 ## 10. Rollout considerations
 
-- **Dependency weight:** libp2p-go adds ~15MB of compiled size and pulls a deep tree. Acceptable; documented in the PR.
-- **Public relay reliance:** default config uses libp2p's public relay bootstrap list. No action needed from users on typical networks. Future knob: user-supplied relay list.
+- **Dependency weight:** libp2p-go adds ~15MB of compiled size and pulls a deep tree (including a CBOR library, a QUIC stack, and the Kademlia DHT). Acceptable; documented in the PR.
+- **Public infrastructure reliance:** default config uses libp2p's public bootstrap peers, the public IPFS Kademlia DHT, and public circuit-relay reservations. No action needed from users on typical networks. Feature does not function on networks where all DHT traffic is blocked. Future knob: user-supplied bootstrap list + private relay.
+- **Memory ceiling:** worst-case publisher memory with K connected followers is `ring ≈ 1 MiB + K × 32 MiB` + in-flight chunk(s). Documented for future capacity sizing.
 - **Platform parity:** libp2p-go is pure Go. Preserves the CGo-free-Windows invariant. No OS-specific code paths added by this feature.
+- **Data-dir additions:** `share_identity.key` (one file, ~100 bytes) and `share-staging/` directory (transient). Both live under the same data dir as the SQLite DB.
 - **Telemetry:** none. Follow the existing pattern: local-only UI surfaces connection status; no usage data leaves the device.
 
-## 11. Open questions — resolved during brainstorming
+## 11. Open questions — resolved during brainstorming and review
 
 - ~~LAN-only vs internet-wide?~~ → internet-wide with NAT traversal.
 - ~~What content propagates?~~ → new clips only, append-only, forward from follow.
@@ -343,9 +440,12 @@ Per CLAUDE.md, the existing `e2e` suite must pass before and after the change. N
 - ~~Writable shares?~~ → no; 1:N read-only.
 - ~~Tag-name auto-assign on follow?~~ → follower types a local tag name; publisher's tag name is not transmitted.
 - ~~Sidebar layout for 4 tabs?~~ → keep `w-64`, switch to 2×2 grid.
-- ~~Share string format?~~ → `mp-share:v1:<base64url(CBOR payload)>`, no cleartext tag hint.
+- ~~Share string format?~~ → `mp-share:v1:<base64url(CBOR payload)>`, no addresses, no tag hint. Discovery via DHT.
 - ~~Create-Share dialog?~~ → text string by default, QR on demand.
 - ~~P2P library?~~ → libp2p-go.
+- ~~Restart-stable shares when addresses are ephemeral?~~ → DHT-based discovery; share string contains only peer_id + key.
+- ~~Memory budget under large clips?~~ → chunked envelopes (1 MiB max) + metadata-only ring + byte-capped per-follower queues.
+- ~~Backup/restore identity handling?~~ → explicit user choice (Take over / Keep / Cancel) when target install already has an identity.
 
 ## 12. Future work (not in this spec)
 
