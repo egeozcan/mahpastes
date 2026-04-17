@@ -179,4 +179,34 @@ export function getBaseURL(workerIndex: number): string {
   return `http://localhost:${BASE_PORT + workerIndex}`;
 }
 
+// Offset applied to workerIndex for secondary (follower) instances to avoid
+// port collisions with the primary pool (workers 0..N-1 use BASE_PORT+0..N-1).
+const SECONDARY_INDEX_OFFSET = 1000;
+
+/**
+ * Spawn a secondary Wails instance for use inside a single test (e.g. to simulate
+ * a follower app alongside the primary publisher app).
+ *
+ * Returns an object with:
+ *   - `instance`  – the raw WailsInstance (port, dataDir, baseURL, process)
+ *   - `cleanup()` – must be called at end of test (ideally in a finally block)
+ *                   to kill the process and remove the data directory.
+ *
+ * Port allocation: BASE_PORT + SECONDARY_INDEX_OFFSET + workerIndex, e.g. 35115
+ * for worker 0. This avoids the primary range (34115–34118) even for 4 workers.
+ */
+export async function spawnSecondaryInstance(workerIndex: number): Promise<{
+  instance: WailsInstance;
+  cleanup: () => Promise<void>;
+}> {
+  const secondaryIndex = SECONDARY_INDEX_OFFSET + workerIndex;
+  const instance = await spawnWailsInstance(secondaryIndex);
+
+  const cleanup = async () => {
+    await killWailsInstance(secondaryIndex);
+  };
+
+  return { instance, cleanup };
+}
+
 export { BASE_PORT, PROJECT_ROOT };

@@ -1,6 +1,6 @@
 import { test as base, Page, Locator, expect, BrowserContext } from '@playwright/test';
 import { selectors } from '../helpers/selectors.js';
-import { getBaseURL } from '../helpers/wails-manager.js';
+import { getBaseURL, spawnSecondaryInstance } from '../helpers/wails-manager.js';
 import { createTempDir, cleanup, Point } from '../helpers/test-data.js';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -2620,6 +2620,157 @@ export class AppHelper {
         await window.go.main.ServeService.StopServing(tagId);
       }, s.tag_id);
     }
+  }
+
+  // ==================== Share ====================
+
+  /**
+   * Open the share view, create a share for the given tag, close the modal,
+   * and return the share string and the tag's numeric ID.
+   * The tag must already exist before calling this.
+   */
+  async startShare(tagName: string): Promise<{ shareString: string; tagID: number }> {
+    await this.openDrawer();
+    await this.page.click('#view-tab-share');
+    await this.page.waitForFunction(
+      () => !(document.getElementById('share-view')?.classList.contains('hidden') ?? true),
+      { timeout: 5000 },
+    );
+    await this.page.click('#add-share-btn');
+    await this.page.selectOption('#create-share-tag-select', { label: tagName });
+    await this.page.click('#create-share-confirm-btn');
+    // Wait for the result section to appear (StartShare RPC completes).
+    await this.page.waitForFunction(
+      () => !(document.getElementById('create-share-result-section')?.classList.contains('hidden') ?? true),
+      { timeout: 15000 },
+    );
+    const shareString = (await this.page.textContent('#create-share-string-box') || '').trim();
+    await this.page.click('.create-share-close');
+    const tagID = await this.page.evaluate((n) =>
+      (window as any).go.main.App.GetTags().then((tags: any[]) => (tags.find((t: any) => t.name === n)?.id) || 0),
+    tagName);
+    return { shareString, tagID };
+  }
+
+  /**
+   * Stop an active share for the given tag ID via the ShareService API directly.
+   * Used for cleanup; does not interact with the UI.
+   */
+  async stopShare(tagID: number): Promise<void> {
+    await this.page.evaluate((id) => (window as any).go.main.ShareService.StopShare(id), tagID);
+  }
+
+  /**
+   * Open the follow share modal, paste the share string, fill the local tag name,
+   * confirm, and wait for the modal to close.
+   *
+   * Note: The tag section is only revealed after the textarea receives a valid
+   * share string via its `input` event. Playwright's `fill()` dispatches that event,
+   * so we wait for the section to become visible before filling the tag name.
+   */
+  async followShare(shareString: string, localTagName: string): Promise<void> {
+    await this.openDrawer();
+    await this.page.click('#view-tab-share');
+    await this.page.waitForFunction(
+      () => !(document.getElementById('share-view')?.classList.contains('hidden') ?? true),
+      { timeout: 5000 },
+    );
+    await this.page.click('#add-follow-btn');
+    // The follow modal uses the Tailwind `hidden` class (display:none) to show/hide.
+    // Wait for the class to be removed (modal opens).
+    await this.page.waitForFunction(
+      () => !(document.getElementById('follow-share-modal')?.classList.contains('hidden') ?? true),
+      { timeout: 5000 },
+    );
+    // Use locator fill to reliably dispatch input event, which reveals the tag section.
+    await this.page.locator('#follow-share-string').fill(shareString);
+    // Explicitly dispatch the input event in case the textarea listener missed it.
+    await this.page.evaluate(() => {
+      const el = document.getElementById('follow-share-string');
+      if (el) el.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    // Wait for the tag-name section to be revealed by the textarea input event handler.
+    await this.page.waitForFunction(
+      () => !(document.getElementById('follow-share-tag-section')?.classList.contains('hidden') ?? true),
+      { timeout: 10000 },
+    );
+    await this.page.locator('#follow-share-local-tag').fill(localTagName);
+    await this.page.click('#follow-share-confirm-btn');
+    // Wait for the modal to close: it uses the Tailwind `hidden` class (display:none).
+    // We poll for the class rather than using waitForSelector (which waits for visibility).
+    // If the Follow RPC fails, check the error text for diagnosis.
+    await this.page.waitForFunction(
+      () => {
+        const modal = document.getElementById('follow-share-modal');
+        if (!modal) return true; // gone from DOM
+        if (modal.classList.contains('hidden')) return true; // closed
+        const err = document.getElementById('follow-share-error');
+        if (err && !err.classList.contains('hidden') && err.textContent) {
+          throw new Error('Follow failed: ' + err.textContent);
+        }
+        return false; // still open, no error yet
+      },
+      { timeout: 20000 },
+    );
+  }
+
+  /**
+   * Return the raw ShareStatus object from ShareService.GetShareStatus().
+   * Contains `shares` (publications) and `follows` arrays.
+   */
+  async getShareStatus(): Promise<any> {
+    return await this.page.evaluate(() => (window as any).go.main.ShareService.GetShareStatus());
+  }
+
+  // ==================== Secondary Instance (two-app tests) ====================
+
+  /**
+   * Spawn a second Wails app instance for this test worker.
+   * Returns an AppHelper bound to the secondary instance's page, and a cleanup()
+   * function that MUST be called (ideally in a finally block) to kill the process.
+   *
+   * Port: BASE_PORT + 1000 + workerIndex (e.g. 35115 for worker 0), which does
+   * not collide with the primary pool even at max workers.
+   *
+   * Usage:
+   *   const secondary = await app.spawnSecondary(testInfo.parallelIndex);
+   *   try {
+   *     // ... test using app (publisher) and secondary.app (follower)
+   *   } finally {
+   *     await secondary.cleanup();
+   *   }
+   */
+  async spawnSecondary(
+    workerIndex: number,
+  ): Promise<{ app: AppHelper; cleanup: () => Promise<void> }> {
+    const context = this.page.context();
+    const { instance, cleanup } = await spawnSecondaryInstance(workerIndex);
+
+    const secondaryPage = await context.newPage();
+    await secondaryPage.goto(instance.baseURL);
+
+    // Wait for the secondary app to be fully ready
+    await secondaryPage.waitForSelector('[data-testid="gallery"], #gallery', { timeout: 30000 });
+    await secondaryPage.waitForFunction(
+      () => typeof (window as any).go?.main?.App?.GetClips === 'function',
+      { timeout: 30000 },
+    );
+    await secondaryPage.waitForFunction(
+      () => (window as any).__appReady === true,
+      { timeout: 30000 },
+    );
+
+    const secondaryApp = new AppHelper(secondaryPage, instance.baseURL);
+
+    const fullCleanup = async () => {
+      try {
+        await secondaryPage.close().catch(() => {});
+      } finally {
+        await cleanup();
+      }
+    };
+
+    return { app: secondaryApp, cleanup: fullCleanup };
   }
 }
 
