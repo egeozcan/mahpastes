@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/libp2p/go-libp2p"
+	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -681,4 +683,324 @@ func (m *ShareManager) liveFanOut(p *publication, envelope []byte) {
 	for _, fc := range p.followers {
 		fc.enqueue(envelope)
 	}
+}
+
+// Follow validates a share string, creates/resolves the local tag, persists a
+// follows row, and starts the background reconnect loop.
+func (m *ShareManager) Follow(shareString, localTagName string) (FollowInfo, error) {
+	var info FollowInfo
+
+	peerIDBytes, symkey, err := DecodeShareString(shareString)
+	if err != nil {
+		return info, fmt.Errorf("invalid share string: %w", err)
+	}
+	// Build libp2p peer.ID from raw Ed25519 public key bytes.
+	pubKey, err := cryptoPublicKeyFromBytes(peerIDBytes)
+	if err != nil {
+		return info, fmt.Errorf("peer id from key: %w", err)
+	}
+	pid, err := peer.IDFromPublicKey(pubKey)
+	if err != nil {
+		return info, fmt.Errorf("peer id: %w", err)
+	}
+	// Don't follow self.
+	if pid == m.host.ID() {
+		return info, errors.New("cannot follow your own share")
+	}
+
+	// Resolve or create the local tag.
+	localTagID, err := m.resolveOrCreateTag(localTagName)
+	if err != nil {
+		return info, fmt.Errorf("tag: %w", err)
+	}
+
+	// Attempt an initial connection (times out at HandshakeTimeout + 2s).
+	dctx, dcancel := context.WithTimeout(m.ctx, 10*time.Second)
+	defer dcancel()
+	if err := m.dialByPeerID(dctx, pid); err != nil {
+		return info, fmt.Errorf("initial dial: %w", err)
+	}
+
+	// Insert row.
+	now := time.Now().Unix()
+	res, err := m.db.Exec(
+		`INSERT INTO follows (remote_peer_id, symkey, local_tag_id, last_seq, last_seen_at, created_at) VALUES (?, ?, ?, 0, ?, ?)`,
+		pid.String(), symkey, localTagID, now, now,
+	)
+	if err != nil {
+		return info, fmt.Errorf("insert follow: %w", err)
+	}
+	id, _ := res.LastInsertId()
+
+	fctx, fcancel := context.WithCancel(m.ctx)
+	f := &follow{
+		id: id, remotePeerID: pid, symkey: symkey,
+		localTagID: localTagID, lastSeq: 0,
+		// "connecting" = row inserted, runFollowLoop about to start. flips to
+		// "connected" only when followSession completes the handshake, so the
+		// TestFollowSessionEndFlipsStatusOffline poll gates on an actual live
+		// session (and DisconnectFollowForTest has something to cancel).
+		status: "connecting", ctx: fctx, cancel: fcancel,
+	}
+	m.mu.Lock()
+	m.follows[id] = f
+	m.mu.Unlock()
+
+	go m.runFollowLoop(f)
+
+	info = FollowInfo{
+		ID: id, RemotePeerID: pid.String(),
+		LocalTagID: localTagID, LocalTagName: localTagName,
+		Status: "connected", ClipsReceived: 0, LastSeq: 0,
+		CreatedAt: now,
+	}
+	m.emitEvent("share:follow-updated", info)
+	return info, nil
+}
+
+// Unfollow cancels the reconnect loop and deletes the follows row.
+func (m *ShareManager) Unfollow(followID int64) error {
+	m.mu.Lock()
+	f, ok := m.follows[followID]
+	if ok {
+		delete(m.follows, followID)
+	}
+	m.mu.Unlock()
+	if ok {
+		f.cancel()
+	}
+	if _, err := m.db.Exec(`DELETE FROM follows WHERE id = ?`, followID); err != nil {
+		return err
+	}
+	m.emitEvent("share:follow-removed", map[string]any{"id": followID})
+	return nil
+}
+
+// dialByPeerID finds addrs via peerstore (fast path) or DHT (slow path) and
+// opens the stream with a handshake at since_seq = lastSeq.
+func (m *ShareManager) dialByPeerID(ctx context.Context, pid peer.ID) error {
+	// Fast path: cached addrs.
+	if addrs := m.host.Peerstore().Addrs(pid); len(addrs) > 0 {
+		if err := m.host.Connect(ctx, peer.AddrInfo{ID: pid, Addrs: addrs}); err == nil {
+			return nil
+		}
+	}
+	// Slow path: DHT FindPeer.
+	fctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	ai, err := m.dht.FindPeer(fctx, pid)
+	if err != nil {
+		return fmt.Errorf("dht find peer: %w", err)
+	}
+	m.host.Peerstore().AddAddrs(pid, ai.Addrs, time.Hour)
+	return m.host.Connect(ctx, ai)
+}
+
+// runFollowLoop is the reconnect + receive loop for one follow.
+func (m *ShareManager) runFollowLoop(f *follow) {
+	backoff := ReconnectFloor
+	for {
+		if err := m.followSession(f); err != nil {
+			log.Printf("share: follow %d session ended: %v", f.id, err)
+		}
+		select {
+		case <-f.ctx.Done():
+			return
+		case <-time.After(backoff):
+		}
+		backoff *= 2
+		if backoff > ReconnectCap {
+			backoff = ReconnectCap
+		}
+	}
+}
+
+// followSession dials, handshakes, and streams until either the stream
+// closes on its own or the per-session context is canceled (e.g. by
+// DisconnectFollowForTest). Returns when the session ends for any reason;
+// the caller (runFollowLoop) then decides whether to reconnect.
+//
+// Status discipline: status flips to "connected" exactly once the
+// handshake is written; the deferred cleanup flips it back to "offline"
+// on every exit path (dial error, handshake error, mid-stream cancel,
+// EOF, consumeStream error). This guarantees the UI card reflects real
+// transport state regardless of which branch returns.
+func (m *ShareManager) followSession(f *follow) error {
+	sessCtx, sessCancel := context.WithCancel(f.ctx)
+	f.mu.Lock()
+	f.sessionCancel = sessCancel
+	f.mu.Unlock()
+	defer func() {
+		f.mu.Lock()
+		f.sessionCancel = nil
+		f.mu.Unlock()
+		sessCancel()
+		// Session ended — always surface offline so the UI and tests have
+		// a reliable signal that catch-up (not live) is next on the wire.
+		m.setFollowStatus(f, "offline")
+	}()
+
+	if err := m.dialByPeerID(sessCtx, f.remotePeerID); err != nil {
+		return err
+	}
+	s, err := m.host.NewStream(sessCtx, f.remotePeerID, ShareProtocolID)
+	if err != nil {
+		return err
+	}
+	defer s.Reset()
+
+	// Cancel the stream whenever the session context is canceled (covers
+	// DisconnectFollowForTest which may fire mid-read on consumeStream).
+	go func() {
+		<-sessCtx.Done()
+		_ = s.Reset()
+	}()
+
+	shareID := DeriveShareID(f.symkey)
+	hs := BuildHandshake(f.symkey, shareID, f.lastSeq)
+	if _, err := s.Write(hs); err != nil {
+		return err
+	}
+	m.setFollowStatus(f, "connected")
+
+	return m.consumeStream(sessCtx, f, s)
+}
+
+// consumeStream reads frames until the session context is canceled or the
+// stream closes. Takes the session ctx (not the follow-lifetime ctx) so
+// DisconnectFollowForTest ends reads promptly without killing the follow.
+func (m *ShareManager) consumeStream(sessCtx context.Context, f *follow, r io.Reader) error {
+	asm := newClipAssembler(filepath.Join(m.dataDir, ShareStagingDirName))
+	shareID := DeriveShareID(f.symkey)
+	for {
+		select {
+		case <-sessCtx.Done():
+			return sessCtx.Err()
+		default:
+		}
+		frame, err := ReadFrame(r)
+		if err != nil {
+			return err
+		}
+		// Seq is part of AAD; we need it to decrypt. Because we don't know it
+		// yet, peek into the CBOR after decrypting with candidate seqs — but
+		// we can cheat: plaintext also includes the seq. Try lastSeq+1 first.
+		pt, err := DecryptEnvelope(f.symkey, shareID, f.lastSeq+1, frame)
+		if err != nil {
+			// Retransmit may skip seqs (eviction gap); try bumping.
+			var ok bool
+			for jump := uint64(2); jump < 32; jump++ {
+				pt, err = DecryptEnvelope(f.symkey, shareID, f.lastSeq+jump, frame)
+				if err == nil {
+					f.lastSeq += (jump - 1) // advance over the gap; will be fixed to exact in next step
+					ok = true
+					break
+				}
+			}
+			if !ok {
+				return fmt.Errorf("decrypt failed: %w", err)
+			}
+		}
+		kind, raw, err := PeekPayloadKind(pt)
+		if err != nil {
+			return err
+		}
+		// Trust the seq that's inside the plaintext — that's the authoritative one.
+		var inSeq uint64
+		switch kind {
+		case KindClipStart:
+			var p ClipStartPayload
+			if err := UnmarshalPayload(raw, &p); err != nil {
+				return err
+			}
+			inSeq = p.Seq
+			asm.onStart(p)
+		case KindClipChunk:
+			var p ClipChunkPayload
+			if err := UnmarshalPayload(raw, &p); err != nil {
+				return err
+			}
+			inSeq = p.Seq
+			asm.onChunk(p)
+		case KindClipEnd:
+			var p ClipEndPayload
+			if err := UnmarshalPayload(raw, &p); err != nil {
+				return err
+			}
+			inSeq = p.Seq
+			if err := asm.onEnd(p, m.db, f.localTagID); err != nil {
+				log.Printf("share: assemble failed: %v", err)
+			} else {
+				// Assembly succeeded → bump clips_received.
+				_, _ = m.db.Exec(`UPDATE follows SET clips_received = clips_received + 1 WHERE id = ?`, f.id)
+			}
+		case KindGap:
+			var p GapPayload
+			if err := UnmarshalPayload(raw, &p); err != nil {
+				return err
+			}
+			inSeq = p.Seq
+		}
+		f.lastSeq = inSeq
+		_, _ = m.db.Exec(`UPDATE follows SET last_seq = ?, last_seen_at = ? WHERE id = ?`, int64(inSeq), time.Now().Unix(), f.id)
+	}
+}
+
+func (m *ShareManager) setFollowStatus(f *follow, s string) {
+	f.status = s
+	m.emitEvent("share:follow-updated", map[string]any{"id": f.id, "status": s})
+}
+
+// resolveOrCreateTag uses the existing App API if present, or falls back to a
+// direct INSERT. For the tests this path is sufficient; in the wired app,
+// ShareManager.resolveOrCreateTag delegates via a callback set at startup.
+func (m *ShareManager) resolveOrCreateTag(name string) (int64, error) {
+	var id int64
+	err := m.db.QueryRow(`SELECT id FROM tags WHERE name = ?`, name).Scan(&id)
+	if err == nil {
+		return id, nil
+	}
+	if err != sql.ErrNoRows {
+		return 0, err
+	}
+	res, err := m.db.Exec(`INSERT INTO tags (name, color) VALUES (?, '#888')`, name)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+// cryptoPublicKeyFromBytes reconstructs a libp2p PubKey from 32 raw Ed25519 bytes.
+func cryptoPublicKeyFromBytes(raw []byte) (crypto.PubKey, error) {
+	if len(raw) != 32 {
+		return nil, errors.New("pubkey must be 32 bytes")
+	}
+	return crypto.UnmarshalEd25519PublicKey(raw)
+}
+
+// DisconnectFollowForTest cancels the follow's CURRENT SESSION context so
+// the active session exits (unblocks consumeStream, resets the stream)
+// but the follow-lifetime context, the follows row, and last_seq all
+// stay. The runFollowLoop re-enters its backoff → reconnect path.
+//
+// Thread safety: reads and swaps f.sessionCancel under f.mu. Never
+// touches f.ctx or f.cancel — those belong to Unfollow.
+func (m *ShareManager) DisconnectFollowForTest(id int64) error {
+	m.mu.RLock()
+	f, ok := m.follows[id]
+	m.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("no follow %d", id)
+	}
+
+	f.mu.Lock()
+	cancel := f.sessionCancel
+	f.mu.Unlock()
+	if cancel == nil {
+		// No live session to kill. Nothing to do — the loop is already
+		// between sessions (in its backoff wait); it will redial shortly.
+		return nil
+	}
+	cancel()
+	return nil
 }

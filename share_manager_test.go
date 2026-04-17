@@ -22,6 +22,11 @@ func newTestDB(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// sqlite :memory: is per-connection. The sql pool may open new connections
+	// on demand and each one is a fresh empty DB. Pin to 1 so every test
+	// goroutine sees the same schema even under concurrent load (publisher
+	// handler, emitter, consumer all hitting the same DB).
+	db.SetMaxOpenConns(1)
 	schema := `CREATE TABLE tags (id INTEGER PRIMARY KEY, name TEXT UNIQUE, color TEXT DEFAULT '#888');
 CREATE TABLE clips (id INTEGER PRIMARY KEY, content_type TEXT, data BLOB, filename TEXT, metadata TEXT DEFAULT '{}');
 CREATE TABLE clip_tags (clip_id INTEGER, tag_id INTEGER, PRIMARY KEY(clip_id,tag_id));
@@ -433,5 +438,123 @@ func TestOnClipCreatedSkipsNonMatchingTag(t *testing.T) {
 	}
 	if count != 0 {
 		t.Fatalf("ring count %d want 0 (tag mismatch)", count)
+	}
+}
+
+func TestFollowAndReceiveClip(t *testing.T) {
+	ctx := context.Background()
+
+	// Publisher
+	pubDB := newTestDB(t)
+	pubDir := t.TempDir()
+	pubM, _ := NewShareManager(ctx, pubDB, pubDir)
+	defer pubM.Stop()
+	pubDB.Exec(`INSERT INTO tags (id, name, color) VALUES (1, 'recipes', '#aaa')`)
+	info, _ := pubM.StartShare(1)
+
+	// Follower
+	fDB := newTestDB(t)
+	fDir := t.TempDir()
+	fM, _ := NewShareManager(ctx, fDB, fDir)
+	defer fM.Stop()
+	fDB.Exec(`INSERT INTO tags (id, name, color) VALUES (99, 'inbox', '#aaa')`)
+
+	// Prime the follower's peerstore with publisher's addrs (skip DHT resolution for test speed).
+	fM.Host().Peerstore().AddAddrs(pubM.Host().ID(), pubM.Host().Addrs(), time.Hour)
+
+	followInfo, err := fM.Follow(info.ShareString, "inbox")
+	if err != nil {
+		t.Fatalf("Follow: %v", err)
+	}
+	if followInfo.LocalTagName != "inbox" {
+		t.Fatalf("local tag %q", followInfo.LocalTagName)
+	}
+
+	// Publish a clip on the publisher side
+	r, _ := pubDB.Exec(`INSERT INTO clips (content_type, data, filename, metadata) VALUES ('text/plain', 'hello!', 'a.txt', '{}')`)
+	clipID, _ := r.LastInsertId()
+	pubDB.Exec(`INSERT INTO clip_tags (clip_id, tag_id) VALUES (?, 1)`, clipID)
+	pubM.OnClipCreated(clipID, []int64{1})
+
+	// Wait for follower to receive and persist
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		var n int
+		fDB.QueryRow(`SELECT COUNT(*) FROM clips`).Scan(&n)
+		if n >= 1 {
+			var data []byte
+			fDB.QueryRow(`SELECT data FROM clips ORDER BY id DESC LIMIT 1`).Scan(&data)
+			if string(data) == "hello!" {
+				// Check local tag association
+				var tagID int64
+				fDB.QueryRow(`SELECT tag_id FROM clip_tags ORDER BY clip_id DESC LIMIT 1`).Scan(&tagID)
+				if tagID == 99 {
+					return
+				}
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("follower did not persist clip within 5s")
+}
+
+// Lock the "session ends → status offline" invariant that DisconnectFollowForTest
+// and the offline-catchup e2e both depend on.
+func TestFollowSessionEndFlipsStatusOffline(t *testing.T) {
+	ctx := context.Background()
+
+	// Publisher
+	pubDB := newTestDB(t)
+	pubM, _ := NewShareManager(ctx, pubDB, t.TempDir())
+	defer pubM.Stop()
+	pubDB.Exec(`INSERT INTO tags (id, name, color) VALUES (1, 'x', '#aaa')`)
+	info, _ := pubM.StartShare(1)
+
+	// Follower
+	fDB := newTestDB(t)
+	fM, _ := NewShareManager(ctx, fDB, t.TempDir())
+	defer fM.Stop()
+	fDB.Exec(`INSERT INTO tags (id, name, color) VALUES (99, 'inbox', '#aaa')`)
+	fM.Host().Peerstore().AddAddrs(pubM.Host().ID(), pubM.Host().Addrs(), time.Hour)
+
+	followInfo, err := fM.Follow(info.ShareString, "inbox")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Wait for connected.
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		fM.mu.RLock()
+		f := fM.follows[followInfo.ID]
+		fM.mu.RUnlock()
+		if f != nil && f.status == "connected" {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	// Kill the active session without deleting the row.
+	if err := fM.DisconnectFollowForTest(followInfo.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert the status flips to offline before the next reconnect.
+	// This is the invariant the e2e test relies on: a mid-stream session
+	// cancel must be observable in GetShareStatus / card renders.
+	sawOffline := false
+	deadline = time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		fM.mu.RLock()
+		f := fM.follows[followInfo.ID]
+		fM.mu.RUnlock()
+		if f != nil && f.status == "offline" {
+			sawOffline = true
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !sawOffline {
+		t.Fatal("expected status to flip to 'offline' after DisconnectFollowForTest")
 	}
 }
