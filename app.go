@@ -169,6 +169,30 @@ func (a *App) startup(ctx context.Context) {
 	// Initialize serve manager
 	a.serveManager = NewServeManager(a)
 
+	// Initialize share manager (scoped block so dataDir doesn't shadow the
+	// one used by plugin init below)
+	{
+		dataDir, _ := getDataDir()
+		sm, smErr := NewShareManager(ctx, a.db, dataDir)
+		if smErr != nil {
+			log.Printf("Warning: Failed to initialize share manager: %v", smErr)
+		} else {
+			a.shareManager = sm
+			// Push Wails events to the frontend from the manager.
+			sm.SetEventFn(func(name string, data ...any) {
+				if len(data) == 1 {
+					runtime.EventsEmit(ctx, name, data[0])
+				} else {
+					runtime.EventsEmit(ctx, name, data...)
+				}
+			})
+			if err := sm.ResumeAll(); err != nil {
+				log.Printf("Warning: ShareManager ResumeAll: %v", err)
+			}
+			sm.startSweepers()
+		}
+	}
+
 	// Initialize API manager
 	a.apiManager = NewAPIManager(a)
 
@@ -247,6 +271,11 @@ func (a *App) shutdown(ctx context.Context) {
 	// Stop watcher
 	if a.watcherManager != nil {
 		a.watcherManager.Stop()
+	}
+
+	// Stop share manager
+	if a.shareManager != nil {
+		a.shareManager.Stop()
 	}
 
 	if a.db != nil {
@@ -761,6 +790,16 @@ func (a *App) UploadFileAndGetID(file FileData) (int64, error) {
 		})
 	}
 
+	// Share hook — fan this clip out to any publications whose tags are on it.
+	if a.shareManager != nil {
+		go func(cid int64) {
+			tagIDs, _ := a.getTagIDsForClip(cid)
+			if err := a.shareManager.OnClipCreated(cid, tagIDs); err != nil {
+				log.Printf("share: OnClipCreated(%d): %v", cid, err)
+			}
+		}(id)
+	}
+
 	return id, nil
 }
 
@@ -829,6 +868,16 @@ func (a *App) UploadFiles(files []FileData, expirationMinutes int, autoTagID int
 				"id":    clipID,
 				"count": dupCount,
 			})
+		}
+
+		// Share hook — fan this clip out to any publications whose tags are on it.
+		if a.shareManager != nil {
+			go func(cid int64) {
+				tagIDs, _ := a.getTagIDsForClip(cid)
+				if err := a.shareManager.OnClipCreated(cid, tagIDs); err != nil {
+					log.Printf("share: OnClipCreated(%d): %v", cid, err)
+				}
+			}(clipID)
 		}
 	}
 
@@ -1409,6 +1458,12 @@ func (a *App) UpdateTag(id int64, name, color string) error {
 
 // DeleteTag deletes a tag (clip_tags cascade delete handles associations)
 func (a *App) DeleteTag(id int64) error {
+	// If this tag has an active share, stop it first so the publication row
+	// is removed before the tag row goes away. No-op if not shared.
+	if a.shareManager != nil {
+		_ = a.shareManager.StopShare(id)
+	}
+
 	_, err := a.db.Exec("DELETE FROM tags WHERE id = ?", id)
 	if err != nil {
 		return fmt.Errorf("failed to delete tag: %w", err)
@@ -1420,6 +1475,25 @@ func (a *App) DeleteTag(id int64) error {
 	}
 
 	return nil
+}
+
+// getTagIDsForClip returns all tag IDs currently associated with a clip.
+// Used by the share hook to determine which publications should receive
+// the new clip.
+func (a *App) getTagIDsForClip(clipID int64) ([]int64, error) {
+	rows, err := a.db.Query(`SELECT tag_id FROM clip_tags WHERE clip_id = ?`, clipID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err == nil {
+			out = append(out, id)
+		}
+	}
+	return out, nil
 }
 
 // GetTags retrieves all tags with usage counts
