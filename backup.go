@@ -211,6 +211,19 @@ func (a *App) CreateBackup(destPath string) error {
 		return fmt.Errorf("failed to write manifest: %w", err)
 	}
 
+	// Copy share identity file if present
+	identitySrc := filepath.Join(dataDir, ShareIdentityFile)
+	if _, err := os.Stat(identitySrc); err == nil {
+		identityDst := filepath.Join(tempDir, ShareIdentityFile)
+		if err := copyFile(identitySrc, identityDst); err != nil {
+			// Log warning but continue — backup must not fail over identity
+			fmt.Printf("Warning: failed to copy %s: %v\n", ShareIdentityFile, err)
+		}
+	} else if !os.IsNotExist(err) {
+		// Unexpected stat error — log and continue
+		fmt.Printf("Warning: failed to stat %s: %v\n", ShareIdentityFile, err)
+	}
+
 	// Create ZIP file
 	if err := createZipFromDir(tempDir, destPath); err != nil {
 		return fmt.Errorf("failed to create ZIP: %w", err)
