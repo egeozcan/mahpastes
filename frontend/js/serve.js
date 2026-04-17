@@ -18,6 +18,9 @@ const serveBackBtn = document.getElementById('serve-back-btn');
 const addServeBtn = document.getElementById('add-serve-btn');
 const addServeZone = document.getElementById('add-serve-zone');
 
+// --- Share Elements ---
+const shareView = document.getElementById('share-view');
+
 // --- View Switching ---
 function switchView(view) {
     const prev = currentView;
@@ -42,6 +45,7 @@ function switchView(view) {
     gallery.parentElement.classList.add('hidden');
     watchView.classList.add('hidden');
     serveView.classList.add('hidden');
+    if (shareView) shareView.classList.add('hidden');
 
     // Stop serve polling when leaving serve view
     if (prev === 'serve' && view !== 'serve') {
@@ -95,6 +99,12 @@ function switchView(view) {
             serveView.classList.remove('hidden');
             loadServeStatus();
             startServePolling();
+            break;
+        case 'share':
+            if (shareView) shareView.classList.remove('hidden');
+            if (window.ShareView && typeof window.ShareView.refresh === 'function') {
+                window.ShareView.refresh();
+            }
             break;
     }
 }
