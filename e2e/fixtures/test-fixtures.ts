@@ -100,12 +100,34 @@ export class AppHelper {
   // ==================== Clip Operations ====================
 
   async uploadFile(filePath: string): Promise<void> {
-    // Upload via file input
+    // Wait in two phases so sequential uploads are reliable AND the DOM is
+    // ready for immediate assertions.
+    //  1) Backend count must increase (filter-independent, proves the upload
+    //     actually completed — the old "first clip visible" check returned
+    //     immediately from upload #2+ because the first row was already there).
+    //  2) The specific clip's DOM row should appear. If an active filter hides
+    //     it, the wait times out harmlessly — callers that care about post-
+    //     upload DOM state are also uploading unfiltered clips.
+    const before = await this.page.evaluate(async () => {
+      // @ts-ignore - Wails runtime
+      const clips = await window.go.main.App.GetClips(false, [], [], '', '');
+      return Array.isArray(clips) ? clips.length : 0;
+    });
     const fileInput = this.page.locator(selectors.upload.fileInput);
     await fileInput.setInputFiles(filePath);
-
-    // Wait for clip to appear in gallery
-    await this.page.locator('#gallery > li').first().waitFor({ state: 'visible', timeout: 10000 });
+    await this.page.waitForFunction(
+      async (expected) => {
+        // @ts-ignore - Wails runtime
+        const clips = await window.go.main.App.GetClips(false, [], [], '', '');
+        return Array.isArray(clips) && clips.length >= expected;
+      },
+      before + 1,
+      { timeout: 10000 }
+    );
+    const filename = path.basename(filePath).toLowerCase();
+    await this.page.locator(selectors.gallery.clipCardByName(filename))
+      .waitFor({ state: 'attached', timeout: 2000 })
+      .catch(() => { /* clip is filtered out of current view; backend ack above is sufficient */ });
   }
 
   async uploadFiles(filePaths: string[]): Promise<void> {
@@ -797,6 +819,11 @@ export class AppHelper {
         // @ts-ignore
         if (typeof renderTagFilterDropdown === 'function') renderTagFilterDropdown();
       }
+
+      // Clear lingering DOM focus so next test's keyboard shortcuts aren't
+      // swallowed by the input guard (previously-focused INPUT/SELECT survives
+      // a body.click).
+      (document.activeElement as HTMLElement | null)?.blur();
 
       // @ts-ignore
       window.__appReady = true;
