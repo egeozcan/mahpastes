@@ -517,7 +517,7 @@ test.describe('Keyboard Shortcuts', () => {
       expect(await app.getSelectedCount()).toBe(2);
 
       // Press 'd' to delete in bulk mode
-      await app.page.locator('body').click();
+      await app.page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
       await app.page.keyboard.press('d');
 
       // Confirm the delete
@@ -538,7 +538,7 @@ test.describe('Keyboard Shortcuts', () => {
       await app.selectClip(path.basename(imagePath2));
 
       // Press 'e' to archive in bulk mode
-      await app.page.locator('body').click();
+      await app.page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
       await app.page.keyboard.press('e');
 
       // Clips should disappear from active view
