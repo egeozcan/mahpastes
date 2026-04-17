@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -1055,4 +1056,61 @@ func (m *ShareManager) DisconnectFollowForTest(id int64) error {
 	}
 	cancel()
 	return nil
+}
+
+// startSweepers launches background timers for ring eviction and staging cleanup.
+// Call once from App.startup after ResumeAll.
+func (m *ShareManager) startSweepers() {
+	go m.runRingSweeper()
+	go m.runStagingJanitor()
+}
+
+func (m *ShareManager) runRingSweeper() {
+	// Run once immediately (catches stale rows from restored backups).
+	if err := RingEvict(m.db, time.Now().Unix(), int64(RingBytesCapPerPub)); err != nil {
+		log.Printf("share: initial ring evict: %v", err)
+	}
+	t := time.NewTicker(RingSweepInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-m.ctx.Done():
+			return
+		case <-t.C:
+			if err := RingEvict(m.db, time.Now().Unix(), int64(RingBytesCapPerPub)); err != nil {
+				log.Printf("share: ring evict: %v", err)
+			}
+		}
+	}
+}
+
+func (m *ShareManager) runStagingJanitor() {
+	dir := filepath.Join(m.dataDir, ShareStagingDirName)
+	cleanup := func() {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return
+		}
+		cutoff := time.Now().Add(-StagingMaxAge)
+		for _, e := range entries {
+			info, err := e.Info()
+			if err != nil {
+				continue
+			}
+			if info.ModTime().Before(cutoff) {
+				_ = os.Remove(filepath.Join(dir, e.Name()))
+			}
+		}
+	}
+	cleanup()
+	t := time.NewTicker(StagingSweepInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-m.ctx.Done():
+			return
+		case <-t.C:
+			cleanup()
+		}
+	}
 }
