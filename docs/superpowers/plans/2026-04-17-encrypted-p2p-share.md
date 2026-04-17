@@ -2717,6 +2717,58 @@ func TestFollowAndReceiveClip(t *testing.T) {
 	}
 	t.Fatal("follower did not persist clip within 5s")
 }
+
+// Lock the "session ends → status offline" invariant that DisconnectFollowForTest
+// and the offline-catchup e2e both depend on.
+func TestFollowSessionEndFlipsStatusOffline(t *testing.T) {
+	ctx := context.Background()
+
+	// Publisher
+	pubDB := newTestDB(t)
+	pubM, _ := NewShareManager(ctx, pubDB, t.TempDir())
+	defer pubM.Stop()
+	pubDB.Exec(`INSERT INTO tags (id, name, color) VALUES (1, 'x', '#aaa')`)
+	info, _ := pubM.StartShare(1)
+
+	// Follower
+	fDB := newTestDB(t)
+	fM, _ := NewShareManager(ctx, fDB, t.TempDir())
+	defer fM.Stop()
+	fDB.Exec(`INSERT INTO tags (id, name, color) VALUES (99, 'inbox', '#aaa')`)
+	fM.Host().Peerstore().AddAddrs(pubM.Host().ID(), pubM.Host().Addrs(), time.Hour)
+
+	followInfo, err := fM.Follow(info.ShareString, "inbox")
+	if err != nil { t.Fatal(err) }
+
+	// Wait for connected.
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		fM.mu.RLock()
+		f := fM.follows[followInfo.ID]
+		fM.mu.RUnlock()
+		if f != nil && f.status == "connected" { break }
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	// Kill the active session without deleting the row.
+	if err := fM.DisconnectFollowForTest(followInfo.ID); err != nil { t.Fatal(err) }
+
+	// Assert the status flips to offline before the next reconnect.
+	// This is the invariant the e2e test relies on: a mid-stream session
+	// cancel must be observable in GetShareStatus / card renders.
+	sawOffline := false
+	deadline = time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		fM.mu.RLock()
+		f := fM.follows[followInfo.ID]
+		fM.mu.RUnlock()
+		if f != nil && f.status == "offline" { sawOffline = true; break }
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !sawOffline {
+		t.Fatal("expected status to flip to 'offline' after DisconnectFollowForTest")
+	}
+}
 ```
 
 - [ ] **Step 2: Verify fail.**
@@ -2865,10 +2917,13 @@ func (m *ShareManager) runFollowLoop(f *follow) {
 // closes on its own or the per-session context is canceled (e.g. by
 // DisconnectFollowForTest). Returns when the session ends for any reason;
 // the caller (runFollowLoop) then decides whether to reconnect.
+//
+// Status discipline: status flips to "connected" exactly once the
+// handshake is written; the deferred cleanup flips it back to "offline"
+// on every exit path (dial error, handshake error, mid-stream cancel,
+// EOF, consumeStream error). This guarantees the UI card reflects real
+// transport state regardless of which branch returns.
 func (m *ShareManager) followSession(f *follow) error {
-	// Derive a fresh session context from the follow-lifetime ctx. Publish
-	// its cancel under f.mu so DisconnectFollowForTest can kill just this
-	// session without touching f.ctx / f.cancel.
 	sessCtx, sessCancel := context.WithCancel(f.ctx)
 	f.mu.Lock()
 	f.sessionCancel = sessCancel
@@ -2878,15 +2933,16 @@ func (m *ShareManager) followSession(f *follow) error {
 		f.sessionCancel = nil
 		f.mu.Unlock()
 		sessCancel()
+		// Session ended — always surface offline so the UI and tests have
+		// a reliable signal that catch-up (not live) is next on the wire.
+		m.setFollowStatus(f, "offline")
 	}()
 
 	if err := m.dialByPeerID(sessCtx, f.remotePeerID); err != nil {
-		m.setFollowStatus(f, "offline")
 		return err
 	}
 	s, err := m.host.NewStream(sessCtx, f.remotePeerID, ShareProtocolID)
 	if err != nil {
-		m.setFollowStatus(f, "offline")
 		return err
 	}
 	defer s.Reset()
@@ -2901,7 +2957,6 @@ func (m *ShareManager) followSession(f *follow) error {
 	shareID := DeriveShareID(f.symkey)
 	hs := BuildHandshake(f.symkey, shareID, f.lastSeq)
 	if _, err := s.Write(hs); err != nil {
-		m.setFollowStatus(f, "offline")
 		return err
 	}
 	m.setFollowStatus(f, "connected")
