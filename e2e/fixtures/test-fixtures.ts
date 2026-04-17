@@ -2340,7 +2340,7 @@ export class AppHelper {
   async restoreBackupViaAPI(backupPath: string): Promise<void> {
     await this.page.evaluate(async (path) => {
       // @ts-ignore
-      await window.go.main.App.ConfirmRestoreBackup(path);
+      await window.go.main.App.ConfirmRestoreBackup(path, 'none');
     }, backupPath);
 
     await this.page.reload();

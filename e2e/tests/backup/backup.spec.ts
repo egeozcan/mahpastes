@@ -77,7 +77,7 @@ test.describe('Backup & Restore', () => {
       const restoreResult = await app.page.evaluate(async (backupFile) => {
         try {
           // @ts-ignore - Wails runtime
-          await window.go.main.App.ConfirmRestoreBackup(backupFile);
+          await window.go.main.App.ConfirmRestoreBackup(backupFile, 'none');
           return { success: true };
         } catch (e: any) {
           return { success: false, error: e.message || String(e) };
@@ -129,7 +129,7 @@ test.describe('Backup & Restore', () => {
       // Restore from backup (should replace with original 1 clip)
       await app.page.evaluate(async (backupFile) => {
         // @ts-ignore - Wails runtime
-        await window.go.main.App.ConfirmRestoreBackup(backupFile);
+        await window.go.main.App.ConfirmRestoreBackup(backupFile, 'none');
       }, backupPath);
 
       // Verify data was restored by checking via API (more reliable than UI)
@@ -172,7 +172,7 @@ test.describe('Backup & Restore', () => {
       // Restore
       await app.page.evaluate(async (backupFile) => {
         // @ts-ignore - Wails runtime
-        await window.go.main.App.ConfirmRestoreBackup(backupFile);
+        await window.go.main.App.ConfirmRestoreBackup(backupFile, 'none');
       }, backupPath);
 
       // Verify data was restored by checking via API (more reliable than UI)
@@ -196,7 +196,7 @@ test.describe('Backup & Restore', () => {
       const result = await app.page.evaluate(async () => {
         try {
           // @ts-ignore - Wails runtime
-          await window.go.main.App.ConfirmRestoreBackup('/nonexistent/path/backup.zip');
+          await window.go.main.App.ConfirmRestoreBackup('/nonexistent/path/backup.zip', 'none');
           return { success: true };
         } catch (e: any) {
           return { success: false, error: e.message || String(e) };
@@ -215,7 +215,7 @@ test.describe('Backup & Restore', () => {
       const result = await app.page.evaluate(async (backupFile) => {
         try {
           // @ts-ignore - Wails runtime
-          await window.go.main.App.ConfirmRestoreBackup(backupFile);
+          await window.go.main.App.ConfirmRestoreBackup(backupFile, 'none');
           return { success: true };
         } catch (e: any) {
           return { success: false, error: e.message || String(e) };
@@ -261,7 +261,7 @@ test.describe('Backup & Restore', () => {
 
       await app.page.evaluate(async (backupFile) => {
         // @ts-ignore - Wails runtime
-        await window.go.main.App.ConfirmRestoreBackup(backupFile);
+        await window.go.main.App.ConfirmRestoreBackup(backupFile, 'none');
       }, backupPath);
 
       // Get the restored clip content directly via API (no need to reload page)
@@ -307,7 +307,7 @@ test.describe('Backup & Restore', () => {
 
       await app.page.evaluate(async (backupFile) => {
         // @ts-ignore - Wails runtime
-        await window.go.main.App.ConfirmRestoreBackup(backupFile);
+        await window.go.main.App.ConfirmRestoreBackup(backupFile, 'none');
       }, backupPath);
 
       // Get the restored clip info directly via API (no need to reload page)
