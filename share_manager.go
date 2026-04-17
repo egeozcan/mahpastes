@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"fmt"
@@ -36,6 +37,12 @@ type ShareManager struct {
 	// (lets the manager push card updates to the frontend without a
 	// direct dependency on the Wails runtime).
 	eventFn func(name string, data ...any)
+
+	// maxStreamsPerPubOverride — test-only knob. 0 means "use
+	// MaxStreamsPerPublication". setMaxStreamsPerPubForTest sets this so
+	// cap-enforcement can be exercised without saturating with 128 real
+	// libp2p streams.
+	maxStreamsPerPubOverride int
 }
 
 // NewShareManager loads identity, starts the libp2p host + DHT, and returns
@@ -203,11 +210,146 @@ func defaultStaticRelays() []peer.AddrInfo {
 	return nil
 }
 
-// handlePublisherStream is installed as the libp2p stream handler. Phase 5.2
-// fills in the handshake + retransmit logic.
-func (m *ShareManager) handlePublisherStream(s network.Stream) {
-	_ = s.Reset() // stub: reject until Phase 5.2 implements
+// registerPublication adds (or updates) a publication in the in-memory map.
+// Called from StartShare and ResumeAll.
+func (m *ShareManager) registerPublication(id, tagID int64, shareID, symkey []byte, status string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.publications[id] = &publication{
+		id:        id,
+		tagID:     tagID,
+		shareID:   append([]byte(nil), shareID...),
+		symkey:    append([]byte(nil), symkey...),
+		status:    status,
+		followers: map[network.Stream]*followerConn{},
+	}
 }
 
-// stub for Phase 8 — prevents unused time import warning.
-var _ = time.Second
+// findPublicationByShareID linear-scans the map (small N) to find which
+// publication a given share_id belongs to. Returns nil if unknown.
+func (m *ShareManager) findPublicationByShareID(shareID []byte) *publication {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, p := range m.publications {
+		if bytes.Equal(p.shareID, shareID) {
+			return p
+		}
+	}
+	return nil
+}
+
+// maxStreamsPerPub returns the effective per-publication stream cap. In
+// production this is MaxStreamsPerPublication; tests lower it via
+// setMaxStreamsPerPubForTest.
+func (m *ShareManager) maxStreamsPerPub() int {
+	if m.maxStreamsPerPubOverride > 0 {
+		return m.maxStreamsPerPubOverride
+	}
+	return MaxStreamsPerPublication
+}
+
+// setMaxStreamsPerPubForTest lowers the per-publication cap so cap-enforcement
+// can be exercised in tests without opening 128 real streams.
+func (m *ShareManager) setMaxStreamsPerPubForTest(n int) {
+	m.maxStreamsPerPubOverride = n
+}
+
+// newFollowerConn constructs a followerConn, reading the remote peer ID from
+// the stream's connection so the Task 5.2 cap check can count streams per
+// peer. Phase 6.3 will extend this with the byte-capped send queue.
+func newFollowerConn(s network.Stream, w io.Writer) *followerConn {
+	return &followerConn{
+		peerID: s.Conn().RemotePeer(),
+		stream: s,
+		writer: w,
+	}
+}
+
+// handlePublisherStream implements:
+//  1. read handshake (72 bytes)
+//  2. lookup share_id; if unknown → Reset
+//  3. verify HMAC; if bad → Reset
+//  4. if status != active → Reset
+//  5. enforce per-publication + per-peer stream caps
+//  6. replay share_ring with seq > since_seq (TTL enforced in SQL)
+//  7. register the followerConn so future live envelopes flow here
+func (m *ShareManager) handlePublisherStream(s network.Stream) {
+	_ = s.SetReadDeadline(time.Now().Add(HandshakeTimeout))
+	hsBuf := make([]byte, HandshakeBytesLen)
+	if _, err := io.ReadFull(s, hsBuf); err != nil {
+		_ = s.Reset()
+		return
+	}
+	_ = s.SetReadDeadline(time.Time{})
+
+	hs, err := ParseHandshake(hsBuf)
+	if err != nil {
+		_ = s.Reset()
+		return
+	}
+	pub := m.findPublicationByShareID(hs.ShareID)
+	if pub == nil || pub.status != "active" {
+		_ = s.Reset()
+		return
+	}
+	if err := VerifyHandshake(pub.symkey, hs); err != nil {
+		_ = s.Reset()
+		return
+	}
+
+	peerID := s.Conn().RemotePeer()
+
+	// Enforce both caps under the publication lock so the decision and
+	// insertion are atomic against other concurrent handshakes.
+	pub.fmu.Lock()
+	if len(pub.followers) >= m.maxStreamsPerPub() {
+		pub.fmu.Unlock()
+		_ = s.Reset()
+		return
+	}
+	perPeer := 0
+	for _, fc := range pub.followers {
+		if fc.peerID == peerID {
+			perPeer++
+		}
+	}
+	if perPeer >= MaxStreamsPerPeer {
+		pub.fmu.Unlock()
+		_ = s.Reset()
+		return
+	}
+	pub.fmu.Unlock()
+
+	// Catch-up retransmit: send every ring row with seq > since_seq that
+	// is still within TTL.
+	rows, err := RingRetransmit(m.db, pub.id, hs.SinceSeq, time.Now().Unix())
+	if err != nil {
+		log.Printf("share: retransmit query: %v", err)
+		_ = s.Reset()
+		return
+	}
+	for _, r := range rows {
+		if _, werr := s.Write(r.EnvelopeBytes); werr != nil {
+			_ = s.Reset()
+			return
+		}
+	}
+
+	// Register for live fan-out. Phase 6 will write into this entry from the
+	// on_clip_created emitter.
+	fc := newFollowerConn(s, s)
+	pub.fmu.Lock()
+	pub.followers[s] = fc
+	pub.fmu.Unlock()
+
+	// Keep this goroutine alive until the stream closes. io.Copy drains any
+	// follower→publisher bytes (currently none per protocol) and unblocks on
+	// close so we can remove the registration.
+	go func() {
+		_, _ = io.Copy(io.Discard, s)
+		pub.fmu.Lock()
+		delete(pub.followers, s)
+		pub.fmu.Unlock()
+		fc.close()
+	}()
+}
