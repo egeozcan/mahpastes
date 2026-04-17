@@ -13,7 +13,7 @@ A new "Share" feature that lets one mahpastes instance broadcast a tag over the 
 
 - Broadcast a tag's new clips to any number of followers anywhere on the internet.
 - End-to-end encryption between publisher and followers; eavesdroppers see only ciphertext.
-- A single self-contained share string that encodes address + identity + key; no accounts, no servers to operate.
+- A single self-contained share string that encodes peer identity + decryption key (addresses resolved at follow-time via DHT); no accounts, no servers to operate.
 - Works across NATs by default (hole-punching with relay fallback).
 - Followers autonomously decide where incoming clips are filed (local tag of their choice).
 - Consistent with existing Serve / Watch UX patterns and design system.
@@ -139,7 +139,7 @@ since_seq   : uint64      // 0 if new follower; else last received seq
 Publisher:
 1. Look up `share_id` in its `publications` map. Unknown → `Reset`.
 2. Recompute `HMAC-SHA256(publication.symkey, "mp-share-v1-follow" || proof_nonce)`; compare in constant time. Mismatch → `Reset`.
-3. If `since_seq > 0`, replay ring-buffer entries with `seq > since_seq` (bounded by 1h / 1000-entry cap) then go live. Else go live immediately.
+3. If `since_seq > 0`, replay `share_ring` entries with `seq > since_seq` within the 1h TTL (see §6.3), then go live. Else go live immediately.
 
 ### 5.3 Envelope format (publisher → follower, repeated)
 
@@ -384,7 +384,7 @@ If the target install has no existing identity file (first run since install, or
 - Close every follower stream on active publications.
 - Cancel every follow reconnect loop and close in-flight streams.
 - Close the libp2p host.
-- Ring buffers discard.
+- `share_ring` persists in SQLite; no in-memory ring state to discard. Per-follower send queues drop as their streams close.
 
 ### 8.3 Clip creation
 
