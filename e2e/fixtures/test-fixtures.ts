@@ -2823,15 +2823,25 @@ export class AppHelper {
     // Wait for the secondary app to be fully ready. Use state:'attached' for
     // #gallery so a bootup that lands in a non-clips view (rare but possible)
     // doesn't hang the whole spawn on visibility.
-    await secondaryPage.waitForSelector('[data-testid="gallery"], #gallery', { state: 'attached', timeout: 60000 });
-    await secondaryPage.waitForFunction(
-      () => typeof (window as any).go?.main?.App?.GetClips === 'function',
-      { timeout: 60000 },
-    );
-    await secondaryPage.waitForFunction(
-      () => (window as any).__appReady === true,
-      { timeout: 60000 },
-    );
+    const waitReady = async () => {
+      await secondaryPage.waitForSelector('[data-testid="gallery"], #gallery', { state: 'attached', timeout: 60000 });
+      await secondaryPage.waitForFunction(
+        () => typeof (window as any).go?.main?.App?.GetClips === 'function',
+        { timeout: 60000 },
+      );
+      await secondaryPage.waitForFunction(
+        () => (window as any).__appReady === true,
+        { timeout: 60000 },
+      );
+    };
+    // Same recovery pattern as restart(): a single reload routinely fixes a
+    // flaky first-load where goto lands before vite finishes serving assets.
+    try {
+      await waitReady();
+    } catch {
+      await secondaryPage.reload();
+      await waitReady();
+    }
 
     const secondaryApp = new AppHelper(secondaryPage, instance.baseURL);
 
