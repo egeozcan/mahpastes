@@ -1123,6 +1123,14 @@ func (m *ShareManager) DisconnectFollowForTest(id int64) error {
 	return nil
 }
 
+// AgeShareRingForTest rewinds every share_ring row's `ts` column by the given
+// number of seconds. Used by e2e tests that simulate TTL expiry without waiting
+// an actual hour. test-only — must not be wired to production code.
+func (m *ShareManager) AgeShareRingForTest(seconds int64) error {
+	_, err := m.db.Exec(`UPDATE share_ring SET ts = ts - ?`, seconds)
+	return err
+}
+
 // startSweepers launches background timers for ring eviction and staging cleanup.
 // Call once from App.startup after ResumeAll.
 func (m *ShareManager) startSweepers() {

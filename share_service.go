@@ -67,3 +67,15 @@ func (s *ShareService) GetShareStatus() ShareStatus {
 	}
 	return ShareStatus{Shares: ss, Follows: ff}
 }
+
+// AgeShareRingForTest shifts every share_ring row's `ts` column back by the
+// given number of seconds. Used by e2e tests that simulate TTL expiry without
+// waiting a real hour. Does nothing if shareManager is not initialized.
+//
+// test-only — do not call from production code paths.
+func (s *ShareService) AgeShareRingForTest(seconds int64) error {
+	if s.app.shareManager == nil {
+		return fmt.Errorf("share manager not initialized")
+	}
+	return s.app.shareManager.AgeShareRingForTest(seconds)
+}
