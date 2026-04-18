@@ -25,7 +25,7 @@ func TestAssemblerWritesClipAndTag(t *testing.T) {
 		Metadata: meta, TotalSize: uint64(len(data)), ChunkCount: 1,
 	})
 	asm.onChunk(ClipChunkPayload{ClipID: 1, Index: 0, Data: data})
-	if err := asm.onEnd(ClipEndPayload{ClipID: 1, SHA256: h[:]}, db, 42); err != nil {
+	if _, err := asm.onEnd(ClipEndPayload{ClipID: 1, SHA256: h[:]}, db, 42); err != nil {
 		t.Fatal(err)
 	}
 
@@ -76,7 +76,7 @@ func TestAssemblerRejectsWrongSHA256(t *testing.T) {
 	asm.onStart(ClipStartPayload{ClipID: 1, TotalSize: 5, ChunkCount: 1})
 	asm.onChunk(ClipChunkPayload{ClipID: 1, Index: 0, Data: []byte("hello")})
 	wrong := bytes.Repeat([]byte{0}, 32)
-	if err := asm.onEnd(ClipEndPayload{ClipID: 1, SHA256: wrong}, db, 42); err == nil {
+	if _, err := asm.onEnd(ClipEndPayload{ClipID: 1, SHA256: wrong}, db, 42); err == nil {
 		t.Fatal("expected sha mismatch error")
 	}
 	if entries, _ := os.ReadDir(dir); len(entries) != 0 {

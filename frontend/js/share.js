@@ -304,6 +304,17 @@
     window.runtime.EventsOn('share:publication-removed', refresh);
     window.runtime.EventsOn('share:follow-updated', refresh);
     window.runtime.EventsOn('share:follow-removed', refresh);
+
+    // A clip arrived from a followed share — refresh both the share
+    // view (bumps clips_received on the follow row) and the clips
+    // gallery so the new clip shows up without a manual reload. The
+    // refresh re-fetches in-place; current scroll position and focus
+    // are preserved by loadClips's implementation.
+    window.runtime.EventsOn('share:clip-received', () => {
+      refresh();
+      if (typeof loadClips === 'function') loadClips();
+      if (typeof showToast === 'function') showToast('Received shared clip');
+    });
   }
 
   // Expose for view switcher.

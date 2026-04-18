@@ -73,30 +73,34 @@ func (a *clipAssembler) onChunk(p ClipChunkPayload) {
 	a.writtenBytes += uint64(len(p.Data))
 }
 
-func (a *clipAssembler) onEnd(p ClipEndPayload, db *sql.DB, localTagID int64) error {
+// onEnd finalises a clip: verifies the running SHA-256 against p.SHA256,
+// writes the assembled bytes to the clips table, and tags the new clip
+// with localTagID. Returns the new clip's ID on success so the caller
+// can fetch a preview and notify the frontend.
+func (a *clipAssembler) onEnd(p ClipEndPayload, db *sql.DB, localTagID int64) (int64, error) {
 	defer a.cleanup()
 	if !a.active || p.ClipID != a.clipID || a.file == nil {
-		return fmt.Errorf("clip_end without active clip_start")
+		return 0, fmt.Errorf("clip_end without active clip_start")
 	}
 	if err := a.file.Sync(); err != nil {
-		return err
+		return 0, err
 	}
 	if _, err := a.file.Seek(0, io.SeekStart); err != nil {
-		return err
+		return 0, err
 	}
 	got := a.hasher.Sum(nil)
 	if !bytes.Equal(got, p.SHA256) {
-		return fmt.Errorf("sha256 mismatch: got %x want %x", got, p.SHA256)
+		return 0, fmt.Errorf("sha256 mismatch: got %x want %x", got, p.SHA256)
 	}
 	body, err := io.ReadAll(a.file)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	metaJSON, _ := json.Marshal(a.metadata)
 
 	tx, err := db.Begin()
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer tx.Rollback()
 	res, err := tx.Exec(
@@ -104,13 +108,16 @@ func (a *clipAssembler) onEnd(p ClipEndPayload, db *sql.DB, localTagID int64) er
 		a.cType, body, a.filename, string(metaJSON),
 	)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	newClipID, _ := res.LastInsertId()
 	if _, err := tx.Exec(`INSERT INTO clip_tags (clip_id, tag_id) VALUES (?, ?)`, newClipID, localTagID); err != nil {
-		return err
+		return 0, err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return newClipID, nil
 }
 
 func (a *clipAssembler) cleanup() {

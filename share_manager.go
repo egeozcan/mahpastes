@@ -1025,11 +1025,18 @@ func (m *ShareManager) consumeStream(sessCtx context.Context, f *follow, r io.Re
 				return err
 			}
 			inSeq = p.Seq
-			if err := asm.onEnd(p, m.db, f.localTagID); err != nil {
+			newClipID, err := asm.onEnd(p, m.db, f.localTagID)
+			if err != nil {
 				log.Printf("share: assemble failed: %v", err)
 			} else {
-				// Assembly succeeded → bump clips_received.
+				// Assembly succeeded → bump clips_received and tell the UI
+				// so it can surface the new clip without a full reload.
 				_, _ = m.db.Exec(`UPDATE follows SET clips_received = clips_received + 1 WHERE id = ?`, f.id)
+				m.emitEvent("share:clip-received", map[string]any{
+					"clip_id":      newClipID,
+					"local_tag_id": f.localTagID,
+					"follow_id":    f.id,
+				})
 			}
 		case KindGap:
 			var p GapPayload
