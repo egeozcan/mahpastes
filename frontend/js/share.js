@@ -150,10 +150,16 @@
       return;
     }
     const text = stringBox.textContent;
-    const qr = window.qrcode(0, 'L');
+    // typeNumber 0 + level 'L' sometimes picks a version that can't hold
+    // the share string (~110+ base64 chars). Use level 'M' + auto version
+    // and let the generator pick a fitting size.
+    const qr = window.qrcode(0, 'M');
     qr.addData(text);
     qr.make();
-    qrBox.innerHTML = qr.createSvgTag({ scalable: true, margin: 2 });
+    // scalable:true emits an SVG without width/height so the wrapping
+    // container must size it. Give the SVG explicit cellSize so it has
+    // real pixel dimensions even inside a w-fit container.
+    qrBox.innerHTML = qr.createSvgTag({ cellSize: 4, margin: 2 });
     qrBox.classList.remove('hidden');
     qrToggleBtn.textContent = 'Hide QR';
   });
