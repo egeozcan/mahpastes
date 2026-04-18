@@ -2,6 +2,18 @@ package main
 
 import "fmt"
 
+// DisconnectFollowForTest cancels the active session for the given follow ID
+// so the follow-loop re-enters its backoff → reconnect path. The follow row,
+// last_seq, and follow-lifetime context are preserved (unlike Unfollow).
+//
+// test-only — do not call from production code paths.
+func (s *ShareService) DisconnectFollowForTest(id int64) error {
+	if s.app.shareManager == nil {
+		return fmt.Errorf("share manager not initialized")
+	}
+	return s.app.shareManager.DisconnectFollowForTest(id)
+}
+
 // ShareService exposes share operations to the frontend via Wails.
 type ShareService struct {
 	app *App
