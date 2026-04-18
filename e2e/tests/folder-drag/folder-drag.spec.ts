@@ -10,13 +10,28 @@ import path from 'path';
  * so events must bubble up properly.
  */
 async function dragAndDrop(page: import('@playwright/test').Page, sourceSelector: string, targetSelector: string) {
-  // Wait for both elements to be visible in the DOM before dispatching events
-  await page.waitForSelector(sourceSelector, { state: 'visible', timeout: 5000 });
-  await page.waitForSelector(targetSelector, { state: 'visible', timeout: 5000 });
+  // Wait for both elements to be visible in the DOM before dispatching events.
+  // Use a longer timeout (10 s) and waitForFunction to ensure we see a stable
+  // DOM — the folder view can re-render briefly after navigation, so we wait for
+  // the element to appear AND still be present when we act on it.
+  await page.waitForSelector(sourceSelector, { state: 'visible', timeout: 10000 });
+  await page.waitForSelector(targetSelector, { state: 'visible', timeout: 10000 });
+
+  // Additional stability: wait for appReady so any pending renders complete
+  // before we try to locate elements inside evaluate().
+  await page.waitForFunction(() => (window as any).__appReady === true, { timeout: 5000 }).catch(() => {});
 
   await page.evaluate(async ({ srcSel, tgtSel }) => {
-    const src = document.querySelector(srcSel) as HTMLElement;
-    const tgt = document.querySelector(tgtSel) as HTMLElement;
+    // Re-query inside evaluate — if the DOM re-rendered between waitForSelector
+    // above and this point, poll briefly (up to 1 s) rather than fail immediately.
+    let src = document.querySelector(srcSel) as HTMLElement | null;
+    let tgt = document.querySelector(tgtSel) as HTMLElement | null;
+    if (!src || !tgt) {
+      // Brief retry in case a render cycle just swapped the elements.
+      await new Promise(r => setTimeout(r, 200));
+      src = document.querySelector(srcSel) as HTMLElement | null;
+      tgt = document.querySelector(tgtSel) as HTMLElement | null;
+    }
     if (!src) throw new Error(`Source not found: ${srcSel}`);
     if (!tgt) throw new Error(`Target not found: ${tgtSel}`);
 

@@ -4,7 +4,9 @@
   "description": "End-to-end tests for mahpastes",
   "type": "module",
   "scripts": {
-    "test": "playwright test",
+    "test": "playwright test && bash scripts/between-suites.sh && playwright test --config=playwright.share.config.ts",
+    "test:main": "playwright test",
+    "test:share": "playwright test --config=playwright.share.config.ts",
     "test:headed": "playwright test --headed",
     "test:debug": "playwright test --debug",
     "test:ui": "playwright test --ui",

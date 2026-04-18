@@ -112,8 +112,13 @@ test.describe('Context Menu Keyboard Navigation', () => {
     const imagePath = await createTempFile(generateTestImage(), 'png');
     await app.uploadFile(imagePath);
 
-    // Tab into gallery to focus first clip
+    // Tab into gallery to focus first clip.
+    // Press Escape first to dismiss any lingering overlay/menu that might be
+    // capturing focus from a previous test, then click body and blur active
+    // element so the tab sequence starts from a clean baseline.
+    await app.page.keyboard.press('Escape');
     await app.page.locator('body').click();
+    await app.page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await app.tabTo('#gallery > li', { maxTabs: 50 });
 
     // Press Ctrl/Cmd+Enter to open context menu

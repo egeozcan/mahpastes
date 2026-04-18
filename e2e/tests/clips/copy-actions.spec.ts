@@ -153,8 +153,12 @@ test.describe('Copy Actions', () => {
       await app.uploadFile(imagePath2);
 
       await app.selectClips([filename1, filename2]);
-      // Blur the checkbox so the shortcut engine doesn't suppress the key
-      await app.page.locator('body').click({ position: { x: 0, y: 0 } });
+      // Blur focus so the shortcut engine doesn't see an active checkbox and
+      // suppress the 'c' key.  We use evaluate() to blur directly — clicking
+      // the body can land on elements that re-acquire focus or dismiss the
+      // selection.  After blur, document.activeElement is null/body, and
+      // bulk-context shortcuts fire normally.
+      await app.page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
       await app.page.keyboard.press('c');
       await app.expectToast('2 files copied to clipboard!');
     });

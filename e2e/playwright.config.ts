@@ -10,7 +10,9 @@ const workers = process.env.PW_WORKERS ? parseInt(process.env.PW_WORKERS) : 4;
 
 export default defineConfig({
   testDir: './tests',
-  testIgnore: ['**/screenshots/**'],
+  // Exclude share tests (handled by playwright.share.config.ts with workers:1)
+  // and screenshots (handled by playwright.screenshots.config.ts).
+  testIgnore: ['**/screenshots/**', '**/share/**'],
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
