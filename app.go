@@ -790,15 +790,9 @@ func (a *App) UploadFileAndGetID(file FileData) (int64, error) {
 		})
 	}
 
-	// Share hook — fan this clip out to any publications whose tags are on it.
-	if a.shareManager != nil {
-		go func(cid int64) {
-			tagIDs, _ := a.getTagIDsForClip(cid)
-			if err := a.shareManager.OnClipCreated(cid, tagIDs); err != nil {
-				log.Printf("share: OnClipCreated(%d): %v", cid, err)
-			}
-		}(id)
-	}
+	// NOTE: share hook deliberately omitted here — callers tag the clip via
+	// AddTagToClip, which fires OnClipCreated once with the canonical tag
+	// set. See the matching note in UploadFiles.
 
 	return id, nil
 }
@@ -870,15 +864,11 @@ func (a *App) UploadFiles(files []FileData, expirationMinutes int, autoTagID int
 			})
 		}
 
-		// Share hook — fan this clip out to any publications whose tags are on it.
-		if a.shareManager != nil {
-			go func(cid int64) {
-				tagIDs, _ := a.getTagIDsForClip(cid)
-				if err := a.shareManager.OnClipCreated(cid, tagIDs); err != nil {
-					log.Printf("share: OnClipCreated(%d): %v", cid, err)
-				}
-			}(clipID)
-		}
+		// NOTE: the share hook intentionally does NOT fire here. Any upload
+		// that needs to be published routes through AddTagToClip (including
+		// the autoTagID branch above), which owns the OnClipCreated hook.
+		// Firing it here too produced a double-publish — the follower
+		// received the same clip twice with different envelope seqs.
 	}
 
 	return nil
