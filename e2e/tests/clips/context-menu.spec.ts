@@ -112,14 +112,22 @@ test.describe('Context Menu Keyboard Navigation', () => {
     const imagePath = await createTempFile(generateTestImage(), 'png');
     await app.uploadFile(imagePath);
 
-    // Tab into gallery to focus first clip.
-    // Press Escape first to dismiss any lingering overlay/menu that might be
-    // capturing focus from a previous test, then click body and blur active
-    // element so the tab sequence starts from a clean baseline.
+    // Dismiss any lingering overlay from a previous test, then ensure page
+    // keyboard focus is live (body click routes Playwright keyboard dispatch
+    // to this frame).  Use Playwright's native locator.focus() rather than
+    // evaluate()-based focus or tabTo: the CDP-backed focus properly registers
+    // with Playwright's keyboard dispatch layer so subsequent keyboard.press()
+    // calls actually reach the focused element.  tabTo with maxTabs:50 is
+    // unreliable under parallel load because there may be >50 focusable
+    // elements before the gallery cards in the tab order.
     await app.page.keyboard.press('Escape');
-    await app.page.locator('body').click();
+    await app.page.locator('body').click({ position: { x: 400, y: 400 } });
     await app.page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
-    await app.tabTo('#gallery > li', { maxTabs: 50 });
+
+    const firstCard = app.page.locator('#gallery > li').first();
+    await firstCard.waitFor({ state: 'visible', timeout: 5000 });
+    await firstCard.focus();
+    await expect(firstCard).toBeFocused({ timeout: 3000 });
 
     // Press Ctrl/Cmd+Enter to open context menu
     await app.page.keyboard.press('ControlOrMeta+Enter');

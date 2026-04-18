@@ -262,7 +262,28 @@ export async function restartWailsInstance(workerIndex: number): Promise<WailsIn
   const inProcess = instances.get(workerIndex);
   if (inProcess) {
     dataDir = inProcess.dataDir;
-    // Kill via process handle.
+    // Kill wails dev via process handle, then immediately force-kill the
+    // mahpastes binary LISTENING on the port. The sequence matters: on macOS,
+    // killing wails dev via SIGTERM causes wails dev to send a clean-shutdown
+    // IPC message to the mahpastes child binary. The child then runs
+    // shutdown() → db.Close() which triggers a SQLite WAL checkpoint.  If the
+    // checkpoint is incomplete (the WAL was partially written during the
+    // test), the main DB file can end up at the initial page size (4096 bytes)
+    // with no table data.
+    //
+    // By killing the mahpastes binary via SIGKILL immediately (before it can
+    // process the IPC shutdown message), we leave the WAL intact so the next
+    // process start applies it cleanly — matching the behaviour of the
+    // else-branch (pkill → lsof -sTCP:LISTEN SIGKILL).
+    //
+    // IMPORTANT: use `-sTCP:LISTEN` to target ONLY the server (mahpastes)
+    // listening on the port.  A plain `lsof -ti tcp:${port}` also returns
+    // client PIDs with active connections to the port, which includes the
+    // Playwright worker itself — killing it crashes the whole test run.
+    try {
+      const { execSync } = await import('child_process');
+      execSync(`lsof -ti tcp:${port} -sTCP:LISTEN 2>/dev/null | xargs kill -9 2>/dev/null || true`, { shell: true });
+    } catch { /* lsof not available; proceed optimistically */ }
     if (inProcess.process && !inProcess.process.killed) {
       inProcess.process.kill('SIGTERM');
       await new Promise((r) => setTimeout(r, 1000));
@@ -271,6 +292,7 @@ export async function restartWailsInstance(workerIndex: number): Promise<WailsIn
         await new Promise((r) => setTimeout(r, 500));
       }
     }
+    await new Promise((r) => setTimeout(r, 500));
     instances.delete(workerIndex);
   } else {
     // Read state file to get dataDir.
@@ -293,8 +315,10 @@ export async function restartWailsInstance(workerIndex: number): Promise<WailsIn
       await new Promise((r) => setTimeout(r, 1500));
       // Step 2: SIGKILL any survivors (wails dev or mahpastes binary on the port).
       execSync(`pkill -9 -f "devserver localhost:${port}" 2>/dev/null || true`, { shell: true });
-      // Also kill the mahpastes binary by port in case pkill missed it.
-      execSync(`lsof -ti tcp:${port} 2>/dev/null | xargs kill -9 2>/dev/null || true`, { shell: true });
+      // Also kill the mahpastes binary LISTENING on the port in case pkill
+      // missed it. Use `-sTCP:LISTEN` so we don't accidentally kill clients
+      // (including the Playwright worker) that have active connections to it.
+      execSync(`lsof -ti tcp:${port} -sTCP:LISTEN 2>/dev/null | xargs kill -9 2>/dev/null || true`, { shell: true });
       await new Promise((r) => setTimeout(r, 500));
     } catch {
       // pkill/lsof not available; proceed optimistically
@@ -417,7 +441,9 @@ export async function spawnSecondaryInstance(workerIndex: number): Promise<{
   try {
     const { execSync } = await import('child_process');
     execSync(`pkill -f "devserver localhost:${secondaryPort}" 2>/dev/null || true`, { shell: true });
-    execSync(`lsof -ti tcp:${secondaryPort} 2>/dev/null | xargs kill -9 2>/dev/null || true`, { shell: true });
+    // Use -sTCP:LISTEN to only target processes LISTENING on the port, not
+    // clients with active connections to it (the Playwright worker counts!).
+    execSync(`lsof -ti tcp:${secondaryPort} -sTCP:LISTEN 2>/dev/null | xargs kill -9 2>/dev/null || true`, { shell: true });
     // Brief pause to let OS release the port.
     await new Promise((r) => setTimeout(r, 500));
   } catch { /* ignore — pkill/lsof may not be available */ }
