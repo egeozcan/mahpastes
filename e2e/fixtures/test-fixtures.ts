@@ -2637,6 +2637,19 @@ export class AppHelper {
       { timeout: 5000 },
     );
     await this.page.click('#add-share-btn');
+    // The click handler fetches tags asynchronously (App.GetTags) and then
+    // populates the dropdown — selectOption races that async work and fails
+    // with "did not find some options" if it wins. Wait for the option we're
+    // about to pick to actually exist before selecting.
+    await this.page.waitForFunction(
+      (tn) => {
+        const sel = document.getElementById('create-share-tag-select') as HTMLSelectElement | null;
+        if (!sel) return false;
+        return Array.from(sel.options).some((o) => o.textContent === tn);
+      },
+      tagName,
+      { timeout: 10000 },
+    );
     await this.page.selectOption('#create-share-tag-select', { label: tagName });
     await this.page.click('#create-share-confirm-btn');
     // Wait for the result section to appear (StartShare RPC completes).

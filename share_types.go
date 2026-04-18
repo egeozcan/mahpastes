@@ -57,9 +57,10 @@ type ShareInfo struct {
 	TagID       int64  `json:"tag_id"`
 	TagName     string `json:"tag_name"`
 	ShareString string `json:"share_string"`
-	Status      string `json:"status"`       // "active" | "invalid"
+	Status      string `json:"status"` // "active" | "invalid"
 	Followers   int    `json:"followers"`
 	ClipsPushed int64  `json:"clips_pushed"`
+	LastSeq     int64  `json:"last_seq"`
 	CreatedAt   int64  `json:"created_at"`
 }
 

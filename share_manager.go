@@ -1166,9 +1166,9 @@ func (m *ShareManager) GetShareStatus() (shares []ShareInfo, follows []FollowInf
 	for _, p := range m.publications {
 		var tagName string
 		m.db.QueryRow(`SELECT name FROM tags WHERE id = ?`, p.tagID).Scan(&tagName)
-		var clipsSent, createdAt int64
+		var clipsSent, createdAt, lastSeqDB int64
 		// Authoritative counters live in the DB; no envelope-count heuristics.
-		m.db.QueryRow(`SELECT clips_sent, created_at FROM shares WHERE id = ?`, p.id).Scan(&clipsSent, &createdAt)
+		m.db.QueryRow(`SELECT clips_sent, last_seq, created_at FROM shares WHERE id = ?`, p.id).Scan(&clipsSent, &lastSeqDB, &createdAt)
 		p.fmu.Lock()
 		fCount := len(p.followers)
 		p.fmu.Unlock()
@@ -1181,6 +1181,7 @@ func (m *ShareManager) GetShareStatus() (shares []ShareInfo, follows []FollowInf
 			ID: p.id, TagID: p.tagID, TagName: tagName,
 			ShareString: shareStr, Status: p.status,
 			Followers: fCount, ClipsPushed: clipsSent,
+			LastSeq:   lastSeqDB,
 			CreatedAt: createdAt,
 		})
 	}

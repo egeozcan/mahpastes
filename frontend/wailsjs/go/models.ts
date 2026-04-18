@@ -538,6 +538,7 @@ export namespace main {
 	    status: string;
 	    followers: number;
 	    clips_pushed: number;
+	    last_seq: number;
 	    created_at: number;
 	
 	    static createFrom(source: any = {}) {
@@ -553,6 +554,7 @@ export namespace main {
 	        this.status = source["status"];
 	        this.followers = source["followers"];
 	        this.clips_pushed = source["clips_pushed"];
+	        this.last_seq = source["last_seq"];
 	        this.created_at = source["created_at"];
 	    }
 	}
