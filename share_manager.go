@@ -21,9 +21,31 @@ import (
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/p2p/discovery/mdns"
 	"github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/relay"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 )
+
+// mdnsServiceTag identifies mahpastes instances on the local network via mDNS.
+// All instances on the same host/LAN share this tag, so they can discover each
+// other without needing a populated DHT routing table.
+const mdnsServiceTag = "mahpastes-share"
+
+// mdnsNotifee connects to every peer discovered via mDNS. Once connected,
+// libp2p adds the peer to the peerstore automatically, which is exactly what
+// dialByPeerID's fast path needs.
+type mdnsNotifee struct {
+	host host.Host
+	ctx  context.Context
+}
+
+func (n *mdnsNotifee) HandlePeerFound(pi peer.AddrInfo) {
+	cctx, cancel := context.WithTimeout(n.ctx, 10*time.Second)
+	defer cancel()
+	if err := n.host.Connect(cctx, pi); err != nil {
+		log.Printf("share: mdns peer connect %s: %v", pi.ID, err)
+	}
+}
 
 // ShareManager owns the libp2p host and tracks publications + follows.
 type ShareManager struct {
@@ -32,8 +54,9 @@ type ShareManager struct {
 	db      *sql.DB
 	dataDir string
 
-	host host.Host
-	dht  *dht.IpfsDHT
+	host     host.Host
+	dht      *dht.IpfsDHT
+	mdnsSvc  mdns.Service
 
 	mu           sync.RWMutex
 	publications map[int64]*publication // keyed by shares.id
@@ -93,6 +116,35 @@ func NewShareManager(parent context.Context, db *sql.DB, dataDir string) (*Share
 		cancel()
 		return nil, fmt.Errorf("dht.New: %w", err)
 	}
+
+	// Seeded WAN bootstrap: connect to well-known bootstrap peers so the DHT
+	// routing table is populated and FindPeer works for cross-network discovery.
+	// Guarded by MAHPASTES_SHARE_DISABLE_WAN_BOOTSTRAP=1 so e2e tests (which run
+	// fully offline on localhost) skip the public network connections and rely on
+	// mDNS discovery instead.
+	if os.Getenv("MAHPASTES_SHARE_DISABLE_WAN_BOOTSTRAP") != "1" {
+		var wg sync.WaitGroup
+		for _, addr := range dht.DefaultBootstrapPeers {
+			pi, err := peer.AddrInfoFromP2pAddr(addr)
+			if err != nil {
+				log.Printf("share: invalid bootstrap addr %s: %v", addr, err)
+				continue
+			}
+			wg.Add(1)
+			go func(pi peer.AddrInfo) {
+				defer wg.Done()
+				cctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+				defer cancel()
+				if err := h.Connect(cctx, pi); err != nil {
+					// Non-fatal: many bootstrap peers reject new connections;
+					// we only need one to succeed for the DHT to work.
+					return
+				}
+			}(*pi)
+		}
+		// Don't wait — connections happen in background. Bootstrap can proceed.
+	}
+
 	if err := kad.Bootstrap(ctx); err != nil {
 		log.Printf("share: DHT bootstrap returned error (non-fatal): %v", err)
 	}
@@ -108,6 +160,16 @@ func NewShareManager(parent context.Context, db *sql.DB, dataDir string) (*Share
 		follows:      map[int64]*follow{},
 	}
 
+	// mDNS discovery: automatically find and connect to other mahpastes instances
+	// on the same host or LAN without needing a populated DHT routing table.
+	// This is the primary discovery mechanism for same-host e2e tests.
+	mdnsSvc := mdns.NewMdnsService(h, mdnsServiceTag, &mdnsNotifee{host: h, ctx: ctx})
+	if err := mdnsSvc.Start(); err != nil {
+		log.Printf("share: mdns start (non-fatal): %v", err)
+		mdnsSvc = nil
+	}
+	m.mdnsSvc = mdnsSvc
+
 	// Register the single application protocol.
 	h.SetStreamHandler(ShareProtocolID, m.handlePublisherStream)
 
@@ -120,7 +182,7 @@ func (m *ShareManager) Host() host.Host { return m.host }
 // SetEventFn installs the frontend event emitter (called from App.startup).
 func (m *ShareManager) SetEventFn(fn func(string, ...any)) { m.eventFn = fn }
 
-// Stop shuts down the DHT, host, and cancels all follow reconnect loops.
+// Stop shuts down mDNS, the DHT, host, and cancels all follow reconnect loops.
 func (m *ShareManager) Stop() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -129,6 +191,9 @@ func (m *ShareManager) Stop() {
 	}
 	for _, p := range m.publications {
 		p.closeAllFollowers()
+	}
+	if m.mdnsSvc != nil {
+		_ = m.mdnsSvc.Close()
 	}
 	if m.dht != nil {
 		_ = m.dht.Close()

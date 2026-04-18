@@ -1547,6 +1547,18 @@ func (a *App) AddTagToClip(clipID, tagID int64) error {
 		})
 	}
 
+	// Share hook — if this tag matches an active publication, fan the clip out
+	// to connected followers. This handles the case where a clip is tagged into
+	// a shared folder after initial upload.
+	if a.shareManager != nil {
+		go func(cid int64) {
+			tagIDs, _ := a.getTagIDsForClip(cid)
+			if err := a.shareManager.OnClipCreated(cid, tagIDs); err != nil {
+				log.Printf("share: OnClipCreated(%d) from AddTagToClip: %v", cid, err)
+			}
+		}(clipID)
+	}
+
 	return nil
 }
 

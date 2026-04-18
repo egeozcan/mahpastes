@@ -6,6 +6,7 @@ import (
 	cryptoRand "crypto/rand"
 	"crypto/sha256"
 	"database/sql"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -17,6 +18,14 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	_ "modernc.org/sqlite"
 )
+
+// TestMain disables WAN bootstrap so unit tests do not hit the public IPFS
+// bootstrap peers over the network. mDNS and direct peerstore seeding are
+// sufficient for all in-process tests.
+func TestMain(m *testing.M) {
+	os.Setenv("MAHPASTES_SHARE_DISABLE_WAN_BOOTSTRAP", "1")
+	os.Exit(m.Run())
+}
 
 func newTestDB(t *testing.T) *sql.DB {
 	t.Helper()

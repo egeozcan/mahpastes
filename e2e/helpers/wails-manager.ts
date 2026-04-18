@@ -104,6 +104,9 @@ export async function spawnWailsInstance(workerIndex: number): Promise<WailsInst
     env: {
       ...process.env,
       MAHPASTES_DATA_DIR: dataDir,
+      // Disable public DHT bootstrap peers in tests — mDNS provides same-host
+      // discovery and hitting public IPFS nodes is unreliable in CI.
+      MAHPASTES_SHARE_DISABLE_WAN_BOOTSTRAP: '1',
       PATH: `${process.env.PATH}:${path.join(os.homedir(), 'go', 'bin')}`,
     },
     stdio: ['pipe', 'pipe', 'pipe'],
