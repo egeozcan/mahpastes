@@ -81,7 +81,7 @@ test.describe('Share - Publisher restart', () => {
         // Step 3: Restart the publisher.
         //         After restart the share is re-initialised from the DB.
         // ------------------------------------------------------------------
-        await app.restart(testInfo.workerIndex);
+        await app.restart(testInfo.parallelIndex);
 
         // Verify share is re-active after restart.
         await expect.poll(

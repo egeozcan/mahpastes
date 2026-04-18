@@ -2740,7 +2740,13 @@ export class AppHelper {
    *   const status = await app.getShareStatus();
    */
   async restart(workerIndex: number): Promise<void> {
+    // Close the current page BEFORE killing wails — otherwise the websocket
+    // to the vite dev server (hosted by wails dev) tears down mid-flight and
+    // leaves `this.page` in a closed state that subsequent goto cannot recover.
+    const context = this.page.context();
+    try { await this.page.close(); } catch { /* already closed */ }
     await restartWailsInstance(workerIndex);
+    this.page = await context.newPage();
     await this.page.goto(this.baseURL);
     await this.waitForReady();
   }
