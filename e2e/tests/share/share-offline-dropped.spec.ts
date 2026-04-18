@@ -28,6 +28,10 @@ import { generateTestImage, createTempFile } from '../../helpers/test-data.js';
 
 test.describe('Share - Offline dropped (stale ring)', () => {
 
+  // Two-instance mDNS setup + parallel suite load can take 3+ minutes.
+  // The test skips after setup if ExecuteSQLForTest is unavailable.
+  test.setTimeout(240000);
+
   test(
     'follower does NOT receive aged-out ring entries after reconnect',
     async ({ app }, testInfo) => {
@@ -64,7 +68,7 @@ test.describe('Share - Offline dropped (stale ring)', () => {
             L1 = f?.last_seq ?? 0;
             return (await secondary.app.getClipCountFromDB()) >= 1 && L1 > 0;
           },
-          { timeout: 30000, intervals: [2000, 2000, 3000] },
+          { timeout: 120000, intervals: [2000, 2000, 3000] },
         ).toBe(true);
 
         // ------------------------------------------------------------------

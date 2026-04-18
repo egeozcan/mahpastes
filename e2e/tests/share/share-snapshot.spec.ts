@@ -19,7 +19,8 @@ import { generateTestImage, createTempFile } from '../../helpers/test-data.js';
 test.describe('Share - Snapshot (ring canonical copy)', () => {
 
   // Two-instance test: spawning secondary + mDNS discovery + transfer can take >60s.
-  test.setTimeout(120000);
+  // Under full suite load with parallel workers, allow up to 240s.
+  test.setTimeout(240000);
 
   test(
     'follower receives clip even after publisher deleted the source',
@@ -108,7 +109,7 @@ test.describe('Share - Snapshot (ring canonical copy)', () => {
         await expect.poll(
           async () => secondary.app.getClipCountFromDB(),
           {
-            timeout: 60000,
+            timeout: 120000,
             intervals: [2000, 2000, 3000, 3000, 5000],
             message: 'Follower did not receive 2 clips within 60 s',
           },

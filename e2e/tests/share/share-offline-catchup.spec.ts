@@ -24,7 +24,9 @@ test.describe('Share - Offline catchup', () => {
 
   // Two-instance mDNS tests + parallel suite load can take 3+ minutes
   // when all workers spawn secondaries simultaneously.
-  test.setTimeout(240000);
+  // This test has multiple sequential phases (clip 1, offline, clip 2),
+  // so it needs a higher budget than single-phase two-instance tests.
+  test.setTimeout(300000);
 
   test(
     'follower reconnects and receives clips published while offline',
