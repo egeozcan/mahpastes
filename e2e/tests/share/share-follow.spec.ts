@@ -3,52 +3,23 @@
  *
  * End-to-end test for the publisher → follower delivery loop.
  *
- * STATUS: SKIPPED — see TODO below.
+ * Two fresh mahpastes instances on the same machine discover each other via
+ * libp2p mDNS (no DHT routing table required). The publisher creates and shares
+ * a tag, the follower subscribes, the publisher uploads a clip, and the test
+ * asserts the follower receives it within 30 s.
  *
- * TODO (Task 12.x): Enable this spec once same-host DHT connectivity is solved.
- *
- * ROOT CAUSE: `ShareService.Follow()` requires a successful initial libp2p dial
- * to the publisher before registering the follow. On the slow path it calls
- * `dht.FindPeer(peerID)`, which needs a populated Kademlia routing table.
- * When two fresh instances start up on the same machine, both routing tables are
- * empty because no bootstrap peers are configured in `NewShareManager`. The DHT
- * `Bootstrap()` call is a no-op without seeded nodes, so `FindPeer` always
- * returns "failed to find any peer in table".
- *
- * REPRODUCTION: Run this spec without the skip — the follower's `Follow()` call
- * returns `"initial dial: dht find peer: failed to find any peer in table"`.
- *
- * REQUIRED FIX (Go side, outside Task 12.1 scope):
- *   Option A: Encode the publisher's multiaddrs in the share string so the
- *             follower can do a direct dial without DHT.
- *   Option B: Add a `FollowWithAddrs(shareString, addrs, localTagName)` API
- *             for testing that bypasses DHT.
- *   Option C: Seed the DHT with the other instance's peer info via a new
- *             `ShareService.AddKnownPeer(peerAddrInfo)` test helper, then wait
- *             for `dialByPeerID` fast path to pick it up from the peerstore.
- *
- * COVERAGE GAP: The wire-level pub→follow delivery is covered by the Go
- * integration tests in Task 5.2 (`share_integration_test.go`) and Task 7.1
- * which exercise `ShareManager` directly without DHT. This spec will provide the
- * full-stack UI coverage once the above fix lands.
- *
- * WHAT IS TESTED ALREADY (in this file, via other Phase 12 specs):
+ * WHAT IS TESTED:
  *   - Share creation UI (`startShare` helper) — exercises
  *     `#add-share-btn` → `#create-share-confirm-btn` → `ShareService.StartShare`.
  *   - AppHelper additions: `startShare`, `stopShare`, `followShare`,
- *     `getShareStatus`, `spawnSecondary` are all implemented and exercised up to
- *     the point of DHT failure.
+ *     `getShareStatus`, `spawnSecondary`.
+ *   - Full publisher → follower delivery over a live libp2p stream.
  */
 
 import { test, expect } from '../../fixtures/test-fixtures.js';
 import { generateTestImage, createTempFile } from '../../helpers/test-data.js';
 
 test.describe('Share - Follow and receive', () => {
-  test.skip(
-    true,
-    'BLOCKED: same-host DHT lookup fails (empty routing table). ' +
-    'See TODO in share-follow.spec.ts for required Go-side fix.',
-  );
 
   test(
     'follower receives a clip published after following',
