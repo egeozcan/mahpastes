@@ -169,6 +169,134 @@ export async function killWailsInstance(workerIndex: number): Promise<void> {
   instances.delete(workerIndex);
 }
 
+/**
+ * Restart a Wails instance for a given worker, PRESERVING its data directory.
+ *
+ * This is the low-level helper used by AppHelper.restart(). It:
+ *   1. Kills all processes listening on the worker's port (works even when the
+ *      primary instance was spawned in the global-setup process, whose `instances`
+ *      map is not accessible from inside a test worker subprocess).
+ *   2. Reads the .test-state.json file to recover the dataDir for this worker.
+ *   3. Spawns a new process on the same port with the same dataDir.
+ *   4. Waits for the new server to become responsive.
+ *
+ * Unlike killWailsInstance, it does NOT delete the dataDir, so persistent
+ * state (SQLite DB, share identity key, etc.) survives the restart.
+ */
+export async function restartWailsInstance(workerIndex: number): Promise<WailsInstance> {
+  const port = BASE_PORT + workerIndex;
+
+  // Resolve dataDir: prefer in-process instances map (if this worker spawned
+  // the instance itself), fall back to the shared .test-state.json written by
+  // global-setup (used when the primary was spawned in a different process).
+  let dataDir: string;
+  const inProcess = instances.get(workerIndex);
+  if (inProcess) {
+    dataDir = inProcess.dataDir;
+    // Kill via process handle.
+    if (inProcess.process && !inProcess.process.killed) {
+      inProcess.process.kill('SIGTERM');
+      await new Promise((r) => setTimeout(r, 1000));
+      if (!inProcess.process.killed) {
+        inProcess.process.kill('SIGKILL');
+        await new Promise((r) => setTimeout(r, 500));
+      }
+    }
+    instances.delete(workerIndex);
+  } else {
+    // Read state file to get dataDir.
+    const stateFile = path.resolve(__dirname, '../.test-state.json');
+    const raw = await fs.readFile(stateFile, 'utf-8');
+    const state = JSON.parse(raw) as { instances: Array<{ workerIndex: number; dataDir: string }> };
+    const entry = state.instances.find((i) => i.workerIndex === workerIndex);
+    if (!entry) {
+      throw new Error(`Worker ${workerIndex} not found in .test-state.json`);
+    }
+    dataDir = entry.dataDir;
+    // Kill the wails dev process AND the mahpastes binary it manages.
+    // We use pkill -f to match by argument string (works even when the primary
+    // instance was spawned in a different process and we lack a ChildProcess handle).
+    try {
+      const { execSync } = await import('child_process');
+      // Step 1: SIGTERM to wails dev process matching this devserver port.
+      // This lets wails dev do a clean shutdown of its child (mahpastes binary).
+      execSync(`pkill -f "devserver localhost:${port}" 2>/dev/null || true`, { shell: true });
+      await new Promise((r) => setTimeout(r, 1500));
+      // Step 2: SIGKILL any survivors (wails dev or mahpastes binary on the port).
+      execSync(`pkill -9 -f "devserver localhost:${port}" 2>/dev/null || true`, { shell: true });
+      // Also kill the mahpastes binary by port in case pkill missed it.
+      execSync(`lsof -ti tcp:${port} 2>/dev/null | xargs kill -9 2>/dev/null || true`, { shell: true });
+      await new Promise((r) => setTimeout(r, 500));
+    } catch {
+      // pkill/lsof not available; proceed optimistically
+    }
+  }
+
+  // Wait for the port to become free before re-binding.
+  await new Promise<void>((resolve) => {
+    const deadline = Date.now() + 15000;
+    const check = async () => {
+      if (await isPortAvailable(port)) {
+        resolve();
+      } else if (Date.now() < deadline) {
+        setTimeout(check, 300);
+      } else {
+        // Give up waiting and try to spawn anyway.
+        resolve();
+      }
+    };
+    check();
+  });
+
+  // Find wails binary.
+  const wailsPaths = [
+    'wails',
+    path.join(os.homedir(), 'go', 'bin', 'wails'),
+    '/usr/local/bin/wails',
+    '/usr/local/go/bin/wails',
+  ];
+  let wailsBin = 'wails';
+  for (const p of wailsPaths) {
+    try {
+      await fs.access(p);
+      wailsBin = p;
+      break;
+    } catch { /* try next */ }
+  }
+
+  // Spawn on the same port + same dataDir.
+  const proc = spawn(wailsBin, [
+    'dev',
+    '-loglevel', 'warning',
+    '-devserver', `localhost:${port}`,
+  ], {
+    cwd: PROJECT_ROOT,
+    env: {
+      ...process.env,
+      MAHPASTES_DATA_DIR: dataDir,
+      MAHPASTES_SHARE_DISABLE_WAN_BOOTSTRAP: '1',
+      PATH: `${process.env.PATH}:${path.join(os.homedir(), 'go', 'bin')}`,
+    },
+    stdio: ['pipe', 'pipe', 'pipe'],
+    detached: false,
+  });
+
+  proc.stdout?.on('data', (data) => {
+    if (process.env.DEBUG_WAILS) console.log(`[Worker ${workerIndex} restart] ${data}`);
+  });
+  proc.stderr?.on('data', (data) => {
+    if (process.env.DEBUG_WAILS) console.error(`[Worker ${workerIndex} restart] ${data}`);
+  });
+  proc.on('error', (err) => console.error(`[Worker ${workerIndex} restart] Process error:`, err));
+
+  const baseURL = `http://localhost:${port}`;
+  const instance: WailsInstance = { process: proc, port, dataDir, baseURL };
+  instances.set(workerIndex, instance);
+
+  await waitForServer(baseURL);
+  return instance;
+}
+
 export async function killAllInstances(): Promise<void> {
   const workerIndices = Array.from(instances.keys());
   await Promise.all(workerIndices.map((idx) => killWailsInstance(idx)));

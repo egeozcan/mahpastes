@@ -1,6 +1,6 @@
 import { test as base, Page, Locator, expect, BrowserContext } from '@playwright/test';
 import { selectors } from '../helpers/selectors.js';
-import { getBaseURL, spawnSecondaryInstance } from '../helpers/wails-manager.js';
+import { getBaseURL, spawnSecondaryInstance, restartWailsInstance } from '../helpers/wails-manager.js';
 import { createTempDir, cleanup, Point } from '../helpers/test-data.js';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -2720,6 +2720,29 @@ export class AppHelper {
    */
   async getShareStatus(): Promise<any> {
     return await this.page.evaluate(() => (window as any).go.main.ShareService.GetShareStatus());
+  }
+
+  // ==================== Restart (persistence tests) ====================
+
+  /**
+   * Restart the Wails instance bound to this AppHelper, preserving its data
+   * directory (SQLite DB, share identity, etc.).
+   *
+   * After restart the page is reloaded and waitForReady() is called so the
+   * caller can immediately interact with the app.
+   *
+   * IMPORTANT: This method is only valid when called on the primary worker
+   * instance (workerIndex = testInfo.parallelIndex). It must NOT be called on
+   * a secondary (spawnSecondary) instance — those use a different index space.
+   *
+   * Usage (persistence tests):
+   *   await app.restart(testInfo.parallelIndex);
+   *   const status = await app.getShareStatus();
+   */
+  async restart(workerIndex: number): Promise<void> {
+    await restartWailsInstance(workerIndex);
+    await this.page.goto(this.baseURL);
+    await this.waitForReady();
   }
 
   // ==================== Secondary Instance (two-app tests) ====================
