@@ -43,7 +43,11 @@ export class AppHelper {
   async waitForReady(): Promise<void> {
     // Wait for the app to be fully loaded
     await this.page.waitForSelector(selectors.header.root);
-    await this.page.waitForSelector(selectors.gallery.container);
+    // Only wait for the gallery to be ATTACHED to the DOM, not visible — after
+    // share-view-context restarts the page may boot back into the share view,
+    // which hides #gallery. The rest of the readiness waits (below) still
+    // ensure the JS runtime is fully initialized.
+    await this.page.waitForSelector(selectors.gallery.container, { state: 'attached' });
     // Wait for Wails runtime to be available (indicates JS is fully initialized)
     await this.page.waitForFunction(() => {
       // @ts-ignore - Wails runtime
