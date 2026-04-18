@@ -379,6 +379,19 @@ export async function spawnSecondaryInstance(workerIndex: number): Promise<{
   cleanup: () => Promise<void>;
 }> {
   const secondaryIndex = SECONDARY_INDEX_OFFSET + workerIndex;
+  const secondaryPort = BASE_PORT + secondaryIndex;
+
+  // Kill any stale secondary process left over from a previous test run.
+  // (Global teardown can't reach secondary instances spawned inside worker
+  //  subprocesses, so we clean up defensively before spawning a new one.)
+  try {
+    const { execSync } = await import('child_process');
+    execSync(`pkill -f "devserver localhost:${secondaryPort}" 2>/dev/null || true`, { shell: true });
+    execSync(`lsof -ti tcp:${secondaryPort} 2>/dev/null | xargs kill -9 2>/dev/null || true`, { shell: true });
+    // Brief pause to let OS release the port.
+    await new Promise((r) => setTimeout(r, 500));
+  } catch { /* ignore — pkill/lsof may not be available */ }
+
   const instance = await spawnWailsInstance(secondaryIndex);
 
   const cleanup = async () => {
