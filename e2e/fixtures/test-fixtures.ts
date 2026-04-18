@@ -2636,6 +2636,18 @@ export class AppHelper {
       () => !(document.getElementById('share-view')?.classList.contains('hidden') ?? true),
       { timeout: 5000 },
     );
+    // Before opening the modal, verify Go actually has this tag. If it
+    // doesn't, the create-share modal will never populate the dropdown and
+    // we'd wait a full 10 s for nothing. Surface a crisp error instead.
+    const goTagNames: string[] = await this.page.evaluate(async () =>
+      ((await (window as any).go.main.App.GetTags()) || []).map((t: any) => t.name),
+    );
+    if (!goTagNames.includes(tagName)) {
+      throw new Error(
+        `startShare("${tagName}"): tag is not in App.GetTags() — caller forgot to createTag first (found: [${goTagNames.join(', ')}])`,
+      );
+    }
+
     await this.page.click('#add-share-btn');
     // The click handler fetches tags asynchronously (App.GetTags) and then
     // populates the dropdown — selectOption races that async work and fails
