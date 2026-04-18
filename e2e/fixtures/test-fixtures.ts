@@ -2854,11 +2854,34 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     await use(workerPage);
   },
 
-  // Test-scoped app: reuses worker's page, fast reset between tests
-  app: async ({ workerPage }, use, testInfo) => {
+  // Test-scoped app: reuses worker's page, fast reset between tests.
+  //
+  // Healing note: a previous test may have called AppHelper.restart(), which
+  // closes the worker's page before killing the wails dev process (the page's
+  // vite websocket is tied to that process). The worker-scoped `workerPage`
+  // reference is frozen for the lifetime of the worker — we can't reassign
+  // it — so if it's closed we build a fresh page in the same BrowserContext
+  // and hand THAT to the AppHelper for this test. Next test sees the same
+  // dead `workerPage`, heals again; cost is ~1 goto per subsequent test.
+  app: async ({ workerPage, workerContext }, use, testInfo) => {
     const workerIndex = testInfo.parallelIndex;
     const baseURL = getBaseURL(workerIndex);
-    const app = new AppHelper(workerPage, baseURL);
+
+    let activePage: Page = workerPage;
+    if (activePage.isClosed()) {
+      activePage = await workerContext.newPage();
+      await activePage.goto(baseURL);
+      await activePage.waitForFunction(
+        () => typeof (window as any).go?.main?.App?.GetClips === 'function',
+        { timeout: 30000 },
+      );
+      await activePage.waitForFunction(
+        () => (window as any).__appReady === true,
+        { timeout: 30000 },
+      );
+    }
+
+    const app = new AppHelper(activePage, baseURL);
 
     // Fast reset before test (single evaluate call, no page navigation)
     try {
@@ -2866,7 +2889,7 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     } catch {
       // If fast reset fails, page might be broken. Full reload as fallback.
       try {
-        await workerPage.goto(baseURL);
+        await activePage.goto(baseURL);
         await app.waitForReady();
       } catch {
         // Last resort: ignore and hope for the best
@@ -2875,31 +2898,37 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
 
     await use(app);
 
-    // Capture screenshot on failure
+    // Capture screenshot on failure. Use the CURRENT page (app.page) since
+    // the test may have swapped it via restart(); the healed `activePage`
+    // above is also valid because app.page starts there.
     if (testInfo.status !== testInfo.expectedStatus) {
       try {
         const screenshotPath = testInfo.outputPath('failure.png');
-        await workerPage.screenshot({ path: screenshotPath });
-        testInfo.attachments.push({
-          name: 'screenshot',
-          contentType: 'image/png',
-          path: screenshotPath,
-        });
+        const shotPage = app.page.isClosed() ? activePage : app.page;
+        if (!shotPage.isClosed()) {
+          await shotPage.screenshot({ path: screenshotPath });
+          testInfo.attachments.push({
+            name: 'screenshot',
+            contentType: 'image/png',
+            path: screenshotPath,
+          });
+        }
       } catch {
         // Ignore screenshot errors
       }
     }
 
-    // Fast reset after test
-    try {
-      await app.fastReset();
-    } catch {
-      // If reset fails, reload for next test
+    // Fast reset after test. Skip if page is closed — next test will heal.
+    if (!app.page.isClosed()) {
       try {
-        await workerPage.goto(baseURL);
-        await app.waitForReady();
+        await app.fastReset();
       } catch {
-        // Ignore
+        try {
+          await app.page.goto(baseURL);
+          await app.waitForReady();
+        } catch {
+          // Ignore
+        }
       }
     }
   },
