@@ -3,7 +3,9 @@ node_modules/
 
 # Test output
 test-results/
+test-results-share/
 playwright-report/
+playwright-report-share/
 .test-state.json
 
 # Build output
