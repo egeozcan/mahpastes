@@ -11,6 +11,9 @@
 
 import { test, expect } from '../../fixtures/test-fixtures.js';
 
+// Run serially: parallel restarts contend on the shared build/ directory.
+test.describe.configure({ mode: 'serial' });
+
 test.describe('Share - Persistence across restart', () => {
 
   // Restart involves killing and respawning wails dev; give plenty of headroom.
