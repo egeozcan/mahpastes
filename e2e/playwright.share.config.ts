@@ -54,10 +54,11 @@ export default defineConfig({
     screenshot: 'off',
     video: 'off',
     // Share tests restart wails processes and wait for __appReady across two
-    // instances. A 10s action timeout is too tight — raise it here. Individual
+    // instances. Playwright caps per-call timeouts (e.g. waitForFunction
+    // { timeout: 60000 }) at actionTimeout, so raise it generously. Individual
     // tests still have their own top-level timeouts (240s–300s).
-    actionTimeout: 30000,
-    navigationTimeout: 60000,
+    actionTimeout: 90000,
+    navigationTimeout: 90000,
   },
 
   outputDir: './test-results-share',
