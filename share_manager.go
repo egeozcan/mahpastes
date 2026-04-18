@@ -435,8 +435,13 @@ func (m *ShareManager) handlePublisherStream(s network.Stream) {
 
 	peerID := s.Conn().RemotePeer()
 
-	// Enforce both caps under the publication lock so the decision and
-	// insertion are atomic against other concurrent handshakes.
+	// Hold pub.fmu across BOTH the stream-cap check AND the ring
+	// retransmit + register. Any concurrent emitClipForPublication is
+	// blocked from running live fan-out or extending the ring until we
+	// finish, so the follower either receives a clip entirely via the
+	// retransmit (for clips committed before we acquire the lock) or
+	// entirely via live fan-out (for clips emitted after we release).
+	// No clip can be split across the two paths or dropped entirely.
 	pub.fmu.Lock()
 	if len(pub.followers) >= m.maxStreamsPerPub() {
 		pub.fmu.Unlock()
@@ -454,28 +459,31 @@ func (m *ShareManager) handlePublisherStream(s network.Stream) {
 		_ = s.Reset()
 		return
 	}
-	pub.fmu.Unlock()
 
-	// Catch-up retransmit: send every ring row with seq > since_seq that
-	// is still within TTL.
+	// Register follower FIRST so that liveFanOutLocked (called by an
+	// emission we've just blocked) will enqueue to this follower once we
+	// release the lock. We enqueue retransmit envelopes through the same
+	// followerConn.enqueue path to serialise all writes through its single
+	// sender goroutine; writing to s directly here would race the sender.
+	fc := newFollowerConn(s, s)
+	pub.followers[s] = fc
+
+	// Catch-up retransmit: ring rows with seq > since_seq that are still
+	// within TTL. Because we hold pub.fmu, no emission can commit a new
+	// ring row during this query — every row here has seq ≤ shares.last_seq
+	// at the moment we acquired the lock, and every row with a larger seq
+	// will arrive via the blocked emission's liveFanOutLocked once we release.
 	rows, err := RingRetransmit(m.db, pub.id, hs.SinceSeq, time.Now().Unix())
 	if err != nil {
 		log.Printf("share: retransmit query: %v", err)
+		delete(pub.followers, s)
+		pub.fmu.Unlock()
 		_ = s.Reset()
 		return
 	}
 	for _, r := range rows {
-		if _, werr := s.Write(r.EnvelopeBytes); werr != nil {
-			_ = s.Reset()
-			return
-		}
+		fc.enqueue(r.EnvelopeBytes)
 	}
-
-	// Register for live fan-out. Phase 6 will write into this entry from the
-	// on_clip_created emitter.
-	fc := newFollowerConn(s, s)
-	pub.fmu.Lock()
-	pub.followers[s] = fc
 	pub.fmu.Unlock()
 
 	// Keep this goroutine alive until the stream closes. io.Copy drains any
@@ -628,6 +636,17 @@ func (m *ShareManager) emitClipForPublication(
 	totalSize int64,
 	chunkCount uint32,
 ) error {
+	// Hold p.fmu for the ENTIRE emission so that handlePublisherStream's
+	// ring-catchup-then-register path cannot interleave with a clip's
+	// envelopes. Without this lock a new follower registering mid-emission
+	// could miss chunks that were fan-out'd before it joined but had not yet
+	// been written to the ring (live fan-out fires per envelope, ring
+	// commits at tx commit). All callers of liveFanOutLocked below rely on
+	// the caller holding p.fmu, so every envelope is emitted to the stable
+	// follower set captured at the start of the emission.
+	p.fmu.Lock()
+	defer p.fmu.Unlock()
+
 	tx, err := m.db.Begin()
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -663,7 +682,7 @@ func (m *ShareManager) emitClipForPublication(
 	); err != nil {
 		return err
 	}
-	m.liveFanOut(p, startEnv)
+	m.liveFanOutLocked(p, startEnv)
 	nextSeq++
 
 	// 2) clip_chunk × N — streamed via SUBSTR so we never hold the full blob in RAM.
@@ -700,7 +719,7 @@ func (m *ShareManager) emitClipForPublication(
 		); err != nil {
 			return err
 		}
-		m.liveFanOut(p, cpEnv)
+		m.liveFanOutLocked(p, cpEnv)
 		nextSeq++
 	}
 
@@ -720,7 +739,7 @@ func (m *ShareManager) emitClipForPublication(
 	); err != nil {
 		return err
 	}
-	m.liveFanOut(p, endEnv)
+	m.liveFanOutLocked(p, endEnv)
 
 	// Bump last_seq AND clips_sent (one clip_end = one published clip). They
 	// stay in sync by construction.
@@ -739,13 +758,17 @@ func (m *ShareManager) emitClipForPublication(
 	return nil
 }
 
-// liveFanOut enqueues an envelope onto every connected follower's send
+// liveFanOutLocked enqueues an envelope onto every connected follower's send
 // queue. enqueue is non-blocking; if either the envelope slot cap or the
 // byte cap is exceeded for a follower, enqueue closes that follower and
 // the drain goroutine in handlePublisherStream will remove the entry.
-func (m *ShareManager) liveFanOut(p *publication, envelope []byte) {
-	p.fmu.Lock()
-	defer p.fmu.Unlock()
+//
+// The caller MUST hold p.fmu. This invariant lets emitClipForPublication
+// hold p.fmu for the entire emission of a clip's envelopes so that a
+// newly-handshaking follower in handlePublisherStream cannot register
+// partway through — a new follower either sees the whole clip via the
+// ring catch-up path or via live fan-out, never a mix.
+func (m *ShareManager) liveFanOutLocked(p *publication, envelope []byte) {
 	for _, fc := range p.followers {
 		fc.enqueue(envelope)
 	}
@@ -1013,7 +1036,9 @@ func (m *ShareManager) consumeStream(sessCtx context.Context, f *follow, r io.Re
 }
 
 func (m *ShareManager) setFollowStatus(f *follow, s string) {
+	f.mu.Lock()
 	f.status = s
+	f.mu.Unlock()
 	m.emitEvent("share:follow-updated", map[string]any{"id": f.id, "status": s})
 }
 
@@ -1197,10 +1222,13 @@ func (m *ShareManager) GetShareStatus() (shares []ShareInfo, follows []FollowInf
 			v := lastSeenSQL.Int64
 			lastSeenPtr = &v
 		}
+		f.mu.Lock()
+		status := f.status
+		f.mu.Unlock()
 		follows = append(follows, FollowInfo{
 			ID: f.id, RemotePeerID: f.remotePeerID.String(),
 			LocalTagID: f.localTagID, LocalTagName: localTagName,
-			Status:        f.status,
+			Status:        status,
 			ClipsReceived: clipsRecv,
 			LastSeq:       lastSeqDB, LastSeenAt: lastSeenPtr,
 			CreatedAt: createdAt,

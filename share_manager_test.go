@@ -533,13 +533,25 @@ func TestFollowSessionEndFlipsStatusOffline(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Read status under f.mu to avoid a benign data race with
+	// setFollowStatus. The actual correctness property the test verifies
+	// is the flip to "offline" — that invariant is unchanged.
+	readStatus := func(id int64) string {
+		fM.mu.RLock()
+		f := fM.follows[id]
+		fM.mu.RUnlock()
+		if f == nil {
+			return ""
+		}
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return f.status
+	}
+
 	// Wait for connected.
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
-		fM.mu.RLock()
-		f := fM.follows[followInfo.ID]
-		fM.mu.RUnlock()
-		if f != nil && f.status == "connected" {
+		if readStatus(followInfo.ID) == "connected" {
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
@@ -556,10 +568,7 @@ func TestFollowSessionEndFlipsStatusOffline(t *testing.T) {
 	sawOffline := false
 	deadline = time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
-		fM.mu.RLock()
-		f := fM.follows[followInfo.ID]
-		fM.mu.RUnlock()
-		if f != nil && f.status == "offline" {
+		if readStatus(followInfo.ID) == "offline" {
 			sawOffline = true
 			break
 		}
