@@ -2,6 +2,7 @@ import { FullConfig } from '@playwright/test';
 import { spawnWailsInstance, killAllInstances } from './helpers/wails-manager.js';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import * as os from 'os';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -25,6 +26,12 @@ const DEFAULT_SPAWN_DELAY = 500;
 
 async function globalSetup(config: FullConfig): Promise<void> {
   console.log('\n🚀 Starting Wails instances for parallel testing...\n');
+
+  // Remove any stale restart-lock directory left by a previous crashed run.
+  // Lock is in /tmp (not the project dir) so wails dev's watcher ignores it.
+  // (Normal teardown removes it, but crashes can leave it behind.)
+  const restartLock = path.join(os.tmpdir(), 'mahpastes-test-restart-lock');
+  await fs.rm(restartLock, { recursive: true, force: true }).catch(() => {});
 
   // Clean up any leftover instances from previous runs
   await killAllInstances();

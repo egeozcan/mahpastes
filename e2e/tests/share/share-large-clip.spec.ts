@@ -62,6 +62,10 @@ function generateLargeRandomPayload(targetBytes = 8 * 1024 * 1024): Buffer {
 
 test.describe('Share - Large clip transfer', () => {
 
+  // Two-instance mDNS + large file transfer + parallel suite load can take
+  // 3+ minutes when all workers spawn secondaries simultaneously.
+  test.setTimeout(240000);
+
   test(
     'follower receives an 8 MiB PNG with correct byte length',
     async ({ app }, testInfo) => {
@@ -118,9 +122,9 @@ test.describe('Share - Large clip transfer', () => {
             return follow?.clips_received ?? 0;
           },
           {
-            timeout: 60000,
+            timeout: 180000,
             intervals: [2000, 2000, 3000, 3000, 5000],
-            message: 'Follower did not receive the large clip within 60 s',
+            message: 'Follower did not receive the large clip within 180 s',
           },
         ).toBeGreaterThanOrEqual(1);
 

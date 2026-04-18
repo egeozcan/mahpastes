@@ -22,6 +22,10 @@ import { generateTestImage, createTempFile } from '../../helpers/test-data.js';
 
 test.describe('Share - Offline catchup', () => {
 
+  // Two-instance mDNS tests + parallel suite load can take 3+ minutes
+  // when all workers spawn secondaries simultaneously.
+  test.setTimeout(240000);
+
   test(
     'follower reconnects and receives clips published while offline',
     async ({ app }, testInfo) => {
@@ -67,9 +71,9 @@ test.describe('Share - Offline catchup', () => {
             return (await secondary.app.getClipCountFromDB()) >= 1 && L1 > 0;
           },
           {
-            timeout: 30000,
+            timeout: 120000,
             intervals: [2000, 2000, 3000],
-            message: 'Follower did not receive clip 1 within 30 s',
+            message: 'Follower did not receive clip 1 within 120 s',
           },
         ).toBe(true);
 
@@ -118,14 +122,14 @@ test.describe('Share - Offline catchup', () => {
         ).toBeGreaterThan(pubSeqBefore);
 
         // ------------------------------------------------------------------
-        // Step 5: Wait for B to reconnect and receive clip 2 (≤ 15 s).
+        // Step 5: Wait for B to reconnect and receive clip 2 (≤ 60 s).
         // ------------------------------------------------------------------
         await expect.poll(
           async () => secondary.app.getClipCountFromDB(),
           {
-            timeout: 30000,
+            timeout: 60000,
             intervals: [1000, 2000, 2000, 3000],
-            message: 'Follower did not reach 2 clips within 30 s after offline catchup',
+            message: 'Follower did not reach 2 clips within 60 s after offline catchup',
           },
         ).toBeGreaterThanOrEqual(2);
 

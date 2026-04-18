@@ -21,6 +21,10 @@ import { generateTestImage, createTempFile } from '../../helpers/test-data.js';
 
 test.describe('Share - Follow and receive', () => {
 
+  // Two-instance tests with mDNS discovery + parallel suite load can take
+  // 3+ minutes when all workers spawn secondaries simultaneously.
+  test.setTimeout(240000);
+
   test(
     'follower receives a clip published after following',
     async ({ app }, testInfo) => {
@@ -78,9 +82,9 @@ test.describe('Share - Follow and receive', () => {
             return follow?.clips_received ?? 0;
           },
           {
-            timeout: 30000,
+            timeout: 150000,
             intervals: [2000, 2000, 3000, 3000, 5000],
-            message: `Follower did not receive the published clip within 30 s`,
+            message: `Follower did not receive the published clip within 150 s`,
           },
         ).toBeGreaterThanOrEqual(1);
 

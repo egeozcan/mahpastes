@@ -13,28 +13,49 @@ import { fileURLToPath } from 'url';
 // file-based exclusive lock so that only one restart happens at a time even
 // across multiple Playwright worker subprocesses.
 //
-// Implementation: mkdir-based lock (atomic on POSIX: O_EXCL). Any process
-// that can't acquire the lock polls every 500 ms for up to 120 s.
+// Implementation: mkdir-based lock (atomic on POSIX: O_EXCL).  A timestamp
+// file inside the lock directory lets waiters detect stale locks (lock held
+// for > RESTART_LOCK_STALE_MS) so a crashed holder never blocks the next run.
 
 // Computed lazily after __dirname is set by the fileURLToPath block below.
 let RESTART_LOCK = '';
+// A lock held for more than this many ms without being released is considered stale.
+const RESTART_LOCK_STALE_MS = 5 * 60 * 1000; // 5 minutes
 
 async function acquireRestartLock(timeoutMs = 120000): Promise<() => Promise<void>> {
-  if (!RESTART_LOCK) RESTART_LOCK = path.resolve(__dirname, '../.restart-lock');
+  // IMPORTANT: Use /tmp (outside the project dir) so wails dev's filesystem
+  // watcher does NOT pick it up as a source change and trigger an unwanted
+  // recompile/restart while we are trying to restart on purpose.
+  if (!RESTART_LOCK) RESTART_LOCK = path.join(os.tmpdir(), 'mahpastes-test-restart-lock');
+  const tsFile = path.join(RESTART_LOCK, 'ts');
   const deadline = Date.now() + timeoutMs;
   while (true) {
     try {
       await fs.mkdir(RESTART_LOCK, { recursive: false });
+      // Write creation timestamp so other waiters can detect a stale lock.
+      await fs.writeFile(tsFile, String(Date.now())).catch(() => {});
       // Lock acquired. Return a release function.
       return async () => {
-        try { await fs.rmdir(RESTART_LOCK); } catch { /* ignore */ }
+        try { await fs.rm(RESTART_LOCK, { recursive: true, force: true }); } catch { /* ignore */ }
       };
     } catch (err: any) {
       if (err.code !== 'EEXIST') throw err;
-      // Lock held by someone else — poll.
+      // Check if the lock is stale (holder crashed without releasing).
+      try {
+        const raw = await fs.readFile(tsFile, 'utf-8');
+        const lockAge = Date.now() - parseInt(raw, 10);
+        if (lockAge > RESTART_LOCK_STALE_MS) {
+          console.warn(`[wails-manager] Removing stale restart lock (age ${Math.round(lockAge / 1000)}s)`);
+          await fs.rm(RESTART_LOCK, { recursive: true, force: true }).catch(() => {});
+          await new Promise((r) => setTimeout(r, 200));
+          continue;
+        }
+      } catch { /* lock dir exists but ts file missing — treat as fresh lock */ }
+      // Lock held by a live holder — poll.
       if (Date.now() >= deadline) {
-        // Stale lock? Force-remove and retry once.
-        try { await fs.rmdir(RESTART_LOCK); } catch { /* ignore */ }
+        // Timeout: force-remove and retry once.
+        console.warn('[wails-manager] Restart lock wait timed out; force-removing');
+        await fs.rm(RESTART_LOCK, { recursive: true, force: true }).catch(() => {});
         await new Promise((r) => setTimeout(r, 200));
         continue;
       }
@@ -69,8 +90,9 @@ async function isPortAvailable(port: number): Promise<boolean> {
   });
 }
 
-// Default timeout for server startup (configurable via WAILS_STARTUP_TIMEOUT env var)
-const DEFAULT_STARTUP_TIMEOUT = 120000;
+// Default timeout for server startup (configurable via WAILS_STARTUP_TIMEOUT env var).
+// 4 parallel `wails dev` compilations can easily take 2+ minutes on a loaded machine.
+const DEFAULT_STARTUP_TIMEOUT = 180000;
 
 async function waitForServer(url: string, timeoutMs?: number): Promise<void> {
   const timeout = timeoutMs ?? (process.env.WAILS_STARTUP_TIMEOUT
@@ -177,8 +199,11 @@ export async function spawnWailsInstance(workerIndex: number): Promise<WailsInst
 
   instances.set(workerIndex, instance);
 
-  // Wait for server to be ready
-  await waitForServer(instance.baseURL);
+  // Wait for server to be ready.
+  // Use a longer timeout than the default: secondary instances spawn during
+  // active tests when several primary+secondary instances may already be
+  // running, increasing compilation time.
+  await waitForServer(instance.baseURL, 240000);
 
   return instance;
 }
@@ -224,7 +249,9 @@ export async function killWailsInstance(workerIndex: number): Promise<void> {
 export async function restartWailsInstance(workerIndex: number): Promise<WailsInstance> {
   // Serialize restarts across all Playwright worker processes to prevent
   // parallel `wails dev` compilations from corrupting the shared build/ dir.
-  const releaseRestartLock = await acquireRestartLock();
+  // Use a generous timeout (300 s) so a queued restart can wait for the
+  // current one to finish even when many workers compete during the full suite.
+  const releaseRestartLock = await acquireRestartLock(300000);
 
   const port = BASE_PORT + workerIndex;
 
@@ -336,7 +363,10 @@ export async function restartWailsInstance(workerIndex: number): Promise<WailsIn
   instances.set(workerIndex, instance);
 
   try {
-    await waitForServer(baseURL);
+    // Use a longer timeout for restarts (vs initial spawn) because the
+    // lock serializes restarts, so a queued restart may wait up to 60 s
+    // for compilation before the port even starts responding.
+    await waitForServer(baseURL, 240000);
   } finally {
     // Release lock once the server is up (or if waitForServer throws).
     // The compilation phase is done; other restarts can proceed.
@@ -392,7 +422,17 @@ export async function spawnSecondaryInstance(workerIndex: number): Promise<{
     await new Promise((r) => setTimeout(r, 500));
   } catch { /* ignore — pkill/lsof may not be available */ }
 
-  const instance = await spawnWailsInstance(secondaryIndex);
+  // Serialize secondary spawns through the restart lock to avoid multiple
+  // concurrent `wails dev` compilations corrupting the shared build/ directory.
+  // The lock is released as soon as the server is responsive, so subsequent
+  // spawns proceed one at a time rather than all competing for the compiler.
+  const releaseSpawnLock = await acquireRestartLock(300000);
+  let instance: WailsInstance;
+  try {
+    instance = await spawnWailsInstance(secondaryIndex);
+  } finally {
+    await releaseSpawnLock();
+  }
 
   const cleanup = async () => {
     await killWailsInstance(secondaryIndex);
