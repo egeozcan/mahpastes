@@ -1836,6 +1836,20 @@ func (a *App) BulkAddTag(clipIDs []int64, tagID int64) error {
 		}
 	}
 
+	// Share hook — mirror AddTagToClip so bulk-tag and folder-drag paths
+	// (which both route through here) fan the clips out to any connected
+	// followers whose publication tag matches.
+	if a.shareManager != nil {
+		for _, clipID := range clipIDs {
+			go func(cid int64) {
+				tagIDs, _ := a.getTagIDsForClip(cid)
+				if err := a.shareManager.OnClipCreated(cid, tagIDs); err != nil {
+					log.Printf("share: OnClipCreated(%d) from BulkAddTag: %v", cid, err)
+				}
+			}(clipID)
+		}
+	}
+
 	return nil
 }
 
