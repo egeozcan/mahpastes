@@ -5,6 +5,44 @@ import * as os from 'os';
 import * as net from 'net';
 import { fileURLToPath } from 'url';
 
+// ---------------------------------------------------------------------------
+// Cross-process restart serialization
+// ---------------------------------------------------------------------------
+// wails dev uses a single shared build/ directory. Parallel restarts (kill +
+// respawn) corrupt the directory and cause compilation failures. We use a
+// file-based exclusive lock so that only one restart happens at a time even
+// across multiple Playwright worker subprocesses.
+//
+// Implementation: mkdir-based lock (atomic on POSIX: O_EXCL). Any process
+// that can't acquire the lock polls every 500 ms for up to 120 s.
+
+// Computed lazily after __dirname is set by the fileURLToPath block below.
+let RESTART_LOCK = '';
+
+async function acquireRestartLock(timeoutMs = 120000): Promise<() => Promise<void>> {
+  if (!RESTART_LOCK) RESTART_LOCK = path.resolve(__dirname, '../.restart-lock');
+  const deadline = Date.now() + timeoutMs;
+  while (true) {
+    try {
+      await fs.mkdir(RESTART_LOCK, { recursive: false });
+      // Lock acquired. Return a release function.
+      return async () => {
+        try { await fs.rmdir(RESTART_LOCK); } catch { /* ignore */ }
+      };
+    } catch (err: any) {
+      if (err.code !== 'EEXIST') throw err;
+      // Lock held by someone else — poll.
+      if (Date.now() >= deadline) {
+        // Stale lock? Force-remove and retry once.
+        try { await fs.rmdir(RESTART_LOCK); } catch { /* ignore */ }
+        await new Promise((r) => setTimeout(r, 200));
+        continue;
+      }
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  }
+}
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -184,6 +222,10 @@ export async function killWailsInstance(workerIndex: number): Promise<void> {
  * state (SQLite DB, share identity key, etc.) survives the restart.
  */
 export async function restartWailsInstance(workerIndex: number): Promise<WailsInstance> {
+  // Serialize restarts across all Playwright worker processes to prevent
+  // parallel `wails dev` compilations from corrupting the shared build/ dir.
+  const releaseRestartLock = await acquireRestartLock();
+
   const port = BASE_PORT + workerIndex;
 
   // Resolve dataDir: prefer in-process instances map (if this worker spawned
@@ -293,7 +335,13 @@ export async function restartWailsInstance(workerIndex: number): Promise<WailsIn
   const instance: WailsInstance = { process: proc, port, dataDir, baseURL };
   instances.set(workerIndex, instance);
 
-  await waitForServer(baseURL);
+  try {
+    await waitForServer(baseURL);
+  } finally {
+    // Release lock once the server is up (or if waitForServer throws).
+    // The compilation phase is done; other restarts can proceed.
+    await releaseRestartLock();
+  }
   return instance;
 }
 
