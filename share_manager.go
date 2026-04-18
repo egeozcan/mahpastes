@@ -504,6 +504,14 @@ func (m *ShareManager) handlePublisherStream(s network.Stream) {
 func (m *ShareManager) StartShare(tagID int64) (ShareInfo, error) {
 	var info ShareInfo
 
+	// Tag can have at most one share (enforced by UNIQUE index on
+	// shares.tag_id). Fail fast with a user-friendly message so the UI
+	// doesn't surface a raw SQLite constraint error.
+	var existing int
+	if err := m.db.QueryRow(`SELECT COUNT(*) FROM shares WHERE tag_id = ?`, tagID).Scan(&existing); err == nil && existing > 0 {
+		return info, fmt.Errorf("this tag is already shared — stop the existing share first")
+	}
+
 	symkey := make([]byte, 32)
 	if _, err := rand.Read(symkey); err != nil {
 		return info, fmt.Errorf("rand: %w", err)

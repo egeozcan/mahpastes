@@ -120,6 +120,10 @@
 
   confirmBtn.addEventListener('click', async () => {
     const tagID = parseInt(tagSelect.value, 10);
+    if (!(tagID > 0)) {
+      if (typeof showToast === 'function') showToast('Pick a tag first', 'error');
+      return;
+    }
     try {
       const info = await window.go.main.ShareService.StartShare(tagID);
       stringBox.textContent = info.share_string;
@@ -127,7 +131,11 @@
       resultSec.classList.remove('hidden');
       await refresh();
     } catch (e) {
-      alert('Failed to start share: ' + e);
+      // Surface the Go error via toast — alert() is unreliable in the
+      // Wails webview on macOS and silently swallows the message.
+      const msg = (e && e.message) ? e.message : String(e);
+      console.error('share: StartShare failed', e);
+      if (typeof showToast === 'function') showToast(msg, 'error');
     }
   });
 
@@ -180,12 +188,28 @@
     }
     if (stop) {
       const tagID = parseInt(stop.dataset.tagid, 10);
-      if (!confirm('Stop sharing? Existing followers will disconnect and the link will stop working.')) return;
+      // Two-step confirm: first click asks, second click within 4s commits.
+      // Native confirm() is unreliable inside the Wails webview on macOS.
+      if (stop.dataset.arm !== '1') {
+        stop.dataset.arm = '1';
+        const orig = stop.textContent;
+        stop.textContent = 'Click again to stop';
+        const timer = setTimeout(() => {
+          stop.dataset.arm = '';
+          stop.textContent = orig;
+        }, 4000);
+        stop.dataset.armTimer = String(timer);
+        return;
+      }
+      clearTimeout(parseInt(stop.dataset.armTimer, 10));
       try {
         await window.go.main.ShareService.StopShare(tagID);
+        if (typeof showToast === 'function') showToast('Share stopped');
         await refresh();
       } catch (err) {
-        alert('Stop failed: ' + err);
+        const msg = (err && err.message) ? err.message : String(err);
+        console.error('share: StopShare failed', err);
+        if (typeof showToast === 'function') showToast('Stop failed: ' + msg, 'error');
       }
     }
   });
@@ -250,12 +274,27 @@
     const un = e.target.closest('.share-unfollow');
     if (!un) return;
     const id = parseInt(un.dataset.id, 10);
-    if (!confirm('Unfollow this share? Already-received clips stay.')) return;
+    // Same two-step confirm as share-stop: first click arms, second commits.
+    if (un.dataset.arm !== '1') {
+      un.dataset.arm = '1';
+      const orig = un.textContent;
+      un.textContent = 'Click again to unfollow';
+      const timer = setTimeout(() => {
+        un.dataset.arm = '';
+        un.textContent = orig;
+      }, 4000);
+      un.dataset.armTimer = String(timer);
+      return;
+    }
+    clearTimeout(parseInt(un.dataset.armTimer, 10));
     try {
       await window.go.main.ShareService.Unfollow(id);
+      if (typeof showToast === 'function') showToast('Unfollowed');
       await refresh();
     } catch (err) {
-      alert('Unfollow failed: ' + err);
+      const msg = (err && err.message) ? err.message : String(err);
+      console.error('share: Unfollow failed', err);
+      if (typeof showToast === 'function') showToast('Unfollow failed: ' + msg, 'error');
     }
   });
 
