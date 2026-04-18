@@ -48,17 +48,21 @@ export class AppHelper {
     // which hides #gallery. The rest of the readiness waits (below) still
     // ensure the JS runtime is fully initialized.
     await this.page.waitForSelector(selectors.gallery.container, { state: 'attached' });
-    // Wait for Wails runtime to be available (indicates JS is fully initialized)
+    // Wait for Wails runtime to be available (indicates JS is fully initialized).
+    // After an app restart the wails dev proxy + vite + page-load chain can take
+    // up to 30s on a contested machine before window.go.main.App is populated.
     await this.page.waitForFunction(() => {
       // @ts-ignore - Wails runtime
       return typeof window.go?.main?.App?.GetClips === 'function';
-    }, { timeout: 10000 });
-    // Wait for app to be fully initialized (loadTags and loadClips complete)
-    // Increase timeout to handle slow startup when multiple workers are active
+    }, { timeout: 30000 });
+    // Wait for app to be fully initialized (loadTags and loadClips complete).
+    // Post-restart initialization is slower because plugins reload, watchers
+    // re-seed, and any network-facing systems (ShareManager DHT bootstrap,
+    // tag serve, watch folder restart) each add setup latency.
     await this.page.waitForFunction(() => {
       // @ts-ignore
       return window.__appReady === true;
-    }, { timeout: 30000 });
+    }, { timeout: 60000 });
     // Workaround: Wails dev mode has a timing issue where the first API calls
     // during page load may return empty. Re-fetch tags and clips to ensure state is fresh.
     await this.page.evaluate(async () => {

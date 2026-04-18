@@ -53,8 +53,11 @@ export default defineConfig({
     trace: 'off',
     screenshot: 'off',
     video: 'off',
-    actionTimeout: 10000,
-    navigationTimeout: 30000,
+    // Share tests restart wails processes and wait for __appReady across two
+    // instances. A 10s action timeout is too tight — raise it here. Individual
+    // tests still have their own top-level timeouts (240s–300s).
+    actionTimeout: 30000,
+    navigationTimeout: 60000,
   },
 
   outputDir: './test-results-share',
