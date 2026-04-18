@@ -2781,7 +2781,16 @@ export class AppHelper {
     await restartWailsInstance(workerIndex);
     this.page = await context.newPage();
     await this.page.goto(this.baseURL);
-    await this.waitForReady();
+    // waitForReady times out occasionally when the page's first JS load
+    // doesn't complete the full `window.load` chain within the timeout —
+    // often because vite took a beat to serve assets after wails dev
+    // restarted. A single page.reload() almost always recovers it.
+    try {
+      await this.waitForReady();
+    } catch {
+      await this.page.reload();
+      await this.waitForReady();
+    }
   }
 
   // ==================== Secondary Instance (two-app tests) ====================
@@ -2811,15 +2820,17 @@ export class AppHelper {
     const secondaryPage = await context.newPage();
     await secondaryPage.goto(instance.baseURL);
 
-    // Wait for the secondary app to be fully ready
-    await secondaryPage.waitForSelector('[data-testid="gallery"], #gallery', { timeout: 30000 });
+    // Wait for the secondary app to be fully ready. Use state:'attached' for
+    // #gallery so a bootup that lands in a non-clips view (rare but possible)
+    // doesn't hang the whole spawn on visibility.
+    await secondaryPage.waitForSelector('[data-testid="gallery"], #gallery', { state: 'attached', timeout: 60000 });
     await secondaryPage.waitForFunction(
       () => typeof (window as any).go?.main?.App?.GetClips === 'function',
-      { timeout: 30000 },
+      { timeout: 60000 },
     );
     await secondaryPage.waitForFunction(
       () => (window as any).__appReady === true,
-      { timeout: 30000 },
+      { timeout: 60000 },
     );
 
     const secondaryApp = new AppHelper(secondaryPage, instance.baseURL);
