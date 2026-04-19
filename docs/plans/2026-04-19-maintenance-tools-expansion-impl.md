@@ -55,6 +55,155 @@ Each phase produces shippable, testable software. Phases can be reviewed and mer
 
 ## Phase 1 — Part A: Tag Reference Integrity
 
+### Task 0: Test harness extensions
+
+The existing `setupTestDBWithTags` (`tag_hierarchy_test.go:142`) only creates `clips`, `tags`, `clip_tags` and returns a bare `&App{db: db}`. The Phase 1+ tests in this plan need the full schema (follows, watched_folders, settings, api_keys, plugin_storage, shares, plugin_permissions, etc.), an initialized `ShareManager`, `ServeManager`, `wailsbridge`, and a `tempDir`. This task adds a parallel helper without disturbing the existing one.
+
+**Files:**
+- Create: `test_helpers_test.go` (new, top of repo)
+- Modify (import only): `internal/wailsbridge/bridge.go` if a test constructor is missing
+
+- [ ] **Step 1: Expose a test-friendly bridge constructor**
+
+If `internal/wailsbridge/bridge.go` doesn't already expose a zero-value-safe constructor usable in tests, add:
+
+```go
+// NewForTesting returns a Bridge that is safe to Emit into without a Wails
+// runtime context. Emits are no-ops unless a testSink is installed.
+func NewForTesting() *Bridge {
+    return &Bridge{}
+}
+```
+
+(The existing `SetTestEventSink` from Task 6 Step 2 attaches a sink to capture emits.)
+
+- [ ] **Step 2: Add the `setupTestApp` helper**
+
+Create `test_helpers_test.go`:
+
+```go
+package main
+
+import (
+    "context"
+    "os"
+    "path/filepath"
+    "testing"
+
+    "mahpastes/internal/wailsbridge"
+)
+
+// setupTestApp returns an App backed by a real initDB()-initialized SQLite
+// DB, plus a ShareManager, ServeManager, wailsbridge, and tempDir. Use this
+// for any test that touches follows/watched_folders/settings/api_keys/
+// plugin_storage/shares/plugin_permissions, or that expects serveManager /
+// shareManager / bridge to be non-nil.
+//
+// The older setupTestDBWithTags (tag_hierarchy_test.go:142) only covers
+// clips+tags+clip_tags; keep using it for narrow tag-hierarchy tests.
+func setupTestApp(t *testing.T) (*App, func()) {
+    t.Helper()
+    dir := t.TempDir()
+    t.Setenv("MAHPASTES_DATA_DIR", dir)
+
+    db, err := initDB()
+    if err != nil {
+        t.Fatalf("initDB: %v", err)
+    }
+
+    ctx := context.Background()
+    app := &App{
+        db:      db,
+        bridge:  wailsbridge.NewForTesting(),
+        tempDir: filepath.Join(dir, "clip_temp_files"),
+    }
+    if err := os.MkdirAll(app.tempDir, 0o755); err != nil {
+        t.Fatalf("mkdir tempDir: %v", err)
+    }
+
+    sm, err := NewShareManager(ctx, db, dir)
+    if err != nil {
+        t.Fatalf("NewShareManager: %v", err)
+    }
+    app.shareManager = sm
+
+    // ServeManager constructor: adapt the call site to match the actual
+    // signature in serve_manager.go. The important bit is that
+    // app.serveManager is non-nil so StopServing / ListServing are safe
+    // no-ops when nothing is being served.
+    app.serveManager = NewServeManager(db, app)
+
+    cleanup := func() {
+        if app.shareManager != nil {
+            app.shareManager.Stop()
+        }
+        if app.serveManager != nil {
+            _ = app.serveManager.StopAll()
+        }
+        db.Close()
+    }
+    return app, cleanup
+}
+```
+
+If any of the constructor signatures above (`NewShareManager`, `NewServeManager`, `Stop`, `StopAll`) don't match the actual code, adapt the call — the correctness criterion is: `app.serveManager != nil`, `app.shareManager != nil`, `app.bridge != nil`, `app.tempDir` exists, and all schema tables from `initDB` are present.
+
+- [ ] **Step 3: Verify the helper compiles**
+
+Run: `go build ./...`
+Expected: success.
+
+- [ ] **Step 4: Smoke test that it exercises the full schema**
+
+Add to `test_helpers_test.go`:
+
+```go
+func TestSetupTestApp_SmokeSchema(t *testing.T) {
+    app, cleanup := setupTestApp(t)
+    defer cleanup()
+
+    for _, table := range []string{
+        "clips", "tags", "clip_tags", "settings", "watched_folders",
+        "plugins", "plugin_permissions", "plugin_storage",
+        "api_keys", "shares", "follows", "share_ring",
+    } {
+        var count int
+        if err := app.db.QueryRow(
+            `SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name = ?`,
+            table,
+        ).Scan(&count); err != nil {
+            t.Fatalf("probe %s: %v", table, err)
+        }
+        if count != 1 {
+            t.Errorf("expected table %q to exist after setupTestApp", table)
+        }
+    }
+    if app.serveManager == nil {
+        t.Error("serveManager must be non-nil")
+    }
+    if app.shareManager == nil {
+        t.Error("shareManager must be non-nil")
+    }
+    if app.bridge == nil {
+        t.Error("bridge must be non-nil")
+    }
+}
+```
+
+Run: `go test -run TestSetupTestApp_SmokeSchema ./...`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add test_helpers_test.go internal/wailsbridge/bridge.go
+git commit -m "test: add setupTestApp helper with full schema + services"
+```
+
+> **Convention for the rest of this plan:** every test snippet that says `setupTestApp` refers to the helper introduced here. Snippets that still say `setupTestDBWithTags` are using the narrower pre-existing helper on purpose (simple tag-hierarchy probes that don't need services).
+
+---
+
 ### Task 1: Register `tag:merged` plugin event
 
 **Files:**
@@ -266,12 +415,36 @@ func migrateAPIKeysScopedTagSetNull(db *sql.DB) error {
 }
 ```
 
-Also add a regression test for the FK-restoration guarantee — append to `database_test.go`:
+Add a test hook to the production function so the failure path can be exercised, and add the FK-restoration regression test. In `database.go`, near the top of the file (package-level var):
 
 ```go
-// TestMigration_RestoresFKOnError ensures a failed migration still re-enables
-// foreign_keys before the conn returns to the pool. Without the deferred
-// restore, a pooled conn could carry FK=OFF and silently skip constraints.
+// migrateFailHook, if non-nil, is invoked inside migrateAPIKeysScopedTagSetNull
+// AFTER PRAGMA foreign_keys=OFF but BEFORE the table rebuild commits. Returning
+// a non-nil error from the hook forces the migration's error path so tests can
+// verify the deferred PRAGMA foreign_keys=ON still runs and the connection
+// can't be returned to the pool with FK checks disabled. Production code leaves
+// this nil.
+var migrateFailHook func() error
+```
+
+Then in `migrateAPIKeysScopedTagSetNull`, immediately after the `PRAGMA foreign_keys=OFF` statement (and before `BeginTx`), add:
+
+```go
+    if migrateFailHook != nil {
+        if err := migrateFailHook(); err != nil {
+            return fmt.Errorf("test hook: %w", err)
+        }
+    }
+```
+
+Now append the real regression test to `database_test.go`:
+
+```go
+// TestMigration_RestoresFKOnError exercises the actual poisoned-conn path:
+// acquire a real conn, disable FK, force an error via migrateFailHook, and
+// verify every pooled conn afterwards reports foreign_keys=1. Without the
+// deferred restore in migrateAPIKeysScopedTagSetNull, this would catch a
+// conn that went back to the pool with FK=OFF.
 func TestMigration_RestoresFKOnError(t *testing.T) {
     dir := t.TempDir()
     t.Setenv("MAHPASTES_DATA_DIR", dir)
@@ -281,18 +454,54 @@ func TestMigration_RestoresFKOnError(t *testing.T) {
     }
     defer db.Close()
 
-    // Force an error path: passing a nil db should not leave the pool in a
-    // FK-disabled state. (Adapt if the implementation uses a different error
-    // surface — the important assertion is that every pooled conn reports
-    // foreign_keys=1 after this call.)
-    _ = migrateAPIKeysScopedTagSetNull(nil) // no-op; exercised for coverage
+    // Put api_keys into the pre-migration state so needsAPIKeysScopedTagMigration
+    // returns true and the migration actually executes to the point where FK
+    // is disabled. (initDB already migrated on open; we recreate the old shape.)
+    if _, err := db.Exec(`DROP TABLE api_keys`); err != nil {
+        t.Fatalf("drop: %v", err)
+    }
+    if _, err := db.Exec(`
+        CREATE TABLE api_keys (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            key_hash TEXT NOT NULL UNIQUE,
+            key_prefix TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'viewer',
+            scoped_tag_id INTEGER,
+            is_revoked INTEGER DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            last_used_at DATETIME,
+            FOREIGN KEY (scoped_tag_id) REFERENCES tags(id) ON DELETE CASCADE
+        )`); err != nil {
+        t.Fatalf("recreate old api_keys: %v", err)
+    }
+    if !needsAPIKeysScopedTagMigration(db) {
+        t.Fatalf("pre-condition: migration should be needed after recreating old table")
+    }
 
-    // Exhaust & reacquire pooled conns to catch any poisoned one.
-    for i := 0; i < 4; i++ {
-        var fk int
-        if err := db.QueryRow(`PRAGMA foreign_keys`).Scan(&fk); err != nil {
-            t.Fatalf("query fk: %v", err)
+    // Install failure hook, restore on exit.
+    migrateFailHook = func() error { return fmt.Errorf("simulated mid-migration failure") }
+    defer func() { migrateFailHook = nil }()
+
+    err = migrateAPIKeysScopedTagSetNull(db)
+    if err == nil {
+        t.Fatalf("expected migration to fail with the hook installed")
+    }
+
+    // Exhaust pool by taking and releasing multiple conns. At least one of
+    // these Conn/Query calls should reuse the same conn that had FK disabled
+    // during the failed migration.
+    for i := 0; i < 8; i++ {
+        conn, err := db.Conn(context.Background())
+        if err != nil {
+            t.Fatalf("conn %d: %v", i, err)
         }
+        var fk int
+        if err := conn.QueryRowContext(context.Background(), `PRAGMA foreign_keys`).Scan(&fk); err != nil {
+            conn.Close()
+            t.Fatalf("query fk on conn %d: %v", i, err)
+        }
+        conn.Close()
         if fk != 1 {
             t.Fatalf("pooled connection %d has foreign_keys=%d, expected 1", i, fk)
         }
@@ -364,7 +573,7 @@ import (
 )
 
 func TestCheckTagReferencePreconditions_NoBlockers(t *testing.T) {
-    app, cleanup := setupTestDBWithTags(t)
+    app, cleanup := setupTestApp(t)
     defer cleanup()
 
     id, err := app.CreateTag("unreferenced")
@@ -381,7 +590,7 @@ func TestCheckTagReferencePreconditions_NoBlockers(t *testing.T) {
 }
 
 func TestCheckTagReferencePreconditions_BlockedByFollow(t *testing.T) {
-    app, cleanup := setupTestDBWithTags(t)
+    app, cleanup := setupTestApp(t)
     defer cleanup()
 
     tag, err := app.CreateTag("subscribed")
@@ -467,7 +676,7 @@ Append to `tag_reference_integrity_test.go`:
 
 ```go
 func TestDeleteTag_BlockedByFollow(t *testing.T) {
-    app, cleanup := setupTestDBWithTags(t)
+    app, cleanup := setupTestApp(t)
     defer cleanup()
 
     tag, _ := app.CreateTag("blocked")
@@ -494,7 +703,7 @@ func TestDeleteTag_BlockedByFollow(t *testing.T) {
 }
 
 func TestDeleteTag_NullsWatchFolderAutoTag(t *testing.T) {
-    app, cleanup := setupTestDBWithTags(t)
+    app, cleanup := setupTestApp(t)
     defer cleanup()
 
     tag, _ := app.CreateTag("autotag-target")
@@ -514,7 +723,7 @@ func TestDeleteTag_NullsWatchFolderAutoTag(t *testing.T) {
 }
 
 func TestDeleteTag_RemovesFromHiddenList(t *testing.T) {
-    app, cleanup := setupTestDBWithTags(t)
+    app, cleanup := setupTestApp(t)
     defer cleanup()
 
     tag, _ := app.CreateTag("hide-me")
@@ -712,7 +921,7 @@ Append to `tag_reference_integrity_test.go`:
 
 ```go
 func TestUpdateTag_BlockedByServedSubtree(t *testing.T) {
-    app, cleanup := setupTestDBWithTags(t)
+    app, cleanup := setupTestApp(t)
     defer cleanup()
 
     _, _ = app.CreateTag("a/x")
@@ -821,7 +1030,7 @@ Append to `tag_reference_integrity_test.go`:
 // Asserts that UpdateTag emits a "tag:updated" runtime event with old+new
 // names, so the frontend can re-resolve folder-view state.
 func TestUpdateTag_EmitsFrontendEvent(t *testing.T) {
-    app, cleanup := setupTestDBWithTags(t)
+    app, cleanup := setupTestApp(t)
     defer cleanup()
 
     captured := make(chan map[string]any, 1)
@@ -943,7 +1152,34 @@ window.runtime.EventsOn('tag:merged', (payload) => {
 });
 ```
 
-- [ ] **Step 3: Implement `handleTagReferenceEvent` + `currentFolderTagID` tracking in `tags.js`**
+- [ ] **Step 3a: Expose a real `activeTagFilters` normalization API in `app.js`**
+
+`activeTagFilters` is a module-local `let` at `frontend/js/app.js:187`. Only `__testHelpers.setActiveTagFilters` can mutate it from outside the module today (`app.js:254-256`). The event handler needs a non-test public API. Add, immediately after the `let activeTagFilters = [];` declaration:
+
+```javascript
+/**
+ * Normalize activeTagFilters after any tag change. Pass the set of currently
+ * valid tag IDs and an optional Map of substitutions (source_id -> dest_id
+ * for merges). Mutates the array in place so existing references stay live.
+ * Exposed on window because the tag event handler lives in tags.js.
+ */
+function normalizeActiveTagFilters(validIDs, substitutions) {
+    const subs = substitutions || new Map();
+    const replaced = activeTagFilters.map(id => subs.has(id) ? subs.get(id) : id);
+    const kept = replaced.filter(id => validIDs.has(id));
+    activeTagFilters.length = 0;
+    activeTagFilters.push(...kept);
+    // Re-render the filter pills so the UI reflects the normalized list.
+    if (typeof renderTagFilterPills === 'function') {
+        renderTagFilterPills();
+    }
+}
+window.normalizeActiveTagFilters = normalizeActiveTagFilters;
+```
+
+If `renderTagFilterPills` doesn't exist under that exact name, look for the existing function that rebuilds the pill row (likely `renderActiveTagFilters` or the filter-UI rebuild that runs when the user toggles a filter) and call that instead. The requirement is: after this function returns, the pill UI reflects the new `activeTagFilters`.
+
+- [ ] **Step 3b: Implement `handleTagReferenceEvent` + `currentFolderTagID` tracking in `tags.js`**
 
 At the top of `frontend/js/tags.js`, add module-scope:
 
@@ -971,45 +1207,50 @@ window.handleTagReferenceEvent = async function(eventName, payload) {
     const tags = await window.go.main.App.GetTags();
     const validIDs = new Set(tags.map(t => t.id));
 
-    // Normalize activeTagFilters in BOTH folder-mode and non-folder-mode.
+    // Build substitution map for merges: source_id -> dest_id. Used for
+    // both activeTagFilters normalization and currentFolderTagID remap.
+    const substitutions = new Map();
+    if (eventName === 'tag:merged'
+        && payload && typeof payload.source_id === 'number'
+        && typeof payload.dest_id === 'number') {
+        substitutions.set(payload.source_id, payload.dest_id);
+    }
+
+    // (1) Normalize activeTagFilters in BOTH folder-mode and non-folder-mode.
     // loadTags() only refreshes the tag dropdown; it does NOT touch the
-    // activeTagFilters array that loadClips() uses to build the SQL
-    // predicate (frontend/js/app.js:1615-1617, wails-api.js:17-41). Without
-    // this pass, deleting or merging a tag while it is used as a normal
-    // filter leaves the gallery filtering on a nonexistent ID.
-    if (Array.isArray(window.activeTagFilters)) {
-        window.activeTagFilters = window.activeTagFilters
-            .map(id => {
-                // For merges, substitute dest for source so the user stays
-                // on an equivalent filter view.
-                if (eventName === 'tag:merged'
-                    && payload && payload.source_id === id
-                    && typeof payload.dest_id === 'number') {
-                    return payload.dest_id;
-                }
-                return id;
-            })
-            .filter(id => validIDs.has(id));
+    // module-local activeTagFilters array in app.js. Without this pass,
+    // deleting or merging a tag while it is used as a normal filter leaves
+    // the gallery filtering on a nonexistent ID.
+    if (typeof window.normalizeActiveTagFilters === 'function') {
+        window.normalizeActiveTagFilters(validIDs, substitutions);
+    }
+
+    // (2) Remap currentFolderTagID for the merge-source case BEFORE the
+    // lookup. Without this, a user viewing the merge source's folder would
+    // fall into the "tag is gone" branch and bounce to the parent, never
+    // landing on the merge destination.
+    if (substitutions.has(currentFolderTagID)) {
+        currentFolderTagID = substitutions.get(currentFolderTagID);
     }
 
     if (currentFolderTagID == null) {
-        // Not in folder view — filter pills get rebuilt by loadTags, and
-        // activeTagFilters is already normalized above.
+        // Not in folder view — filters are normalized, just reload clips.
         loadClips();
         return;
     }
 
     const current = tags.find(t => t.id === currentFolderTagID);
     if (current) {
-        // Tag still exists (rename, or merge destination) — re-navigate to
-        // its current path (may have changed via rename).
+        // Tag still exists (rename survived the name change, or merge
+        // destination after remap) — re-navigate to its current path.
         if (typeof navigateToFolder === 'function') {
             navigateToFolder(current.id, current.name);
         }
     } else {
-        // Tag is gone (delete, or merge source) — navigate to parent, or
-        // fall out of folder mode entirely.
-        const parentName = parentTagName(payload?.name || payload?.old_name || payload?.source_name || '');
+        // Tag is gone (delete) — navigate to parent or exit folder mode.
+        // Merge-source was already remapped above, so this path is only hit
+        // on plain delete.
+        const parentName = parentTagName(payload?.name || payload?.old_name || '');
         const parent = parentName ? tags.find(t => t.name === parentName) : null;
         if (parent && typeof navigateToFolder === 'function') {
             navigateToFolder(parent.id, parent.name);
@@ -1206,7 +1447,7 @@ import (
 )
 
 func TestMigrateTagReferences_APIKeyScope(t *testing.T) {
-    app, cleanup := setupTestDBWithTags(t)
+    app, cleanup := setupTestApp(t)
     defer cleanup()
 
     src, _ := app.CreateTag("src")
@@ -1228,7 +1469,7 @@ func TestMigrateTagReferences_APIKeyScope(t *testing.T) {
 }
 
 func TestMigrateTagReferences_WatchFolderAutoTag(t *testing.T) {
-    app, cleanup := setupTestDBWithTags(t)
+    app, cleanup := setupTestApp(t)
     defer cleanup()
 
     src, _ := app.CreateTag("src")
@@ -1250,7 +1491,7 @@ func TestMigrateTagReferences_WatchFolderAutoTag(t *testing.T) {
 }
 
 func TestMigrateTagReferences_HiddenList(t *testing.T) {
-    app, cleanup := setupTestDBWithTags(t)
+    app, cleanup := setupTestApp(t)
     defer cleanup()
 
     src, _ := app.CreateTag("src")
@@ -1363,7 +1604,7 @@ Append to `tag_merge_test.go`:
 
 ```go
 func TestPreviewMergeTag_CountsClipsAndDescendants(t *testing.T) {
-    app, cleanup := setupTestDBWithTags(t)
+    app, cleanup := setupTestApp(t)
     defer cleanup()
 
     src, _ := app.CreateTag("a/x")
@@ -1390,7 +1631,7 @@ func TestPreviewMergeTag_CountsClipsAndDescendants(t *testing.T) {
 }
 
 func TestPreviewMergeTag_BlockedBySelf(t *testing.T) {
-    app, cleanup := setupTestDBWithTags(t)
+    app, cleanup := setupTestApp(t)
     defer cleanup()
     src, _ := app.CreateTag("t")
     preview, err := app.PreviewMergeTag(src.ID, src.ID)
@@ -1403,7 +1644,7 @@ func TestPreviewMergeTag_BlockedBySelf(t *testing.T) {
 }
 
 func TestPreviewMergeTag_BlockedByDestinationIsDescendant(t *testing.T) {
-    app, cleanup := setupTestDBWithTags(t)
+    app, cleanup := setupTestApp(t)
     defer cleanup()
     src, _ := app.CreateTag("a")
     dst, _ := app.CreateTag("a/x")
@@ -1545,7 +1786,7 @@ Append to `tag_merge_test.go`:
 
 ```go
 func TestMergeTag_BasicReassignment(t *testing.T) {
-    app, cleanup := setupTestDBWithTags(t)
+    app, cleanup := setupTestApp(t)
     defer cleanup()
 
     src, _ := app.CreateTag("a/x")
@@ -1577,7 +1818,7 @@ func TestMergeTag_BasicReassignment(t *testing.T) {
 }
 
 func TestMergeTag_SubtreeMove(t *testing.T) {
-    app, cleanup := setupTestDBWithTags(t)
+    app, cleanup := setupTestApp(t)
     defer cleanup()
 
     _, _ = app.CreateTag("a/x")
@@ -1605,7 +1846,7 @@ func TestMergeTag_SubtreeMove(t *testing.T) {
 }
 
 func TestMergeTag_BlockedByActiveShare(t *testing.T) {
-    app, cleanup := setupTestDBWithTags(t)
+    app, cleanup := setupTestApp(t)
     defer cleanup()
 
     src, _ := app.CreateTag("src")
@@ -1625,7 +1866,7 @@ func TestMergeTag_BlockedByActiveShare(t *testing.T) {
 // clip_tags directly and could leave a clip with two tags in the same root
 // tree, which the rest of the app assumes is impossible.
 func TestMergeTag_PreservesSameTreeExclusivity_CrossRoot(t *testing.T) {
-    app, cleanup := setupTestDBWithTags(t)
+    app, cleanup := setupTestApp(t)
     defer cleanup()
 
     src, _ := app.CreateTag("a/x")
@@ -1660,7 +1901,7 @@ func TestMergeTag_PreservesSameTreeExclusivity_CrossRoot(t *testing.T) {
 }
 
 func TestMergeTag_PreservesSameTreeExclusivity_DoesNotTouchUnaffectedClips(t *testing.T) {
-    app, cleanup := setupTestDBWithTags(t)
+    app, cleanup := setupTestApp(t)
     defer cleanup()
 
     src, _ := app.CreateTag("a/x")
@@ -1693,7 +1934,7 @@ func TestMergeTag_PreservesSameTreeExclusivity_DoesNotTouchUnaffectedClips(t *te
 }
 
 func TestMergeTag_EmitsFrontendEvent(t *testing.T) {
-    app, cleanup := setupTestDBWithTags(t)
+    app, cleanup := setupTestApp(t)
     defer cleanup()
 
     captured := make(chan map[string]any, 1)
@@ -2070,7 +2311,7 @@ Append to `api_manager_test.go`:
 
 ```go
 func TestAPI_MergeTag(t *testing.T) {
-    app, cleanup := setupTestDBWithTags(t)
+    app, cleanup := setupTestApp(t)
     defer cleanup()
     am := newTestAPIManager(t, app)
 
@@ -2323,7 +2564,7 @@ import (
 )
 
 func TestGetDatabaseSize_ReturnsNonZero(t *testing.T) {
-    app, cleanup := setupTestDBWithTags(t)
+    app, cleanup := setupTestApp(t)
     defer cleanup()
 
     size, err := app.GetDatabaseSize()
@@ -2336,7 +2577,7 @@ func TestGetDatabaseSize_ReturnsNonZero(t *testing.T) {
 }
 
 func TestCompactDatabase_ReducesSizeAfterBigDelete(t *testing.T) {
-    app, cleanup := setupTestDBWithTags(t)
+    app, cleanup := setupTestApp(t)
     defer cleanup()
 
     // Insert and delete a large blob to create free pages.
@@ -2526,7 +2767,7 @@ git commit -m "feat(frontend): add Compact database button to maintenance modal"
 
 ```go
 func TestAPI_MaintenanceVacuum(t *testing.T) {
-    app, cleanup := setupTestDBWithTags(t)
+    app, cleanup := setupTestApp(t)
     defer cleanup()
     am := newTestAPIManager(t, app)
 
@@ -2714,7 +2955,7 @@ Append to `maintenance_test.go`:
 
 ```go
 func TestGetStaleFiles_DetectsOldTempFiles(t *testing.T) {
-    app, cleanup := setupTestDBWithTags(t)
+    app, cleanup := setupTestApp(t)
     defer cleanup()
 
     // Write a temp file with mtime 2 hours ago.
@@ -2744,7 +2985,7 @@ func TestGetStaleFiles_DetectsOldTempFiles(t *testing.T) {
 }
 
 func TestCleanStaleFiles_RemovesThem(t *testing.T) {
-    app, cleanup := setupTestDBWithTags(t)
+    app, cleanup := setupTestApp(t)
     defer cleanup()
 
     p := filepath.Join(app.tempDir, "stale2.bin")
@@ -2966,7 +3207,7 @@ Append to `api_manager_test.go`:
 
 ```go
 func TestAPI_MaintenanceStaleFiles_ListAndClean(t *testing.T) {
-    app, cleanup := setupTestDBWithTags(t)
+    app, cleanup := setupTestApp(t)
     defer cleanup()
     am := newTestAPIManager(t, app)
 
@@ -3192,7 +3433,7 @@ Append to `maintenance_test.go`:
 
 ```go
 func TestGetOrphanDBRows_DetectsPluginStorage(t *testing.T) {
-    app, cleanup := setupTestDBWithTags(t)
+    app, cleanup := setupTestApp(t)
     defer cleanup()
 
     // Orphan plugin_storage row: insert for a plugin_id that doesn't exist.
@@ -3210,7 +3451,7 @@ func TestGetOrphanDBRows_DetectsPluginStorage(t *testing.T) {
 }
 
 func TestCleanOrphanDBRows_RemovesThem(t *testing.T) {
-    app, cleanup := setupTestDBWithTags(t)
+    app, cleanup := setupTestApp(t)
     defer cleanup()
 
     app.db.Exec(`INSERT INTO plugin_storage (plugin_id, key, value) VALUES (99999, 'k', 'v')`)
@@ -3460,7 +3701,7 @@ Append to `api_manager_test.go`:
 
 ```go
 func TestAPI_MaintenanceOrphanRows_ListAndClean(t *testing.T) {
-    app, cleanup := setupTestDBWithTags(t)
+    app, cleanup := setupTestApp(t)
     defer cleanup()
     am := newTestAPIManager(t, app)
 
