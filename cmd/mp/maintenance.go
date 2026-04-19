@@ -126,8 +126,9 @@ var maintenanceOrphanRowsListCmd = &cobra.Command{
 		if jsonOutput {
 			printJSON(report)
 		} else {
-			for k, v := range report {
-				fmt.Printf("%-30s %d\n", k, v)
+			keys := []string{"plugin_storage", "plugin_permissions", "stale_follows", "stale_auto_tags", "stale_hidden_tag_ids"}
+			for _, k := range keys {
+				fmt.Printf("%-30s %d\n", k, report[k])
 			}
 		}
 		return nil
