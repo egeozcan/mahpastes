@@ -1375,9 +1375,10 @@ export class AppHelper {
 
   // ==================== Tags ====================
 
-  async createTag(name: string): Promise<void> {
-    // Create tag via API and update frontend state
-    await this.page.evaluate(async (tagName) => {
+  async createTag(name: string): Promise<{ tagID: number }> {
+    // Create tag via API and update frontend state.
+    // Returns the numeric ID of the leaf tag created (the last segment in a path like "a/b/c").
+    const tagID = await this.page.evaluate(async (tagName) => {
       // @ts-ignore - Wails runtime
       await window.go.main.App.CreateTag(tagName);
 
@@ -1391,7 +1392,12 @@ export class AppHelper {
         // @ts-ignore
         window.__testHelpers.setAllTags(tags);
       }
+
+      // Return the id of the leaf tag that was just created.
+      const created = tags.find((t: any) => t.name === tagName);
+      return created ? created.id : 0;
     }, name);
+    return { tagID: tagID as number };
   }
 
   async deleteTag(name: string): Promise<void> {
@@ -1405,6 +1411,110 @@ export class AppHelper {
         await window.go.main.App.DeleteTag(tag.id);
       }
     }, name);
+    // Give the frontend a moment to process the tag:deleted event.
+    await this.page.waitForFunction(() => (window as any).__appReady === true, { timeout: 10000 });
+  }
+
+  /** Rename a tag. Triggers the tag:updated Wails event which causes folder-view re-navigation. */
+  async renameTag(oldName: string, newName: string): Promise<void> {
+    await this.page.evaluate(async ({ oldTagName, newTagName }) => {
+      // @ts-ignore - Wails runtime
+      const tags = await window.go.main.App.GetTags();
+      const tag = tags.find((t: any) => t.name === oldTagName);
+      if (!tag) throw new Error(`Tag not found: ${oldTagName}`);
+      // @ts-ignore
+      await window.go.main.App.UpdateTag(tag.id, newTagName, tag.color || '');
+    }, { oldTagName: oldName, newTagName: newName });
+    // Wait for the tag:updated event to finish processing.
+    await this.page.waitForFunction(() => (window as any).__appReady === true, { timeout: 10000 });
+  }
+
+  /**
+   * Add a tag to the clip at the given 0-based gallery index.
+   * Requires the clip to be visible in the current gallery view.
+   */
+  async tagClipByIndex(index: number, tagName: string): Promise<void> {
+    await this.page.evaluate(async ({ idx, tag }) => {
+      // @ts-ignore - Wails runtime
+      const clips = await window.go.main.App.GetClips(false, [], [], '', '');
+      if (!clips || idx >= clips.length) throw new Error(`No clip at index ${idx}`);
+      const clip = clips[idx];
+
+      // @ts-ignore
+      const tags = await window.go.main.App.GetTags();
+      const tagObj = tags.find((t: any) => t.name === tag);
+      if (!tagObj) throw new Error(`Tag not found: ${tag}`);
+
+      // @ts-ignore
+      await window.go.main.App.AddTagToClip(clip.id, tagObj.id);
+
+      // @ts-ignore
+      if (window.__testHelpers?.loadClips) window.__testHelpers.loadClips();
+    }, { idx: index, tag: tagName });
+    await this.page.waitForFunction(() => (window as any).__appReady === true, { timeout: 5000 });
+  }
+
+  /**
+   * Enter folder view: enable folder mode (if not already on) and navigate into the named tag.
+   */
+  async enterFolder(tagName: string): Promise<void> {
+    // Enable folder mode if not already active.
+    const isFolderActive = await this.page.evaluate(() => {
+      // @ts-ignore
+      return window.__testHelpers?.isFolderMode?.() === true;
+    });
+    if (!isFolderActive) {
+      await this.toggleFolderMode();
+    }
+    // Navigate to the folder.
+    await this.page.evaluate(async (name) => {
+      // @ts-ignore - Wails runtime
+      const tags = await window.go.main.App.GetTags();
+      const tag = tags.find((t: any) => t.name === name);
+      if (!tag) throw new Error(`Tag not found for enterFolder: ${name}`);
+      // @ts-ignore
+      if (typeof navigateToFolder === 'function') {
+        // @ts-ignore
+        navigateToFolder(tag.id);
+      } else if (window.__testHelpers?.setFolderMode) {
+        // Fallback: set active tag filter
+        // @ts-ignore
+        window.__testHelpers.setActiveTagFilters([tag.id]);
+        // @ts-ignore
+        window.__testHelpers.loadClips();
+      }
+    }, tagName);
+    await this.page.waitForFunction(() => (window as any).__appReady === true, { timeout: 10000 });
+  }
+
+  /**
+   * Assert that the folder header (breadcrumb pill) shows the given tag name.
+   * In folder mode, the active-tags-container shows tag pills for the current path.
+   * Scoped to #active-tags-container to avoid matching clip-card tag pills.
+   */
+  async expectFolderHeader(name: string): Promise<void> {
+    const pill = this.page.locator(`#active-tags-container [data-testid="tag-pill-${name}"]`);
+    await expect(pill).toBeVisible({ timeout: 5000 });
+  }
+
+  /** Assert that folder mode is NOT active (the folder-mode button is not pressed). */
+  async expectNotInFolderMode(): Promise<void> {
+    const btn = this.page.locator(selectors.tags.folderModeButton);
+    await expect(btn).toHaveAttribute('aria-pressed', 'false', { timeout: 5000 });
+  }
+
+  /**
+   * Toggle the tag filter chip for the named tag (non-folder mode).
+   * Equivalent to filterByTag but named for clarity in filter-clear tests.
+   */
+  async selectTagFilter(name: string): Promise<void> {
+    await this.filterByTag(name);
+  }
+
+  /** Assert that the named tag is NOT an active filter (no pill visible in active-tags-container). */
+  async expectTagFilterInactive(name: string): Promise<void> {
+    const pill = this.page.locator(`#active-tags-container [data-testid="tag-pill-${name}"]`);
+    await expect(pill).not.toBeVisible({ timeout: 5000 });
   }
 
   async getAllTags(): Promise<Array<{ id: number; name: string; color: string }>> {
