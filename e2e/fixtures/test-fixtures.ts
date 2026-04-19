@@ -31,7 +31,8 @@ type WorkerFixtures = {
 export class AppHelper {
   constructor(
     public page: Page,
-    public baseURL: string
+    public baseURL: string,
+    public dataDir: string = ''
   ) {}
 
   // ==================== Navigation ====================
@@ -2273,6 +2274,25 @@ export class AppHelper {
     await this.page.locator(selectors.maintenance.removeEmptyTagsButton).click();
   }
 
+  /**
+   * Seed a stale temp file into the app's clip_temp_files directory with a
+   * backdated mtime (2 hours ago) so the stale-file sweep will detect it.
+   * Requires `dataDir` to be set on this AppHelper instance (it is, when the
+   * app fixture creates it from the test state file).
+   */
+  async seedStaleTempFile(name: string, sizeBytes: number = 16): Promise<void> {
+    if (!this.dataDir) throw new Error('seedStaleTempFile: dataDir not available on this AppHelper');
+    const nodePath = await import('path');
+    const nodeFs = await import('fs');
+    const filePath = nodePath.default.join(this.dataDir, 'clip_temp_files', name);
+    nodeFs.default.mkdirSync(nodePath.default.dirname(filePath), { recursive: true });
+    nodeFs.default.writeFileSync(filePath, Buffer.alloc(sizeBytes));
+    // Back-date mtime to 2 hours ago — well past the 60-min lease window.
+    const pastMs = Date.now() - 2 * 60 * 60 * 1000;
+    const pastDate = new Date(pastMs);
+    nodeFs.default.utimesSync(filePath, pastDate, pastDate);
+  }
+
   async clickCardMenuPluginAction(pluginId: number, actionId: string): Promise<void> {
     const actionBtn = this.page.locator(
       `.card-menu-submenu [data-action="plugin"][data-plugin-id="${pluginId}"][data-action-id="${actionId}"]`
@@ -3190,7 +3210,18 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
       );
     }
 
-    const app = new AppHelper(activePage, baseURL);
+    // Resolve dataDir for this worker from the test state file so Node-side
+    // helpers (e.g. seedStaleTempFile) can interact with the app's data dir.
+    let dataDir = '';
+    try {
+      const state = await getTestState();
+      const entry = state.instances.find((i) => i.workerIndex === workerIndex);
+      dataDir = entry?.dataDir ?? '';
+    } catch {
+      // State file may not exist in some test modes; dataDir stays empty.
+    }
+
+    const app = new AppHelper(activePage, baseURL, dataDir);
 
     // Fast reset before test (single evaluate call, no page navigation)
     try {
