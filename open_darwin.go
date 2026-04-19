@@ -3,11 +3,10 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"os/exec"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	"go-clipboard/internal/wailsbridge"
 )
 
 func openFileWithDefaultApp(path string) error {
@@ -26,11 +25,11 @@ func openFileWithApp(filePath, appPath string) error {
 	return nil
 }
 
-func chooseApplicationDialog(ctx context.Context) (string, error) {
-	path, err := runtime.OpenFileDialog(ctx, runtime.OpenDialogOptions{
+func chooseApplicationDialog(b *wailsbridge.Bridge) (string, error) {
+	path, err := b.OpenFile(wailsbridge.FileDialogOptions{
 		Title:            "Choose Application",
 		DefaultDirectory: "/Applications",
-		Filters: []runtime.FileFilter{
+		Filters: []wailsbridge.FileFilter{
 			{DisplayName: "Applications", Pattern: "*.app"},
 		},
 	})

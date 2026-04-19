@@ -8,9 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"go-clipboard/internal/wailsbridge"
 	"go-clipboard/plugin"
-
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // PluginService handles plugin-related operations
@@ -113,9 +112,9 @@ func (s *PluginService) GetPlugins() ([]PluginInfo, error) {
 // ImportPlugin opens a file dialog and returns a preview for review.
 // The frontend should call ConfirmPluginInstall(path) after user approves.
 func (s *PluginService) ImportPlugin() (*PluginPreview, error) {
-	path, err := runtime.OpenFileDialog(s.app.ctx, runtime.OpenDialogOptions{
+	path, err := s.app.bridge.OpenFile(wailsbridge.FileDialogOptions{
 		Title: "Select Plugin File",
-		Filters: []runtime.FileFilter{
+		Filters: []wailsbridge.FileFilter{
 			{DisplayName: "Lua Scripts", Pattern: "*.lua"},
 		},
 	})

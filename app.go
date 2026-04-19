@@ -2259,7 +2259,7 @@ func (a *App) OpenClipWithApp(id int64, appPath string) error {
 
 // ChooseApplication opens a file dialog to select an application
 func (a *App) ChooseApplication() (string, error) {
-	return chooseApplicationDialog(a.ctx)
+	return chooseApplicationDialog(a.bridge)
 }
 
 // DeleteAllTempFiles deletes all files from the temp directory

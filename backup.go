@@ -12,8 +12,6 @@ import (
 	"runtime"
 	"strings"
 	"time"
-
-	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 const (
@@ -789,14 +787,7 @@ func (a *App) RestoreBackup(backupPath, identityPolicy string) error {
 		if smErr != nil {
 			fmt.Printf("Warning: failed to rebuild share manager after restore: %v\n", smErr)
 		} else {
-			ctx := a.ctx
-			sm.SetEventFn(func(name string, data ...any) {
-				if len(data) == 1 {
-					wailsruntime.EventsEmit(ctx, name, data[0])
-				} else {
-					wailsruntime.EventsEmit(ctx, name, data...)
-				}
-			})
+			sm.SetEventFn(a.bridge.Emit)
 			if err := sm.ResumeAll(); err != nil {
 				fmt.Printf("Warning: ShareManager ResumeAll after restore: %v\n", err)
 			}
