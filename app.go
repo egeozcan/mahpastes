@@ -1547,6 +1547,47 @@ func (a *App) DeleteTag(id int64) error {
 	return nil
 }
 
+// MergeTagPreview summarizes the impact of a proposed merge.
+type MergeTagPreview struct {
+	ClipCount       int      `json:"clip_count"`
+	DescendantCount int      `json:"descendant_count"`
+	Blockers        []string `json:"blockers"`
+	SourceName      string   `json:"source_name"`
+	DestName        string   `json:"dest_name"`
+}
+
+// PreviewMergeTag returns counts + blockers without mutating anything.
+func (a *App) PreviewMergeTag(sourceID, destID int64) (MergeTagPreview, error) {
+	var out MergeTagPreview
+
+	var srcName, dstName string
+	if err := a.db.QueryRow(`SELECT name FROM tags WHERE id = ?`, sourceID).Scan(&srcName); err != nil {
+		return out, fmt.Errorf("source tag not found: %w", err)
+	}
+	if err := a.db.QueryRow(`SELECT name FROM tags WHERE id = ?`, destID).Scan(&dstName); err != nil {
+		return out, fmt.Errorf("destination tag not found: %w", err)
+	}
+	out.SourceName = srcName
+	out.DestName = dstName
+
+	out.Blockers = a.checkMergeTagPreconditions(sourceID, destID, srcName, dstName)
+
+	if err := a.db.QueryRow(
+		`SELECT COUNT(*) FROM clip_tags WHERE tag_id = ?`, sourceID,
+	).Scan(&out.ClipCount); err != nil {
+		return out, fmt.Errorf("count clips: %w", err)
+	}
+
+	// Descendants: tags whose name starts with "{srcName}/".
+	if err := a.db.QueryRow(
+		`SELECT COUNT(*) FROM tags WHERE name LIKE ? || '/%'`, srcName,
+	).Scan(&out.DescendantCount); err != nil {
+		return out, fmt.Errorf("count descendants: %w", err)
+	}
+
+	return out, nil
+}
+
 // candidateEmptyTagsQuery selects tag ids/names that currently have no clips
 // AND no descendant tags (path-based hierarchy via "/" prefix match).
 const candidateEmptyTagsQuery = `

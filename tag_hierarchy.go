@@ -102,6 +102,53 @@ func isImmediateChildOf(child, parent string) bool {
 	return !strings.Contains(rest, "/")
 }
 
+// checkMergeTagPreconditions returns the list of human-readable blockers for
+// merging source into destination. Empty slice means proceed.
+func (a *App) checkMergeTagPreconditions(sourceID, destID int64, srcName, dstName string) []string {
+	if sourceID == destID {
+		return []string{"source and destination must be different tags"}
+	}
+	var blockers []string
+	// Destination must not be source or a descendant of source.
+	if dstName == srcName || strings.HasPrefix(dstName, srcName+"/") {
+		blockers = append(blockers, fmt.Sprintf("destination %q is a descendant of source %q", dstName, srcName))
+	}
+	// Block on active share (shares row for source).
+	var shareCount int
+	if err := a.db.QueryRow(`SELECT COUNT(*) FROM shares WHERE tag_id = ?`, sourceID).Scan(&shareCount); err == nil && shareCount > 0 {
+		blockers = append(blockers, "source tag is actively shared. Stop the share first.")
+	}
+	// Block on follow.
+	var followCount int
+	if err := a.db.QueryRow(`SELECT COUNT(*) FROM follows WHERE local_tag_id = ?`, sourceID).Scan(&followCount); err == nil && followCount > 0 {
+		blockers = append(blockers, "source tag has an incoming share (follow). Retarget or stop it first.")
+	}
+	// Block on any served tag in source subtree.
+	if served := a.tagIsServedInSubtree(srcName); served != "" {
+		blockers = append(blockers, fmt.Sprintf("tag %q in source subtree is currently served. Stop the server first.", served))
+	}
+	// Block on descendant collision with destination subtree.
+	rows, err := a.db.Query(`SELECT name FROM tags WHERE name LIKE ? || '/%'`, srcName)
+	if err == nil {
+		defer rows.Close()
+		srcPrefix := srcName + "/"
+		dstPrefix := dstName + "/"
+		for rows.Next() {
+			var n string
+			if err := rows.Scan(&n); err != nil {
+				continue
+			}
+			projected := dstPrefix + strings.TrimPrefix(n, srcPrefix)
+			var exists int
+			if err := a.db.QueryRow(`SELECT COUNT(*) FROM tags WHERE name = ?`, projected).Scan(&exists); err == nil && exists > 0 {
+				blockers = append(blockers, fmt.Sprintf("merge would collide at %q (tag already exists)", projected))
+				break
+			}
+		}
+	}
+	return blockers
+}
+
 // checkTagReferencePreconditions returns a list of human-readable blocker
 // strings that would prevent deleting tagID. Empty slice means safe.
 // Currently blocks only on active follows (which have ON DELETE RESTRICT
