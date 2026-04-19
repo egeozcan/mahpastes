@@ -459,6 +459,7 @@ export const selectors = {
     closeButton: '#maintenance-close',
     deduplicateButton: '#maintenance-deduplicate-btn',
     removeEmptyTagsButton: '#maintenance-remove-empty-tags-btn',
+    compactDbButton: '#maintenance-compact-db-btn',
   },
 
   // Tooltips

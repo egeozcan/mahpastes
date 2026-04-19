@@ -1317,6 +1317,24 @@ export class AppHelper {
     await expect(toast).toBeVisible({ timeout: 5000 });
   }
 
+  async waitForToast(pattern: RegExp): Promise<string> {
+    const toastLocator = this.page.locator(selectors.toast.message);
+    let toastText = '';
+    let attempts = 0;
+    const maxAttempts = 50; // ~5s with 100ms polling
+
+    while (attempts < maxAttempts) {
+      toastText = await toastLocator.textContent() || '';
+      if (toastText && pattern.test(toastText)) {
+        return toastText;
+      }
+      await this.page.waitForTimeout(100);
+      attempts++;
+    }
+
+    throw new Error(`Toast matching pattern ${pattern} not found. Last text: "${toastText}"`);
+  }
+
   // ==================== Text Editor ====================
 
   async openTextEditor(filename: string): Promise<void> {
