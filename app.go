@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image"
 	_ "image/gif"
@@ -58,6 +59,13 @@ func NewApp() *App {
 func computeContentHash(data []byte) string {
 	hash := sha256.Sum256(data)
 	return hex.EncodeToString(hash[:])
+}
+
+// isSQLiteNoSuchTable returns true when err is the SQLite "no such table"
+// error. Used to make DeleteTag tolerant of minimal test schemas that omit
+// optional tables (watched_folders, settings, follows).
+func isSQLiteNoSuchTable(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "no such table")
 }
 
 // emitEvent sends a frontend event. The bridge is nil-safe, so this is a
@@ -1379,6 +1387,18 @@ func (a *App) UpdateTag(id int64, name, color string) error {
 		}
 	}
 
+	// Check if any tag in the subtree is currently served. ServeManager
+	// caches tag names, so renames break the server's path resolution.
+	var oldNameForCheck string
+	if err := a.db.QueryRow(`SELECT name FROM tags WHERE id = ?`, id).Scan(&oldNameForCheck); err != nil {
+		return fmt.Errorf("tag not found")
+	}
+	if oldNameForCheck != name {
+		if served := a.tagIsServedInSubtree(oldNameForCheck); served != "" {
+			return fmt.Errorf("cannot rename: tag %q in this subtree is currently served. Stop the server first.", served)
+		}
+	}
+
 	tx, err := a.db.Begin()
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
@@ -1425,26 +1445,253 @@ func (a *App) UpdateTag(id int64, name, color string) error {
 		"color": color,
 	})
 
+	// Emit Wails runtime event so the frontend can re-resolve folder-view state.
+	a.emitEvent("tag:updated", map[string]any{
+		"id":       id,
+		"old_name": oldName,
+		"new_name": name,
+	})
+
 	return nil
 }
 
-// DeleteTag deletes a tag (clip_tags cascade delete handles associations)
+// DeleteTag deletes a tag using a three-phase flow:
+//  1. Preconditions check (read-only) — refuse if blocked (e.g., active follow).
+//  2. SQL transaction — null watched_folders auto_tag_id, remove from hidden
+//     list, delete the row. FK cascades handle clip_tags, api_keys (SET NULL
+//     + trigger auto-revoke), shares (CASCADE).
+//  3. Post-commit runtime cleanup — stop in-memory share publication + serve
+//     server. Failures here are logged; the orphan-rows tool is the backstop.
 func (a *App) DeleteTag(id int64) error {
-	// If this tag has an active share, stop it first so the publication row
-	// is removed before the tag row goes away. No-op if not shared.
-	if a.shareManager != nil {
-		_ = a.shareManager.StopShare(id)
+	// Fetch name up front for event payloads and error messages.
+	var name string
+	if err := a.db.QueryRow(`SELECT name FROM tags WHERE id = ?`, id).Scan(&name); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("tag not found")
+		}
+		return fmt.Errorf("lookup tag: %w", err)
 	}
 
-	_, err := a.db.Exec("DELETE FROM tags WHERE id = ?", id)
+	// Phase 1: preconditions
+	blockers, err := a.checkTagReferencePreconditions(id)
 	if err != nil {
-		return fmt.Errorf("failed to delete tag: %w", err)
+		return fmt.Errorf("check preconditions: %w", err)
+	}
+	if len(blockers) > 0 {
+		return fmt.Errorf("cannot delete tag: %s", blockers[0])
 	}
 
-	// Emit plugin event
+	// Phase 2: SQL transaction
+	tx, err := a.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`UPDATE watched_folders SET auto_tag_id = NULL WHERE auto_tag_id = ?`, id); err != nil {
+		if !isSQLiteNoSuchTable(err) {
+			return fmt.Errorf("null auto_tag_id: %w", err)
+		}
+		// Missing table: no watch folders to update (tolerate minimal test schemas).
+	}
+
+	// Update hidden list inside the transaction (tx-aware read + write so
+	// nothing escapes the snapshot).
+	hiddenIDs, herr := getHiddenTagsTx(tx)
+	if herr != nil {
+		return fmt.Errorf("get hidden tags: %w", herr)
+	}
+	filtered := make([]int64, 0, len(hiddenIDs))
+	for _, h := range hiddenIDs {
+		if h != id {
+			filtered = append(filtered, h)
+		}
+	}
+	if len(filtered) != len(hiddenIDs) {
+		if err := setHiddenTagsTx(tx, filtered); err != nil {
+			return fmt.Errorf("update hidden_tags: %w", err)
+		}
+	}
+
+	if _, err := tx.Exec(`DELETE FROM tags WHERE id = ?`, id); err != nil {
+		return fmt.Errorf("delete tag row: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+
+	// Phase 3: post-commit runtime cleanup (best-effort, guarded).
+	//
+	// StopShare is no-op-safe after Task 4's Step 3a fix: it only emits
+	// the event when there was an actual publication to stop.
+	// StopServing errors on a non-served tag, so guard with IsServing.
+	if a.shareManager != nil {
+		if err := a.shareManager.StopShare(id); err != nil {
+			log.Printf("DeleteTag: StopShare(%d) failed (best-effort): %v", id, err)
+		}
+	}
+	if a.serveManager != nil && a.serveManager.IsServing(id) {
+		if err := a.serveManager.StopServing(id); err != nil {
+			log.Printf("DeleteTag: StopServing(%d) failed (best-effort): %v", id, err)
+		}
+	}
+
+	// Emit plugin event (unchanged name, existing handler)
 	if a.pluginManager != nil {
 		a.pluginManager.EmitEvent("tag:deleted", id)
 	}
+	// Emit Wails runtime event so the frontend can re-resolve folder view.
+	a.emitEvent("tag:deleted", map[string]any{"id": id, "name": name})
+
+	return nil
+}
+
+// MergeTagPreview summarizes the impact of a proposed merge.
+type MergeTagPreview struct {
+	ClipCount       int      `json:"clip_count"`
+	DescendantCount int      `json:"descendant_count"`
+	Blockers        []string `json:"blockers"`
+	SourceName      string   `json:"source_name"`
+	DestName        string   `json:"dest_name"`
+}
+
+// PreviewMergeTag returns counts + blockers without mutating anything.
+func (a *App) PreviewMergeTag(sourceID, destID int64) (MergeTagPreview, error) {
+	var out MergeTagPreview
+
+	var srcName, dstName string
+	if err := a.db.QueryRow(`SELECT name FROM tags WHERE id = ?`, sourceID).Scan(&srcName); err != nil {
+		return out, fmt.Errorf("source tag not found: %w", err)
+	}
+	if err := a.db.QueryRow(`SELECT name FROM tags WHERE id = ?`, destID).Scan(&dstName); err != nil {
+		return out, fmt.Errorf("destination tag not found: %w", err)
+	}
+	out.SourceName = srcName
+	out.DestName = dstName
+
+	out.Blockers = a.checkMergeTagPreconditions(sourceID, destID, srcName, dstName)
+
+	if err := a.db.QueryRow(
+		`SELECT COUNT(*) FROM clip_tags WHERE tag_id = ?`, sourceID,
+	).Scan(&out.ClipCount); err != nil {
+		return out, fmt.Errorf("count clips: %w", err)
+	}
+
+	// Descendants: tags whose name starts with "{srcName}/".
+	if err := a.db.QueryRow(
+		`SELECT COUNT(*) FROM tags WHERE name LIKE ? || '/%'`, srcName,
+	).Scan(&out.DescendantCount); err != nil {
+		return out, fmt.Errorf("count descendants: %w", err)
+	}
+
+	return out, nil
+}
+
+// MergeTag folds source into destination in a single transaction:
+//  1. Preconditions — refuses if any blocker (see checkMergeTagPreconditions).
+//  2. Reassigns all clips from source to destination with same-tree
+//     exclusivity preserved (three-step SQL sequence below).
+//  3. Renames every descendant of source with the prefix swap.
+//  4. Migrates non-networked ID references (api_keys, watched_folders,
+//     hidden list) via migrateTagReferences.
+//  5. Deletes the source tag row.
+//
+// Emits tag:merged (runtime + plugin) on success.
+func (a *App) MergeTag(sourceID, destID int64) error {
+	var srcName, dstName string
+	if err := a.db.QueryRow(`SELECT name FROM tags WHERE id = ?`, sourceID).Scan(&srcName); err != nil {
+		return fmt.Errorf("source tag not found")
+	}
+	if err := a.db.QueryRow(`SELECT name FROM tags WHERE id = ?`, destID).Scan(&dstName); err != nil {
+		return fmt.Errorf("destination tag not found")
+	}
+
+	blockers := a.checkMergeTagPreconditions(sourceID, destID, srcName, dstName)
+	if len(blockers) > 0 {
+		return fmt.Errorf("cannot merge: %s", blockers[0])
+	}
+
+	// Destination root = first path segment.
+	destRoot := dstName
+	if idx := strings.Index(dstName, "/"); idx >= 0 {
+		destRoot = dstName[:idx]
+	}
+
+	tx, err := a.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Reassignment enforces same-tree exclusivity (matches AddTagToClip /
+	// removeSameTreeTags). Order matters: insert destination first, then
+	// clean sibling tags in dest's root tree anchored on SOURCE (so
+	// unrelated clips that happen to hold destination stay untouched),
+	// then delete any leftover source rows.
+	//
+	// (2a) Insert destination for every clip that currently has source.
+	if _, err := tx.Exec(`INSERT OR IGNORE INTO clip_tags(clip_id, tag_id)
+		SELECT clip_id, ? FROM clip_tags WHERE tag_id = ?`, destID, sourceID); err != nil {
+		return fmt.Errorf("reassign clip_tags: %w", err)
+	}
+
+	// (2b) Same-tree cleanup: for every clip THAT HAD SOURCE, remove any
+	// other tag under destination's root tree (keep destination only).
+	// Anchoring on source (not destination) ensures we don't accidentally
+	// rewrite an unrelated clip that already happened to carry destination.
+	if _, err := tx.Exec(`DELETE FROM clip_tags
+		WHERE clip_id IN (SELECT clip_id FROM clip_tags WHERE tag_id = ?)
+		  AND tag_id IN (
+		    SELECT id FROM tags WHERE name = ? OR name LIKE ? || '/%'
+		  )
+		  AND tag_id != ?`, sourceID, destRoot, destRoot, destID); err != nil {
+		return fmt.Errorf("same-tree cleanup: %w", err)
+	}
+
+	// (2c) Delete remaining source clip_tags rows (catches cross-root case;
+	// no-op when same-root case already wiped them via 2b).
+	if _, err := tx.Exec(`DELETE FROM clip_tags WHERE tag_id = ?`, sourceID); err != nil {
+		return fmt.Errorf("delete old clip_tags: %w", err)
+	}
+
+	// (3) Rename descendants with prefix swap. Reuses the same SQL as
+	// UpdateTag's cascade rename.
+	oldPrefix := srcName + "/"
+	newPrefix := dstName + "/"
+	if _, err := tx.Exec(`UPDATE tags SET name = ? || SUBSTR(name, ?) WHERE name LIKE ?`,
+		newPrefix, utf8.RuneCountInString(oldPrefix)+1, oldPrefix+"%"); err != nil {
+		if strings.Contains(err.Error(), "UNIQUE") {
+			return fmt.Errorf("merge would create duplicate tag path")
+		}
+		return fmt.Errorf("rename descendants: %w", err)
+	}
+
+	// (4) Migrate non-networked references.
+	if err := a.migrateTagReferences(tx, sourceID, destID); err != nil {
+		return fmt.Errorf("migrate references: %w", err)
+	}
+
+	// (5) Delete the source row.
+	if _, err := tx.Exec(`DELETE FROM tags WHERE id = ?`, sourceID); err != nil {
+		return fmt.Errorf("delete source: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+
+	// Emit events.
+	if a.pluginManager != nil {
+		a.pluginManager.EmitEvent("tag:merged", map[string]interface{}{
+			"source_id": sourceID, "dest_id": destID,
+			"source_name": srcName, "dest_name": dstName,
+		})
+	}
+	a.emitEvent("tag:merged", map[string]any{
+		"source_id": sourceID, "dest_id": destID,
+		"source_name": srcName, "dest_name": dstName,
+	})
 
 	return nil
 }

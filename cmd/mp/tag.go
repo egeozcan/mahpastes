@@ -566,6 +566,62 @@ func runTagHidden(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// ── tag merge ──────────────────────────────────────────────────────────
+
+var tagMergeCmd = &cobra.Command{
+	Use:   "merge <source-tag> <dest-tag>",
+	Short: "Merge source tag into destination tag",
+	Long: `Merge a source tag into a destination tag.
+
+All clips assigned to the source tag will be assigned to the destination tag instead.
+The source tag is then deleted. Tree exclusivity is enforced on each clip.
+
+Both tags can be referenced by name or ID.`,
+	Example: `  mp tag merge photos archive
+  mp tag merge 5 10
+  mp tag merge work/client1 work/inactive`,
+	Args: cobra.ExactArgs(2),
+	RunE: runTagMerge,
+}
+
+func runTagMerge(cmd *cobra.Command, args []string) error {
+	c, err := client.New()
+	if err != nil {
+		return err
+	}
+
+	sourceID, err := c.ResolveTagID(args[0])
+	if err != nil {
+		return err
+	}
+
+	destID, err := c.ResolveTagID(args[1])
+	if err != nil {
+		return err
+	}
+
+	if sourceID == destID {
+		return fmt.Errorf("source and destination tags must be different")
+	}
+
+	body := map[string]int64{"dest_id": destID}
+	if err := c.PostJSON(fmt.Sprintf("/api/v1/tags/%d/merge", sourceID), body, nil); err != nil {
+		return err
+	}
+
+	if jsonOutput {
+		printJSON(map[string]interface{}{
+			"merged": true,
+			"source": args[0],
+			"dest":   args[1],
+		})
+		return nil
+	}
+
+	fmt.Printf("Merged %q into %q\n", args[0], args[1])
+	return nil
+}
+
 // ── helpers ─────────────────────────────────────────────────────────────
 
 // collectClipIDs gathers clip IDs from command args and optionally stdin.
@@ -654,4 +710,5 @@ func init() {
 	tagCmd.AddCommand(tagRemoveCmd)
 	tagCmd.AddCommand(tagClipsCmd)
 	tagCmd.AddCommand(tagHiddenCmd)
+	tagCmd.AddCommand(tagMergeCmd)
 }

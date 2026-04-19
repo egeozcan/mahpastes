@@ -355,6 +355,46 @@ export namespace main {
 	        this.created_at = source["created_at"];
 	    }
 	}
+	export class MergeTagPreview {
+	    clip_count: number;
+	    descendant_count: number;
+	    blockers: string[];
+	    source_name: string;
+	    dest_name: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new MergeTagPreview(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.clip_count = source["clip_count"];
+	        this.descendant_count = source["descendant_count"];
+	        this.blockers = source["blockers"];
+	        this.source_name = source["source_name"];
+	        this.dest_name = source["dest_name"];
+	    }
+	}
+	export class OrphanReport {
+	    plugin_storage: number;
+	    plugin_permissions: number;
+	    stale_follows: number;
+	    stale_auto_tags: number;
+	    stale_hidden_tag_ids: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new OrphanReport(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.plugin_storage = source["plugin_storage"];
+	        this.plugin_permissions = source["plugin_permissions"];
+	        this.stale_follows = source["stale_follows"];
+	        this.stale_auto_tags = source["stale_auto_tags"];
+	        this.stale_hidden_tag_ids = source["stale_hidden_tag_ids"];
+	    }
+	}
 	export class PluginInfo {
 	    id: number;
 	    name: string;
@@ -589,6 +629,24 @@ export namespace main {
 		    }
 		    return a;
 		}
+	}
+	export class StaleFile {
+	    source: string;
+	    name: string;
+	    size: number;
+	    age_hours: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new StaleFile(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.source = source["source"];
+	        this.name = source["name"];
+	        this.size = source["size"];
+	        this.age_hours = source["age_hours"];
+	    }
 	}
 	export class StartNativeDragRequest {
 	    clip_id: number;

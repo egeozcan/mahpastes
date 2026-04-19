@@ -1448,6 +1448,57 @@
                         Remove Empty Tags
                     </button>
                 </div>
+                <!-- Compact Database -->
+                <div class="pt-4 border-t border-stone-100">
+                    <h3 class="text-xs font-semibold text-stone-600 uppercase tracking-wider mb-3 flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                                d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        Compact Database
+                    </h3>
+                    <p class="text-[11px] text-stone-500 mb-3">
+                        Reclaim free space after deletions (VACUUM + ANALYZE)
+                    </p>
+                    <button id="maintenance-compact-db-btn" data-testid="maintenance-compact-db-btn"
+                        class="bg-stone-800 hover:bg-stone-700 text-white text-xs font-medium py-2 px-4 rounded-md transition-colors">
+                        Compact Database
+                    </button>
+                </div>
+                <!-- Sweep Stale Files -->
+                <div class="pt-4 border-t border-stone-100">
+                    <h3 class="text-xs font-semibold text-stone-600 uppercase tracking-wider mb-3 flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                        Sweep Stale Files
+                    </h3>
+                    <p class="text-[11px] text-stone-500 mb-3">
+                        Remove expired drag-out and share-staging temp files
+                    </p>
+                    <button id="maintenance-stale-files-btn" data-testid="maintenance-stale-files-btn"
+                        class="bg-stone-800 hover:bg-stone-700 text-white text-xs font-medium py-2 px-4 rounded-md transition-colors">
+                        Sweep stale files
+                    </button>
+                </div>
+                <!-- Clean Orphan Rows -->
+                <div class="pt-4 border-t border-stone-100">
+                    <h3 class="text-xs font-semibold text-stone-600 uppercase tracking-wider mb-3 flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                                d="M13 10V3L4 14h7v7l9-11h-7z" />
+                        </svg>
+                        Clean Orphan Rows
+                    </h3>
+                    <p class="text-[11px] text-stone-500 mb-3">
+                        Remove plugin/tag references whose parent is gone
+                    </p>
+                    <button id="maintenance-orphan-rows-btn" data-testid="maintenance-orphan-rows-btn"
+                        class="bg-stone-800 hover:bg-stone-700 text-white text-xs font-medium py-2 px-4 rounded-md transition-colors">
+                        Clean orphan rows
+                    </button>
+                </div>
             </div>
         </div>
     </div>
@@ -1921,6 +1972,27 @@
         </div>
     </div>
 
+    <!-- Merge Tag Modal -->
+    <div id="merge-tag-modal" role="dialog" aria-modal="true" aria-labelledby="merge-tag-modal-title" class="fixed inset-0 bg-stone-900/50 flex items-center justify-center z-50 opacity-0 pointer-events-none transition-opacity duration-150" inert>
+        <div class="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6 scale-95 transition-transform duration-150">
+            <div class="flex items-center justify-between mb-4">
+                <h3 id="merge-tag-modal-title" class="text-sm font-semibold uppercase tracking-wide text-stone-800">Merge tag</h3>
+                <button id="merge-tag-close" class="p-1 text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded transition-colors" aria-label="Close">
+                    <svg class="w-4 h-4" stroke="currentColor" stroke-width="1.5" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 6l12 12M6 18L18 6"/></svg>
+                </button>
+            </div>
+            <p class="text-xs text-stone-600 mb-3">Merging <span id="merge-tag-source" class="font-semibold text-stone-800"></span> into destination tag:</p>
+            <div class="relative mb-3">
+                <input id="merge-tag-dest-input" type="text" autocomplete="off" placeholder="destination tag" class="block w-full border border-stone-200 rounded-md text-sm bg-white placeholder-stone-400 focus:outline-none focus:border-stone-400 focus:ring-1 focus:ring-stone-400/20 transition-colors p-2">
+            </div>
+            <div id="merge-tag-preview" class="text-xs text-stone-600 mb-4 min-h-[3rem]"></div>
+            <div class="flex justify-end gap-2">
+                <button id="merge-tag-cancel" class="border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-xs font-medium py-2 px-3 rounded-md transition-colors">Cancel</button>
+                <button id="merge-tag-confirm" class="bg-stone-800 hover:bg-stone-700 text-white text-xs font-medium py-2.5 px-5 rounded-md transition-colors disabled:bg-stone-300 disabled:cursor-not-allowed" disabled>Merge</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Vendor libraries for plugin result rendering -->
     <script src="vendor/marked.min.js"></script>
     <script src="vendor/purify.min.js"></script>
@@ -1955,6 +2027,7 @@
     <script src="js/watch.js"></script>
     <script src="js/serve.js"></script>
     <script src="js/tag-autocomplete.js"></script>
+    <script src="js/merge-tag-modal.js"></script>
     <script src="js/share.js"></script>
     <script src="js/settings.js"></script>
     <script src="js/maintenance.js"></script>

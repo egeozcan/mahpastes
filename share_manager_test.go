@@ -765,3 +765,28 @@ func TestFollowWithoutDialInsertsRowWithoutPeerContact(t *testing.T) {
 		t.Fatalf("follow %d not registered in memory", fi.ID)
 	}
 }
+
+func TestStopShare_NoEventWhenNothingActive(t *testing.T) {
+	ctx := context.Background()
+	db := newTestDB(t)
+	dir := t.TempDir()
+	m, err := NewShareManager(ctx, db, dir)
+	if err != nil {
+		t.Fatalf("NewShareManager: %v", err)
+	}
+	defer m.Stop()
+
+	var fired bool
+	m.eventFn = func(name string, data ...any) {
+		if name == "share:publication-removed" {
+			fired = true
+		}
+	}
+
+	if err := m.StopShare(999); err != nil {
+		t.Fatalf("StopShare: %v", err)
+	}
+	if fired {
+		t.Fatalf("share:publication-removed should not fire when nothing was active")
+	}
+}

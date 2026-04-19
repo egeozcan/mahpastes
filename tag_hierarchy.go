@@ -1,6 +1,9 @@
 package main
 
 import (
+	"database/sql"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -97,4 +100,181 @@ func isImmediateChildOf(child, parent string) bool {
 	}
 	rest := child[len(parent)+1:]
 	return !strings.Contains(rest, "/")
+}
+
+// checkMergeTagPreconditions returns the list of human-readable blockers for
+// merging source into destination. Empty slice means proceed.
+func (a *App) checkMergeTagPreconditions(sourceID, destID int64, srcName, dstName string) []string {
+	if sourceID == destID {
+		return []string{"source and destination must be different tags"}
+	}
+	var blockers []string
+	// Destination must not be source or a descendant of source.
+	if dstName == srcName || strings.HasPrefix(dstName, srcName+"/") {
+		blockers = append(blockers, fmt.Sprintf("destination %q is a descendant of source %q", dstName, srcName))
+	}
+	// Block on active share (shares row for source).
+	var shareCount int
+	if err := a.db.QueryRow(`SELECT COUNT(*) FROM shares WHERE tag_id = ?`, sourceID).Scan(&shareCount); err == nil && shareCount > 0 {
+		blockers = append(blockers, "source tag is actively shared. Stop the share first.")
+	}
+	// Block on follow.
+	var followCount int
+	if err := a.db.QueryRow(`SELECT COUNT(*) FROM follows WHERE local_tag_id = ?`, sourceID).Scan(&followCount); err == nil && followCount > 0 {
+		blockers = append(blockers, "source tag has an incoming share (follow). Retarget or stop it first.")
+	}
+	// Block on any served tag in source subtree.
+	if served := a.tagIsServedInSubtree(srcName); served != "" {
+		blockers = append(blockers, fmt.Sprintf("tag %q in source subtree is currently served. Stop the server first.", served))
+	}
+	// Block on descendant collision with destination subtree.
+	rows, err := a.db.Query(`SELECT name FROM tags WHERE name LIKE ? || '/%'`, srcName)
+	if err == nil {
+		defer rows.Close()
+		srcPrefix := srcName + "/"
+		dstPrefix := dstName + "/"
+		for rows.Next() {
+			var n string
+			if err := rows.Scan(&n); err != nil {
+				continue
+			}
+			projected := dstPrefix + strings.TrimPrefix(n, srcPrefix)
+			var exists int
+			if err := a.db.QueryRow(`SELECT COUNT(*) FROM tags WHERE name = ?`, projected).Scan(&exists); err == nil && exists > 0 {
+				blockers = append(blockers, fmt.Sprintf("merge would collide at %q (tag already exists)", projected))
+				break
+			}
+		}
+	}
+	return blockers
+}
+
+// checkTagReferencePreconditions returns a list of human-readable blocker
+// strings that would prevent deleting tagID. Empty slice means safe.
+// Currently blocks only on active follows (which have ON DELETE RESTRICT
+// at the DB level); active share and running serve are handled by the
+// post-commit runtime cleanup path and do not need to block here.
+func (a *App) checkTagReferencePreconditions(tagID int64) ([]string, error) {
+	var blockers []string
+
+	var followCount int
+	if err := a.db.QueryRow(
+		`SELECT COUNT(*) FROM follows WHERE local_tag_id = ?`, tagID,
+	).Scan(&followCount); err != nil {
+		// Missing table means no follows; tolerate minimal test schemas.
+		if !isSQLiteNoSuchTable(err) {
+			return nil, fmt.Errorf("count follows: %w", err)
+		}
+	}
+	if followCount > 0 {
+		blockers = append(blockers, fmt.Sprintf(
+			"tag has %d active incoming share (follow). Retarget the follow to a different tag, or stop it, then try again.",
+			followCount,
+		))
+	}
+	return blockers, nil
+}
+
+// tagIsServedInSubtree returns the name of any tag in the subtree rooted at
+// oldName that is currently being served, or "" if none. ServeManager caches
+// tag names at start, so renames/merges of a served subtree leave the server
+// resolving against stale prefixes.
+func (a *App) tagIsServedInSubtree(oldName string) string {
+	if a.serveManager == nil {
+		return ""
+	}
+	infos := a.serveManager.GetStatus()
+	prefix := oldName + "/"
+	for _, info := range infos {
+		if info.TagName == oldName || strings.HasPrefix(info.TagName, prefix) {
+			return info.TagName
+		}
+	}
+	return ""
+}
+
+// getHiddenTagsTx reads and parses the hidden_tags setting inside the given
+// transaction so read+write participate in the same snapshot. The
+// non-tx helpers a.GetHiddenTags/a.SetHiddenTags use a.db directly and
+// would escape the caller's tx.
+func getHiddenTagsTx(tx *sql.Tx) ([]int64, error) {
+	var value string
+	err := tx.QueryRow(`SELECT value FROM settings WHERE key = 'hidden_tags'`).Scan(&value)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		// Missing table means no settings; tolerate minimal test schemas.
+		if isSQLiteNoSuchTable(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read hidden_tags: %w", err)
+	}
+	if value == "" {
+		return nil, nil
+	}
+	var ids []int64
+	if err := json.Unmarshal([]byte(value), &ids); err != nil {
+		return nil, fmt.Errorf("parse hidden_tags: %w", err)
+	}
+	return ids, nil
+}
+
+// setHiddenTagsTx writes the hidden_tags setting inside the given transaction.
+func setHiddenTagsTx(tx *sql.Tx, ids []int64) error {
+	if ids == nil {
+		ids = []int64{}
+	}
+	payload, err := json.Marshal(ids)
+	if err != nil {
+		return fmt.Errorf("marshal hidden_tags: %w", err)
+	}
+	if _, err := tx.Exec(`INSERT INTO settings(key, value) VALUES ('hidden_tags', ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value`, string(payload)); err != nil {
+		return fmt.Errorf("write hidden_tags: %w", err)
+	}
+	return nil
+}
+
+// migrateTagReferences moves all non-networked ID-keyed references from
+// source to destination inside an existing transaction. Networked state
+// (shares, follows, serves) is refused at the precondition phase and is
+// never touched here.
+func (a *App) migrateTagReferences(tx *sql.Tx, fromID, toID int64) error {
+	// API keys — migrate scope (preserves user intent).
+	if _, err := tx.Exec(`UPDATE api_keys SET scoped_tag_id = ? WHERE scoped_tag_id = ?`, toID, fromID); err != nil {
+		return fmt.Errorf("migrate api_keys: %w", err)
+	}
+	// Watched folders — migrate auto-tag target.
+	if _, err := tx.Exec(`UPDATE watched_folders SET auto_tag_id = ? WHERE auto_tag_id = ?`, toID, fromID); err != nil {
+		return fmt.Errorf("migrate watched_folders: %w", err)
+	}
+	// Hidden tag list — swap membership. Uses tx-aware helpers (getHiddenTagsTx,
+	// setHiddenTagsTx) so the read+write participate in the caller's snapshot.
+	hiddenIDs, err := getHiddenTagsTx(tx)
+	if err != nil {
+		return fmt.Errorf("get hidden: %w", err)
+	}
+	newHidden := make([]int64, 0, len(hiddenIDs))
+	sawSrc := false
+	sawDst := false
+	for _, id := range hiddenIDs {
+		if id == fromID {
+			sawSrc = true
+			continue
+		}
+		if id == toID {
+			sawDst = true
+		}
+		newHidden = append(newHidden, id)
+	}
+	if sawSrc && !sawDst {
+		newHidden = append(newHidden, toID)
+	}
+	if sawSrc {
+		if err := setHiddenTagsTx(tx, newHidden); err != nil {
+			return fmt.Errorf("update hidden_tags: %w", err)
+		}
+	}
+	return nil
 }

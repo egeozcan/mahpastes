@@ -54,6 +54,18 @@ export function ChooseApplication() {
   return window['go']['main']['App']['ChooseApplication']();
 }
 
+export function CleanOrphanDBRows() {
+  return window['go']['main']['App']['CleanOrphanDBRows']();
+}
+
+export function CleanStaleFiles() {
+  return window['go']['main']['App']['CleanStaleFiles']();
+}
+
+export function CompactDatabase() {
+  return window['go']['main']['App']['CompactDatabase']();
+}
+
 export function ConfirmRestoreBackup(arg1, arg2) {
   return window['go']['main']['App']['ConfirmRestoreBackup'](arg1, arg2);
 }
@@ -130,6 +142,10 @@ export function GetClipsDirect(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['main']['App']['GetClipsDirect'](arg1, arg2, arg3, arg4, arg5);
 }
 
+export function GetDatabaseSize() {
+  return window['go']['main']['App']['GetDatabaseSize']();
+}
+
 export function GetDescendantClipCount(arg1) {
   return window['go']['main']['App']['GetDescendantClipCount'](arg1);
 }
@@ -154,12 +170,20 @@ export function GetImageDiff(arg1, arg2, arg3) {
   return window['go']['main']['App']['GetImageDiff'](arg1, arg2, arg3);
 }
 
+export function GetOrphanDBRows() {
+  return window['go']['main']['App']['GetOrphanDBRows']();
+}
+
 export function GetRemovableEmptyTags() {
   return window['go']['main']['App']['GetRemovableEmptyTags']();
 }
 
 export function GetSetting(arg1) {
   return window['go']['main']['App']['GetSetting'](arg1);
+}
+
+export function GetStaleFiles() {
+  return window['go']['main']['App']['GetStaleFiles']();
 }
 
 export function GetTags() {
@@ -194,12 +218,20 @@ export function MergeDuplicates(arg1) {
   return window['go']['main']['App']['MergeDuplicates'](arg1);
 }
 
+export function MergeTag(arg1, arg2) {
+  return window['go']['main']['App']['MergeTag'](arg1, arg2);
+}
+
 export function OpenClipWithApp(arg1, arg2) {
   return window['go']['main']['App']['OpenClipWithApp'](arg1, arg2);
 }
 
 export function OpenClipWithDefaultApp(arg1) {
   return window['go']['main']['App']['OpenClipWithDefaultApp'](arg1);
+}
+
+export function PreviewMergeTag(arg1, arg2) {
+  return window['go']['main']['App']['PreviewMergeTag'](arg1, arg2);
 }
 
 export function ProcessExistingFilesInFolder(arg1) {

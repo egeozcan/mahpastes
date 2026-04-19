@@ -113,6 +113,7 @@ func (am *APIManager) Start(port int, bindAll bool) (APIStatus, error) {
 	mux.HandleFunc("POST /api/v1/tags", am.authMiddleware(am.requireRole("admin", am.handleCreateTag)))
 	mux.HandleFunc("PUT /api/v1/tags/{id}", am.authMiddleware(am.requireRole("admin", am.handleUpdateTag)))
 	mux.HandleFunc("DELETE /api/v1/tags/{id}", am.authMiddleware(am.requireRole("admin", am.handleDeleteTag)))
+	mux.HandleFunc("POST /api/v1/tags/{id}/merge", am.authMiddleware(am.requireRole("admin", am.handleMergeTag)))
 	mux.HandleFunc("PUT /api/v1/clips/{id}/tags/{tagId}", am.authMiddleware(am.requireRole("editor", am.handleAddTagToClip)))
 	mux.HandleFunc("DELETE /api/v1/clips/{id}/tags/{tagId}", am.authMiddleware(am.requireRole("editor", am.handleRemoveTagFromClip)))
 	mux.HandleFunc("GET /api/v1/serve", am.authMiddleware(am.requireRole("viewer", am.handleListServers)))
@@ -180,6 +181,13 @@ func (am *APIManager) Start(port int, bindAll bool) (APIStatus, error) {
 	// Backup
 	mux.HandleFunc("GET /api/v1/backup", am.authMiddleware(am.requireRole("admin", am.handleCreateBackup)))
 	mux.HandleFunc("POST /api/v1/backup/restore", am.authMiddleware(am.requireRole("admin", am.handleRestoreBackup)))
+
+	// Maintenance
+	mux.HandleFunc("POST /api/v1/maintenance/vacuum", am.authMiddleware(am.requireRole("admin", am.handleVacuum)))
+	mux.HandleFunc("GET /api/v1/maintenance/stale-files", am.authMiddleware(am.requireRole("admin", am.handleListStaleFiles)))
+	mux.HandleFunc("POST /api/v1/maintenance/stale-files/clean", am.authMiddleware(am.requireRole("admin", am.handleCleanStaleFiles)))
+	mux.HandleFunc("GET /api/v1/maintenance/orphan-rows", am.authMiddleware(am.requireRole("admin", am.handleListOrphanRows)))
+	mux.HandleFunc("POST /api/v1/maintenance/orphan-rows/clean", am.authMiddleware(am.requireRole("admin", am.handleCleanOrphanRows)))
 
 	// Clipboard
 	mux.HandleFunc("POST /api/v1/clipboard/copy", am.authMiddleware(am.requireRole("editor", am.handleCopyToClipboard)))
@@ -1099,11 +1107,144 @@ func (am *APIManager) handleDeleteTag(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := am.app.DeleteTag(id); err != nil {
-		am.jsonError(w, http.StatusInternalServerError, "failed to delete tag")
+		msg := err.Error()
+		// Map app-level error categories to HTTP status codes.
+		if strings.Contains(msg, "tag not found") {
+			am.jsonError(w, http.StatusNotFound, msg)
+			return
+		}
+		if strings.HasPrefix(msg, "cannot delete tag:") {
+			am.jsonError(w, http.StatusConflict, msg)
+			return
+		}
+		am.jsonError(w, http.StatusInternalServerError, msg)
 		return
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (am *APIManager) handleMergeTag(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+
+	sourceID, err := parseIntParam(r.PathValue("id"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid source id")
+		return
+	}
+	var body struct {
+		DestID int64 `json:"dest_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+
+	// Enforce tag scope: both source and destination must be within the
+	// scoped subtree. Mirror the single-tag pattern used by handleDeleteTag.
+	if keyCtx.ScopedTagID > 0 {
+		for _, id := range []int64{sourceID, body.DestID} {
+			var tagName string
+			if err := am.app.db.QueryRow("SELECT name FROM tags WHERE id = ?", id).Scan(&tagName); err != nil {
+				am.jsonError(w, http.StatusNotFound, "tag not found")
+				return
+			}
+			if !am.isTagInScope(tagName, keyCtx.ScopedTagID) {
+				am.jsonError(w, http.StatusForbidden, "tag-scoped key can only merge tags within its scope")
+				return
+			}
+		}
+	}
+
+	if err := am.app.MergeTag(sourceID, body.DestID); err != nil {
+		am.jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	am.jsonOK(w, map[string]bool{"ok": true})
+}
+
+// --- Maintenance Handlers ---
+
+func (am *APIManager) handleVacuum(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+	if keyCtx.ScopedTagID > 0 {
+		am.jsonError(w, http.StatusForbidden, "maintenance operations are not available for tag-scoped keys")
+		return
+	}
+	before, after, err := am.app.CompactDatabase()
+	if err != nil {
+		am.jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	am.jsonOK(w, map[string]int64{"before": before, "after": after})
+}
+
+func (am *APIManager) handleListStaleFiles(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+	if keyCtx.ScopedTagID > 0 {
+		am.jsonError(w, http.StatusForbidden, "maintenance operations are not available for tag-scoped keys")
+		return
+	}
+	files, err := am.app.GetStaleFiles()
+	if err != nil {
+		am.jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	am.jsonOK(w, files)
+}
+
+func (am *APIManager) handleCleanStaleFiles(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+	if keyCtx.ScopedTagID > 0 {
+		am.jsonError(w, http.StatusForbidden, "maintenance operations are not available for tag-scoped keys")
+		return
+	}
+	count, bytes, err := am.app.CleanStaleFiles()
+	if err != nil {
+		am.jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	am.jsonOK(w, map[string]any{"count": count, "bytes": bytes})
+}
+
+func (am *APIManager) handleListOrphanRows(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+	if keyCtx.ScopedTagID > 0 {
+		am.jsonError(w, http.StatusForbidden, "maintenance operations are not available for tag-scoped keys")
+		return
+	}
+	report, err := am.app.GetOrphanDBRows()
+	if err != nil {
+		am.jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	am.jsonOK(w, report)
+}
+
+func (am *APIManager) handleCleanOrphanRows(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+	if keyCtx.ScopedTagID > 0 {
+		am.jsonError(w, http.StatusForbidden, "maintenance operations are not available for tag-scoped keys")
+		return
+	}
+	report, err := am.app.CleanOrphanDBRows()
+	if err != nil {
+		am.jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	am.jsonOK(w, report)
 }
 
 // --- Clip-Tag Handlers ---

@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -94,4 +96,129 @@ func TestShareTablesMigrate(t *testing.T) {
 	}
 
 	_ = os.Remove
+}
+
+func TestMigration_APIKeysScopedTagFK_SetNullAndRevoke(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("MAHPASTES_DATA_DIR", dir)
+
+	db, err := initDB()
+	if err != nil {
+		t.Fatalf("initDB: %v", err)
+	}
+	defer db.Close()
+
+	if _, err := db.Exec(`INSERT INTO tags (id, name, color) VALUES (1, 'scoped', '#aaa')`); err != nil {
+		t.Fatalf("insert tag: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO api_keys (name, key_hash, key_prefix, role, scoped_tag_id) VALUES ('k', 'h', 'p', 'viewer', 1)`); err != nil {
+		t.Fatalf("insert key: %v", err)
+	}
+
+	// Deleting the scoped tag must not delete the api_keys row (SET NULL),
+	// and the trigger must auto-revoke the key.
+	if _, err := db.Exec(`DELETE FROM tags WHERE id = 1`); err != nil {
+		t.Fatalf("delete tag: %v", err)
+	}
+
+	var scoped sql.NullInt64
+	var revoked int
+	if err := db.QueryRow(`SELECT scoped_tag_id, is_revoked FROM api_keys WHERE name = 'k'`).Scan(&scoped, &revoked); err != nil {
+		t.Fatalf("query key: %v", err)
+	}
+	if scoped.Valid {
+		t.Fatalf("scoped_tag_id should be NULL after tag delete, got %v", scoped.Int64)
+	}
+	if revoked != 1 {
+		t.Fatalf("key should be auto-revoked (is_revoked=1), got %d", revoked)
+	}
+}
+
+func TestMigration_APIKeysIdempotent(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("MAHPASTES_DATA_DIR", dir)
+	db, err := initDB()
+	if err != nil {
+		t.Fatalf("initDB first: %v", err)
+	}
+	db.Close()
+
+	// Second initDB must be a no-op migration (no panic, no error).
+	db2, err := initDB()
+	if err != nil {
+		t.Fatalf("initDB second: %v", err)
+	}
+	defer db2.Close()
+
+	if needsAPIKeysScopedTagMigration(db2) {
+		t.Fatalf("migration should not re-run on already-migrated DB")
+	}
+}
+
+// TestMigration_RestoresFKOnError exercises the actual poisoned-conn path:
+// acquire a real conn, disable FK, force an error via migrateFailHook, and
+// verify every pooled conn afterwards reports foreign_keys=1. Without the
+// deferred restore in migrateAPIKeysScopedTagSetNull, this would catch a
+// conn that went back to the pool with FK=OFF.
+func TestMigration_RestoresFKOnError(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("MAHPASTES_DATA_DIR", dir)
+	db, err := initDB()
+	if err != nil {
+		t.Fatalf("initDB: %v", err)
+	}
+	defer db.Close()
+
+	// Put api_keys into the pre-migration state so needsAPIKeysScopedTagMigration
+	// returns true and the migration actually executes to the point where FK
+	// is disabled. (initDB already migrated on open; we recreate the old shape.)
+	if _, err := db.Exec(`DROP TABLE api_keys`); err != nil {
+		t.Fatalf("drop: %v", err)
+	}
+	if _, err := db.Exec(`
+		CREATE TABLE api_keys (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL,
+			key_hash TEXT NOT NULL UNIQUE,
+			key_prefix TEXT NOT NULL,
+			role TEXT NOT NULL DEFAULT 'viewer',
+			scoped_tag_id INTEGER,
+			is_revoked INTEGER DEFAULT 0,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			last_used_at DATETIME,
+			FOREIGN KEY (scoped_tag_id) REFERENCES tags(id) ON DELETE CASCADE
+		)`); err != nil {
+		t.Fatalf("recreate old api_keys: %v", err)
+	}
+	if !needsAPIKeysScopedTagMigration(db) {
+		t.Fatalf("pre-condition: migration should be needed after recreating old table")
+	}
+
+	// Install failure hook, restore on exit.
+	migrateFailHook = func() error { return fmt.Errorf("simulated mid-migration failure") }
+	defer func() { migrateFailHook = nil }()
+
+	err = migrateAPIKeysScopedTagSetNull(db)
+	if err == nil {
+		t.Fatalf("expected migration to fail with the hook installed")
+	}
+
+	// Exhaust pool by taking and releasing multiple conns. At least one of
+	// these should reuse the conn that had FK disabled during the failed
+	// migration.
+	for i := 0; i < 8; i++ {
+		conn, err := db.Conn(context.Background())
+		if err != nil {
+			t.Fatalf("conn %d: %v", i, err)
+		}
+		var fk int
+		if err := conn.QueryRowContext(context.Background(), `PRAGMA foreign_keys`).Scan(&fk); err != nil {
+			conn.Close()
+			t.Fatalf("query fk on conn %d: %v", i, err)
+		}
+		conn.Close()
+		if fk != 1 {
+			t.Fatalf("pooled connection %d has foreign_keys=%d, expected 1", i, fk)
+		}
+	}
 }

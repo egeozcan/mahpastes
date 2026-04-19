@@ -540,6 +540,16 @@ func (sm *ServeManager) StopServing(tagID int64) error {
 	return nil
 }
 
+// IsServing reports whether a server is currently running for tagID.
+// Cheap to call — just a read-locked map lookup. Used by DeleteTag's
+// post-commit cleanup to guard StopServing, which errors on a missing tag.
+func (sm *ServeManager) IsServing(tagID int64) bool {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	_, exists := sm.servers[tagID]
+	return exists
+}
+
 // GetStatus returns the status of all running tag servers.
 func (sm *ServeManager) GetStatus() []ServeInfo {
 	sm.mu.RLock()

@@ -31,7 +31,8 @@ type WorkerFixtures = {
 export class AppHelper {
   constructor(
     public page: Page,
-    public baseURL: string
+    public baseURL: string,
+    public dataDir: string = ''
   ) {}
 
   // ==================== Navigation ====================
@@ -1317,6 +1318,24 @@ export class AppHelper {
     await expect(toast).toBeVisible({ timeout: 5000 });
   }
 
+  async waitForToast(pattern: RegExp): Promise<string> {
+    const toastLocator = this.page.locator(selectors.toast.message);
+    let toastText = '';
+    let attempts = 0;
+    const maxAttempts = 50; // ~5s with 100ms polling
+
+    while (attempts < maxAttempts) {
+      toastText = await toastLocator.textContent() || '';
+      if (toastText && pattern.test(toastText)) {
+        return toastText;
+      }
+      await this.page.waitForTimeout(100);
+      attempts++;
+    }
+
+    throw new Error(`Toast matching pattern ${pattern} not found. Last text: "${toastText}"`);
+  }
+
   // ==================== Text Editor ====================
 
   async openTextEditor(filename: string): Promise<void> {
@@ -1375,9 +1394,10 @@ export class AppHelper {
 
   // ==================== Tags ====================
 
-  async createTag(name: string): Promise<void> {
-    // Create tag via API and update frontend state
-    await this.page.evaluate(async (tagName) => {
+  async createTag(name: string): Promise<{ tagID: number }> {
+    // Create tag via API and update frontend state.
+    // Returns the numeric ID of the leaf tag created (the last segment in a path like "a/b/c").
+    const tagID = await this.page.evaluate(async (tagName) => {
       // @ts-ignore - Wails runtime
       await window.go.main.App.CreateTag(tagName);
 
@@ -1391,7 +1411,12 @@ export class AppHelper {
         // @ts-ignore
         window.__testHelpers.setAllTags(tags);
       }
+
+      // Return the id of the leaf tag that was just created.
+      const created = tags.find((t: any) => t.name === tagName);
+      return created ? created.id : 0;
     }, name);
+    return { tagID: tagID as number };
   }
 
   async deleteTag(name: string): Promise<void> {
@@ -1405,6 +1430,110 @@ export class AppHelper {
         await window.go.main.App.DeleteTag(tag.id);
       }
     }, name);
+    // Give the frontend a moment to process the tag:deleted event.
+    await this.page.waitForFunction(() => (window as any).__appReady === true, { timeout: 10000 });
+  }
+
+  /** Rename a tag. Triggers the tag:updated Wails event which causes folder-view re-navigation. */
+  async renameTag(oldName: string, newName: string): Promise<void> {
+    await this.page.evaluate(async ({ oldTagName, newTagName }) => {
+      // @ts-ignore - Wails runtime
+      const tags = await window.go.main.App.GetTags();
+      const tag = tags.find((t: any) => t.name === oldTagName);
+      if (!tag) throw new Error(`Tag not found: ${oldTagName}`);
+      // @ts-ignore
+      await window.go.main.App.UpdateTag(tag.id, newTagName, tag.color || '');
+    }, { oldTagName: oldName, newTagName: newName });
+    // Wait for the tag:updated event to finish processing.
+    await this.page.waitForFunction(() => (window as any).__appReady === true, { timeout: 10000 });
+  }
+
+  /**
+   * Add a tag to the clip at the given 0-based gallery index.
+   * Requires the clip to be visible in the current gallery view.
+   */
+  async tagClipByIndex(index: number, tagName: string): Promise<void> {
+    await this.page.evaluate(async ({ idx, tag }) => {
+      // @ts-ignore - Wails runtime
+      const clips = await window.go.main.App.GetClips(false, [], [], '', '');
+      if (!clips || idx >= clips.length) throw new Error(`No clip at index ${idx}`);
+      const clip = clips[idx];
+
+      // @ts-ignore
+      const tags = await window.go.main.App.GetTags();
+      const tagObj = tags.find((t: any) => t.name === tag);
+      if (!tagObj) throw new Error(`Tag not found: ${tag}`);
+
+      // @ts-ignore
+      await window.go.main.App.AddTagToClip(clip.id, tagObj.id);
+
+      // @ts-ignore
+      if (window.__testHelpers?.loadClips) window.__testHelpers.loadClips();
+    }, { idx: index, tag: tagName });
+    await this.page.waitForFunction(() => (window as any).__appReady === true, { timeout: 5000 });
+  }
+
+  /**
+   * Enter folder view: enable folder mode (if not already on) and navigate into the named tag.
+   */
+  async enterFolder(tagName: string): Promise<void> {
+    // Enable folder mode if not already active.
+    const isFolderActive = await this.page.evaluate(() => {
+      // @ts-ignore
+      return window.__testHelpers?.isFolderMode?.() === true;
+    });
+    if (!isFolderActive) {
+      await this.toggleFolderMode();
+    }
+    // Navigate to the folder.
+    await this.page.evaluate(async (name) => {
+      // @ts-ignore - Wails runtime
+      const tags = await window.go.main.App.GetTags();
+      const tag = tags.find((t: any) => t.name === name);
+      if (!tag) throw new Error(`Tag not found for enterFolder: ${name}`);
+      // @ts-ignore
+      if (typeof navigateToFolder === 'function') {
+        // @ts-ignore
+        navigateToFolder(tag.id);
+      } else if (window.__testHelpers?.setFolderMode) {
+        // Fallback: set active tag filter
+        // @ts-ignore
+        window.__testHelpers.setActiveTagFilters([tag.id]);
+        // @ts-ignore
+        window.__testHelpers.loadClips();
+      }
+    }, tagName);
+    await this.page.waitForFunction(() => (window as any).__appReady === true, { timeout: 10000 });
+  }
+
+  /**
+   * Assert that the folder header (breadcrumb pill) shows the given tag name.
+   * In folder mode, the active-tags-container shows tag pills for the current path.
+   * Scoped to #active-tags-container to avoid matching clip-card tag pills.
+   */
+  async expectFolderHeader(name: string): Promise<void> {
+    const pill = this.page.locator(`#active-tags-container [data-testid="tag-pill-${name}"]`);
+    await expect(pill).toBeVisible({ timeout: 5000 });
+  }
+
+  /** Assert that folder mode is NOT active (the folder-mode button is not pressed). */
+  async expectNotInFolderMode(): Promise<void> {
+    const btn = this.page.locator(selectors.tags.folderModeButton);
+    await expect(btn).toHaveAttribute('aria-pressed', 'false', { timeout: 5000 });
+  }
+
+  /**
+   * Toggle the tag filter chip for the named tag (non-folder mode).
+   * Equivalent to filterByTag but named for clarity in filter-clear tests.
+   */
+  async selectTagFilter(name: string): Promise<void> {
+    await this.filterByTag(name);
+  }
+
+  /** Assert that the named tag is NOT an active filter (no pill visible in active-tags-container). */
+  async expectTagFilterInactive(name: string): Promise<void> {
+    const pill = this.page.locator(`#active-tags-container [data-testid="tag-pill-${name}"]`);
+    await expect(pill).not.toBeVisible({ timeout: 5000 });
   }
 
   async getAllTags(): Promise<Array<{ id: number; name: string; color: string }>> {
@@ -2145,6 +2274,43 @@ export class AppHelper {
     await this.page.locator(selectors.maintenance.removeEmptyTagsButton).click();
   }
 
+  /**
+   * Seed a stale temp file into the app's clip_temp_files directory with a
+   * backdated mtime (2 hours ago) so the stale-file sweep will detect it.
+   * Requires `dataDir` to be set on this AppHelper instance (it is, when the
+   * app fixture creates it from the test state file).
+   */
+  async seedStaleTempFile(name: string, sizeBytes: number = 16): Promise<void> {
+    if (!this.dataDir) throw new Error('seedStaleTempFile: dataDir not available on this AppHelper');
+    const nodePath = await import('path');
+    const nodeFs = await import('fs');
+    const filePath = nodePath.default.join(this.dataDir, 'clip_temp_files', name);
+    nodeFs.default.mkdirSync(nodePath.default.dirname(filePath), { recursive: true });
+    nodeFs.default.writeFileSync(filePath, Buffer.alloc(sizeBytes));
+    // Back-date mtime to 2 hours ago — well past the 60-min lease window.
+    const pastMs = Date.now() - 2 * 60 * 60 * 1000;
+    const pastDate = new Date(pastMs);
+    nodeFs.default.utimesSync(filePath, pastDate, pastDate);
+  }
+
+  /**
+   * Seed an orphan plugin_storage row into the app's SQLite DB using the
+   * system sqlite3 CLI (no extra npm dependency needed).  The plugin_id value
+   * intentionally has no matching row in the plugins table so the orphan-rows
+   * sweep will detect and delete it.
+   *
+   * Requires `dataDir` to be set on this AppHelper instance (it is, when the
+   * app fixture creates it from the test state file).
+   */
+  async seedOrphanPluginStorage(pluginId: number, key: string, value: string): Promise<void> {
+    if (!this.dataDir) throw new Error('seedOrphanPluginStorage: dataDir not available on this AppHelper');
+    const nodePath = await import('path');
+    const nodeChildProcess = await import('child_process');
+    const dbPath = nodePath.default.join(this.dataDir, 'clips.db');
+    const sql = `INSERT INTO plugin_storage (plugin_id, key, value) VALUES (${pluginId}, '${key.replace(/'/g, "''")}', '${value.replace(/'/g, "''")}');`;
+    nodeChildProcess.default.execSync(`sqlite3 "${dbPath}" "${sql}"`);
+  }
+
   async clickCardMenuPluginAction(pluginId: number, actionId: string): Promise<void> {
     const actionBtn = this.page.locator(
       `.card-menu-submenu [data-action="plugin"][data-plugin-id="${pluginId}"][data-action-id="${actionId}"]`
@@ -2882,6 +3048,106 @@ export class AppHelper {
 
     return { app: secondaryApp, cleanup: fullCleanup };
   }
+
+  // ==================== Merge Tags ====================
+
+  /**
+   * Open the merge-tag modal for the named source tag by right-clicking its
+   * row in the tag filter dropdown.  Returns when the modal is visible.
+   */
+  async openMergeModal(sourceName: string): Promise<void> {
+    await this.openTagFilterDropdown();
+
+    // Right-click the label element that contains the checkbox for this tag.
+    const checkbox = this.page.locator(`[data-testid="tag-checkbox-${sourceName}"]`);
+    await checkbox.waitFor({ state: 'visible', timeout: 5000 });
+    // The contextmenu listener is on the parent <label> element.
+    await checkbox.locator('..').click({ button: 'right' });
+
+    // Wait for the context menu to appear and click "Merge into…".
+    await this.page.waitForSelector('.context-menu-item, [role="menuitem"]', { timeout: 3000 })
+      .catch(() => {
+        // Fallback: context menu may use a different selector.
+      });
+    // Click the Merge into… option (contains the text).
+    await this.page.getByText(/Merge into/i).first().click();
+
+    // Wait for the modal to become visible (inert removed).
+    await this.page.waitForFunction(
+      () => !document.getElementById('merge-tag-modal')?.hasAttribute('inert'),
+      { timeout: 5000 },
+    );
+  }
+
+  /**
+   * Type the destination tag name into the merge modal's input and wait for
+   * the 200ms preview debounce to complete.
+   */
+  async enterMergeDestination(destName: string): Promise<void> {
+    await this.page.fill('#merge-tag-dest-input', destName);
+    // Dispatch input event to trigger debounce timer.
+    await this.page.evaluate(() => {
+      const el = document.getElementById('merge-tag-dest-input');
+      if (el) el.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    // Wait for the 200ms debounce + async GetTags / PreviewMergeTag round-trip.
+    await this.page.waitForTimeout(400);
+  }
+
+  /**
+   * Return the text content of all `.block.text-red-500` spans inside
+   * #merge-tag-preview (the blocker messages rendered by merge-tag-modal.js).
+   */
+  async getMergeModalBlockers(): Promise<string[]> {
+    return this.page.evaluate(() => {
+      const spans = document.querySelectorAll('#merge-tag-preview span.block.text-red-500');
+      return Array.from(spans).map((s) => s.textContent || '');
+    });
+  }
+
+  /**
+   * Full merge workflow: open the modal, fill destination, confirm.
+   * Returns when the modal has closed (inert re-applied).
+   */
+  async mergeTag(sourceName: string, destName: string): Promise<void> {
+    await this.openMergeModal(sourceName);
+    await this.enterMergeDestination(destName);
+
+    // Wait for the confirm button to be enabled.
+    await this.page.waitForFunction(
+      () => !(document.getElementById('merge-tag-confirm') as HTMLButtonElement | null)?.disabled,
+      { timeout: 5000 },
+    );
+
+    await this.page.click('#merge-tag-confirm');
+
+    // Wait for the modal to close.
+    await this.page.waitForFunction(
+      () => document.getElementById('merge-tag-modal')?.hasAttribute('inert'),
+      { timeout: 10000 },
+    );
+
+    // Wait for the tag:merged event to finish processing frontend state.
+    await this.page.waitForFunction(() => (window as any).__appReady === true, { timeout: 10000 });
+  }
+
+  /**
+   * Assert that the named tag does NOT appear in the tag filter dropdown.
+   */
+  async expectTagMissing(tagName: string): Promise<void> {
+    await this.openTagFilterDropdown();
+    const checkbox = this.page.locator(`[data-testid="tag-checkbox-${tagName}"]`);
+    await expect(checkbox).not.toBeAttached({ timeout: 3000 });
+  }
+
+  /**
+   * Assert that the named tag IS present in the tag filter dropdown.
+   */
+  async expectTagExists(tagName: string): Promise<void> {
+    await this.openTagFilterDropdown();
+    const checkbox = this.page.locator(`[data-testid="tag-checkbox-${tagName}"]`);
+    await expect(checkbox).toBeAttached({ timeout: 5000 });
+  }
 }
 
 // Custom test fixtures
@@ -2962,7 +3228,18 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
       );
     }
 
-    const app = new AppHelper(activePage, baseURL);
+    // Resolve dataDir for this worker from the test state file so Node-side
+    // helpers (e.g. seedStaleTempFile) can interact with the app's data dir.
+    let dataDir = '';
+    try {
+      const state = await getTestState();
+      const entry = state.instances.find((i) => i.workerIndex === workerIndex);
+      dataDir = entry?.dataDir ?? '';
+    } catch {
+      // State file may not exist in some test modes; dataDir stays empty.
+    }
+
+    const app = new AppHelper(activePage, baseURL, dataDir);
 
     // Fast reset before test (single evaluate call, no page navigation)
     try {

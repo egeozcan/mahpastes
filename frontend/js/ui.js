@@ -1119,7 +1119,13 @@ searchInput.addEventListener('keydown', (e) => {
 
 // --- Folder Mode Rendering ---
 
+// Generation counter: incremented by loadClips before each render.
+// renderFolderCards captures its value at start and aborts if superseded.
+let _folderRenderGen = 0;
+
 async function renderFolderCards() {
+    const myGen = ++_folderRenderGen;
+
     let folderTags;
     if (activeTagFilters.length > 0) {
         // Show children of the deepest active filter
@@ -1129,13 +1135,20 @@ async function renderFolderCards() {
         folderTags = await getTopLevelTags();
     }
 
+    // Abort if a newer render has started while we were awaiting
+    if (myGen !== _folderRenderGen) return;
+
     if (!folderTags || folderTags.length === 0) return;
 
-    // Remove any existing folder cards to prevent duplicates from race conditions
+    // Remove any existing folder cards before appending fresh ones
     gallery.querySelectorAll('[data-folder]').forEach(card => card.remove());
 
     for (const tag of folderTags) {
         const count = await getDescendantClipCount(tag.id);
+
+        // Abort mid-loop if superseded
+        if (myGen !== _folderRenderGen) return;
+
         const shortName = getShortTagName(tag.name);
 
         const card = document.createElement('li');
@@ -1181,6 +1194,10 @@ function navigateToFolder(tagId, { focusFirst = false } = {}) {
     // Replace active filters
     activeTagFilters.length = 0;
     activeTagFilters.push(...ancestors);
+
+    if (typeof window.rememberCurrentFolder === 'function') {
+        window.rememberCurrentFolder(tagId);
+    }
 
     updateActiveTagsDisplay();
     renderTagFilterDropdown();

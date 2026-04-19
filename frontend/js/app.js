@@ -187,6 +187,25 @@ let allTags = [];
 let activeTagFilters = [];
 let hiddenTags = [];
 
+/**
+ * Normalize activeTagFilters after any tag change. Pass the set of currently
+ * valid tag IDs and an optional Map of substitutions (source_id -> dest_id
+ * for merges). Mutates the array in place so existing references stay live.
+ * Exposed on window because the tag event handler lives in tags.js.
+ */
+function normalizeActiveTagFilters(validIDs, substitutions) {
+    const subs = substitutions || new Map();
+    const replaced = activeTagFilters.map(id => subs.has(id) ? subs.get(id) : id);
+    const kept = replaced.filter(id => validIDs.has(id));
+    activeTagFilters.length = 0;
+    activeTagFilters.push(...kept);
+    // Re-render the filter pills so the UI reflects the normalized list.
+    if (typeof renderTagFilterDropdown === 'function') {
+        renderTagFilterDropdown();
+    }
+}
+window.normalizeActiveTagFilters = normalizeActiveTagFilters;
+
 // Sort state
 let currentSortField = 'date';
 let currentSortDir = 'desc';
@@ -214,6 +233,10 @@ function toggleFolderMode() {
         const lastTagId = activeTagFilters[activeTagFilters.length - 1];
         navigateToFolder(lastTagId);
         return;
+    }
+    // Exiting folder mode — clear the remembered folder.
+    if (!folderMode && typeof window.rememberCurrentFolder === 'function') {
+        window.rememberCurrentFolder(null);
     }
     if (typeof updateActiveTagsDisplay === 'function') {
         updateActiveTagsDisplay();
@@ -1498,6 +1521,18 @@ window.addEventListener('load', async () => {
 
         window.runtime.EventsOn("clip:duplicate", (data) => {
             showToast(`Duplicate clip detected — ${data.count} other ${data.count === 1 ? 'copy' : 'copies'} exist`, 'info');
+        });
+
+        // Re-resolve folder-view and tag-filter state on any tag change.
+        // tag:updated (rename), tag:deleted, tag:merged — all dispatched by Go.
+        window.runtime.EventsOn('tag:updated', (payload) => {
+            window.handleTagReferenceEvent('tag:updated', payload);
+        });
+        window.runtime.EventsOn('tag:deleted', (payload) => {
+            window.handleTagReferenceEvent('tag:deleted', payload);
+        });
+        window.runtime.EventsOn('tag:merged', (payload) => {
+            window.handleTagReferenceEvent('tag:merged', payload);
         });
     }
 

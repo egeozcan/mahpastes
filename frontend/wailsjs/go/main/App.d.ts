@@ -29,6 +29,12 @@ export function CancelExpiration(arg1:number):Promise<void>;
 
 export function ChooseApplication():Promise<string>;
 
+export function CleanOrphanDBRows():Promise<main.OrphanReport>;
+
+export function CleanStaleFiles():Promise<number>;
+
+export function CompactDatabase():Promise<number>;
+
 export function ConfirmRestoreBackup(arg1:string,arg2:string):Promise<void>;
 
 export function CopyToClipboard(arg1:string):Promise<void>;
@@ -67,6 +73,8 @@ export function GetClips(arg1:boolean,arg2:Array<number>,arg3:Array<number>,arg4
 
 export function GetClipsDirect(arg1:boolean,arg2:Array<number>,arg3:Array<number>,arg4:string,arg5:string):Promise<Array<main.ClipPreview>>;
 
+export function GetDatabaseSize():Promise<number>;
+
 export function GetDescendantClipCount(arg1:number):Promise<number>;
 
 export function GetDuplicateGroups():Promise<Array<main.DuplicateGroup>>;
@@ -79,9 +87,13 @@ export function GetHiddenTags():Promise<Array<number>>;
 
 export function GetImageDiff(arg1:number,arg2:number,arg3:number):Promise<main.DiffResult>;
 
+export function GetOrphanDBRows():Promise<main.OrphanReport>;
+
 export function GetRemovableEmptyTags():Promise<Array<main.Tag>>;
 
 export function GetSetting(arg1:string):Promise<string>;
+
+export function GetStaleFiles():Promise<Array<main.StaleFile>>;
 
 export function GetTags():Promise<Array<main.Tag>>;
 
@@ -99,9 +111,13 @@ export function IsDirectory(arg1:string):Promise<boolean>;
 
 export function MergeDuplicates(arg1:number):Promise<void>;
 
+export function MergeTag(arg1:number,arg2:number):Promise<void>;
+
 export function OpenClipWithApp(arg1:number,arg2:string):Promise<void>;
 
 export function OpenClipWithDefaultApp(arg1:number):Promise<void>;
+
+export function PreviewMergeTag(arg1:number,arg2:number):Promise<main.MergeTagPreview>;
 
 export function ProcessExistingFilesInFolder(arg1:number):Promise<void>;
 
