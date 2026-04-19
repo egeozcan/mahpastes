@@ -1,6 +1,9 @@
 package main
 
 import (
+	"database/sql"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -111,7 +114,10 @@ func (a *App) checkTagReferencePreconditions(tagID int64) ([]string, error) {
 	if err := a.db.QueryRow(
 		`SELECT COUNT(*) FROM follows WHERE local_tag_id = ?`, tagID,
 	).Scan(&followCount); err != nil {
-		return nil, fmt.Errorf("count follows: %w", err)
+		// Missing table means no follows; tolerate minimal test schemas.
+		if !isSQLiteNoSuchTable(err) {
+			return nil, fmt.Errorf("count follows: %w", err)
+		}
 	}
 	if followCount > 0 {
 		blockers = append(blockers, fmt.Sprintf(
@@ -120,4 +126,47 @@ func (a *App) checkTagReferencePreconditions(tagID int64) ([]string, error) {
 		))
 	}
 	return blockers, nil
+}
+
+// getHiddenTagsTx reads and parses the hidden_tags setting inside the given
+// transaction so read+write participate in the same snapshot. The
+// non-tx helpers a.GetHiddenTags/a.SetHiddenTags use a.db directly and
+// would escape the caller's tx.
+func getHiddenTagsTx(tx *sql.Tx) ([]int64, error) {
+	var value string
+	err := tx.QueryRow(`SELECT value FROM settings WHERE key = 'hidden_tags'`).Scan(&value)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		// Missing table means no settings; tolerate minimal test schemas.
+		if isSQLiteNoSuchTable(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read hidden_tags: %w", err)
+	}
+	if value == "" {
+		return nil, nil
+	}
+	var ids []int64
+	if err := json.Unmarshal([]byte(value), &ids); err != nil {
+		return nil, fmt.Errorf("parse hidden_tags: %w", err)
+	}
+	return ids, nil
+}
+
+// setHiddenTagsTx writes the hidden_tags setting inside the given transaction.
+func setHiddenTagsTx(tx *sql.Tx, ids []int64) error {
+	if ids == nil {
+		ids = []int64{}
+	}
+	payload, err := json.Marshal(ids)
+	if err != nil {
+		return fmt.Errorf("marshal hidden_tags: %w", err)
+	}
+	if _, err := tx.Exec(`INSERT INTO settings(key, value) VALUES ('hidden_tags', ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value`, string(payload)); err != nil {
+		return fmt.Errorf("write hidden_tags: %w", err)
+	}
+	return nil
 }

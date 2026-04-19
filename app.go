@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image"
 	_ "image/gif"
@@ -58,6 +59,13 @@ func NewApp() *App {
 func computeContentHash(data []byte) string {
 	hash := sha256.Sum256(data)
 	return hex.EncodeToString(hash[:])
+}
+
+// isSQLiteNoSuchTable returns true when err is the SQLite "no such table"
+// error. Used to make DeleteTag tolerant of minimal test schemas that omit
+// optional tables (watched_folders, settings, follows).
+func isSQLiteNoSuchTable(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "no such table")
 }
 
 // emitEvent sends a frontend event. The bridge is nil-safe, so this is a
@@ -1428,23 +1436,94 @@ func (a *App) UpdateTag(id int64, name, color string) error {
 	return nil
 }
 
-// DeleteTag deletes a tag (clip_tags cascade delete handles associations)
+// DeleteTag deletes a tag using a three-phase flow:
+//  1. Preconditions check (read-only) — refuse if blocked (e.g., active follow).
+//  2. SQL transaction — null watched_folders auto_tag_id, remove from hidden
+//     list, delete the row. FK cascades handle clip_tags, api_keys (SET NULL
+//     + trigger auto-revoke), shares (CASCADE).
+//  3. Post-commit runtime cleanup — stop in-memory share publication + serve
+//     server. Failures here are logged; the orphan-rows tool is the backstop.
 func (a *App) DeleteTag(id int64) error {
-	// If this tag has an active share, stop it first so the publication row
-	// is removed before the tag row goes away. No-op if not shared.
-	if a.shareManager != nil {
-		_ = a.shareManager.StopShare(id)
+	// Fetch name up front for event payloads and error messages.
+	var name string
+	if err := a.db.QueryRow(`SELECT name FROM tags WHERE id = ?`, id).Scan(&name); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("tag not found")
+		}
+		return fmt.Errorf("lookup tag: %w", err)
 	}
 
-	_, err := a.db.Exec("DELETE FROM tags WHERE id = ?", id)
+	// Phase 1: preconditions
+	blockers, err := a.checkTagReferencePreconditions(id)
 	if err != nil {
-		return fmt.Errorf("failed to delete tag: %w", err)
+		return fmt.Errorf("check preconditions: %w", err)
+	}
+	if len(blockers) > 0 {
+		return fmt.Errorf("cannot delete tag: %s", blockers[0])
 	}
 
-	// Emit plugin event
+	// Phase 2: SQL transaction
+	tx, err := a.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`UPDATE watched_folders SET auto_tag_id = NULL WHERE auto_tag_id = ?`, id); err != nil {
+		if !isSQLiteNoSuchTable(err) {
+			return fmt.Errorf("null auto_tag_id: %w", err)
+		}
+		// Missing table: no watch folders to update (tolerate minimal test schemas).
+	}
+
+	// Update hidden list inside the transaction (tx-aware read + write so
+	// nothing escapes the snapshot).
+	hiddenIDs, herr := getHiddenTagsTx(tx)
+	if herr != nil {
+		return fmt.Errorf("get hidden tags: %w", herr)
+	}
+	filtered := make([]int64, 0, len(hiddenIDs))
+	for _, h := range hiddenIDs {
+		if h != id {
+			filtered = append(filtered, h)
+		}
+	}
+	if len(filtered) != len(hiddenIDs) {
+		if err := setHiddenTagsTx(tx, filtered); err != nil {
+			return fmt.Errorf("update hidden_tags: %w", err)
+		}
+	}
+
+	if _, err := tx.Exec(`DELETE FROM tags WHERE id = ?`, id); err != nil {
+		return fmt.Errorf("delete tag row: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+
+	// Phase 3: post-commit runtime cleanup (best-effort, guarded).
+	//
+	// StopShare is no-op-safe after Task 4's Step 3a fix: it only emits
+	// the event when there was an actual publication to stop.
+	// StopServing errors on a non-served tag, so guard with IsServing.
+	if a.shareManager != nil {
+		if err := a.shareManager.StopShare(id); err != nil {
+			log.Printf("DeleteTag: StopShare(%d) failed (best-effort): %v", id, err)
+		}
+	}
+	if a.serveManager != nil && a.serveManager.IsServing(id) {
+		if err := a.serveManager.StopServing(id); err != nil {
+			log.Printf("DeleteTag: StopServing(%d) failed (best-effort): %v", id, err)
+		}
+	}
+
+	// Emit plugin event (unchanged name, existing handler)
 	if a.pluginManager != nil {
 		a.pluginManager.EmitEvent("tag:deleted", id)
 	}
+	// Emit Wails runtime event so the frontend can re-resolve folder view.
+	a.emitEvent("tag:deleted", map[string]any{"id": id, "name": name})
 
 	return nil
 }

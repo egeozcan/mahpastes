@@ -577,7 +577,9 @@ func (m *ShareManager) StopShare(tagID int64) error {
 	if _, err := m.db.Exec(`DELETE FROM shares WHERE tag_id = ?`, tagID); err != nil {
 		return fmt.Errorf("delete share: %w", err)
 	}
-	m.emitEvent("share:publication-removed", map[string]any{"tag_id": tagID})
+	if pub != nil {
+		m.emitEvent("share:publication-removed", map[string]any{"tag_id": tagID})
+	}
 	return nil
 }
 
