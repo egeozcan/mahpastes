@@ -70,6 +70,9 @@ const TagAutocomplete = (() => {
             return [];
         });
         const onSelect = opts.onSelect || (() => {});
+        // Default true to preserve existing behavior at every current callsite.
+        // Merge-tag modal passes false because merge requires an existing tag.
+        const allowCreate = opts.allowCreate !== false;
 
         // Dropdown element, injected as sibling of the input so we can position it
         // absolutely. Its parent is expected to be `position: relative`.
@@ -103,10 +106,12 @@ const TagAutocomplete = (() => {
         function buildItems(query) {
             const ranked = rankTags(cachedTags || [], query);
             const out = ranked.map(t => ({ kind: 'existing', name: t.name, tag: t }));
-            // Only offer "Create new" when the typed text is a name the backend
-            // would actually accept — otherwise we'd let users mint rows like
-            // "incoming/" with empty leaf segments.
-            if (query && !hasExactMatch(cachedTags || [], query) && isCreatableName(query)) {
+            // Only offer "Create new" when: the caller hasn't opted out, the query
+            // is non-empty, no exact match, and the backend would accept the name.
+            if (allowCreate
+                && query
+                && !hasExactMatch(cachedTags || [], query)
+                && isCreatableName(query)) {
                 out.push({ kind: 'new', name: query });
             }
             return out;
