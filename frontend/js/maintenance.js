@@ -71,7 +71,7 @@ async function runDeduplicate() {
             } catch (err) {
                 showToast('Failed to deduplicate', 'error');
             }
-        });
+        }, null, { confirmLabel: 'Deduplicate' });
     } catch (err) {
         showToast('Failed to check duplicates', 'error');
     }
@@ -117,7 +117,7 @@ async function runRemoveEmptyTags() {
         } catch (err) {
             showToast('Failed to remove empty tags', 'error');
         }
-    });
+    }, null, { confirmLabel: 'Remove' });
 }
 
 async function runCompactDatabase() {
@@ -146,7 +146,9 @@ async function runCompactDatabase() {
             } catch (err) {
                 showToast('Compact failed', 'error');
             }
-        }
+        },
+        null,
+        { confirmLabel: 'Compact', variant: 'primary' }
     );
 }
 
@@ -187,7 +189,9 @@ async function runStaleFileSweep() {
             } catch (err) {
                 showToast('Sweep failed', 'error');
             }
-        }
+        },
+        null,
+        { confirmLabel: 'Sweep' }
     );
 }
 
@@ -229,7 +233,9 @@ async function runOrphanRowsSweep() {
             } catch (err) {
                 showToast('Orphan cleanup failed', 'error');
             }
-        }
+        },
+        null,
+        { confirmLabel: 'Clean' }
     );
 }
 

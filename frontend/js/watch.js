@@ -212,7 +212,7 @@ async function removeWatchFolder(id) {
             console.error('Failed to remove folder:', error);
             showToast('Failed to remove folder');
         }
-    });
+    }, null, { confirmLabel: 'Remove' });
 }
 
 // --- Global Pause Toggle ---

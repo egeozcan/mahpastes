@@ -776,7 +776,8 @@ function confirmFolderDrop(fileCount, maxDepth) {
             'Large Folder Drop',
             message,
             () => resolve(true),
-            () => resolve(false)
+            () => resolve(false),
+            { confirmLabel: 'Continue', variant: 'primary' }
         );
     });
 }

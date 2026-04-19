@@ -7,11 +7,36 @@ let confirmFocusTrapCleanup = null;
 let promptCallback = null;
 let promptFocusTrapCleanup = null;
 
-function showConfirmDialog(title, message, callback, cancelCallback) {
+const CONFIRM_VARIANTS = {
+    danger: {
+        button: 'bg-red-500 hover:bg-red-600 text-white text-xs font-medium py-2 px-4 rounded-md transition-colors',
+        iconCircle: 'flex items-center justify-center w-10 h-10 mx-auto bg-red-50 rounded-full mb-3',
+        iconSvg: 'w-5 h-5 text-red-500',
+        label: 'Delete',
+    },
+    primary: {
+        button: 'bg-stone-800 hover:bg-stone-700 text-white text-xs font-medium py-2 px-4 rounded-md transition-colors',
+        iconCircle: 'flex items-center justify-center w-10 h-10 mx-auto bg-stone-100 rounded-full mb-3',
+        iconSvg: 'w-5 h-5 text-stone-600',
+        label: 'Confirm',
+    },
+};
+
+function showConfirmDialog(title, message, callback, cancelCallback, options) {
     const dialog = document.getElementById('confirm-dialog');
     const dialogContent = dialog.querySelector('div');
     const titleEl = document.getElementById('confirm-title');
     const messageEl = document.getElementById('confirm-message');
+    const yesBtn = document.getElementById('confirm-yes-btn');
+    const iconCircle = document.getElementById('confirm-icon-circle');
+    const iconSvg = document.getElementById('confirm-icon-svg');
+
+    const { variant = 'danger', confirmLabel } = options || {};
+    const theme = CONFIRM_VARIANTS[variant] || CONFIRM_VARIANTS.danger;
+    yesBtn.className = theme.button;
+    yesBtn.textContent = confirmLabel || theme.label;
+    iconCircle.className = theme.iconCircle;
+    iconSvg.className = theme.iconSvg;
 
     titleEl.textContent = title;
     messageEl.innerHTML = message;

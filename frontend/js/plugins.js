@@ -642,7 +642,7 @@ function removePlugin(pluginId, pluginName) {
             console.error('Failed to remove plugin:', error);
             showToast('Failed to remove plugin');
         }
-    });
+    }, null, { confirmLabel: 'Remove' });
 }
 
 async function updatePlugin(pluginId, pluginName) {
