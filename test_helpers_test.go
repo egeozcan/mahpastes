@@ -15,6 +15,10 @@ import (
 // plugin_storage/shares/plugin_permissions, or that expects serveManager /
 // shareManager / bridge to be non-nil.
 //
+// Note: NewShareManager opens real network listeners (libp2p host), so tests
+// using this helper are heavier than DB-only tests — avoid t.Parallel() in
+// call sites unless you've verified it's safe.
+//
 // The older setupTestDBWithTags (tag_hierarchy_test.go:142) only covers
 // clips+tags+clip_tags; keep using it for narrow tag-hierarchy tests.
 func setupTestApp(t *testing.T) (*App, func()) {
