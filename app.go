@@ -1588,6 +1588,114 @@ func (a *App) PreviewMergeTag(sourceID, destID int64) (MergeTagPreview, error) {
 	return out, nil
 }
 
+// MergeTag folds source into destination in a single transaction:
+//  1. Preconditions — refuses if any blocker (see checkMergeTagPreconditions).
+//  2. Reassigns all clips from source to destination with same-tree
+//     exclusivity preserved (three-step SQL sequence below).
+//  3. Renames every descendant of source with the prefix swap.
+//  4. Migrates non-networked ID references (api_keys, watched_folders,
+//     hidden list) via migrateTagReferences.
+//  5. Deletes the source tag row.
+//
+// Emits tag:merged (runtime + plugin) on success.
+func (a *App) MergeTag(sourceID, destID int64) error {
+	var srcName, dstName string
+	if err := a.db.QueryRow(`SELECT name FROM tags WHERE id = ?`, sourceID).Scan(&srcName); err != nil {
+		return fmt.Errorf("source tag not found")
+	}
+	if err := a.db.QueryRow(`SELECT name FROM tags WHERE id = ?`, destID).Scan(&dstName); err != nil {
+		return fmt.Errorf("destination tag not found")
+	}
+
+	blockers := a.checkMergeTagPreconditions(sourceID, destID, srcName, dstName)
+	if len(blockers) > 0 {
+		return fmt.Errorf("cannot merge: %s", blockers[0])
+	}
+
+	// Destination root = first path segment.
+	destRoot := dstName
+	if idx := strings.Index(dstName, "/"); idx >= 0 {
+		destRoot = dstName[:idx]
+	}
+
+	tx, err := a.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Reassignment enforces same-tree exclusivity (matches AddTagToClip /
+	// removeSameTreeTags). Order matters: insert destination first, then
+	// clean sibling tags in dest's root tree anchored on SOURCE (so
+	// unrelated clips that happen to hold destination stay untouched),
+	// then delete any leftover source rows.
+	//
+	// (2a) Insert destination for every clip that currently has source.
+	if _, err := tx.Exec(`INSERT OR IGNORE INTO clip_tags(clip_id, tag_id)
+		SELECT clip_id, ? FROM clip_tags WHERE tag_id = ?`, destID, sourceID); err != nil {
+		return fmt.Errorf("reassign clip_tags: %w", err)
+	}
+
+	// (2b) Same-tree cleanup: for every clip THAT HAD SOURCE, remove any
+	// other tag under destination's root tree (keep destination only).
+	// Anchoring on source (not destination) ensures we don't accidentally
+	// rewrite an unrelated clip that already happened to carry destination.
+	if _, err := tx.Exec(`DELETE FROM clip_tags
+		WHERE clip_id IN (SELECT clip_id FROM clip_tags WHERE tag_id = ?)
+		  AND tag_id IN (
+		    SELECT id FROM tags WHERE name = ? OR name LIKE ? || '/%'
+		  )
+		  AND tag_id != ?`, sourceID, destRoot, destRoot, destID); err != nil {
+		return fmt.Errorf("same-tree cleanup: %w", err)
+	}
+
+	// (2c) Delete remaining source clip_tags rows (catches cross-root case;
+	// no-op when same-root case already wiped them via 2b).
+	if _, err := tx.Exec(`DELETE FROM clip_tags WHERE tag_id = ?`, sourceID); err != nil {
+		return fmt.Errorf("delete old clip_tags: %w", err)
+	}
+
+	// (3) Rename descendants with prefix swap. Reuses the same SQL as
+	// UpdateTag's cascade rename.
+	oldPrefix := srcName + "/"
+	newPrefix := dstName + "/"
+	if _, err := tx.Exec(`UPDATE tags SET name = ? || SUBSTR(name, ?) WHERE name LIKE ?`,
+		newPrefix, utf8.RuneCountInString(oldPrefix)+1, oldPrefix+"%"); err != nil {
+		if strings.Contains(err.Error(), "UNIQUE") {
+			return fmt.Errorf("merge would create duplicate tag path")
+		}
+		return fmt.Errorf("rename descendants: %w", err)
+	}
+
+	// (4) Migrate non-networked references.
+	if err := a.migrateTagReferences(tx, sourceID, destID); err != nil {
+		return fmt.Errorf("migrate references: %w", err)
+	}
+
+	// (5) Delete the source row.
+	if _, err := tx.Exec(`DELETE FROM tags WHERE id = ?`, sourceID); err != nil {
+		return fmt.Errorf("delete source: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+
+	// Emit events.
+	if a.pluginManager != nil {
+		a.pluginManager.EmitEvent("tag:merged", map[string]interface{}{
+			"source_id": sourceID, "dest_id": destID,
+			"source_name": srcName, "dest_name": dstName,
+		})
+	}
+	a.emitEvent("tag:merged", map[string]any{
+		"source_id": sourceID, "dest_id": destID,
+		"source_name": srcName, "dest_name": dstName,
+	})
+
+	return nil
+}
+
 // candidateEmptyTagsQuery selects tag ids/names that currently have no clips
 // AND no descendant tags (path-based hierarchy via "/" prefix match).
 const candidateEmptyTagsQuery = `
