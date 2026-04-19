@@ -7,6 +7,7 @@ const maintenanceDeduplicateBtn = document.getElementById('maintenance-deduplica
 const maintenanceRemoveEmptyTagsBtn = document.getElementById('maintenance-remove-empty-tags-btn');
 const maintenanceCompactDbBtn = document.getElementById('maintenance-compact-db-btn');
 const maintenanceStaleFilesBtn = document.getElementById('maintenance-stale-files-btn');
+const maintenanceOrphanRowsBtn = document.getElementById('maintenance-orphan-rows-btn');
 
 let lastFocusedElementBeforeMaintenance = null;
 let maintenanceFocusTrapCleanup = null;
@@ -190,6 +191,48 @@ async function runStaleFileSweep() {
     );
 }
 
+async function runOrphanRowsSweep() {
+    let report;
+    try {
+        report = await window.go.main.App.GetOrphanDBRows();
+    } catch (err) {
+        showToast('Failed to scan orphans', 'error');
+        return;
+    }
+    const total = (report.plugin_storage||0) + (report.plugin_permissions||0)
+        + (report.stale_follows||0) + (report.stale_auto_tags||0)
+        + (report.stale_hidden_tag_ids||0);
+    if (total === 0) {
+        showToast('No orphan rows to clean');
+        return;
+    }
+    const listHTML = [
+        ['Plugin storage rows', report.plugin_storage],
+        ['Plugin permissions', report.plugin_permissions],
+        ['Stale follows', report.stale_follows],
+        ['Stale auto-tag folders (will be NULL-ed)', report.stale_auto_tags],
+        ['Stale hidden-tag IDs', report.stale_hidden_tag_ids],
+    ].filter(([_, n]) => n > 0)
+     .map(([label, n]) => `<span class="block text-left">&middot; ${escapeHTML(label)}: ${n}</span>`)
+     .join('');
+    closeMaintenance();
+    showConfirmDialog('Clean orphan rows',
+        `<span class="block mb-2">Will clean:</span>` +
+        `<span class="block text-[10px] text-stone-400 mb-2">${listHTML}</span>`,
+        async () => {
+            try {
+                const cleaned = await window.go.main.App.CleanOrphanDBRows();
+                const cleanedTotal = (cleaned.plugin_storage||0) + (cleaned.plugin_permissions||0)
+                    + (cleaned.stale_follows||0) + (cleaned.stale_auto_tags||0)
+                    + (cleaned.stale_hidden_tag_ids||0);
+                showToast(`Cleaned ${cleanedTotal} orphan row${cleanedTotal !== 1 ? 's' : ''}`, 'success');
+            } catch (err) {
+                showToast('Orphan cleanup failed', 'error');
+            }
+        }
+    );
+}
+
 // Event listeners
 openMaintenanceBtn.addEventListener('click', openMaintenance);
 maintenanceCloseBtn.addEventListener('click', closeMaintenance);
@@ -200,3 +243,4 @@ maintenanceDeduplicateBtn.addEventListener('click', runDeduplicate);
 maintenanceRemoveEmptyTagsBtn.addEventListener('click', runRemoveEmptyTags);
 maintenanceCompactDbBtn.addEventListener('click', runCompactDatabase);
 maintenanceStaleFilesBtn?.addEventListener('click', runStaleFileSweep);
+maintenanceOrphanRowsBtn?.addEventListener('click', runOrphanRowsSweep);

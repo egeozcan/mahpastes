@@ -29,6 +29,8 @@ export function CancelExpiration(arg1:number):Promise<void>;
 
 export function ChooseApplication():Promise<string>;
 
+export function CleanOrphanDBRows():Promise<main.OrphanReport>;
+
 export function CleanStaleFiles():Promise<number>;
 
 export function CompactDatabase():Promise<number>;
@@ -84,6 +86,8 @@ export function GetGlobalWatchPaused():Promise<boolean>;
 export function GetHiddenTags():Promise<Array<number>>;
 
 export function GetImageDiff(arg1:number,arg2:number,arg3:number):Promise<main.DiffResult>;
+
+export function GetOrphanDBRows():Promise<main.OrphanReport>;
 
 export function GetRemovableEmptyTags():Promise<Array<main.Tag>>;
 

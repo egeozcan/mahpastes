@@ -54,6 +54,10 @@ export function ChooseApplication() {
   return window['go']['main']['App']['ChooseApplication']();
 }
 
+export function CleanOrphanDBRows() {
+  return window['go']['main']['App']['CleanOrphanDBRows']();
+}
+
 export function CleanStaleFiles() {
   return window['go']['main']['App']['CleanStaleFiles']();
 }
@@ -164,6 +168,10 @@ export function GetHiddenTags() {
 
 export function GetImageDiff(arg1, arg2, arg3) {
   return window['go']['main']['App']['GetImageDiff'](arg1, arg2, arg3);
+}
+
+export function GetOrphanDBRows() {
+  return window['go']['main']['App']['GetOrphanDBRows']();
 }
 
 export function GetRemovableEmptyTags() {
