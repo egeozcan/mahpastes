@@ -50,6 +50,14 @@ func (a *App) CompactDatabase() (CompactResult, error) {
 	if _, err := a.db.Exec(`ANALYZE`); err != nil {
 		return CompactResult{Before: before}, fmt.Errorf("analyze: %w", err)
 	}
+	// In WAL journal mode, VACUUM writes every copied page into the -wal file.
+	// Without an explicit checkpoint the WAL may briefly be larger than the
+	// main DB, so GetDatabaseSize would report an inflated "after" until the
+	// next restart triggers a natural checkpoint. Truncate it now so the
+	// reported size matches what the user sees on disk.
+	if _, err := a.db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
+		return CompactResult{Before: before}, fmt.Errorf("wal_checkpoint: %w", err)
+	}
 	after, err := a.GetDatabaseSize()
 	if err != nil {
 		return CompactResult{Before: before}, err

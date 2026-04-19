@@ -36,7 +36,8 @@ function showConfirmDialog(title, message, callback, cancelCallback, options) {
     yesBtn.className = theme.button;
     yesBtn.textContent = confirmLabel || theme.label;
     iconCircle.className = theme.iconCircle;
-    iconSvg.className = theme.iconSvg;
+    // SVG elements have a read-only className (SVGAnimatedString) — must use setAttribute.
+    iconSvg.setAttribute('class', theme.iconSvg);
 
     titleEl.textContent = title;
     messageEl.innerHTML = message;
@@ -304,10 +305,13 @@ function formatTimeRemaining(expiresAt) {
 
 function formatFileSize(bytes) {
     if (!bytes || bytes === 0) return '0 B';
+    const neg = bytes < 0;
+    const abs = Math.abs(bytes);
     const k = 1024;
     const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(i === 0 ? 0 : 1)) + ' ' + sizes[i];
+    const i = Math.min(sizes.length - 1, Math.floor(Math.log(abs) / Math.log(k)));
+    const value = parseFloat((abs / Math.pow(k, i)).toFixed(i === 0 ? 0 : 1));
+    return (neg ? '-' : '') + value + ' ' + sizes[i];
 }
 
 // Alias for consistency
