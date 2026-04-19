@@ -2,6 +2,11 @@
 
 A Wails desktop clipboard manager for macOS, Windows, and Linux with image editing, comparison, and watch folder features.
 
+## Wails v3 migration
+
+- Current: Wails v2.12.0. All Wails runtime calls are routed through `internal/wailsbridge` — the only package in this module that imports `github.com/wailsapp/wails/v2/pkg/runtime`. `TestNoRuntimeImportOutsideBridge` enforces that invariant. Do NOT add a direct runtime import elsewhere.
+- Future v3 swap: see `docs/WAILS_V3_MIGRATION.md` for the execution playbook and `docs/WAILS_V3_FRONTEND_CONTRACT.md` for the frontend-shim spec. Do not start until v3 reaches stable or a trusted RC — it's still alpha at v3.0.0-alpha.77.
+
 ## Tech Stack
 
 - **Backend**: Go with Wails framework
