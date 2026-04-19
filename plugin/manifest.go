@@ -842,6 +842,7 @@ func ValidEvents() []string {
 		"tag:created",
 		"tag:updated",
 		"tag:deleted",
+		"tag:merged",
 		"tag:added_to_clip",
 		"tag:removed_from_clip",
 	}

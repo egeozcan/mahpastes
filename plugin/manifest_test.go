@@ -398,3 +398,17 @@ Plugin = {
 		t.Fatalf("Expected range default 0.75, got %v", value)
 	}
 }
+
+func TestValidEvents_IncludesTagMerged(t *testing.T) {
+	events := ValidEvents()
+	found := false
+	for _, e := range events {
+		if e == "tag:merged" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("ValidEvents() must include \"tag:merged\", got %v", events)
+	}
+}
