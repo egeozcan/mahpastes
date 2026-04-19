@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCheckTagReferencePreconditions_NoBlockers(t *testing.T) {
@@ -137,5 +138,37 @@ func TestUpdateTag_BlockedByServedSubtree(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "served") {
 		t.Fatalf("expected 'served' in error, got %q", err.Error())
+	}
+}
+
+// Asserts that UpdateTag emits a "tag:updated" runtime event with old+new
+// names, so the frontend can re-resolve folder-view state.
+func TestUpdateTag_EmitsFrontendEvent(t *testing.T) {
+	app, cleanup := setupTestApp(t)
+	defer cleanup()
+
+	captured := make(chan map[string]any, 1)
+	app.bridge.SetTestEventSink(func(name string, data ...interface{}) {
+		if name == "tag:updated" && len(data) > 0 {
+			if m, ok := data[0].(map[string]any); ok {
+				select {
+				case captured <- m:
+				default:
+				}
+			}
+		}
+	})
+
+	tag, _ := app.CreateTag("before")
+	if err := app.UpdateTag(tag.ID, "after", "#aaa"); err != nil {
+		t.Fatalf("UpdateTag: %v", err)
+	}
+	select {
+	case m := <-captured:
+		if m["old_name"] != "before" || m["new_name"] != "after" {
+			t.Fatalf("unexpected payload: %+v", m)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatalf("no tag:updated event emitted")
 	}
 }

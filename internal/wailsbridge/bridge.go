@@ -20,7 +20,8 @@ import (
 // runtime calls were skipped when the ctx hadn't been set yet (e.g., during
 // unit tests that don't run Wails).
 type Bridge struct {
-	ctx context.Context
+	ctx      context.Context
+	testSink func(name string, data ...interface{})
 }
 
 // New constructs a Bridge from the context delivered by Wails OnStartup.
@@ -40,9 +41,24 @@ func (b *Bridge) active() bool {
 	return b != nil && b.ctx != nil
 }
 
+// SetTestEventSink installs a handler that captures Emit calls in tests.
+// Only used by test code; production code never calls this.
+func (b *Bridge) SetTestEventSink(sink func(name string, data ...interface{})) {
+	b.testSink = sink
+}
+
 // Emit dispatches an event to the frontend. No-op if the bridge isn't active.
+// When a testSink is installed (tests only), the sink is called instead of the
+// real Wails runtime.
 func (b *Bridge) Emit(name string, data ...any) {
-	if !b.active() {
+	if b == nil {
+		return
+	}
+	if b.testSink != nil {
+		b.testSink(name, data...)
+		return
+	}
+	if b.ctx == nil {
 		return
 	}
 	rt.EventsEmit(b.ctx, name, data...)

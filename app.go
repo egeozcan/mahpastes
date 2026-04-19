@@ -1445,6 +1445,13 @@ func (a *App) UpdateTag(id int64, name, color string) error {
 		"color": color,
 	})
 
+	// Emit Wails runtime event so the frontend can re-resolve folder-view state.
+	a.emitEvent("tag:updated", map[string]any{
+		"id":       id,
+		"old_name": oldName,
+		"new_name": name,
+	})
+
 	return nil
 }
 
