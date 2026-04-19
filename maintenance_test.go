@@ -1,7 +1,12 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
+
+	_ "modernc.org/sqlite"
 )
 
 func TestGetDatabaseSize_ReturnsNonZero(t *testing.T) {
@@ -41,5 +46,57 @@ func TestCompactDatabase_ReducesSizeAfterBigDelete(t *testing.T) {
 	// completes without error and returns reasonable sizes.
 	if before <= 0 || after <= 0 {
 		t.Fatalf("expected nonzero sizes: before=%d, after=%d", before, after)
+	}
+}
+
+func TestGetStaleFiles_DetectsOldTempFiles(t *testing.T) {
+	app, cleanup := setupTestApp(t)
+	defer cleanup()
+
+	p := filepath.Join(app.tempDir, "stale.bin")
+	if err := os.WriteFile(p, []byte("x"), 0644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	past := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(p, past, past); err != nil {
+		t.Fatalf("chtimes: %v", err)
+	}
+
+	files, err := app.GetStaleFiles()
+	if err != nil {
+		t.Fatalf("GetStaleFiles: %v", err)
+	}
+	found := false
+	for _, f := range files {
+		if f.Name == "stale.bin" && f.Source == "clip_temp_files" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected stale.bin in results, got %+v", files)
+	}
+}
+
+func TestCleanStaleFiles_RemovesThem(t *testing.T) {
+	app, cleanup := setupTestApp(t)
+	defer cleanup()
+
+	p := filepath.Join(app.tempDir, "stale2.bin")
+	os.WriteFile(p, []byte("yy"), 0644)
+	past := time.Now().Add(-2 * time.Hour)
+	os.Chtimes(p, past, past)
+
+	count, bytes, err := app.CleanStaleFiles()
+	if err != nil {
+		t.Fatalf("CleanStaleFiles: %v", err)
+	}
+	if count < 1 {
+		t.Fatalf("expected at least 1 cleaned, got %d", count)
+	}
+	if bytes < 2 {
+		t.Fatalf("expected ≥2 bytes, got %d", bytes)
+	}
+	if _, err := os.Stat(p); !os.IsNotExist(err) {
+		t.Fatalf("file should be removed")
 	}
 }
