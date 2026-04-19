@@ -167,6 +167,7 @@ export async function spawnWailsInstance(workerIndex: number): Promise<WailsInst
       // Disable public DHT bootstrap peers in tests — mDNS provides same-host
       // discovery and hitting public IPFS nodes is unreliable in CI.
       MAHPASTES_SHARE_DISABLE_WAN_BOOTSTRAP: '1',
+      MAHPASTES_START_HIDDEN: '1',
       PATH: `${process.env.PATH}:${path.join(os.homedir(), 'go', 'bin')}`,
     },
     stdio: ['pipe', 'pipe', 'pipe'],
@@ -368,6 +369,7 @@ export async function restartWailsInstance(workerIndex: number): Promise<WailsIn
       ...process.env,
       MAHPASTES_DATA_DIR: dataDir,
       MAHPASTES_SHARE_DISABLE_WAN_BOOTSTRAP: '1',
+      MAHPASTES_START_HIDDEN: '1',
       PATH: `${process.env.PATH}:${path.join(os.homedir(), 'go', 'bin')}`,
     },
     stdio: ['pipe', 'pipe', 'pipe'],
