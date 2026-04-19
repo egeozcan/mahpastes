@@ -129,3 +129,110 @@ func (a *App) CleanStaleFiles() (count int, bytes int64, err error) {
 	}
 	return count, bytes, nil
 }
+
+// OrphanReport counts orphaned rows found across the DB.
+type OrphanReport struct {
+	PluginStorage     int `json:"plugin_storage"`
+	PluginPermissions int `json:"plugin_permissions"`
+	StaleFollows      int `json:"stale_follows"`
+	StaleAutoTags     int `json:"stale_auto_tags"`
+	StaleHiddenTagIDs int `json:"stale_hidden_tag_ids"`
+}
+
+// GetOrphanDBRows counts rows whose parent reference is missing, without
+// mutating anything.
+func (a *App) GetOrphanDBRows() (OrphanReport, error) {
+	var r OrphanReport
+	queries := map[string]*int{
+		`SELECT COUNT(*) FROM plugin_storage WHERE plugin_id NOT IN (SELECT id FROM plugins)`:         &r.PluginStorage,
+		`SELECT COUNT(*) FROM plugin_permissions WHERE plugin_id NOT IN (SELECT id FROM plugins)`:     &r.PluginPermissions,
+		`SELECT COUNT(*) FROM follows WHERE local_tag_id NOT IN (SELECT id FROM tags)`:                &r.StaleFollows,
+		`SELECT COUNT(*) FROM watched_folders WHERE auto_tag_id IS NOT NULL AND auto_tag_id NOT IN (SELECT id FROM tags)`: &r.StaleAutoTags,
+	}
+	for q, dst := range queries {
+		if err := a.db.QueryRow(q).Scan(dst); err != nil {
+			return r, fmt.Errorf("count query: %w", err)
+		}
+	}
+
+	// Stale hidden-tag IDs.
+	hidden, err := a.GetHiddenTags()
+	if err != nil {
+		return r, fmt.Errorf("get hidden: %w", err)
+	}
+	for _, id := range hidden {
+		var exists int
+		a.db.QueryRow(`SELECT COUNT(*) FROM tags WHERE id = ?`, id).Scan(&exists)
+		if exists == 0 {
+			r.StaleHiddenTagIDs++
+		}
+	}
+	return r, nil
+}
+
+// CleanOrphanDBRows deletes (or NULLs) orphan rows inside a single
+// transaction and returns per-category cleaned counts.
+func (a *App) CleanOrphanDBRows() (OrphanReport, error) {
+	var r OrphanReport
+	tx, err := a.db.Begin()
+	if err != nil {
+		return r, fmt.Errorf("begin: %w", err)
+	}
+	defer tx.Rollback()
+
+	res, err := tx.Exec(`DELETE FROM plugin_storage WHERE plugin_id NOT IN (SELECT id FROM plugins)`)
+	if err != nil {
+		return r, fmt.Errorf("clean plugin_storage: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	r.PluginStorage = int(n)
+
+	res, err = tx.Exec(`DELETE FROM plugin_permissions WHERE plugin_id NOT IN (SELECT id FROM plugins)`)
+	if err != nil {
+		return r, fmt.Errorf("clean plugin_permissions: %w", err)
+	}
+	n, _ = res.RowsAffected()
+	r.PluginPermissions = int(n)
+
+	res, err = tx.Exec(`DELETE FROM follows WHERE local_tag_id NOT IN (SELECT id FROM tags)`)
+	if err != nil {
+		return r, fmt.Errorf("clean follows: %w", err)
+	}
+	n, _ = res.RowsAffected()
+	r.StaleFollows = int(n)
+
+	res, err = tx.Exec(`UPDATE watched_folders SET auto_tag_id = NULL
+		WHERE auto_tag_id IS NOT NULL AND auto_tag_id NOT IN (SELECT id FROM tags)`)
+	if err != nil {
+		return r, fmt.Errorf("null stale auto_tag_id: %w", err)
+	}
+	n, _ = res.RowsAffected()
+	r.StaleAutoTags = int(n)
+
+	// Hidden-tag list — prune stale IDs. Use tx-aware helpers (added in Task 4).
+	hidden, err := getHiddenTagsTx(tx)
+	if err != nil {
+		return r, fmt.Errorf("get hidden: %w", err)
+	}
+	newHidden := make([]int64, 0, len(hidden))
+	for _, id := range hidden {
+		var exists int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM tags WHERE id = ?`, id).Scan(&exists); err != nil {
+			return r, fmt.Errorf("count tags (id=%d): %w", id, err)
+		}
+		if exists > 0 {
+			newHidden = append(newHidden, id)
+		}
+	}
+	if len(newHidden) != len(hidden) {
+		if err := setHiddenTagsTx(tx, newHidden); err != nil {
+			return r, fmt.Errorf("update hidden_tags: %w", err)
+		}
+		r.StaleHiddenTagIDs = len(hidden) - len(newHidden)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return r, fmt.Errorf("commit: %w", err)
+	}
+	return r, nil
+}

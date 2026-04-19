@@ -100,3 +100,56 @@ func TestCleanStaleFiles_RemovesThem(t *testing.T) {
 		t.Fatalf("file should be removed")
 	}
 }
+
+func TestGetOrphanDBRows_DetectsPluginStorage(t *testing.T) {
+	app, cleanup := setupTestApp(t)
+	defer cleanup()
+
+	// Disable FK checks temporarily to insert orphan rows
+	if _, err := app.db.Exec(`PRAGMA foreign_keys = OFF`); err != nil {
+		t.Fatalf("disable FK: %v", err)
+	}
+	if _, err := app.db.Exec(`INSERT INTO plugin_storage (plugin_id, key, value) VALUES (99999, 'k', 'v')`); err != nil {
+		t.Fatalf("insert orphan storage: %v", err)
+	}
+	if _, err := app.db.Exec(`PRAGMA foreign_keys = ON`); err != nil {
+		t.Fatalf("enable FK: %v", err)
+	}
+
+	report, err := app.GetOrphanDBRows()
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if report.PluginStorage < 1 {
+		t.Fatalf("expected ≥1 orphan plugin_storage, got %d", report.PluginStorage)
+	}
+}
+
+func TestCleanOrphanDBRows_RemovesThem(t *testing.T) {
+	app, cleanup := setupTestApp(t)
+	defer cleanup()
+
+	// Disable FK checks temporarily to insert orphan rows
+	if _, err := app.db.Exec(`PRAGMA foreign_keys = OFF`); err != nil {
+		t.Fatalf("disable FK: %v", err)
+	}
+	if _, err := app.db.Exec(`INSERT INTO plugin_storage (plugin_id, key, value) VALUES (99999, 'k', 'v')`); err != nil {
+		t.Fatalf("insert orphan storage: %v", err)
+	}
+	if _, err := app.db.Exec(`PRAGMA foreign_keys = ON`); err != nil {
+		t.Fatalf("enable FK: %v", err)
+	}
+
+	report, err := app.CleanOrphanDBRows()
+	if err != nil {
+		t.Fatalf("clean: %v", err)
+	}
+	if report.PluginStorage < 1 {
+		t.Fatalf("expected cleaned count ≥1")
+	}
+	var count int
+	app.db.QueryRow(`SELECT COUNT(*) FROM plugin_storage WHERE plugin_id = 99999`).Scan(&count)
+	if count != 0 {
+		t.Fatalf("orphan should be gone, got %d", count)
+	}
+}
