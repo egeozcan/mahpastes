@@ -29,6 +29,8 @@ export function CancelExpiration(arg1:number):Promise<void>;
 
 export function ChooseApplication():Promise<string>;
 
+export function CompactDatabase():Promise<number>;
+
 export function ConfirmRestoreBackup(arg1:string,arg2:string):Promise<void>;
 
 export function CopyToClipboard(arg1:string):Promise<void>;
@@ -66,6 +68,8 @@ export function GetClipboardText():Promise<string>;
 export function GetClips(arg1:boolean,arg2:Array<number>,arg3:Array<number>,arg4:string,arg5:string):Promise<Array<main.ClipPreview>>;
 
 export function GetClipsDirect(arg1:boolean,arg2:Array<number>,arg3:Array<number>,arg4:string,arg5:string):Promise<Array<main.ClipPreview>>;
+
+export function GetDatabaseSize():Promise<number>;
 
 export function GetDescendantClipCount(arg1:number):Promise<number>;
 

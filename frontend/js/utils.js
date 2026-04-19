@@ -285,6 +285,9 @@ function formatFileSize(bytes) {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(i === 0 ? 0 : 1)) + ' ' + sizes[i];
 }
 
+// Alias for consistency
+const formatBytes = formatFileSize;
+
 function getFriendlyFileType(contentType, filename) {
     // Map of MIME types to friendly names
     const mimeMap = {

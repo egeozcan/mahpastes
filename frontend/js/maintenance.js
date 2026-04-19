@@ -5,6 +5,7 @@ const openMaintenanceBtn = document.getElementById('open-maintenance-btn');
 const maintenanceCloseBtn = document.getElementById('maintenance-close');
 const maintenanceDeduplicateBtn = document.getElementById('maintenance-deduplicate-btn');
 const maintenanceRemoveEmptyTagsBtn = document.getElementById('maintenance-remove-empty-tags-btn');
+const maintenanceCompactDbBtn = document.getElementById('maintenance-compact-db-btn');
 
 let lastFocusedElementBeforeMaintenance = null;
 let maintenanceFocusTrapCleanup = null;
@@ -117,6 +118,36 @@ async function runRemoveEmptyTags() {
     });
 }
 
+async function runCompactDatabase() {
+    let sizeBefore;
+    try {
+        sizeBefore = await window.go.main.App.GetDatabaseSize();
+    } catch (err) {
+        showToast('Failed to read DB size', 'error');
+        return;
+    }
+    const humanBefore = formatBytes(sizeBefore);
+    closeMaintenance();
+
+    showConfirmDialog(
+        'Compact Database',
+        `<span class="block mb-2">Current size: ${humanBefore}</span>` +
+        `<span class="block">Running VACUUM + ANALYZE may take a few seconds and briefly locks the database.</span>`,
+        async () => {
+            try {
+                const result = await window.go.main.App.CompactDatabase();
+                // Wails v2 returns [before, after] for multi-return functions
+                const before = Array.isArray(result) ? result[0] : result;
+                const after = Array.isArray(result) ? result[1] : 0;
+                const reclaimed = before - after;
+                showToast(`Reclaimed ${formatBytes(reclaimed)} (was ${formatBytes(before)}, now ${formatBytes(after)})`, 'success');
+            } catch (err) {
+                showToast('Compact failed', 'error');
+            }
+        }
+    );
+}
+
 // Event listeners
 openMaintenanceBtn.addEventListener('click', openMaintenance);
 maintenanceCloseBtn.addEventListener('click', closeMaintenance);
@@ -125,3 +156,4 @@ maintenanceModal.addEventListener('click', (e) => {
 });
 maintenanceDeduplicateBtn.addEventListener('click', runDeduplicate);
 maintenanceRemoveEmptyTagsBtn.addEventListener('click', runRemoveEmptyTags);
+maintenanceCompactDbBtn.addEventListener('click', runCompactDatabase);

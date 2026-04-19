@@ -54,6 +54,10 @@ export function ChooseApplication() {
   return window['go']['main']['App']['ChooseApplication']();
 }
 
+export function CompactDatabase() {
+  return window['go']['main']['App']['CompactDatabase']();
+}
+
 export function ConfirmRestoreBackup(arg1, arg2) {
   return window['go']['main']['App']['ConfirmRestoreBackup'](arg1, arg2);
 }
@@ -128,6 +132,10 @@ export function GetClips(arg1, arg2, arg3, arg4, arg5) {
 
 export function GetClipsDirect(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['main']['App']['GetClipsDirect'](arg1, arg2, arg3, arg4, arg5);
+}
+
+export function GetDatabaseSize() {
+  return window['go']['main']['App']['GetDatabaseSize']();
 }
 
 export function GetDescendantClipCount(arg1) {
