@@ -38,6 +38,7 @@ func init() {
 	rootCmd.AddCommand(apiCmd)
 	rootCmd.AddCommand(backupCmd)
 	rootCmd.AddCommand(clipboardCmd)
+	rootCmd.AddCommand(maintenanceCmd)
 }
 
 func main() {
