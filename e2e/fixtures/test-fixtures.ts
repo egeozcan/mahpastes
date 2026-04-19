@@ -656,8 +656,8 @@ export class AppHelper {
       // All modals use opacity-0/pointer-events-none when closed
       const modalIds = [
         'confirm-dialog', 'restore-confirm-dialog', 'folder-modal',
-        'settings-modal', 'plugin-options-modal', 'plugin-result-modal',
-        'plugin-review-modal',
+        'settings-modal', 'maintenance-modal', 'plugin-options-modal',
+        'plugin-result-modal', 'plugin-review-modal',
       ];
       for (const id of modalIds) {
         const el = document.getElementById(id);
@@ -2123,9 +2123,26 @@ export class AppHelper {
   }
 
   async clickDeduplicateAll(): Promise<void> {
+    await this.openMaintenanceModal();
+    await this.page.locator(selectors.maintenance.deduplicateButton).waitFor({ state: 'visible', timeout: 5000 });
+    await this.page.locator(selectors.maintenance.deduplicateButton).click();
+  }
+
+  async openMaintenanceModal(): Promise<void> {
     await this.openDrawer();
-    await this.page.locator(selectors.dedup.deduplicateBtn).waitFor({ state: 'visible', timeout: 5000 });
-    await this.page.locator(selectors.dedup.deduplicateBtn).click();
+    await this.page.locator(selectors.maintenance.openButton).click();
+    await this.page.waitForSelector(`${selectors.maintenance.modal}.opacity-100`, { timeout: 5000 });
+  }
+
+  async closeMaintenanceModal(): Promise<void> {
+    await this.page.locator(selectors.maintenance.closeButton).click();
+    await this.page.waitForSelector(`${selectors.maintenance.modal}.opacity-0`, { timeout: 5000 });
+  }
+
+  async clickRemoveEmptyTags(): Promise<void> {
+    await this.openMaintenanceModal();
+    await this.page.locator(selectors.maintenance.removeEmptyTagsButton).waitFor({ state: 'visible', timeout: 5000 });
+    await this.page.locator(selectors.maintenance.removeEmptyTagsButton).click();
   }
 
   async clickCardMenuPluginAction(pluginId: number, actionId: string): Promise<void> {

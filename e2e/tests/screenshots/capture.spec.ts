@@ -304,7 +304,7 @@ test('capture documentation screenshots', async ({ app, tempDir }) => {
   await fs.copyFile(path.join(tempDir, imageFiles[0]), duplicatePath);
   await app.uploadFile(duplicatePath);
   await app.refreshClips();
-  // Wait for duplicate detection to run (checkDuplicatesExist is called during loadClips)
+  // Wait for duplicate detection to run and duplicate_count to flow through to cards
   await app.page.waitForTimeout(500);
   // Verify the duplicate badge appears
   await app.page.waitForSelector(selectors.dedup.badge, { timeout: 5000 });

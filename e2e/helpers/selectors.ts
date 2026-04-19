@@ -449,7 +449,16 @@ export const selectors = {
   // Deduplication
   dedup: {
     badge: '.dedup-badge',
-    deduplicateBtn: '#deduplicate-btn',
+    deduplicateBtn: '#maintenance-deduplicate-btn',
+  },
+
+  // Maintenance modal
+  maintenance: {
+    openButton: '#open-maintenance-btn',
+    modal: '#maintenance-modal',
+    closeButton: '#maintenance-close',
+    deduplicateButton: '#maintenance-deduplicate-btn',
+    removeEmptyTagsButton: '#maintenance-remove-empty-tags-btn',
   },
 
   // Tooltips

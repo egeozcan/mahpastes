@@ -101,7 +101,6 @@ const fileInput = document.getElementById('file-input');
 const dropOverlay = document.getElementById('drop-overlay');
 const gallery = document.getElementById('gallery');
 const deleteAllTempBtn = document.getElementById('delete-all-temp-btn');
-const deduplicateBtn = document.getElementById('deduplicate-btn');
 const toggleArchiveViewBtn = document.getElementById('toggle-archive-view-btn');
 const archiveBtnText = document.getElementById('archive-btn-text');
 const headerArchiveBtn = document.getElementById('header-archive-btn');
@@ -407,48 +406,6 @@ document.getElementById('conflict-dialog').addEventListener('click', (e) => {
 
 // Delete All Temp Files
 deleteAllTempBtn.addEventListener('click', deleteAllTempFiles);
-
-// Deduplicate
-deduplicateBtn.addEventListener('click', async () => {
-    try {
-        const groups = await window.go.main.App.GetDuplicateGroups();
-        if (!groups || groups.length === 0) {
-            showToast('No duplicates found');
-            return;
-        }
-
-        const totalRemoved = groups.reduce((sum, g) => sum + (g.count - 1), 0);
-        const listHTML = groups.map(g =>
-            `<span class="block text-left">&middot; ${escapeHTML(g.filename || 'Untitled')} — ${g.count} copies (oldest kept, ${g.count - 1} removed)</span>`
-        ).join('');
-
-        const message = `<span class="block mb-2">${groups.length} duplicate group${groups.length > 1 ? 's' : ''} found:</span>` +
-            `<span class="block text-[10px] text-stone-400 mb-2 max-h-40 overflow-y-auto">${listHTML}</span>` +
-            `<span class="block">Tags will be merged. ${totalRemoved} clip${totalRemoved > 1 ? 's' : ''} will be removed.</span>`;
-
-        showConfirmDialog('Deduplicate All', message, async () => {
-            try {
-                const removed = await window.go.main.App.DeduplicateAll();
-                showToast(`Deduplicated: removed ${removed} clip${removed !== 1 ? 's' : ''}`, 'success');
-                loadClips();
-                checkDuplicatesExist();
-            } catch (err) {
-                showToast('Failed to deduplicate', 'error');
-            }
-        });
-    } catch (err) {
-        showToast('Failed to check duplicates', 'error');
-    }
-});
-
-async function checkDuplicatesExist() {
-    try {
-        const groups = await window.go.main.App.GetDuplicateGroups();
-        deduplicateBtn.style.display = (groups && groups.length > 0) ? '' : 'none';
-    } catch (e) {
-        deduplicateBtn.style.display = 'none';
-    }
-}
 
 // Bulk Action Listeners
 selectAllCheckbox.addEventListener('change', toggleSelectAll);
@@ -1045,7 +1002,6 @@ window.addEventListener('load', async () => {
         }
 
         await loadClips();
-        checkDuplicatesExist();
         setupEditorListeners();
 
         // --- Register Keyboard Shortcuts ---

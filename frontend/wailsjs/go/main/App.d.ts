@@ -79,6 +79,8 @@ export function GetHiddenTags():Promise<Array<number>>;
 
 export function GetImageDiff(arg1:number,arg2:number,arg3:number):Promise<main.DiffResult>;
 
+export function GetRemovableEmptyTags():Promise<Array<main.Tag>>;
+
 export function GetSetting(arg1:string):Promise<string>;
 
 export function GetTags():Promise<Array<main.Tag>>;
@@ -106,6 +108,8 @@ export function ProcessExistingFilesInFolder(arg1:number):Promise<void>;
 export function ReadFileFromPath(arg1:string):Promise<main.FileData>;
 
 export function RefreshWatches():Promise<void>;
+
+export function RemoveEmptyTags():Promise<number>;
 
 export function RemoveTagFromClip(arg1:number,arg2:number):Promise<void>;
 

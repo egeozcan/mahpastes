@@ -77,7 +77,6 @@ async function loadClips({ focusFirst = false } = {}) {
         } else {
             updateClipCount(gallery.querySelectorAll('[data-folder]').length);
         }
-        if (typeof checkDuplicatesExist === 'function') checkDuplicatesExist();
         if (typeof applySearchFilter === 'function') applySearchFilter();
 
         // Re-index roving tabindex after gallery re-render

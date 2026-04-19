@@ -1454,6 +1454,110 @@ func (a *App) DeleteTag(id int64) error {
 	return nil
 }
 
+// candidateEmptyTagsQuery selects tag ids/names that currently have no clips
+// AND no descendant tags (path-based hierarchy via "/" prefix match).
+const candidateEmptyTagsQuery = `
+	SELECT t.id, t.name, t.color
+	FROM tags t
+	LEFT JOIN clip_tags ct ON ct.tag_id = t.id
+	WHERE NOT EXISTS (
+		SELECT 1 FROM tags children
+		WHERE children.name LIKE t.name || '/%'
+	)
+	GROUP BY t.id
+	HAVING COUNT(ct.clip_id) = 0
+	ORDER BY t.name
+`
+
+// removeEmptyTagsMaxPasses caps the iterative cascade — real depth is bounded
+// by the tag tree height; the cap only exists to stop pathological loops.
+const removeEmptyTagsMaxPasses = 1024
+
+// GetRemovableEmptyTags returns the full list of tags that would be deleted
+// by a call to RemoveEmptyTags, in the order they would be removed.
+//
+// The iterative cascade (a parent that becomes childless after its
+// leaf-children are pruned) is simulated inside a transaction that is rolled
+// back before returning, so this call is side-effect free and its result
+// exactly matches what RemoveEmptyTags will delete.
+func (a *App) GetRemovableEmptyTags() ([]Tag, error) {
+	tx, err := a.db.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin dry-run transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	var out []Tag
+	for pass := 0; pass < removeEmptyTagsMaxPasses; pass++ {
+		rows, err := tx.Query(candidateEmptyTagsQuery)
+		if err != nil {
+			return nil, fmt.Errorf("failed to query empty tags: %w", err)
+		}
+		var pending []Tag
+		for rows.Next() {
+			var t Tag
+			if err := rows.Scan(&t.ID, &t.Name, &t.Color); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			pending = append(pending, t)
+		}
+		if err := rows.Close(); err != nil {
+			return nil, err
+		}
+		if len(pending) == 0 {
+			return out, nil
+		}
+		for _, t := range pending {
+			if _, err := tx.Exec("DELETE FROM tags WHERE id = ?", t.ID); err != nil {
+				return nil, fmt.Errorf("failed to simulate delete for tag %d: %w", t.ID, err)
+			}
+			out = append(out, t)
+		}
+	}
+	return out, fmt.Errorf("remove empty tags exceeded %d passes", removeEmptyTagsMaxPasses)
+}
+
+// RemoveEmptyTags deletes tags that have no clips and no descendant tags.
+// Iterates until stable, so parents that become childless after their
+// leaf-children are pruned are also removed in the same pass.
+//
+// Returns the total number of tags deleted. Use GetRemovableEmptyTags for a
+// side-effect-free preview of what this method will remove.
+func (a *App) RemoveEmptyTags() (int, error) {
+	total := 0
+	for pass := 0; pass < removeEmptyTagsMaxPasses; pass++ {
+		rows, err := a.db.Query(candidateEmptyTagsQuery)
+		if err != nil {
+			return total, fmt.Errorf("failed to query empty tags: %w", err)
+		}
+		var ids []int64
+		for rows.Next() {
+			var id int64
+			var name, color string
+			if err := rows.Scan(&id, &name, &color); err != nil {
+				rows.Close()
+				return total, err
+			}
+			ids = append(ids, id)
+		}
+		if err := rows.Close(); err != nil {
+			return total, err
+		}
+		if len(ids) == 0 {
+			return total, nil
+		}
+		// Call DeleteTag so share cleanup and plugin events fire.
+		for _, id := range ids {
+			if err := a.DeleteTag(id); err != nil {
+				return total, fmt.Errorf("failed to delete tag %d: %w", id, err)
+			}
+			total++
+		}
+	}
+	return total, fmt.Errorf("remove empty tags exceeded %d passes", removeEmptyTagsMaxPasses)
+}
+
 // getTagIDsForClip returns all tag IDs currently associated with a clip.
 // Used by the share hook to determine which publications should receive
 // the new clip.

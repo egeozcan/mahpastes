@@ -154,6 +154,10 @@ export function GetImageDiff(arg1, arg2, arg3) {
   return window['go']['main']['App']['GetImageDiff'](arg1, arg2, arg3);
 }
 
+export function GetRemovableEmptyTags() {
+  return window['go']['main']['App']['GetRemovableEmptyTags']();
+}
+
 export function GetSetting(arg1) {
   return window['go']['main']['App']['GetSetting'](arg1);
 }
@@ -208,6 +212,10 @@ export function ReadFileFromPath(arg1) {
 
 export function RefreshWatches() {
   return window['go']['main']['App']['RefreshWatches']();
+}
+
+export function RemoveEmptyTags() {
+  return window['go']['main']['App']['RemoveEmptyTags']();
 }
 
 export function RemoveTagFromClip(arg1, arg2) {
