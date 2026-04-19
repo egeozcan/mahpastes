@@ -2992,6 +2992,106 @@ export class AppHelper {
 
     return { app: secondaryApp, cleanup: fullCleanup };
   }
+
+  // ==================== Merge Tags ====================
+
+  /**
+   * Open the merge-tag modal for the named source tag by right-clicking its
+   * row in the tag filter dropdown.  Returns when the modal is visible.
+   */
+  async openMergeModal(sourceName: string): Promise<void> {
+    await this.openTagFilterDropdown();
+
+    // Right-click the label element that contains the checkbox for this tag.
+    const checkbox = this.page.locator(`[data-testid="tag-checkbox-${sourceName}"]`);
+    await checkbox.waitFor({ state: 'visible', timeout: 5000 });
+    // The contextmenu listener is on the parent <label> element.
+    await checkbox.locator('..').click({ button: 'right' });
+
+    // Wait for the context menu to appear and click "Merge into…".
+    await this.page.waitForSelector('.context-menu-item, [role="menuitem"]', { timeout: 3000 })
+      .catch(() => {
+        // Fallback: context menu may use a different selector.
+      });
+    // Click the Merge into… option (contains the text).
+    await this.page.getByText(/Merge into/i).first().click();
+
+    // Wait for the modal to become visible (inert removed).
+    await this.page.waitForFunction(
+      () => !document.getElementById('merge-tag-modal')?.hasAttribute('inert'),
+      { timeout: 5000 },
+    );
+  }
+
+  /**
+   * Type the destination tag name into the merge modal's input and wait for
+   * the 200ms preview debounce to complete.
+   */
+  async enterMergeDestination(destName: string): Promise<void> {
+    await this.page.fill('#merge-tag-dest-input', destName);
+    // Dispatch input event to trigger debounce timer.
+    await this.page.evaluate(() => {
+      const el = document.getElementById('merge-tag-dest-input');
+      if (el) el.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    // Wait for the 200ms debounce + async GetTags / PreviewMergeTag round-trip.
+    await this.page.waitForTimeout(400);
+  }
+
+  /**
+   * Return the text content of all `.block.text-red-500` spans inside
+   * #merge-tag-preview (the blocker messages rendered by merge-tag-modal.js).
+   */
+  async getMergeModalBlockers(): Promise<string[]> {
+    return this.page.evaluate(() => {
+      const spans = document.querySelectorAll('#merge-tag-preview span.block.text-red-500');
+      return Array.from(spans).map((s) => s.textContent || '');
+    });
+  }
+
+  /**
+   * Full merge workflow: open the modal, fill destination, confirm.
+   * Returns when the modal has closed (inert re-applied).
+   */
+  async mergeTag(sourceName: string, destName: string): Promise<void> {
+    await this.openMergeModal(sourceName);
+    await this.enterMergeDestination(destName);
+
+    // Wait for the confirm button to be enabled.
+    await this.page.waitForFunction(
+      () => !(document.getElementById('merge-tag-confirm') as HTMLButtonElement | null)?.disabled,
+      { timeout: 5000 },
+    );
+
+    await this.page.click('#merge-tag-confirm');
+
+    // Wait for the modal to close.
+    await this.page.waitForFunction(
+      () => document.getElementById('merge-tag-modal')?.hasAttribute('inert'),
+      { timeout: 10000 },
+    );
+
+    // Wait for the tag:merged event to finish processing frontend state.
+    await this.page.waitForFunction(() => (window as any).__appReady === true, { timeout: 10000 });
+  }
+
+  /**
+   * Assert that the named tag does NOT appear in the tag filter dropdown.
+   */
+  async expectTagMissing(tagName: string): Promise<void> {
+    await this.openTagFilterDropdown();
+    const checkbox = this.page.locator(`[data-testid="tag-checkbox-${tagName}"]`);
+    await expect(checkbox).not.toBeAttached({ timeout: 3000 });
+  }
+
+  /**
+   * Assert that the named tag IS present in the tag filter dropdown.
+   */
+  async expectTagExists(tagName: string): Promise<void> {
+    await this.openTagFilterDropdown();
+    const checkbox = this.page.locator(`[data-testid="tag-checkbox-${tagName}"]`);
+    await expect(checkbox).toBeAttached({ timeout: 5000 });
+  }
 }
 
 // Custom test fixtures
