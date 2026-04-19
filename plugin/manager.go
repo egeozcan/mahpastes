@@ -11,7 +11,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	"go-clipboard/internal/wailsbridge"
 )
 
 const (
@@ -119,6 +119,7 @@ func PreviewFromURL(rawURL string) (*PluginPreview, error) {
 // Manager manages all plugins
 type Manager struct {
 	ctx              context.Context
+	bridge           *wailsbridge.Bridge
 	db               *sql.DB
 	plugins          map[int64]*Plugin
 	eventSubscribers map[string][]int64 // event -> plugin IDs
@@ -136,7 +137,7 @@ type Manager struct {
 }
 
 // NewManager creates a new plugin manager
-func NewManager(ctx context.Context, db *sql.DB, pluginsDir string) (*Manager, error) {
+func NewManager(ctx context.Context, bridge *wailsbridge.Bridge, db *sql.DB, pluginsDir string) (*Manager, error) {
 	// Ensure plugins directory exists
 	if err := os.MkdirAll(pluginsDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create plugins directory: %w", err)
@@ -144,12 +145,13 @@ func NewManager(ctx context.Context, db *sql.DB, pluginsDir string) (*Manager, e
 
 	m := &Manager{
 		ctx:              ctx,
+		bridge:           bridge,
 		db:               db,
 		plugins:          make(map[int64]*Plugin),
 		eventSubscribers: make(map[string][]int64),
 		scheduler:        NewScheduler(),
 		pluginsDir:       pluginsDir,
-		modalGuard:       newModalGuard(ctx),
+		modalGuard:       newModalGuard(bridge),
 		pendingUpdates:  make(map[int64]string),
 		pendingInstalls: make(map[string]string),
 	}
@@ -241,13 +243,13 @@ func (m *Manager) loadPlugin(p *Plugin) error {
 	tagsAPI := NewTagsAPI(m.db, m.tagCreateFn)
 	tagsAPI.Register(sandbox.GetState())
 
-	toastAPI := NewToastAPI(m.ctx, p.ID)
+	toastAPI := NewToastAPI(m.bridge, p.ID)
 	toastAPI.Register(sandbox.GetState())
 
-	taskAPI := NewTaskAPI(m.ctx, p.ID)
+	taskAPI := NewTaskAPI(m.bridge, p.ID)
 	taskAPI.Register(sandbox.GetState())
 
-	modalAPI := NewModalAPI(m.ctx, p.ID, m.modalGuard)
+	modalAPI := NewModalAPI(m.bridge, p.ID, m.modalGuard)
 	modalAPI.Register(sandbox.GetState())
 
 	imageAPI := NewImageAPI(m.db)
@@ -832,15 +834,15 @@ func (m *Manager) ExecuteUIAction(pluginID int64, actionID string, clipIDs []int
 				ok, gen := m.modalGuard.acquire()
 				if ok {
 					m.modalGuard.startAckTimeout(gen)
-					runtime.EventsEmit(m.ctx, "plugin:modal", actionResult.Modal.ToEventMap())
+					m.bridge.Emit("plugin:modal", actionResult.Modal.ToEventMap())
 				} else {
-					runtime.EventsEmit(m.ctx, "plugin:toast", map[string]string{
+					m.bridge.Emit("plugin:toast", map[string]string{
 						"message": "Cannot show result — another modal is open",
 						"type":    "error",
 					})
 				}
 			} else if !actionResult.Success && actionResult.Error != "" {
-				runtime.EventsEmit(m.ctx, "plugin:toast", map[string]string{
+				m.bridge.Emit("plugin:toast", map[string]string{
 					"message": actionResult.Error,
 					"type":    "error",
 				})

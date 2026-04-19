@@ -1,13 +1,13 @@
 package plugin
 
 import (
-	"context"
 	"html"
 	"sync"
 	"time"
 
+	"go-clipboard/internal/wailsbridge"
+
 	lua "github.com/yuin/gopher-lua"
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 const (
@@ -17,7 +17,7 @@ const (
 
 // ToastAPI provides toast notification functionality for plugins
 type ToastAPI struct {
-	ctx      context.Context
+	bridge   *wailsbridge.Bridge
 	pluginID int64
 	// Rate limiting
 	mu        sync.Mutex
@@ -25,9 +25,9 @@ type ToastAPI struct {
 }
 
 // NewToastAPI creates a new toast API instance
-func NewToastAPI(ctx context.Context, pluginID int64) *ToastAPI {
+func NewToastAPI(b *wailsbridge.Bridge, pluginID int64) *ToastAPI {
 	return &ToastAPI{
-		ctx:       ctx,
+		bridge:    b,
 		pluginID:  pluginID,
 		callTimes: make([]time.Time, 0, toastRateLimit),
 	}
@@ -83,7 +83,7 @@ func (t *ToastAPI) show(L *lua.LState) int {
 	t.mu.Unlock()
 
 	// Emit Wails event
-	runtime.EventsEmit(t.ctx, "plugin:toast", map[string]string{
+	t.bridge.Emit("plugin:toast", map[string]string{
 		"message": message,
 		"type":    toastType,
 	})

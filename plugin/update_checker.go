@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
+	"go-clipboard/internal/wailsbridge"
 )
 
 // PluginUpdateInfo represents an available update for a plugin.
@@ -46,7 +46,8 @@ func CheckPluginUpdate(sourceURL, currentVersion string, currentManifest *Manife
 
 // UpdateChecker periodically checks for plugin updates.
 type UpdateChecker struct {
-	ctx     context.Context
+	ctx     context.Context      // used for context.WithCancel; not passed to the runtime
+	bridge  *wailsbridge.Bridge  // used for frontend event emits
 	db      *sql.DB
 	manager *Manager
 	mu      sync.Mutex
@@ -55,9 +56,10 @@ type UpdateChecker struct {
 }
 
 // NewUpdateChecker creates a new update checker.
-func NewUpdateChecker(ctx context.Context, db *sql.DB, manager *Manager) *UpdateChecker {
+func NewUpdateChecker(ctx context.Context, bridge *wailsbridge.Bridge, db *sql.DB, manager *Manager) *UpdateChecker {
 	return &UpdateChecker{
 		ctx:     ctx,
+		bridge:  bridge,
 		db:      db,
 		manager: manager,
 		updates: make(map[int64]*PluginUpdateInfo),
@@ -178,7 +180,7 @@ func (uc *UpdateChecker) CheckAll() {
 			uc.updates[p.id] = info
 			uc.mu.Unlock()
 
-			wailsRuntime.EventsEmit(uc.ctx, "plugin:update_available", info)
+			uc.bridge.Emit("plugin:update_available", info)
 			log.Printf("UpdateChecker: update available for plugin %d: %s -> %s", p.id, info.CurrentVersion, info.NewVersion)
 		}
 	}

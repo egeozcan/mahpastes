@@ -194,7 +194,7 @@ func (a *App) startup(ctx context.Context) {
 	// Initialize plugin manager
 	dataDir, _ := getDataDir()
 	pluginsDir := filepath.Join(dataDir, "plugins")
-	pm, err := plugin.NewManager(ctx, a.db, pluginsDir)
+	pm, err := plugin.NewManager(ctx, a.bridge, a.db, pluginsDir)
 	if err != nil {
 		log.Printf("Warning: Failed to initialize plugin manager: %v", err)
 	} else {
@@ -237,7 +237,7 @@ func (a *App) startup(ctx context.Context) {
 		pm.EmitEvent("app:startup", nil)
 
 		// Start plugin update checker
-		uc := plugin.NewUpdateChecker(a.ctx, a.db, pm)
+		uc := plugin.NewUpdateChecker(a.ctx, a.bridge, a.db, pm)
 		pm.SetUpdateChecker(uc)
 		interval := a.getUpdateCheckInterval()
 		if interval != "disabled" {

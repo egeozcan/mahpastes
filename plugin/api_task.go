@@ -1,13 +1,13 @@
 package plugin
 
 import (
-	"context"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"go-clipboard/internal/wailsbridge"
+
 	lua "github.com/yuin/gopher-lua"
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 const (
@@ -20,7 +20,7 @@ var globalTaskID int64
 
 // TaskAPI provides task queue integration for plugins
 type TaskAPI struct {
-	ctx      context.Context
+	bridge   *wailsbridge.Bridge
 	tasks    map[int64]*pluginTask
 	taskMu   sync.RWMutex
 	pluginID int64
@@ -36,9 +36,9 @@ type pluginTask struct {
 }
 
 // NewTaskAPI creates a new task API instance
-func NewTaskAPI(ctx context.Context, pluginID int64) *TaskAPI {
+func NewTaskAPI(b *wailsbridge.Bridge, pluginID int64) *TaskAPI {
 	return &TaskAPI{
-		ctx:      ctx,
+		bridge:   b,
 		tasks:    make(map[int64]*pluginTask),
 		pluginID: pluginID,
 	}
@@ -75,14 +75,12 @@ func (t *TaskAPI) start(L *lua.LState) int {
 	t.taskMu.Unlock()
 
 	// Emit task started event to frontend
-	if t.ctx != nil {
-		runtime.EventsEmit(t.ctx, "plugin:task:started", map[string]interface{}{
-			"task_id":   taskID,
-			"plugin_id": t.pluginID,
-			"name":      name,
-			"total":     total,
-		})
-	}
+	t.bridge.Emit("plugin:task:started", map[string]interface{}{
+		"task_id":   taskID,
+		"plugin_id": t.pluginID,
+		"name":      name,
+		"total":     total,
+	})
 
 	L.Push(lua.LNumber(taskID))
 	return 1
@@ -106,15 +104,13 @@ func (t *TaskAPI) progress(L *lua.LState) int {
 	}
 
 	// Emit progress event to frontend
-	if t.ctx != nil {
-		runtime.EventsEmit(t.ctx, "plugin:task:progress", map[string]interface{}{
-			"task_id":   taskID,
-			"plugin_id": t.pluginID,
-			"current":   current,
-			"total":     task.Total,
-			"name":      task.Name,
-		})
-	}
+	t.bridge.Emit("plugin:task:progress", map[string]interface{}{
+		"task_id":   taskID,
+		"plugin_id": t.pluginID,
+		"current":   current,
+		"total":     task.Total,
+		"name":      task.Name,
+	})
 
 	L.Push(lua.LTrue)
 	return 1
@@ -138,13 +134,11 @@ func (t *TaskAPI) complete(L *lua.LState) int {
 	}
 
 	// Emit completion event to frontend
-	if t.ctx != nil {
-		runtime.EventsEmit(t.ctx, "plugin:task:completed", map[string]interface{}{
-			"task_id":   taskID,
-			"plugin_id": t.pluginID,
-			"name":      task.Name,
-		})
-	}
+	t.bridge.Emit("plugin:task:completed", map[string]interface{}{
+		"task_id":   taskID,
+		"plugin_id": t.pluginID,
+		"name":      task.Name,
+	})
 
 	// Schedule cleanup after delay to prevent memory leaks
 	t.scheduleCleanup(taskID)
@@ -172,14 +166,12 @@ func (t *TaskAPI) fail(L *lua.LState) int {
 	}
 
 	// Emit failure event to frontend
-	if t.ctx != nil {
-		runtime.EventsEmit(t.ctx, "plugin:task:failed", map[string]interface{}{
-			"task_id":   taskID,
-			"plugin_id": t.pluginID,
-			"name":      task.Name,
-			"error":     errMsg,
-		})
-	}
+	t.bridge.Emit("plugin:task:failed", map[string]interface{}{
+		"task_id":   taskID,
+		"plugin_id": t.pluginID,
+		"name":      task.Name,
+		"error":     errMsg,
+	})
 
 	// Schedule cleanup after delay to prevent memory leaks
 	t.scheduleCleanup(taskID)
@@ -196,12 +188,4 @@ func (t *TaskAPI) scheduleCleanup(taskID int64) {
 		delete(t.tasks, taskID)
 		t.taskMu.Unlock()
 	}()
-}
-
-// GetTask returns a task by ID (for testing)
-func (t *TaskAPI) GetTask(taskID int64) (*pluginTask, bool) {
-	t.taskMu.RLock()
-	defer t.taskMu.RUnlock()
-	task, ok := t.tasks[taskID]
-	return task, ok
 }

@@ -1,12 +1,12 @@
 package plugin
 
 import (
-	"context"
 	"sync"
 	"time"
 
+	"go-clipboard/internal/wailsbridge"
+
 	lua "github.com/yuin/gopher-lua"
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // modalAckTimeout is how long to wait for the frontend to acknowledge
@@ -59,14 +59,14 @@ func (g *modalGuard) startAckTimeout(gen uint64) {
 	}()
 }
 
-func newModalGuard(ctx context.Context) *modalGuard {
+func newModalGuard(b *wailsbridge.Bridge) *modalGuard {
 	g := &modalGuard{}
-	runtime.EventsOn(ctx, "plugin:modal:acked", func(data ...interface{}) {
+	b.On("plugin:modal:acked", func(data ...interface{}) {
 		g.mu.Lock()
 		g.acked = true
 		g.mu.Unlock()
 	})
-	runtime.EventsOn(ctx, "plugin:modal:closed", func(data ...interface{}) {
+	b.On("plugin:modal:closed", func(data ...interface{}) {
 		g.mu.Lock()
 		g.showing = false
 		g.acked = false
@@ -78,17 +78,16 @@ func newModalGuard(ctx context.Context) *modalGuard {
 
 // ModalAPI provides modal display functionality for plugins
 type ModalAPI struct {
-	ctx      context.Context
+	bridge   *wailsbridge.Bridge
 	pluginID int64
 	guard    *modalGuard
-	cancel   func()
 }
 
 // NewModalAPI creates a new modal API instance.
 // The guard is shared across all plugins to enforce single-modal globally.
-func NewModalAPI(ctx context.Context, pluginID int64, guard *modalGuard) *ModalAPI {
+func NewModalAPI(b *wailsbridge.Bridge, pluginID int64, guard *modalGuard) *ModalAPI {
 	return &ModalAPI{
-		ctx:      ctx,
+		bridge:   b,
 		pluginID: pluginID,
 		guard:    guard,
 	}
@@ -197,7 +196,7 @@ func (m *ModalAPI) show(L *lua.LState) int {
 		PasteName:        pasteName,
 		PasteContentType: pasteContentType,
 	}
-	runtime.EventsEmit(m.ctx, "plugin:modal", md.ToEventMap())
+	m.bridge.Emit("plugin:modal", md.ToEventMap())
 
 	L.Push(lua.LTrue)
 	return 1
