@@ -750,7 +750,102 @@ func TestDeleteTag_RemovesFromHiddenList(t *testing.T) {
 Run: `go test -run TestDeleteTag_ ./...`
 Expected: FAIL — preconditions not wired, watched_folders/hidden-list cleanup missing.
 
-- [ ] **Step 3a: Add tx-aware hidden-tags helpers**
+- [ ] **Step 3a: Make `StopShare` no-op-safe for post-commit cleanup**
+
+`ShareManager.StopShare` currently emits `share:publication-removed` even when no matching publication exists (`share_manager.go:578-580`). In our new post-commit flow we call `StopShare` for every tag delete regardless of whether the tag was shared — without this fix, every tag delete would fire a spurious event.
+
+Open `share_manager.go` and locate the `StopShare` function (line ~557). The current shape is:
+
+```go
+if pub != nil {
+    pub.closeAllFollowers()
+}
+
+if _, err := m.db.Exec(`DELETE FROM shares WHERE tag_id = ?`, tagID); err != nil {
+    return fmt.Errorf("delete share: %w", err)
+}
+m.emitEvent("share:publication-removed", map[string]any{"tag_id": tagID})
+return nil
+```
+
+Move the `emitEvent` line into the existing `if pub != nil { ... }` branch so the event only fires when there was actually a publication to stop:
+
+```go
+if pub != nil {
+    pub.closeAllFollowers()
+}
+
+if _, err := m.db.Exec(`DELETE FROM shares WHERE tag_id = ?`, tagID); err != nil {
+    return fmt.Errorf("delete share: %w", err)
+}
+if pub != nil {
+    m.emitEvent("share:publication-removed", map[string]any{"tag_id": tagID})
+}
+return nil
+```
+
+Add a regression test to `share_manager_test.go`:
+
+```go
+func TestStopShare_NoEventWhenNothingActive(t *testing.T) {
+    ctx := context.Background()
+    db := newTestDB(t)
+    dir := t.TempDir()
+    m, _ := NewShareManager(ctx, db, dir)
+    defer m.Stop()
+
+    var fired bool
+    m.eventFn = func(name string, data any) {
+        if name == "share:publication-removed" {
+            fired = true
+        }
+    }
+
+    // No share created. StopShare on a random tag ID must not emit.
+    if err := m.StopShare(999); err != nil {
+        t.Fatalf("StopShare: %v", err)
+    }
+    if fired {
+        t.Fatalf("share:publication-removed should not fire when nothing was active")
+    }
+}
+```
+
+Run: `go test -run TestStopShare_NoEventWhenNothingActive ./...`
+Expected: PASS after the move.
+
+- [ ] **Step 3b: Add `ServeManager.IsServing`**
+
+`ServeManager.StopServing` returns an error when no server is running for the given tag (`serve_manager.go:520-527`). For post-commit cleanup we want to call it only when something is active. Add a cheap pre-check:
+
+```go
+// IsServing reports whether a server is currently running for tagID.
+// Cheap to call — just a read-locked map lookup.
+func (sm *ServeManager) IsServing(tagID int64) bool {
+    sm.mu.RLock()
+    defer sm.mu.RUnlock()
+    _, exists := sm.servers[tagID]
+    return exists
+}
+```
+
+(Check the actual mutex field — if it's `sync.Mutex` rather than `sync.RWMutex`, use `sm.mu.Lock()`/`defer sm.mu.Unlock()` instead; `IsServing` is fast enough that a regular lock is fine.)
+
+Regression test, append to `serve_manager_test.go` (or create if missing):
+
+```go
+func TestIsServing_FalseWhenIdle(t *testing.T) {
+    sm := NewServeManager(/* ... adapt to constructor */)
+    if sm.IsServing(12345) {
+        t.Fatal("IsServing must return false when nothing is active")
+    }
+}
+```
+
+Run: `go test -run TestIsServing ./...`
+Expected: PASS.
+
+- [ ] **Step 3c: Add tx-aware hidden-tags helpers**
 
 The current `GetHiddenTags`/`SetHiddenTags` use `a.db` directly, which escapes any active transaction snapshot — another writer could change `hidden_tags` between our read and write and we'd clobber them. Add helpers that participate in the caller's transaction. Append to `tag_hierarchy.go`:
 
@@ -796,7 +891,7 @@ func setHiddenTagsTx(tx *sql.Tx, ids []int64) error {
 
 Ensure `tag_hierarchy.go` imports `database/sql`, `encoding/json`, `errors`, `fmt`.
 
-- [ ] **Step 3b: Modify `DeleteTag` for three-phase flow**
+- [ ] **Step 3d: Modify `DeleteTag` for three-phase flow**
 
 Replace the body of `DeleteTag` in `app.go` (at line ~1432):
 
@@ -864,13 +959,25 @@ func (a *App) DeleteTag(id int64) error {
         return fmt.Errorf("commit: %w", err)
     }
 
-    // Phase 3: post-commit runtime cleanup (best-effort)
+    // Phase 3: post-commit runtime cleanup (best-effort, guarded).
+    //
+    // StopShare/StopServing are NOT no-op-safe today:
+    //   - StopServing returns a "no server running" error when the tag isn't
+    //     served (serve_manager.go:520-527). Without the IsServing guard,
+    //     every tag delete on an unrelated tag would log a spurious error.
+    //   - StopShare always emits "share:publication-removed" even when no
+    //     matching publication exists (share_manager.go:578-580). Step 3a
+    //     below moves that emit inside the `if pub != nil` branch so only
+    //     actual stops fire the event.
     if a.shareManager != nil {
+        // StopShare internally checks if a publication exists; with the
+        // emit-inside-branch fix from Step 3a, calling it when nothing is
+        // active is a true no-op (DELETE matches 0 rows, no event).
         if err := a.shareManager.StopShare(id); err != nil {
             log.Printf("DeleteTag: StopShare(%d) failed (best-effort): %v", id, err)
         }
     }
-    if a.serveManager != nil {
+    if a.serveManager != nil && a.serveManager.IsServing(id) {
         if err := a.serveManager.StopServing(id); err != nil {
             log.Printf("DeleteTag: StopServing(%d) failed (best-effort): %v", id, err)
         }
@@ -2178,7 +2285,14 @@ async function openMergeTagModal(sourceID, sourceName) {
     mergeTagModal.querySelector(':scope > div').classList.add('scale-100');
 
     if (window.TagAutocomplete && !mergeTagAutocomplete) {
+        // Merge requires an EXISTING destination — TagAutocomplete's default
+        // "Create new" suggestions don't apply here. If the widget supports
+        // disabling them, pass that option; otherwise updateMergePreview
+        // below catches non-existent names and keeps the Merge button
+        // disabled with a "does not exist" message. Check tag-autocomplete.js
+        // for the exact option name (e.g. `allowCreate: false`) and pass it.
         mergeTagAutocomplete = window.TagAutocomplete.attach(mergeTagDestInput, {
+            allowCreate: false, // disable "Create new" rows if supported
             onSelect: () => updateMergePreview(),
         });
     }

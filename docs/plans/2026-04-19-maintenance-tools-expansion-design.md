@@ -61,10 +61,14 @@ Rationale: silently deleting a user's API key on tag delete is surprising. `SET 
 **Two-phase cleanup (not one helper).** `ShareManager.StopShare` runs its own transaction + emits a frontend event (`share_manager.go:557-580`), and `ServeManager.StopServing` mutates runtime state. Neither is rollback-safe, so calling them inside the tag-delete transaction would diverge runtime state from the DB if the tag transaction rolled back. The flow is therefore three explicit phases:
 
 1. **Preconditions check (read-only).** `checkTagReferencePreconditions(tagID) []string` returns a list of blockers. For delete: non-empty `follows` for this tag (user must `UpdateFollowTag` to a different tag or stop the follow first). For merge: same, plus active share, plus any tag in the source subtree being served. Returns empty slice on success.
-2. **DB transaction (SQL only, fully rollback-safe).** Pure SQL inside `tx`:
-   - For delete: `UPDATE watched_folders SET auto_tag_id = NULL WHERE auto_tag_id = ?`, then remove from hidden-tag list (read `hidden_tags` setting, filter, write back), then `DELETE FROM tags WHERE id = ?`. `api_keys.scoped_tag_id` is handled by the new `SET NULL` FK + auto-revoke trigger below.
-   - For merge: `migrateTagReferences(tx, fromID, toID)` does `UPDATE api_keys SET scoped_tag_id = ? WHERE scoped_tag_id = ?`, same for `watched_folders.auto_tag_id`, swap hidden-tag list membership, reassign `clip_tags`, cascade-rename descendants, then `DELETE FROM tags WHERE id = ?` on the source.
-3. **Post-commit runtime cleanup.** After `tx.Commit()` succeeds: call `shareManager.StopShare(tagID)` and `serveManager.StopServing(tagID)` (both no-ops if nothing is active). `StopShare`'s `DELETE FROM shares` becomes a no-op because the FK cascade on `shares.tag_id` already removed the row when the tag delete committed; `StopShare` is still required to evict the in-memory publication and emit `share:publication-removed`. Errors are logged but do not fail the enclosing operation — the tag is gone, and the orphan-rows tool (Part B) is the backstop for any residual DB state.
+2. **DB transaction (SQL only, fully rollback-safe).** Pure SQL inside `tx`. The hidden-tag list reads and writes go through new tx-aware helpers `getHiddenTagsTx(tx)` / `setHiddenTagsTx(tx, ids)` — the existing `GetHiddenTags`/`SetHiddenTags` use `a.db` directly (`app.go:2812-2837`), which would escape the transaction snapshot and let a concurrent `SetHiddenTags` clobber the update between our read and write. The new helpers read `SELECT value FROM settings WHERE key = 'hidden_tags'` through the tx and write via tx-scoped upsert.
+   - For delete: `UPDATE watched_folders SET auto_tag_id = NULL WHERE auto_tag_id = ?`, then `getHiddenTagsTx` + filter + `setHiddenTagsTx`, then `DELETE FROM tags WHERE id = ?`. `api_keys.scoped_tag_id` is handled by the new `SET NULL` FK + auto-revoke trigger below.
+   - For merge: `migrateTagReferences(tx, fromID, toID)` does `UPDATE api_keys SET scoped_tag_id = ? WHERE scoped_tag_id = ?`, same for `watched_folders.auto_tag_id`, swap hidden-tag list membership via the tx-aware helpers, reassign `clip_tags` with same-tree exclusivity (see Part B Merge Semantics for the 1a/1b/1c SQL), cascade-rename descendants, then `DELETE FROM tags WHERE id = ?` on the source.
+3. **Post-commit runtime cleanup.** After `tx.Commit()` succeeds, call the runtime teardown. Neither `ShareManager.StopShare` nor `ServeManager.StopServing` is no-op-safe as written today — implementation must guard or change the helpers:
+   - **`ServeManager.StopServing`** returns an error when no server is running for the given tag (`serve_manager.go:520-527`). Calling it on a non-served tag produces a spurious "no server running" error in normal tag deletes. Fix: add a new `IsServing(tagID) bool` on `ServeManager` and guard the call (`if sm.IsServing(id) { sm.StopServing(id) }`). `IsServing` is a short RLock + map lookup.
+   - **`ShareManager.StopShare`** always emits `share:publication-removed` even when no matching publication exists (`share_manager.go:578-580`). Calling it on a non-shared tag fires a spurious event that the frontend then reacts to. Fix: move the `emitEvent` call into the existing `if pub != nil { ... }` branch (`share_manager.go:573`) so the event only fires when something actually stopped. The `DELETE FROM shares` can stay unconditional — it's a no-op when no row matches.
+
+   Errors from the guarded calls are still logged, but do not fail the enclosing operation — the tag is gone, and the orphan-rows tool (Part B) is the backstop for any residual DB state.
 
 For **merge**, post-commit runtime cleanup is a no-op by construction: the precondition phase refuses if the source has an active share or is served anywhere in its subtree. Merge never silently tears down networked state.
 
@@ -100,15 +104,18 @@ Consolidated with the main test list in the "Cross-cutting → Tests" section be
 
 **Entry point.** New right-click context menu on tag rows in the tag sidebar (`frontend/js/tags.js`). Tags currently have no context menu — we reuse the generic `ContextMenu` module from `context-menu.js`. Single menu item: **"Merge into…"**.
 
-**Picker.** Click opens a modal with an autocomplete input using `window.TagAutocomplete` (already used in `share.js:484`). User types the destination tag path.
+**Picker.** Click opens a modal with an autocomplete input using `window.TagAutocomplete` (already used in `share.js:484`). **Destination must already exist.** `TagAutocomplete` offers "Create new" suggestions by default for non-matching input (`tag-autocomplete.js:13`), but the merge backend signature is `MergeTag(sourceID, destID int64)` — it needs a real row to migrate scoped API keys, watched-folder auto-tags, and hidden-list membership against. If the user types a path that doesn't resolve to an existing tag, the preview area shows `"X does not exist. Create it first."` and the Merge button stays disabled. Not `CreateTag`-and-merge in one step: creating the destination is a separate explicit action.
 
 **Semantics (subtree move).**
 
 Given source `a/x` with descendants `a/x/foo`, `a/x/bar` and destination `b/y`:
 
-1. All clips tagged `a/x` are reassigned to `b/y` (via the existing same-tree-exclusivity rule in `AddTagToClip`).
+1. **Clip reassignment with same-tree exclusivity preserved.** Plain SQL cannot rely on `AddTagToClip`/`removeSameTreeTags` because those run in Go; inside a pure-SQL transaction the invariant must be re-implemented. A clip tagged `[a/x, b/z]` merged `a/x → b/y` would otherwise end up with both `b/y` and `b/z` — a state the rest of the app assumes is impossible. The in-transaction sequence is:
+   - (1a) `INSERT OR IGNORE` destination tag for every clip that currently has source.
+   - (1b) `DELETE FROM clip_tags WHERE clip_id IN (clips with source) AND tag_id IN (tags under destination's root) AND tag_id != destID` — evicts the conflicting tree siblings only for affected clips, anchored on source so unrelated clips that happen to hold destination stay untouched.
+   - (1c) `DELETE FROM clip_tags WHERE tag_id = sourceID` — cleans up any source rows not already removed by (1b) in the same-root case.
 2. All descendants are renamed with the prefix swap: `a/x/foo` → `b/y/foo`, `a/x/bar` → `b/y/bar`. Reuses the existing cascade-rename SQL from `UpdateTag` (`app.go:1407-1408`).
-3. `migrateTagReferences(tx, sourceID, destID)` moves scoped API keys, auto-tag watched folders, and hidden-tag list membership from source to destination.
+3. `migrateTagReferences(tx, sourceID, destID)` moves scoped API keys, auto-tag watched folders, and hidden-tag list membership from source to destination. Uses the tx-aware `getHiddenTagsTx`/`setHiddenTagsTx` helpers (see below) so hidden-tag reads and writes share the enclosing transaction snapshot.
 4. Source tag row is deleted.
 5. All of the above inside a single transaction.
 
