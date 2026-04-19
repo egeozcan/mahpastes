@@ -610,6 +610,24 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class StaleFile {
+	    source: string;
+	    name: string;
+	    size: number;
+	    age_hours: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new StaleFile(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.source = source["source"];
+	        this.name = source["name"];
+	        this.size = source["size"];
+	        this.age_hours = source["age_hours"];
+	    }
+	}
 	export class StartNativeDragRequest {
 	    clip_id: number;
 	    abs_path: string;

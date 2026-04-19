@@ -6,6 +6,7 @@ const maintenanceCloseBtn = document.getElementById('maintenance-close');
 const maintenanceDeduplicateBtn = document.getElementById('maintenance-deduplicate-btn');
 const maintenanceRemoveEmptyTagsBtn = document.getElementById('maintenance-remove-empty-tags-btn');
 const maintenanceCompactDbBtn = document.getElementById('maintenance-compact-db-btn');
+const maintenanceStaleFilesBtn = document.getElementById('maintenance-stale-files-btn');
 
 let lastFocusedElementBeforeMaintenance = null;
 let maintenanceFocusTrapCleanup = null;
@@ -148,6 +149,47 @@ async function runCompactDatabase() {
     );
 }
 
+async function runStaleFileSweep() {
+    let files;
+    try {
+        files = await window.go.main.App.GetStaleFiles();
+    } catch (err) {
+        showToast('Failed to scan stale files', 'error');
+        return;
+    }
+    if (!files || files.length === 0) {
+        showToast('No stale files to clean');
+        return;
+    }
+    const totalBytes = files.reduce((sum, f) => sum + (f.size || 0), 0);
+    const grouped = files.reduce((acc, f) => {
+        (acc[f.source] = acc[f.source] || []).push(f);
+        return acc;
+    }, {});
+    const listHTML = Object.entries(grouped).map(([src, arr]) =>
+        `<span class="block text-left font-semibold text-stone-600 mt-1">${escapeHTML(src)}</span>` +
+        arr.map(f => `<span class="block text-left">&middot; ${escapeHTML(f.name)} (${escapeHTML(formatFileSize(f.size))}, ${f.age_hours.toFixed(1)}h)</span>`).join('')
+    ).join('');
+
+    closeMaintenance();
+    showConfirmDialog(
+        'Sweep stale files',
+        `<span class="block mb-2">${files.length} file${files.length !== 1 ? 's' : ''} (${escapeHTML(formatFileSize(totalBytes))}):</span>` +
+        `<span class="block text-[10px] text-stone-400 mb-2 max-h-40 overflow-y-auto">${listHTML}</span>`,
+        async () => {
+            try {
+                const result = await window.go.main.App.CleanStaleFiles();
+                // Wails v2 returns [count, bytes] for multi-return functions
+                const count = Array.isArray(result) ? result[0] : result;
+                const bytes = Array.isArray(result) ? result[1] : 0;
+                showToast(`Removed ${count} file${count !== 1 ? 's' : ''} (${formatFileSize(bytes)})`, 'success');
+            } catch (err) {
+                showToast('Sweep failed', 'error');
+            }
+        }
+    );
+}
+
 // Event listeners
 openMaintenanceBtn.addEventListener('click', openMaintenance);
 maintenanceCloseBtn.addEventListener('click', closeMaintenance);
@@ -157,3 +199,4 @@ maintenanceModal.addEventListener('click', (e) => {
 maintenanceDeduplicateBtn.addEventListener('click', runDeduplicate);
 maintenanceRemoveEmptyTagsBtn.addEventListener('click', runRemoveEmptyTags);
 maintenanceCompactDbBtn.addEventListener('click', runCompactDatabase);
+maintenanceStaleFilesBtn?.addEventListener('click', runStaleFileSweep);

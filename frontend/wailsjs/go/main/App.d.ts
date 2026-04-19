@@ -29,6 +29,8 @@ export function CancelExpiration(arg1:number):Promise<void>;
 
 export function ChooseApplication():Promise<string>;
 
+export function CleanStaleFiles():Promise<number>;
+
 export function CompactDatabase():Promise<number>;
 
 export function ConfirmRestoreBackup(arg1:string,arg2:string):Promise<void>;
@@ -86,6 +88,8 @@ export function GetImageDiff(arg1:number,arg2:number,arg3:number):Promise<main.D
 export function GetRemovableEmptyTags():Promise<Array<main.Tag>>;
 
 export function GetSetting(arg1:string):Promise<string>;
+
+export function GetStaleFiles():Promise<Array<main.StaleFile>>;
 
 export function GetTags():Promise<Array<main.Tag>>;
 

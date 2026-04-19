@@ -54,6 +54,10 @@ export function ChooseApplication() {
   return window['go']['main']['App']['ChooseApplication']();
 }
 
+export function CleanStaleFiles() {
+  return window['go']['main']['App']['CleanStaleFiles']();
+}
+
 export function CompactDatabase() {
   return window['go']['main']['App']['CompactDatabase']();
 }
@@ -168,6 +172,10 @@ export function GetRemovableEmptyTags() {
 
 export function GetSetting(arg1) {
   return window['go']['main']['App']['GetSetting'](arg1);
+}
+
+export function GetStaleFiles() {
+  return window['go']['main']['App']['GetStaleFiles']();
 }
 
 export function GetTags() {
