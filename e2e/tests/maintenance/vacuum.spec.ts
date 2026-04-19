@@ -10,5 +10,11 @@ test.describe('Maintenance: compact database', () => {
 
     const toast = await app.waitForToast(/reclaimed|was/i);
     expect(toast).toMatch(/bytes|KB|MB|B\b/);
+    // Guard against a regression where Wails v2 silently drops multi-return
+    // values and the toast reports "was 0 B, now 0 B". The seeded test DB
+    // always has a nonzero size.
+    const match = toast.match(/was\s+([\d.]+)\s*(B|KB|MB|GB)/i);
+    expect(match).not.toBeNull();
+    expect(Number(match![1])).toBeGreaterThan(0);
   });
 });

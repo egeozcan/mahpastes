@@ -27,24 +27,34 @@ func (a *App) GetDatabaseSize() (int64, error) {
 	return total, nil
 }
 
+// CompactResult reports before/after DB size for a VACUUM + ANALYZE run.
+type CompactResult struct {
+	Before int64 `json:"before"`
+	After  int64 `json:"after"`
+}
+
 // CompactDatabase runs VACUUM + ANALYZE on clips.db. Returns before/after
 // sizes (bytes). VACUUM cannot run inside an explicit transaction.
-func (a *App) CompactDatabase() (before, after int64, err error) {
-	before, err = a.GetDatabaseSize()
+//
+// The result is returned as a struct rather than separate values because
+// Wails v2 frontend bindings only marshal `(value, error)` signatures —
+// extra return values are silently dropped.
+func (a *App) CompactDatabase() (CompactResult, error) {
+	before, err := a.GetDatabaseSize()
 	if err != nil {
-		return 0, 0, err
+		return CompactResult{}, err
 	}
 	if _, err := a.db.Exec(`VACUUM`); err != nil {
-		return before, 0, fmt.Errorf("vacuum: %w", err)
+		return CompactResult{Before: before}, fmt.Errorf("vacuum: %w", err)
 	}
 	if _, err := a.db.Exec(`ANALYZE`); err != nil {
-		return before, 0, fmt.Errorf("analyze: %w", err)
+		return CompactResult{Before: before}, fmt.Errorf("analyze: %w", err)
 	}
-	after, err = a.GetDatabaseSize()
+	after, err := a.GetDatabaseSize()
 	if err != nil {
-		return before, 0, err
+		return CompactResult{Before: before}, err
 	}
-	return before, after, nil
+	return CompactResult{Before: before, After: after}, nil
 }
 
 // StaleFile describes a single file found by the stale-file sweep.
@@ -112,22 +122,33 @@ func (a *App) GetStaleFiles() ([]StaleFile, error) {
 	return out, nil
 }
 
+// CleanStaleResult reports how many files were removed and how many bytes
+// were reclaimed by a stale-file sweep.
+type CleanStaleResult struct {
+	Count int   `json:"count"`
+	Bytes int64 `json:"bytes"`
+}
+
 // CleanStaleFiles deletes every file returned by GetStaleFiles and reports
 // how many were removed and how many bytes were reclaimed.
-func (a *App) CleanStaleFiles() (count int, bytes int64, err error) {
+//
+// The result is returned as a struct rather than separate values because
+// Wails v2 frontend bindings only marshal `(value, error)` signatures.
+func (a *App) CleanStaleFiles() (CleanStaleResult, error) {
 	files, err := a.GetStaleFiles()
 	if err != nil {
-		return 0, 0, err
+		return CleanStaleResult{}, err
 	}
+	var r CleanStaleResult
 	for _, f := range files {
 		if err := os.Remove(f.absPath); err != nil {
 			// Log but keep going — a single failure shouldn't abort the sweep.
 			continue
 		}
-		count++
-		bytes += f.Size
+		r.Count++
+		r.Bytes += f.Size
 	}
-	return count, bytes, nil
+	return r, nil
 }
 
 // OrphanReport counts orphaned rows found across the DB.

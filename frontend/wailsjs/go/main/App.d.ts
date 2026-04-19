@@ -31,9 +31,9 @@ export function ChooseApplication():Promise<string>;
 
 export function CleanOrphanDBRows():Promise<main.OrphanReport>;
 
-export function CleanStaleFiles():Promise<number>;
+export function CleanStaleFiles():Promise<main.CleanStaleResult>;
 
-export function CompactDatabase():Promise<number>;
+export function CompactDatabase():Promise<main.CompactResult>;
 
 export function ConfirmRestoreBackup(arg1:string,arg2:string):Promise<void>;
 

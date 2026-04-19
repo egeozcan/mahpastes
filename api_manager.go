@@ -1173,14 +1173,14 @@ func (am *APIManager) handleVacuum(w http.ResponseWriter, r *http.Request) {
 		am.jsonError(w, http.StatusForbidden, "maintenance operations are not available for tag-scoped keys")
 		return
 	}
-	before, after, err := am.app.CompactDatabase()
+	result, err := am.app.CompactDatabase()
 	if err != nil {
 		am.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	am.jsonOK(w, map[string]int64{"before": before, "after": after})
+	am.jsonOK(w, map[string]int64{"before": result.Before, "after": result.After})
 }
 
 func (am *APIManager) handleListStaleFiles(w http.ResponseWriter, r *http.Request) {
@@ -1205,14 +1205,14 @@ func (am *APIManager) handleCleanStaleFiles(w http.ResponseWriter, r *http.Reque
 		am.jsonError(w, http.StatusForbidden, "maintenance operations are not available for tag-scoped keys")
 		return
 	}
-	count, bytes, err := am.app.CleanStaleFiles()
+	result, err := am.app.CleanStaleFiles()
 	if err != nil {
 		am.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	am.jsonOK(w, map[string]any{"count": count, "bytes": bytes})
+	am.jsonOK(w, map[string]any{"count": result.Count, "bytes": result.Bytes})
 }
 
 func (am *APIManager) handleListOrphanRows(w http.ResponseWriter, r *http.Request) {

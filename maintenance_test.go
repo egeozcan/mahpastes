@@ -37,15 +37,15 @@ func TestCompactDatabase_ReducesSizeAfterBigDelete(t *testing.T) {
 		t.Fatalf("delete big: %v", err)
 	}
 
-	before, after, err := app.CompactDatabase()
+	result, err := app.CompactDatabase()
 	if err != nil {
 		t.Fatalf("CompactDatabase: %v", err)
 	}
 	// VACUUM shrinks the main database file. Due to WAL files, total size may
 	// not decrease, but the main file should shrink. We just verify the method
 	// completes without error and returns reasonable sizes.
-	if before <= 0 || after <= 0 {
-		t.Fatalf("expected nonzero sizes: before=%d, after=%d", before, after)
+	if result.Before <= 0 || result.After <= 0 {
+		t.Fatalf("expected nonzero sizes: before=%d, after=%d", result.Before, result.After)
 	}
 }
 
@@ -86,15 +86,15 @@ func TestCleanStaleFiles_RemovesThem(t *testing.T) {
 	past := time.Now().Add(-2 * time.Hour)
 	os.Chtimes(p, past, past)
 
-	count, bytes, err := app.CleanStaleFiles()
+	result, err := app.CleanStaleFiles()
 	if err != nil {
 		t.Fatalf("CleanStaleFiles: %v", err)
 	}
-	if count < 1 {
-		t.Fatalf("expected at least 1 cleaned, got %d", count)
+	if result.Count < 1 {
+		t.Fatalf("expected at least 1 cleaned, got %d", result.Count)
 	}
-	if bytes < 2 {
-		t.Fatalf("expected ≥2 bytes, got %d", bytes)
+	if result.Bytes < 2 {
+		t.Fatalf("expected ≥2 bytes, got %d", result.Bytes)
 	}
 	if _, err := os.Stat(p); !os.IsNotExist(err) {
 		t.Fatalf("file should be removed")

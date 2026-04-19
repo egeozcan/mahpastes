@@ -21,7 +21,11 @@ test.describe('Maintenance: stale file sweep', () => {
     await app.confirmDialog();
 
     const toast = await app.waitForToast(/removed/i);
-    // Toast reads "Removed N file(s) (bytes)" — verify a count is present.
-    expect(toast).toMatch(/\d+/);
+    // Toast reads "Removed N file(s) (bytes)" — verify the seeded file was
+    // counted. A regression where Wails drops multi-return values would
+    // report "Removed 0 files (0 B)" — guard against that explicitly.
+    const match = toast.match(/Removed\s+(\d+)\s+file/i);
+    expect(match).not.toBeNull();
+    expect(Number(match![1])).toBeGreaterThanOrEqual(1);
   });
 });

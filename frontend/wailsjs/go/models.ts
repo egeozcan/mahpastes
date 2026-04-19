@@ -157,6 +157,20 @@ export namespace main {
 		}
 	}
 	
+	export class CleanStaleResult {
+	    count: number;
+	    bytes: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new CleanStaleResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.count = source["count"];
+	        this.bytes = source["bytes"];
+	    }
+	}
 	export class ClipData {
 	    id: number;
 	    content_type: string;
@@ -258,6 +272,20 @@ export namespace main {
 		    }
 		    return a;
 		}
+	}
+	export class CompactResult {
+	    before: number;
+	    after: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new CompactResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.before = source["before"];
+	        this.after = source["after"];
+	    }
 	}
 	export class DiffResult {
 	    similarity: number;

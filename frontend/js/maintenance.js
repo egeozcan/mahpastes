@@ -137,10 +137,7 @@ async function runCompactDatabase() {
         `<span class="block">Running VACUUM + ANALYZE may take a few seconds and briefly locks the database.</span>`,
         async () => {
             try {
-                const result = await window.go.main.App.CompactDatabase();
-                // Wails v2 returns [before, after] for multi-return functions
-                const before = Array.isArray(result) ? result[0] : result;
-                const after = Array.isArray(result) ? result[1] : 0;
+                const { before = 0, after = 0 } = await window.go.main.App.CompactDatabase() || {};
                 const reclaimed = before - after;
                 showToast(`Reclaimed ${formatBytes(reclaimed)} (was ${formatBytes(before)}, now ${formatBytes(after)})`, 'success');
             } catch (err) {
@@ -181,10 +178,7 @@ async function runStaleFileSweep() {
         `<span class="block text-[10px] text-stone-400 mb-2 max-h-40 overflow-y-auto">${listHTML}</span>`,
         async () => {
             try {
-                const result = await window.go.main.App.CleanStaleFiles();
-                // Wails v2 returns [count, bytes] for multi-return functions
-                const count = Array.isArray(result) ? result[0] : result;
-                const bytes = Array.isArray(result) ? result[1] : 0;
+                const { count = 0, bytes = 0 } = await window.go.main.App.CleanStaleFiles() || {};
                 showToast(`Removed ${count} file${count !== 1 ? 's' : ''} (${formatFileSize(bytes)})`, 'success');
             } catch (err) {
                 showToast('Sweep failed', 'error');
