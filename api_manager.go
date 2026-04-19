@@ -113,6 +113,7 @@ func (am *APIManager) Start(port int, bindAll bool) (APIStatus, error) {
 	mux.HandleFunc("POST /api/v1/tags", am.authMiddleware(am.requireRole("admin", am.handleCreateTag)))
 	mux.HandleFunc("PUT /api/v1/tags/{id}", am.authMiddleware(am.requireRole("admin", am.handleUpdateTag)))
 	mux.HandleFunc("DELETE /api/v1/tags/{id}", am.authMiddleware(am.requireRole("admin", am.handleDeleteTag)))
+	mux.HandleFunc("POST /api/v1/tags/{id}/merge", am.authMiddleware(am.requireRole("admin", am.handleMergeTag)))
 	mux.HandleFunc("PUT /api/v1/clips/{id}/tags/{tagId}", am.authMiddleware(am.requireRole("editor", am.handleAddTagToClip)))
 	mux.HandleFunc("DELETE /api/v1/clips/{id}/tags/{tagId}", am.authMiddleware(am.requireRole("editor", am.handleRemoveTagFromClip)))
 	mux.HandleFunc("GET /api/v1/serve", am.authMiddleware(am.requireRole("viewer", am.handleListServers)))
@@ -1104,6 +1105,28 @@ func (am *APIManager) handleDeleteTag(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (am *APIManager) handleMergeTag(w http.ResponseWriter, r *http.Request) {
+	sourceID, err := parseIntParam(r.PathValue("id"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid source id")
+		return
+	}
+	var body struct {
+		DestID int64 `json:"dest_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if err := am.app.MergeTag(sourceID, body.DestID); err != nil {
+		am.jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	am.jsonOK(w, map[string]bool{"ok": true})
 }
 
 // --- Clip-Tag Handlers ---
