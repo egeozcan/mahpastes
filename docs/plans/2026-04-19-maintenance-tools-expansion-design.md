@@ -27,7 +27,7 @@ Everything currently keyed on a tag's ID:
 |---|---|---|---|
 | `clip_tags.tag_id` | FK | `ON DELETE CASCADE` | via cascade |
 | `api_keys.scoped_tag_id` | FK | `ON DELETE CASCADE` | via cascade (**bug: deletes the key**) |
-| `shares.tag_id` | FK | none | `StopShare(id)` called before delete |
+| `shares.tag_id` | FK | `ON DELETE CASCADE` | `StopShare(id)` called before delete (row would also cascade, but `StopShare` is needed for in-memory publication teardown + `share:publication-removed` event) |
 | `follows.local_tag_id` | FK | `ON DELETE RESTRICT` | **DB rejects the delete — caller sees SQL error** |
 | `watched_folders.auto_tag_id` | col | none | **not handled (stale ID)** |
 | Hidden tag list (`settings` key `hidden_tags`, JSON `[]int64`) | list | n/a | **not handled (stale ID)** |
@@ -64,7 +64,7 @@ Rationale: silently deleting a user's API key on tag delete is surprising. `SET 
 2. **DB transaction (SQL only, fully rollback-safe).** Pure SQL inside `tx`:
    - For delete: `UPDATE watched_folders SET auto_tag_id = NULL WHERE auto_tag_id = ?`, then remove from hidden-tag list (read `hidden_tags` setting, filter, write back), then `DELETE FROM tags WHERE id = ?`. `api_keys.scoped_tag_id` is handled by the new `SET NULL` FK + auto-revoke trigger below.
    - For merge: `migrateTagReferences(tx, fromID, toID)` does `UPDATE api_keys SET scoped_tag_id = ? WHERE scoped_tag_id = ?`, same for `watched_folders.auto_tag_id`, swap hidden-tag list membership, reassign `clip_tags`, cascade-rename descendants, then `DELETE FROM tags WHERE id = ?` on the source.
-3. **Post-commit runtime cleanup.** After `tx.Commit()` succeeds: call `shareManager.StopShare(tagID)` and `serveManager.StopServing(tagID)` (both no-ops if nothing is active). Errors are logged but do not fail the enclosing operation — the tag is gone, and the orphan-rows tool (Part B) is the backstop for any residual DB state.
+3. **Post-commit runtime cleanup.** After `tx.Commit()` succeeds: call `shareManager.StopShare(tagID)` and `serveManager.StopServing(tagID)` (both no-ops if nothing is active). `StopShare`'s `DELETE FROM shares` becomes a no-op because the FK cascade on `shares.tag_id` already removed the row when the tag delete committed; `StopShare` is still required to evict the in-memory publication and emit `share:publication-removed`. Errors are logged but do not fail the enclosing operation — the tag is gone, and the orphan-rows tool (Part B) is the backstop for any residual DB state.
 
 For **merge**, post-commit runtime cleanup is a no-op by construction: the precondition phase refuses if the source has an active share or is served anywhere in its subtree. Merge never silently tears down networked state.
 
