@@ -1008,10 +1008,24 @@ Expected: all tests pass.
 
 - [ ] **Step 6: Commit**
 
+Include every file touched by Steps 3a–3d: `StopShare` emit-branch fix (`share_manager.go` + its regression test), `IsServing` helper (`serve_manager.go` + its regression test, which may be a newly created file), tx-aware hidden-tags helpers (`tag_hierarchy.go`), the `DeleteTag` rewrite (`app.go`), and the new Go test file (`tag_reference_integrity_test.go`).
+
 ```bash
-git add app.go tag_reference_integrity_test.go
+git add \
+    app.go \
+    share_manager.go \
+    share_manager_test.go \
+    serve_manager.go \
+    serve_manager_test.go \
+    tag_hierarchy.go \
+    tag_reference_integrity_test.go
 git commit -m "feat(tags): wire three-phase cleanup into DeleteTag"
 ```
+
+If `serve_manager_test.go` didn't exist before Step 3b and is newly created here, `git add` picks it up because we listed it by name. Verify the staged set before committing:
+
+Run: `git status --short`
+Expected: all of the files above appear under "Changes to be committed", nothing else lingering.
 
 ---
 
@@ -2213,6 +2227,124 @@ Expected: no regressions.
 ```bash
 git add app.go tag_merge_test.go
 git commit -m "feat(tags): implement MergeTag with subtree move + reference migration"
+```
+
+---
+
+### Task 11.5: `TagAutocomplete` — support `allowCreate: false`
+
+Prerequisite for Task 12's merge modal. The merge backend requires an existing destination (`MergeTag(sourceID, destID int64)`), so the picker must NOT offer "Create new" rows. `TagAutocomplete.attach` today always appends a `{kind: 'new', ...}` row when the typed text doesn't match an existing tag (`frontend/js/tag-autocomplete.js:109-111`). We add an explicit opt-out.
+
+**Files:**
+- Modify: `frontend/js/tag-autocomplete.js`
+- Test: `e2e/tests/tags/autocomplete-allowcreate.spec.ts` (new)
+
+- [ ] **Step 1: Write the failing e2e test**
+
+Create `e2e/tests/tags/autocomplete-allowcreate.spec.ts`:
+
+```typescript
+import { test } from '../../fixtures/test-fixtures';
+import { expect } from '@playwright/test';
+
+test.describe('TagAutocomplete allowCreate option', () => {
+    test('does not offer "Create new" row when allowCreate is false', async ({ app }) => {
+        await app.createTag('existing-tag');
+
+        // Mount a throwaway input and attach TagAutocomplete with allowCreate:false.
+        await app.page.evaluate(() => {
+            const input = document.createElement('input');
+            input.id = 'test-ac-input';
+            document.body.appendChild(input);
+            // @ts-expect-error — runtime helper
+            window.TagAutocomplete.attach(input, { allowCreate: false });
+        });
+
+        const input = app.page.locator('#test-ac-input');
+        await input.fill('brand-new-never-created');
+        await app.page.waitForTimeout(100); // let the dropdown render
+
+        // No row should offer to create a new tag.
+        const createRow = app.page.locator('[role="option"]:has-text("Create new")');
+        await expect(createRow).toHaveCount(0);
+    });
+
+    test('still offers "Create new" row by default (backward compat)', async ({ app }) => {
+        await app.page.evaluate(() => {
+            const input = document.createElement('input');
+            input.id = 'test-ac-input-2';
+            document.body.appendChild(input);
+            // @ts-expect-error
+            window.TagAutocomplete.attach(input, {});
+        });
+
+        const input = app.page.locator('#test-ac-input-2');
+        await input.fill('another-new-tag');
+        await app.page.waitForTimeout(100);
+
+        const createRow = app.page.locator('[role="option"]:has-text("Create new")');
+        await expect(createRow).toHaveCount(1);
+    });
+});
+```
+
+- [ ] **Step 2: Run to verify failure**
+
+Run: `cd e2e && npx playwright test tests/tags/autocomplete-allowcreate.spec.ts 2>&1 | tail -20`
+Expected: the `allowCreate:false` test FAILS because the option is ignored today.
+
+- [ ] **Step 3: Implement the option in `tag-autocomplete.js`**
+
+In `frontend/js/tag-autocomplete.js`, inside `attach(input, opts)` (line 65), read the option with a backward-compatible default of `true`:
+
+```javascript
+function attach(input, opts) {
+    const getTags = opts.getTags || (async () => {
+        if (window.go && window.go.main && window.go.main.App && window.go.main.App.GetTags) {
+            return window.go.main.App.GetTags();
+        }
+        return [];
+    });
+    const onSelect = opts.onSelect || (() => {});
+    // Default true to preserve existing behavior at every current callsite.
+    // Merge-tag modal passes false because merge requires an existing tag.
+    const allowCreate = opts.allowCreate !== false;
+    // ... rest unchanged ...
+```
+
+Then in `buildItems(query)` (line 103-113), gate the "Create new" push on `allowCreate`:
+
+```javascript
+function buildItems(query) {
+    const ranked = rankTags(cachedTags || [], query);
+    const out = ranked.map(t => ({ kind: 'existing', name: t.name, tag: t }));
+    // Only offer "Create new" when: the caller hasn't opted out, the query
+    // is non-empty, no exact match, and the backend would accept the name.
+    if (allowCreate
+        && query
+        && !hasExactMatch(cachedTags || [], query)
+        && isCreatableName(query)) {
+        out.push({ kind: 'new', name: query });
+    }
+    return out;
+}
+```
+
+- [ ] **Step 4: Run e2e to verify pass**
+
+Run: `cd e2e && npx playwright test tests/tags/autocomplete-allowcreate.spec.ts 2>&1 | tail -20`
+Expected: both PASS.
+
+- [ ] **Step 5: Run the broader tag e2e suite to catch regressions**
+
+Run: `cd e2e && npx playwright test tests/tags 2>&1 | tail -40`
+Expected: all PASS — default `allowCreate: true` keeps every existing callsite (share edit, etc.) working.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add frontend/js/tag-autocomplete.js e2e/tests/tags/autocomplete-allowcreate.spec.ts
+git commit -m "feat(frontend): TagAutocomplete allowCreate option (default true)"
 ```
 
 ---
