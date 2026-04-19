@@ -213,7 +213,7 @@ func initDB() (*sql.DB, error) {
 		is_revoked INTEGER DEFAULT 0,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		last_used_at DATETIME,
-		FOREIGN KEY (scoped_tag_id) REFERENCES tags(id) ON DELETE CASCADE
+		FOREIGN KEY (scoped_tag_id) REFERENCES tags(id) ON DELETE SET NULL
 	)`); err != nil {
 		log.Printf("Warning: Failed to create api_keys table: %v", err)
 	}
