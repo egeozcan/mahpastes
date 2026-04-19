@@ -102,8 +102,69 @@ var maintenanceStaleFilesCleanCmd = &cobra.Command{
 	},
 }
 
+// ── maintenance orphan-rows ────────────────────────────────────────────────
+
+var maintenanceOrphanRowsCmd = &cobra.Command{
+	Use:   "orphan-rows",
+	Short: "List or clean orphan DB rows",
+}
+
+var maintenanceOrphanRowsListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List orphan row counts",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		c, err := client.New()
+		if err != nil {
+			return err
+		}
+
+		var report map[string]int
+		if err := c.GetJSON("/api/v1/maintenance/orphan-rows", &report); err != nil {
+			return err
+		}
+
+		if jsonOutput {
+			printJSON(report)
+		} else {
+			for k, v := range report {
+				fmt.Printf("%-30s %d\n", k, v)
+			}
+		}
+		return nil
+	},
+}
+
+var maintenanceOrphanRowsCleanCmd = &cobra.Command{
+	Use:   "clean",
+	Short: "Clean orphan DB rows",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		c, err := client.New()
+		if err != nil {
+			return err
+		}
+
+		var report map[string]int
+		if err := c.PostJSON("/api/v1/maintenance/orphan-rows/clean", nil, &report); err != nil {
+			return err
+		}
+
+		if jsonOutput {
+			printJSON(report)
+		} else {
+			total := 0
+			for _, v := range report {
+				total += v
+			}
+			fmt.Printf("Cleaned %d orphan row(s)\n", total)
+		}
+		return nil
+	},
+}
+
 func init() {
 	maintenanceCmd.AddCommand(maintenanceVacuumCmd)
 	maintenanceCmd.AddCommand(maintenanceStaleFilesCmd)
 	maintenanceStaleFilesCmd.AddCommand(maintenanceStaleFilesListCmd, maintenanceStaleFilesCleanCmd)
+	maintenanceCmd.AddCommand(maintenanceOrphanRowsCmd)
+	maintenanceOrphanRowsCmd.AddCommand(maintenanceOrphanRowsListCmd, maintenanceOrphanRowsCleanCmd)
 }
