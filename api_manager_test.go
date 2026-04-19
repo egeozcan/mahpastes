@@ -8,7 +8,10 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestAPI_MergeTag(t *testing.T) {
@@ -141,5 +144,87 @@ func TestAPI_MaintenanceVacuum(t *testing.T) {
 	}
 	if resp.After == 0 {
 		t.Fatalf("expected nonzero after size")
+	}
+}
+
+func TestAPI_MaintenanceStaleFiles_ListAndClean(t *testing.T) {
+	app, cleanup := setupTestApp(t)
+	defer cleanup()
+
+	// Create an admin API key for testing
+	testKey := "test-admin-key-12345"
+	hash := sha256.Sum256([]byte(testKey))
+	keyHash := hex.EncodeToString(hash[:])
+	_, err := app.db.Exec(
+		`INSERT INTO api_keys (name, key_hash, key_prefix, role, is_revoked) VALUES (?, ?, ?, ?, ?)`,
+		"test-key", keyHash, "test-", "admin", false,
+	)
+	if err != nil {
+		t.Fatalf("create api key: %v", err)
+	}
+
+	// Create an APIManager with the app
+	am := &APIManager{app: app}
+
+	// Build the mux with routes
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/maintenance/stale-files", am.authMiddleware(am.requireRole("admin", am.handleListStaleFiles)))
+	mux.HandleFunc("POST /api/v1/maintenance/stale-files/clean", am.authMiddleware(am.requireRole("admin", am.handleCleanStaleFiles)))
+
+	// Also add the auth and CORS middleware
+	handler := am.corsMiddleware(mux)
+
+	// Seed a stale temp file
+	dataDir, err := getDataDir()
+	if err != nil {
+		t.Fatalf("getDataDir: %v", err)
+	}
+	clipTempDir := filepath.Join(dataDir, "clip_temp_files")
+	if err := os.MkdirAll(clipTempDir, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	p := filepath.Join(clipTempDir, "stale-api.bin")
+	if err := os.WriteFile(p, []byte("xx"), 0644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	past := time.Now().Add(-2 * time.Hour)
+	os.Chtimes(p, past, past)
+
+	// GET returns the stale file
+	req := httptest.NewRequest("GET", "/api/v1/maintenance/stale-files", nil)
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", testKey))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET status %d, body %s", rec.Code, rec.Body.String())
+	}
+	var files []map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &files); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+	if len(files) < 1 {
+		t.Fatalf("expected ≥1 stale file, got %d", len(files))
+	}
+
+	// POST cleans them
+	req2 := httptest.NewRequest("POST", "/api/v1/maintenance/stale-files/clean", nil)
+	req2.Header.Set("Authorization", fmt.Sprintf("Bearer %s", testKey))
+	rec2 := httptest.NewRecorder()
+	handler.ServeHTTP(rec2, req2)
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("POST status %d, body %s", rec2.Code, rec2.Body.String())
+	}
+	var respBody struct {
+		Count int   `json:"count"`
+		Bytes int64 `json:"bytes"`
+	}
+	if err := json.Unmarshal(rec2.Body.Bytes(), &respBody); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+	if respBody.Count < 1 {
+		t.Fatalf("expected ≥1 cleaned, got %d", respBody.Count)
+	}
+	if _, err := os.Stat(p); !os.IsNotExist(err) {
+		t.Fatalf("file should be removed")
 	}
 }

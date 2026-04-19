@@ -184,6 +184,8 @@ func (am *APIManager) Start(port int, bindAll bool) (APIStatus, error) {
 
 	// Maintenance
 	mux.HandleFunc("POST /api/v1/maintenance/vacuum", am.authMiddleware(am.requireRole("admin", am.handleVacuum)))
+	mux.HandleFunc("GET /api/v1/maintenance/stale-files", am.authMiddleware(am.requireRole("admin", am.handleListStaleFiles)))
+	mux.HandleFunc("POST /api/v1/maintenance/stale-files/clean", am.authMiddleware(am.requireRole("admin", am.handleCleanStaleFiles)))
 
 	// Clipboard
 	mux.HandleFunc("POST /api/v1/clipboard/copy", am.authMiddleware(am.requireRole("editor", am.handleCopyToClipboard)))
@@ -1143,6 +1145,28 @@ func (am *APIManager) handleVacuum(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	am.jsonOK(w, map[string]int64{"before": before, "after": after})
+}
+
+func (am *APIManager) handleListStaleFiles(w http.ResponseWriter, r *http.Request) {
+	files, err := am.app.GetStaleFiles()
+	if err != nil {
+		am.jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	am.jsonOK(w, files)
+}
+
+func (am *APIManager) handleCleanStaleFiles(w http.ResponseWriter, r *http.Request) {
+	count, bytes, err := am.app.CleanStaleFiles()
+	if err != nil {
+		am.jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	am.jsonOK(w, map[string]any{"count": count, "bytes": bytes})
 }
 
 // --- Clip-Tag Handlers ---
