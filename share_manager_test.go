@@ -6,6 +6,7 @@ import (
 	cryptoRand "crypto/rand"
 	"crypto/sha256"
 	"database/sql"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -620,5 +621,72 @@ func TestResumeAllReplaysTables(t *testing.T) {
 	}
 	if len(m.follows) != 1 {
 		t.Fatalf("follows %d want 1", len(m.follows))
+	}
+}
+
+// TestFollowConnection rejects self-follow with a typed sentinel error so the
+// UI can distinguish it from an unreachable peer (different error surface,
+// different remediation).
+func TestTestFollowConnectionRejectsSelfFollow(t *testing.T) {
+	ctx := context.Background()
+	db := newTestDB(t)
+	m, err := NewShareManager(ctx, db, t.TempDir())
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	defer m.Stop()
+	db.Exec(`INSERT INTO tags (id, name, color) VALUES (1, 'x', '#aaa')`)
+	info, err := m.StartShare(1)
+	if err != nil {
+		t.Fatalf("StartShare: %v", err)
+	}
+	err = m.TestFollowConnection(info.ShareString)
+	if !errors.Is(err, ErrSelfFollow) {
+		t.Fatalf("TestFollowConnection: got %v; want errors.Is(ErrSelfFollow)", err)
+	}
+}
+
+// FollowWithoutDial must persist a follows row even when the peer is
+// unreachable — that's the whole point of the "Follow anyway" path. The
+// reconnect loop takes over asynchronously; we only verify the row exists and
+// the in-memory follow map is populated.
+func TestFollowWithoutDialInsertsRowWithoutPeerContact(t *testing.T) {
+	ctx := context.Background()
+
+	// Publisher lives long enough to emit a share string, then goes away.
+	pubDB := newTestDB(t)
+	pubM, _ := NewShareManager(ctx, pubDB, t.TempDir())
+	pubDB.Exec(`INSERT INTO tags (id, name, color) VALUES (1, 'x', '#aaa')`)
+	info, _ := pubM.StartShare(1)
+	pubM.Stop() // kill the publisher — follower cannot dial
+
+	// Follower does NOT get the publisher's addrs in its peerstore: any dial
+	// would fail. FollowWithoutDial must succeed anyway.
+	fDB := newTestDB(t)
+	fM, err := NewShareManager(ctx, fDB, t.TempDir())
+	if err != nil {
+		t.Fatalf("follower NewShareManager: %v", err)
+	}
+	defer fM.Stop()
+
+	fi, err := fM.FollowWithoutDial(info.ShareString, "inbox-offline")
+	if err != nil {
+		t.Fatalf("FollowWithoutDial: %v", err)
+	}
+	if fi.LocalTagName != "inbox-offline" {
+		t.Fatalf("local tag %q want inbox-offline", fi.LocalTagName)
+	}
+	// DB row
+	var n int
+	fDB.QueryRow(`SELECT COUNT(*) FROM follows WHERE id = ?`, fi.ID).Scan(&n)
+	if n != 1 {
+		t.Fatalf("follows rows %d want 1", n)
+	}
+	// In-memory follow registered (reconnect loop is running).
+	fM.mu.RLock()
+	_, ok := fM.follows[fi.ID]
+	fM.mu.RUnlock()
+	if !ok {
+		t.Fatalf("follow %d not registered in memory", fi.ID)
 	}
 }

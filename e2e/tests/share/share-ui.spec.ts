@@ -108,43 +108,54 @@ test.describe('Share - UI smoke tests', () => {
       { timeout: 5000 },
     );
 
+    // Stub TestFollowConnection so the happy-path case doesn't actually dial
+    // (this test is about the UI gating, not real peer discovery).
+    await app.page.evaluate(() => {
+      (window as any).go.main.ShareService.TestFollowConnection = async () => undefined;
+    });
+
     const textarea = app.page.locator('#follow-share-string');
-    const errorEl = app.page.locator('#follow-share-error');
+    const invalidEl = app.page.locator('#follow-share-invalid');
     const tagSection = app.page.locator('#follow-share-tag-section');
     const confirmBtn = app.page.locator('#follow-share-confirm-btn');
 
-    // Case 1: plainly wrong string — should show error, hide tag section, disable confirm.
+    // Case 1: plainly wrong string — client-side parse fails → invalidFormat state.
     await textarea.fill('not-a-share-link');
     await app.page.evaluate(() =>
       document.getElementById('follow-share-string')?.dispatchEvent(new Event('input', { bubbles: true })),
     );
-    await expect(errorEl).toBeVisible();
+    await expect(invalidEl).toBeVisible();
     await expect(tagSection).toBeHidden();
     await expect(confirmBtn).toBeDisabled();
 
-    // Case 2: correct prefix but invalid base64url chars.
+    // Case 2: correct prefix but invalid base64url chars — also fails client-side.
     await textarea.fill('mp-share:v1:!@#$%');
     await app.page.evaluate(() =>
       document.getElementById('follow-share-string')?.dispatchEvent(new Event('input', { bubbles: true })),
     );
-    await expect(errorEl).toBeVisible();
+    await expect(invalidEl).toBeVisible();
     await expect(tagSection).toBeHidden();
     await expect(confirmBtn).toBeDisabled();
 
-    // Case 3: empty field — error should disappear.
+    // Case 3: empty field — no error block visible, confirm still disabled.
     await textarea.fill('');
     await app.page.evaluate(() =>
       document.getElementById('follow-share-string')?.dispatchEvent(new Event('input', { bubbles: true })),
     );
-    await expect(errorEl).toBeHidden();
+    await expect(invalidEl).toBeHidden();
     await expect(confirmBtn).toBeDisabled();
 
-    // Case 4: valid prefix + base64url blob — tag section should appear and confirm enabled.
+    // Case 4: valid prefix + base64url blob — passes client parse, stubbed
+    // TestFollowConnection resolves, tag section appears. Tag input is empty
+    // so confirm stays disabled until user types a tag.
     await textarea.fill('mp-share:v1:AAABBBCCC');
     await app.page.evaluate(() =>
       document.getElementById('follow-share-string')?.dispatchEvent(new Event('input', { bubbles: true })),
     );
-    await expect(tagSection).toBeVisible();
+    // Tag section appears after the 400ms input debounce + stubbed resolve.
+    await expect(tagSection).toBeVisible({ timeout: 3000 });
+    // Type a tag — confirm should enable.
+    await app.page.locator('#follow-share-local-tag').fill('some-tag');
     await expect(confirmBtn).toBeEnabled();
   });
 });

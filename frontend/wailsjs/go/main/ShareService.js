@@ -14,6 +14,10 @@ export function Follow(arg1, arg2) {
   return window['go']['main']['ShareService']['Follow'](arg1, arg2);
 }
 
+export function FollowWithoutDial(arg1, arg2) {
+  return window['go']['main']['ShareService']['FollowWithoutDial'](arg1, arg2);
+}
+
 export function GetShareStatus() {
   return window['go']['main']['ShareService']['GetShareStatus']();
 }
@@ -24,6 +28,10 @@ export function StartShare(arg1) {
 
 export function StopShare(arg1) {
   return window['go']['main']['ShareService']['StopShare'](arg1);
+}
+
+export function TestFollowConnection(arg1) {
+  return window['go']['main']['ShareService']['TestFollowConnection'](arg1);
 }
 
 export function Unfollow(arg1) {

@@ -1781,9 +1781,37 @@
             <textarea id="follow-share-string" rows="3"
                 class="block w-full border border-stone-200 rounded-md text-xs bg-white placeholder-stone-400 focus:outline-none focus:border-stone-400 focus:ring-1 focus:ring-stone-400/20 transition-colors py-2 px-2 mb-3 font-mono"
                 placeholder="mp-share:v1:..."></textarea>
-            <div id="follow-share-tag-section" class="hidden">
+
+            <!-- Inline format hint — shown when the textarea has non-empty but malformed text. -->
+            <p id="follow-share-invalid" class="hidden text-[11px] text-red-600 mb-2">Not a valid share link.</p>
+
+            <!-- Self-follow message — shown when the pasted link resolves to our own peer ID. -->
+            <p id="follow-share-self" class="hidden text-[11px] text-red-600 mb-2">This is your own share — you can't follow yourself.</p>
+
+            <!-- Connecting spinner — shown while TestFollowConnection is in flight. -->
+            <div id="follow-share-connecting" class="hidden flex items-center gap-2 text-[11px] text-stone-500 py-2 mb-2" aria-live="polite">
+                <svg class="animate-spin w-3.5 h-3.5 text-stone-500" fill="none" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+                </svg>
+                <span>Establishing connection…</span>
+            </div>
+
+            <!-- Unreachable state — failed dial. Retry or Follow-anyway. -->
+            <div id="follow-share-unreachable" class="hidden bg-amber-50 border border-amber-200 rounded-md px-3 py-2 mb-3">
+                <p id="follow-share-unreachable-msg" class="text-[11px] text-amber-700 mb-2">Can't reach that peer right now. They may be offline or on a different network.</p>
+                <div class="flex gap-2">
+                    <button id="follow-share-retry-btn" type="button"
+                        class="border border-stone-200 bg-white hover:border-stone-300 hover:bg-stone-100 text-stone-700 text-[11px] font-medium py-1 px-2 rounded-md transition-colors">Retry</button>
+                    <button id="follow-share-follow-anyway-btn" type="button"
+                        class="border border-stone-200 bg-white hover:border-stone-300 hover:bg-stone-100 text-stone-700 text-[11px] font-medium py-1 px-2 rounded-md transition-colors">Follow anyway</button>
+                </div>
+            </div>
+
+            <!-- Tag picker — shown after a successful dial OR after Follow-anyway is clicked. -->
+            <div id="follow-share-tag-section" class="hidden relative">
                 <label class="block text-xs font-medium text-stone-600 mb-1">Assign incoming clips to local tag</label>
-                <input id="follow-share-local-tag" type="text" required
+                <input id="follow-share-local-tag" type="text" required autocomplete="off"
                     class="block w-full border border-stone-200 rounded-md text-sm bg-white placeholder-stone-400 focus:outline-none focus:border-stone-400 focus:ring-1 focus:ring-stone-400/20 transition-colors py-2 px-2 mb-3"
                     placeholder="e.g. shared/from-alice">
             </div>
@@ -1849,6 +1877,7 @@
     <script src="js/editor.js"></script>
     <script src="js/watch.js"></script>
     <script src="js/serve.js"></script>
+    <script src="js/tag-autocomplete.js"></script>
     <script src="js/share.js"></script>
     <script src="js/settings.js"></script>
     <script src="js/plugins.js"></script>

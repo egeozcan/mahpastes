@@ -21,6 +21,13 @@
   const followTagInput = document.getElementById('follow-share-local-tag');
   const followErr = document.getElementById('follow-share-error');
   const followConfirmBtn = document.getElementById('follow-share-confirm-btn');
+  const followInvalid = document.getElementById('follow-share-invalid');
+  const followSelf = document.getElementById('follow-share-self');
+  const followConnecting = document.getElementById('follow-share-connecting');
+  const followUnreachable = document.getElementById('follow-share-unreachable');
+  const followUnreachableMsg = document.getElementById('follow-share-unreachable-msg');
+  const followRetryBtn = document.getElementById('follow-share-retry-btn');
+  const followAnywayBtn = document.getElementById('follow-share-follow-anyway-btn');
 
   const addShareBtn = document.getElementById('add-share-btn');
   const addFollowBtn = document.getElementById('add-follow-btn');
@@ -214,19 +221,10 @@
     }
   });
 
-  // Follow modal
-  addFollowBtn.addEventListener('click', () => {
-    followString.value = '';
-    followTagInput.value = '';
-    followErr.classList.add('hidden');
-    followTagSec.classList.add('hidden');
-    followConfirmBtn.disabled = true;
-    followModal.classList.remove('hidden');
-  });
-  document.querySelectorAll('.follow-share-close').forEach(b => b.addEventListener('click', () => {
-    followModal.classList.add('hidden');
-  }));
+  // --- Follow modal ---
 
+  // Client-side format check for the pasted share string. Keeps bogus input
+  // from firing a backend round-trip. The server does real validation.
   function parseShareStringClientSide(s) {
     if (!s || !s.startsWith('mp-share:v1:')) return null;
     const blob = s.substring('mp-share:v1:'.length);
@@ -234,22 +232,158 @@
     return true;
   }
 
-  followString.addEventListener('input', () => {
-    const ok = parseShareStringClientSide(followString.value.trim());
-    if (ok) {
-      followTagSec.classList.remove('hidden');
-      followErr.classList.add('hidden');
-      followConfirmBtn.disabled = false;
-    } else {
-      followTagSec.classList.add('hidden');
-      followConfirmBtn.disabled = true;
-      if (followString.value.trim().length > 0) {
-        followErr.textContent = 'Not a valid share link';
-        followErr.classList.remove('hidden');
-      } else {
-        followErr.classList.add('hidden');
-      }
+  // Translate a raw error message from the Wails boundary into a UI state.
+  // Wails serializes Go errors to plain strings so we pattern-match on
+  // stable substrings produced by share_manager.go.
+  function mapShareError(raw) {
+    const s = String((raw && raw.message) || raw || '').toLowerCase();
+    if (s.includes('cannot follow your own share')) {
+      return { kind: 'self', msg: "This is your own share — you can't follow yourself." };
     }
+    if (s.includes('invalid share string') || s.includes('peer id')) {
+      return { kind: 'invalid', msg: 'Not a valid share link.' };
+    }
+    if (s.includes('initial dial') || s.includes('dht find peer') ||
+        s.includes('dial') || s.includes('connect')) {
+      return { kind: 'unreachable', msg: "Can't reach that peer right now. They may be offline or on a different network." };
+    }
+    return { kind: 'generic', msg: String((raw && raw.message) || raw || 'Unknown error') };
+  }
+
+  // Modal state machine. `followAnywayArmed` is a sticky flag that lets the
+  // user proceed through the tag-picker after an unreachable error.
+  let followState = 'idle';
+  let followAnywayArmed = false;
+  let latestReqID = 0;         // race guard — stale TestFollowConnection results are discarded
+  let connectDebounceTimer = null;
+  let autocompleteHandle = null;
+
+  function hide(...els) { els.forEach(el => el && el.classList.add('hidden')); }
+  function show(...els) { els.forEach(el => el && el.classList.remove('hidden')); }
+
+  function updateConfirmEnabled() {
+    const tagNonEmpty = followTagInput.value.trim().length > 0;
+    const canCommit = (followState === 'connected' || (followState === 'unreachable' && followAnywayArmed));
+    followConfirmBtn.disabled = !(canCommit && tagNonEmpty);
+  }
+
+  function setFollowState(s, ctx) {
+    followState = s;
+    hide(followInvalid, followSelf, followConnecting, followUnreachable, followTagSec, followErr);
+    followAnywayArmed = false;
+
+    switch (s) {
+      case 'idle':
+        break;
+      case 'invalidFormat':
+        show(followInvalid);
+        break;
+      case 'connecting':
+        show(followConnecting);
+        break;
+      case 'connected':
+        show(followTagSec);
+        // Focus the tag input so the user can start typing immediately.
+        // RAF ensures the element is visible before the browser processes focus.
+        requestAnimationFrame(() => followTagInput.focus());
+        break;
+      case 'selfFollow':
+        show(followSelf);
+        break;
+      case 'unreachable':
+        if (ctx && ctx.msg) followUnreachableMsg.textContent = ctx.msg;
+        show(followUnreachable);
+        // followAnywayArmed is set separately by the click handler; when armed
+        // we also reveal the tag section.
+        break;
+      case 'committing':
+        // Visible blocks stay as-is; just lock the inputs.
+        break;
+    }
+    updateConfirmEnabled();
+  }
+
+  function armFollowAnyway() {
+    if (followState !== 'unreachable') return;
+    followAnywayArmed = true;
+    show(followTagSec);
+    requestAnimationFrame(() => followTagInput.focus());
+    updateConfirmEnabled();
+  }
+
+  function resetFollowModal() {
+    latestReqID++;      // invalidate any pending dial
+    clearTimeout(connectDebounceTimer);
+    followString.value = '';
+    followTagInput.value = '';
+    followAnywayArmed = false;
+    followConfirmBtn.textContent = 'Follow';
+    setFollowState('idle');
+    if (autocompleteHandle) { autocompleteHandle.destroy(); autocompleteHandle = null; }
+  }
+
+  async function runConnect(shareStr) {
+    const my = ++latestReqID;
+    setFollowState('connecting');
+    try {
+      await window.go.main.ShareService.TestFollowConnection(shareStr);
+      if (my !== latestReqID) return;
+      setFollowState('connected');
+    } catch (e) {
+      if (my !== latestReqID) return;
+      const mapped = mapShareError(e);
+      if (mapped.kind === 'self') setFollowState('selfFollow');
+      else if (mapped.kind === 'invalid') setFollowState('invalidFormat');
+      else setFollowState('unreachable', { msg: mapped.msg });
+    }
+  }
+
+  // --- Listeners ---
+
+  addFollowBtn.addEventListener('click', () => {
+    resetFollowModal();
+    followModal.classList.remove('hidden');
+    // Attach autocomplete once per open — it destroys on close.
+    if (window.TagAutocomplete && !autocompleteHandle) {
+      autocompleteHandle = window.TagAutocomplete.attach(followTagInput, {
+        getTags: async () => window.go.main.App.GetTags(),
+        onSelect: (val) => {
+          followTagInput.value = val;
+          updateConfirmEnabled();
+        },
+      });
+    }
+  });
+
+  document.querySelectorAll('.follow-share-close').forEach(b => b.addEventListener('click', () => {
+    followModal.classList.add('hidden');
+    resetFollowModal();
+  }));
+
+  followString.addEventListener('input', () => {
+    // Bump immediately so any in-flight dial is discarded the moment the user edits.
+    latestReqID++;
+    clearTimeout(connectDebounceTimer);
+
+    const val = followString.value.trim();
+    if (!val) { setFollowState('idle'); return; }
+    if (!parseShareStringClientSide(val)) { setFollowState('invalidFormat'); return; }
+
+    // 400ms debounce before hitting the backend — pastes land as a single
+    // input event so the delay only matters if the user keeps typing.
+    connectDebounceTimer = setTimeout(() => runConnect(val), 400);
+  });
+
+  followTagInput.addEventListener('input', updateConfirmEnabled);
+
+  followRetryBtn.addEventListener('click', () => {
+    const val = followString.value.trim();
+    if (!val || !parseShareStringClientSide(val)) return;
+    runConnect(val);
+  });
+
+  followAnywayBtn.addEventListener('click', () => {
+    armFollowAnyway();
   });
 
   followConfirmBtn.addEventListener('click', async () => {
@@ -257,16 +391,38 @@
     const tagName = followTagInput.value.trim();
     if (!tagName) {
       followErr.textContent = 'Local tag name required';
-      followErr.classList.remove('hidden');
+      show(followErr);
       return;
     }
+    const usingFallback = (followState === 'unreachable' && followAnywayArmed);
+    const prevState = followState;
+    setFollowState('committing');
+    followConfirmBtn.disabled = true;
+    const origLabel = followConfirmBtn.textContent;
+    followConfirmBtn.textContent = 'Following…';
     try {
-      await window.go.main.ShareService.Follow(s, tagName);
+      if (usingFallback) {
+        await window.go.main.ShareService.FollowWithoutDial(s, tagName);
+      } else {
+        await window.go.main.ShareService.Follow(s, tagName);
+      }
       followModal.classList.add('hidden');
+      resetFollowModal();
       await refresh();
     } catch (e) {
-      followErr.textContent = String(e);
-      followErr.classList.remove('hidden');
+      // Restore state so the user can adjust input and retry. Show the raw
+      // (mapped) error inline; if it's an unreachable kind, also re-reveal
+      // the unreachable block with Retry/Follow-anyway.
+      const mapped = mapShareError(e);
+      setFollowState(prevState);
+      followConfirmBtn.textContent = origLabel;
+      if (mapped.kind === 'unreachable') {
+        setFollowState('unreachable', { msg: mapped.msg });
+      } else {
+        followErr.textContent = mapped.msg;
+        show(followErr);
+      }
+      updateConfirmEnabled();
     }
   });
 

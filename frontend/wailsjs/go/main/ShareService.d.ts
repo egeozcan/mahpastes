@@ -8,10 +8,14 @@ export function DisconnectFollowForTest(arg1:number):Promise<void>;
 
 export function Follow(arg1:string,arg2:string):Promise<main.FollowInfo>;
 
+export function FollowWithoutDial(arg1:string,arg2:string):Promise<main.FollowInfo>;
+
 export function GetShareStatus():Promise<main.ShareStatus>;
 
 export function StartShare(arg1:number):Promise<main.ShareInfo>;
 
 export function StopShare(arg1:number):Promise<void>;
+
+export function TestFollowConnection(arg1:string):Promise<void>;
 
 export function Unfollow(arg1:number):Promise<void>;

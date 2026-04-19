@@ -2728,6 +2728,16 @@ export class AppHelper {
       { timeout: 10000 },
     );
     await this.page.locator('#follow-share-local-tag').fill(localTagName);
+    // Dismiss the tag autocomplete dropdown so it doesn't overlap the
+    // Confirm button and intercept the click.
+    await this.page.locator('#follow-share-local-tag').evaluate((el: HTMLElement) => el.blur());
+    await this.page.waitForFunction(
+      () => {
+        const d = document.querySelector('#follow-share-tag-section [role="listbox"]');
+        return !d || (d as HTMLElement).classList.contains('hidden');
+      },
+      { timeout: 2000 },
+    );
     await this.page.click('#follow-share-confirm-btn');
     // Wait for the modal to close: it uses the Tailwind `hidden` class (display:none).
     // We poll for the class rather than using waitForSelector (which waits for visibility).

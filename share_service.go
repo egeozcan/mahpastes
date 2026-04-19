@@ -42,6 +42,26 @@ func (s *ShareService) Follow(shareString, localTagName string) (FollowInfo, err
 	return s.app.shareManager.Follow(shareString, localTagName)
 }
 
+// TestFollowConnection probes peer reachability without persisting anything.
+// UI wires this to the paste event so the user sees an immediate
+// connecting-spinner, then either the tag picker (on success) or a friendly
+// error with Retry + Follow-anyway options (on failure).
+func (s *ShareService) TestFollowConnection(shareString string) error {
+	if s.app.shareManager == nil {
+		return fmt.Errorf("share manager not initialized")
+	}
+	return s.app.shareManager.TestFollowConnection(shareString)
+}
+
+// FollowWithoutDial commits a follow without requiring an initial dial, for
+// the "Follow anyway" UI flow after TestFollowConnection has already failed.
+func (s *ShareService) FollowWithoutDial(shareString, localTagName string) (FollowInfo, error) {
+	if s.app.shareManager == nil {
+		return FollowInfo{}, fmt.Errorf("share manager not initialized")
+	}
+	return s.app.shareManager.FollowWithoutDial(shareString, localTagName)
+}
+
 func (s *ShareService) Unfollow(followID int64) error {
 	if s.app.shareManager == nil {
 		return fmt.Errorf("share manager not initialized")

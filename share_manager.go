@@ -782,43 +782,47 @@ func (m *ShareManager) liveFanOutLocked(p *publication, envelope []byte) {
 	}
 }
 
-// Follow validates a share string, creates/resolves the local tag, persists a
-// follows row, and starts the background reconnect loop.
-func (m *ShareManager) Follow(shareString, localTagName string) (FollowInfo, error) {
-	var info FollowInfo
+// Sentinel errors surfaced by Follow, TestFollowConnection, and FollowWithoutDial.
+// The Wails boundary flattens errors to plain strings on the frontend, so UI
+// code pattern-matches on the wrapped message; backend callers can use
+// errors.Is against these values.
+var (
+	ErrSelfFollow      = errors.New("cannot follow your own share")
+	ErrInvalidShareStr = errors.New("invalid share string")
+)
 
+// decodeAndCheckSelf parses a share string into (peerID, symkey) and rejects
+// self-follows. Malformed input wraps ErrInvalidShareStr.
+func (m *ShareManager) decodeAndCheckSelf(shareString string) (peer.ID, []byte, error) {
 	peerIDBytes, symkey, err := DecodeShareString(shareString)
 	if err != nil {
-		return info, fmt.Errorf("invalid share string: %w", err)
+		return "", nil, fmt.Errorf("%w: %w", ErrInvalidShareStr, err)
 	}
-	// Build libp2p peer.ID from raw Ed25519 public key bytes.
 	pubKey, err := cryptoPublicKeyFromBytes(peerIDBytes)
 	if err != nil {
-		return info, fmt.Errorf("peer id from key: %w", err)
+		return "", nil, fmt.Errorf("%w: peer id from key: %w", ErrInvalidShareStr, err)
 	}
 	pid, err := peer.IDFromPublicKey(pubKey)
 	if err != nil {
-		return info, fmt.Errorf("peer id: %w", err)
+		return "", nil, fmt.Errorf("%w: peer id: %w", ErrInvalidShareStr, err)
 	}
-	// Don't follow self.
 	if pid == m.host.ID() {
-		return info, errors.New("cannot follow your own share")
+		return "", nil, ErrSelfFollow
 	}
+	return pid, symkey, nil
+}
 
-	// Resolve or create the local tag.
+// followCommit resolves/creates the local tag, inserts the follows row, starts
+// runFollowLoop, and emits share:follow-updated. Shared by Follow (after a
+// successful initial dial) and FollowWithoutDial (which skips the dial).
+func (m *ShareManager) followCommit(pid peer.ID, symkey []byte, localTagName string) (FollowInfo, error) {
+	var info FollowInfo
+
 	localTagID, err := m.resolveOrCreateTag(localTagName)
 	if err != nil {
 		return info, fmt.Errorf("tag: %w", err)
 	}
 
-	// Attempt an initial connection (times out at HandshakeTimeout + 2s).
-	dctx, dcancel := context.WithTimeout(m.ctx, 10*time.Second)
-	defer dcancel()
-	if err := m.dialByPeerID(dctx, pid); err != nil {
-		return info, fmt.Errorf("initial dial: %w", err)
-	}
-
-	// Insert row.
 	now := time.Now().Unix()
 	res, err := m.db.Exec(
 		`INSERT INTO follows (remote_peer_id, symkey, local_tag_id, last_seq, last_seen_at, created_at) VALUES (?, ?, ?, 0, ?, ?)`,
@@ -853,6 +857,52 @@ func (m *ShareManager) Follow(shareString, localTagName string) (FollowInfo, err
 	}
 	m.emitEvent("share:follow-updated", info)
 	return info, nil
+}
+
+// Follow validates a share string, dials the peer, creates/resolves the local
+// tag, persists a follows row, and starts the background reconnect loop.
+func (m *ShareManager) Follow(shareString, localTagName string) (FollowInfo, error) {
+	var info FollowInfo
+	pid, symkey, err := m.decodeAndCheckSelf(shareString)
+	if err != nil {
+		return info, err
+	}
+	dctx, dcancel := context.WithTimeout(m.ctx, 10*time.Second)
+	defer dcancel()
+	if err := m.dialByPeerID(dctx, pid); err != nil {
+		return info, fmt.Errorf("initial dial: %w", err)
+	}
+	return m.followCommit(pid, symkey, localTagName)
+}
+
+// TestFollowConnection probes reachability without committing a follow. Uses a
+// 5s timeout — tighter than Follow's 10s because the UI shows a spinner while
+// this runs and should fail fast so the user can Retry or fall back to
+// FollowWithoutDial.
+func (m *ShareManager) TestFollowConnection(shareString string) error {
+	pid, _, err := m.decodeAndCheckSelf(shareString)
+	if err != nil {
+		return err
+	}
+	dctx, cancel := context.WithTimeout(m.ctx, 5*time.Second)
+	defer cancel()
+	if err := m.dialByPeerID(dctx, pid); err != nil {
+		return fmt.Errorf("initial dial: %w", err)
+	}
+	return nil
+}
+
+// FollowWithoutDial commits a follow without requiring an initial dial to
+// succeed. The frontend's "Follow anyway" escape hatch calls this when
+// TestFollowConnection has already failed — runFollowLoop retries through its
+// normal backoff until the peer comes online.
+func (m *ShareManager) FollowWithoutDial(shareString, localTagName string) (FollowInfo, error) {
+	var info FollowInfo
+	pid, symkey, err := m.decodeAndCheckSelf(shareString)
+	if err != nil {
+		return info, err
+	}
+	return m.followCommit(pid, symkey, localTagName)
 }
 
 // Unfollow cancels the reconnect loop and deletes the follows row.
