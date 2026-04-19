@@ -188,3 +188,46 @@ func setHiddenTagsTx(tx *sql.Tx, ids []int64) error {
 	}
 	return nil
 }
+
+// migrateTagReferences moves all non-networked ID-keyed references from
+// source to destination inside an existing transaction. Networked state
+// (shares, follows, serves) is refused at the precondition phase and is
+// never touched here.
+func (a *App) migrateTagReferences(tx *sql.Tx, fromID, toID int64) error {
+	// API keys — migrate scope (preserves user intent).
+	if _, err := tx.Exec(`UPDATE api_keys SET scoped_tag_id = ? WHERE scoped_tag_id = ?`, toID, fromID); err != nil {
+		return fmt.Errorf("migrate api_keys: %w", err)
+	}
+	// Watched folders — migrate auto-tag target.
+	if _, err := tx.Exec(`UPDATE watched_folders SET auto_tag_id = ? WHERE auto_tag_id = ?`, toID, fromID); err != nil {
+		return fmt.Errorf("migrate watched_folders: %w", err)
+	}
+	// Hidden tag list — swap membership. Uses tx-aware helpers (getHiddenTagsTx,
+	// setHiddenTagsTx) so the read+write participate in the caller's snapshot.
+	hiddenIDs, err := getHiddenTagsTx(tx)
+	if err != nil {
+		return fmt.Errorf("get hidden: %w", err)
+	}
+	newHidden := make([]int64, 0, len(hiddenIDs))
+	sawSrc := false
+	sawDst := false
+	for _, id := range hiddenIDs {
+		if id == fromID {
+			sawSrc = true
+			continue
+		}
+		if id == toID {
+			sawDst = true
+		}
+		newHidden = append(newHidden, id)
+	}
+	if sawSrc && !sawDst {
+		newHidden = append(newHidden, toID)
+	}
+	if sawSrc {
+		if err := setHiddenTagsTx(tx, newHidden); err != nil {
+			return fmt.Errorf("update hidden_tags: %w", err)
+		}
+	}
+	return nil
+}
