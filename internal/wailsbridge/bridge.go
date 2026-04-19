@@ -28,6 +28,12 @@ func New(ctx context.Context) *Bridge {
 	return &Bridge{ctx: ctx}
 }
 
+// NewForTesting returns a Bridge that is safe to Emit into without a Wails
+// runtime context. Emits are no-ops unless a testSink is installed.
+func NewForTesting() *Bridge {
+	return &Bridge{}
+}
+
 // active reports whether the bridge is wired up enough to perform a runtime
 // call. Centralizing this keeps every method's nil-safety identical.
 func (b *Bridge) active() bool {
