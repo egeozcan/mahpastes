@@ -83,8 +83,8 @@ async function updateMergePreview() {
                 return;
             }
             mergeTagPreview.innerHTML = `
-                <span class="block">${preview.clip_count} clip${preview.clip_count !== 1 ? 's' : ''} will be reassigned.</span>
-                <span class="block">${preview.descendant_count} descendant tag${preview.descendant_count !== 1 ? 's' : ''} will move under ${escapeHTML(preview.dest_name)}/.</span>`;
+                <span class="block">${escapeHTML(String(preview.clip_count))} clip${preview.clip_count !== 1 ? 's' : ''} will be reassigned.</span>
+                <span class="block">${escapeHTML(String(preview.descendant_count))} descendant tag${preview.descendant_count !== 1 ? 's' : ''} will move under ${escapeHTML(preview.dest_name)}/.</span>`;
             mergeTagConfirmBtn.disabled = false;
             mergeTagConfirmBtn.dataset.destId = dest.id;
         } catch (err) {
