@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -216,6 +218,30 @@ func initDB() (*sql.DB, error) {
 		log.Printf("Warning: Failed to create api_keys table: %v", err)
 	}
 
+	// Migrate: api_keys.scoped_tag_id was originally ON DELETE CASCADE, which
+	// silently deleted user API keys when a scoped tag was deleted. Rebuild the
+	// table with ON DELETE SET NULL so the key row is preserved for audit.
+	// SQLite can't change FK actions in place — use the table-rebuild pattern.
+	if needsAPIKeysScopedTagMigration(db) {
+		if err := migrateAPIKeysScopedTagSetNull(db); err != nil {
+			log.Printf("Warning: api_keys FK migration failed: %v", err)
+		}
+	}
+
+	// Trigger: auto-revoke any key whose scope gets NULLed out (migration or
+	// future tag deletes). Preserves the row for audit; denies access because
+	// is_revoked = 1 is checked in the auth middleware.
+	if _, err := db.Exec(`
+		CREATE TRIGGER IF NOT EXISTS api_keys_revoke_on_scope_null
+		AFTER UPDATE OF scoped_tag_id ON api_keys
+		WHEN NEW.scoped_tag_id IS NULL AND OLD.scoped_tag_id IS NOT NULL
+		BEGIN
+			UPDATE api_keys SET is_revoked = 1 WHERE id = NEW.id;
+		END;
+	`); err != nil {
+		log.Printf("Warning: failed to create api_keys_revoke_on_scope_null trigger: %v", err)
+	}
+
 	// Create shares table (publisher-side publications)
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS shares (
 		id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -313,6 +339,96 @@ func backfillContentHashes(db *sql.DB) {
 	if updated > 0 {
 		log.Printf("Backfilled content_hash for %d clips", updated)
 	}
+}
+
+// migrateFailHook, if non-nil, is invoked inside migrateAPIKeysScopedTagSetNull
+// AFTER PRAGMA foreign_keys=OFF but BEFORE the table rebuild commits.
+// Returning a non-nil error forces the migration's error path so tests can
+// verify the deferred PRAGMA foreign_keys=ON still runs and the connection
+// can't be returned to the pool with FK checks disabled. Production code
+// leaves this nil.
+var migrateFailHook func() error
+
+// needsAPIKeysScopedTagMigration returns true iff the api_keys table's SQL
+// still contains "ON DELETE CASCADE" on scoped_tag_id.
+func needsAPIKeysScopedTagMigration(db *sql.DB) bool {
+	var tableSQL string
+	err := db.QueryRow(`SELECT sql FROM sqlite_master WHERE type='table' AND name='api_keys'`).Scan(&tableSQL)
+	if err != nil {
+		return false
+	}
+	return strings.Contains(tableSQL, "scoped_tag_id") && strings.Contains(tableSQL, "ON DELETE CASCADE")
+}
+
+// migrateAPIKeysScopedTagSetNull rebuilds api_keys with SET NULL instead of
+// CASCADE on scoped_tag_id. Uses the standard SQLite table-rebuild pattern.
+// Grabs a dedicated connection so PRAGMA foreign_keys=OFF doesn't leak to
+// the pool — and guarantees we re-enable FK checks before the conn returns
+// to the pool, even on the error path.
+func migrateAPIKeysScopedTagSetNull(db *sql.DB) error {
+	ctx := context.Background()
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("acquire conn: %w", err)
+	}
+	// CRITICAL: restore foreign_keys BEFORE conn.Close(). conn.Close() returns
+	// the connection to the pool; a FK-disabled pooled conn would silently
+	// undermine every future query. LIFO defer: the inner defer runs first.
+	defer conn.Close()
+	defer func() {
+		if _, err := conn.ExecContext(ctx, `PRAGMA foreign_keys=ON`); err != nil {
+			log.Printf("CRITICAL: failed to re-enable foreign_keys on migration conn: %v", err)
+		}
+	}()
+
+	if _, err := conn.ExecContext(ctx, `PRAGMA foreign_keys=OFF`); err != nil {
+		return fmt.Errorf("disable FK: %w", err)
+	}
+
+	if migrateFailHook != nil {
+		if err := migrateFailHook(); err != nil {
+			return fmt.Errorf("test hook: %w", err)
+		}
+	}
+
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, `
+		CREATE TABLE api_keys_new (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL,
+			key_hash TEXT NOT NULL UNIQUE,
+			key_prefix TEXT NOT NULL,
+			role TEXT NOT NULL DEFAULT 'viewer',
+			scoped_tag_id INTEGER,
+			is_revoked INTEGER DEFAULT 0,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			last_used_at DATETIME,
+			FOREIGN KEY (scoped_tag_id) REFERENCES tags(id) ON DELETE SET NULL
+		)`); err != nil {
+		return fmt.Errorf("create new: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO api_keys_new (id, name, key_hash, key_prefix, role, scoped_tag_id, is_revoked, created_at, last_used_at)
+		SELECT id, name, key_hash, key_prefix, role, scoped_tag_id, is_revoked, created_at, last_used_at FROM api_keys`); err != nil {
+		return fmt.Errorf("copy: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DROP TABLE api_keys`); err != nil {
+		return fmt.Errorf("drop old: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `ALTER TABLE api_keys_new RENAME TO api_keys`); err != nil {
+		return fmt.Errorf("rename: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+	// Deferred PRAGMA foreign_keys=ON runs next, then conn.Close().
+	return nil
 }
 
 // startCleanupJob deletes expired clips every minute
