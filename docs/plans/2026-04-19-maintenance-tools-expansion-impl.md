@@ -2247,46 +2247,114 @@ Create `e2e/tests/tags/autocomplete-allowcreate.spec.ts`:
 import { test } from '../../fixtures/test-fixtures';
 import { expect } from '@playwright/test';
 
+// Playwright in this repo reuses a worker-scoped page between tests and
+// fastReset() doesn't clean up ad hoc DOM nodes, so any input/dropdown we
+// mount must be torn down explicitly or the next test can observe stale
+// rows. Each test below:
+//   1. uses a unique container id, so the `beforeEach` cleanup can remove
+//      only what this test mounted without stomping on app DOM,
+//   2. calls the returned autocomplete handle's destroy() to unregister
+//      listeners and remove the dropdown,
+//   3. scopes the dropdown locator to the specific input's immediate next
+//      sibling (TagAutocomplete inserts the dropdown via
+//      input.insertAdjacentElement('afterend', dropdown) at
+//      tag-autocomplete.js:80) so we can never accidentally match a
+//      dropdown left behind by a previous test.
+
+const MOUNT_CONTAINER_PREFIX = 'ac-test-container-';
+
+test.afterEach(async ({ app }) => {
+    // Remove every container and widget this file mounted, regardless of
+    // which test it belongs to. Safe even if some tests didn't add one.
+    await app.page.evaluate((prefix) => {
+        document.querySelectorAll(`[id^="${prefix}"]`).forEach(el => el.remove());
+    }, MOUNT_CONTAINER_PREFIX);
+});
+
 test.describe('TagAutocomplete allowCreate option', () => {
     test('does not offer "Create new" row when allowCreate is false', async ({ app }) => {
         await app.createTag('existing-tag');
 
-        // Mount a throwaway input and attach TagAutocomplete with allowCreate:false.
-        await app.page.evaluate(() => {
-            const input = document.createElement('input');
-            input.id = 'test-ac-input';
-            document.body.appendChild(input);
-            // @ts-expect-error — runtime helper
-            window.TagAutocomplete.attach(input, { allowCreate: false });
-        });
+        const containerID = `${MOUNT_CONTAINER_PREFIX}nocreate`;
+        const inputID = `${containerID}-input`;
 
-        const input = app.page.locator('#test-ac-input');
+        // Mount inside a unique container + attach widget.
+        await app.page.evaluate(([cID, iID]) => {
+            const box = document.createElement('div');
+            box.id = cID;
+            box.style.position = 'relative'; // TagAutocomplete positions dropdown absolutely.
+            const input = document.createElement('input');
+            input.id = iID;
+            box.appendChild(input);
+            document.body.appendChild(box);
+            // @ts-expect-error — runtime helper
+            const handle = window.TagAutocomplete.attach(input, { allowCreate: false });
+            // Stash the handle so the afterEach can call destroy() before DOM removal.
+            // @ts-expect-error
+            window[`__ac_handle_${cID}`] = handle;
+        }, [containerID, inputID]);
+
+        const input = app.page.locator(`#${inputID}`);
         await input.fill('brand-new-never-created');
         await app.page.waitForTimeout(100); // let the dropdown render
 
-        // No row should offer to create a new tag.
-        const createRow = app.page.locator('[role="option"]:has-text("Create new")');
-        await expect(createRow).toHaveCount(0);
+        // Scope the locator to THIS input's dropdown only — the immediate
+        // next sibling — so leaks from any other test can't skew the count.
+        const scopedCreateRow = app.page.locator(
+            `#${inputID} + div [role="option"]:has-text("Create new")`,
+        );
+        await expect(scopedCreateRow).toHaveCount(0);
+
+        // Tear down this widget explicitly (afterEach also wipes, but
+        // calling destroy() first ensures listeners are removed cleanly).
+        await app.page.evaluate((cID) => {
+            // @ts-expect-error
+            const h = window[`__ac_handle_${cID}`];
+            if (h && typeof h.destroy === 'function') h.destroy();
+            // @ts-expect-error
+            delete window[`__ac_handle_${cID}`];
+        }, containerID);
     });
 
     test('still offers "Create new" row by default (backward compat)', async ({ app }) => {
-        await app.page.evaluate(() => {
-            const input = document.createElement('input');
-            input.id = 'test-ac-input-2';
-            document.body.appendChild(input);
-            // @ts-expect-error
-            window.TagAutocomplete.attach(input, {});
-        });
+        const containerID = `${MOUNT_CONTAINER_PREFIX}default`;
+        const inputID = `${containerID}-input`;
 
-        const input = app.page.locator('#test-ac-input-2');
+        await app.page.evaluate(([cID, iID]) => {
+            const box = document.createElement('div');
+            box.id = cID;
+            box.style.position = 'relative';
+            const input = document.createElement('input');
+            input.id = iID;
+            box.appendChild(input);
+            document.body.appendChild(box);
+            // @ts-expect-error
+            const handle = window.TagAutocomplete.attach(input, {});
+            // @ts-expect-error
+            window[`__ac_handle_${cID}`] = handle;
+        }, [containerID, inputID]);
+
+        const input = app.page.locator(`#${inputID}`);
         await input.fill('another-new-tag');
         await app.page.waitForTimeout(100);
 
-        const createRow = app.page.locator('[role="option"]:has-text("Create new")');
-        await expect(createRow).toHaveCount(1);
+        const scopedCreateRow = app.page.locator(
+            `#${inputID} + div [role="option"]:has-text("Create new")`,
+        );
+        await expect(scopedCreateRow).toHaveCount(1);
+
+        await app.page.evaluate((cID) => {
+            // @ts-expect-error
+            const h = window[`__ac_handle_${cID}`];
+            if (h && typeof h.destroy === 'function') h.destroy();
+            // @ts-expect-error
+            delete window[`__ac_handle_${cID}`];
+        }, containerID);
     });
 });
 ```
+
+If `TagAutocomplete.attach()` doesn't currently return a handle (grep for the `return` in `tag-autocomplete.js` to confirm), either (a) use only the `afterEach` DOM-removal cleanup and drop the `.destroy()` calls, or (b) extend the module to return a handle with `destroy()`. The header comment at `tag-autocomplete.js:8` already documents `ac.destroy()` as part of the API, suggesting the handle should exist — verify this before moving on.
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -2335,10 +2403,17 @@ function buildItems(query) {
 Run: `cd e2e && npx playwright test tests/tags/autocomplete-allowcreate.spec.ts 2>&1 | tail -20`
 Expected: both PASS.
 
-- [ ] **Step 5: Run the broader tag e2e suite to catch regressions**
+- [ ] **Step 5: Run backward-compat regression runs for every known callsite**
+
+`tests/tags` alone doesn't prove backward compat. The main existing `TagAutocomplete` callsites are in `frontend/js/share.js` (follow creation and edit-follow flows), which live under `e2e/tests/share/`. Run both suites:
 
 Run: `cd e2e && npx playwright test tests/tags 2>&1 | tail -40`
-Expected: all PASS — default `allowCreate: true` keeps every existing callsite (share edit, etc.) working.
+Expected: all PASS — the tag suite covers tag-autocomplete's new flag and existing tag-CRUD.
+
+Run: `cd e2e && npx playwright test tests/share 2>&1 | tail -40`
+Expected: all PASS — the share suite exercises the TagAutocomplete callsites in `share.js:484` (edit-follow input) and any follow-creation flows that rely on the default `allowCreate: true` behavior.
+
+If either suite fails, the cause is almost certainly the `allowCreate` default slipping to `false` — `attach(input, opts)` reads `opts.allowCreate !== false`, which evaluates to `true` when `opts.allowCreate === undefined`. Re-check Step 3.
 
 - [ ] **Step 6: Commit**
 
