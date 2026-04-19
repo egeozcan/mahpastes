@@ -26,7 +26,6 @@ import (
 	"go-clipboard/internal/wailsbridge"
 	"go-clipboard/plugin"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 	"golang.design/x/clipboard"
 	_ "golang.org/x/image/webp"
 )
@@ -61,11 +60,10 @@ func computeContentHash(data []byte) string {
 	return hex.EncodeToString(hash[:])
 }
 
-// emitEvent sends a frontend event, guarded for nil ctx (e.g. in tests).
+// emitEvent sends a frontend event. The bridge is nil-safe, so this is a
+// no-op during tests that don't run the Wails lifecycle.
 func (a *App) emitEvent(event string, data ...interface{}) {
-	if a.ctx != nil {
-		runtime.EventsEmit(a.ctx, event, data...)
-	}
+	a.bridge.Emit(event, data...)
 }
 
 // emitPluginEvent dispatches a plugin event, guarded for nil pluginManager.
@@ -77,7 +75,7 @@ func (a *App) emitPluginEvent(name string, data map[string]interface{}) {
 
 // emitWatchError sends an error event to the frontend
 func (a *App) emitWatchError(filePath string, errMsg string) {
-	runtime.EventsEmit(a.ctx, "watch:error", map[string]string{
+	a.bridge.Emit("watch:error", map[string]string{
 		"file":  filepath.Base(filePath),
 		"error": errMsg,
 	})
@@ -85,7 +83,7 @@ func (a *App) emitWatchError(filePath string, errMsg string) {
 
 // emitWatchImport sends an import event to the frontend with full clip data
 func (a *App) emitWatchImport(clip ClipPreview) {
-	runtime.EventsEmit(a.ctx, "watch:import", clip)
+	a.bridge.Emit("watch:import", clip)
 }
 
 // getClipPreview fetches a single clip's preview data (private helper, not exported to frontend)
@@ -182,13 +180,7 @@ func (a *App) startup(ctx context.Context) {
 		} else {
 			a.shareManager = sm
 			// Push Wails events to the frontend from the manager.
-			sm.SetEventFn(func(name string, data ...any) {
-				if len(data) == 1 {
-					runtime.EventsEmit(ctx, name, data[0])
-				} else {
-					runtime.EventsEmit(ctx, name, data...)
-				}
-			})
+			sm.SetEventFn(a.bridge.Emit)
 			if err := sm.ResumeAll(); err != nil {
 				log.Printf("Warning: ShareManager ResumeAll: %v", err)
 			}
@@ -225,7 +217,7 @@ func (a *App) startup(ctx context.Context) {
 		// Set up permission callback for filesystem access
 		pm.SetPermissionCallback(func(pluginName, permType, requestedPath string) string {
 			// Use Wails runtime dialog for folder selection
-			path, err := runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
+			path, err := a.bridge.OpenDirectory(wailsbridge.FileDialogOptions{
 				Title:                fmt.Sprintf("Plugin '%s' requests %s access", pluginName, permType),
 				DefaultDirectory:     filepath.Dir(requestedPath),
 				CanCreateDirectories: permType == "fs_write",
@@ -787,7 +779,7 @@ func (a *App) UploadFileAndGetID(file FileData) (int64, error) {
 	var dupCount int
 	a.db.QueryRow("SELECT COUNT(*) FROM clips WHERE content_hash = ? AND id != ?", contentHash, id).Scan(&dupCount)
 	if dupCount > 0 {
-		runtime.EventsEmit(a.ctx, "clip:duplicate", map[string]interface{}{
+		a.bridge.Emit("clip:duplicate", map[string]interface{}{
 			"id":    id,
 			"count": dupCount,
 		})
@@ -861,7 +853,7 @@ func (a *App) UploadFiles(files []FileData, expirationMinutes int, autoTagID int
 		var dupCount int
 		a.db.QueryRow("SELECT COUNT(*) FROM clips WHERE content_hash = ? AND id != ?", contentHash, clipID).Scan(&dupCount)
 		if dupCount > 0 {
-			runtime.EventsEmit(a.ctx, "clip:duplicate", map[string]interface{}{
+			a.bridge.Emit("clip:duplicate", map[string]interface{}{
 				"id":    clipID,
 				"count": dupCount,
 			})
@@ -2210,10 +2202,10 @@ func (a *App) BulkDownloadToFile(ids []int64) error {
 
 	// Show save dialog
 	defaultFilename := fmt.Sprintf("clips_%s.zip", time.Now().Format("20060102150405"))
-	savePath, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+	savePath, err := a.bridge.SaveFile(wailsbridge.FileDialogOptions{
 		DefaultFilename: defaultFilename,
 		Title:           "Save Clips Archive",
-		Filters: []runtime.FileFilter{
+		Filters: []wailsbridge.FileFilter{
 			{DisplayName: "ZIP Archives", Pattern: "*.zip"},
 		},
 	})
@@ -2346,7 +2338,7 @@ func (a *App) SaveClipToFile(id int64) error {
 	}
 
 	// Show save dialog
-	savePath, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+	savePath, err := a.bridge.SaveFile(wailsbridge.FileDialogOptions{
 		DefaultFilename: defaultFilename,
 		Title:           "Save Clip",
 	})
@@ -2370,10 +2362,10 @@ func (a *App) SaveClipToFile(id int64) error {
 func (a *App) ShowCreateBackupDialog() (string, error) {
 	defaultFilename := fmt.Sprintf("mahpastes-backup-%s.zip", time.Now().Format("2006-01-02"))
 
-	savePath, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+	savePath, err := a.bridge.SaveFile(wailsbridge.FileDialogOptions{
 		DefaultFilename: defaultFilename,
 		Title:           "Create Backup",
-		Filters: []runtime.FileFilter{
+		Filters: []wailsbridge.FileFilter{
 			{DisplayName: "ZIP Archives", Pattern: "*.zip"},
 		},
 	})
@@ -2394,9 +2386,9 @@ func (a *App) ShowCreateBackupDialog() (string, error) {
 
 // ShowRestoreBackupDialog opens a file picker and validates the selected backup
 func (a *App) ShowRestoreBackupDialog() (*BackupManifest, string, error) {
-	openPath, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+	openPath, err := a.bridge.OpenFile(wailsbridge.FileDialogOptions{
 		Title: "Select Backup to Restore",
-		Filters: []runtime.FileFilter{
+		Filters: []wailsbridge.FileFilter{
 			{DisplayName: "ZIP Archives", Pattern: "*.zip"},
 		},
 	})
@@ -2737,7 +2729,7 @@ func (a *App) SetFolderPaused(id int64, paused bool) error {
 
 // SelectFolder opens a native folder picker dialog
 func (a *App) SelectFolder() (string, error) {
-	path, err := runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
+	path, err := a.bridge.OpenDirectory(wailsbridge.FileDialogOptions{
 		Title: "Select Folder to Watch",
 	})
 	if err != nil {
