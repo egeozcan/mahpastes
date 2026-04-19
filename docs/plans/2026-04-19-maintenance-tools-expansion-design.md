@@ -28,14 +28,17 @@ Everything currently keyed on a tag's ID:
 | `clip_tags.tag_id` | FK | `ON DELETE CASCADE` | via cascade |
 | `api_keys.scoped_tag_id` | FK | `ON DELETE CASCADE` | via cascade (**bug: deletes the key**) |
 | `shares.tag_id` | FK | none | `StopShare(id)` called before delete |
-| `follows.local_tag_id` | col | none | **not handled (orphan row)** |
+| `follows.local_tag_id` | FK | `ON DELETE RESTRICT` | **DB rejects the delete — caller sees SQL error** |
 | `watched_folders.auto_tag_id` | col | none | **not handled (stale ID)** |
 | Hidden tag list (`settings` key `hidden_tags`, JSON `[]int64`) | list | n/a | **not handled (stale ID)** |
 | `ServeManager.servers` (runtime) | map key | n/a | **not handled (server keeps running)** |
 | Frontend current-folder view | path | n/a | **not handled (broken URL)** |
 | Frontend tag filter pills | id | n/a | **reloaded on tag change (OK)** |
 
-**Rename via `UpdateTag`** is safe at the Go layer — it changes `name`, preserves `id`, so every ID-keyed reference survives. The only breakage is the frontend: current-folder view resolves by path, so renaming the current folder's tag (or an ancestor) silently breaks the view.
+**Rename via `UpdateTag`** is mostly safe at the Go layer — it changes `name`, preserves `id`, so every ID-keyed reference survives. Two exceptions:
+
+- **Served subtree.** `ServeManager` caches `ts.tagName` at start time and resolves descendant paths relative to that root (`serve_manager.go:241, 310-313`). If any tag in a renamed subtree (source or a descendant) is being served, the server keeps resolving against the old prefix and returns 404s. This is a pre-existing latent bug addressed in Part A.
+- **Frontend current-folder view** resolves by path, not ID, so renaming the current folder's tag (or an ancestor) silently breaks the view. Also pre-existing, also fixed here.
 
 ### Fixes
 
@@ -55,17 +58,29 @@ END;
 
 Rationale: silently deleting a user's API key on tag delete is surprising. `SET NULL` preserves the row for audit; the trigger revokes it so it can't escalate from tag-scoped to unscoped access.
 
-**Consolidated `cleanupTagReferences(tx, tagID)` helper** (new, in `app.go` or `tag_hierarchy.go`). Called from both `DeleteTag` and the merge path (with different semantics per caller):
+**Two-phase cleanup (not one helper).** `ShareManager.StopShare` runs its own transaction + emits a frontend event (`share_manager.go:557-580`), and `ServeManager.StopServing` mutates runtime state. Neither is rollback-safe, so calling them inside the tag-delete transaction would diverge runtime state from the DB if the tag transaction rolled back. The flow is therefore three explicit phases:
 
-- Stop active share (already done via `StopShare`).
-- Stop active serve (call `serveManager.StopServing(id)`; ignore "not serving" errors).
-- Delete rows from `follows` where `local_tag_id = ?`.
-- `UPDATE watched_folders SET auto_tag_id = NULL WHERE auto_tag_id = ?`.
-- Remove from hidden-tag list in `settings`.
+1. **Preconditions check (read-only).** `checkTagReferencePreconditions(tagID) []string` returns a list of blockers. For delete: non-empty `follows` for this tag (user must `UpdateFollowTag` to a different tag or stop the follow first). For merge: same, plus active share, plus any tag in the source subtree being served. Returns empty slice on success.
+2. **DB transaction (SQL only, fully rollback-safe).** Pure SQL inside `tx`:
+   - For delete: `UPDATE watched_folders SET auto_tag_id = NULL WHERE auto_tag_id = ?`, then remove from hidden-tag list (read `hidden_tags` setting, filter, write back), then `DELETE FROM tags WHERE id = ?`. `api_keys.scoped_tag_id` is handled by the new `SET NULL` FK + auto-revoke trigger below.
+   - For merge: `migrateTagReferences(tx, fromID, toID)` does `UPDATE api_keys SET scoped_tag_id = ? WHERE scoped_tag_id = ?`, same for `watched_folders.auto_tag_id`, swap hidden-tag list membership, reassign `clip_tags`, cascade-rename descendants, then `DELETE FROM tags WHERE id = ?` on the source.
+3. **Post-commit runtime cleanup.** After `tx.Commit()` succeeds: call `shareManager.StopShare(tagID)` and `serveManager.StopServing(tagID)` (both no-ops if nothing is active). Errors are logged but do not fail the enclosing operation — the tag is gone, and the orphan-rows tool (Part B) is the backstop for any residual DB state.
 
-For **delete**, the helper is called inside `DeleteTag`'s transaction. For **merge**, a variant `migrateTagReferences(tx, fromID, toID)` performs the moves instead of the deletes (see Part B merge details). Network-facing references (share, follow, serve) cause merge to refuse early, so the merge variant never needs to handle them mid-transaction.
+For **merge**, post-commit runtime cleanup is a no-op by construction: the precondition phase refuses if the source has an active share or is served anywhere in its subtree. Merge never silently tears down networked state.
 
-**Frontend re-navigation.** Both rename and delete emit a Wails event (existing `tag:updated`, `tag:deleted`) and a new `tag:merged`. The `tag:merged` event must also be registered in `plugin/manifest.go:ValidEvents()` (handler convention: `on_tag_merged`). In `frontend/js/tags.js` / `wails-api.js`:
+For **delete**, if we chose to auto-stop the share for the user's convenience (matching today's DeleteTag behavior), that's the post-commit phase. Follows are refused up front because `ON DELETE RESTRICT` would reject the DB delete anyway, and silently dropping an active subscription changes product semantics.
+
+**`UpdateTag` also gets the subtree-served precondition.** `UpdateTag` today runs a single transaction and is rollback-safe at the DB layer, but ServeManager's in-memory cache becomes stale when any tag in the renamed subtree is being served. Part A adds a precondition check: if the old name (or any descendant) is currently served, refuse the rename with "Stop the server on X before renaming." No runtime mutation needed — pure rejection.
+
+**Frontend re-navigation.** `UpdateTag` and `DeleteTag` currently emit **plugin** events only (`pluginManager.EmitEvent`, `app.go:1421-1446`) — those go to Lua handlers, not the frontend runtime bus. The frontend receives nothing today. Part A adds Wails runtime events via the existing `App.emitEvent` helper (`app.go:63-65`, which goes through `wailsbridge`):
+
+- In `UpdateTag`: `a.emitEvent("tag:updated", map[string]any{"id": id, "old_name": oldName, "new_name": name})`
+- In `DeleteTag`: `a.emitEvent("tag:deleted", map[string]any{"id": id, "name": name})`
+- In `MergeTag`: new `a.emitEvent("tag:merged", map[string]any{"source_id": src, "dest_id": dst, "source_name": srcName, "dest_name": dstName})`
+
+Plugin events stay as-is and the new `tag:merged` is also registered in `plugin/manifest.go:ValidEvents()` (handler convention: `on_tag_merged`). Wails runtime events and plugin events are emitted in pairs so both layers stay in sync.
+
+In `frontend/js/tags.js` / `wails-api.js`:
 
 - Maintain `currentFolderTagID` alongside the existing path-based folder state.
 - On any `tag:updated` / `tag:deleted` / `tag:merged` event, re-resolve the current folder by ID from the fresh tag list:
@@ -75,8 +90,7 @@ For **delete**, the helper is called inside `DeleteTag`'s transaction. For **mer
 
 ### Tests
 
-- One Go unit test per reference site in Part A (before/after cleanup).
-- E2e: delete tag currently in use by a served tag stops the server. Delete tag scoped to an API key nulls + revokes the key. Rename the tag that's the current folder — folder view updates. Delete the tag that's the current folder — view navigates up.
+Consolidated with the main test list in the "Cross-cutting → Tests" section below. Summary: one Go test per Part A reference-site fix, plus e2e regressions for folder-view re-navigation on rename/delete/merge.
 
 ---
 
@@ -103,8 +117,8 @@ Given source `a/x` with descendants `a/x/foo`, `a/x/bar` and destination `b/y`:
 - `source == destination`.
 - Destination is a descendant of source (e.g., `a/x` → `a/x/y`) — self-referential.
 - Source has an active share (user must stop it first).
-- Source has an active follow (user must stop the follow first).
-- Source is being served by `ServeManager` (user must stop the server first).
+- A `follows` row points at the source tag (user must call `UpdateFollowTag` to retarget, or stop the follow first — see `share_manager.go:917-939` for the supported retargeting path).
+- **Source tag *or any descendant* is being served by `ServeManager`** (user must stop the server first). Checking only the source misses the case where `a/x/foo` is served and we merge `a/x` into `b/y` — the server would keep resolving against a prefix that no longer exists.
 - Any descendant rename would collide with an existing tag on the destination side (e.g., `a/x/foo` → `b/y/foo` but `b/y/foo` already exists).
 
 Each rejection returns a clear error string the frontend surfaces in the preview dialog: `"Cannot merge: tag is currently served on port 8080. Stop the server first."` etc.
@@ -248,12 +262,16 @@ All new UI uses the stone-based palette and existing button/modal patterns from 
 
 - `TestMergeTag_BasicReassignment` — clips reassigned, source deleted.
 - `TestMergeTag_SubtreeMove` — descendants renamed to new path.
-- `TestMergeTag_BlockedByShare` / `_ByFollow` / `_ByServe`.
+- `TestMergeTag_BlockedByShare` / `_ByFollow` / `_ByServe` / `_ByServedDescendant`.
 - `TestMergeTag_BlockedBySelfReference`, `_ByDescendantCollision`.
 - `TestMergeTag_MigratesAPIKeyScope` / `_MigratesWatchFolderAutoTag` / `_MigratesHiddenTag`.
-- `TestDeleteTag_StopsActiveServe` — Part A fix.
-- `TestDeleteTag_RevokesScopedAPIKey` — Part A migration.
-- `TestDeleteTag_NullsWatchFolderAutoTag` / `_RemovesFromHiddenList` / `_RemovesFromFollows`.
+- `TestUpdateTag_BlockedByServedSubtree` — new Part A fix (rename must refuse when a descendant is served).
+- `TestDeleteTag_BlockedByFollow` — confirms the `ON DELETE RESTRICT` surface is kept and user gets an actionable message.
+- `TestDeleteTag_StopsActiveServePostCommit` — runtime teardown runs after DB commit.
+- `TestDeleteTag_DoesNotStopServeIfTagDeleteFails` — verifies the two-phase ordering (runtime cleanup is skipped if the SQL layer rolled back).
+- `TestDeleteTag_RevokesScopedAPIKey` — Part A migration + trigger.
+- `TestDeleteTag_NullsWatchFolderAutoTag` / `_RemovesFromHiddenList`.
+- `TestUpdateTag_EmitsFrontendEvent` / `TestDeleteTag_EmitsFrontendEvent` / `TestMergeTag_EmitsFrontendEvent` — all three call `a.emitEvent` with the expected payload.
 - `TestCompactDatabase_ReducesSizeAfterBigDelete`.
 - `TestGetStaleFiles` / `TestCleanStaleFiles` — with a fake time source for mtime.
 - `TestGetOrphanDBRows` / `TestCleanOrphanDBRows` — seed orphans, verify categorization.
@@ -292,6 +310,10 @@ All new UI uses the stone-based palette and existing button/modal patterns from 
 
 - **Subtree behavior on merge?** Subtree-move (descendants carry across), not flatten.
 - **Shared/followed/served tag merge?** Refused with actionable error, not auto-stopped.
+- **`follows` handling on delete/merge?** Refused (matching the existing `ON DELETE RESTRICT` constraint). Users retarget explicitly via `UpdateFollowTag`, or stop the follow. Never dropped silently.
 - **`api_keys` cascade on tag delete?** Switched from `CASCADE` to `SET NULL` + trigger auto-revoke, preserving the row for audit.
 - **Rename breaking folder view?** Existing latent bug — fixed as part of Part A (re-resolve by ID).
+- **Rename breaking a served descendant?** Existing latent bug — fixed by adding a subtree-served precondition to `UpdateTag`.
+- **Transaction atomicity with runtime teardown?** Two-phase: validate → SQL transaction → post-commit runtime cleanup. Share/serve teardown cannot participate in SQL rollback, so post-commit is the only correct sequencing.
+- **Frontend visibility of tag changes?** `UpdateTag`/`DeleteTag`/`MergeTag` all emit Wails runtime events via `a.emitEvent` in addition to plugin events. The frontend currently receives no tag-change notifications — that's added here.
 - **Merge/rename placement?** Tag right-click menu (per-tag operations), not the maintenance modal (app-wide scans).
