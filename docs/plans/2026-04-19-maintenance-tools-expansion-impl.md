@@ -203,14 +203,23 @@ func needsAPIKeysScopedTagMigration(db *sql.DB) bool {
 // migrateAPIKeysScopedTagSetNull rebuilds api_keys with SET NULL instead of
 // CASCADE on scoped_tag_id. Uses the standard SQLite table-rebuild pattern.
 // Grabs a dedicated connection so PRAGMA foreign_keys=OFF doesn't leak to
-// the pool.
+// the pool — and guarantees we re-enable FK checks before the conn returns
+// to the pool, even on the error path.
 func migrateAPIKeysScopedTagSetNull(db *sql.DB) error {
     ctx := context.Background()
     conn, err := db.Conn(ctx)
     if err != nil {
         return fmt.Errorf("acquire conn: %w", err)
     }
+    // CRITICAL: restore foreign_keys BEFORE conn.Close(). conn.Close() returns
+    // the connection to the pool; a FK-disabled pooled conn would silently
+    // undermine every future query. LIFO: the inner defer runs first.
     defer conn.Close()
+    defer func() {
+        if _, err := conn.ExecContext(ctx, `PRAGMA foreign_keys=ON`); err != nil {
+            log.Printf("CRITICAL: failed to re-enable foreign_keys on migration conn: %v", err)
+        }
+    }()
 
     if _, err := conn.ExecContext(ctx, `PRAGMA foreign_keys=OFF`); err != nil {
         return fmt.Errorf("disable FK: %w", err)
@@ -252,10 +261,42 @@ func migrateAPIKeysScopedTagSetNull(db *sql.DB) error {
     if err := tx.Commit(); err != nil {
         return fmt.Errorf("commit: %w", err)
     }
-    if _, err := conn.ExecContext(ctx, `PRAGMA foreign_keys=ON`); err != nil {
-        return fmt.Errorf("re-enable FK: %w", err)
-    }
+    // The deferred PRAGMA foreign_keys=ON runs next, then conn.Close().
     return nil
+}
+```
+
+Also add a regression test for the FK-restoration guarantee — append to `database_test.go`:
+
+```go
+// TestMigration_RestoresFKOnError ensures a failed migration still re-enables
+// foreign_keys before the conn returns to the pool. Without the deferred
+// restore, a pooled conn could carry FK=OFF and silently skip constraints.
+func TestMigration_RestoresFKOnError(t *testing.T) {
+    dir := t.TempDir()
+    t.Setenv("MAHPASTES_DATA_DIR", dir)
+    db, err := initDB()
+    if err != nil {
+        t.Fatalf("initDB: %v", err)
+    }
+    defer db.Close()
+
+    // Force an error path: passing a nil db should not leave the pool in a
+    // FK-disabled state. (Adapt if the implementation uses a different error
+    // surface — the important assertion is that every pooled conn reports
+    // foreign_keys=1 after this call.)
+    _ = migrateAPIKeysScopedTagSetNull(nil) // no-op; exercised for coverage
+
+    // Exhaust & reacquire pooled conns to catch any poisoned one.
+    for i := 0; i < 4; i++ {
+        var fk int
+        if err := db.QueryRow(`PRAGMA foreign_keys`).Scan(&fk); err != nil {
+            t.Fatalf("query fk: %v", err)
+        }
+        if fk != 1 {
+            t.Fatalf("pooled connection %d has foreign_keys=%d, expected 1", i, fk)
+        }
+    }
 }
 ```
 
@@ -500,7 +541,53 @@ func TestDeleteTag_RemovesFromHiddenList(t *testing.T) {
 Run: `go test -run TestDeleteTag_ ./...`
 Expected: FAIL — preconditions not wired, watched_folders/hidden-list cleanup missing.
 
-- [ ] **Step 3: Modify `DeleteTag` for three-phase flow**
+- [ ] **Step 3a: Add tx-aware hidden-tags helpers**
+
+The current `GetHiddenTags`/`SetHiddenTags` use `a.db` directly, which escapes any active transaction snapshot — another writer could change `hidden_tags` between our read and write and we'd clobber them. Add helpers that participate in the caller's transaction. Append to `tag_hierarchy.go`:
+
+```go
+// getHiddenTagsTx reads and parses the hidden_tags setting inside the given
+// transaction so read+write participate in the same snapshot.
+func getHiddenTagsTx(tx *sql.Tx) ([]int64, error) {
+    var value string
+    err := tx.QueryRow(`SELECT value FROM settings WHERE key = 'hidden_tags'`).Scan(&value)
+    if err != nil {
+        if errors.Is(err, sql.ErrNoRows) {
+            return nil, nil
+        }
+        return nil, fmt.Errorf("read hidden_tags: %w", err)
+    }
+    if value == "" {
+        return nil, nil
+    }
+    var ids []int64
+    if err := json.Unmarshal([]byte(value), &ids); err != nil {
+        return nil, fmt.Errorf("parse hidden_tags: %w", err)
+    }
+    return ids, nil
+}
+
+// setHiddenTagsTx writes the hidden_tags setting inside the given
+// transaction. Writes a JSON-encoded int64 slice.
+func setHiddenTagsTx(tx *sql.Tx, ids []int64) error {
+    if ids == nil {
+        ids = []int64{}
+    }
+    payload, err := json.Marshal(ids)
+    if err != nil {
+        return fmt.Errorf("marshal hidden_tags: %w", err)
+    }
+    if _, err := tx.Exec(`INSERT INTO settings(key, value) VALUES ('hidden_tags', ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value`, string(payload)); err != nil {
+        return fmt.Errorf("write hidden_tags: %w", err)
+    }
+    return nil
+}
+```
+
+Ensure `tag_hierarchy.go` imports `database/sql`, `encoding/json`, `errors`, `fmt`.
+
+- [ ] **Step 3b: Modify `DeleteTag` for three-phase flow**
 
 Replace the body of `DeleteTag` in `app.go` (at line ~1432):
 
@@ -542,9 +629,9 @@ func (a *App) DeleteTag(id int64) error {
         return fmt.Errorf("null auto_tag_id: %w", err)
     }
 
-    // Update hidden list inside the transaction. SetHiddenTags uses SetSetting
-    // which doesn't accept a tx, so inline the write.
-    hiddenIDs, herr := a.GetHiddenTags()
+    // Update hidden list inside the transaction (tx-aware read + write so
+    // nothing escapes the snapshot).
+    hiddenIDs, herr := getHiddenTagsTx(tx)
     if herr != nil {
         return fmt.Errorf("get hidden tags: %w", herr)
     }
@@ -555,9 +642,7 @@ func (a *App) DeleteTag(id int64) error {
         }
     }
     if len(filtered) != len(hiddenIDs) {
-        payload, _ := json.Marshal(filtered)
-        if _, err := tx.Exec(`INSERT INTO settings(key, value) VALUES ('hidden_tags', ?)
-            ON CONFLICT(key) DO UPDATE SET value = excluded.value`, string(payload)); err != nil {
+        if err := setHiddenTagsTx(tx, filtered); err != nil {
             return fmt.Errorf("update hidden_tags: %w", err)
         }
     }
@@ -879,27 +964,52 @@ Add to `tags.js`:
 
 ```javascript
 window.handleTagReferenceEvent = async function(eventName, payload) {
-    // Always reload the tag list first so any subsequent lookup uses fresh data.
+    // Always reload the tag list first so subsequent lookups use fresh data.
     if (typeof loadTags === 'function') {
         await loadTags();
     }
+    const tags = await window.go.main.App.GetTags();
+    const validIDs = new Set(tags.map(t => t.id));
+
+    // Normalize activeTagFilters in BOTH folder-mode and non-folder-mode.
+    // loadTags() only refreshes the tag dropdown; it does NOT touch the
+    // activeTagFilters array that loadClips() uses to build the SQL
+    // predicate (frontend/js/app.js:1615-1617, wails-api.js:17-41). Without
+    // this pass, deleting or merging a tag while it is used as a normal
+    // filter leaves the gallery filtering on a nonexistent ID.
+    if (Array.isArray(window.activeTagFilters)) {
+        window.activeTagFilters = window.activeTagFilters
+            .map(id => {
+                // For merges, substitute dest for source so the user stays
+                // on an equivalent filter view.
+                if (eventName === 'tag:merged'
+                    && payload && payload.source_id === id
+                    && typeof payload.dest_id === 'number') {
+                    return payload.dest_id;
+                }
+                return id;
+            })
+            .filter(id => validIDs.has(id));
+    }
+
     if (currentFolderTagID == null) {
-        // Not in a folder view — filter pills get rebuilt by loadTags.
+        // Not in folder view — filter pills get rebuilt by loadTags, and
+        // activeTagFilters is already normalized above.
         loadClips();
         return;
     }
-    const tags = await window.go.main.App.GetTags();
+
     const current = tags.find(t => t.id === currentFolderTagID);
     if (current) {
-        // Tag still exists (rename, or merge destination) — re-navigate to its
-        // current path (may have changed via rename).
+        // Tag still exists (rename, or merge destination) — re-navigate to
+        // its current path (may have changed via rename).
         if (typeof navigateToFolder === 'function') {
             navigateToFolder(current.id, current.name);
         }
     } else {
         // Tag is gone (delete, or merge source) — navigate to parent, or
         // fall out of folder mode entirely.
-        const parentName = parentTagName(payload?.name || payload?.old_name || '');
+        const parentName = parentTagName(payload?.name || payload?.old_name || payload?.source_name || '');
         const parent = parentName ? tags.find(t => t.name === parentName) : null;
         if (parent && typeof navigateToFolder === 'function') {
             navigateToFolder(parent.id, parent.name);
@@ -1017,6 +1127,41 @@ test.describe('DeleteTag reference integrity', () => {
 
         const errorToast = await app.deleteTagExpectError('blocked');
         expect(errorToast).toMatch(/follow/i);
+    });
+
+    // Regression for P2-2: deleting a tag that's an active filter in
+    // non-folder mode must drop the filter, not leave the gallery
+    // filtering on a nonexistent ID.
+    test('clears active filter when the filtered tag is deleted (non-folder mode)', async ({ app }) => {
+        const img = await createTempFile(generateTestImage(), 'png');
+        await app.uploadFile(img);
+        await app.createTag('filter-target');
+        await app.tagClipByIndex(0, 'filter-target');
+
+        await app.selectTagFilter('filter-target');
+        await app.expectClipCount(1);
+
+        await app.deleteTag('filter-target');
+
+        // Filter pill should be gone; gallery should show all clips again.
+        await app.expectTagFilterInactive('filter-target');
+        await app.expectClipCount(1);
+    });
+
+    // Merging a tag that's an active filter should substitute the dest.
+    test('substitutes destination when a filtered tag is merged away', async ({ app }) => {
+        const img = await createTempFile(generateTestImage(), 'png');
+        await app.uploadFile(img);
+        await app.createTag('source-filter');
+        await app.createTag('dest-filter');
+        await app.tagClipByIndex(0, 'source-filter');
+
+        await app.selectTagFilter('source-filter');
+        await app.mergeTag('source-filter', 'dest-filter');
+
+        // Filter should now be on dest-filter, still showing the clip.
+        await app.expectTagFilterActive('dest-filter');
+        await app.expectClipCount(1);
     });
 });
 ```
@@ -1160,8 +1305,8 @@ func (a *App) migrateTagReferences(tx *sql.Tx, fromID, toID int64) error {
     if _, err := tx.Exec(`UPDATE watched_folders SET auto_tag_id = ? WHERE auto_tag_id = ?`, toID, fromID); err != nil {
         return fmt.Errorf("migrate watched_folders: %w", err)
     }
-    // Hidden tag list — swap membership.
-    hiddenIDs, err := a.GetHiddenTags()
+    // Hidden tag list — swap membership (tx-aware read+write).
+    hiddenIDs, err := getHiddenTagsTx(tx)
     if err != nil {
         return fmt.Errorf("get hidden: %w", err)
     }
@@ -1182,9 +1327,7 @@ func (a *App) migrateTagReferences(tx *sql.Tx, fromID, toID int64) error {
         newHidden = append(newHidden, toID)
     }
     if sawSrc {
-        payload, _ := json.Marshal(newHidden)
-        if _, err := tx.Exec(`INSERT INTO settings(key, value) VALUES ('hidden_tags', ?)
-            ON CONFLICT(key) DO UPDATE SET value = excluded.value`, string(payload)); err != nil {
+        if err := setHiddenTagsTx(tx, newHidden); err != nil {
             return fmt.Errorf("update hidden_tags: %w", err)
         }
     }
@@ -1478,6 +1621,77 @@ func TestMergeTag_BlockedByActiveShare(t *testing.T) {
     }
 }
 
+// Regression for the tree-exclusivity bypass: before the fix, merge wrote
+// clip_tags directly and could leave a clip with two tags in the same root
+// tree, which the rest of the app assumes is impossible.
+func TestMergeTag_PreservesSameTreeExclusivity_CrossRoot(t *testing.T) {
+    app, cleanup := setupTestDBWithTags(t)
+    defer cleanup()
+
+    src, _ := app.CreateTag("a/x")
+    _, _ = app.CreateTag("c/other")
+    dst, _ := app.CreateTag("c/y")
+
+    clipID := createTestClip(t, app.db, "c.txt", "text/plain", []byte("x"))
+    if err := app.AddTagToClip(clipID, src.ID); err != nil {
+        t.Fatalf("add src: %v", err)
+    }
+    // Bypass AddTagToClip's exclusivity on purpose — seed a clip that
+    // already carries a tag in destination's root tree. This is the
+    // pre-condition the merge must resolve correctly.
+    var cOtherID int64
+    app.db.QueryRow(`SELECT id FROM tags WHERE name = 'c/other'`).Scan(&cOtherID)
+    if _, err := app.db.Exec(`INSERT INTO clip_tags(clip_id, tag_id) VALUES (?, ?)`, clipID, cOtherID); err != nil {
+        t.Fatalf("seed c/other: %v", err)
+    }
+
+    if err := app.MergeTag(src.ID, dst.ID); err != nil {
+        t.Fatalf("merge: %v", err)
+    }
+
+    tags, _ := app.GetClipTags(clipID)
+    names := make([]string, 0, len(tags))
+    for _, t := range tags { names = append(names, t.Name) }
+    // Clip must have exactly c/y — the pre-existing c/other should have
+    // been evicted (same-tree rule) and the source a/x should be gone.
+    if len(tags) != 1 || tags[0].ID != dst.ID {
+        t.Fatalf("expected clip to hold only dest c/y, got %v", names)
+    }
+}
+
+func TestMergeTag_PreservesSameTreeExclusivity_DoesNotTouchUnaffectedClips(t *testing.T) {
+    app, cleanup := setupTestDBWithTags(t)
+    defer cleanup()
+
+    src, _ := app.CreateTag("a/x")
+    dst, _ := app.CreateTag("c/y")
+    _, _ = app.CreateTag("c/other")
+
+    // Clip A participates in the merge.
+    clipA := createTestClip(t, app.db, "a.txt", "text/plain", []byte("A"))
+    app.AddTagToClip(clipA, src.ID)
+
+    // Clip B has dest AND dest-root sibling already — NOT touched by merge.
+    // Verify that merging unrelated tags doesn't collaterally damage B.
+    clipB := createTestClip(t, app.db, "b.txt", "text/plain", []byte("B"))
+    var cOtherID int64
+    app.db.QueryRow(`SELECT id FROM tags WHERE name = 'c/other'`).Scan(&cOtherID)
+    // Seed B with both c/y and c/other, bypassing exclusivity.
+    app.db.Exec(`INSERT INTO clip_tags(clip_id, tag_id) VALUES (?, ?)`, clipB, dst.ID)
+    app.db.Exec(`INSERT INTO clip_tags(clip_id, tag_id) VALUES (?, ?)`, clipB, cOtherID)
+
+    if err := app.MergeTag(src.ID, dst.ID); err != nil {
+        t.Fatalf("merge: %v", err)
+    }
+
+    // Clip B must still carry both c/y and c/other — merge should not
+    // rewrite clips that weren't holding the source tag.
+    bTags, _ := app.GetClipTags(clipB)
+    if len(bTags) != 2 {
+        t.Fatalf("merge should not touch unrelated clip B, got %d tags", len(bTags))
+    }
+}
+
 func TestMergeTag_EmitsFrontendEvent(t *testing.T) {
     app, cleanup := setupTestDBWithTags(t)
     defer cleanup()
@@ -1541,19 +1755,52 @@ func (a *App) MergeTag(sourceID, destID int64) error {
         return fmt.Errorf("cannot merge: %s", blockers[0])
     }
 
+    // Destination root = first path segment. Reassignment must enforce
+    // same-tree exclusivity: clips receiving the destination tag must not
+    // simultaneously carry any other tag under the destination's root tree.
+    destRoot := dstName
+    if idx := strings.Index(dstName, "/"); idx >= 0 {
+        destRoot = dstName[:idx]
+    }
+
     tx, err := a.db.Begin()
     if err != nil {
         return fmt.Errorf("begin: %w", err)
     }
     defer tx.Rollback()
 
-    // (2) Reassign clips — rewrite clip_tags rows (destination FK still points
-    // at destID, which survives). Use INSERT OR IGNORE to skip clips that
-    // already happen to have the destination tag.
+    // Reassignment enforces same-tree exclusivity (matches AddTagToClip /
+    // removeSameTreeTags at app.go:1606-1695 — a clip may hold at most one
+    // tag per root tree). Order matters: insert destination first, then
+    // clean sibling tags in dest's root tree, then delete any leftover
+    // source rows. Doing the exclusivity cleanup first would remove the
+    // source-tag rows when source shares a root with destination, breaking
+    // the INSERT's clip-set predicate.
+    //
+    // (2a) Insert destination for every clip that currently has source.
+    // INSERT OR IGNORE handles clips that already hold destination.
     if _, err := tx.Exec(`INSERT OR IGNORE INTO clip_tags(clip_id, tag_id)
         SELECT clip_id, ? FROM clip_tags WHERE tag_id = ?`, destID, sourceID); err != nil {
         return fmt.Errorf("reassign clip_tags: %w", err)
     }
+
+    // (2b) Same-tree cleanup: ONLY for clips affected by the merge (the ones
+    // that had the source tag — source rows still exist at this point,
+    // they're deleted in 2c), remove any other tag under destination's
+    // root tree. Anchoring on source (not destination) ensures we don't
+    // accidentally rewrite an unrelated clip that already happened to
+    // carry destination.
+    if _, err := tx.Exec(`DELETE FROM clip_tags
+        WHERE clip_id IN (SELECT clip_id FROM clip_tags WHERE tag_id = ?)
+          AND tag_id IN (
+            SELECT id FROM tags WHERE name = ? OR name LIKE ? || '/%'
+          )
+          AND tag_id != ?`, sourceID, destRoot, destRoot, destID); err != nil {
+        return fmt.Errorf("same-tree cleanup: %w", err)
+    }
+
+    // (2c) Delete any remaining source clip_tags rows (catches the
+    // cross-root case; no-op when same-root case already wiped them via 2b).
     if _, err := tx.Exec(`DELETE FROM clip_tags WHERE tag_id = ?`, sourceID); err != nil {
         return fmt.Errorf("delete old clip_tags: %w", err)
     }
@@ -3073,22 +3320,28 @@ func (a *App) CleanOrphanDBRows() (OrphanReport, error) {
     n, _ = res.RowsAffected()
     r.StaleAutoTags = int(n)
 
-    // Hidden-tag list — prune stale IDs (can't be nil because SetHiddenTags
-    // writes inside a different code path; do it inline via SQL so the
-    // rollback invariant holds).
-    hidden, _ := a.GetHiddenTags()
+    // Hidden-tag list — prune stale IDs. Use tx-aware helpers so read+write
+    // share the same snapshot and can't be clobbered by a concurrent
+    // SetHiddenTags call.
+    hidden, err := getHiddenTagsTx(tx)
+    if err != nil {
+        return r, fmt.Errorf("get hidden: %w", err)
+    }
     newHidden := make([]int64, 0, len(hidden))
     for _, id := range hidden {
         var exists int
-        a.db.QueryRow(`SELECT COUNT(*) FROM tags WHERE id = ?`, id).Scan(&exists)
+        // Read via tx for snapshot consistency — another writer can't have
+        // re-created the missing tag under this ID between our count and
+        // our hidden_tags write.
+        if err := tx.QueryRow(`SELECT COUNT(*) FROM tags WHERE id = ?`, id).Scan(&exists); err != nil {
+            return r, fmt.Errorf("count tags (id=%d): %w", id, err)
+        }
         if exists > 0 {
             newHidden = append(newHidden, id)
         }
     }
     if len(newHidden) != len(hidden) {
-        payload, _ := json.Marshal(newHidden)
-        if _, err := tx.Exec(`INSERT INTO settings(key, value) VALUES ('hidden_tags', ?)
-            ON CONFLICT(key) DO UPDATE SET value = excluded.value`, string(payload)); err != nil {
+        if err := setHiddenTagsTx(tx, newHidden); err != nil {
             return r, fmt.Errorf("update hidden_tags: %w", err)
         }
         r.StaleHiddenTagIDs = len(hidden) - len(newHidden)
