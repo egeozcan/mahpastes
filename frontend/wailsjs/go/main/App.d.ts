@@ -99,9 +99,13 @@ export function IsDirectory(arg1:string):Promise<boolean>;
 
 export function MergeDuplicates(arg1:number):Promise<void>;
 
+export function MergeTag(arg1:number,arg2:number):Promise<void>;
+
 export function OpenClipWithApp(arg1:number,arg2:string):Promise<void>;
 
 export function OpenClipWithDefaultApp(arg1:number):Promise<void>;
+
+export function PreviewMergeTag(arg1:number,arg2:number):Promise<main.MergeTagPreview>;
 
 export function ProcessExistingFilesInFolder(arg1:number):Promise<void>;
 

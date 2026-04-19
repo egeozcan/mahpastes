@@ -194,12 +194,20 @@ export function MergeDuplicates(arg1) {
   return window['go']['main']['App']['MergeDuplicates'](arg1);
 }
 
+export function MergeTag(arg1, arg2) {
+  return window['go']['main']['App']['MergeTag'](arg1, arg2);
+}
+
 export function OpenClipWithApp(arg1, arg2) {
   return window['go']['main']['App']['OpenClipWithApp'](arg1, arg2);
 }
 
 export function OpenClipWithDefaultApp(arg1) {
   return window['go']['main']['App']['OpenClipWithDefaultApp'](arg1);
+}
+
+export function PreviewMergeTag(arg1, arg2) {
+  return window['go']['main']['App']['PreviewMergeTag'](arg1, arg2);
 }
 
 export function ProcessExistingFilesInFolder(arg1) {

@@ -80,6 +80,27 @@ function renderTagFilterDropdown() {
         `;
 
         item.querySelector('input').addEventListener('change', () => toggleTagFilter(tag.id));
+
+        // Right-click → context menu with merge action.
+        item.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (typeof ContextMenu === 'undefined' || !ContextMenu.open) return;
+            const menuItems = [
+                {
+                    id: 'merge-into',
+                    label: 'Merge into\u2026',
+                    iconHtml: '<svg class="w-3 h-3 opacity-60" stroke="currentColor" stroke-width="1.5" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M7 7h10v10M7 7l10 10"/></svg>',
+                },
+            ];
+            const capturedTag = tag;
+            ContextMenu.open(menuItems, null, item, (actionId) => {
+                if (actionId === 'merge-into' && typeof window.openMergeTagModal === 'function') {
+                    window.openMergeTagModal(capturedTag.id, capturedTag.name);
+                }
+            });
+        });
+
         tagFilterList.appendChild(item);
 
         // Always render children — even for hidden parents, subtags should remain

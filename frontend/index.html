@@ -1921,6 +1921,27 @@
         </div>
     </div>
 
+    <!-- Merge Tag Modal -->
+    <div id="merge-tag-modal" class="fixed inset-0 bg-stone-900/50 flex items-center justify-center z-50 opacity-0 pointer-events-none transition-opacity duration-150" inert>
+        <div class="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6 scale-95 transition-transform duration-150">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-sm font-semibold uppercase tracking-wide text-stone-800">Merge tag</h3>
+                <button id="merge-tag-close" class="p-1 text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded transition-colors" aria-label="Close">
+                    <svg class="w-4 h-4" stroke="currentColor" stroke-width="1.5" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 6l12 12M6 18L18 6"/></svg>
+                </button>
+            </div>
+            <p class="text-xs text-stone-600 mb-3">Merging <span id="merge-tag-source" class="font-semibold text-stone-800"></span> into destination tag:</p>
+            <div class="relative mb-3">
+                <input id="merge-tag-dest-input" type="text" autocomplete="off" placeholder="destination tag" class="block w-full border border-stone-200 rounded-md text-sm bg-white placeholder-stone-400 focus:outline-none focus:border-stone-400 focus:ring-1 focus:ring-stone-400/20 transition-colors p-2">
+            </div>
+            <div id="merge-tag-preview" class="text-xs text-stone-600 mb-4 min-h-[3rem]"></div>
+            <div class="flex justify-end gap-2">
+                <button id="merge-tag-cancel" class="border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-xs font-medium py-2 px-3 rounded-md transition-colors">Cancel</button>
+                <button id="merge-tag-confirm" class="bg-stone-800 hover:bg-stone-700 text-white text-xs font-medium py-2.5 px-5 rounded-md transition-colors disabled:bg-stone-300 disabled:cursor-not-allowed" disabled>Merge</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Vendor libraries for plugin result rendering -->
     <script src="vendor/marked.min.js"></script>
     <script src="vendor/purify.min.js"></script>
@@ -1955,6 +1976,7 @@
     <script src="js/watch.js"></script>
     <script src="js/serve.js"></script>
     <script src="js/tag-autocomplete.js"></script>
+    <script src="js/merge-tag-modal.js"></script>
     <script src="js/share.js"></script>
     <script src="js/settings.js"></script>
     <script src="js/maintenance.js"></script>

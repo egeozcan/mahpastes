@@ -355,6 +355,26 @@ export namespace main {
 	        this.created_at = source["created_at"];
 	    }
 	}
+	export class MergeTagPreview {
+	    clip_count: number;
+	    descendant_count: number;
+	    blockers: string[];
+	    source_name: string;
+	    dest_name: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new MergeTagPreview(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.clip_count = source["clip_count"];
+	        this.descendant_count = source["descendant_count"];
+	        this.blockers = source["blockers"];
+	        this.source_name = source["source_name"];
+	        this.dest_name = source["dest_name"];
+	    }
+	}
 	export class PluginInfo {
 	    id: number;
 	    name: string;
