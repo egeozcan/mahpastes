@@ -2293,6 +2293,24 @@ export class AppHelper {
     nodeFs.default.utimesSync(filePath, pastDate, pastDate);
   }
 
+  /**
+   * Seed an orphan plugin_storage row into the app's SQLite DB using the
+   * system sqlite3 CLI (no extra npm dependency needed).  The plugin_id value
+   * intentionally has no matching row in the plugins table so the orphan-rows
+   * sweep will detect and delete it.
+   *
+   * Requires `dataDir` to be set on this AppHelper instance (it is, when the
+   * app fixture creates it from the test state file).
+   */
+  async seedOrphanPluginStorage(pluginId: number, key: string, value: string): Promise<void> {
+    if (!this.dataDir) throw new Error('seedOrphanPluginStorage: dataDir not available on this AppHelper');
+    const nodePath = await import('path');
+    const nodeChildProcess = await import('child_process');
+    const dbPath = nodePath.default.join(this.dataDir, 'clips.db');
+    const sql = `INSERT INTO plugin_storage (plugin_id, key, value) VALUES (${pluginId}, '${key.replace(/'/g, "''")}', '${value.replace(/'/g, "''")}');`;
+    nodeChildProcess.default.execSync(`sqlite3 "${dbPath}" "${sql}"`);
+  }
+
   async clickCardMenuPluginAction(pluginId: number, actionId: string): Promise<void> {
     const actionBtn = this.page.locator(
       `.card-menu-submenu [data-action="plugin"][data-plugin-id="${pluginId}"][data-action-id="${actionId}"]`
