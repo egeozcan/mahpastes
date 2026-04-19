@@ -23,6 +23,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"go-clipboard/internal/wailsbridge"
 	"go-clipboard/plugin"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -35,6 +36,7 @@ const maxMetadataPairs = 50
 // App struct holds the application state
 type App struct {
 	ctx              context.Context
+	bridge           *wailsbridge.Bridge
 	db               *sql.DB
 	tempDir          string
 	tempStore        *TempClipStore
@@ -129,6 +131,7 @@ func (a *App) RefreshWatches() error {
 // startup is called when the app starts
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	a.bridge = wailsbridge.New(ctx)
 
 	// Initialize database
 	db, err := initDB()
