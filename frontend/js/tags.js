@@ -3,6 +3,16 @@
 // Roving tabindex for tag filter dropdown
 let tagFilterRover = null;
 
+// Tracks the tag ID of the current folder-view, so we can re-resolve the
+// path after any tag change (rename / delete / merge).
+let currentFolderTagID = null;
+
+/** Set by navigateToFolder — called whenever the user enters a folder. */
+function rememberCurrentFolder(tagID) {
+    currentFolderTagID = tagID;
+}
+window.rememberCurrentFolder = rememberCurrentFolder;
+
 // Constants
 const MAX_TAG_NAME_LENGTH = 50;
 
@@ -674,3 +684,57 @@ function renderCardTags(card, tags) {
         tagsContainer.appendChild(more);
     }
 }
+
+window.handleTagReferenceEvent = async function(eventName, payload) {
+    // Always reload the tag list first so subsequent lookups use fresh data.
+    if (typeof loadTags === 'function') {
+        await loadTags();
+    }
+    const validIDs = new Set(allTags.map(t => t.id));
+
+    // Build substitution map for merges: source_id -> dest_id.
+    const substitutions = new Map();
+    if (eventName === 'tag:merged'
+        && payload && typeof payload.source_id === 'number'
+        && typeof payload.dest_id === 'number') {
+        substitutions.set(payload.source_id, payload.dest_id);
+    }
+
+    // (1) Normalize activeTagFilters in BOTH folder-mode and non-folder-mode.
+    if (typeof window.normalizeActiveTagFilters === 'function') {
+        window.normalizeActiveTagFilters(validIDs, substitutions);
+    }
+
+    // (2) Remap currentFolderTagID for merge-source before lookup.
+    if (substitutions.has(currentFolderTagID)) {
+        currentFolderTagID = substitutions.get(currentFolderTagID);
+    }
+
+    if (currentFolderTagID == null) {
+        if (typeof loadClips === 'function') loadClips();
+        return;
+    }
+
+    const current = allTags.find(t => t.id === currentFolderTagID);
+    if (current) {
+        // Tag still exists (rename, or merge destination after remap) —
+        // re-navigate to its current path (name may have changed).
+        if (typeof navigateToFolder === 'function') {
+            navigateToFolder(current.id);
+        }
+    } else {
+        // Tag is gone (delete) — navigate to parent or exit folder mode.
+        const deletedName = payload && (payload.name || payload.old_name);
+        const parentName = deletedName ? getParentTagName(deletedName) : '';
+        const parent = parentName ? allTags.find(t => t.name === parentName) : null;
+        if (parent && typeof navigateToFolder === 'function') {
+            navigateToFolder(parent.id);
+        } else if (typeof toggleFolderMode === 'function' && typeof isFolderMode === 'function' && isFolderMode()) {
+            // Exit folder mode by toggling it off.
+            toggleFolderMode();
+        } else {
+            currentFolderTagID = null;
+            if (typeof loadClips === 'function') loadClips();
+        }
+    }
+};

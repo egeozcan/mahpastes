@@ -1182,6 +1182,10 @@ function navigateToFolder(tagId, { focusFirst = false } = {}) {
     activeTagFilters.length = 0;
     activeTagFilters.push(...ancestors);
 
+    if (typeof window.rememberCurrentFolder === 'function') {
+        window.rememberCurrentFolder(tagId);
+    }
+
     updateActiveTagsDisplay();
     renderTagFilterDropdown();
     loadClips({ focusFirst });
