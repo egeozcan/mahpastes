@@ -7,7 +7,7 @@ require (
 	// NOTE: goexif is archived/unmaintained (last updated 2019).
 	// Consider github.com/dsoprea/go-exif/v3 or github.com/evanoberholster/imagemeta as alternatives.
 	github.com/rwcarlsen/goexif v0.0.0-20190401172101-9e8deecbddbd
-	github.com/wailsapp/wails/v2 v2.11.0
+	github.com/wailsapp/wails/v2 v2.12.0
 	github.com/yuin/gopher-lua v1.1.1
 	golang.design/x/clipboard v0.7.0
 	golang.org/x/image v0.35.0
@@ -25,6 +25,7 @@ require (
 require (
 	filippo.io/bigmod v0.1.1-0.20260103110540-f8a47775ebe5 // indirect
 	filippo.io/keygen v0.0.0-20260114151900-8e2790ea4c5b // indirect
+	git.sr.ht/~jackmordaunt/go-toast/v2 v2.0.3 // indirect
 	github.com/benbjohnson/clock v1.3.5 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bep/debounce v1.2.1 // indirect
