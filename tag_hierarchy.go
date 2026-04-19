@@ -98,3 +98,26 @@ func isImmediateChildOf(child, parent string) bool {
 	rest := child[len(parent)+1:]
 	return !strings.Contains(rest, "/")
 }
+
+// checkTagReferencePreconditions returns a list of human-readable blocker
+// strings that would prevent deleting tagID. Empty slice means safe.
+// Currently blocks only on active follows (which have ON DELETE RESTRICT
+// at the DB level); active share and running serve are handled by the
+// post-commit runtime cleanup path and do not need to block here.
+func (a *App) checkTagReferencePreconditions(tagID int64) ([]string, error) {
+	var blockers []string
+
+	var followCount int
+	if err := a.db.QueryRow(
+		`SELECT COUNT(*) FROM follows WHERE local_tag_id = ?`, tagID,
+	).Scan(&followCount); err != nil {
+		return nil, fmt.Errorf("count follows: %w", err)
+	}
+	if followCount > 0 {
+		blockers = append(blockers, fmt.Sprintf(
+			"tag has %d active incoming share (follow). Retarget the follow to a different tag, or stop it, then try again.",
+			followCount,
+		))
+	}
+	return blockers, nil
+}
