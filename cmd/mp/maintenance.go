@@ -40,6 +40,70 @@ var maintenanceVacuumCmd = &cobra.Command{
 	},
 }
 
+// ── maintenance stale-files ────────────────────────────────────────────────
+
+var maintenanceStaleFilesCmd = &cobra.Command{
+	Use:   "stale-files",
+	Short: "List or clean stale temp/share-staging files",
+}
+
+var maintenanceStaleFilesListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List stale files",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		c, err := client.New()
+		if err != nil {
+			return err
+		}
+
+		var files []map[string]interface{}
+		if err := c.GetJSON("/api/v1/maintenance/stale-files", &files); err != nil {
+			return err
+		}
+
+		if jsonOutput {
+			printJSON(files)
+		} else {
+			for _, f := range files {
+				fmt.Printf("%-20s  %8d B  %6.1fh  %s\n",
+					f["source"],
+					int64(f["size"].(float64)),
+					f["age_hours"].(float64),
+					f["name"])
+			}
+		}
+		return nil
+	},
+}
+
+var maintenanceStaleFilesCleanCmd = &cobra.Command{
+	Use:   "clean",
+	Short: "Remove stale files",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		c, err := client.New()
+		if err != nil {
+			return err
+		}
+
+		var resp struct {
+			Count int   `json:"count"`
+			Bytes int64 `json:"bytes"`
+		}
+		if err := c.PostJSON("/api/v1/maintenance/stale-files/clean", nil, &resp); err != nil {
+			return err
+		}
+
+		if jsonOutput {
+			printJSON(resp)
+		} else {
+			fmt.Printf("Removed %d file(s), %d bytes reclaimed\n", resp.Count, resp.Bytes)
+		}
+		return nil
+	},
+}
+
 func init() {
 	maintenanceCmd.AddCommand(maintenanceVacuumCmd)
+	maintenanceCmd.AddCommand(maintenanceStaleFilesCmd)
+	maintenanceStaleFilesCmd.AddCommand(maintenanceStaleFilesListCmd, maintenanceStaleFilesCleanCmd)
 }
