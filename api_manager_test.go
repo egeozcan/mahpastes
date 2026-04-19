@@ -84,3 +84,62 @@ func TestAPI_MergeTag(t *testing.T) {
 		t.Fatalf("destination tag should exist, but found %d", count)
 	}
 }
+
+func TestAPI_MaintenanceVacuum(t *testing.T) {
+	app, cleanup := setupTestApp(t)
+	defer cleanup()
+
+	// Create an admin API key for testing
+	testKey := "test-admin-key-12345"
+	hash := sha256.Sum256([]byte(testKey))
+	keyHash := hex.EncodeToString(hash[:])
+	_, err := app.db.Exec(
+		`INSERT INTO api_keys (name, key_hash, key_prefix, role, is_revoked) VALUES (?, ?, ?, ?, ?)`,
+		"test-key", keyHash, "test-", "admin", false,
+	)
+	if err != nil {
+		t.Fatalf("create api key: %v", err)
+	}
+
+	// Create an APIManager with the app
+	am := &APIManager{app: app}
+
+	// Build the mux with routes (inline the mux building logic)
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/v1/maintenance/vacuum", am.authMiddleware(am.requireRole("admin", am.handleVacuum)))
+
+	// Also add the auth and CORS middleware
+	handler := am.corsMiddleware(mux)
+
+	// Create the request
+	req := httptest.NewRequest("POST", "/api/v1/maintenance/vacuum", nil)
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", testKey))
+
+	// Record the response
+	rec := httptest.NewRecorder()
+
+	// Serve through the mux (which will handle routing and auth)
+	handler.ServeHTTP(rec, req)
+
+	// Verify response status
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	// Verify response structure
+	var resp struct {
+		Before int64 `json:"before"`
+		After  int64 `json:"after"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+
+	// Verify before/after are nonzero
+	if resp.Before == 0 {
+		t.Fatalf("expected nonzero before size")
+	}
+	if resp.After == 0 {
+		t.Fatalf("expected nonzero after size")
+	}
+}

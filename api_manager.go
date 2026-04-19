@@ -182,6 +182,9 @@ func (am *APIManager) Start(port int, bindAll bool) (APIStatus, error) {
 	mux.HandleFunc("GET /api/v1/backup", am.authMiddleware(am.requireRole("admin", am.handleCreateBackup)))
 	mux.HandleFunc("POST /api/v1/backup/restore", am.authMiddleware(am.requireRole("admin", am.handleRestoreBackup)))
 
+	// Maintenance
+	mux.HandleFunc("POST /api/v1/maintenance/vacuum", am.authMiddleware(am.requireRole("admin", am.handleVacuum)))
+
 	// Clipboard
 	mux.HandleFunc("POST /api/v1/clipboard/copy", am.authMiddleware(am.requireRole("editor", am.handleCopyToClipboard)))
 	mux.HandleFunc("POST /api/v1/clipboard/copy-file", am.authMiddleware(am.requireRole("editor", am.handleCopyFileToClipboard)))
@@ -1127,6 +1130,19 @@ func (am *APIManager) handleMergeTag(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	am.jsonOK(w, map[string]bool{"ok": true})
+}
+
+// --- Maintenance Handlers ---
+
+func (am *APIManager) handleVacuum(w http.ResponseWriter, r *http.Request) {
+	before, after, err := am.app.CompactDatabase()
+	if err != nil {
+		am.jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	am.jsonOK(w, map[string]int64{"before": before, "after": after})
 }
 
 // --- Clip-Tag Handlers ---
