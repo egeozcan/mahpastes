@@ -128,6 +128,24 @@ func (a *App) checkTagReferencePreconditions(tagID int64) ([]string, error) {
 	return blockers, nil
 }
 
+// tagIsServedInSubtree returns the name of any tag in the subtree rooted at
+// oldName that is currently being served, or "" if none. ServeManager caches
+// tag names at start, so renames/merges of a served subtree leave the server
+// resolving against stale prefixes.
+func (a *App) tagIsServedInSubtree(oldName string) string {
+	if a.serveManager == nil {
+		return ""
+	}
+	infos := a.serveManager.GetStatus()
+	prefix := oldName + "/"
+	for _, info := range infos {
+		if info.TagName == oldName || strings.HasPrefix(info.TagName, prefix) {
+			return info.TagName
+		}
+	}
+	return ""
+}
+
 // getHiddenTagsTx reads and parses the hidden_tags setting inside the given
 // transaction so read+write participate in the same snapshot. The
 // non-tx helpers a.GetHiddenTags/a.SetHiddenTags use a.db directly and

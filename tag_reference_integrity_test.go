@@ -112,3 +112,30 @@ func TestDeleteTag_RemovesFromHiddenList(t *testing.T) {
 		}
 	}
 }
+
+func TestUpdateTag_BlockedByServedSubtree(t *testing.T) {
+	app, cleanup := setupTestApp(t)
+	defer cleanup()
+
+	_, _ = app.CreateTag("a/x")
+	child, _ := app.CreateTag("a/x/foo")
+
+	if app.serveManager == nil {
+		t.Skip("serveManager not initialized in test harness")
+	}
+	if _, err := app.serveManager.StartServing(child.ID, 0, false, "none"); err != nil {
+		t.Fatalf("start serve: %v", err)
+	}
+	defer app.serveManager.StopServing(child.ID)
+
+	// Rename the ancestor — should be blocked because a descendant is served.
+	var parentID int64
+	app.db.QueryRow(`SELECT id FROM tags WHERE name = 'a/x'`).Scan(&parentID)
+	err := app.UpdateTag(parentID, "a/z", "#aaa")
+	if err == nil {
+		t.Fatalf("expected rename to be blocked, got nil")
+	}
+	if !strings.Contains(err.Error(), "served") {
+		t.Fatalf("expected 'served' in error, got %q", err.Error())
+	}
+}

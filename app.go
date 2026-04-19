@@ -1387,6 +1387,18 @@ func (a *App) UpdateTag(id int64, name, color string) error {
 		}
 	}
 
+	// Check if any tag in the subtree is currently served. ServeManager
+	// caches tag names, so renames break the server's path resolution.
+	var oldNameForCheck string
+	if err := a.db.QueryRow(`SELECT name FROM tags WHERE id = ?`, id).Scan(&oldNameForCheck); err != nil {
+		return fmt.Errorf("tag not found")
+	}
+	if oldNameForCheck != name {
+		if served := a.tagIsServedInSubtree(oldNameForCheck); served != "" {
+			return fmt.Errorf("cannot rename: tag %q in this subtree is currently served. Stop the server first.", served)
+		}
+	}
+
 	tx, err := a.db.Begin()
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
