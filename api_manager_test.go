@@ -298,3 +298,175 @@ func TestAPI_MaintenanceOrphanRows_ListAndClean(t *testing.T) {
 		t.Fatalf("orphan should be removed, got %d", count)
 	}
 }
+
+// insertScopedAdminKey inserts a scoped admin API key tied to scopedTagID and
+// returns the raw key string.
+func insertScopedAdminKey(t *testing.T, app *App, rawKey string, scopedTagID int64) {
+	t.Helper()
+	hash := sha256.Sum256([]byte(rawKey))
+	keyHash := hex.EncodeToString(hash[:])
+	_, err := app.db.Exec(
+		`INSERT INTO api_keys (name, key_hash, key_prefix, role, scoped_tag_id, is_revoked) VALUES (?, ?, ?, ?, ?, ?)`,
+		"scoped-test-key", keyHash, "scpd-", "admin", scopedTagID, false,
+	)
+	if err != nil {
+		t.Fatalf("insert scoped key: %v", err)
+	}
+}
+
+func TestAPI_MergeTag_BlockedForScopedKeyOutsideScope(t *testing.T) {
+	app, cleanup := setupTestApp(t)
+	defer cleanup()
+
+	// Tags under "work" scope and unrelated "personal" tags.
+	work, err := app.CreateTag("work")
+	if err != nil {
+		t.Fatalf("CreateTag work: %v", err)
+	}
+	src, err := app.CreateTag("personal/src")
+	if err != nil {
+		t.Fatalf("CreateTag personal/src: %v", err)
+	}
+	dst, err := app.CreateTag("personal/dst")
+	if err != nil {
+		t.Fatalf("CreateTag personal/dst: %v", err)
+	}
+
+	// Scoped admin key bound to "work".
+	scopedKey := "scoped-merge-key-99999"
+	insertScopedAdminKey(t, app, scopedKey, work.ID)
+
+	am := &APIManager{app: app}
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/v1/tags/{id}/merge", am.authMiddleware(am.requireRole("admin", am.handleMergeTag)))
+	handler := am.corsMiddleware(mux)
+
+	body := map[string]int64{"dest_id": dst.ID}
+	bodyBytes, _ := json.Marshal(body)
+	req := httptest.NewRequest("POST", fmt.Sprintf("/api/v1/tags/%d/merge", src.ID), bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", scopedKey))
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusForbidden, rec.Body.String())
+	}
+}
+
+func TestAPI_Maintenance_RejectsScopedKey(t *testing.T) {
+	app, cleanup := setupTestApp(t)
+	defer cleanup()
+
+	scopeTag, err := app.CreateTag("scope-tag")
+	if err != nil {
+		t.Fatalf("CreateTag: %v", err)
+	}
+
+	scopedKey := "scoped-maint-key-99999"
+	insertScopedAdminKey(t, app, scopedKey, scopeTag.ID)
+
+	am := &APIManager{app: app}
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/v1/maintenance/vacuum", am.authMiddleware(am.requireRole("admin", am.handleVacuum)))
+	mux.HandleFunc("GET /api/v1/maintenance/stale-files", am.authMiddleware(am.requireRole("admin", am.handleListStaleFiles)))
+	mux.HandleFunc("POST /api/v1/maintenance/stale-files/clean", am.authMiddleware(am.requireRole("admin", am.handleCleanStaleFiles)))
+	mux.HandleFunc("GET /api/v1/maintenance/orphan-rows", am.authMiddleware(am.requireRole("admin", am.handleListOrphanRows)))
+	mux.HandleFunc("POST /api/v1/maintenance/orphan-rows/clean", am.authMiddleware(am.requireRole("admin", am.handleCleanOrphanRows)))
+	handler := am.corsMiddleware(mux)
+
+	cases := []struct {
+		method string
+		path   string
+	}{
+		{"POST", "/api/v1/maintenance/vacuum"},
+		{"GET", "/api/v1/maintenance/stale-files"},
+		{"POST", "/api/v1/maintenance/stale-files/clean"},
+		{"GET", "/api/v1/maintenance/orphan-rows"},
+		{"POST", "/api/v1/maintenance/orphan-rows/clean"},
+	}
+	for _, tc := range cases {
+		req := httptest.NewRequest(tc.method, tc.path, nil)
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", scopedKey))
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("%s %s: status = %d, want %d, body = %s", tc.method, tc.path, rec.Code, http.StatusForbidden, rec.Body.String())
+		}
+	}
+}
+
+func TestAPI_DeleteTag_FollowBlockerReturns409(t *testing.T) {
+	app, cleanup := setupTestApp(t)
+	defer cleanup()
+
+	tag, err := app.CreateTag("followed-tag")
+	if err != nil {
+		t.Fatalf("CreateTag: %v", err)
+	}
+
+	// Insert a follow row referencing the tag to trigger the conflict.
+	if _, err := app.db.Exec(
+		`INSERT INTO follows (remote_peer_id, symkey, local_tag_id, created_at) VALUES ('peer1', X'DEADBEEF', ?, strftime('%s','now'))`,
+		tag.ID,
+	); err != nil {
+		t.Fatalf("insert follow: %v", err)
+	}
+
+	testKey := "test-admin-del-follow-key"
+	hash := sha256.Sum256([]byte(testKey))
+	keyHash := hex.EncodeToString(hash[:])
+	if _, err := app.db.Exec(
+		`INSERT INTO api_keys (name, key_hash, key_prefix, role, is_revoked) VALUES (?, ?, ?, ?, ?)`,
+		"test-key", keyHash, "test-", "admin", false,
+	); err != nil {
+		t.Fatalf("insert api key: %v", err)
+	}
+
+	am := &APIManager{app: app}
+	mux := http.NewServeMux()
+	mux.HandleFunc("DELETE /api/v1/tags/{id}", am.authMiddleware(am.requireRole("admin", am.handleDeleteTag)))
+	handler := am.corsMiddleware(mux)
+
+	req := httptest.NewRequest("DELETE", fmt.Sprintf("/api/v1/tags/%d", tag.ID), nil)
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", testKey))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusConflict, rec.Body.String())
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte("follow")) {
+		t.Fatalf("expected 'follow' in body, got: %s", rec.Body.String())
+	}
+}
+
+func TestAPI_DeleteTag_NotFoundReturns404(t *testing.T) {
+	app, cleanup := setupTestApp(t)
+	defer cleanup()
+
+	testKey := "test-admin-del-notfound-key"
+	hash := sha256.Sum256([]byte(testKey))
+	keyHash := hex.EncodeToString(hash[:])
+	if _, err := app.db.Exec(
+		`INSERT INTO api_keys (name, key_hash, key_prefix, role, is_revoked) VALUES (?, ?, ?, ?, ?)`,
+		"test-key", keyHash, "test-", "admin", false,
+	); err != nil {
+		t.Fatalf("insert api key: %v", err)
+	}
+
+	am := &APIManager{app: app}
+	mux := http.NewServeMux()
+	mux.HandleFunc("DELETE /api/v1/tags/{id}", am.authMiddleware(am.requireRole("admin", am.handleDeleteTag)))
+	handler := am.corsMiddleware(mux)
+
+	req := httptest.NewRequest("DELETE", "/api/v1/tags/999999", nil)
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", testKey))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusNotFound, rec.Body.String())
+	}
+}
