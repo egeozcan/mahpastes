@@ -69,6 +69,15 @@ func (s *ShareService) Unfollow(followID int64) error {
 	return s.app.shareManager.Unfollow(followID)
 }
 
+// UpdateFollowTag changes the local tag used for incoming clips on an existing
+// follow. Past clips are not re-tagged.
+func (s *ShareService) UpdateFollowTag(followID int64, newLocalTagName string) (FollowInfo, error) {
+	if s.app.shareManager == nil {
+		return FollowInfo{}, fmt.Errorf("share manager not initialized")
+	}
+	return s.app.shareManager.UpdateFollowTag(followID, newLocalTagName)
+}
+
 type ShareStatus struct {
 	Shares  []ShareInfo  `json:"shares"`
 	Follows []FollowInfo `json:"follows"`

@@ -1823,6 +1823,30 @@
         </div>
     </div>
 
+    <!-- Edit-Follow-Tag Modal -->
+    <div id="edit-follow-modal" class="hidden fixed inset-0 z-[60] bg-stone-900/40 backdrop-blur-sm flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="edit-follow-title">
+        <div class="bg-white rounded-lg border border-stone-200 shadow-xl max-w-md w-full p-5">
+            <div class="flex justify-between items-center mb-3">
+                <h4 id="edit-follow-title" class="text-xs font-semibold text-stone-400 uppercase tracking-wide">Edit follow tag</h4>
+                <button class="edit-follow-close p-1 hover:bg-stone-100 rounded" aria-label="Close">
+                    <svg class="w-4 h-4 text-stone-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            </div>
+            <p class="text-[11px] text-stone-500 mb-3">Future incoming clips go under this tag. Clips already received keep their current tag.</p>
+            <div class="relative">
+                <label class="block text-xs font-medium text-stone-600 mb-1">Local tag for incoming clips</label>
+                <input id="edit-follow-tag-input" type="text" required autocomplete="off"
+                    class="block w-full border border-stone-200 rounded-md text-sm bg-white placeholder-stone-400 focus:outline-none focus:border-stone-400 focus:ring-1 focus:ring-stone-400/20 transition-colors py-2 px-2 mb-3"
+                    placeholder="e.g. shared/from-alice">
+            </div>
+            <p id="edit-follow-error" class="hidden text-[11px] text-red-600 mb-2"></p>
+            <div class="flex justify-end gap-2">
+                <button class="edit-follow-close border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-xs font-medium py-2 px-3 rounded-md">Cancel</button>
+                <button id="edit-follow-save-btn" class="bg-stone-800 hover:bg-stone-700 text-white text-xs font-medium py-2 px-4 rounded-md" disabled>Save</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Shortcuts Cheat Sheet Overlay -->
     <div id="shortcuts-cheatsheet" role="dialog" aria-modal="true" aria-label="Keyboard Shortcuts" inert
         class="fixed inset-0 z-[60] flex items-center justify-center p-8 bg-stone-900/80 backdrop-blur-sm transition-opacity duration-200 opacity-0 pointer-events-none"

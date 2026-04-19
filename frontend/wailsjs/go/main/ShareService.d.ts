@@ -19,3 +19,5 @@ export function StopShare(arg1:number):Promise<void>;
 export function TestFollowConnection(arg1:string):Promise<void>;
 
 export function Unfollow(arg1:number):Promise<void>;
+
+export function UpdateFollowTag(arg1:number,arg2:string):Promise<main.FollowInfo>;

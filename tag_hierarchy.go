@@ -1,6 +1,33 @@
 package main
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
+
+// validateTagName enforces the same rules that App.CreateTag applies, so
+// non-UI entry points (e.g. ShareManager.resolveOrCreateTag) can't quietly
+// create malformed rows like "incoming/" or "_api/foo".
+//
+// Returns the trimmed name on success.
+func validateTagName(name string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", fmt.Errorf("tag name cannot be empty")
+	}
+	if len(name) > maxTagNameLength {
+		return "", fmt.Errorf("tag name too long (max %d characters)", maxTagNameLength)
+	}
+	for _, seg := range strings.Split(name, "/") {
+		if strings.TrimSpace(seg) == "" {
+			return "", fmt.Errorf("tag name contains empty path segment")
+		}
+		if seg == "_api" {
+			return "", fmt.Errorf("tag name contains reserved segment '_api'")
+		}
+	}
+	return name, nil
+}
 
 // getTagDepth counts the number of "/" separators in a tag name.
 // Top-level tags have depth 0, "a/b" has depth 1, "a/b/c" has depth 2, etc.

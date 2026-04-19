@@ -83,6 +83,7 @@
           <div class="text-[11px] text-stone-500">${status} · ${f.clips_received} clips received · since ${relTime(f.created_at)}</div>
         </div>
         <div class="flex gap-2 shrink-0">
+          <button class="share-edit-follow border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-[11px] font-medium py-1.5 px-3 rounded-md" data-id="${f.id}" data-tag="${escapeHTML(f.local_tag_name)}">Edit</button>
           <button class="share-unfollow border border-stone-200 hover:bg-red-50 hover:border-red-300 text-stone-600 hover:text-red-600 text-[11px] font-medium py-1.5 px-3 rounded-md" data-id="${f.id}">Unfollow</button>
         </div>`;
       followList.appendChild(li);
@@ -262,9 +263,9 @@
   function show(...els) { els.forEach(el => el && el.classList.remove('hidden')); }
 
   function updateConfirmEnabled() {
-    const tagNonEmpty = followTagInput.value.trim().length > 0;
+    const tagOK = window.TagAutocomplete && window.TagAutocomplete.isCreatableName(followTagInput.value);
     const canCommit = (followState === 'connected' || (followState === 'unreachable' && followAnywayArmed));
-    followConfirmBtn.disabled = !(canCommit && tagNonEmpty);
+    followConfirmBtn.disabled = !(canCommit && tagOK);
   }
 
   function setFollowState(s, ctx) {
@@ -427,6 +428,11 @@
   });
 
   followList.addEventListener('click', async (e) => {
+    const edit = e.target.closest('.share-edit-follow');
+    if (edit) {
+      openEditFollowModal(parseInt(edit.dataset.id, 10), edit.dataset.tag || '');
+      return;
+    }
     const un = e.target.closest('.share-unfollow');
     if (!un) return;
     const id = parseInt(un.dataset.id, 10);
@@ -451,6 +457,77 @@
       const msg = (err && err.message) ? err.message : String(err);
       console.error('share: Unfollow failed', err);
       if (typeof showToast === 'function') showToast('Unfollow failed: ' + msg, 'error');
+    }
+  });
+
+  // --- Edit follow tag modal ---
+
+  const editFollowModal = document.getElementById('edit-follow-modal');
+  const editFollowInput = document.getElementById('edit-follow-tag-input');
+  const editFollowErr = document.getElementById('edit-follow-error');
+  const editFollowSaveBtn = document.getElementById('edit-follow-save-btn');
+
+  let editFollowID = null;
+  let editFollowOriginalTag = '';
+  let editFollowAutocomplete = null;
+
+  function openEditFollowModal(id, currentTag) {
+    editFollowID = id;
+    editFollowOriginalTag = currentTag || '';
+    editFollowInput.value = editFollowOriginalTag;
+    editFollowErr.classList.add('hidden');
+    editFollowErr.textContent = '';
+    editFollowSaveBtn.textContent = 'Save';
+    updateEditSaveEnabled();
+    editFollowModal.classList.remove('hidden');
+    if (window.TagAutocomplete && !editFollowAutocomplete) {
+      editFollowAutocomplete = window.TagAutocomplete.attach(editFollowInput, {
+        getTags: async () => window.go.main.App.GetTags(),
+        onSelect: (val) => {
+          editFollowInput.value = val;
+          updateEditSaveEnabled();
+        },
+      });
+    }
+    requestAnimationFrame(() => editFollowInput.focus());
+  }
+
+  function closeEditFollowModal() {
+    editFollowModal.classList.add('hidden');
+    if (editFollowAutocomplete) { editFollowAutocomplete.destroy(); editFollowAutocomplete = null; }
+    editFollowID = null;
+    editFollowOriginalTag = '';
+  }
+
+  function updateEditSaveEnabled() {
+    const v = editFollowInput.value.trim();
+    const tagOK = window.TagAutocomplete && window.TagAutocomplete.isCreatableName(v);
+    // Disable if invalid (empty or empty path segments) or unchanged.
+    editFollowSaveBtn.disabled = !tagOK || v === editFollowOriginalTag;
+  }
+
+  document.querySelectorAll('.edit-follow-close').forEach(b => b.addEventListener('click', closeEditFollowModal));
+  editFollowInput.addEventListener('input', updateEditSaveEnabled);
+
+  editFollowSaveBtn.addEventListener('click', async () => {
+    if (editFollowID == null) return;
+    const newTag = editFollowInput.value.trim();
+    if (!newTag) return;
+    editFollowSaveBtn.disabled = true;
+    const orig = editFollowSaveBtn.textContent;
+    editFollowSaveBtn.textContent = 'Saving…';
+    try {
+      await window.go.main.ShareService.UpdateFollowTag(editFollowID, newTag);
+      if (typeof showToast === 'function') showToast('Tag updated');
+      closeEditFollowModal();
+      await refresh();
+    } catch (e) {
+      const msg = (e && e.message) ? e.message : String(e);
+      console.error('share: UpdateFollowTag failed', e);
+      editFollowErr.textContent = msg;
+      editFollowErr.classList.remove('hidden');
+      editFollowSaveBtn.textContent = orig;
+      updateEditSaveEnabled();
     }
   });
 

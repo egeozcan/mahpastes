@@ -46,6 +46,22 @@ const TagAutocomplete = (() => {
         return tags.some(t => t.name.toLowerCase() === q);
     }
 
+    // Mirrors the Go-side validateTagName rules so we don't suggest a
+    // "Create new" row that the backend would reject. Keeps the empty-segment
+    // check and the reserved "_api" segment guard. Length cap is loose (the
+    // backend has the authoritative one).
+    function isCreatableName(query) {
+        const q = String(query || '').trim();
+        if (!q) return false;
+        const segs = q.split('/');
+        for (const s of segs) {
+            const t = s.trim();
+            if (t === '') return false;
+            if (t === '_api') return false;
+        }
+        return true;
+    }
+
     function attach(input, opts) {
         const getTags = opts.getTags || (async () => {
             if (window.go && window.go.main && window.go.main.App && window.go.main.App.GetTags) {
@@ -87,7 +103,10 @@ const TagAutocomplete = (() => {
         function buildItems(query) {
             const ranked = rankTags(cachedTags || [], query);
             const out = ranked.map(t => ({ kind: 'existing', name: t.name, tag: t }));
-            if (query && !hasExactMatch(cachedTags || [], query)) {
+            // Only offer "Create new" when the typed text is a name the backend
+            // would actually accept — otherwise we'd let users mint rows like
+            // "incoming/" with empty leaf segments.
+            if (query && !hasExactMatch(cachedTags || [], query) && isCreatableName(query)) {
                 out.push({ kind: 'new', name: query });
             }
             return out;
@@ -264,7 +283,7 @@ const TagAutocomplete = (() => {
         };
     }
 
-    return { attach, _rankTags: rankTags, _hasExactMatch: hasExactMatch };
+    return { attach, isCreatableName, _rankTags: rankTags, _hasExactMatch: hasExactMatch };
 })();
 
 if (typeof window !== 'undefined') {

@@ -624,6 +624,27 @@ func TestResumeAllReplaysTables(t *testing.T) {
 	}
 }
 
+// resolveOrCreateTag must reject malformed names (empty segments, reserved
+// _api) the same way App.CreateTag does — otherwise follow flows quietly mint
+// rows like "incoming/" with empty leaf segments.
+func TestResolveOrCreateTagRejectsEmptyPathSegment(t *testing.T) {
+	ctx := context.Background()
+	db := newTestDB(t)
+	m, _ := NewShareManager(ctx, db, t.TempDir())
+	defer m.Stop()
+
+	bad := []string{"incoming/", "/incoming", "a//b", "  /  ", "_api", "a/_api/b"}
+	for _, name := range bad {
+		if _, err := m.resolveOrCreateTag(name); err == nil {
+			t.Errorf("resolveOrCreateTag(%q) accepted a malformed name", name)
+		}
+	}
+	// Sanity: a clean name still works.
+	if _, err := m.resolveOrCreateTag("ok/path"); err != nil {
+		t.Fatalf("resolveOrCreateTag(\"ok/path\"): %v", err)
+	}
+}
+
 // TestFollowConnection rejects self-follow with a typed sentinel error so the
 // UI can distinguish it from an unreachable peer (different error surface,
 // different remediation).
@@ -643,6 +664,60 @@ func TestTestFollowConnectionRejectsSelfFollow(t *testing.T) {
 	err = m.TestFollowConnection(info.ShareString)
 	if !errors.Is(err, ErrSelfFollow) {
 		t.Fatalf("TestFollowConnection: got %v; want errors.Is(ErrSelfFollow)", err)
+	}
+}
+
+// UpdateFollowTag must swap both the DB row's local_tag_id and the in-memory
+// follow's localTagID. Resolving a brand-new tag name should auto-create it.
+func TestUpdateFollowTagSwapsLocalTagID(t *testing.T) {
+	ctx := context.Background()
+
+	pubDB := newTestDB(t)
+	pubM, _ := NewShareManager(ctx, pubDB, t.TempDir())
+	defer pubM.Stop()
+	pubDB.Exec(`INSERT INTO tags (id, name, color) VALUES (1, 'src', '#aaa')`)
+	info, _ := pubM.StartShare(1)
+
+	fDB := newTestDB(t)
+	fM, _ := NewShareManager(ctx, fDB, t.TempDir())
+	defer fM.Stop()
+	fDB.Exec(`INSERT INTO tags (id, name, color) VALUES (50, 'inbox-old', '#aaa')`)
+	fM.Host().Peerstore().AddAddrs(pubM.Host().ID(), pubM.Host().Addrs(), time.Hour)
+
+	fi, err := fM.Follow(info.ShareString, "inbox-old")
+	if err != nil {
+		t.Fatalf("Follow: %v", err)
+	}
+
+	// Switch to a fresh tag name that doesn't exist yet — UpdateFollowTag
+	// must create it.
+	updated, err := fM.UpdateFollowTag(fi.ID, "inbox-new/from-alice")
+	if err != nil {
+		t.Fatalf("UpdateFollowTag: %v", err)
+	}
+	if updated.LocalTagName != "inbox-new/from-alice" {
+		t.Fatalf("local tag name %q want inbox-new/from-alice", updated.LocalTagName)
+	}
+	// New tag row exists.
+	var newID int64
+	if err := fDB.QueryRow(`SELECT id FROM tags WHERE name = 'inbox-new/from-alice'`).Scan(&newID); err != nil {
+		t.Fatalf("new tag not created: %v", err)
+	}
+	if updated.LocalTagID != newID {
+		t.Fatalf("LocalTagID %d want %d", updated.LocalTagID, newID)
+	}
+	// DB row points at the new tag.
+	var dbTagID int64
+	fDB.QueryRow(`SELECT local_tag_id FROM follows WHERE id = ?`, fi.ID).Scan(&dbTagID)
+	if dbTagID != newID {
+		t.Fatalf("DB local_tag_id %d want %d", dbTagID, newID)
+	}
+	// In-memory follow updated.
+	fM.mu.RLock()
+	memTag := fM.follows[fi.ID].localTagID
+	fM.mu.RUnlock()
+	if memTag != newID {
+		t.Fatalf("in-memory localTagID %d want %d", memTag, newID)
 	}
 }
 

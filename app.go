@@ -1254,23 +1254,10 @@ func (a *App) SetExpiration(id int64, minutes int) error {
 
 // CreateTag creates a new tag with auto-assigned color
 func (a *App) CreateTag(name string) (*Tag, error) {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return nil, fmt.Errorf("tag name cannot be empty")
-	}
-	if len(name) > maxTagNameLength {
-		return nil, fmt.Errorf("tag name too long (max %d characters)", maxTagNameLength)
-	}
-
-	// Reserve "_api" as a path segment — used by tag serve JSON API.
-	// Also reject empty path segments (leading/trailing/consecutive slashes).
-	for _, seg := range strings.Split(name, "/") {
-		if strings.TrimSpace(seg) == "" {
-			return nil, fmt.Errorf("tag name contains empty path segment")
-		}
-		if seg == "_api" {
-			return nil, fmt.Errorf("tag name contains reserved segment '_api'")
-		}
+	var err error
+	name, err = validateTagName(name)
+	if err != nil {
+		return nil, err
 	}
 
 	// Use transaction to prevent race condition in color assignment

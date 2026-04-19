@@ -905,6 +905,66 @@ func (m *ShareManager) FollowWithoutDial(shareString, localTagName string) (Foll
 	return m.followCommit(pid, symkey, localTagName)
 }
 
+// UpdateFollowTag changes which local tag receives clips from this follow
+// going forward. Existing received clips are NOT re-tagged — they keep their
+// original tag. Resolves or creates the new tag (slash-paths supported).
+func (m *ShareManager) UpdateFollowTag(followID int64, newLocalTagName string) (FollowInfo, error) {
+	var info FollowInfo
+	if newLocalTagName == "" {
+		return info, errors.New("local tag name required")
+	}
+
+	newTagID, err := m.resolveOrCreateTag(newLocalTagName)
+	if err != nil {
+		return info, fmt.Errorf("tag: %w", err)
+	}
+
+	m.mu.RLock()
+	f, ok := m.follows[followID]
+	m.mu.RUnlock()
+	if !ok {
+		return info, fmt.Errorf("follow %d not found", followID)
+	}
+
+	if _, err := m.db.Exec(`UPDATE follows SET local_tag_id = ? WHERE id = ?`, newTagID, followID); err != nil {
+		return info, fmt.Errorf("update follow: %w", err)
+	}
+
+	// Swap the in-memory id under the follow's lock. followSession reads
+	// f.localTagID per clip-end; a clip already in flight may still land
+	// under the old tag, but every clip after this point uses the new one.
+	f.mu.Lock()
+	f.localTagID = newTagID
+	status := f.status
+	f.mu.Unlock()
+
+	// Look up other fields needed for FollowInfo so callers (and the UI
+	// event listener) get a complete row without a separate refresh.
+	var createdAt, lastSeqDB, clipsRecv int64
+	var lastSeenSQL sql.NullInt64
+	_ = m.db.QueryRow(
+		`SELECT created_at, last_seq, clips_received, last_seen_at FROM follows WHERE id = ?`,
+		followID,
+	).Scan(&createdAt, &lastSeqDB, &clipsRecv, &lastSeenSQL)
+	var lastSeenPtr *int64
+	if lastSeenSQL.Valid {
+		v := lastSeenSQL.Int64
+		lastSeenPtr = &v
+	}
+
+	info = FollowInfo{
+		ID: followID, RemotePeerID: f.remotePeerID.String(),
+		LocalTagID: newTagID, LocalTagName: newLocalTagName,
+		Status:        status,
+		ClipsReceived: clipsRecv,
+		LastSeq:       lastSeqDB,
+		LastSeenAt:    lastSeenPtr,
+		CreatedAt:     createdAt,
+	}
+	m.emitEvent("share:follow-updated", info)
+	return info, nil
+}
+
 // Unfollow cancels the reconnect loop and deletes the follows row.
 func (m *ShareManager) Unfollow(followID int64) error {
 	m.mu.Lock()
@@ -1107,16 +1167,18 @@ func (m *ShareManager) setFollowStatus(f *follow, s string) {
 	m.emitEvent("share:follow-updated", map[string]any{"id": f.id, "status": s})
 }
 
-// resolveOrCreateTag uses the existing App API if present, or falls back to a
-// direct INSERT. For the tests this path is sufficient; in the wired app,
-// ShareManager.resolveOrCreateTag delegates via a callback set at startup.
+// resolveOrCreateTag looks up the tag row for the given name, creating it if
+// missing. Validates against the same rules as App.CreateTag (empty segments,
+// reserved "_api", length limit) so follow flows can't create malformed rows.
 func (m *ShareManager) resolveOrCreateTag(name string) (int64, error) {
-	var id int64
-	err := m.db.QueryRow(`SELECT id FROM tags WHERE name = ?`, name).Scan(&id)
-	if err == nil {
-		return id, nil
+	name, err := validateTagName(name)
+	if err != nil {
+		return 0, err
 	}
-	if err != sql.ErrNoRows {
+	var id int64
+	if err := m.db.QueryRow(`SELECT id FROM tags WHERE name = ?`, name).Scan(&id); err == nil {
+		return id, nil
+	} else if err != sql.ErrNoRows {
 		return 0, err
 	}
 	res, err := m.db.Exec(`INSERT INTO tags (name, color) VALUES (?, '#888')`, name)

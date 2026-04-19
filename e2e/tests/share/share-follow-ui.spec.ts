@@ -219,6 +219,81 @@ test.describe('Share - Follow UI (mocked backend)', () => {
     await expect(dropdown).toBeHidden();
   });
 
+  test('edit-follow modal updates the local tag for an existing follow', async ({ app }) => {
+    // Create a follow via FollowWithoutDial (mocked link → no peer dial needed).
+    // The card needs a real follow row so the Edit click has something to act on.
+    await app.openDrawer();
+    await app.page.click('#view-tab-share');
+    await app.page.waitForFunction(
+      () => !(document.getElementById('share-view')?.classList.contains('hidden') ?? true),
+      { timeout: 5000 },
+    );
+
+    // Stub UpdateFollowTag to record calls and pretend it succeeds. Stub
+    // GetShareStatus to first show one follow tagged "old/inbox", then after
+    // the update flip to "new/inbox" so the card refresh exercises both.
+    await app.page.evaluate(() => {
+      let currentTag = 'old/inbox';
+      (window as any).__editFollowCalled = null;
+      (window as any).go.main.ShareService.UpdateFollowTag = async (id: number, name: string) => {
+        (window as any).__editFollowCalled = { id, name };
+        currentTag = name;
+        return { id, local_tag_name: name };
+      };
+      (window as any).go.main.ShareService.GetShareStatus = async () => ({
+        shares: [],
+        follows: [{
+          id: 42,
+          remote_peer_id: 'fake-peer',
+          local_tag_id: 1,
+          local_tag_name: currentTag,
+          status: 'connected',
+          clips_received: 3,
+          last_seq: 0,
+          created_at: Math.floor(Date.now() / 1000) - 60,
+        }],
+      });
+    });
+
+    // Force a refresh so the stubbed follow shows up.
+    await app.page.evaluate(() => (window as any).ShareView?.refresh?.());
+
+    // The follow list re-renders on every share:follow-updated event from the
+    // real backend, so the Edit button can briefly detach mid-click. Use force
+    // to skip the stability check — we just need to exercise the handler.
+    const editBtn = app.page.locator('.share-edit-follow').first();
+    await expect(editBtn).toBeVisible({ timeout: 3000 });
+    await editBtn.click({ force: true });
+
+    // Modal opens, prefilled with the current tag.
+    const modal = app.page.locator('#edit-follow-modal');
+    await expect(modal).toBeVisible();
+    const input = app.page.locator('#edit-follow-tag-input');
+    await expect(input).toHaveValue('old/inbox');
+    // Save is disabled since value is unchanged.
+    const saveBtn = app.page.locator('#edit-follow-save-btn');
+    await expect(saveBtn).toBeDisabled();
+
+    await input.fill('new/inbox');
+    await expect(saveBtn).toBeEnabled();
+    // Blur to dismiss the autocomplete dropdown so it doesn't intercept Save.
+    await input.evaluate((el: HTMLElement) => el.blur());
+    await saveBtn.click();
+
+    // Backend stub should have been called with the right id + new tag.
+    await app.page.waitForFunction(
+      () => (window as any).__editFollowCalled !== null,
+      { timeout: 3000 },
+    );
+    const args = await app.page.evaluate(() => (window as any).__editFollowCalled);
+    expect(args.id).toBe(42);
+    expect(args.name).toBe('new/inbox');
+
+    // Modal closes after success and the card reflects the new tag.
+    await expect(modal).toBeHidden();
+    await expect(app.page.locator('#share-follows-list .text-stone-800').first()).toHaveText('new/inbox');
+  });
+
   test('race guard: second paste replaces first dial result', async ({ app }) => {
     await openFollowModal(app);
 

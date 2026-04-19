@@ -37,3 +37,7 @@ export function TestFollowConnection(arg1) {
 export function Unfollow(arg1) {
   return window['go']['main']['ShareService']['Unfollow'](arg1);
 }
+
+export function UpdateFollowTag(arg1, arg2) {
+  return window['go']['main']['ShareService']['UpdateFollowTag'](arg1, arg2);
+}
