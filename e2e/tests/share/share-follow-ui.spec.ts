@@ -294,6 +294,214 @@ test.describe('Share - Follow UI (mocked backend)', () => {
     await expect(app.page.locator('#share-follows-list .text-stone-800').first()).toHaveText('new/inbox');
   });
 
+  test('refresh button on a follow card calls ReconnectFollow(id)', async ({ app }) => {
+    await app.openDrawer();
+    await app.page.click('#view-tab-share');
+    await app.page.waitForFunction(
+      () => !(document.getElementById('share-view')?.classList.contains('hidden') ?? true),
+      { timeout: 5000 },
+    );
+
+    // Stub a single offline follow and capture ReconnectFollow calls.
+    await app.page.evaluate(() => {
+      (window as any).__reconnectCalledWith = null;
+      (window as any).go.main.ShareService.GetShareStatus = async () => ({
+        shares: [],
+        follows: [{
+          id: 77,
+          remote_peer_id: 'fake-peer',
+          local_tag_id: 1,
+          local_tag_name: 'shared/remote',
+          status: 'offline',
+          clips_received: 0,
+          last_seq: 0,
+          created_at: Math.floor(Date.now() / 1000) - 120,
+        }],
+      });
+      (window as any).go.main.ShareService.ReconnectFollow = async (id: number) => {
+        (window as any).__reconnectCalledWith = id;
+      };
+    });
+
+    // Kick the share view to re-render with the stub.
+    await app.page.evaluate(() => (window as any).ShareView?.refresh?.());
+
+    const refreshBtn = app.page.locator('.share-reconnect').first();
+    await expect(refreshBtn).toBeVisible({ timeout: 3000 });
+    // Use force — the follow list is re-rendered on every share:follow-updated
+    // event from the real backend so the button can briefly detach mid-click.
+    await refreshBtn.click({ force: true });
+
+    await app.page.waitForFunction(
+      () => (window as any).__reconnectCalledWith !== null,
+      { timeout: 3000 },
+    );
+    const calledWith = await app.page.evaluate(() => (window as any).__reconnectCalledWith);
+    expect(calledWith).toBe(77);
+  });
+
+  test('pause / resume follow toggles backend and UI label', async ({ app }) => {
+    await app.openDrawer();
+    await app.page.click('#view-tab-share');
+    await app.page.waitForFunction(
+      () => !(document.getElementById('share-view')?.classList.contains('hidden') ?? true),
+      { timeout: 5000 },
+    );
+
+    // Stub one follow that starts connected. Pause/Resume flip the paused
+    // flag in the stubbed status so the card re-renders with the new label.
+    await app.page.evaluate(() => {
+      let paused = false;
+      (window as any).__pauseFollowCalls = 0;
+      (window as any).__resumeFollowCalls = 0;
+      (window as any).go.main.ShareService.GetShareStatus = async () => ({
+        shares: [],
+        follows: [{
+          id: 55,
+          remote_peer_id: 'fake-peer',
+          local_tag_id: 1,
+          local_tag_name: 'shared/remote',
+          status: paused ? 'offline' : 'connected',
+          paused,
+          clips_received: 0,
+          last_seq: 0,
+          created_at: Math.floor(Date.now() / 1000) - 60,
+        }],
+      });
+      (window as any).go.main.ShareService.PauseFollow = async (_id: number) => {
+        (window as any).__pauseFollowCalls++;
+        paused = true;
+      };
+      (window as any).go.main.ShareService.ResumeFollow = async (_id: number) => {
+        (window as any).__resumeFollowCalls++;
+        paused = false;
+      };
+    });
+
+    await app.page.evaluate(() => (window as any).ShareView?.refresh?.());
+
+    // Card starts with a Pause button.
+    const toggle = app.page.locator('.share-toggle-follow-pause').first();
+    await expect(toggle).toBeVisible({ timeout: 3000 });
+    await expect(toggle).toContainText('Pause');
+    await toggle.click({ force: true });
+    await app.page.waitForFunction(() => (window as any).__pauseFollowCalls === 1, { timeout: 3000 });
+
+    // After pause the refresh call flips the paused state; card should
+    // re-render with a Resume label and hide the Refresh button.
+    await app.page.evaluate(() => (window as any).ShareView?.refresh?.());
+    const toggleAfter = app.page.locator('.share-toggle-follow-pause').first();
+    await expect(toggleAfter).toContainText('Resume');
+    await expect(app.page.locator('.share-reconnect')).toHaveCount(0);
+
+    await toggleAfter.click({ force: true });
+    await app.page.waitForFunction(() => (window as any).__resumeFollowCalls === 1, { timeout: 3000 });
+  });
+
+  test('pause / resume share toggles backend and UI label', async ({ app }) => {
+    await app.openDrawer();
+    await app.page.click('#view-tab-share');
+    await app.page.waitForFunction(
+      () => !(document.getElementById('share-view')?.classList.contains('hidden') ?? true),
+      { timeout: 5000 },
+    );
+
+    await app.page.evaluate(() => {
+      let status = 'active';
+      (window as any).__pauseShareCalls = 0;
+      (window as any).__resumeShareCalls = 0;
+      (window as any).go.main.ShareService.GetShareStatus = async () => ({
+        shares: [{
+          id: 11,
+          tag_id: 7,
+          tag_name: 'work/shared',
+          share_string: 'mp-share:v1:FAKE',
+          status,
+          followers: 0,
+          clips_pushed: 0,
+          last_seq: 0,
+          created_at: Math.floor(Date.now() / 1000) - 60,
+        }],
+        follows: [],
+      });
+      (window as any).go.main.ShareService.PauseShare = async (_tagID: number) => {
+        (window as any).__pauseShareCalls++;
+        status = 'paused';
+      };
+      (window as any).go.main.ShareService.ResumeShare = async (_tagID: number) => {
+        (window as any).__resumeShareCalls++;
+        status = 'active';
+      };
+    });
+
+    await app.page.evaluate(() => (window as any).ShareView?.refresh?.());
+
+    const toggle = app.page.locator('.share-toggle-pause').first();
+    await expect(toggle).toBeVisible({ timeout: 3000 });
+    await expect(toggle).toContainText('Pause');
+    await toggle.click({ force: true });
+    await app.page.waitForFunction(() => (window as any).__pauseShareCalls === 1, { timeout: 3000 });
+
+    await app.page.evaluate(() => (window as any).ShareView?.refresh?.());
+    const toggleAfter = app.page.locator('.share-toggle-pause').first();
+    await expect(toggleAfter).toContainText('Resume');
+    await toggleAfter.click({ force: true });
+    await app.page.waitForFunction(() => (window as any).__resumeShareCalls === 1, { timeout: 3000 });
+  });
+
+  test('logs button opens modal and shows entries', async ({ app }) => {
+    await app.openDrawer();
+    await app.page.click('#view-tab-share');
+    await app.page.waitForFunction(
+      () => !(document.getElementById('share-view')?.classList.contains('hidden') ?? true),
+      { timeout: 5000 },
+    );
+
+    await app.page.evaluate(() => {
+      (window as any).go.main.ShareService.GetShareStatus = async () => ({
+        shares: [],
+        follows: [{
+          id: 88,
+          remote_peer_id: 'fake-peer',
+          local_tag_id: 1,
+          local_tag_name: 'shared/logs-target',
+          status: 'connected',
+          paused: false,
+          clips_received: 0,
+          last_seq: 0,
+          created_at: Math.floor(Date.now() / 1000) - 60,
+        }],
+      });
+      (window as any).__lastLogsQuery = null;
+      (window as any).go.main.ShareService.GetShareLogs = async (followID: number, publicationID: number) => {
+        (window as any).__lastLogsQuery = { followID, publicationID };
+        return [
+          { timestamp: Math.floor(Date.now() / 1000), level: 'info', scope: 'follow', follow_id: 88, message: 'handshake complete with fake-peer' },
+          { timestamp: Math.floor(Date.now() / 1000) - 30, level: 'warn', scope: 'follow', follow_id: 88, message: 'session ended: stream reset' },
+        ];
+      };
+    });
+
+    await app.page.evaluate(() => (window as any).ShareView?.refresh?.());
+
+    await app.page.locator('.share-logs-follow').first().click({ force: true });
+    await expect(app.page.locator('#share-logs-modal')).toBeVisible({ timeout: 3000 });
+
+    // GetShareLogs should have been called with followID=88.
+    await app.page.waitForFunction(
+      () => (window as any).__lastLogsQuery?.followID === 88,
+      { timeout: 3000 },
+    );
+    // Both log entries rendered.
+    await expect(app.page.locator('#share-logs-list li')).toHaveCount(2);
+    await expect(app.page.locator('#share-logs-list')).toContainText('handshake complete');
+    await expect(app.page.locator('#share-logs-list')).toContainText('session ended');
+
+    // Close via the close button.
+    await app.page.locator('.share-logs-close').first().click({ force: true });
+    await expect(app.page.locator('#share-logs-modal')).toBeHidden();
+  });
+
   test('race guard: second paste replaces first dial result', async ({ app }) => {
     await openFollowModal(app);
 

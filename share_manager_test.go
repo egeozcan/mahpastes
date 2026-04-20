@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -44,7 +45,7 @@ CREATE TABLE clips (id INTEGER PRIMARY KEY, content_type TEXT, data BLOB, filena
 CREATE TABLE clip_tags (clip_id INTEGER, tag_id INTEGER, PRIMARY KEY(clip_id,tag_id));
 CREATE TABLE shares (id INTEGER PRIMARY KEY, tag_id INTEGER NOT NULL, symkey BLOB NOT NULL, share_id BLOB NOT NULL UNIQUE, last_seq INTEGER NOT NULL DEFAULT 0, clips_sent INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'active', created_at INTEGER NOT NULL);
 CREATE UNIQUE INDEX idx_shares_tag_id ON shares(tag_id);
-CREATE TABLE follows (id INTEGER PRIMARY KEY, remote_peer_id TEXT, symkey BLOB, local_tag_id INTEGER, last_seq INTEGER DEFAULT 0, clips_received INTEGER NOT NULL DEFAULT 0, last_seen_at INTEGER, created_at INTEGER);
+CREATE TABLE follows (id INTEGER PRIMARY KEY, remote_peer_id TEXT, symkey BLOB, local_tag_id INTEGER, last_seq INTEGER DEFAULT 0, clips_received INTEGER NOT NULL DEFAULT 0, last_seen_at INTEGER, created_at INTEGER, paused INTEGER NOT NULL DEFAULT 0);
 CREATE INDEX idx_follows_peer ON follows(remote_peer_id);
 CREATE TABLE share_ring (id INTEGER PRIMARY KEY, publication_id INTEGER, seq INTEGER, kind TEXT, envelope_bytes BLOB, ts INTEGER, FOREIGN KEY(publication_id) REFERENCES shares(id) ON DELETE CASCADE);
 CREATE UNIQUE INDEX idx_share_ring_pub_seq ON share_ring(publication_id, seq);
@@ -577,6 +578,358 @@ func TestFollowSessionEndFlipsStatusOffline(t *testing.T) {
 	}
 	if !sawOffline {
 		t.Fatal("expected status to flip to 'offline' after DisconnectFollowForTest")
+	}
+}
+
+// TestReconnectFollowUnknownIDReturnsError locks the precondition check so a
+// stale UI call for a deleted follow fails fast with a clear error instead of
+// silently no-oping.
+func TestReconnectFollowUnknownIDReturnsError(t *testing.T) {
+	ctx := context.Background()
+	db := newTestDB(t)
+	m, _ := NewShareManager(ctx, db, t.TempDir())
+	defer m.Stop()
+	if err := m.ReconnectFollow(9999); err == nil {
+		t.Fatal("expected error for unknown follow id, got nil")
+	}
+}
+
+// TestReconnectFollowCyclesThroughOffline verifies ReconnectFollow tears the
+// live session down (observable via the session-end → status-offline event)
+// and that runFollowLoop then re-establishes the session so the follow is
+// "connected" again. This exercises both halves of ReconnectFollow: the
+// sessionCancel call AND the reconnectSignal kick that skips the backoff.
+//
+// Observed via eventFn because the offline blink between tear-down and
+// re-handshake is sub-millisecond on in-process libp2p and too fast to
+// catch with status polling.
+func TestReconnectFollowCyclesThroughOffline(t *testing.T) {
+	ctx := context.Background()
+
+	pubDB := newTestDB(t)
+	pubM, _ := NewShareManager(ctx, pubDB, t.TempDir())
+	defer pubM.Stop()
+	pubDB.Exec(`INSERT INTO tags (id, name, color) VALUES (1, 'x', '#aaa')`)
+	info, _ := pubM.StartShare(1)
+
+	fDB := newTestDB(t)
+	fM, _ := NewShareManager(ctx, fDB, t.TempDir())
+	defer fM.Stop()
+	fDB.Exec(`INSERT INTO tags (id, name, color) VALUES (99, 'inbox', '#aaa')`)
+	fM.Host().Peerstore().AddAddrs(pubM.Host().ID(), pubM.Host().Addrs(), time.Hour)
+
+	// Capture every share:follow-updated status transition before Follow()
+	// starts the loop, so we catch the initial "connected" too.
+	statusCh := make(chan string, 32)
+	fM.eventFn = func(name string, data ...any) {
+		if name != "share:follow-updated" || len(data) == 0 {
+			return
+		}
+		var status string
+		switch v := data[0].(type) {
+		case FollowInfo:
+			status = v.Status
+		case map[string]any:
+			if s, ok := v["status"].(string); ok {
+				status = s
+			}
+		}
+		if status == "" {
+			return
+		}
+		select {
+		case statusCh <- status:
+		default:
+		}
+	}
+
+	followInfo, err := fM.Follow(info.ShareString, "inbox")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	readStatus := func(id int64) string {
+		fM.mu.RLock()
+		f := fM.follows[id]
+		fM.mu.RUnlock()
+		if f == nil {
+			return ""
+		}
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return f.status
+	}
+	waitForStatus := func(want string, timeout time.Duration) bool {
+		deadline := time.Now().Add(timeout)
+		for time.Now().Before(deadline) {
+			if readStatus(followInfo.ID) == want {
+				return true
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		return false
+	}
+	if !waitForStatus("connected", 3*time.Second) {
+		t.Fatal("follow never reached connected")
+	}
+
+	// Drain any events queued from the setup phase so the post-reconnect
+	// observation starts from a known-empty channel. Events captured after
+	// this drain are exactly the ReconnectFollow-induced transitions.
+drain:
+	for {
+		select {
+		case <-statusCh:
+		default:
+			break drain
+		}
+	}
+
+	if err := fM.ReconnectFollow(followInfo.ID); err != nil {
+		t.Fatalf("ReconnectFollow: %v", err)
+	}
+
+	waitForEvent := func(want string, timeout time.Duration) bool {
+		deadline := time.After(timeout)
+		for {
+			select {
+			case s := <-statusCh:
+				if s == want {
+					return true
+				}
+			case <-deadline:
+				return false
+			}
+		}
+	}
+	// Session tear-down defer must emit offline.
+	if !waitForEvent("offline", 3*time.Second) {
+		t.Fatal("no offline event fired after ReconnectFollow")
+	}
+	// And the loop must re-handshake back to connected well before
+	// ReconnectCap (30s). 5s is comfortably above the actual dial+
+	// handshake cost for an in-process libp2p pair.
+	if !waitForEvent("connected", 5*time.Second) {
+		t.Fatal("no connected event fired after ReconnectFollow tear-down")
+	}
+}
+
+// TestShareLogBufferAppendAndFilter verifies the circular buffer eviction,
+// newest-first ordering, and follow/publication filtering.
+func TestShareLogBufferAppendAndFilter(t *testing.T) {
+	b := newShareLogBuffer()
+
+	b.append(ShareLogEntry{Level: "info", Scope: "follow", FollowID: 1, Message: "a"})
+	b.append(ShareLogEntry{Level: "info", Scope: "follow", FollowID: 2, Message: "b"})
+	b.append(ShareLogEntry{Level: "info", Scope: "share", PublicationID: 10, Message: "c"})
+
+	all := b.snapshot(0, 0)
+	if len(all) != 3 {
+		t.Fatalf("snapshot: got %d entries, want 3", len(all))
+	}
+	// Newest-first.
+	if all[0].Message != "c" || all[1].Message != "b" || all[2].Message != "a" {
+		t.Fatalf("snapshot order wrong: %q %q %q", all[0].Message, all[1].Message, all[2].Message)
+	}
+
+	f2 := b.snapshot(2, 0)
+	if len(f2) != 1 || f2[0].Message != "b" {
+		t.Fatalf("follow filter: got %#v", f2)
+	}
+
+	p10 := b.snapshot(0, 10)
+	if len(p10) != 1 || p10[0].Message != "c" {
+		t.Fatalf("publication filter: got %#v", p10)
+	}
+
+	// Overflow: push more than capacity and assert oldest are evicted.
+	for i := 0; i < shareLogRingCap+25; i++ {
+		b.append(ShareLogEntry{Level: "info", Scope: "system", Message: fmt.Sprintf("fill-%d", i)})
+	}
+	snap := b.snapshot(0, 0)
+	if len(snap) != shareLogRingCap {
+		t.Fatalf("after overflow snapshot len = %d, want %d", len(snap), shareLogRingCap)
+	}
+	// The newest entry must be the last one we pushed.
+	wantNewest := fmt.Sprintf("fill-%d", shareLogRingCap+25-1)
+	if snap[0].Message != wantNewest {
+		t.Fatalf("newest = %q, want %q", snap[0].Message, wantNewest)
+	}
+}
+
+// TestPauseFollowBlocksReconnect pauses a live follow and verifies the loop
+// refuses to re-establish a session until ResumeFollow fires, including
+// after an explicit ReconnectFollow (which is a no-op on paused).
+func TestPauseFollowBlocksReconnect(t *testing.T) {
+	ctx := context.Background()
+
+	pubDB := newTestDB(t)
+	pubM, _ := NewShareManager(ctx, pubDB, t.TempDir())
+	defer pubM.Stop()
+	pubDB.Exec(`INSERT INTO tags (id, name, color) VALUES (1, 'x', '#aaa')`)
+	info, _ := pubM.StartShare(1)
+
+	fDB := newTestDB(t)
+	fM, _ := NewShareManager(ctx, fDB, t.TempDir())
+	defer fM.Stop()
+	fDB.Exec(`INSERT INTO tags (id, name, color) VALUES (99, 'inbox', '#aaa')`)
+	fM.Host().Peerstore().AddAddrs(pubM.Host().ID(), pubM.Host().Addrs(), time.Hour)
+
+	followInfo, err := fM.Follow(info.ShareString, "inbox")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	readStatus := func(id int64) string {
+		fM.mu.RLock()
+		f := fM.follows[id]
+		fM.mu.RUnlock()
+		if f == nil {
+			return ""
+		}
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return f.status
+	}
+	waitForStatus := func(want string, timeout time.Duration) bool {
+		deadline := time.Now().Add(timeout)
+		for time.Now().Before(deadline) {
+			if readStatus(followInfo.ID) == want {
+				return true
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		return false
+	}
+	if !waitForStatus("connected", 3*time.Second) {
+		t.Fatal("follow never reached connected")
+	}
+
+	if err := fM.PauseFollow(followInfo.ID); err != nil {
+		t.Fatalf("PauseFollow: %v", err)
+	}
+
+	// Session tear-down should flip to offline.
+	if !waitForStatus("offline", 3*time.Second) {
+		t.Fatal("status did not flip to offline after PauseFollow")
+	}
+
+	// Paused flag should be set in memory and persisted.
+	fM.mu.RLock()
+	f := fM.follows[followInfo.ID]
+	fM.mu.RUnlock()
+	f.mu.Lock()
+	paused := f.paused
+	f.mu.Unlock()
+	if !paused {
+		t.Fatal("follow.paused not set")
+	}
+	var dbPaused int
+	_ = fDB.QueryRow(`SELECT paused FROM follows WHERE id = ?`, followInfo.ID).Scan(&dbPaused)
+	if dbPaused != 1 {
+		t.Fatalf("follows.paused persist: got %d want 1", dbPaused)
+	}
+
+	// ReconnectFollow on a paused follow must NOT cause the session to
+	// return to "connected". Give the loop 500ms to (incorrectly) reconnect.
+	_ = fM.ReconnectFollow(followInfo.ID)
+	time.Sleep(500 * time.Millisecond)
+	if readStatus(followInfo.ID) == "connected" {
+		t.Fatal("paused follow re-connected despite pause")
+	}
+
+	// Resume must kick the loop back to connected.
+	if err := fM.ResumeFollow(followInfo.ID); err != nil {
+		t.Fatalf("ResumeFollow: %v", err)
+	}
+	if !waitForStatus("connected", 5*time.Second) {
+		t.Fatal("follow did not return to connected after ResumeFollow")
+	}
+	var dbPausedAfter int
+	_ = fDB.QueryRow(`SELECT paused FROM follows WHERE id = ?`, followInfo.ID).Scan(&dbPausedAfter)
+	if dbPausedAfter != 0 {
+		t.Fatalf("follows.paused after resume: got %d want 0", dbPausedAfter)
+	}
+}
+
+// TestPauseShareRejectsHandshakes pauses a publication and verifies a
+// follower's subsequent session attempts fail (handlePublisherStream rejects
+// because status != "active"). ResumeShare restores acceptance.
+func TestPauseShareRejectsHandshakes(t *testing.T) {
+	ctx := context.Background()
+
+	pubDB := newTestDB(t)
+	pubM, _ := NewShareManager(ctx, pubDB, t.TempDir())
+	defer pubM.Stop()
+	pubDB.Exec(`INSERT INTO tags (id, name, color) VALUES (1, 'x', '#aaa')`)
+	info, _ := pubM.StartShare(1)
+
+	fDB := newTestDB(t)
+	fM, _ := NewShareManager(ctx, fDB, t.TempDir())
+	defer fM.Stop()
+	fDB.Exec(`INSERT INTO tags (id, name, color) VALUES (99, 'inbox', '#aaa')`)
+	fM.Host().Peerstore().AddAddrs(pubM.Host().ID(), pubM.Host().Addrs(), time.Hour)
+
+	followInfo, err := fM.Follow(info.ShareString, "inbox")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	readStatus := func(id int64) string {
+		fM.mu.RLock()
+		f := fM.follows[id]
+		fM.mu.RUnlock()
+		if f == nil {
+			return ""
+		}
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return f.status
+	}
+	waitForStatus := func(want string, timeout time.Duration) bool {
+		deadline := time.Now().Add(timeout)
+		for time.Now().Before(deadline) {
+			if readStatus(followInfo.ID) == want {
+				return true
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		return false
+	}
+	if !waitForStatus("connected", 3*time.Second) {
+		t.Fatal("follow never reached connected before pause")
+	}
+
+	if err := pubM.PauseShare(1); err != nil {
+		t.Fatalf("PauseShare: %v", err)
+	}
+
+	// Publisher side: status must be "paused" and DB row updated.
+	var dbStatus string
+	_ = pubDB.QueryRow(`SELECT status FROM shares WHERE tag_id = 1`).Scan(&dbStatus)
+	if dbStatus != "paused" {
+		t.Fatalf("shares.status persist: got %q want paused", dbStatus)
+	}
+
+	// Follower side: closeAllFollowers ran on pub, so the follow session
+	// tears down; the loop retries but new handshakes are rejected so
+	// status stays offline.
+	if !waitForStatus("offline", 3*time.Second) {
+		t.Fatal("follow did not flip offline after PauseShare")
+	}
+	// Wait a bit and assert still offline — the reconnect loop must not
+	// succeed while the publisher rejects handshakes.
+	time.Sleep(1500 * time.Millisecond)
+	if readStatus(followInfo.ID) == "connected" {
+		t.Fatal("follow became connected despite paused publisher")
+	}
+
+	// Resume and verify the publisher accepts handshakes again.
+	if err := pubM.ResumeShare(1); err != nil {
+		t.Fatalf("ResumeShare: %v", err)
+	}
+	if !waitForStatus("connected", 5*time.Second) {
+		t.Fatal("follow did not reconnect after ResumeShare")
 	}
 }
 

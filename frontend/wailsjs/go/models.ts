@@ -361,6 +361,7 @@ export namespace main {
 	    local_tag_id: number;
 	    local_tag_name: string;
 	    status: string;
+	    paused: boolean;
 	    clips_received: number;
 	    last_seq: number;
 	    last_seen_at?: number;
@@ -377,6 +378,7 @@ export namespace main {
 	        this.local_tag_id = source["local_tag_id"];
 	        this.local_tag_name = source["local_tag_name"];
 	        this.status = source["status"];
+	        this.paused = source["paused"];
 	        this.clips_received = source["clips_received"];
 	        this.last_seq = source["last_seq"];
 	        this.last_seen_at = source["last_seen_at"];
@@ -624,6 +626,28 @@ export namespace main {
 	        this.clips_pushed = source["clips_pushed"];
 	        this.last_seq = source["last_seq"];
 	        this.created_at = source["created_at"];
+	    }
+	}
+	export class ShareLogEntry {
+	    timestamp: number;
+	    level: string;
+	    scope: string;
+	    follow_id?: number;
+	    publication_id?: number;
+	    message: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ShareLogEntry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.timestamp = source["timestamp"];
+	        this.level = source["level"];
+	        this.scope = source["scope"];
+	        this.follow_id = source["follow_id"];
+	        this.publication_id = source["publication_id"];
+	        this.message = source["message"];
 	    }
 	}
 	export class ShareStatus {

@@ -18,8 +18,32 @@ export function FollowWithoutDial(arg1, arg2) {
   return window['go']['main']['ShareService']['FollowWithoutDial'](arg1, arg2);
 }
 
+export function GetShareLogs(arg1, arg2) {
+  return window['go']['main']['ShareService']['GetShareLogs'](arg1, arg2);
+}
+
 export function GetShareStatus() {
   return window['go']['main']['ShareService']['GetShareStatus']();
+}
+
+export function PauseFollow(arg1) {
+  return window['go']['main']['ShareService']['PauseFollow'](arg1);
+}
+
+export function PauseShare(arg1) {
+  return window['go']['main']['ShareService']['PauseShare'](arg1);
+}
+
+export function ReconnectFollow(arg1) {
+  return window['go']['main']['ShareService']['ReconnectFollow'](arg1);
+}
+
+export function ResumeFollow(arg1) {
+  return window['go']['main']['ShareService']['ResumeFollow'](arg1);
+}
+
+export function ResumeShare(arg1) {
+  return window['go']['main']['ShareService']['ResumeShare'](arg1);
 }
 
 export function StartShare(arg1) {

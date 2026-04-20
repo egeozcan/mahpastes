@@ -1952,6 +1952,24 @@
         </div>
     </div>
 
+    <!-- Share Logs Modal -->
+    <div id="share-logs-modal" class="hidden fixed inset-0 z-[60] bg-stone-900/40 backdrop-blur-sm flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="share-logs-title">
+        <div class="bg-white rounded-lg border border-stone-200 shadow-xl max-w-2xl w-full p-5 max-h-[80vh] flex flex-col">
+            <div class="flex justify-between items-center mb-3 shrink-0">
+                <h4 id="share-logs-title" class="text-xs font-semibold text-stone-400 uppercase tracking-wide">Share logs</h4>
+                <button class="share-logs-close p-1 hover:bg-stone-100 rounded" aria-label="Close">
+                    <svg class="w-4 h-4 text-stone-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            </div>
+            <p id="share-logs-subtitle" class="text-[11px] text-stone-500 mb-3 shrink-0">Recent share-system events, newest first. In-memory only — cleared on app restart.</p>
+            <ul id="share-logs-list" class="space-y-1.5 overflow-y-auto flex-1 text-[11px] font-mono border border-stone-100 rounded-md p-2 bg-stone-50"></ul>
+            <div class="flex justify-end gap-2 mt-3 shrink-0">
+                <button id="share-logs-refresh-btn" class="border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-xs font-medium py-2 px-3 rounded-md">Refresh</button>
+                <button class="share-logs-close border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-xs font-medium py-2 px-3 rounded-md">Close</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Shortcuts Cheat Sheet Overlay -->
     <div id="shortcuts-cheatsheet" role="dialog" aria-modal="true" aria-label="Keyboard Shortcuts" inert
         class="fixed inset-0 z-[60] flex items-center justify-center p-8 bg-stone-900/80 backdrop-blur-sm transition-opacity duration-200 opacity-0 pointer-events-none"

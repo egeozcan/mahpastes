@@ -50,18 +50,47 @@
     else shareIndicator.classList.add('hidden');
   }
 
+  // Small factored button snippets to keep the card templates readable and
+  // consistent. All use text-[11px] / py-1.5 px-3 per the design system.
+  const ICON_REFRESH = '<svg class="w-3 h-3 opacity-60" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>';
+  const ICON_PAUSE   = '<svg class="w-3 h-3 opacity-60" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>';
+  const ICON_PLAY    = '<svg class="w-3 h-3 opacity-60" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4l14 8-14 8z"/></svg>';
+  const ICON_LOGS    = '<svg class="w-3 h-3 opacity-60" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 5h14v14H5z"/><path d="M8 9h8M8 12h8M8 15h5"/></svg>';
+
+  function pubStatusPill(s) {
+    if (s.status === 'paused') return '<span class="inline-block w-1.5 h-1.5 rounded-full bg-amber-500 mr-1.5"></span>Paused';
+    if (s.status === 'invalid') return '<span class="text-amber-700">(Re-share needed)</span>';
+    return '';
+  }
+
+  function followStatusPill(f) {
+    if (f.paused) return '<span class="inline-block w-1.5 h-1.5 rounded-full bg-amber-500 mr-1.5"></span>Paused';
+    if (f.status === 'connected') return '<span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5"></span>Connected';
+    if (f.status === 'connected_relayed') return '<span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5"></span>Connected (relayed)';
+    return '<span class="inline-block w-1.5 h-1.5 rounded-full bg-stone-400 mr-1.5"></span>Offline · will resume';
+  }
+
   function renderPublications(shares) {
     pubList.innerHTML = '';
     shares.forEach(s => {
       const li = document.createElement('li');
       li.className = 'bg-white border border-stone-200 rounded-md px-4 py-3 flex items-center justify-between gap-3';
-      const invalidBadge = s.status === 'invalid' ? ' <span class="text-amber-700">(Re-share needed)</span>' : '';
+      const statusPill = pubStatusPill(s);
+      const statusPrefix = statusPill ? `${statusPill} · ` : '';
+      const paused = s.status === 'paused';
+      const canTogglePause = s.status === 'active' || s.status === 'paused';
+      const pauseBtn = canTogglePause
+        ? `<button class="share-toggle-pause border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-[11px] font-medium py-1.5 px-3 rounded-md inline-flex items-center gap-1" data-tagid="${s.tag_id}" data-paused="${paused ? '1' : '0'}" aria-label="${paused ? 'Resume share' : 'Pause share'}" title="${paused ? 'Resume share' : 'Pause share'}">${paused ? ICON_PLAY : ICON_PAUSE}${paused ? 'Resume' : 'Pause'}</button>`
+        : '';
+      const nameSuffix = s.status === 'invalid' ? ` <span class="text-amber-700">(Re-share needed)</span>` : '';
       li.innerHTML = `
         <div class="min-w-0 flex-1">
-          <div class="text-sm font-medium text-stone-800 truncate">${escapeHTML(s.tag_name)}${invalidBadge}</div>
-          <div class="text-[11px] text-stone-500">${s.followers} followers · ${s.clips_pushed} clips pushed · since ${relTime(s.created_at)}</div>
+          <div class="text-sm font-medium text-stone-800 truncate">${escapeHTML(s.tag_name)}${nameSuffix}</div>
+          <div class="text-[11px] text-stone-500">${statusPrefix}${s.followers} followers · ${s.clips_pushed} clips pushed · since ${relTime(s.created_at)}</div>
         </div>
         <div class="flex gap-2 shrink-0">
+          <button class="share-logs-pub border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-[11px] font-medium py-1.5 px-3 rounded-md inline-flex items-center gap-1" data-pubid="${s.id}" data-name="${escapeHTML(s.tag_name)}" aria-label="View logs" title="View logs">${ICON_LOGS}Logs</button>
+          ${pauseBtn}
           <button class="share-copy-link border border-stone-200 hover:bg-stone-100 text-stone-600 text-[11px] font-medium py-1.5 px-3 rounded-md" data-id="${s.id}" data-share="${escapeHTML(s.share_string)}">Copy link</button>
           <button class="share-stop border border-stone-200 hover:bg-red-50 hover:border-red-300 text-stone-600 hover:text-red-600 text-[11px] font-medium py-1.5 px-3 rounded-md" data-tagid="${s.tag_id}">Stop</button>
         </div>`;
@@ -74,15 +103,21 @@
     follows.forEach(f => {
       const li = document.createElement('li');
       li.className = 'bg-white border border-stone-200 rounded-md px-4 py-3 flex items-center justify-between gap-3';
-      const status = f.status === 'connected' ? '<span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5"></span>Connected'
-        : f.status === 'connected_relayed' ? '<span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5"></span>Connected (relayed)'
-        : '<span class="inline-block w-1.5 h-1.5 rounded-full bg-stone-400 mr-1.5"></span>Offline · will resume';
+      const status = followStatusPill(f);
+      // Hide Refresh when paused — reconnect has no effect on a paused follow.
+      const refreshBtn = f.paused
+        ? ''
+        : `<button class="share-reconnect border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-[11px] font-medium py-1.5 px-3 rounded-md inline-flex items-center gap-1" data-id="${f.id}" aria-label="Reconnect now" title="Reconnect now">${ICON_REFRESH}Refresh</button>`;
+      const pauseBtn = `<button class="share-toggle-follow-pause border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-[11px] font-medium py-1.5 px-3 rounded-md inline-flex items-center gap-1" data-id="${f.id}" data-paused="${f.paused ? '1' : '0'}" aria-label="${f.paused ? 'Resume follow' : 'Pause follow'}" title="${f.paused ? 'Resume follow' : 'Pause follow'}">${f.paused ? ICON_PLAY : ICON_PAUSE}${f.paused ? 'Resume' : 'Pause'}</button>`;
       li.innerHTML = `
         <div class="min-w-0 flex-1">
           <div class="text-sm font-medium text-stone-800 truncate">${escapeHTML(f.local_tag_name)}</div>
           <div class="text-[11px] text-stone-500">${status} · ${f.clips_received} clips received · since ${relTime(f.created_at)}</div>
         </div>
         <div class="flex gap-2 shrink-0">
+          <button class="share-logs-follow border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-[11px] font-medium py-1.5 px-3 rounded-md inline-flex items-center gap-1" data-id="${f.id}" data-name="${escapeHTML(f.local_tag_name)}" aria-label="View logs" title="View logs">${ICON_LOGS}Logs</button>
+          ${refreshBtn}
+          ${pauseBtn}
           <button class="share-edit-follow border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-[11px] font-medium py-1.5 px-3 rounded-md" data-id="${f.id}" data-tag="${escapeHTML(f.local_tag_name)}">Edit</button>
           <button class="share-unfollow border border-stone-200 hover:bg-red-50 hover:border-red-300 text-stone-600 hover:text-red-600 text-[11px] font-medium py-1.5 px-3 rounded-md" data-id="${f.id}">Unfollow</button>
         </div>`;
@@ -182,6 +217,36 @@
 
   // Publication list actions (delegation).
   pubList.addEventListener('click', async (e) => {
+    const logsBtn = e.target.closest('.share-logs-pub');
+    if (logsBtn) {
+      openShareLogsModal({
+        publicationID: parseInt(logsBtn.dataset.pubid, 10),
+        title: `Logs · ${logsBtn.dataset.name || 'share'}`,
+      });
+      return;
+    }
+    const togglePause = e.target.closest('.share-toggle-pause');
+    if (togglePause) {
+      const tagID = parseInt(togglePause.dataset.tagid, 10);
+      const paused = togglePause.dataset.paused === '1';
+      togglePause.disabled = true;
+      try {
+        if (paused) {
+          await window.go.main.ShareService.ResumeShare(tagID);
+          if (typeof showToast === 'function') showToast('Share resumed');
+        } else {
+          await window.go.main.ShareService.PauseShare(tagID);
+          if (typeof showToast === 'function') showToast('Share paused');
+        }
+      } catch (err) {
+        const msg = (err && err.message) ? err.message : String(err);
+        console.error('share: pause/resume share failed', err);
+        if (typeof showToast === 'function') showToast((paused ? 'Resume' : 'Pause') + ' failed: ' + msg, 'error');
+      } finally {
+        setTimeout(() => { togglePause.disabled = false; }, 800);
+      }
+      return;
+    }
     const copy = e.target.closest('.share-copy-link');
     const stop = e.target.closest('.share-stop');
     if (copy) {
@@ -428,9 +493,62 @@
   });
 
   followList.addEventListener('click', async (e) => {
+    const logsBtn = e.target.closest('.share-logs-follow');
+    if (logsBtn) {
+      openShareLogsModal({
+        followID: parseInt(logsBtn.dataset.id, 10),
+        title: `Logs · ${logsBtn.dataset.name || 'follow'}`,
+      });
+      return;
+    }
+    const togglePause = e.target.closest('.share-toggle-follow-pause');
+    if (togglePause) {
+      const id = parseInt(togglePause.dataset.id, 10);
+      const paused = togglePause.dataset.paused === '1';
+      togglePause.disabled = true;
+      try {
+        if (paused) {
+          await window.go.main.ShareService.ResumeFollow(id);
+          if (typeof showToast === 'function') showToast('Follow resumed');
+        } else {
+          await window.go.main.ShareService.PauseFollow(id);
+          if (typeof showToast === 'function') showToast('Follow paused');
+        }
+      } catch (err) {
+        const msg = (err && err.message) ? err.message : String(err);
+        console.error('share: pause/resume follow failed', err);
+        if (typeof showToast === 'function') showToast((paused ? 'Resume' : 'Pause') + ' failed: ' + msg, 'error');
+      } finally {
+        setTimeout(() => { togglePause.disabled = false; }, 800);
+      }
+      return;
+    }
     const edit = e.target.closest('.share-edit-follow');
     if (edit) {
       openEditFollowModal(parseInt(edit.dataset.id, 10), edit.dataset.tag || '');
+      return;
+    }
+    const reconnect = e.target.closest('.share-reconnect');
+    if (reconnect) {
+      const rid = parseInt(reconnect.dataset.id, 10);
+      reconnect.disabled = true;
+      reconnect.classList.add('opacity-50');
+      try {
+        await window.go.main.ShareService.ReconnectFollow(rid);
+        if (typeof showToast === 'function') showToast('Reconnecting…');
+      } catch (err) {
+        const msg = (err && err.message) ? err.message : String(err);
+        console.error('share: ReconnectFollow failed', err);
+        if (typeof showToast === 'function') showToast('Reconnect failed: ' + msg, 'error');
+      } finally {
+        // The share:follow-updated event will typically re-render this list
+        // and replace the button, so re-enabling here is mostly defensive in
+        // case the backend emits no status change (e.g. already offline).
+        setTimeout(() => {
+          reconnect.disabled = false;
+          reconnect.classList.remove('opacity-50');
+        }, 1500);
+      }
       return;
     }
     const un = e.target.closest('.share-unfollow');
@@ -529,6 +647,77 @@
       editFollowSaveBtn.textContent = orig;
       updateEditSaveEnabled();
     }
+  });
+
+  // --- Share Logs modal ---
+
+  const shareLogsModal = document.getElementById('share-logs-modal');
+  const shareLogsList = document.getElementById('share-logs-list');
+  const shareLogsTitle = document.getElementById('share-logs-title');
+  const shareLogsSubtitle = document.getElementById('share-logs-subtitle');
+  const shareLogsRefreshBtn = document.getElementById('share-logs-refresh-btn');
+
+  // State of the currently open logs view so Refresh knows what to re-fetch.
+  let shareLogsFilter = { followID: 0, publicationID: 0 };
+
+  function levelStyles(level) {
+    if (level === 'error') return 'text-red-600';
+    if (level === 'warn') return 'text-amber-700';
+    return 'text-stone-700';
+  }
+
+  function fmtLogTime(sec) {
+    const d = new Date(sec * 1000);
+    // Use locale time formatting but keep it compact — HH:MM:SS.
+    return d.toLocaleTimeString([], { hour12: false });
+  }
+
+  async function loadShareLogs() {
+    try {
+      const entries = await window.go.main.ShareService.GetShareLogs(
+        shareLogsFilter.followID || 0,
+        shareLogsFilter.publicationID || 0,
+      );
+      renderShareLogs(entries || []);
+    } catch (e) {
+      console.error('share: GetShareLogs failed', e);
+      shareLogsList.innerHTML = `<li class="text-red-600">Failed to load logs: ${escapeHTML((e && e.message) || String(e))}</li>`;
+    }
+  }
+
+  function renderShareLogs(entries) {
+    if (!entries.length) {
+      shareLogsList.innerHTML = '<li class="text-stone-400">No log entries yet.</li>';
+      return;
+    }
+    shareLogsList.innerHTML = entries.map(e => {
+      const levelLabel = (e.level || 'info').toUpperCase();
+      return `<li class="flex gap-2"><span class="text-stone-400 shrink-0">${fmtLogTime(e.timestamp)}</span><span class="${levelStyles(e.level)} shrink-0 w-10">${levelLabel}</span><span class="text-stone-700 break-words">${escapeHTML(e.message || '')}</span></li>`;
+    }).join('');
+  }
+
+  function openShareLogsModal({ followID = 0, publicationID = 0, title = 'Share logs' } = {}) {
+    shareLogsFilter = { followID, publicationID };
+    shareLogsTitle.textContent = title;
+    shareLogsSubtitle.textContent = (followID || publicationID)
+      ? 'Filtered log entries, newest first. In-memory only — cleared on app restart.'
+      : 'Recent share-system events, newest first. In-memory only — cleared on app restart.';
+    shareLogsModal.classList.remove('hidden');
+    loadShareLogs();
+  }
+
+  function closeShareLogsModal() {
+    shareLogsModal.classList.add('hidden');
+    shareLogsList.innerHTML = '';
+  }
+
+  document.querySelectorAll('.share-logs-close').forEach(b => b.addEventListener('click', closeShareLogsModal));
+  if (shareLogsRefreshBtn) shareLogsRefreshBtn.addEventListener('click', loadShareLogs);
+  shareLogsModal.addEventListener('click', (e) => {
+    if (e.target === shareLogsModal) closeShareLogsModal();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !shareLogsModal.classList.contains('hidden')) closeShareLogsModal();
   });
 
   // Re-render on backend events.

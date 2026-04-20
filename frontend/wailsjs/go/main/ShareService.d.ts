@@ -10,7 +10,19 @@ export function Follow(arg1:string,arg2:string):Promise<main.FollowInfo>;
 
 export function FollowWithoutDial(arg1:string,arg2:string):Promise<main.FollowInfo>;
 
+export function GetShareLogs(arg1:number,arg2:number):Promise<Array<main.ShareLogEntry>>;
+
 export function GetShareStatus():Promise<main.ShareStatus>;
+
+export function PauseFollow(arg1:number):Promise<void>;
+
+export function PauseShare(arg1:number):Promise<void>;
+
+export function ReconnectFollow(arg1:number):Promise<void>;
+
+export function ResumeFollow(arg1:number):Promise<void>;
+
+export function ResumeShare(arg1:number):Promise<void>;
 
 export function StartShare(arg1:number):Promise<main.ShareInfo>;
 

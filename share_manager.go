@@ -72,6 +72,10 @@ type ShareManager struct {
 	// cap-enforcement can be exercised without saturating with 128 real
 	// libp2p streams.
 	maxStreamsPerPubOverride int
+
+	// logs is an in-memory ring buffer of share-system events surfaced to
+	// the UI via GetShareLogs. Never nil after NewShareManager.
+	logs *shareLogBuffer
 }
 
 // NewShareManager loads identity, starts the libp2p host + DHT, and returns
@@ -158,6 +162,7 @@ func NewShareManager(parent context.Context, db *sql.DB, dataDir string) (*Share
 		dht:          kad,
 		publications: map[int64]*publication{},
 		follows:      map[int64]*follow{},
+		logs:         newShareLogBuffer(),
 	}
 
 	// mDNS discovery: automatically find and connect to other mahpastes instances
@@ -325,8 +330,16 @@ type follow struct {
 	// function (if any). Set by followSession on entry, cleared on exit.
 	// DisconnectFollowForTest uses this to cancel only the live session
 	// without touching follow-lifetime state.
+	// mu also guards paused, so PauseFollow/ResumeFollow can read-modify-
+	// write atomically against runFollowLoop's pre-session check.
 	mu            sync.Mutex
 	sessionCancel context.CancelFunc
+	paused        bool
+	// reconnectSignal lets ReconnectFollow (and ResumeFollow) kick
+	// runFollowLoop out of its backoff or paused wait so a user-requested
+	// retry dials immediately instead of sleeping for up to ReconnectCap.
+	// Buffered 1 + non-blocking send so repeated kicks coalesce.
+	reconnectSignal chan struct{}
 }
 
 // defaultStaticRelays returns a placeholder relay list. In production libp2p
@@ -548,6 +561,10 @@ func (m *ShareManager) StartShare(tagID int64) (ShareInfo, error) {
 		Followers: 0, ClipsPushed: 0, CreatedAt: now,
 	}
 	m.emitEvent("share:publication-updated", info)
+	m.logs.append(ShareLogEntry{
+		Level: "info", Scope: "share", PublicationID: id,
+		Message: fmt.Sprintf("started share for tag_id=%d", tagID),
+	})
 	return info, nil
 }
 
@@ -579,8 +596,188 @@ func (m *ShareManager) StopShare(tagID int64) error {
 	}
 	if pub != nil {
 		m.emitEvent("share:publication-removed", map[string]any{"tag_id": tagID})
+		m.logs.append(ShareLogEntry{
+			Level: "info", Scope: "share", PublicationID: id,
+			Message: fmt.Sprintf("stopped sharing tag_id=%d", tagID),
+		})
 	}
 	return nil
+}
+
+// PauseShare flips a publication to status="paused", closes every active
+// follower stream, and persists the state so it survives restart. Incoming
+// handshakes for this share_id are rejected by handlePublisherStream's
+// status check. ResumeShare reverses this. Idempotent.
+func (m *ShareManager) PauseShare(tagID int64) error {
+	m.mu.RLock()
+	var pub *publication
+	for _, p := range m.publications {
+		if p.tagID == tagID {
+			pub = p
+			break
+		}
+	}
+	m.mu.RUnlock()
+	if pub == nil {
+		return fmt.Errorf("no publication for tag %d", tagID)
+	}
+	if pub.status == "paused" {
+		return nil
+	}
+	if pub.status == "invalid" {
+		return fmt.Errorf("cannot pause an invalid share — re-create it instead")
+	}
+
+	if _, err := m.db.Exec(`UPDATE shares SET status = 'paused' WHERE tag_id = ?`, tagID); err != nil {
+		return fmt.Errorf("persist paused: %w", err)
+	}
+	pub.status = "paused"
+	pub.closeAllFollowers()
+
+	m.logs.append(ShareLogEntry{
+		Level: "info", Scope: "share", PublicationID: pub.id,
+		Message: fmt.Sprintf("paused share for tag_id=%d", tagID),
+	})
+	m.emitPublicationUpdated(pub, tagID)
+	return nil
+}
+
+// ResumeShare flips status back to "active" and re-enables handshake
+// acceptance. Existing followers reconnect on their own via runFollowLoop.
+// Idempotent.
+func (m *ShareManager) ResumeShare(tagID int64) error {
+	m.mu.RLock()
+	var pub *publication
+	for _, p := range m.publications {
+		if p.tagID == tagID {
+			pub = p
+			break
+		}
+	}
+	m.mu.RUnlock()
+	if pub == nil {
+		return fmt.Errorf("no publication for tag %d", tagID)
+	}
+	if pub.status == "active" {
+		return nil
+	}
+	if pub.status == "invalid" {
+		return fmt.Errorf("cannot resume an invalid share — re-create it instead")
+	}
+
+	if _, err := m.db.Exec(`UPDATE shares SET status = 'active' WHERE tag_id = ?`, tagID); err != nil {
+		return fmt.Errorf("persist active: %w", err)
+	}
+	pub.status = "active"
+
+	m.logs.append(ShareLogEntry{
+		Level: "info", Scope: "share", PublicationID: pub.id,
+		Message: fmt.Sprintf("resumed share for tag_id=%d", tagID),
+	})
+	m.emitPublicationUpdated(pub, tagID)
+	return nil
+}
+
+// PauseFollow stops the reconnect loop for a follow. It persists paused=1
+// so the state survives restart, marks the in-memory flag, cancels any
+// active session, and kicks runFollowLoop which then blocks in its paused
+// branch. Status flips to "offline" (the session-end defer runs) but the UI
+// reads the Paused flag separately. Idempotent.
+func (m *ShareManager) PauseFollow(id int64) error {
+	m.mu.RLock()
+	f, ok := m.follows[id]
+	m.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("no follow %d", id)
+	}
+
+	if _, err := m.db.Exec(`UPDATE follows SET paused = 1 WHERE id = ?`, id); err != nil {
+		return fmt.Errorf("persist paused: %w", err)
+	}
+	f.mu.Lock()
+	alreadyPaused := f.paused
+	f.paused = true
+	cancel := f.sessionCancel
+	f.mu.Unlock()
+	if alreadyPaused {
+		return nil
+	}
+	if cancel != nil {
+		cancel()
+	}
+	// Kick the loop so it re-checks paused and enters the paused branch
+	// immediately instead of waiting out the backoff.
+	select {
+	case f.reconnectSignal <- struct{}{}:
+	default:
+	}
+
+	m.logs.append(ShareLogEntry{
+		Level: "info", Scope: "follow", FollowID: id,
+		Message: "paused follow",
+	})
+	m.emitEvent("share:follow-updated", map[string]any{"id": id, "paused": true})
+	return nil
+}
+
+// ResumeFollow clears the paused flag and kicks runFollowLoop so it exits
+// the paused wait and tries to dial immediately. Idempotent.
+func (m *ShareManager) ResumeFollow(id int64) error {
+	m.mu.RLock()
+	f, ok := m.follows[id]
+	m.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("no follow %d", id)
+	}
+
+	if _, err := m.db.Exec(`UPDATE follows SET paused = 0 WHERE id = ?`, id); err != nil {
+		return fmt.Errorf("persist resume: %w", err)
+	}
+	f.mu.Lock()
+	wasPaused := f.paused
+	f.paused = false
+	f.mu.Unlock()
+	if !wasPaused {
+		return nil
+	}
+	select {
+	case f.reconnectSignal <- struct{}{}:
+	default:
+	}
+
+	m.logs.append(ShareLogEntry{
+		Level: "info", Scope: "follow", FollowID: id,
+		Message: "resumed follow",
+	})
+	m.emitEvent("share:follow-updated", map[string]any{"id": id, "paused": false})
+	return nil
+}
+
+// GetShareLogs returns recent share-system log entries, newest-first. Pass
+// followID or publicationID > 0 to filter; pass both zero for everything.
+func (m *ShareManager) GetShareLogs(followID, publicationID int64) []ShareLogEntry {
+	return m.logs.snapshot(followID, publicationID)
+}
+
+// emitPublicationUpdated is a small DRY helper — constructing a full
+// ShareInfo payload requires a few queries, and Pause/Resume both need it.
+func (m *ShareManager) emitPublicationUpdated(pub *publication, tagID int64) {
+	var tagName string
+	_ = m.db.QueryRow(`SELECT name FROM tags WHERE id = ?`, tagID).Scan(&tagName)
+	var clipsSent, createdAt, lastSeqDB int64
+	_ = m.db.QueryRow(`SELECT clips_sent, last_seq, created_at FROM shares WHERE id = ?`, pub.id).Scan(&clipsSent, &lastSeqDB, &createdAt)
+	pub.fmu.Lock()
+	fCount := len(pub.followers)
+	pub.fmu.Unlock()
+	pubKeyBytes, _ := PublicKeyBytes(m.host.Peerstore().PrivKey(m.host.ID()))
+	shareStr, _ := EncodeShareString(pubKeyBytes, pub.symkey)
+	m.emitEvent("share:publication-updated", ShareInfo{
+		ID: pub.id, TagID: tagID, TagName: tagName,
+		ShareString: shareStr, Status: pub.status,
+		Followers: fCount, ClipsPushed: clipsSent,
+		LastSeq:   lastSeqDB,
+		CreatedAt: createdAt,
+	})
 }
 
 // emitEvent forwards a frontend event if an emitter is installed.
@@ -844,6 +1041,7 @@ func (m *ShareManager) followCommit(pid peer.ID, symkey []byte, localTagName str
 		// TestFollowSessionEndFlipsStatusOffline poll gates on an actual live
 		// session (and DisconnectFollowForTest has something to cancel).
 		status: "connecting", ctx: fctx, cancel: fcancel,
+		reconnectSignal: make(chan struct{}, 1),
 	}
 	m.mu.Lock()
 	m.follows[id] = f
@@ -1006,20 +1204,49 @@ func (m *ShareManager) dialByPeerID(ctx context.Context, pid peer.ID) error {
 }
 
 // runFollowLoop is the reconnect + receive loop for one follow.
+//
+// Wake-up sources once a session has ended OR while paused:
+//   - f.ctx.Done()       — Unfollow: exit the loop.
+//   - f.reconnectSignal  — user action (ReconnectFollow or ResumeFollow):
+//     wake now, reset the backoff ladder, re-check paused.
+//   - time.After(backoff) — normal exponential backoff between dial retries
+//     (ReconnectFloor → ReconnectCap, doubling each natural retry).
+//
+// Paused follows skip the session entirely and block on reconnectSignal/ctx.
+// Resuming kicks the signal which drops us back to the session attempt.
 func (m *ShareManager) runFollowLoop(f *follow) {
 	backoff := ReconnectFloor
 	for {
+		f.mu.Lock()
+		paused := f.paused
+		f.mu.Unlock()
+		if paused {
+			// Block until the user resumes or unfollows. No dial attempts.
+			select {
+			case <-f.ctx.Done():
+				return
+			case <-f.reconnectSignal:
+				backoff = ReconnectFloor
+				continue
+			}
+		}
+
 		if err := m.followSession(f); err != nil {
-			log.Printf("share: follow %d session ended: %v", f.id, err)
+			m.logs.append(ShareLogEntry{
+				Level: "warn", Scope: "follow", FollowID: f.id,
+				Message: "session ended: " + err.Error(),
+			})
 		}
 		select {
 		case <-f.ctx.Done():
 			return
+		case <-f.reconnectSignal:
+			backoff = ReconnectFloor
 		case <-time.After(backoff):
-		}
-		backoff *= 2
-		if backoff > ReconnectCap {
-			backoff = ReconnectCap
+			backoff *= 2
+			if backoff > ReconnectCap {
+				backoff = ReconnectCap
+			}
 		}
 	}
 }
@@ -1071,6 +1298,10 @@ func (m *ShareManager) followSession(f *follow) error {
 		return err
 	}
 	m.setFollowStatus(f, "connected")
+	m.logs.append(ShareLogEntry{
+		Level: "info", Scope: "follow", FollowID: f.id,
+		Message: fmt.Sprintf("handshake complete with %s", f.remotePeerID.String()),
+	})
 
 	return m.consumeStream(sessCtx, f, s)
 }
@@ -1149,6 +1380,10 @@ func (m *ShareManager) consumeStream(sessCtx context.Context, f *follow, r io.Re
 					"local_tag_id": f.localTagID,
 					"follow_id":    f.id,
 				})
+				m.logs.append(ShareLogEntry{
+					Level: "info", Scope: "follow", FollowID: f.id,
+					Message: fmt.Sprintf("received clip id=%d", newClipID),
+				})
 			}
 		case KindGap:
 			var p GapPayload
@@ -1219,7 +1454,7 @@ func (m *ShareManager) ResumeAll() error {
 	rows.Close()
 
 	// Follows
-	frows, err := m.db.Query(`SELECT id, remote_peer_id, symkey, local_tag_id, last_seq FROM follows`)
+	frows, err := m.db.Query(`SELECT id, remote_peer_id, symkey, local_tag_id, last_seq, paused FROM follows`)
 	if err != nil {
 		return fmt.Errorf("query follows: %w", err)
 	}
@@ -1228,7 +1463,8 @@ func (m *ShareManager) ResumeAll() error {
 		var id, localTagID, lastSeqI int64
 		var pidStr string
 		var symkey []byte
-		if err := frows.Scan(&id, &pidStr, &symkey, &localTagID, &lastSeqI); err != nil {
+		var pausedI int64
+		if err := frows.Scan(&id, &pidStr, &symkey, &localTagID, &lastSeqI, &pausedI); err != nil {
 			return err
 		}
 		pid, err := peer.Decode(pidStr)
@@ -1241,11 +1477,46 @@ func (m *ShareManager) ResumeAll() error {
 			id: id, remotePeerID: pid, symkey: symkey,
 			localTagID: localTagID, lastSeq: uint64(lastSeqI),
 			status: "offline", ctx: fctx, cancel: fcancel,
+			reconnectSignal: make(chan struct{}, 1),
+			paused:          pausedI != 0,
 		}
 		m.mu.Lock()
 		m.follows[id] = f
 		m.mu.Unlock()
+		// runFollowLoop honors f.paused at the top of every iteration, so
+		// paused follows enter the paused branch immediately and stay idle
+		// until ResumeFollow.
 		go m.runFollowLoop(f)
+	}
+	return nil
+}
+
+// ReconnectFollow forces an immediate dial/handshake cycle for a follow. It
+// cancels the live session (if any) so followSession returns to the loop and
+// kicks runFollowLoop out of its backoff wait, so the next dial happens now
+// rather than after up to ReconnectCap. The follow row, last_seq, and
+// follow-lifetime context are preserved.
+//
+// Status transitions are unchanged: the session defer will flip to "offline"
+// on exit, then "connected" on the next successful handshake. The existing
+// share:follow-updated event stream surfaces both flips to the UI.
+func (m *ShareManager) ReconnectFollow(id int64) error {
+	m.mu.RLock()
+	f, ok := m.follows[id]
+	m.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("no follow %d", id)
+	}
+
+	f.mu.Lock()
+	cancel := f.sessionCancel
+	f.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	select {
+	case f.reconnectSignal <- struct{}{}:
+	default:
 	}
 	return nil
 }
@@ -1353,11 +1624,13 @@ func (m *ShareManager) GetShareStatus() (shares []ShareInfo, follows []FollowInf
 		}
 		f.mu.Lock()
 		status := f.status
+		paused := f.paused
 		f.mu.Unlock()
 		follows = append(follows, FollowInfo{
 			ID: f.id, RemotePeerID: f.remotePeerID.String(),
 			LocalTagID: f.localTagID, LocalTagName: localTagName,
 			Status:        status,
+			Paused:        paused,
 			ClipsReceived: clipsRecv,
 			LastSeq:       lastSeqDB, LastSeenAt: lastSeenPtr,
 			CreatedAt: createdAt,

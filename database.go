@@ -297,6 +297,10 @@ func initDB() (*sql.DB, error) {
 		log.Printf("Warning: Failed to create idx_share_ring_ts: %v", err)
 	}
 
+	// Add paused column to follows (idempotent — ALTER fails silently if column exists).
+	// Shares use the existing status column: status="paused" is a first-class value.
+	_, _ = db.Exec("ALTER TABLE follows ADD COLUMN paused INTEGER NOT NULL DEFAULT 0")
+
 	// Backfill content hashes for existing clips that don't have one
 	backfillContentHashes(db)
 

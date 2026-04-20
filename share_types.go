@@ -57,22 +57,37 @@ type ShareInfo struct {
 	TagID       int64  `json:"tag_id"`
 	TagName     string `json:"tag_name"`
 	ShareString string `json:"share_string"`
-	Status      string `json:"status"` // "active" | "invalid"
+	Status      string `json:"status"` // "active" | "invalid" | "paused"
 	Followers   int    `json:"followers"`
 	ClipsPushed int64  `json:"clips_pushed"`
 	LastSeq     int64  `json:"last_seq"`
 	CreatedAt   int64  `json:"created_at"`
 }
 
-// FollowInfo — one entry in the Following list (frontend DTO).
+// FollowInfo — one entry in the Following list (frontend DTO). Paused is
+// orthogonal to Status: a paused follow never dials so Status stays at
+// whatever it held when pause was requested.
 type FollowInfo struct {
 	ID            int64  `json:"id"`
 	RemotePeerID  string `json:"remote_peer_id"`
 	LocalTagID    int64  `json:"local_tag_id"`
 	LocalTagName  string `json:"local_tag_name"`
 	Status        string `json:"status"` // "connected" | "connected_relayed" | "offline"
+	Paused        bool   `json:"paused"`
 	ClipsReceived int64  `json:"clips_received"`
 	LastSeq       int64  `json:"last_seq"`
 	LastSeenAt    *int64 `json:"last_seen_at"`
 	CreatedAt     int64  `json:"created_at"`
+}
+
+// ShareLogEntry — one entry in the share-system event log (frontend DTO).
+// The log is an in-memory ring buffer surfaced via ShareService.GetShareLogs.
+// Entries disappear on app restart — this is diagnostic, not audit history.
+type ShareLogEntry struct {
+	Timestamp     int64  `json:"timestamp"` // unix seconds
+	Level         string `json:"level"`     // "info" | "warn" | "error"
+	Scope         string `json:"scope"`     // "follow" | "share" | "system"
+	FollowID      int64  `json:"follow_id,omitempty"`
+	PublicationID int64  `json:"publication_id,omitempty"`
+	Message       string `json:"message"`
 }

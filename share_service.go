@@ -69,6 +69,66 @@ func (s *ShareService) Unfollow(followID int64) error {
 	return s.app.shareManager.Unfollow(followID)
 }
 
+// ReconnectFollow forces an immediate reconnection attempt for a follow,
+// cancelling the live session (if any) and skipping the reconnect backoff
+// wait. The UI wires this to the per-follow "Refresh" button.
+func (s *ShareService) ReconnectFollow(followID int64) error {
+	if s.app.shareManager == nil {
+		return fmt.Errorf("share manager not initialized")
+	}
+	return s.app.shareManager.ReconnectFollow(followID)
+}
+
+// PauseFollow stops reconnect attempts for a follow until ResumeFollow is
+// called. Persisted so paused state survives app restart.
+func (s *ShareService) PauseFollow(followID int64) error {
+	if s.app.shareManager == nil {
+		return fmt.Errorf("share manager not initialized")
+	}
+	return s.app.shareManager.PauseFollow(followID)
+}
+
+// ResumeFollow clears the paused flag on a follow and kicks an immediate
+// reconnection attempt.
+func (s *ShareService) ResumeFollow(followID int64) error {
+	if s.app.shareManager == nil {
+		return fmt.Errorf("share manager not initialized")
+	}
+	return s.app.shareManager.ResumeFollow(followID)
+}
+
+// PauseShare closes every active follower stream for the share, rejects
+// further handshakes, and persists status="paused".
+func (s *ShareService) PauseShare(tagID int64) error {
+	if s.app.shareManager == nil {
+		return fmt.Errorf("share manager not initialized")
+	}
+	return s.app.shareManager.PauseShare(tagID)
+}
+
+// ResumeShare restores a paused share to status="active" so handshakes are
+// accepted again. Followers reconnect on their own.
+func (s *ShareService) ResumeShare(tagID int64) error {
+	if s.app.shareManager == nil {
+		return fmt.Errorf("share manager not initialized")
+	}
+	return s.app.shareManager.ResumeShare(tagID)
+}
+
+// GetShareLogs returns recent share-system log entries, newest-first. Pass
+// followID or publicationID > 0 to filter; pass both zero for all entries.
+// The log is in-memory and capped at ~500 entries; older entries roll off.
+func (s *ShareService) GetShareLogs(followID, publicationID int64) []ShareLogEntry {
+	if s.app.shareManager == nil {
+		return []ShareLogEntry{}
+	}
+	out := s.app.shareManager.GetShareLogs(followID, publicationID)
+	if out == nil {
+		out = []ShareLogEntry{}
+	}
+	return out
+}
+
 // UpdateFollowTag changes the local tag used for incoming clips on an existing
 // follow. Past clips are not re-tagged.
 func (s *ShareService) UpdateFollowTag(followID int64, newLocalTagName string) (FollowInfo, error) {
