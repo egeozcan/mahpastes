@@ -2070,54 +2070,82 @@ If the attribute isn't set anywhere today, find the function that renders serve 
 ### Task 6.2: Expose openShareFlowForTag
 
 **Files:**
-- Modify: `frontend/js/share.js` near line 140 (addShareBtn handler)
+- Modify: `frontend/js/share.js` — the existing `addShareBtn` handler (around lines 139-158) is wrapped in an IIFE/module scope that captures `createModal`, `tagSelect`, `pickerSec`, `resultSec`, and `qrBox` as closure locals. The new helpers must live in the same scope.
 
-- [ ] **Step 1: Refactor the addShareBtn handler to extract openable helper**
+- [ ] **Step 1: Read the existing handler and surrounding scope**
 
-Edit old_string (match the full listener body):
+Run: `Read /Users/egecan/Code/mahpastes/frontend/js/share.js (offset 135, limit 30)`
+
+Verify: the handler calls `qrBox.classList.add('hidden')` and `qrBox.innerHTML = ''`, is wrapped in try/catch, and uses IDs `create-share-modal`, `create-share-tag-select` (bound at lines 8 and 11).
+
+- [ ] **Step 2: Refactor the addShareBtn handler to extract openable helper (preserving try/catch, qrBox reset, closure access)**
+
+Edit old_string (match the full listener body exactly as it appears — lines ~139-158):
 ```javascript
-addShareBtn.addEventListener('click', async () => {
-    const tags = await window.go.main.App.GetTags();
-    tagSelect.innerHTML = '';
-    (tags || []).forEach(t => {
+  // Open create-share modal: fill tag picker fresh each time.
+  addShareBtn.addEventListener('click', async () => {
+    try {
+      const tags = await window.go.main.App.GetTags();
+      tagSelect.innerHTML = '';
+      (tags || []).forEach(t => {
         const o = document.createElement('option');
         o.value = t.id;
         o.textContent = t.name;
         tagSelect.appendChild(o);
-    });
-    pickerSec.classList.remove('hidden');
-    resultSec.classList.add('hidden');
-    createModal.classList.remove('hidden');
-});
+      });
+      pickerSec.classList.remove('hidden');
+      resultSec.classList.add('hidden');
+      qrBox.classList.add('hidden');
+      qrBox.innerHTML = '';
+      createModal.classList.remove('hidden');
+    } catch (e) {
+      console.error(e);
+    }
+  });
 ```
 
 Edit new_string:
 ```javascript
-async function openShareModalForTag(preselectTagID) {
-    const tags = await window.go.main.App.GetTags();
-    tagSelect.innerHTML = '';
-    (tags || []).forEach(t => {
+  // Open create-share modal: fill tag picker fresh each time.
+  // Extracted so folder-context-menu (Share action) can open the modal
+  // with a tag pre-selected via openShareFlowForTag(tagID).
+  async function openShareModalForTag(preselectTagID) {
+    try {
+      const tags = await window.go.main.App.GetTags();
+      tagSelect.innerHTML = '';
+      (tags || []).forEach(t => {
         const o = document.createElement('option');
         o.value = t.id;
         o.textContent = t.name;
         tagSelect.appendChild(o);
-    });
-    if (preselectTagID !== undefined && preselectTagID !== null) {
+      });
+      if (preselectTagID !== undefined && preselectTagID !== null) {
         tagSelect.value = String(preselectTagID);
+      }
+      pickerSec.classList.remove('hidden');
+      resultSec.classList.add('hidden');
+      qrBox.classList.add('hidden');
+      qrBox.innerHTML = '';
+      createModal.classList.remove('hidden');
+    } catch (e) {
+      console.error(e);
     }
-    pickerSec.classList.remove('hidden');
-    resultSec.classList.add('hidden');
-    createModal.classList.remove('hidden');
-}
+  }
 
-addShareBtn.addEventListener('click', () => openShareModalForTag());
+  addShareBtn.addEventListener('click', () => openShareModalForTag());
 
-async function openShareFlowForTag(tagID) {
+  async function openShareFlowForTag(tagID) {
     if (typeof switchView === 'function') switchView('share');
     await openShareModalForTag(tagID);
-}
-window.openShareFlowForTag = openShareFlowForTag;
+  }
+  window.openShareFlowForTag = openShareFlowForTag;
 ```
+
+Notes:
+- Preserves the `try { … } catch (e) { console.error(e); }` wrapper so a GetTags() failure doesn't leak an unhandled promise rejection.
+- Preserves `qrBox.classList.add('hidden'); qrBox.innerHTML = '';` so the QR-code result area is cleared on reopen (current behavior at lines 152-153).
+- `openShareModalForTag` and `openShareFlowForTag` must both live INSIDE the existing IIFE / module scope because `createModal`, `tagSelect`, `pickerSec`, `resultSec`, and `qrBox` are closure-local. The `window.openShareFlowForTag = ...` line escapes the reference globally for the folder-menu entry point.
+- Indentation uses two spaces to match the surrounding block style (verify by reading the surrounding code — the rest of share.js uses 2-space indent inside the IIFE).
 
 ### Task 6.3: Write serve-toggle.spec.ts (RED)
 
@@ -2298,11 +2326,12 @@ test.describe('Folder context menu: Share toggle', () => {
         );
         expect(view).toBe('share');
 
-        // Share modal open with tag preselected
-        const modal = app.page.locator('[data-testid="share-create-modal"], #share-create-modal');
+        // Share modal open with tag preselected. Real IDs (from frontend/index.html
+        // and frontend/js/share.js): #create-share-modal, #create-share-tag-select.
+        const modal = app.page.locator('#create-share-modal');
         await expect(modal).toBeVisible();
 
-        const selectValue = await app.page.locator('#share-tag-select, [data-testid="share-tag-select"]').inputValue();
+        const selectValue = await app.page.locator('#create-share-tag-select').inputValue();
         const tagID = await app.page.evaluate(async (n) => {
             const tags = await window.go.main.App.GetTags();
             return tags.find((t: any) => t.name === n)?.id;
@@ -2333,7 +2362,7 @@ test.describe('Folder context menu: Share toggle', () => {
 
 Run: `cd /Users/egecan/Code/mahpastes/e2e && npx playwright test tests/folder-context-menu/share-toggle.spec.ts --reporter=line 2>&1 | tail -30`
 
-Expected: both tests PASS. If the share modal selectors don't match the actual DOM (`[data-testid="share-create-modal"]` or `#share-tag-select`), grep `share.js` and `frontend/index.html` for the real IDs and update the selectors.
+Expected: both tests PASS. The share modal IDs used by the test (`#create-share-modal`, `#create-share-tag-select`) are the real IDs in `frontend/index.html:1842,1853` and `frontend/js/share.js:8,11`.
 
 ### Task 6.7: Commit Phase 6
 
