@@ -3160,6 +3160,25 @@ export class AppHelper {
     const checkbox = this.page.locator(`[data-testid="tag-checkbox-${tagName}"]`);
     await expect(checkbox).toBeAttached({ timeout: 5000 });
   }
+
+  async rightClickFolder(name: string): Promise<void> {
+    await this.page.click(`[data-testid="folder-card-${name}"]`, { button: 'right' });
+    await this.page.locator('.card-menu-dropdown[data-source="folder"]').waitFor({ state: 'visible' });
+  }
+
+  getFolderContextMenuItem(action: string) {
+    return this.page.locator(`.card-menu-dropdown[data-source="folder"] [data-action="${action}"]`);
+  }
+
+  async expectFolderBadge(name: string, type: 'served' | 'shared' | 'served-paused' | 'shared-paused'): Promise<void> {
+    const map: Record<string, string> = {
+      'served':        `[data-testid="folder-card-${name}"] .folder-badge-serve`,
+      'shared':        `[data-testid="folder-card-${name}"] .folder-badge-share`,
+      'served-paused': `[data-testid="folder-card-${name}"] .folder-badge-paused[data-kind="serve"]`,
+      'shared-paused': `[data-testid="folder-card-${name}"] .folder-badge-paused[data-kind="share"]`,
+    };
+    await this.page.locator(map[type]).waitFor({ state: 'visible', timeout: 5000 });
+  }
 }
 
 // Custom test fixtures
