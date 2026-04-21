@@ -960,7 +960,7 @@ Expected: all three tests PASS.
 - [ ] **Step 2: If any test still fails, debug**
 
 Most likely root causes:
-- `ShareService.GetShareStatus` response shape uses a field other than `tag_id` or `follower_count` — inspect by `page.evaluate` in a headed run and adjust `applyFolderStatusUpdate` in ui.js
+- If serve badges don't appear after StartServing, the `ServeService.GetServeStatus` response shape may have drifted from the expected `{ tag_id, running, url, request_count, paused }` — inspect by `page.evaluate(async () => (await window.go.main.ServeService.GetServeStatus())[0])` in a headed run and adjust `applyFolderStatusUpdate` in ui.js. Share badges use `ShareInfo` (verified `share_types.go:55-61`): `tag_id`, `status: "active"|"paused"|"invalid"`, `followers: int` — do NOT switch to any other names.
 - `getHiddenTags()` not yet populated on load — ensure it's called before renderFolderCards (already is, per existing code)
 
 ### Task 3.8: Regression sweep
@@ -2637,6 +2637,6 @@ If stuck mid-task:
 ## Self-Review Log
 
 - **Spec coverage:** All 9 menu items (Open, Move, Rename, Serve/Stop, Share/Stop, Hide/Unhide) covered across Phase 4 (Open, Hide), Phase 5 (Move, Rename), Phase 6 (Serve, Share). Status badges and hidden styling in Phase 3. Pointer anchoring in Phase 1. Poller with both `switchView` and `toggleFolderMode` hooks in Phase 2.
-- **Placeholder scan:** No TBDs, TODOs, or "fill in". Every code step has concrete content. Spec requirement about ShareStatus response shape (`follower_count` vs alternative) is flagged in Appendix recovery playbook instead of left ambiguous.
+- **Placeholder scan:** No TBDs, TODOs, or "fill in". Every code step has concrete content. `ShareInfo` DTO shape (`status`, `followers`) is taken directly from `share_types.go:55-61`, not left as a runtime discovery item.
 - **Type consistency:** `folderStatusMap` is a Map throughout; `folderStatusPoller` methods (`start`, `stop`, `evaluate`, `isActive`) are used consistently; `openServeViewForTag` / `openShareFlowForTag` referenced in Phase 4 handleAction and defined in Phase 6.
 - **Sequencing:** Phase 1 extends ContextMenu (no test yet; validated indirectly by Phase 4). Phase 2 is invisible infrastructure. Phase 3 visibly activates everything. Phases 4-6 layer on menu items. Phase 7 adds a11y coverage. Phase 8 runs the full regression sweep. Each phase commits independently; each is reversible.
