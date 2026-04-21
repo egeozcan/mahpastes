@@ -137,7 +137,9 @@
   }
 
   // Open create-share modal: fill tag picker fresh each time.
-  addShareBtn.addEventListener('click', async () => {
+  // Extracted so folder-context-menu (Share action) can open the modal
+  // with a tag pre-selected via openShareFlowForTag(tagID).
+  async function openShareModalForTag(preselectTagID) {
     try {
       const tags = await window.go.main.App.GetTags();
       tagSelect.innerHTML = '';
@@ -147,6 +149,9 @@
         o.textContent = t.name;
         tagSelect.appendChild(o);
       });
+      if (preselectTagID !== undefined && preselectTagID !== null) {
+        tagSelect.value = String(preselectTagID);
+      }
       pickerSec.classList.remove('hidden');
       resultSec.classList.add('hidden');
       qrBox.classList.add('hidden');
@@ -155,7 +160,15 @@
     } catch (e) {
       console.error(e);
     }
-  });
+  }
+
+  addShareBtn.addEventListener('click', () => openShareModalForTag());
+
+  async function openShareFlowForTag(tagID) {
+    if (typeof switchView === 'function') switchView('share');
+    await openShareModalForTag(tagID);
+  }
+  window.openShareFlowForTag = openShareFlowForTag;
 
   document.querySelectorAll('.create-share-close').forEach(b => b.addEventListener('click', () => {
     createModal.classList.add('hidden');

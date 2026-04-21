@@ -250,6 +250,15 @@ function stopServePolling() {
     }
 }
 
+// Shared helper: add a tag to configuredEntries (stopped state) and refresh the view.
+// Used by the tag-picker selectOption and by openServeViewForTag (folder-context-menu entry point).
+async function addConfiguredServeEntry(tagID, tagName) {
+    if (!configuredEntries.has(tagID)) {
+        configuredEntries.set(tagID, { tag_id: tagID, tag_name: tagName, bind_all: false });
+    }
+    await loadServeStatus();
+}
+
 // --- Tag Picker ---
 async function showServeTagPicker() {
     // Remove existing picker if open
@@ -297,8 +306,7 @@ async function showServeTagPicker() {
             const tagName = option.textContent.trim();
             picker.remove();
             document.removeEventListener('click', closeOnOutside);
-            configuredEntries.set(tagID, { tag_id: tagID, tag_name: tagName, bind_all: false });
-            await loadServeStatus();
+            await addConfiguredServeEntry(tagID, tagName);
         }
 
         picker.addEventListener('click', async (e) => {
@@ -349,6 +357,23 @@ async function showServeTagPicker() {
         showToast('Failed to load tags');
     }
 }
+
+async function openServeViewForTag(tagID) {
+    if (typeof switchView === 'function') switchView('serve');
+    const tags = await window.go.main.App.GetTags();
+    const tag = tags.find(t => t.id === tagID);
+    if (!tag) return;
+    await addConfiguredServeEntry(tagID, tag.name);
+
+    // Best-effort highlight — if rows expose a per-tag attribute, scroll and flash.
+    const row = document.querySelector(`[data-serve-row-tag-id="${tagID}"]`);
+    if (row) {
+        row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        row.classList.add('ring-2', 'ring-stone-500');
+        setTimeout(() => row.classList.remove('ring-2', 'ring-stone-500'), 1500);
+    }
+}
+window.openServeViewForTag = openServeViewForTag;
 
 // --- Start Serving a Tag ---
 async function startServingTag(tagID, bindAll = false) {
@@ -491,4 +516,10 @@ serveList.addEventListener('change', (e) => {
 if (window.__testHelpers) {
     window.__testHelpers.switchView = (view) => switchView(view);
     window.__testHelpers.getCurrentView = () => currentView;
+    window.__testHelpers.hasConfiguredServeEntry = (tagName) => {
+        for (const entry of configuredEntries.values()) {
+            if (entry.tag_name === tagName) return true;
+        }
+        return false;
+    };
 }
