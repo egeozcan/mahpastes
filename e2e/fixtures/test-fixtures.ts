@@ -683,6 +683,25 @@ export class AppHelper {
       // Watch view uses .hidden class
       document.querySelector('#watch-view')?.classList.add('hidden');
 
+      // Folder move modal (dynamically created; open = flex, closed = hidden)
+      const folderMoveModal = document.querySelector('[data-testid="folder-move-modal"]');
+      if (folderMoveModal) {
+        folderMoveModal.classList.add('hidden');
+        folderMoveModal.classList.remove('flex');
+      }
+
+      // Share modals (all use .hidden class)
+      const shareModalIds = [
+        'create-share-modal',
+        'follow-share-modal',
+        'edit-follow-modal',
+        'share-logs-modal',
+      ];
+      for (const id of shareModalIds) {
+        const el = document.getElementById(id);
+        if (el) el.classList.add('hidden');
+      }
+
       // Shortcuts cheatsheet
       const cheatsheet = document.getElementById('shortcuts-cheatsheet');
       if (cheatsheet) {
