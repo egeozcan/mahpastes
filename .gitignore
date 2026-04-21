@@ -31,6 +31,9 @@ Thumbs.db
 # Worktrees
 .worktrees/
 
+# Claude Code scheduler lock
+.claude/scheduled_tasks.lock
+
 # Documentation build
 /docs/build/
 /docs/.docusaurus/
