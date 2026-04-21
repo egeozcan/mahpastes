@@ -425,3 +425,26 @@ function buildTagTree(tags) {
     }
     return roots;
 }
+
+async function openFolderRenameDialog(tagID, currentName) {
+    const shortName = getShortTagName(currentName);
+    const parent = currentName.includes('/') ? currentName.substring(0, currentName.lastIndexOf('/')) : '';
+    showPromptDialog('Rename Folder', shortName, async (newShortName) => {
+        if (!newShortName || newShortName.trim() === '' || newShortName === shortName) return;
+        if (newShortName.includes('/')) {
+            showToast('Name cannot contain "/". Use Move to change parent.', 'error');
+            return;
+        }
+        const newPath = parent ? `${parent}/${newShortName.trim()}` : newShortName.trim();
+        try {
+            const tag = (await window.go.main.App.GetTags()).find(t => t.id === tagID);
+            await window.go.main.App.UpdateTag(tagID, newPath, tag?.color || '#000000');
+            showToast(`Renamed to ${newShortName}`, 'success');
+            if (typeof window.renderFolderCards === 'function') await window.renderFolderCards();
+            if (typeof loadClips === 'function') await loadClips();
+        } catch (e) {
+            showToast('Rename failed: ' + (e?.message || e), 'error');
+        }
+    });
+}
+window.openFolderRenameDialog = openFolderRenameDialog;
