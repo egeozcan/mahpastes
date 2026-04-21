@@ -1229,50 +1229,69 @@ async function renderFolderCards() {
 
     let folderTags;
     if (activeTagFilters.length > 0) {
-        // Show children of the deepest active filter
         const currentTagId = activeTagFilters[activeTagFilters.length - 1];
         folderTags = await getChildTags(currentTagId);
     } else {
         folderTags = await getTopLevelTags();
     }
 
-    // Abort if a newer render has started while we were awaiting
     if (myGen !== _folderRenderGen) return;
-
     if (!folderTags || folderTags.length === 0) return;
 
-    // Remove any existing folder cards before appending fresh ones
     gallery.querySelectorAll('[data-folder]').forEach(card => card.remove());
+
+    const hidden = (typeof getHiddenTags === 'function') ? (getHiddenTags() || []) : [];
 
     for (const tag of folderTags) {
         const count = await getDescendantClipCount(tag.id);
-
-        // Abort mid-loop if superseded
         if (myGen !== _folderRenderGen) return;
 
         const shortName = getShortTagName(tag.name);
+        const isHidden = hidden.includes(tag.id);
+        const state = folderStatusMap.get(tag.id) || {};
+        const countText = `${count} clip${count !== 1 ? 's' : ''}`;
 
         const card = document.createElement('li');
-        card.className = 'bg-white rounded-md border border-stone-200 overflow-hidden flex flex-col items-center justify-center p-6 cursor-pointer transition-all duration-150 hover:border-stone-300 hover:scale-[1.02]';
+        card.className = 'bg-white rounded-md border border-stone-200 overflow-visible flex flex-col items-center justify-center p-6 cursor-pointer transition-all duration-150 hover:border-stone-300 hover:scale-[1.02] relative';
         card.setAttribute('data-testid', `folder-card-${shortName}`);
         card.setAttribute('data-folder', tag.id);
+        card.setAttribute('data-folder-path', tag.name);
         card.setAttribute('draggable', 'true');
         card.setAttribute('aria-grabbed', 'false');
+        card.setAttribute('tabindex', '0');
+        if (isHidden) card.setAttribute('data-hidden', 'true');
+        card.setAttribute('aria-label', buildFolderAriaLabel(tag.name, countText, state, isHidden));
+
+        const badgeBadges = [];
+        if (state.served) badgeBadges.push(renderBadge('served', state));
+        if (state.shared) badgeBadges.push(renderBadge('shared', state));
+        const badgesHTML = `<div class="folder-status-badges absolute top-2 right-2 flex gap-1">${badgeBadges.join('')}</div>`;
+
         card.innerHTML = `
+            ${badgesHTML}
             <svg class="w-10 h-10 mb-2" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="${tag.color}">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.06-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" />
             </svg>
             <span class="text-xs font-medium text-stone-700">${escapeHTML(shortName)}</span>
-            <span class="text-[10px] text-stone-400 mt-0.5">${count} clip${count !== 1 ? 's' : ''}</span>
+            <span class="text-[10px] text-stone-400 mt-0.5">${countText}</span>
         `;
 
         card.addEventListener('click', () => {
             navigateToFolder(tag.id);
         });
+        card.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                navigateToFolder(tag.id);
+            }
+        });
 
         gallery.appendChild(card);
     }
 }
+
+// Expose to other modules and for test hooks.
+window.renderFolderCards = renderFolderCards;
 
 function navigateToFolder(tagId, { focusFirst = false } = {}) {
     // Replace active filters with this tag's ancestors + this tag

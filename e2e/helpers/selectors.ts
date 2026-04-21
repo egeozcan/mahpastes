@@ -484,6 +484,16 @@ export const selectors = {
     shortcutBadge: (id: string) => `[data-testid="shortcut-badge-${id}"]`,
     focusedClip: '#gallery > li:focus-visible',
   },
+  // Folder context menu + status badges (top level for convenience)
+  folderCard: (name: string) => `[data-testid="folder-card-${name}"]`,
+  folderStatusBadges: (name: string) => `[data-testid="folder-card-${name}"] .folder-status-badges`,
+  folderBadgeServed: (name: string) => `[data-testid="folder-card-${name}"] .folder-badge-serve, [data-testid="folder-card-${name}"] .folder-badge-paused[data-kind="serve"]`,
+  folderBadgeShared: (name: string) => `[data-testid="folder-card-${name}"] .folder-badge-share, [data-testid="folder-card-${name}"] .folder-badge-paused[data-kind="share"]`,
+  folderBadgeServedActive: (name: string) => `[data-testid="folder-card-${name}"] .folder-badge-serve`,
+  folderBadgeSharedActive: (name: string) => `[data-testid="folder-card-${name}"] .folder-badge-share`,
+  folderContextMenu: '.card-menu-dropdown[data-source="folder"]',
+  folderContextMenuItem: (action: string) => `.card-menu-dropdown[data-source="folder"] [data-action="${action}"]`,
+  folderHidden: (name: string) => `[data-testid="folder-card-${name}"][data-hidden="true"]`,
 } as const;
 
 export type Selectors = typeof selectors;

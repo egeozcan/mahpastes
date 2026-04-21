@@ -444,3 +444,32 @@ body.tooltips-disabled [data-tooltip]::before,
 body.tooltips-disabled [data-tooltip]::after {
     display: none !important;
 }
+
+/* --- Folder status badges --- */
+.folder-status-badges {
+    pointer-events: none; /* badges are decorative; cursor passes through to card */
+}
+.folder-status-badges > span {
+    pointer-events: auto; /* tooltip hit-testing needs the span interactive */
+    width: 14px;
+    height: 14px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 3px;
+    transition: opacity 150ms ease;
+}
+.folder-badge-serve  { color: #059669; } /* emerald-600 */
+.folder-badge-share  { color: #1d4ed8; } /* blue-700  */
+.folder-badge-paused { color: #78716c; border: 1px dashed currentColor; } /* stone-500 with dashed ring */
+
+/* --- Hidden folder styling (in folder view) --- */
+li[data-folder][data-hidden="true"] {
+    opacity: 0.5;
+    filter: grayscale(0.4);
+}
+
+/* Respect reduced-motion preference */
+@media (prefers-reduced-motion: reduce) {
+    .folder-status-badges > span { transition: none; }
+}

@@ -1615,6 +1615,18 @@ export class AppHelper {
     await this.page.waitForFunction(() => (window as any).__appReady === true, { timeout: 5000 });
   }
 
+  async enterFolderMode(): Promise<void> {
+    const btn = this.page.locator('[data-testid="folder-mode-button"]');
+    const pressed = await btn.getAttribute('aria-pressed');
+    if (pressed !== 'true') {
+      await btn.click();
+    }
+    await this.page.waitForFunction(() => {
+      return document.querySelectorAll('[data-folder]').length > 0
+          || !!document.querySelector('[data-testid="empty-state"]');
+    }, null, { timeout: 2000 }).catch(() => { /* ok if no folders */ });
+  }
+
   async openTagFilterDropdown(): Promise<void> {
     await this.page.evaluate(async () => {
       // Keep frontend test state in sync when tags were created directly via backend APIs.
