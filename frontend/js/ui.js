@@ -1286,6 +1286,10 @@ async function renderFolderCards() {
             }
         });
 
+        if (typeof FolderContextMenu !== 'undefined') {
+            FolderContextMenu.attach(card, tag);
+        }
+
         gallery.appendChild(card);
     }
 }
