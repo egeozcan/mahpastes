@@ -743,19 +743,30 @@ window.handleTagReferenceEvent = async function(eventName, payload) {
         if (typeof navigateToFolder === 'function') {
             navigateToFolder(current.id);
         }
+        return;
+    }
+
+    // currentFolderTagID does not resolve to any live tag. Only tag:deleted
+    // can genuinely remove an ID — for rename/merge, an unresolvable ID is
+    // stale state, not a deletion. Silently clear and reload so a rename
+    // doesn't accidentally kick the user out of folder mode.
+    if (eventName !== 'tag:deleted') {
+        currentFolderTagID = null;
+        if (typeof loadClips === 'function') loadClips();
+        return;
+    }
+
+    // Deletion recovery: try to navigate to parent, else exit folder mode.
+    const deletedName = payload && (payload.name || payload.old_name);
+    const parentName = deletedName ? getParentTagName(deletedName) : '';
+    const parent = parentName ? allTags.find(t => t.name === parentName) : null;
+    if (parent && typeof navigateToFolder === 'function') {
+        navigateToFolder(parent.id);
+    } else if (typeof toggleFolderMode === 'function' && typeof isFolderMode === 'function' && isFolderMode()) {
+        // Exit folder mode by toggling it off.
+        toggleFolderMode();
     } else {
-        // Tag is gone (delete) — navigate to parent or exit folder mode.
-        const deletedName = payload && (payload.name || payload.old_name);
-        const parentName = deletedName ? getParentTagName(deletedName) : '';
-        const parent = parentName ? allTags.find(t => t.name === parentName) : null;
-        if (parent && typeof navigateToFolder === 'function') {
-            navigateToFolder(parent.id);
-        } else if (typeof toggleFolderMode === 'function' && typeof isFolderMode === 'function' && isFolderMode()) {
-            // Exit folder mode by toggling it off.
-            toggleFolderMode();
-        } else {
-            currentFolderTagID = null;
-            if (typeof loadClips === 'function') loadClips();
-        }
+        currentFolderTagID = null;
+        if (typeof loadClips === 'function') loadClips();
     }
 };
