@@ -748,6 +748,24 @@ export class AppHelper {
         if (helpers.setFolderMode) helpers.setFolderMode(false);
         if (helpers.setSort) helpers.setSort('date', 'desc');
 
+        // Clear currentFolderTagID — it's tags.js module state not wired into
+        // setFolderMode. Stale IDs from prior tests cause the tag:updated
+        // handler to misinterpret rename events as deletions and exit folder mode.
+        // @ts-ignore
+        if (typeof window.rememberCurrentFolder === 'function') {
+          // @ts-ignore
+          window.rememberCurrentFolder(null);
+        }
+
+        // Stop folderStatusPoller — it's only evaluated from toggleFolderMode(),
+        // which setFolderMode bypasses. Leaving it running means every 2s across
+        // the entire suite we fire GetServeStatus + GetShareStatus for nothing.
+        // @ts-ignore
+        if (window.folderStatusPoller?.stop) {
+          // @ts-ignore
+          window.folderStatusPoller.stop();
+        }
+
         // Reset keyboard shortcut overrides to defaults
         const sm = helpers.getShortcutManager ? helpers.getShortcutManager() : null;
         if (sm) {
