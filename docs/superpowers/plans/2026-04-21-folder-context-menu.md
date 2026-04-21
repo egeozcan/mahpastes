@@ -323,8 +323,9 @@ function applyFolderStatusUpdate(serveStatuses, shareStatus) {
         const id = s.tag_id;
         const entry = folderStatusMap.get(id) || {};
         entry.shared = true;
-        entry.sharePaused = !!s.paused;
-        entry.shareFollowers = typeof s.follower_count === 'number' ? s.follower_count : undefined;
+        // ShareInfo DTO (share_types.go): Status is "active" | "paused" | "invalid"; Followers is int.
+        entry.sharePaused = s.status === 'paused';
+        entry.shareFollowers = typeof s.followers === 'number' ? s.followers : undefined;
         folderStatusMap.set(id, entry);
     });
     updateFolderBadgesInPlace();
@@ -612,25 +613,32 @@ li[data-folder][data-hidden="true"] {
 
 - [ ] **Step 1: Read current folder selectors block**
 
-Run: `Read /Users/egecan/Code/mahpastes/e2e/helpers/selectors.ts (offset 340, limit 15)`
+Run: `Read /Users/egecan/Code/mahpastes/e2e/helpers/selectors.ts (offset 335, limit 20)`
 
-- [ ] **Step 2: Add folder-context-menu selectors after the existing folder block**
+Expected: shows `folderCard`, `folderModeButton`, `homeIcon` nested inside `selectors.tags: { ... }` (closes around line 347 with `},`). The existing folder selectors are **not** top-level — they live under `selectors.tags`.
 
-Insert after the existing `folderCard:` line, inside the same exported object:
+- [ ] **Step 2: Add top-level folder-context-menu selectors**
+
+Because the new test snippets all call `selectors.folderContextMenu`, `selectors.folderContextMenuItem`, `selectors.folderBadgeServedActive`, etc. at the **top level** of the exported `selectors` object, add the new entries at top level (not nested under `tags`). Insert them in a new top-level block, e.g. right before the closing `}` of the main `selectors = { ... }` export.
+
+Exact insertion (pick a unique anchor line such as the last `}` in the file — read the tail to confirm):
 
 ```typescript
-// Folder context menu + status badges
-folderStatusBadges: (name: string) => `[data-testid="folder-card-${name}"] .folder-status-badges`,
-folderBadgeServed: (name: string) => `[data-testid="folder-card-${name}"] .folder-badge-serve, [data-testid="folder-card-${name}"] .folder-badge-paused[data-kind="serve"]`,
-folderBadgeShared: (name: string) => `[data-testid="folder-card-${name}"] .folder-badge-share, [data-testid="folder-card-${name}"] .folder-badge-paused[data-kind="share"]`,
-folderBadgeServedActive: (name: string) => `[data-testid="folder-card-${name}"] .folder-badge-serve`,
-folderBadgeSharedActive: (name: string) => `[data-testid="folder-card-${name}"] .folder-badge-share`,
-folderContextMenu: '.card-menu-dropdown[data-source="folder"]',
-folderContextMenuItem: (action: string) => `.card-menu-dropdown[data-source="folder"] [data-action="${action}"]`,
-folderHidden: (name: string) => `[data-testid="folder-card-${name}"][data-hidden="true"]`,
+  // Folder context menu + status badges (top level for convenience)
+  folderCard: (name: string) => `[data-testid="folder-card-${name}"]`,
+  folderStatusBadges: (name: string) => `[data-testid="folder-card-${name}"] .folder-status-badges`,
+  folderBadgeServed: (name: string) => `[data-testid="folder-card-${name}"] .folder-badge-serve, [data-testid="folder-card-${name}"] .folder-badge-paused[data-kind="serve"]`,
+  folderBadgeShared: (name: string) => `[data-testid="folder-card-${name}"] .folder-badge-share, [data-testid="folder-card-${name}"] .folder-badge-paused[data-kind="share"]`,
+  folderBadgeServedActive: (name: string) => `[data-testid="folder-card-${name}"] .folder-badge-serve`,
+  folderBadgeSharedActive: (name: string) => `[data-testid="folder-card-${name}"] .folder-badge-share`,
+  folderContextMenu: '.card-menu-dropdown[data-source="folder"]',
+  folderContextMenuItem: (action: string) => `.card-menu-dropdown[data-source="folder"] [data-action="${action}"]`,
+  folderHidden: (name: string) => `[data-testid="folder-card-${name}"][data-hidden="true"]`,
 ```
 
-Note: `data-source="folder"` is an attribute we will set on the menu in Phase 4 so folder and clip menus can be disambiguated in tests.
+Notes:
+- `folderCard` here is a deliberate top-level alias. The existing `selectors.tags.folderCard(name)` is unchanged — both resolve to the same selector string, so no existing tests break.
+- `data-source="folder"` is an attribute that `FolderContextMenu.openFor` will set on the menu (Phase 4) to disambiguate folder vs clip menus.
 
 ### Task 3.3: Write status-badges.spec.ts (RED)
 
@@ -1958,33 +1966,70 @@ EOF
 - Create: `e2e/tests/folder-context-menu/serve-toggle.spec.ts`
 - Create: `e2e/tests/folder-context-menu/share-toggle.spec.ts`
 
-### Task 6.1: Expose openServeViewForTag
+### Task 6.1: Expose openServeViewForTag at top level
 
 **Files:**
-- Modify: `frontend/js/serve.js` near line 294 (where selectOption adds to configuredEntries)
+- Modify: `frontend/js/serve.js` — place the new helper OUTSIDE `showServeTagPicker` (the existing `selectOption` is nested inside `showServeTagPicker` at line ~294; appending there would trap our helper in a closure)
 
-- [ ] **Step 1: Read selectOption to understand existing flow**
+- [ ] **Step 1: Verify where `showServeTagPicker` closes**
 
-Run: `Read /Users/egecan/Code/mahpastes/frontend/js/serve.js (offset 285, limit 30)`
+Run: `Read /Users/egecan/Code/mahpastes/frontend/js/serve.js (offset 253, limit 100)`
 
-- [ ] **Step 2: Add an exposed helper after selectOption**
+Scroll to find the matching `}` of `showServeTagPicker`. The helper must be placed AFTER that closing brace, at module top level.
 
-Append just after `selectOption`:
+- [ ] **Step 2: Extract a shared `addConfiguredServeEntry` helper at module top level**
+
+Insert this top-level helper just before `async function showServeTagPicker() {` (so both the picker's `selectOption` and the new `openServeViewForTag` can call it):
+
+```javascript
+// Shared helper: add a tag to configuredEntries (stopped state) and refresh the view.
+// Used by the tag-picker selectOption and by openServeViewForTag (folder-context-menu entry point).
+async function addConfiguredServeEntry(tagID, tagName) {
+    if (!configuredEntries.has(tagID)) {
+        configuredEntries.set(tagID, { tag_id: tagID, tag_name: tagName, bind_all: false });
+    }
+    await loadServeStatus();
+}
+```
+
+- [ ] **Step 3: Update `selectOption` inside `showServeTagPicker` to use the shared helper**
+
+Old (inside `showServeTagPicker`, around line 294):
+```javascript
+        async function selectOption(option) {
+            const tagID = parseInt(option.dataset.tagId, 10);
+            const tagName = option.textContent.trim();
+            picker.remove();
+            document.removeEventListener('click', closeOnOutside);
+            configuredEntries.set(tagID, { tag_id: tagID, tag_name: tagName, bind_all: false });
+            await loadServeStatus();
+        }
+```
+
+New:
+```javascript
+        async function selectOption(option) {
+            const tagID = parseInt(option.dataset.tagId, 10);
+            const tagName = option.textContent.trim();
+            picker.remove();
+            document.removeEventListener('click', closeOnOutside);
+            await addConfiguredServeEntry(tagID, tagName);
+        }
+```
+
+- [ ] **Step 4: Add `openServeViewForTag` at module top level (outside any other function)**
+
+Place this at the same top-level scope as `showServeTagPicker`, e.g. immediately after the closing `}` of `showServeTagPicker`:
 
 ```javascript
 async function openServeViewForTag(tagID) {
     if (typeof switchView === 'function') switchView('serve');
-
     const tags = await window.go.main.App.GetTags();
     const tag = tags.find(t => t.id === tagID);
     if (!tag) return;
+    await addConfiguredServeEntry(tagID, tag.name);
 
-    if (!configuredEntries.has(tagID)) {
-        configuredEntries.set(tagID, { tag_id: tagID, tag_name: tag.name, bind_all: false });
-    }
-    await loadServeStatus();
-
-    // Scroll to and briefly highlight
+    // Best-effort highlight — if rows expose a per-tag attribute, scroll and flash.
     const row = document.querySelector(`[data-serve-row-tag-id="${tagID}"]`);
     if (row) {
         row.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -1995,7 +2040,22 @@ async function openServeViewForTag(tagID) {
 window.openServeViewForTag = openServeViewForTag;
 ```
 
-- [ ] **Step 3: Confirm rows have `data-serve-row-tag-id`**
+- [ ] **Step 5: Expose a test helper so e2e can observe configuredEntries without reaching into private scope**
+
+Find the existing `window.__testHelpers` block near the end of `serve.js` (around line 490 — the one that already has `switchView` / `getCurrentView`) and add:
+
+```javascript
+if (window.__testHelpers) {
+    window.__testHelpers.hasConfiguredServeEntry = (tagName) => {
+        for (const entry of configuredEntries.values()) {
+            if (entry.tag_name === tagName) return true;
+        }
+        return false;
+    };
+}
+```
+
+- [ ] **Step 6: Confirm `data-serve-row-tag-id` attribute on rendered rows (optional polish)**
 
 Run (Grep tool):
 ```
@@ -2005,7 +2065,7 @@ output_mode: content
 -n: true
 ```
 
-If the attribute isn't set anywhere today, locate the function that renders serve rows (likely `loadServeStatus` renders them) and add `row.setAttribute('data-serve-row-tag-id', entry.tag_id)` at that site. If even that is too invasive to locate safely, fall back to scrolling the picker open: drop the scroll logic and just leave `configuredEntries.set` + `loadServeStatus`. The visual scroll is polish, not test-critical.
+If the attribute isn't set anywhere today, find the function that renders serve rows (likely inside `loadServeStatus` or `renderServeEntries`) and add `row.setAttribute('data-serve-row-tag-id', entry.tag_id)` at that site. If that's too invasive, drop the scroll/highlight block in Step 4 — the scroll is polish, not test-critical. The test only asserts view switch and `configuredEntries` membership (via the helper from Step 5).
 
 ### Task 6.2: Expose openShareFlowForTag
 
@@ -2088,15 +2148,18 @@ test.describe('Folder context menu: Serve toggle', () => {
         await app.page.click(selectors.folderCard(tag), { button: 'right' });
         await app.page.click(selectors.folderContextMenuItem('serve'));
 
-        // View switched to serve
-        const currentView = await app.page.evaluate(() => (window as any).currentView);
+        // View switched to serve — read via the existing test helper
+        // (currentView is a module-scope `let`, not on window)
+        const currentView = await app.page.evaluate(
+            () => (window as any).__testHelpers?.getCurrentView?.()
+        );
         expect(currentView).toBe('serve');
 
-        // configuredEntries map contains the tag
-        const hasEntry = await app.page.evaluate((name) => {
-            const all = Array.from((window as any).configuredEntries?.values?.() || []);
-            return all.some((e: any) => e.tag_name === name);
-        }, tag);
+        // configuredEntries is also private lexical state — use the helper added in Task 6.1 Step 5
+        const hasEntry = await app.page.evaluate(
+            (name) => (window as any).__testHelpers?.hasConfiguredServeEntry?.(name),
+            tag
+        );
         expect(hasEntry).toBe(true);
     });
 
@@ -2125,8 +2188,10 @@ test.describe('Folder context menu: Serve toggle', () => {
         // Badge disappears
         await expect(app.page.locator(selectors.folderBadgeServedActive(tag))).toHaveCount(0, { timeout: 5000 });
 
-        // Still in clips view (didn't navigate away)
-        const currentView = await app.page.evaluate(() => (window as any).currentView);
+        // Still in clips view (didn't navigate away) — helper reads the private `let currentView`
+        const currentView = await app.page.evaluate(
+            () => (window as any).__testHelpers?.getCurrentView?.()
+        );
         expect(currentView).toBe('clips');
     });
 
@@ -2228,7 +2293,9 @@ test.describe('Folder context menu: Share toggle', () => {
         await app.page.click(selectors.folderCard(tag), { button: 'right' });
         await app.page.click(selectors.folderContextMenuItem('share'));
 
-        const view = await app.page.evaluate(() => (window as any).currentView);
+        const view = await app.page.evaluate(
+            () => (window as any).__testHelpers?.getCurrentView?.()
+        );
         expect(view).toBe('share');
 
         // Share modal open with tag preselected
