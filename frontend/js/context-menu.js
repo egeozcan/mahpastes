@@ -82,7 +82,11 @@ const ContextMenu = (() => {
     // --- Positioning ---
 
     function positionMainMenu(menu, anchor) {
-        const buttonRect = anchor.getBoundingClientRect();
+        // Accept either an Element (use getBoundingClientRect) or a plain
+        // rect { top, left, right, bottom, width, height } for pointer anchoring.
+        const buttonRect = (typeof anchor.getBoundingClientRect === 'function')
+            ? anchor.getBoundingClientRect()
+            : anchor;
         const menuRect = menu.getBoundingClientRect();
         const pad = 8;
         const gap = 4;
