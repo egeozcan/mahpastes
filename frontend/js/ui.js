@@ -1123,6 +1123,107 @@ searchInput.addEventListener('keydown', (e) => {
 // renderFolderCards captures its value at start and aborts if superseded.
 let _folderRenderGen = 0;
 
+// Status-badge state for folder cards (populated by folderStatusPoller in app.js).
+// Keyed by tagID; values are { served, shared, servePaused, sharePaused, serveURL, serveRequests, shareFollowers }.
+const folderStatusMap = new Map();
+
+// In-place badge update. Only mutates cards that already carry a .folder-status-badges
+// container, so it's a harmless no-op during Phase 2 (before renderFolderCards is updated
+// to emit the container in Phase 3). No focus/hover state disturbed.
+function updateFolderBadgesInPlace() {
+    const containers = gallery.querySelectorAll('[data-folder] .folder-status-badges');
+    containers.forEach(container => {
+        const card = container.closest('[data-folder]');
+        if (!card) return;
+        const tagID = parseInt(card.getAttribute('data-folder'), 10);
+        const state = folderStatusMap.get(tagID) || {};
+        const badges = [];
+        if (state.served) badges.push(renderBadge('served', state));
+        if (state.shared) badges.push(renderBadge('shared', state));
+        container.innerHTML = badges.join('');
+        const path = card.getAttribute('data-folder-path') || card.querySelector('.text-xs')?.textContent || '';
+        const countText = card.querySelector('.text-\\[10px\\]')?.textContent || '';
+        card.setAttribute('aria-label', buildFolderAriaLabel(path, countText, state, card.getAttribute('data-hidden') === 'true'));
+    });
+}
+
+function renderBadge(kind, state) {
+    if (kind === 'served') {
+        const paused = !!state.servePaused;
+        const tooltip = buildServeTooltip(state);
+        const aria = paused ? 'Serving paused' : (state.serveURL ? `Served on ${state.serveURL}` : 'Serving this folder');
+        const klass = paused ? 'folder-badge folder-badge-paused' : 'folder-badge folder-badge-serve';
+        return `<span role="img" data-kind="serve" aria-label="${escapeHTML(aria)}" data-tooltip="${escapeHTML(tooltip)}" class="${klass}">
+            <svg aria-hidden="true" focusable="false" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></svg>
+        </span>`;
+    }
+    if (kind === 'shared') {
+        const paused = !!state.sharePaused;
+        const tooltip = buildShareTooltip(state);
+        const aria = paused ? 'Sharing paused' : (typeof state.shareFollowers === 'number' ? `Sharing, ${state.shareFollowers} followers` : 'Sharing this folder');
+        const klass = paused ? 'folder-badge folder-badge-paused' : 'folder-badge folder-badge-share';
+        return `<span role="img" data-kind="share" aria-label="${escapeHTML(aria)}" data-tooltip="${escapeHTML(tooltip)}" class="${klass}">
+            <svg aria-hidden="true" focusable="false" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07L12 4.5M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07L12 19.5"/></svg>
+        </span>`;
+    }
+    return '';
+}
+
+function buildServeTooltip(state) {
+    if (state.servePaused) return 'Serving paused — click to resume in Serve view';
+    if (state.serveURL) {
+        const count = typeof state.serveRequests === 'number' ? ` · ${state.serveRequests} request${state.serveRequests === 1 ? '' : 's'}` : '';
+        return `Serving on ${state.serveURL}${count}`;
+    }
+    return 'Serving this folder';
+}
+
+function buildShareTooltip(state) {
+    if (state.sharePaused) return 'Sharing paused';
+    if (typeof state.shareFollowers === 'number') {
+        return `Sharing this folder — ${state.shareFollowers} follower${state.shareFollowers === 1 ? '' : 's'}`;
+    }
+    return 'Sharing this folder';
+}
+
+function buildFolderAriaLabel(path, countText, state, hidden) {
+    const parts = [`Folder: ${path}`, countText];
+    if (state.served) parts.push(state.servePaused ? 'serving paused' : 'served');
+    if (state.shared) parts.push(state.sharePaused ? 'sharing paused' : 'shared');
+    if (hidden) parts.push('hidden');
+    return parts.filter(Boolean).join(', ');
+}
+
+function applyFolderStatusUpdate(serveStatuses, shareStatus) {
+    folderStatusMap.clear();
+    (serveStatuses || []).forEach(s => {
+        const id = s.tag_id;
+        const entry = folderStatusMap.get(id) || {};
+        // Serve entries in the returned list imply "running" unless the field says otherwise.
+        entry.served = (s.running === undefined) ? true : !!s.running;
+        entry.servePaused = !!s.paused;
+        entry.serveURL = s.url || null;
+        entry.serveRequests = typeof s.request_count === 'number' ? s.request_count : undefined;
+        folderStatusMap.set(id, entry);
+    });
+    const shares = (shareStatus && shareStatus.shares) || [];
+    shares.forEach(s => {
+        const id = s.tag_id;
+        const entry = folderStatusMap.get(id) || {};
+        entry.shared = true;
+        // ShareInfo DTO (share_types.go): Status is "active" | "paused" | "invalid"; Followers is int.
+        entry.sharePaused = s.status === 'paused';
+        entry.shareFollowers = typeof s.followers === 'number' ? s.followers : undefined;
+        folderStatusMap.set(id, entry);
+    });
+    updateFolderBadgesInPlace();
+}
+
+// Expose to other modules via window — simpler than ES imports for this codebase.
+window.folderStatusMap = folderStatusMap;
+window.updateFolderBadgesInPlace = updateFolderBadgesInPlace;
+window.applyFolderStatusUpdate = applyFolderStatusUpdate;
+
 async function renderFolderCards() {
     const myGen = ++_folderRenderGen;
 

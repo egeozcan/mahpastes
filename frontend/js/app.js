@@ -212,6 +212,65 @@ let currentSortDir = 'desc';
 
 // Folder mode state
 let folderMode = false;
+
+// Folder-view status poller.
+// Active when currentView === 'clips' AND folderMode === true.
+// Polls ServeService.GetServeStatus + ShareService.GetShareStatus every 2s
+// and pushes results through applyFolderStatusUpdate (defined in ui.js).
+const folderStatusPoller = (() => {
+    let intervalID = null;
+    let generation = 0;
+
+    async function pollOnce() {
+        const myGen = generation;
+        try {
+            const [serveStatuses, shareStatus] = await Promise.all([
+                (typeof wailsGetServeStatus === 'function') ? wailsGetServeStatus() : [],
+                (typeof wailsGetShareStatus === 'function') ? wailsGetShareStatus() : { shares: [], follows: [] },
+            ]);
+            if (myGen !== generation) return; // superseded
+            if (typeof window.applyFolderStatusUpdate === 'function') {
+                window.applyFolderStatusUpdate(serveStatuses, shareStatus);
+            }
+        } catch (e) {
+            console.warn('folderStatusPoller pollOnce failed:', e);
+        }
+    }
+
+    function isActive() {
+        const view = (typeof currentView !== 'undefined') ? currentView : 'clips';
+        return view === 'clips' && folderMode === true;
+    }
+
+    function start() {
+        if (intervalID !== null) return;
+        generation++;
+        pollOnce();
+        intervalID = setInterval(pollOnce, 2000);
+    }
+
+    function stop() {
+        if (intervalID === null) return;
+        clearInterval(intervalID);
+        intervalID = null;
+        generation++;
+        if (typeof window.folderStatusMap?.clear === 'function') {
+            window.folderStatusMap.clear();
+            if (typeof window.updateFolderBadgesInPlace === 'function') {
+                window.updateFolderBadgesInPlace();
+            }
+        }
+    }
+
+    function evaluate() {
+        if (isActive()) start(); else stop();
+    }
+
+    return { start, stop, evaluate, isActive };
+})();
+
+window.folderStatusPoller = folderStatusPoller;
+
 function isFolderMode() { return folderMode; }
 function toggleFolderMode() {
     folderMode = !folderMode;
@@ -226,25 +285,29 @@ function toggleFolderMode() {
             btn.classList.add('border-stone-200', 'text-stone-500', 'hover:border-stone-300', 'hover:bg-stone-100');
         }
     }
-    // When entering folder mode with filters active, normalize to a single
-    // folder path by navigating to the last selected tag.  This prevents
-    // broken breadcrumbs when multiple unrelated trees are checked.
-    if (folderMode && activeTagFilters.length > 0 && typeof navigateToFolder === 'function') {
-        const lastTagId = activeTagFilters[activeTagFilters.length - 1];
-        navigateToFolder(lastTagId);
-        return;
+    try {
+        // When entering folder mode with filters active, normalize to a single
+        // folder path by navigating to the last selected tag.  This prevents
+        // broken breadcrumbs when multiple unrelated trees are checked.
+        if (folderMode && activeTagFilters.length > 0 && typeof navigateToFolder === 'function') {
+            const lastTagId = activeTagFilters[activeTagFilters.length - 1];
+            navigateToFolder(lastTagId);
+            return;
+        }
+        // Exiting folder mode — clear the remembered folder.
+        if (!folderMode && typeof window.rememberCurrentFolder === 'function') {
+            window.rememberCurrentFolder(null);
+        }
+        if (typeof updateActiveTagsDisplay === 'function') {
+            updateActiveTagsDisplay();
+        }
+        if (typeof renderTagFilterDropdown === 'function') {
+            renderTagFilterDropdown();
+        }
+        loadClips();
+    } finally {
+        folderStatusPoller.evaluate();
     }
-    // Exiting folder mode — clear the remembered folder.
-    if (!folderMode && typeof window.rememberCurrentFolder === 'function') {
-        window.rememberCurrentFolder(null);
-    }
-    if (typeof updateActiveTagsDisplay === 'function') {
-        updateActiveTagsDisplay();
-    }
-    if (typeof renderTagFilterDropdown === 'function') {
-        renderTagFilterDropdown();
-    }
-    loadClips();
 }
 
 // Accessors for hiddenTags — other files should use these instead of the variable directly

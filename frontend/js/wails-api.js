@@ -619,3 +619,23 @@ async function bulkCancelExpiration(ids) {
         showToast('Failed to cancel expiration.');
     }
 }
+
+async function wailsGetServeStatus() {
+    if (!window.go || !window.go.main || !window.go.main.ServeService) return [];
+    try {
+        return (await window.go.main.ServeService.GetServeStatus()) || [];
+    } catch (e) {
+        console.error('GetServeStatus failed:', e);
+        return [];
+    }
+}
+
+async function wailsGetShareStatus() {
+    if (!window.go || !window.go.main || !window.go.main.ShareService) return { shares: [], follows: [] };
+    try {
+        return (await window.go.main.ShareService.GetShareStatus()) || { shares: [], follows: [] };
+    } catch (e) {
+        console.error('GetShareStatus failed:', e);
+        return { shares: [], follows: [] };
+    }
+}

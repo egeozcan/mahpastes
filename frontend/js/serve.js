@@ -107,6 +107,7 @@ function switchView(view) {
             }
             break;
     }
+    if (window.folderStatusPoller) window.folderStatusPoller.evaluate();
 }
 
 // Tab click handlers
