@@ -6,7 +6,7 @@ Add a right-click context menu on folder cards in folder view with Open / Move /
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
-| Trigger | Right-click, long-press, or `Shift+F10` / context-menu key on a focused card | Native UX + keyboard a11y |
+| Trigger | Right-click (anchored at pointer), long-press (anchored at touch point), or `Shift+F10` / context-menu key (anchored at the card) when focused | Native UX + keyboard a11y; see "Pointer anchoring" below — requires a small extension to `ContextMenu.open` |
 | Move UX | Folder picker modal with tree | Discoverable, no typos, preserves drag-to-move as alternative |
 | Serve flow | Inactive: jump to Serve view, add folder to configured entries (user clicks Start). Active: direct `StopServing` from the menu | Consistent with existing view-based config; menu label toggles |
 | Share flow | Inactive: jump to Share view, open "Share a tag" modal pre-selected (user clicks Create). Active: direct `StopShare` from the menu | Matches existing modal-based start flow |
@@ -41,8 +41,8 @@ The untagged-clips pseudo-folder in the root view has no context menu (not a rea
 
 **`frontend/js/folder-context-menu.js`** — exports `FolderContextMenu`:
 
-- `attach(cardEl, tag, state)` — wires `contextmenu` + keyboard handlers on the card (`Shift+F10`, `ContextMenuKey`, long-press)
-- `openFor(tag, state, anchor)` — builds items from live `state`, calls `ContextMenu.open(items, tag.id, anchor, onAction)`
+- `attach(cardEl, tag, state)` — wires `contextmenu` + keyboard handlers on the card (`Shift+F10`, `ContextMenuKey`, long-press). Pointer handlers build a virtual anchor (see Pointer Anchoring below) at `{clientX, clientY}`; keyboard handlers pass `cardEl` itself
+- `openFor(tag, state, anchor)` — builds items from live `state`, calls `ContextMenu.open(items, tag.id, anchor, onAction)`. `anchor` may be an `Element` or a virtual rect `{top, left, width, height}`
 - `handleAction(action, tagID, item)` — dispatches:
   - `open` → `navigateToFolder(tagID)`
   - `move` → `FolderMoveModal.show(tag)`
@@ -75,12 +75,18 @@ The untagged-clips pseudo-folder in the root view has no context menu (not a rea
 
 **`frontend/js/app.js`:**
 
-- Adds `folderStatusPoller` (start/stop controlled by the view-switch handler)
-- When folder view becomes active:
+Adds `folderStatusPoller` with explicit start/stop:
+
+- **Active condition (must all be true):** clips view is current AND folder mode is on. Folder mode is the sub-mode toggled by `toggleFolderMode()`, not tied to `switchView()`. Polling must stop when either condition flips.
+- **When active:**
   1. Runs initial poll immediately
   2. Schedules `setInterval(2000)` calls to `ServeService.GetServeStatus()` + `ShareService.GetShareStatus()`
   3. On each response: updates `folderStatusMap`, calls `updateFolderBadgesInPlace()` (DOM mutation on existing `[data-folder]` cards — not a full re-render)
-- When switching to non-folder view: clears interval
+- **Lifecycle hooks — both are required:**
+  - `switchView()` (`frontend/js/serve.js:25`) transitions (leaves or enters clips view): call `folderStatusPoller.evaluate()`
+  - `toggleFolderMode()` (`frontend/js/app.js:216`) transitions (on/off): call `folderStatusPoller.evaluate()`
+  - `evaluate()` inspects both flags, starts the interval if both true and not already running, otherwise stops it
+- **Generation counter:** poll responses carry a generation stamped at schedule time; responses older than the current generation are dropped, preventing stale state from overwriting a fresh toggle-driven poll
 
 **`frontend/js/wails-api.js`:**
 
@@ -134,12 +140,31 @@ right-click / Shift+F10 ─► FolderContextMenu.openFor(tag, liveState)
                                    toast + poll picks up new state next tick
 ```
 
-### Shared primitives reused (no changes)
+### Shared primitives
 
-- `ContextMenu` (`frontend/js/context-menu.js`) — generic items/dividers/submenus/keyboard/ARIA
-- `tooltips.js` — badge tooltips
-- `toast()` — success/error confirmation
-- Existing rename-folder dialog — triggered from Rename item
+- **`ContextMenu` (`frontend/js/context-menu.js`)** — reused with a small extension (see "Pointer anchoring" below). Preserves keyboard/ARIA/submenu behavior
+- **`tooltips.js`** — badge tooltips; no changes
+- **`toast()`** — success/error confirmation; no changes
+- **Existing rename-folder dialog** — triggered from Rename item; no changes
+
+### Pointer anchoring
+
+`ContextMenu.open(items, clipId, anchor, onAction)` currently calls `anchor.getBoundingClientRect()` unconditionally (`context-menu.js:85`). For right-click / long-press the user expects the menu at the pointer, not at the card edge.
+
+Extend `positionMainMenu(menu, anchor)` to accept either:
+
+- An `Element` (existing behavior — use `getBoundingClientRect()`), or
+- A plain object `{ top, left, width, height }` (a virtual DOMRect) — used as-is
+
+`FolderContextMenu` builds the virtual rect from the pointer event:
+
+```js
+const anchor = { top: e.clientY, left: e.clientX, width: 0, height: 0 };
+```
+
+Zero-width/height makes the existing "align right edge to button" logic collapse to "align right edge at pointer", which matches native menu anchoring. Keyboard invocations (`Shift+F10`, context-menu key) pass `cardEl` as before, so the menu anchors at the card edge — which is what sighted keyboard users expect.
+
+This is a localized, backward-compatible change — no existing callers break.
 
 ## Visual Design
 
@@ -278,9 +303,9 @@ Wording: `"Cannot move: tag \"work/client1\" is currently being served. Stop ser
 | Move | Collision, serve-active subtree, invalid path | Modal stays open, inline error, retry enabled |
 | Rename | Same | Existing dialog surfaces error |
 | Serve (start) | Port bind fail, already served | Toast with error; Serve view reflects state |
-| Stop serving | Race (already stopped) | Silent no-op; log in dev |
+| Stop serving | Race (already stopped) — backend returns `"no server running for tag {id}"` | Frontend `handleAction` inspects error: if it matches `/no server running/i`, treat as silent no-op (dev-log only). Any other error → toast |
 | Share (start) | Already active, network | Toast with error |
-| Stop sharing | Race | Silent no-op |
+| Stop sharing | Race | `ShareManager.StopShare` is already idempotent (succeeds whether or not a publication exists) — no frontend handling needed |
 | Hide/Unhide | `SetHiddenTags` persist fails | Toast error; revert in-memory cache to match backend |
 
 ### Race protection
@@ -338,16 +363,17 @@ Wording: `"Cannot move: tag \"work/client1\" is currently being served. Stop ser
 - `e2e/tests/folder-context-menu/a11y.spec.ts`
 
 **Modified**
+- `frontend/index.html` — adds `<script src="js/folder-context-menu.js"></script>` and `<script src="js/folder-move-modal.js"></script>` after `context-menu.js` and before `ui.js` (load order: `tooltips.js` → `context-menu.js` → `folder-context-menu.js` → `folder-move-modal.js` → `ui.js`). This ensures `FolderContextMenu` and `FolderMoveModal` globals exist before `renderFolderCards` (defined in `ui.js`) can invoke `FolderContextMenu.attach()`
 - `frontend/js/ui.js` — `renderFolderCards()` adds badges, tabindex, aria-label, context-menu attach; changes `overflow-hidden` → `overflow-visible`
-- `frontend/js/app.js` — folder-view status poller wiring
+- `frontend/js/app.js` — folder-view status poller wiring (hooked into both `switchView()` and `toggleFolderMode()` transitions)
+- `frontend/js/context-menu.js` — `positionMainMenu` accepts either an `Element` or a virtual rect `{top,left,width,height}` (additive, backward-compatible); no other behavioral changes
 - `frontend/js/wails-api.js` — wrappers for `GetServeStatus` / `GetShareStatus` if missing
-- `frontend/js/serve.js` — exposes `selectAndAddEntryForTag(tagID)` for external navigation entry
-- `frontend/js/share.js` — same
+- `frontend/js/serve.js` — exposes `openServeViewForTag(tagID)` for external navigation entry; `switchView()` adds a call to `folderStatusPoller.evaluate()`
+- `frontend/js/share.js` — exposes `openShareFlowForTag(tagID)`
 - `frontend/css/main.css` — `.folder-status-badges`, hidden-folder styling, paused badge styling
 - `e2e/fixtures/test-fixtures.ts` — new helpers
 - `e2e/helpers/selectors.ts` — selectors for badges + menu items
 
 **Unchanged**
 - All Go backend files (no new APIs needed)
-- `context-menu.js` (reused as-is)
 - `tooltips.js`, `toast()`, rename dialog
