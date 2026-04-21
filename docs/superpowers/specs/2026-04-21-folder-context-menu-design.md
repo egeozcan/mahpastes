@@ -42,7 +42,7 @@ The untagged-clips pseudo-folder in the root view has no context menu (not a rea
 **`frontend/js/folder-context-menu.js`** — exports `FolderContextMenu`:
 
 - `attach(cardEl, tag, state)` — wires `contextmenu` + keyboard handlers on the card (`Shift+F10`, `ContextMenuKey`, long-press). Pointer handlers build a virtual anchor (see Pointer Anchoring below) at `{clientX, clientY}`; keyboard handlers pass `cardEl` itself
-- `openFor(tag, state, anchor)` — builds items from live `state`, calls `ContextMenu.open(items, tag.id, anchor, onAction)`. `anchor` may be an `Element` or a virtual rect `{top, left, width, height}`
+- `openFor(tag, state, anchor)` — builds items from live `state`, calls `ContextMenu.open(items, tag.id, anchor, onAction)`. `anchor` may be an `Element` or a full virtual rect (`{top, left, right, bottom, width, height}`; see "Pointer anchoring")
 - `handleAction(action, tagID, item)` — dispatches:
   - `open` → `navigateToFolder(tagID)`
   - `move` → `FolderMoveModal.show(tag)`
@@ -149,20 +149,25 @@ right-click / Shift+F10 ─► FolderContextMenu.openFor(tag, liveState)
 
 ### Pointer anchoring
 
-`ContextMenu.open(items, clipId, anchor, onAction)` currently calls `anchor.getBoundingClientRect()` unconditionally (`context-menu.js:85`). For right-click / long-press the user expects the menu at the pointer, not at the card edge.
+`ContextMenu.open(items, clipId, anchor, onAction)` currently calls `anchor.getBoundingClientRect()` unconditionally (`context-menu.js:85`) and then reads `.right`, `.bottom`, `.top`, and `.width`/`.height` (on the menu's own rect) during layout. For right-click / long-press the user expects the menu at the pointer, not at the card edge.
 
 Extend `positionMainMenu(menu, anchor)` to accept either:
 
 - An `Element` (existing behavior — use `getBoundingClientRect()`), or
-- A plain object `{ top, left, width, height }` (a virtual DOMRect) — used as-is
+- A plain object representing a virtual rect
 
-`FolderContextMenu` builds the virtual rect from the pointer event:
+**Detection:** if `typeof anchor.getBoundingClientRect === 'function'`, call it; otherwise treat `anchor` as a plain rect.
 
-```js
-const anchor = { top: e.clientY, left: e.clientX, width: 0, height: 0 };
-```
+**Virtual rect shape — all six fields required:** `{ top, left, right, bottom, width, height }`. `positionMainMenu` uses `right` and `bottom` for layout (lines 93, 98), so the partial `{top, left, width, height}` shape would leave those as `undefined` and produce NaN positioning. Two options for implementation (spec requires one):
 
-Zero-width/height makes the existing "align right edge to button" logic collapse to "align right edge at pointer", which matches native menu anchoring. Keyboard invocations (`Shift+F10`, context-menu key) pass `cardEl` as before, so the menu anchors at the card edge — which is what sighted keyboard users expect.
+1. **Caller produces a full rect** — `FolderContextMenu` builds all six fields:
+   ```js
+   const x = e.clientX, y = e.clientY;
+   const anchor = { top: y, left: x, right: x, bottom: y, width: 0, height: 0 };
+   ```
+2. **`positionMainMenu` normalizes plain anchors** — adds, on entry, `right = left + width` and `bottom = top + height` when the anchor isn't an Element. Either choice is fine; prefer (1) because it keeps the positioning function unchanged beyond the one-line detection branch.
+
+Zero width/height makes the existing "align right edge to button" logic collapse to "align right edge at pointer" (`left = right - menuRect.width` puts the menu's right edge at the click point), which matches native menu anchoring. Keyboard invocations (`Shift+F10`, context-menu key) pass `cardEl` as before, so the menu anchors at the card edge — which is what sighted keyboard users expect.
 
 This is a localized, backward-compatible change — no existing callers break.
 
@@ -366,7 +371,7 @@ Wording: `"Cannot move: tag \"work/client1\" is currently being served. Stop ser
 - `frontend/index.html` — adds `<script src="js/folder-context-menu.js"></script>` and `<script src="js/folder-move-modal.js"></script>` after `context-menu.js` and before `ui.js` (load order: `tooltips.js` → `context-menu.js` → `folder-context-menu.js` → `folder-move-modal.js` → `ui.js`). This ensures `FolderContextMenu` and `FolderMoveModal` globals exist before `renderFolderCards` (defined in `ui.js`) can invoke `FolderContextMenu.attach()`
 - `frontend/js/ui.js` — `renderFolderCards()` adds badges, tabindex, aria-label, context-menu attach; changes `overflow-hidden` → `overflow-visible`
 - `frontend/js/app.js` — folder-view status poller wiring (hooked into both `switchView()` and `toggleFolderMode()` transitions)
-- `frontend/js/context-menu.js` — `positionMainMenu` accepts either an `Element` or a virtual rect `{top,left,width,height}` (additive, backward-compatible); no other behavioral changes
+- `frontend/js/context-menu.js` — `positionMainMenu` accepts either an `Element` or a full virtual rect `{top, left, right, bottom, width, height}` (additive, backward-compatible); detects by `typeof anchor.getBoundingClientRect === 'function'`; no other behavioral changes
 - `frontend/js/wails-api.js` — wrappers for `GetServeStatus` / `GetShareStatus` if missing
 - `frontend/js/serve.js` — exposes `openServeViewForTag(tagID)` for external navigation entry; `switchView()` adds a call to `folderStatusPoller.evaluate()`
 - `frontend/js/share.js` — exposes `openShareFlowForTag(tagID)`
