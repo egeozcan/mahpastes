@@ -222,16 +222,10 @@ test.describe('Share - Follow UI (mocked backend)', () => {
   test('edit-follow modal updates the local tag for an existing follow', async ({ app }) => {
     // Create a follow via FollowWithoutDial (mocked link → no peer dial needed).
     // The card needs a real follow row so the Edit click has something to act on.
+    // Stubs must be applied BEFORE clicking the share tab because switchView('share')
+    // fires ShareView.refresh() synchronously (without awaiting it), and the real
+    // GetShareStatus() promise can race ahead of the in-test refresh() call.
     await app.openDrawer();
-    await app.page.click('#view-tab-share');
-    await app.page.waitForFunction(
-      () => !(document.getElementById('share-view')?.classList.contains('hidden') ?? true),
-      { timeout: 5000 },
-    );
-
-    // Stub UpdateFollowTag to record calls and pretend it succeeds. Stub
-    // GetShareStatus to first show one follow tagged "old/inbox", then after
-    // the update flip to "new/inbox" so the card refresh exercises both.
     await app.page.evaluate(() => {
       let currentTag = 'old/inbox';
       (window as any).__editFollowCalled = null;
@@ -254,16 +248,17 @@ test.describe('Share - Follow UI (mocked backend)', () => {
         }],
       });
     });
+    await app.page.click('#view-tab-share');
+    await app.page.waitForFunction(
+      () => !(document.getElementById('share-view')?.classList.contains('hidden') ?? true),
+      { timeout: 5000 },
+    );
 
-    // Force a refresh so the stubbed follow shows up.
-    await app.page.evaluate(() => (window as any).ShareView?.refresh?.());
-
-    // The follow list re-renders on every share:follow-updated event from the
-    // real backend, so the Edit button can briefly detach mid-click. Use force
-    // to skip the stability check — we just need to exercise the handler.
+    // switchView('share') already calls ShareView.refresh(), so the follow
+    // list should be rendered from the stub by now.
     const editBtn = app.page.locator('.share-edit-follow').first();
     await expect(editBtn).toBeVisible({ timeout: 3000 });
-    await editBtn.click({ force: true });
+    await editBtn.click();
 
     // Modal opens, prefilled with the current tag.
     const modal = app.page.locator('#edit-follow-modal');
@@ -295,14 +290,8 @@ test.describe('Share - Follow UI (mocked backend)', () => {
   });
 
   test('refresh button on a follow card calls ReconnectFollow(id)', async ({ app }) => {
+    // Apply stubs before clicking the share tab so switchView's refresh() uses mocks.
     await app.openDrawer();
-    await app.page.click('#view-tab-share');
-    await app.page.waitForFunction(
-      () => !(document.getElementById('share-view')?.classList.contains('hidden') ?? true),
-      { timeout: 5000 },
-    );
-
-    // Stub a single offline follow and capture ReconnectFollow calls.
     await app.page.evaluate(() => {
       (window as any).__reconnectCalledWith = null;
       (window as any).go.main.ShareService.GetShareStatus = async () => ({
@@ -322,15 +311,15 @@ test.describe('Share - Follow UI (mocked backend)', () => {
         (window as any).__reconnectCalledWith = id;
       };
     });
-
-    // Kick the share view to re-render with the stub.
-    await app.page.evaluate(() => (window as any).ShareView?.refresh?.());
+    await app.page.click('#view-tab-share');
+    await app.page.waitForFunction(
+      () => !(document.getElementById('share-view')?.classList.contains('hidden') ?? true),
+      { timeout: 5000 },
+    );
 
     const refreshBtn = app.page.locator('.share-reconnect').first();
     await expect(refreshBtn).toBeVisible({ timeout: 3000 });
-    // Use force — the follow list is re-rendered on every share:follow-updated
-    // event from the real backend so the button can briefly detach mid-click.
-    await refreshBtn.click({ force: true });
+    await refreshBtn.click();
 
     await app.page.waitForFunction(
       () => (window as any).__reconnectCalledWith !== null,
@@ -341,15 +330,8 @@ test.describe('Share - Follow UI (mocked backend)', () => {
   });
 
   test('pause / resume follow toggles backend and UI label', async ({ app }) => {
+    // Apply stubs before clicking the share tab so switchView's refresh() uses mocks.
     await app.openDrawer();
-    await app.page.click('#view-tab-share');
-    await app.page.waitForFunction(
-      () => !(document.getElementById('share-view')?.classList.contains('hidden') ?? true),
-      { timeout: 5000 },
-    );
-
-    // Stub one follow that starts connected. Pause/Resume flip the paused
-    // flag in the stubbed status so the card re-renders with the new label.
     await app.page.evaluate(() => {
       let paused = false;
       (window as any).__pauseFollowCalls = 0;
@@ -377,14 +359,17 @@ test.describe('Share - Follow UI (mocked backend)', () => {
         paused = false;
       };
     });
-
-    await app.page.evaluate(() => (window as any).ShareView?.refresh?.());
+    await app.page.click('#view-tab-share');
+    await app.page.waitForFunction(
+      () => !(document.getElementById('share-view')?.classList.contains('hidden') ?? true),
+      { timeout: 5000 },
+    );
 
     // Card starts with a Pause button.
     const toggle = app.page.locator('.share-toggle-follow-pause').first();
     await expect(toggle).toBeVisible({ timeout: 3000 });
     await expect(toggle).toContainText('Pause');
-    await toggle.click({ force: true });
+    await toggle.click();
     await app.page.waitForFunction(() => (window as any).__pauseFollowCalls === 1, { timeout: 3000 });
 
     // After pause the refresh call flips the paused state; card should
@@ -399,13 +384,8 @@ test.describe('Share - Follow UI (mocked backend)', () => {
   });
 
   test('pause / resume share toggles backend and UI label', async ({ app }) => {
+    // Apply stubs before clicking the share tab so switchView's refresh() uses mocks.
     await app.openDrawer();
-    await app.page.click('#view-tab-share');
-    await app.page.waitForFunction(
-      () => !(document.getElementById('share-view')?.classList.contains('hidden') ?? true),
-      { timeout: 5000 },
-    );
-
     await app.page.evaluate(() => {
       let status = 'active';
       (window as any).__pauseShareCalls = 0;
@@ -433,13 +413,16 @@ test.describe('Share - Follow UI (mocked backend)', () => {
         status = 'active';
       };
     });
-
-    await app.page.evaluate(() => (window as any).ShareView?.refresh?.());
+    await app.page.click('#view-tab-share');
+    await app.page.waitForFunction(
+      () => !(document.getElementById('share-view')?.classList.contains('hidden') ?? true),
+      { timeout: 5000 },
+    );
 
     const toggle = app.page.locator('.share-toggle-pause').first();
     await expect(toggle).toBeVisible({ timeout: 3000 });
     await expect(toggle).toContainText('Pause');
-    await toggle.click({ force: true });
+    await toggle.click();
     await app.page.waitForFunction(() => (window as any).__pauseShareCalls === 1, { timeout: 3000 });
 
     await app.page.evaluate(() => (window as any).ShareView?.refresh?.());
@@ -450,13 +433,8 @@ test.describe('Share - Follow UI (mocked backend)', () => {
   });
 
   test('logs button opens modal and shows entries', async ({ app }) => {
+    // Apply stubs before clicking the share tab so switchView's refresh() uses mocks.
     await app.openDrawer();
-    await app.page.click('#view-tab-share');
-    await app.page.waitForFunction(
-      () => !(document.getElementById('share-view')?.classList.contains('hidden') ?? true),
-      { timeout: 5000 },
-    );
-
     await app.page.evaluate(() => {
       (window as any).go.main.ShareService.GetShareStatus = async () => ({
         shares: [],
@@ -481,10 +459,13 @@ test.describe('Share - Follow UI (mocked backend)', () => {
         ];
       };
     });
+    await app.page.click('#view-tab-share');
+    await app.page.waitForFunction(
+      () => !(document.getElementById('share-view')?.classList.contains('hidden') ?? true),
+      { timeout: 5000 },
+    );
 
-    await app.page.evaluate(() => (window as any).ShareView?.refresh?.());
-
-    await app.page.locator('.share-logs-follow').first().click({ force: true });
+    await app.page.locator('.share-logs-follow').first().click();
     await expect(app.page.locator('#share-logs-modal')).toBeVisible({ timeout: 3000 });
 
     // GetShareLogs should have been called with followID=88.
