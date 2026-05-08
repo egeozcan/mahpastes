@@ -238,9 +238,9 @@ function handlePluginCardAction(dataset) {
 }
 
 // Render card menu dropdown via ContextMenu
-function renderCardMenu(clipId, button, clip) {
+function renderCardMenu(clipId, button, clip, anchor = button) {
     const items = buildMenuItemList(clip);
-    return ContextMenu.open(items, clipId, button, (action, id, item) => {
+    return ContextMenu.open(items, clipId, anchor, (action, id, item) => {
         if (action === 'plugin') {
             handlePluginCardAction({
                 pluginId: item.dataset.pluginId,
@@ -419,9 +419,6 @@ function closeExpirationPopover() {
 }
 
 function renderDragHandle(clipId) {
-    if (typeof isFolderMode === 'function' && isFolderMode()) {
-        return '';
-    }
     if (typeof canDragOut !== 'function' || !canDragOut()) {
         return '';
     }
@@ -813,7 +810,8 @@ async function createClipCard(clip, options = {}) {
     card.addEventListener('contextmenu', (e) => {
         e.preventDefault();
         e.stopPropagation();
-        renderCardMenu(clip.id, menuTrigger, clip);
+        const anchor = { top: e.clientY, left: e.clientX, right: e.clientX, bottom: e.clientY, width: 0, height: 0 };
+        renderCardMenu(clip.id, menuTrigger, clip, anchor);
     });
 
     const dragHandle = card.querySelector('[data-action="drag-out"]');
