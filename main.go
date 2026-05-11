@@ -17,6 +17,19 @@ var assets embed.FS
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
+	// Acquire single-instance lock before doing any other startup work.
+	// Different MAHPASTES_DATA_DIR values map to different lock files, so
+	// multiple instances against different data directories are allowed.
+	dataDir, err := getDataDir()
+	if err != nil {
+		log.Fatalf("Error resolving data directory: %v", err)
+	}
+	instanceLock, err := AcquireInstanceLock(dataDir)
+	if err != nil {
+		log.Fatalf("%v", err)
+	}
+	defer instanceLock.Release()
+
 	// Create an instance of the app structure
 	app := NewApp()
 
@@ -36,7 +49,7 @@ func main() {
 	app.transferHandler = transferHandler
 
 	// Create application with options
-	err := wails.Run(&options.App{
+	err = wails.Run(&options.App{
 		Title:     "mahpastes",
 		Width:     1280,
 		Height:    800,
