@@ -1558,6 +1558,11 @@ window.addEventListener('load', async () => {
             galleryRover: galleryRover,
         });
 
+        // Attach folder empty-space context menu to the gallery
+        if (typeof FolderEmptyContextMenu !== 'undefined') {
+            FolderEmptyContextMenu.attach(gallery);
+        }
+
         // Cheat sheet close handlers
         const cheatsheetClose = document.getElementById('shortcuts-cheatsheet-close');
         const cheatsheetOverlay = document.getElementById('shortcuts-cheatsheet');
