@@ -2,21 +2,35 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"strconv"
 
 	"github.com/spf13/cobra"
 
 	"go-clipboard/cmd/mp/client"
 )
 
+type APIKeyInfo struct {
+	ID            int64  `json:"id"`
+	Name          string `json:"name"`
+	KeyPrefix     string `json:"key_prefix"`
+	Role          string `json:"role"`
+	ScopedTagID   *int64 `json:"scoped_tag_id"`
+	ScopedTagName string `json:"scoped_tag_name"`
+	IsRevoked     bool   `json:"is_revoked"`
+}
+
+type APIKeyCreateResult struct {
+	Key  string     `json:"key"`
+	Info APIKeyInfo `json:"info"`
+}
+
 // ── api (parent) ────────────────────────────────────────────────────────
 
 var apiCmd = &cobra.Command{
 	Use:   "api",
 	Short: "API connectivity and key management",
-	Long: `Check API connectivity and manage API keys.
-
-The API server must be started from the mahpastes desktop app (Settings > API).
-API keys are also created and managed from the desktop app.`,
+	Long:  `Check API connectivity and manage API keys.`,
 }
 
 // ── api status ──────────────────────────────────────────────────────────
@@ -67,28 +81,42 @@ func runAPIStatus(cmd *cobra.Command, args []string) error {
 var apiKeyCmd = &cobra.Command{
 	Use:   "key",
 	Short: "Manage API keys",
-	Long: `API keys are managed in the mahpastes desktop app under Settings > API.
-
-Use the desktop app to create, list, and revoke API keys.`,
+	Long:  `Create, list, and revoke API keys through the REST API.`,
 }
 
 // ── api key create ──────────────────────────────────────────────────────
 
 var apiKeyCreateCmd = &cobra.Command{
-	Use:   "create <name>",
-	Short: "Create an API key (desktop app only)",
-	Long: `API keys must be created from the mahpastes desktop application.
-
-Open Settings > API in the desktop app to create a new API key.`,
+	Use:     "create <name>",
+	Short:   "Create an API key",
 	Example: `  mp api key create my-key`,
 	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		fmt.Println("API keys are managed in the mahpastes desktop app under Settings > API.")
-		fmt.Println("")
-		fmt.Println("To create a key:")
-		fmt.Println("  1. Open mahpastes")
-		fmt.Println("  2. Go to Settings > API")
-		fmt.Println("  3. Click \"Create Key\"")
+		role, _ := cmd.Flags().GetString("role")
+		scopedTagID, _ := cmd.Flags().GetInt64("scoped-tag")
+		c, err := client.New()
+		if err != nil {
+			return err
+		}
+		var result APIKeyCreateResult
+		if err := c.PostJSON("/api/v1/keys", map[string]interface{}{
+			"name":          args[0],
+			"role":          role,
+			"scoped_tag_id": scopedTagID,
+		}, &result); err != nil {
+			return err
+		}
+		if jsonOutput {
+			printJSON(result)
+			return nil
+		}
+		printKeyValue([][2]string{
+			{"id", strconv.FormatInt(result.Info.ID, 10)},
+			{"name", result.Info.Name},
+			{"role", result.Info.Role},
+			{"key", result.Key},
+		})
+		fmt.Fprintln(os.Stderr, "(save this key - it cannot be retrieved again)")
 		return nil
 	},
 }
@@ -96,18 +124,42 @@ Open Settings > API in the desktop app to create a new API key.`,
 // ── api key list ────────────────────────────────────────────────────────
 
 var apiKeyListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List API keys (desktop app only)",
-	Long: `API keys must be viewed from the mahpastes desktop application.
-
-Open Settings > API in the desktop app to see all API keys.`,
+	Use:     "list",
+	Short:   "List API keys",
 	Example: `  mp api key list`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		fmt.Println("API keys are managed in the mahpastes desktop app under Settings > API.")
-		fmt.Println("")
-		fmt.Println("To view your keys:")
-		fmt.Println("  1. Open mahpastes")
-		fmt.Println("  2. Go to Settings > API")
+		c, err := client.New()
+		if err != nil {
+			return err
+		}
+		var keys []APIKeyInfo
+		if err := c.GetJSON("/api/v1/keys", &keys); err != nil {
+			return err
+		}
+		if jsonOutput {
+			printJSON(keys)
+			return nil
+		}
+		rows := make([][]string, 0, len(keys))
+		for _, k := range keys {
+			status := "active"
+			if k.IsRevoked {
+				status = "revoked"
+			}
+			scope := ""
+			if k.ScopedTagID != nil {
+				scope = k.ScopedTagName
+			}
+			rows = append(rows, []string{
+				strconv.FormatInt(k.ID, 10),
+				k.Name,
+				k.Role,
+				k.KeyPrefix,
+				scope,
+				status,
+			})
+		}
+		printTable([]string{"ID", "NAME", "ROLE", "PREFIX", "SCOPE", "STATUS"}, rows)
 		return nil
 	},
 }
@@ -115,20 +167,27 @@ Open Settings > API in the desktop app to see all API keys.`,
 // ── api key revoke ──────────────────────────────────────────────────────
 
 var apiKeyRevokeCmd = &cobra.Command{
-	Use:   "revoke <id>",
-	Short: "Revoke an API key (desktop app only)",
-	Long: `API keys must be revoked from the mahpastes desktop application.
-
-Open Settings > API in the desktop app to revoke an API key.`,
+	Use:     "revoke <id>",
+	Short:   "Revoke an API key",
 	Example: `  mp api key revoke 3`,
 	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		fmt.Println("API keys are managed in the mahpastes desktop app under Settings > API.")
-		fmt.Println("")
-		fmt.Println("To revoke a key:")
-		fmt.Println("  1. Open mahpastes")
-		fmt.Println("  2. Go to Settings > API")
-		fmt.Println("  3. Click the revoke button next to the key")
+		id, err := strconv.ParseInt(args[0], 10, 64)
+		if err != nil {
+			return fmt.Errorf("invalid key id: %s", args[0])
+		}
+		c, err := client.New()
+		if err != nil {
+			return err
+		}
+		if err := c.Delete(fmt.Sprintf("/api/v1/keys/%d", id)); err != nil {
+			return err
+		}
+		if jsonOutput {
+			printJSON(map[string]interface{}{"revoked": id})
+			return nil
+		}
+		fmt.Printf("Revoked API key %d\n", id)
 		return nil
 	},
 }
@@ -136,6 +195,9 @@ Open Settings > API in the desktop app to revoke an API key.`,
 // ── init ────────────────────────────────────────────────────────────────
 
 func init() {
+	apiKeyCreateCmd.Flags().String("role", "viewer", "Role for the new key: viewer, editor, or admin")
+	apiKeyCreateCmd.Flags().Int64("scoped-tag", 0, "Restrict the key to a tag ID")
+
 	apiKeyCmd.AddCommand(apiKeyCreateCmd)
 	apiKeyCmd.AddCommand(apiKeyListCmd)
 	apiKeyCmd.AddCommand(apiKeyRevokeCmd)

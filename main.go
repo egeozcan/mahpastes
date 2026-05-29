@@ -1,9 +1,15 @@
 package main
 
 import (
-	"embed"
+	"context"
+	"fmt"
 	"log"
 	"os"
+	"path/filepath"
+
+	webui "go-clipboard/frontend"
+	coreapp "go-clipboard/internal/app"
+	"go-clipboard/internal/wailsbridge"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -11,64 +17,82 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options/mac"
 )
 
-//go:embed all:frontend
-var assets embed.FS
-
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
-	// Acquire single-instance lock before doing any other startup work.
-	// Different MAHPASTES_DATA_DIR values map to different lock files, so
-	// multiple instances against different data directories are allowed.
-	dataDir, err := getDataDir()
+	dataDir, err := coreapp.GetDataDir()
 	if err != nil {
-		log.Fatalf("Error resolving data directory: %v", err)
+		log.Fatalf("data dir: %v", err)
 	}
-	instanceLock, err := AcquireInstanceLock(dataDir)
+	instanceLock, err := coreapp.AcquireInstanceLock(dataDir)
 	if err != nil {
 		log.Fatalf("%v", err)
 	}
 	defer instanceLock.Release()
 
-	// Create an instance of the app structure
-	app := NewApp()
+	desktopApp := NewApp()
+	core := desktopApp.core
 
-	// Create services (separate structs to stay under Wails ~49 method binding limit)
-	pluginService := NewPluginService(app)
-	clipboardService := NewClipboardService(app)
-	transferService := NewTransferService(app)
-	serveService := NewServeService(app)
-	apiService := NewAPIService(app)
-	shareService := NewShareService(app)
+	pluginService := NewPluginService(core)
+	clipboardService := NewClipboardService(core)
+	transferService := NewTransferService(core)
+	serveService := NewServeService(core)
+	apiService := NewAPIService(core)
+	shareService := NewShareService(core)
 
-	// Wire service references so App can delegate to them from API endpoints
-	app.clipboardService = clipboardService
+	core.SetClipboardService(clipboardService)
+	transferHandler := coreapp.NewTransferFileHandler(core)
+	core.SetTransferHandler(transferHandler)
 
-	// Create the transfer file handler and store it on the app for token registration.
-	transferHandler := &TransferFileHandler{app: app}
-	app.transferHandler = transferHandler
-
-	// Create application with options
 	err = wails.Run(&options.App{
-		Title:     "mahpastes",
-		Width:     1280,
-		Height:    800,
-		MinWidth:  800,
-		MinHeight: 600,
+		Title:       "mahpastes",
+		Width:       1280,
+		Height:      800,
+		MinWidth:    800,
+		MinHeight:   600,
 		StartHidden: os.Getenv("MAHPASTES_START_HIDDEN") == "1",
 		AssetServer: &assetserver.Options{
-			Assets:  assets,
+			Assets:  webui.Assets,
 			Handler: transferHandler,
 		},
 		BackgroundColour: &options.RGBA{R: 248, G: 250, B: 252, A: 1},
-		OnStartup:        app.startup,
-		OnShutdown:       app.shutdown,
+		OnStartup: func(ctx context.Context) {
+			bridge := wailsbridge.New(ctx)
+			desktopApp.setBridge(bridge)
+			pluginService.setBridge(bridge)
+
+			db, err := coreapp.InitDB()
+			if err != nil {
+				log.Fatalf("db: %v", err)
+			}
+			err = core.Bootstrap(ctx, coreapp.BootstrapOptions{
+				DB:            db,
+				DataDir:       dataDir,
+				Bridge:        bridge,
+				InitClipboard: true,
+				PermissionCallback: func(pluginName, permType, requestedPath string) string {
+					path, err := bridge.OpenDirectory(wailsbridge.FileDialogOptions{
+						Title:                fmt.Sprintf("Plugin %q requests %s access", pluginName, permType),
+						DefaultDirectory:     filepath.Dir(requestedPath),
+						CanCreateDirectories: permType == "fs_write",
+					})
+					if err != nil || path == "" {
+						return ""
+					}
+					return path
+				},
+			})
+			if err != nil {
+				log.Fatalf("bootstrap: %v", err)
+			}
+		},
+		OnShutdown: func(ctx context.Context) { core.Shutdown(ctx) },
 		DragAndDrop: &options.DragAndDrop{
 			EnableFileDrop:     true,
 			DisableWebViewDrop: false,
 		},
 		Bind: []interface{}{
-			app,
+			desktopApp,
 			pluginService,
 			clipboardService,
 			transferService,
@@ -92,6 +116,6 @@ func main() {
 	})
 
 	if err != nil {
-		log.Fatalf("Error starting Wails: %v", err)
+		log.Fatalf("wails: %v", err)
 	}
 }

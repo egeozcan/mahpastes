@@ -11,6 +11,13 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <script>
+        window.mahpastesMode = window.mahpastesMode || 'desktop';
+        if (window.mahpastesMode === 'server') {
+            document.documentElement.classList.add('server-mode');
+        }
+    </script>
+    <script src="js/rest-glue.js"></script>
 </head>
 
 <body class="bg-stone-50 text-stone-800">
@@ -285,11 +292,11 @@
                 <!-- Folder cards inserted by JS -->
             </ul>
 
-            <!-- Add folder zone -->
+            <!-- Add folder zone (native folder picker — desktop only) -->
             <div id="add-folder-zone" tabindex="0" role="button"
                 aria-label="Add folder to watch by dragging or clicking"
                 style="--wails-drop-target: drop"
-                class="border border-dashed border-stone-300 rounded-lg p-8 text-center cursor-pointer transition-all hover:border-stone-400 hover:bg-stone-50/50 focus:outline-none focus:ring-2 focus:ring-stone-400/30">
+                class="desktop-only border border-dashed border-stone-300 rounded-lg p-8 text-center cursor-pointer transition-all hover:border-stone-400 hover:bg-stone-50/50 focus:outline-none focus:ring-2 focus:ring-stone-400/30">
                 <p class="text-sm text-stone-500 mb-3">Drop a folder here or</p>
                 <button id="add-folder-btn"
                     class="bg-stone-800 hover:bg-stone-700 text-white text-xs font-medium py-2 px-4 rounded-md transition-colors"
@@ -419,7 +426,7 @@
                     Clear Expiry
                 </button>
                 <button id="bulk-copy-btn"
-                    class="flex items-center gap-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 px-3 py-1.5 rounded-md text-xs font-medium transition-colors"
+                    class="desktop-only flex items-center gap-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 px-3 py-1.5 rounded-md text-xs font-medium transition-colors"
                     data-tooltip="Copy selected files to clipboard for pasting">
                     <svg class="w-4 h-4 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
@@ -1325,7 +1332,7 @@
                             Create Backup
                         </button>
                         <button id="restore-backup-btn" data-testid="restore-backup-btn"
-                            class="border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-xs font-medium py-2 px-4 rounded-md transition-colors">
+                            class="desktop-only border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-xs font-medium py-2 px-4 rounded-md transition-colors">
                             Restore from Backup
                         </button>
                     </div>
@@ -1521,7 +1528,7 @@
                         URL
                     </button>
                     <button id="import-plugin-btn" data-testid="import-plugin-btn"
-                        class="bg-stone-800 hover:bg-stone-700 text-white text-xs font-medium py-2 px-4 rounded-md transition-colors flex items-center gap-1.5">
+                        class="desktop-only bg-stone-800 hover:bg-stone-700 text-white text-xs font-medium py-2 px-4 rounded-md transition-colors flex items-center gap-1.5">
                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 4v16m8-8H4" />
                         </svg>
@@ -1726,8 +1733,8 @@
             </div>
             <div class="flex-1 overflow-y-auto p-5 space-y-5">
 
-                <!-- Server Controls -->
-                <section>
+                <!-- Server Controls (headless server owns the listener — desktop only) -->
+                <section class="desktop-only">
                     <h3 class="text-[10px] font-semibold uppercase tracking-wide text-stone-400 mb-3">Server</h3>
                     <div class="flex items-center gap-3 mb-3">
                         <div class="flex-1">

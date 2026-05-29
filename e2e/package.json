@@ -7,6 +7,7 @@
     "test": "playwright test && bash scripts/between-suites.sh && playwright test --config=playwright.share.config.ts",
     "test:main": "playwright test",
     "test:share": "playwright test --config=playwright.share.config.ts",
+    "test:server": "playwright test --config=playwright.server.config.ts",
     "test:headed": "playwright test --headed",
     "test:debug": "playwright test --debug",
     "test:ui": "playwright test --ui",

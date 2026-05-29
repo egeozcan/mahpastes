@@ -1,4 +1,4 @@
-export namespace main {
+export namespace app {
 	
 	export class APIKeyInfo {
 	    id: number;
@@ -425,98 +425,6 @@ export namespace main {
 	        this.stale_hidden_tag_ids = source["stale_hidden_tag_ids"];
 	    }
 	}
-	export class PluginInfo {
-	    id: number;
-	    name: string;
-	    version: string;
-	    description: string;
-	    author: string;
-	    enabled: boolean;
-	    status: string;
-	    events: string[];
-	    settings: plugin.SettingField[];
-	
-	    static createFrom(source: any = {}) {
-	        return new PluginInfo(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.name = source["name"];
-	        this.version = source["version"];
-	        this.description = source["description"];
-	        this.author = source["author"];
-	        this.enabled = source["enabled"];
-	        this.status = source["status"];
-	        this.events = source["events"];
-	        this.settings = this.convertValues(source["settings"], plugin.SettingField);
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	export class PluginUIAction {
-	    plugin_id: number;
-	    plugin_name: string;
-	    id: string;
-	    label: string;
-	    icon?: string;
-	    async?: boolean;
-	    options?: plugin.FormField[];
-	    file_types?: string[];
-	    max_size?: number;
-	
-	    static createFrom(source: any = {}) {
-	        return new PluginUIAction(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.plugin_id = source["plugin_id"];
-	        this.plugin_name = source["plugin_name"];
-	        this.id = source["id"];
-	        this.label = source["label"];
-	        this.icon = source["icon"];
-	        this.async = source["async"];
-	        this.options = this.convertValues(source["options"], plugin.FormField);
-	        this.file_types = source["file_types"];
-	        this.max_size = source["max_size"];
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
 	export class PrepareTransferRequest {
 	    clip_id: number;
 	    channel: string;
@@ -650,38 +558,6 @@ export namespace main {
 	        this.message = source["message"];
 	    }
 	}
-	export class ShareStatus {
-	    shares: ShareInfo[];
-	    follows: FollowInfo[];
-	
-	    static createFrom(source: any = {}) {
-	        return new ShareStatus(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.shares = this.convertValues(source["shares"], ShareInfo);
-	        this.follows = this.convertValues(source["follows"], FollowInfo);
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
 	export class StaleFile {
 	    source: string;
 	    name: string;
@@ -727,78 +603,6 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.drag_out = this.convertValues(source["drag_out"], DragCapability);
 	        this.clipboard_file = source["clipboard_file"];
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	export class UIActionsResponse {
-	    lightbox_buttons: PluginUIAction[];
-	    card_actions: PluginUIAction[];
-	    global_actions: PluginUIAction[];
-	
-	    static createFrom(source: any = {}) {
-	        return new UIActionsResponse(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.lightbox_buttons = this.convertValues(source["lightbox_buttons"], PluginUIAction);
-	        this.card_actions = this.convertValues(source["card_actions"], PluginUIAction);
-	        this.global_actions = this.convertValues(source["global_actions"], PluginUIAction);
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	export class UpdateResult {
-	    success: boolean;
-	    needs_review: boolean;
-	    preview?: plugin.PluginPreview;
-	    plugin_info?: PluginInfo;
-	    error?: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new UpdateResult(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.success = source["success"];
-	        this.needs_review = source["needs_review"];
-	        this.preview = this.convertValues(source["preview"], plugin.PluginPreview);
-	        this.plugin_info = this.convertValues(source["plugin_info"], PluginInfo);
-	        this.error = source["error"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -911,6 +715,207 @@ export namespace main {
 	        this.auto_archive = source["auto_archive"];
 	        this.auto_tag_id = source["auto_tag_id"];
 	    }
+	}
+
+}
+
+export namespace main {
+	
+	export class PluginInfo {
+	    id: number;
+	    name: string;
+	    version: string;
+	    description: string;
+	    author: string;
+	    enabled: boolean;
+	    status: string;
+	    events: string[];
+	    settings: plugin.SettingField[];
+	
+	    static createFrom(source: any = {}) {
+	        return new PluginInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.version = source["version"];
+	        this.description = source["description"];
+	        this.author = source["author"];
+	        this.enabled = source["enabled"];
+	        this.status = source["status"];
+	        this.events = source["events"];
+	        this.settings = this.convertValues(source["settings"], plugin.SettingField);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class PluginUIAction {
+	    plugin_id: number;
+	    plugin_name: string;
+	    id: string;
+	    label: string;
+	    icon?: string;
+	    async?: boolean;
+	    options?: plugin.FormField[];
+	    file_types?: string[];
+	    max_size?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new PluginUIAction(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.plugin_id = source["plugin_id"];
+	        this.plugin_name = source["plugin_name"];
+	        this.id = source["id"];
+	        this.label = source["label"];
+	        this.icon = source["icon"];
+	        this.async = source["async"];
+	        this.options = this.convertValues(source["options"], plugin.FormField);
+	        this.file_types = source["file_types"];
+	        this.max_size = source["max_size"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ShareStatus {
+	    shares: app.ShareInfo[];
+	    follows: app.FollowInfo[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ShareStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.shares = this.convertValues(source["shares"], app.ShareInfo);
+	        this.follows = this.convertValues(source["follows"], app.FollowInfo);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class UIActionsResponse {
+	    lightbox_buttons: PluginUIAction[];
+	    card_actions: PluginUIAction[];
+	    global_actions: PluginUIAction[];
+	
+	    static createFrom(source: any = {}) {
+	        return new UIActionsResponse(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.lightbox_buttons = this.convertValues(source["lightbox_buttons"], PluginUIAction);
+	        this.card_actions = this.convertValues(source["card_actions"], PluginUIAction);
+	        this.global_actions = this.convertValues(source["global_actions"], PluginUIAction);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class UpdateResult {
+	    success: boolean;
+	    needs_review: boolean;
+	    preview?: plugin.PluginPreview;
+	    plugin_info?: PluginInfo;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new UpdateResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.success = source["success"];
+	        this.needs_review = source["needs_review"];
+	        this.preview = this.convertValues(source["preview"], plugin.PluginPreview);
+	        this.plugin_info = this.convertValues(source["plugin_info"], PluginInfo);
+	        this.error = source["error"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 
 }

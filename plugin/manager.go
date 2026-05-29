@@ -11,7 +11,7 @@ import (
 	"strings"
 	"sync"
 
-	"go-clipboard/internal/wailsbridge"
+	"go-clipboard/internal/bridgeiface"
 )
 
 const (
@@ -119,7 +119,7 @@ func PreviewFromURL(rawURL string) (*PluginPreview, error) {
 // Manager manages all plugins
 type Manager struct {
 	ctx              context.Context
-	bridge           *wailsbridge.Bridge
+	bridge           bridgeiface.Bridge
 	db               *sql.DB
 	plugins          map[int64]*Plugin
 	eventSubscribers map[string][]int64 // event -> plugin IDs
@@ -128,16 +128,16 @@ type Manager struct {
 	mu               sync.RWMutex
 	pluginsDir       string
 	modalGuard       *modalGuard
-	pendingUpdates  map[int64]string
-	pendingInstalls map[string]string // source URL/path -> fetched content
-	updateChecker   *UpdateChecker
-	metadataGet    MetadataGetFunc
-	metadataUpdate MetadataUpdateFunc
-	tagCreateFn    TagCreateFunc
+	pendingUpdates   map[int64]string
+	pendingInstalls  map[string]string // source URL/path -> fetched content
+	updateChecker    *UpdateChecker
+	metadataGet      MetadataGetFunc
+	metadataUpdate   MetadataUpdateFunc
+	tagCreateFn      TagCreateFunc
 }
 
 // NewManager creates a new plugin manager
-func NewManager(ctx context.Context, bridge *wailsbridge.Bridge, db *sql.DB, pluginsDir string) (*Manager, error) {
+func NewManager(ctx context.Context, bridge bridgeiface.Bridge, db *sql.DB, pluginsDir string) (*Manager, error) {
 	// Ensure plugins directory exists
 	if err := os.MkdirAll(pluginsDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create plugins directory: %w", err)
@@ -152,8 +152,8 @@ func NewManager(ctx context.Context, bridge *wailsbridge.Bridge, db *sql.DB, plu
 		scheduler:        NewScheduler(),
 		pluginsDir:       pluginsDir,
 		modalGuard:       newModalGuard(bridge),
-		pendingUpdates:  make(map[int64]string),
-		pendingInstalls: make(map[string]string),
+		pendingUpdates:   make(map[int64]string),
+		pendingInstalls:  make(map[string]string),
 	}
 
 	return m, nil

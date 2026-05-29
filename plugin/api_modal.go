@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"go-clipboard/internal/wailsbridge"
+	"go-clipboard/internal/bridgeiface"
 
 	lua "github.com/yuin/gopher-lua"
 )
@@ -59,7 +59,7 @@ func (g *modalGuard) startAckTimeout(gen uint64) {
 	}()
 }
 
-func newModalGuard(b *wailsbridge.Bridge) *modalGuard {
+func newModalGuard(b bridgeiface.Bridge) *modalGuard {
 	g := &modalGuard{}
 	b.On("plugin:modal:acked", func(data ...interface{}) {
 		g.mu.Lock()
@@ -78,14 +78,14 @@ func newModalGuard(b *wailsbridge.Bridge) *modalGuard {
 
 // ModalAPI provides modal display functionality for plugins
 type ModalAPI struct {
-	bridge   *wailsbridge.Bridge
+	bridge   bridgeiface.Bridge
 	pluginID int64
 	guard    *modalGuard
 }
 
 // NewModalAPI creates a new modal API instance.
 // The guard is shared across all plugins to enforce single-modal globally.
-func NewModalAPI(b *wailsbridge.Bridge, pluginID int64, guard *modalGuard) *ModalAPI {
+func NewModalAPI(b bridgeiface.Bridge, pluginID int64, guard *modalGuard) *ModalAPI {
 	return &ModalAPI{
 		bridge:   b,
 		pluginID: pluginID,

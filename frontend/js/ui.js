@@ -126,18 +126,23 @@ const cardMenuTooltips = {
 function buildMenuItemList(clip) {
     const ct = clip.content_type || '';
     const items = [];
+    const isServerMode = window.mahpastesMode === 'server';
 
     // Open actions (top of menu)
     items.push({ id: 'open', label: 'Open', iconHtml: getMenuIcon('open'), tooltip: cardMenuTooltips['open'] });
-    items.push({ id: 'open-with', label: 'Open With\u2026', iconHtml: getMenuIcon('open-with'), tooltip: cardMenuTooltips['open-with'] });
+    if (!isServerMode) {
+        items.push({ id: 'open-with', label: 'Open With\u2026', iconHtml: getMenuIcon('open-with'), tooltip: cardMenuTooltips['open-with'] });
+    }
 
     items.push({ type: 'divider' });
 
     // Copy submenu
     const copyChildren = [
-        { id: 'copy-path', label: 'Path', iconHtml: getMenuIcon('copy-path'), tooltip: cardMenuTooltips['copy-path'] },
-        { id: 'copy-file', label: 'File', iconHtml: getMenuIcon('copy-file'), tooltip: cardMenuTooltips['copy-file'] },
+        { id: 'copy-path', label: isServerMode ? 'URL' : 'Path', iconHtml: getMenuIcon('copy-path'), tooltip: cardMenuTooltips['copy-path'] },
     ];
+    if (!isServerMode) {
+        copyChildren.push({ id: 'copy-file', label: 'File', iconHtml: getMenuIcon('copy-file'), tooltip: cardMenuTooltips['copy-file'] });
+    }
     if (ct.startsWith('text/') || ct === 'application/json' || ct.startsWith('image/')) {
         copyChildren.push({ id: 'copy-contents', label: 'Contents', iconHtml: getMenuIcon('copy-contents'), tooltip: cardMenuTooltips['copy-contents'] });
     }

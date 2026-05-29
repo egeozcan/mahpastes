@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>mahpastes sign in</title>
+    <link href="/dist/output.css" rel="stylesheet">
+</head>
+<body class="bg-stone-50 min-h-screen flex items-center justify-center font-mono">
+    <div class="bg-white rounded-lg border border-stone-200 shadow-sm p-8 w-full max-w-sm">
+        <h1 class="text-sm font-semibold text-stone-800 uppercase text-center mb-6">mahpastes</h1>
+        <form id="login-form" class="space-y-4">
+            <div>
+                <label for="api-key" class="block text-xs font-medium text-stone-600 mb-1.5">API Key</label>
+                <input id="api-key" type="password" required autocomplete="off"
+                    class="block w-full border border-stone-200 rounded-md text-sm bg-white placeholder-stone-400 focus:outline-none focus:border-stone-400 focus:ring-1 focus:ring-stone-400/20 px-3 py-2.5 transition-colors"
+                    placeholder="mp_...">
+            </div>
+            <button type="submit" class="w-full bg-stone-800 hover:bg-stone-700 text-white text-xs font-medium py-2.5 rounded-md transition-colors">Sign in with API key</button>
+        </form>
+        <p id="login-error" class="text-[11px] text-red-500 text-center mt-4 hidden"></p>
+    </div>
+    <script>
+    document.getElementById('login-form').addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const key = document.getElementById('api-key').value;
+        const errEl = document.getElementById('login-error');
+        try {
+            const res = await fetch('/api/v1/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify({ key }),
+            });
+            if (res.ok) {
+                window.location.href = '/';
+                return;
+            }
+            errEl.textContent = res.status === 429
+                ? 'Too many attempts. Wait a minute, then try again.'
+                : 'Invalid API key.';
+            errEl.classList.remove('hidden');
+        } catch {
+            errEl.textContent = 'Connection error. Is the server running?';
+            errEl.classList.remove('hidden');
+        }
+    });
+    </script>
+</body>
+</html>

@@ -1,13 +1,49 @@
 package main
 
 import (
+	"database/sql"
 	"os"
 	"path/filepath"
 	goruntime "runtime"
 	"strings"
 	"testing"
 	"time"
+
+	coreapp "go-clipboard/internal/app"
+
+	_ "modernc.org/sqlite"
 )
+
+func newTransferServiceTestDB(t *testing.T, dir string) *sql.DB {
+	t.Helper()
+	db, err := sql.Open("sqlite", filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatalf("failed to open sqlite db: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if _, err := db.Exec(`
+		CREATE TABLE clips (
+			id INTEGER PRIMARY KEY,
+			content_type TEXT NOT NULL,
+			data BLOB NOT NULL,
+			filename TEXT
+		)
+	`); err != nil {
+		t.Fatalf("failed to create clips table: %v", err)
+	}
+	return db
+}
+
+func newTransferServiceTestApp(t *testing.T, db *sql.DB, tempDir string) *coreapp.App {
+	t.Helper()
+	app := coreapp.NewApp()
+	app.SetDB(db)
+	if err := app.InitTempStore(tempDir); err != nil {
+		t.Fatalf("InitTempStore: %v", err)
+	}
+	app.SetTransferHandler(coreapp.NewTransferFileHandler(app))
+	return app
+}
 
 func TestBuildTransferCapabilitiesMatrix(t *testing.T) {
 	tests := []struct {
@@ -44,7 +80,7 @@ func TestBuildTransferCapabilitiesMatrix(t *testing.T) {
 
 func TestPrepareClipForTransferReturnsDescriptor(t *testing.T) {
 	tempDir := t.TempDir()
-	db := newTempStoreTestDB(t, tempDir)
+	db := newTransferServiceTestDB(t, tempDir)
 
 	_, err := db.Exec(`INSERT INTO clips (id, content_type, data, filename) VALUES (?, ?, ?, ?)`,
 		5, "image/png", []byte("png-binary"), "preview.png")
@@ -52,12 +88,7 @@ func TestPrepareClipForTransferReturnsDescriptor(t *testing.T) {
 		t.Fatalf("failed to insert clip: %v", err)
 	}
 
-	app := &App{
-		db:      db,
-		tempDir: tempDir,
-	}
-	app.transferHandler = &TransferFileHandler{app: app}
-	app.tempStore = NewTempClipStore(db, tempDir, defaultTempLeaseTTL, defaultTempPruneInterval)
+	app := newTransferServiceTestApp(t, db, tempDir)
 	service := NewTransferService(app)
 
 	item, err := service.PrepareClipForTransfer(PrepareTransferRequest{
@@ -108,10 +139,9 @@ func TestPrepareClipForTransferReturnsDescriptor(t *testing.T) {
 
 func TestPrepareClipForTransferMissingClip(t *testing.T) {
 	tempDir := t.TempDir()
-	db := newTempStoreTestDB(t, tempDir)
+	db := newTransferServiceTestDB(t, tempDir)
 
-	app := &App{db: db, tempDir: tempDir}
-	app.tempStore = NewTempClipStore(db, tempDir, defaultTempLeaseTTL, defaultTempPruneInterval)
+	app := newTransferServiceTestApp(t, db, tempDir)
 	service := NewTransferService(app)
 
 	_, err := service.PrepareClipForTransfer(PrepareTransferRequest{ClipID: 999, Channel: "drag_out"})
@@ -129,7 +159,7 @@ func TestStartNativeDragOutRequiresInput(t *testing.T) {
 		t.Skip("native drag not supported on this platform")
 	}
 
-	service := NewTransferService(&App{})
+	service := NewTransferService(coreapp.NewApp())
 
 	ok, err := service.StartNativeDragOut(StartNativeDragRequest{})
 	if err == nil {
@@ -149,7 +179,7 @@ func TestStartNativeDragOutRejectsRelativePath(t *testing.T) {
 		t.Skip("native drag not supported on this platform")
 	}
 
-	service := NewTransferService(&App{})
+	service := NewTransferService(coreapp.NewApp())
 
 	ok, err := service.StartNativeDragOut(StartNativeDragRequest{
 		AbsPath: "relative/path.txt",
@@ -189,7 +219,7 @@ func TestFileURLFromAbsPath(t *testing.T) {
 
 func TestGetExistingPreparedClipForTransfer(t *testing.T) {
 	tempDir := t.TempDir()
-	db := newTempStoreTestDB(t, tempDir)
+	db := newTransferServiceTestDB(t, tempDir)
 
 	_, err := db.Exec(`INSERT INTO clips (id, content_type, data, filename) VALUES (?, ?, ?, ?)`,
 		9, "text/plain", []byte("hello"), "note.txt")
@@ -197,12 +227,7 @@ func TestGetExistingPreparedClipForTransfer(t *testing.T) {
 		t.Fatalf("failed to insert clip: %v", err)
 	}
 
-	app := &App{
-		db:      db,
-		tempDir: tempDir,
-	}
-	app.transferHandler = &TransferFileHandler{app: app}
-	app.tempStore = NewTempClipStore(db, tempDir, defaultTempLeaseTTL, defaultTempPruneInterval)
+	app := newTransferServiceTestApp(t, db, tempDir)
 	service := NewTransferService(app)
 
 	// No existing file yet.

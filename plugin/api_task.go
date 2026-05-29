@@ -5,7 +5,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"go-clipboard/internal/wailsbridge"
+	"go-clipboard/internal/bridgeiface"
 
 	lua "github.com/yuin/gopher-lua"
 )
@@ -20,23 +20,23 @@ var globalTaskID int64
 
 // TaskAPI provides task queue integration for plugins
 type TaskAPI struct {
-	bridge   *wailsbridge.Bridge
+	bridge   bridgeiface.Bridge
 	tasks    map[int64]*pluginTask
 	taskMu   sync.RWMutex
 	pluginID int64
 }
 
 type pluginTask struct {
-	ID       int64
-	Name     string
-	Total    int
-	Current  int
-	Status   string // "running", "completed", "failed"
-	Error    string
+	ID      int64
+	Name    string
+	Total   int
+	Current int
+	Status  string // "running", "completed", "failed"
+	Error   string
 }
 
 // NewTaskAPI creates a new task API instance
-func NewTaskAPI(b *wailsbridge.Bridge, pluginID int64) *TaskAPI {
+func NewTaskAPI(b bridgeiface.Bridge, pluginID int64) *TaskAPI {
 	return &TaskAPI{
 		bridge:   b,
 		tasks:    make(map[int64]*pluginTask),
