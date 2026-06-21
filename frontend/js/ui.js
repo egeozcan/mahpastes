@@ -143,7 +143,9 @@ function buildMenuItemList(clip) {
     if (!isServerMode) {
         copyChildren.push({ id: 'copy-file', label: 'File', iconHtml: getMenuIcon('copy-file'), tooltip: cardMenuTooltips['copy-file'] });
     }
-    if (ct.startsWith('text/') || ct === 'application/json' || ct.startsWith('image/')) {
+    // "Copy Contents" targets the host clipboard via ClipboardService, which is
+    // desktop-only; in server mode it would just throw a "Failed to copy" toast.
+    if (!isServerMode && (ct.startsWith('text/') || ct === 'application/json' || ct.startsWith('image/'))) {
         copyChildren.push({ id: 'copy-contents', label: 'Contents', iconHtml: getMenuIcon('copy-contents'), tooltip: cardMenuTooltips['copy-contents'] });
     }
     items.push({ type: 'submenu', label: 'Copy', iconHtml: getMenuIcon('copy'), submenuId: 'copy', children: copyChildren });

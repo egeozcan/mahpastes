@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -19,16 +20,43 @@ const sessionTTL = 24 * time.Hour
 
 func loadOrCreateSigningKey(dataDir string) ([]byte, error) {
 	keyPath := filepath.Join(dataDir, "session.key")
-	if data, err := os.ReadFile(keyPath); err == nil && len(data) == 32 {
-		return data, nil
+	data, err := os.ReadFile(keyPath)
+	switch {
+	case err == nil:
+		if len(data) == 32 {
+			return data, nil
+		}
+		// A wrong-sized file is corruption, not "no key yet". Silently
+		// regenerating here would rotate the HMAC secret and invalidate every
+		// outstanding session, hiding the underlying problem — fail loudly so
+		// the operator can investigate instead.
+		return nil, fmt.Errorf("session key %s is %d bytes, expected 32 (corrupt?); refusing to overwrite", keyPath, len(data))
+	case !os.IsNotExist(err):
+		// A transient read error (permissions, I/O) is likewise indistinguishable
+		// from "no key" only if we ignore it; surface it instead of rotating.
+		return nil, fmt.Errorf("read session key %s: %w", keyPath, err)
 	}
+
 	key := make([]byte, 32)
 	if _, err := rand.Read(key); err != nil {
 		return nil, err
 	}
-	if err := os.WriteFile(keyPath, key, 0600); err != nil {
+	// O_EXCL so a concurrent starter (or a race with a just-created file) cannot
+	// be clobbered; if it now exists, re-read it rather than overwrite.
+	f, err := os.OpenFile(keyPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
+		if os.IsExist(err) {
+			if data, rerr := os.ReadFile(keyPath); rerr == nil && len(data) == 32 {
+				return data, nil
+			}
+		}
 		return nil, err
 	}
+	defer f.Close()
+	if _, err := f.Write(key); err != nil {
+		return nil, err
+	}
+	log.Printf("api: generated new session signing key at %s", keyPath)
 	return key, nil
 }
 
@@ -69,12 +97,13 @@ func verifySessionToken(key []byte, token string) (int64, error) {
 }
 
 type loginRateLimiter struct {
-	mu      sync.Mutex
-	buckets map[string][]time.Time
+	mu        sync.Mutex
+	buckets   map[string][]time.Time
+	lastSweep time.Time
 }
 
 func newLoginRateLimiter() *loginRateLimiter {
-	return &loginRateLimiter{buckets: make(map[string][]time.Time)}
+	return &loginRateLimiter{buckets: make(map[string][]time.Time), lastSweep: time.Now()}
 }
 
 func (l *loginRateLimiter) allow(ip string, max int, window time.Duration) bool {
@@ -82,7 +111,23 @@ func (l *loginRateLimiter) allow(ip string, max int, window time.Duration) bool 
 	defer l.mu.Unlock()
 	now := time.Now()
 	cutoff := now.Add(-window)
-	attempts := l.buckets[ip]
+
+	// Evict fully-expired buckets so the map cannot grow without bound from
+	// distinct source IPs (a real risk on a 0.0.0.0-exposed daemon facing
+	// IPv6/botnet rotation). Bounded to once per window to stay cheap.
+	l.sweepLocked(now, window)
+
+	attempts := pruneBefore(l.buckets[ip], cutoff)
+	if len(attempts) >= max {
+		l.buckets[ip] = attempts
+		return false
+	}
+	l.buckets[ip] = append(attempts, now)
+	return true
+}
+
+// pruneBefore drops timestamps at or before cutoff, reusing the backing array.
+func pruneBefore(attempts []time.Time, cutoff time.Time) []time.Time {
 	n := 0
 	for _, t := range attempts {
 		if t.After(cutoff) {
@@ -90,13 +135,34 @@ func (l *loginRateLimiter) allow(ip string, max int, window time.Duration) bool 
 			n++
 		}
 	}
-	attempts = attempts[:n]
-	if len(attempts) >= max {
-		l.buckets[ip] = attempts
-		return false
+	return attempts[:n]
+}
+
+func (l *loginRateLimiter) sweepLocked(now time.Time, window time.Duration) {
+	if now.Sub(l.lastSweep) < window {
+		return
 	}
-	l.buckets[ip] = append(attempts, now)
-	return true
+	l.lastSweep = now
+	cutoff := now.Add(-window)
+	for ip, attempts := range l.buckets {
+		// pruneBefore compacts survivors in place; we MUST store the truncated
+		// result back. Keeping the original full-length header over the mutated
+		// backing array would duplicate the surviving timestamps and inflate the
+		// next count, prematurely locking out a legitimate client.
+		pruned := pruneBefore(attempts, cutoff)
+		if len(pruned) == 0 {
+			delete(l.buckets, ip)
+		} else {
+			l.buckets[ip] = pruned
+		}
+	}
+}
+
+// trackedIPs reports how many source buckets are currently retained (test hook).
+func (l *loginRateLimiter) trackedIPs() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return len(l.buckets)
 }
 
 func remoteIP(remoteAddr string) string {

@@ -1226,14 +1226,18 @@ window.addEventListener('load', async () => {
                 if (viewBtn) viewBtn.click();
             }
         });
-        ShortcutManager.register({
-            id: 'clip-copy', label: 'Copy Clip', category: 'clip',
-            defaultKey: 'c', context: 'clip',
-            callback: () => {
-                const id = ShortcutManager.getFocusedClipId();
-                if (id) copyFileToClipboard(id);
-            }
-        });
+        // Copy-to-host-clipboard is desktop-only; skip these in server mode so
+        // the shortcuts aren't a guaranteed "Failed to copy" toast.
+        if (window.mahpastesMode !== 'server') {
+            ShortcutManager.register({
+                id: 'clip-copy', label: 'Copy Clip', category: 'clip',
+                defaultKey: 'c', context: 'clip',
+                callback: () => {
+                    const id = ShortcutManager.getFocusedClipId();
+                    if (id) copyFileToClipboard(id);
+                }
+            });
+        }
         ShortcutManager.register({
             id: 'clip-delete', label: 'Delete Clip', category: 'clip',
             defaultKey: 'd', context: 'clip',
@@ -1411,14 +1415,16 @@ window.addEventListener('load', async () => {
                 }
             }
         });
-        ShortcutManager.register({
-            id: 'lightbox-copy', label: 'Copy Image', category: 'lightbox',
-            defaultKey: 'mod+c', context: 'lightbox',
-            callback: () => {
-                const clip = imageClips[currentLightboxIndex];
-                if (clip) copyClipContents(clip.id);
-            }
-        });
+        if (window.mahpastesMode !== 'server') {
+            ShortcutManager.register({
+                id: 'lightbox-copy', label: 'Copy Image', category: 'lightbox',
+                defaultKey: 'mod+c', context: 'lightbox',
+                callback: () => {
+                    const clip = imageClips[currentLightboxIndex];
+                    if (clip) copyClipContents(clip.id);
+                }
+            });
+        }
 
         // Comparison
         ShortcutManager.register({

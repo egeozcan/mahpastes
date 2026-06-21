@@ -44,6 +44,7 @@ func main() {
 		Bridge:             broker,
 		InitClipboard:      false,
 		PermissionCallback: headlessPermissionCallback(dataDir),
+		FSConfinementRoot:  dataDir,
 	}); err != nil {
 		log.Fatalf("bootstrap: %v", err)
 	}
@@ -64,6 +65,11 @@ func main() {
 		log.Println("WARNING: listening on 0.0.0.0 without TLS.")
 		log.Println("API keys and session cookies are sent in plaintext.")
 		log.Println("Use a reverse proxy that terminates TLS before network exposure.")
+		if os.Getenv("MAHPASTESD_TRUST_PROXY") != "1" {
+			log.Println("Behind a TLS-terminating proxy, set MAHPASTESD_TRUST_PROXY=1 so")
+			log.Println("session cookies get the Secure flag (via X-Forwarded-Proto) and the")
+			log.Println("login rate-limiter buckets on the real client IP (X-Forwarded-For).")
+		}
 	}
 
 	status, err := core.APIManager().Start(port, bindAll)

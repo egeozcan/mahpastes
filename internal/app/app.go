@@ -205,6 +205,11 @@ type BootstrapOptions struct {
 	Bridge             bridgeiface.Bridge
 	InitClipboard      bool
 	PermissionCallback func(pluginName, permType, requestedPath string) string
+	// FSConfinementRoot, when set, confines all plugin filesystem access under
+	// this directory regardless of what the shared plugin_permissions table
+	// grants. The headless server sets it to DataDir; the desktop build leaves
+	// it empty (user may approve arbitrary directories).
+	FSConfinementRoot string
 }
 
 // Bootstrap initializes the shared runtime managers around an already-open DB.
@@ -216,7 +221,7 @@ func (a *App) Bootstrap(ctx context.Context, opts BootstrapOptions) error {
 	a.SetBridge(opts.Bridge)
 	a.db = opts.DB
 
-	StartCleanupJob(a.db)
+	StartCleanupJob(ctx, a.db)
 
 	if err := a.InitTempStore(opts.DataDir); err != nil {
 		log.Printf("Warning: Failed to initialize temp store: %v", err)
@@ -275,6 +280,7 @@ func (a *App) Bootstrap(ctx context.Context, opts BootstrapOptions) error {
 			}, nil
 		})
 		pm.SetPermissionCallback(opts.PermissionCallback)
+		pm.SetFSConfinementRoot(opts.FSConfinementRoot)
 
 		if err := pm.LoadPlugins(); err != nil {
 			log.Printf("Warning: Failed to load plugins: %v", err)

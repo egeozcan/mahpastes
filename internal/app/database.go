@@ -445,18 +445,35 @@ func migrateAPIKeysScopedTagSetNull(db *sql.DB) error {
 	return nil
 }
 
-// StartCleanupJob deletes expired clips every minute.
-func StartCleanupJob(db *sql.DB) {
+// StartCleanupJob deletes expired clips every minute until ctx is cancelled.
+// Tying the ticker goroutine to the Bootstrap context stops it from outliving
+// the app and running db.Exec on a closed *sql.DB after Shutdown — which would
+// otherwise log an error every minute and leak a goroutine per re-bootstrap.
+func StartCleanupJob(ctx context.Context, db *sql.DB) {
 	ticker := time.NewTicker(1 * time.Minute)
 	go func() {
-		for range ticker.C {
-			result, err := db.Exec("DELETE FROM clips WHERE expires_at IS NOT NULL AND expires_at <= CURRENT_TIMESTAMP")
-			if err != nil {
-				log.Printf("Failed to delete expired clips: %v\n", err)
-			} else {
-				rows, _ := result.RowsAffected()
-				if rows > 0 {
-					log.Printf("Cleaned up %d expired clips\n", rows)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				// Re-check cancellation before touching the DB: ticker.C and
+				// ctx.Done() can be ready simultaneously, and Shutdown closes
+				// the DB right after cancelling the context.
+				select {
+				case <-ctx.Done():
+					return
+				default:
+				}
+				result, err := db.Exec("DELETE FROM clips WHERE expires_at IS NOT NULL AND expires_at <= CURRENT_TIMESTAMP")
+				if err != nil {
+					log.Printf("Failed to delete expired clips: %v\n", err)
+				} else {
+					rows, _ := result.RowsAffected()
+					if rows > 0 {
+						log.Printf("Cleaned up %d expired clips\n", rows)
+					}
 				}
 			}
 		}

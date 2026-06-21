@@ -1,10 +1,12 @@
 import { expect, request, test } from '@playwright/test';
 import { authedRequestContext, runMP, spawnServer } from '../../fixtures/server-fixtures';
 
-test('mahpastesd starts, prints a bootstrap key, and answers REST + CLI status', async () => {
+test('mahpastesd starts, persists a bootstrap key to a file (not the log), and answers REST + CLI status', async () => {
   const server = await spawnServer();
   try {
     expect(server.bootstrapKey).toMatch(/^mp_[a-f0-9]{32}$/);
+    // L1: the durable admin secret must not be written to the log.
+    expect(server.logs()).not.toContain(server.bootstrapKey);
 
     const ctx = await authedRequestContext(request, server);
     try {

@@ -1,6 +1,6 @@
 import { ChildProcess, execFile, spawn } from 'child_process';
 import type { APIRequest } from '@playwright/test';
-import { access, mkdtemp, rm } from 'fs/promises';
+import { access, mkdtemp, readFile, rm } from 'fs/promises';
 import { tmpdir } from 'os';
 import { dirname, join, resolve } from 'path';
 import { fileURLToPath } from 'url';
@@ -86,17 +86,21 @@ export async function spawnServer(opts: { port?: number } = {}): Promise<ServerH
   };
 
   try {
-    const [keyMatch, urlMatch] = await Promise.all([
-      waitForLogMatch(/bootstrap admin key: (mp_[a-f0-9]+)/),
+    // The bootstrap admin key is written to a 0600 file in the data dir (it is
+    // no longer printed to the log). It is written before the server starts
+    // listening, so by the time the "listening on" line appears the file exists.
+    const [keyPathMatch, urlMatch] = await Promise.all([
+      waitForLogMatch(/bootstrap admin key written to (\S+)/),
       waitForLogMatch(/listening on (http:\/\/127\.0\.0\.1:(\d+))/),
     ]);
+    const bootstrapKey = (await readFile(keyPathMatch[1], 'utf8')).trim();
 
     return {
       proc,
       dataDir,
       port: Number(urlMatch[2]),
       url: urlMatch[1],
-      bootstrapKey: keyMatch[1],
+      bootstrapKey,
       logs: () => logs,
       stop: async () => {
         if (proc.exitCode === null) {

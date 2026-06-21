@@ -125,6 +125,7 @@ type Manager struct {
 	eventSubscribers map[string][]int64 // event -> plugin IDs
 	scheduler        *Scheduler
 	permCallback     PermissionCallback
+	fsConfinement    string // when set, all plugin fs access is confined under this root (headless)
 	mu               sync.RWMutex
 	pluginsDir       string
 	modalGuard       *modalGuard
@@ -174,6 +175,14 @@ func (m *Manager) SetTagCreateFunc(fn TagCreateFunc) {
 // SetPermissionCallback sets the callback for filesystem permission requests
 func (m *Manager) SetPermissionCallback(callback PermissionCallback) {
 	m.permCallback = callback
+}
+
+// SetFSConfinementRoot confines all plugin filesystem access under root. The
+// headless server sets this to its data dir so plugins cannot reach files
+// outside it, even via permissions the shared DB inherited from the desktop
+// build. The desktop build leaves it unset (arbitrary user-approved dirs).
+func (m *Manager) SetFSConfinementRoot(root string) {
+	m.fsConfinement = root
 }
 
 // LoadPlugins loads all enabled plugins from the database
@@ -234,7 +243,7 @@ func (m *Manager) loadPlugin(p *Plugin) error {
 	httpAPI := NewHTTPAPI(manifest.Network)
 	httpAPI.Register(sandbox.GetState())
 
-	fsAPI := NewFilesystemAPI(m.db, p.ID, manifest.Name, manifest.Filesystem, m.permCallback)
+	fsAPI := NewFilesystemAPI(m.db, p.ID, manifest.Name, manifest.Filesystem, m.permCallback, m.fsConfinement)
 	fsAPI.Register(sandbox.GetState())
 
 	utilsAPI := NewUtilsAPI(manifest.Name, manifest.Clipboard)
@@ -322,6 +331,23 @@ func (m *Manager) UnloadPlugin(pluginID int64) {
 }
 
 // EmitEvent sends an event to all subscribed plugins
+// NotifyModalAcked records that the frontend received the current plugin modal.
+// In server mode the browser cannot push upstream over SSE, so the REST layer
+// calls this when the web client acknowledges a modal.
+func (m *Manager) NotifyModalAcked() {
+	if m.modalGuard != nil {
+		m.modalGuard.markAcked()
+	}
+}
+
+// NotifyModalClosed releases the app-wide modal slot. Server-mode counterpart of
+// the desktop "plugin:modal:closed" upstream event.
+func (m *Manager) NotifyModalClosed() {
+	if m.modalGuard != nil {
+		m.modalGuard.release()
+	}
+}
+
 func (m *Manager) EmitEvent(event string, data interface{}) {
 	m.mu.RLock()
 	// Copy subscriber list to prevent race conditions during iteration

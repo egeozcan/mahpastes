@@ -8,6 +8,8 @@
 /build/bin/
 /build/darwin/
 /go-clipboard
+/bin/
+/mahpastesd
 
 # Frontend dependencies
 /frontend/node_modules/
@@ -30,6 +32,7 @@ Thumbs.db
 
 # Worktrees
 .worktrees/
+.claude/worktrees/
 
 # Claude Code scheduler lock
 .claude/scheduled_tasks.lock

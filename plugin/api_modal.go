@@ -59,20 +59,30 @@ func (g *modalGuard) startAckTimeout(gen uint64) {
 	}()
 }
 
+// markAcked records that the frontend received the current modal, cancelling
+// the ack timeout's auto-release.
+func (g *modalGuard) markAcked() {
+	g.mu.Lock()
+	g.acked = true
+	g.mu.Unlock()
+}
+
+// release frees the modal slot so the next plugin modal can be shown.
+func (g *modalGuard) release() {
+	g.mu.Lock()
+	g.showing = false
+	g.acked = false
+	g.gen++
+	g.mu.Unlock()
+}
+
 func newModalGuard(b bridgeiface.Bridge) *modalGuard {
 	g := &modalGuard{}
-	b.On("plugin:modal:acked", func(data ...interface{}) {
-		g.mu.Lock()
-		g.acked = true
-		g.mu.Unlock()
-	})
-	b.On("plugin:modal:closed", func(data ...interface{}) {
-		g.mu.Lock()
-		g.showing = false
-		g.acked = false
-		g.gen++
-		g.mu.Unlock()
-	})
+	// The desktop bridge can push these upstream events; the headless SSE bridge
+	// cannot, so the server delivers the same signals via a REST endpoint that
+	// calls markAcked/release directly (see Manager.NotifyModal*).
+	b.On("plugin:modal:acked", func(data ...interface{}) { g.markAcked() })
+	b.On("plugin:modal:closed", func(data ...interface{}) { g.release() })
 	return g
 }
 

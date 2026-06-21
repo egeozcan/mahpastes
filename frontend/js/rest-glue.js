@@ -99,9 +99,18 @@
             if (res.status === 401) window.location = '/login.html';
             if (!res.ok) throw new Error(res.statusText);
             const blob = await res.blob();
-            const data = await new Promise((resolve) => {
+            // The desktop API returns base64; we mimic that shape. base64 inflates
+            // ~33% and the data-URL conversion materializes the whole clip as a
+            // string, so an oversized clip can freeze/OOM the tab. Cap it and tell
+            // the caller to download instead of previewing inline.
+            const MAX_INLINE = 64 * 1024 * 1024; // 64 MB
+            if (blob.size > MAX_INLINE) {
+                throw new Error(`clip is too large to preview in the browser (${Math.round(blob.size / 1048576)} MB) — download it instead`);
+            }
+            const data = await new Promise((resolve, reject) => {
                 const reader = new FileReader();
                 reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+                reader.onerror = () => reject(reader.error || new Error('failed to read clip data'));
                 reader.readAsDataURL(blob);
             });
             return { id, content_type: blob.type || 'application/octet-stream', data, filename: '' };
@@ -245,6 +254,23 @@
     });
 
     const source = new EventSource(`${api}/events`);
+    // The browser can't push upstream over SSE, so the desktop "upstream" events
+    // the app emits are mapped to dedicated REST calls in server mode.
+    const upstreamRoutes = {
+        'plugin:modal:acked': `${api}/plugins/modal/ack`,
+        'plugin:modal:closed': `${api}/plugins/modal/close`,
+    };
+    // The event stream is unavailable to tag-scoped keys (403) and rejected for
+    // an expired session (401); in both cases EventSource closes without
+    // reconnecting. Distinguish the two so an expired session forces re-login
+    // (matching fetchJSON), while a valid-but-scoped session simply goes without
+    // live updates instead of looping.
+    source.onerror = () => {
+        if (source.readyState !== EventSource.CLOSED) return; // transient: it will retry
+        fetch(`${api}/tags`, { credentials: 'same-origin' })
+            .then((res) => { if (res.status === 401) window.location = '/login.html'; })
+            .catch(() => {});
+    };
     const listeners = new Map();
     window.runtime = {
         EventsOn(name, cb) {
@@ -260,7 +286,10 @@
                 }
             }
         },
-        EventsEmit() {},
+        EventsEmit(name) {
+            const url = upstreamRoutes[name];
+            if (url) postJSON(url, {}).catch(() => {});
+        },
         OnFileDrop() { return () => {}; },
     };
 })();

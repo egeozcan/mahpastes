@@ -19,9 +19,9 @@ func TestToOpenRTMapsFields(t *testing.T) {
 
 func TestToSaveRTMapsFields(t *testing.T) {
 	in := FileDialogOptions{
-		Title:            "Save",
-		DefaultFilename:  "clip.zip",
-		Filters:          []FileFilter{{DisplayName: "ZIP", Pattern: "*.zip"}},
+		Title:           "Save",
+		DefaultFilename: "clip.zip",
+		Filters:         []FileFilter{{DisplayName: "ZIP", Pattern: "*.zip"}},
 	}
 	got := toSaveRT(in)
 	if got.Title != "Save" || got.DefaultFilename != "clip.zip" {

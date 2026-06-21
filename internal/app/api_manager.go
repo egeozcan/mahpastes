@@ -27,6 +27,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"go-clipboard/internal/bridgeiface"
 	"go-clipboard/plugin"
 )
 
@@ -69,9 +70,26 @@ type contextKey string
 
 const apiKeyContextKey contextKey = "apiKey"
 
+const (
+	// maxClipUploadBytes bounds a single uploaded clip's bytes.
+	maxClipUploadBytes = 100 * 1024 * 1024 // 100 MB
+	// multipartOverheadBytes is the slack added on top of the clip limit to
+	// cover multipart boundaries/headers when bounding the whole request body.
+	multipartOverheadBytes = 1 * 1024 * 1024 // 1 MB
+)
+
 func displayServerURL(port int) string {
 	// 0.0.0.0 is only a bind address; clients need a concrete endpoint.
 	return fmt.Sprintf("http://127.0.0.1:%d", port)
+}
+
+// SSEHandler is the subset of the web-UI event broker the API layer needs: it
+// serves the streaming endpoint and can be told to terminate every open stream
+// during shutdown. Kept as an interface so package app does not import the
+// web-UI asset package (which the desktop build never links).
+type SSEHandler interface {
+	http.Handler
+	Shutdown()
 }
 
 // APIManager manages the REST API HTTP server.
@@ -79,8 +97,12 @@ type APIManager struct {
 	app              *App
 	mux              *http.ServeMux
 	server           *http.Server
+	sse              SSEHandler
+	dataDir          string
 	signingKey       []byte
 	loginLimiter     *loginRateLimiter
+	trustProxy       bool
+	secureCookies    bool
 	routesRegistered bool
 	mu               sync.RWMutex
 	running          bool
@@ -96,7 +118,18 @@ func NewAPIManager(app *App, dataDir ...string) *APIManager {
 		mux:          http.NewServeMux(),
 		loginLimiter: newLoginRateLimiter(),
 	}
+	// Reverse-proxy posture (headless server). When the daemon sits behind a
+	// trusted TLS-terminating proxy, operators opt in so we can (a) trust
+	// X-Forwarded-Proto to mark session cookies Secure and (b) derive the real
+	// client IP for the login rate-limiter instead of bucketing everyone under
+	// the proxy's address. Default off so a directly-exposed instance never
+	// trusts attacker-supplied forwarding headers.
+	am.trustProxy = os.Getenv("MAHPASTESD_TRUST_PROXY") == "1"
+	if v, err := strconv.ParseBool(os.Getenv("MAHPASTESD_SECURE_COOKIES")); err == nil {
+		am.secureCookies = v
+	}
 	if len(dataDir) > 0 && dataDir[0] != "" {
+		am.dataDir = dataDir[0]
 		key, err := loadOrCreateSigningKey(dataDir[0])
 		if err != nil {
 			log.Printf("api: signing key: %v - web UI sessions disabled", err)
@@ -107,9 +140,52 @@ func NewAPIManager(app *App, dataDir ...string) *APIManager {
 	return am
 }
 
-func (am *APIManager) MountWebUI(assets fs.FS, sseHandler http.Handler) {
-	am.mux.Handle("GET /api/v1/events", am.authMiddleware(http.HandlerFunc(sseHandler.ServeHTTP)))
+func (am *APIManager) MountWebUI(assets fs.FS, sse SSEHandler) {
+	am.sse = sse
+	// The event stream is broadcast to every subscriber with no per-frame
+	// filtering, so it must only be reachable by keys whose REST visibility is
+	// already global. Tag-scoped keys (which the REST layer confines to a tag
+	// subtree) are rejected here, otherwise they would receive a firehose of
+	// clip previews, tag changes and share events for the entire instance.
+	// requireUnscopedSSE also attaches per-connection auth metadata used by the
+	// broker to cap connections and to keep re-validating the key/session.
+	am.mux.Handle("GET /api/v1/events", am.authMiddleware(am.requireUnscopedSSE(sse)))
 	am.mux.Handle("/", newSPAHandler(assets, am))
+}
+
+// requireUnscopedSSE rejects tag-scoped keys from the broadcast event stream and
+// attaches an SSEAuth (per-key cap accounting + periodic re-validation) to the
+// request context for the broker.
+func (am *APIManager) requireUnscopedSSE(next http.Handler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		keyCtx := getKeyContext(r)
+		if keyCtx.ScopedTagID != 0 {
+			am.jsonError(w, http.StatusForbidden, "event stream is not available for tag-scoped keys")
+			return
+		}
+		auth := &bridgeiface.SSEAuth{
+			KeyID:      keyCtx.KeyID,
+			Revalidate: func() bool { return am.stillAuthorized(r) },
+		}
+		next.ServeHTTP(w, r.WithContext(bridgeiface.WithSSEAuth(r.Context(), auth)))
+	}
+}
+
+// stillAuthorized re-runs the same checks as authMiddleware (without mutating
+// the request) so an open SSE stream can detect a revoked key or expired
+// session and close itself.
+func (am *APIManager) stillAuthorized(r *http.Request) bool {
+	if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
+		_, err := am.validateAPIKey(strings.TrimPrefix(auth, "Bearer "))
+		return err == nil
+	}
+	if c, err := r.Cookie("_mp_session"); err == nil && am.signingKey != nil {
+		if id, err := verifySessionToken(am.signingKey, c.Value); err == nil {
+			_, err := am.loadKeyContextByID(id)
+			return err == nil
+		}
+	}
+	return false
 }
 
 type spaHandler struct {
@@ -150,8 +226,24 @@ func (h *spaHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.writeIndex(w, r)
 }
 
+// spaCSP backstops the app origin against injected markup. It is intentionally
+// permissive about inline script/style (the SPA relies on both) but blocks the
+// passive XSS sinks that the clip-data hardening does not cover: <object>/<embed>
+// (object-src), <base> hijacking (base-uri), and framing/clickjacking
+// (frame-ancestors). Self-hosted assets plus the Google Fonts the shell loads
+// are allowlisted; clip images arrive as data:/blob: URLs.
+const spaCSP = "default-src 'self'; " +
+	"script-src 'self' 'unsafe-inline'; " +
+	"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+	"font-src 'self' https://fonts.gstatic.com; " +
+	"img-src 'self' data: blob:; " +
+	"connect-src 'self'; " +
+	"object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+
 func (h *spaHandler) writeIndex(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Content-Security-Policy", spaCSP)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	http.ServeContent(w, r, "index.html", h.modTime, bytes.NewReader(h.indexBuf))
 }
 
@@ -263,6 +355,10 @@ func (am *APIManager) Start(port int, bindAll bool) (APIStatus, error) {
 		mux.HandleFunc("POST /api/v1/plugins/{id}/url-check", am.authMiddleware(am.requireRole("editor", am.handlePluginURLCheck)))
 		mux.HandleFunc("POST /api/v1/plugins/preview", am.authMiddleware(am.requireRole("admin", am.handlePreviewPluginFromURL)))
 		mux.HandleFunc("POST /api/v1/plugins/confirm", am.authMiddleware(am.requireRole("admin", am.handleConfirmPluginInstall)))
+		// Server-mode replacement for the desktop "plugin:modal:acked/closed"
+		// upstream events the browser cannot send over SSE.
+		mux.HandleFunc("POST /api/v1/plugins/modal/ack", am.authMiddleware(am.requireRole("editor", am.handleModalAck)))
+		mux.HandleFunc("POST /api/v1/plugins/modal/close", am.authMiddleware(am.requireRole("editor", am.handleModalClose)))
 
 		// Backup
 		mux.HandleFunc("GET /api/v1/backup", am.authMiddleware(am.requireRole("admin", am.handleCreateBackup)))
@@ -321,9 +417,23 @@ func (am *APIManager) Start(port int, bindAll bool) (APIStatus, error) {
 
 	handler := am.corsMiddleware(am.mux)
 
+	// Bound how long unauthenticated clients can hold a connection while
+	// trickling request headers/bodies. Without these, a network-facing
+	// (0.0.0.0) daemon is trivially Slowloris-able: header parsing happens
+	// before auth, so an anonymous client can pin goroutines/FDs indefinitely.
+	// WriteTimeout is deliberately left at 0 — the SSE event stream is a
+	// long-lived response and a write deadline would sever it.
+	// ReadHeaderTimeout is the real Slowloris guard (headers are parsed before
+	// auth). ReadTimeout bounds slow request bodies but must stay generous
+	// enough for a legitimate ~100MB clip upload over a slow link; the SSE route
+	// clears its own read deadline so this does not sever the event stream.
 	am.server = &http.Server{
-		Addr:    addr,
-		Handler: handler,
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       120 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20, // 1 MB
 	}
 
 	ln, err := net.Listen("tcp", addr)
@@ -360,6 +470,14 @@ func (am *APIManager) Stop() error {
 
 	if !am.running {
 		return fmt.Errorf("API server is not running")
+	}
+
+	// Terminate open SSE streams first so their handler goroutines return
+	// promptly; otherwise server.Shutdown blocks for its full timeout waiting on
+	// long-lived event streams that only notice teardown when their request
+	// context is finally cancelled.
+	if am.sse != nil {
+		am.sse.Shutdown()
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -661,12 +779,48 @@ func (am *APIManager) hasValidSession(r *http.Request) bool {
 
 func (am *APIManager) rateLimitLogin(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !am.loginLimiter.allow(remoteIP(r.RemoteAddr), 5, time.Minute) {
+		if !am.loginLimiter.allow(am.clientIP(r), 5, time.Minute) {
 			am.jsonError(w, http.StatusTooManyRequests, "too many login attempts")
 			return
 		}
 		next(w, r)
 	}
+}
+
+// clientIP returns the address used to bucket the login rate-limiter. Behind a
+// trusted proxy (MAHPASTESD_TRUST_PROXY=1) it is the right-most X-Forwarded-For
+// hop — the address the trusted proxy observed — so every client gets its own
+// bucket instead of all clients collapsing onto the proxy's TCP address (which
+// would let 5 bad logins from anyone lock out everyone). Without proxy trust it
+// is the raw TCP peer, and forwarding headers (which a direct client could
+// forge) are ignored.
+func (am *APIManager) clientIP(r *http.Request) string {
+	if am.trustProxy {
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			parts := strings.Split(xff, ",")
+			for i := len(parts) - 1; i >= 0; i-- {
+				if ip := strings.TrimSpace(parts[i]); ip != "" {
+					return ip
+				}
+			}
+		}
+	}
+	return remoteIP(r.RemoteAddr)
+}
+
+// cookieSecure reports whether the session cookie should carry the Secure
+// attribute. It is true under direct TLS, behind a trusted proxy that reports
+// X-Forwarded-Proto: https, or when explicitly forced via
+// MAHPASTESD_SECURE_COOKIES=1. It is intentionally left false for a plaintext
+// localhost/LAN deployment so the cookie is still sent.
+func (am *APIManager) cookieSecure(r *http.Request) bool {
+	if am.secureCookies || r.TLS != nil {
+		return true
+	}
+	if am.trustProxy && strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+		return true
+	}
+	return false
 }
 
 func (am *APIManager) handleLogin(w http.ResponseWriter, r *http.Request) {
@@ -692,7 +846,7 @@ func (am *APIManager) handleLogin(w http.ResponseWriter, r *http.Request) {
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   r.TLS != nil,
+		Secure:   am.cookieSecure(r),
 		SameSite: http.SameSiteStrictMode,
 		MaxAge:   int(sessionTTL.Seconds()),
 	})
@@ -705,6 +859,8 @@ func (am *APIManager) handleLogout(w http.ResponseWriter, r *http.Request) {
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
+		Secure:   am.cookieSecure(r),
+		SameSite: http.SameSiteStrictMode,
 		MaxAge:   -1,
 	})
 	am.jsonOK(w, map[string]string{"status": "ok"})
@@ -1034,6 +1190,16 @@ func (am *APIManager) handleListClipsViaApp(w http.ResponseWriter, r *http.Reque
 			am.jsonError(w, http.StatusBadRequest, "invalid folder_tag")
 			return
 		}
+		// GetFolderClips does no key-scope filtering, so a tag-scoped key must be
+		// confined to its own subtree here (mirroring handleGetTagClips); without
+		// this it could enumerate clips for any tag tree via folder_tag.
+		if keyCtx.ScopedTagID > 0 {
+			var name string
+			if err := am.app.db.QueryRow("SELECT name FROM tags WHERE id = ?", folderID).Scan(&name); err != nil || !am.isTagInScope(name, keyCtx.ScopedTagID) {
+				am.jsonOK(w, apiClipListResponse{Clips: []apiClipResponse{}, Total: 0, Limit: limit, Offset: offset})
+				return
+			}
+		}
 		previews, err = am.app.GetFolderClips(archived, folderID, hiddenIDs, sortField, sortDir)
 	} else {
 		previews, err = am.app.GetClips(archived, tagIDs, hiddenIDs, sortField, sortDir)
@@ -1135,14 +1301,53 @@ func (am *APIManager) handleGetClipData(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// In web-UI (server) mode the SPA and this endpoint share one origin, so a
+	// stored text/html (or SVG) clip rendered inline would execute script with
+	// the user's session — effectively account takeover. Defend in depth:
+	//   - nosniff: stop content-type sniffing into an executable type.
+	//   - Content-Disposition: attachment (always, even with an empty filename):
+	//     direct navigation downloads instead of rendering inline. The web UI
+	//     reads clip bytes via fetch()+Blob, which ignores this header, so image
+	//     previews/editor are unaffected.
+	//   - CSP sandbox: even if a browser were coerced into rendering this
+	//     response, it runs in an opaque origin with scripts disabled.
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
 	if contentType != "" {
 		w.Header().Set("Content-Type", contentType)
 	}
-	if filename.String != "" {
-		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename.String))
-	}
+	w.Header().Set("Content-Disposition", attachmentDisposition(sanitizeDownloadName(filename.String, id)))
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(data)))
 	w.Write(data)
+}
+
+// sanitizeDownloadName returns a safe, separator-free filename for use in a
+// Content-Disposition header or a ZIP entry. Attacker-controlled clip filenames
+// can contain path separators, "..", or control characters; collapse them to
+// the base name and fall back to a generated name when nothing safe remains.
+func sanitizeDownloadName(name string, id int64) string {
+	name = strings.TrimSpace(name)
+	// Reject anything with a path separator by keeping only the final element.
+	name = strings.ReplaceAll(name, "\\", "/")
+	if idx := strings.LastIndex(name, "/"); idx >= 0 {
+		name = name[idx+1:]
+	}
+	// Strip control characters and quotes that could break the header / archive.
+	name = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f || r == '"' {
+			return -1
+		}
+		return r
+	}, name)
+	name = strings.TrimSpace(name)
+	if name == "" || name == "." || name == ".." {
+		return fmt.Sprintf("clip_%d", id)
+	}
+	return name
+}
+
+func attachmentDisposition(name string) string {
+	return fmt.Sprintf("attachment; filename=%q", name)
 }
 
 func (am *APIManager) handleCreateClip(w http.ResponseWriter, r *http.Request) {
@@ -1162,6 +1367,12 @@ func (am *APIManager) handleCreateClip(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Cap the whole request body, not just the file part, so a network-facing
+	// daemon cannot be made to buffer unbounded data into RAM (the part is read
+	// via io.ReadAll). The ceiling is the 100MB clip limit plus a small margin
+	// for multipart framing.
+	r.Body = http.MaxBytesReader(w, r.Body, maxClipUploadBytes+multipartOverheadBytes)
+
 	reader := multipart.NewReader(r.Body, params["boundary"])
 	part, err := reader.NextPart()
 	if err != nil {
@@ -1169,7 +1380,7 @@ func (am *APIManager) handleCreateClip(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data, err := io.ReadAll(io.LimitReader(part, 100*1024*1024)) // 100MB limit
+	data, err := io.ReadAll(io.LimitReader(part, maxClipUploadBytes))
 	if err != nil {
 		am.jsonError(w, http.StatusBadRequest, "failed to read file data")
 		return
@@ -2226,12 +2437,10 @@ func (am *APIManager) handleBulkDownload(w http.ResponseWriter, r *http.Request)
 			continue
 		}
 
-		name := filename.String
-		if name == "" {
-			name = fmt.Sprintf("clip_%d", id)
-		} else {
-			name = fmt.Sprintf("%d_%s", id, name)
-		}
+		// Clip filenames are attacker-controlled at upload time; neutralize path
+		// separators / ".." before embedding them so the archive cannot carry a
+		// zip-slip entry that writes outside an extractor's target directory.
+		name := fmt.Sprintf("%d_%s", id, sanitizeDownloadName(filename.String, id))
 
 		fw, err := zw.Create(name)
 		if err != nil {
@@ -3255,13 +3464,50 @@ func (am *APIManager) handleRestoreBackup(w http.ResponseWriter, r *http.Request
 
 // --- Misc App Handlers ---
 
+// viewerReadableSettings are the UI-preference keys the web client legitimately
+// needs to read with a non-admin key. Every other setting (which may hold global
+// config or share identity material) is admin-only, matching the admin-gated PUT.
+var viewerReadableSettings = map[string]bool{
+	"sort_field":             true,
+	"sort_dir":               true,
+	"tooltips_enabled":       true,
+	"keyboard_shortcuts":     true,
+	"plugin_update_interval": true,
+}
+
 func (am *APIManager) handleGetSetting(w http.ResponseWriter, r *http.Request) {
-	value, err := am.app.GetSetting(r.PathValue("key"))
+	keyCtx := getKeyContext(r)
+	key := r.PathValue("key")
+	// Settings are global, not tag-scoped — deny scoped keys outright, and limit
+	// non-admin keys to the small UI-preference whitelist.
+	if keyCtx.ScopedTagID != 0 {
+		am.jsonError(w, http.StatusForbidden, "settings are not available for tag-scoped keys")
+		return
+	}
+	if keyCtx.Role != "admin" && !viewerReadableSettings[key] {
+		am.jsonError(w, http.StatusForbidden, "insufficient permissions for this setting")
+		return
+	}
+	value, err := am.app.GetSetting(key)
 	if err != nil {
 		am.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	am.jsonOK(w, map[string]string{"value": value})
+}
+
+func (am *APIManager) handleModalAck(w http.ResponseWriter, r *http.Request) {
+	if am.app.pluginManager != nil {
+		am.app.pluginManager.NotifyModalAcked()
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (am *APIManager) handleModalClose(w http.ResponseWriter, r *http.Request) {
+	if am.app.pluginManager != nil {
+		am.app.pluginManager.NotifyModalClosed()
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (am *APIManager) handleSetSetting(w http.ResponseWriter, r *http.Request) {
