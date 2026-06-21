@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"go-clipboard/internal/wailsbridge"
+	"go-clipboard/internal/bridgeiface"
 
 	lua "github.com/yuin/gopher-lua"
 )
@@ -59,33 +59,43 @@ func (g *modalGuard) startAckTimeout(gen uint64) {
 	}()
 }
 
-func newModalGuard(b *wailsbridge.Bridge) *modalGuard {
+// markAcked records that the frontend received the current modal, cancelling
+// the ack timeout's auto-release.
+func (g *modalGuard) markAcked() {
+	g.mu.Lock()
+	g.acked = true
+	g.mu.Unlock()
+}
+
+// release frees the modal slot so the next plugin modal can be shown.
+func (g *modalGuard) release() {
+	g.mu.Lock()
+	g.showing = false
+	g.acked = false
+	g.gen++
+	g.mu.Unlock()
+}
+
+func newModalGuard(b bridgeiface.Bridge) *modalGuard {
 	g := &modalGuard{}
-	b.On("plugin:modal:acked", func(data ...interface{}) {
-		g.mu.Lock()
-		g.acked = true
-		g.mu.Unlock()
-	})
-	b.On("plugin:modal:closed", func(data ...interface{}) {
-		g.mu.Lock()
-		g.showing = false
-		g.acked = false
-		g.gen++
-		g.mu.Unlock()
-	})
+	// The desktop bridge can push these upstream events; the headless SSE bridge
+	// cannot, so the server delivers the same signals via a REST endpoint that
+	// calls markAcked/release directly (see Manager.NotifyModal*).
+	b.On("plugin:modal:acked", func(data ...interface{}) { g.markAcked() })
+	b.On("plugin:modal:closed", func(data ...interface{}) { g.release() })
 	return g
 }
 
 // ModalAPI provides modal display functionality for plugins
 type ModalAPI struct {
-	bridge   *wailsbridge.Bridge
+	bridge   bridgeiface.Bridge
 	pluginID int64
 	guard    *modalGuard
 }
 
 // NewModalAPI creates a new modal API instance.
 // The guard is shared across all plugins to enforce single-modal globally.
-func NewModalAPI(b *wailsbridge.Bridge, pluginID int64, guard *modalGuard) *ModalAPI {
+func NewModalAPI(b bridgeiface.Bridge, pluginID int64, guard *modalGuard) *ModalAPI {
 	return &ModalAPI{
 		bridge:   b,
 		pluginID: pluginID,

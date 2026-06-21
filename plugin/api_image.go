@@ -18,10 +18,10 @@ import (
 
 	"github.com/rwcarlsen/goexif/exif"
 	lua "github.com/yuin/gopher-lua"
+	xdraw "golang.org/x/image/draw"
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/opentype"
 	"golang.org/x/image/math/fixed"
-	xdraw "golang.org/x/image/draw"
 	_ "golang.org/x/image/webp"
 )
 

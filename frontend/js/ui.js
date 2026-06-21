@@ -81,6 +81,7 @@ function renderDrawerPluginActions() {
 function getMenuIcon(name) {
     const icons = {
         'copy-path': '<path stroke-linecap="round" stroke-linejoin="round" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"/>',
+        'copy-public-link': '<path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244"/>',
         'save': '<path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>',
         'edit': '<path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>',
         'tags': '<path stroke-linecap="round" stroke-linejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/>',
@@ -108,6 +109,7 @@ const cardMenuTooltips = {
     'open': 'Open with your default application',
     'open-with': 'Choose an application to open this clip',
     'copy-path': 'Create a temp file and copy its path to clipboard',
+    'copy-public-link': 'Create a revocable public link and copy it to clipboard',
     'copy-file': 'Place file on clipboard for pasting into other apps',
     'copy-contents': 'Copy the raw text or data to clipboard',
     'save-file': 'Save a copy to your Downloads folder',
@@ -126,19 +128,31 @@ const cardMenuTooltips = {
 function buildMenuItemList(clip) {
     const ct = clip.content_type || '';
     const items = [];
+    const isServerMode = window.mahpastesMode === 'server';
 
     // Open actions (top of menu)
     items.push({ id: 'open', label: 'Open', iconHtml: getMenuIcon('open'), tooltip: cardMenuTooltips['open'] });
-    items.push({ id: 'open-with', label: 'Open With\u2026', iconHtml: getMenuIcon('open-with'), tooltip: cardMenuTooltips['open-with'] });
+    if (!isServerMode) {
+        items.push({ id: 'open-with', label: 'Open With\u2026', iconHtml: getMenuIcon('open-with'), tooltip: cardMenuTooltips['open-with'] });
+    }
 
     items.push({ type: 'divider' });
 
     // Copy submenu
     const copyChildren = [
-        { id: 'copy-path', label: 'Path', iconHtml: getMenuIcon('copy-path'), tooltip: cardMenuTooltips['copy-path'] },
-        { id: 'copy-file', label: 'File', iconHtml: getMenuIcon('copy-file'), tooltip: cardMenuTooltips['copy-file'] },
+        { id: 'copy-path', label: isServerMode ? 'URL' : 'Path', iconHtml: getMenuIcon('copy-path'), tooltip: cardMenuTooltips['copy-path'] },
     ];
-    if (ct.startsWith('text/') || ct === 'application/json' || ct.startsWith('image/')) {
+    // Public share links only make sense for the network-reachable headless
+    // server; the desktop API binds to localhost. Offer them in server mode.
+    if (isServerMode) {
+        copyChildren.push({ id: 'copy-public-link', label: 'Public Link', iconHtml: getMenuIcon('copy-public-link'), tooltip: cardMenuTooltips['copy-public-link'] });
+    }
+    if (!isServerMode) {
+        copyChildren.push({ id: 'copy-file', label: 'File', iconHtml: getMenuIcon('copy-file'), tooltip: cardMenuTooltips['copy-file'] });
+    }
+    // "Copy Contents" targets the host clipboard via ClipboardService, which is
+    // desktop-only; in server mode it would just throw a "Failed to copy" toast.
+    if (!isServerMode && (ct.startsWith('text/') || ct === 'application/json' || ct.startsWith('image/'))) {
         copyChildren.push({ id: 'copy-contents', label: 'Contents', iconHtml: getMenuIcon('copy-contents'), tooltip: cardMenuTooltips['copy-contents'] });
     }
     items.push({ type: 'submenu', label: 'Copy', iconHtml: getMenuIcon('copy'), submenuId: 'copy', children: copyChildren });
@@ -284,6 +298,9 @@ async function handleCardAction(action, clipId, triggerButton) {
             break;
         case 'copy-path':
             saveTempFile(id);
+            break;
+        case 'copy-public-link':
+            createAndCopyPublicLink(id);
             break;
         case 'copy-file':
             copyFileToClipboard(id);

@@ -7,16 +7,18 @@ import (
 	"path/filepath"
 	goruntime "runtime"
 	"strings"
+
+	coreapp "go-clipboard/internal/app"
 )
 
 // TransferService handles transfer-oriented capability and preparation flows.
 // This is separate from App to keep Wails binding counts manageable.
 type TransferService struct {
-	app *App
+	app *coreapp.App
 }
 
 // NewTransferService creates a new transfer service.
-func NewTransferService(app *App) *TransferService {
+func NewTransferService(app *coreapp.App) *TransferService {
 	return &TransferService{app: app}
 }
 
@@ -70,7 +72,7 @@ func (s *TransferService) PrepareClipForTransfer(req PrepareTransferRequest) (*P
 	if strings.TrimSpace(req.Channel) == "" {
 		req.Channel = "drag_out"
 	}
-	return s.app.prepareClipTransferItem(req.ClipID, req.Channel)
+	return s.app.PrepareClipTransferItem(req.ClipID, req.Channel)
 }
 
 // GetExistingPreparedClipForTransfer returns an already prepared temp file descriptor if present.
@@ -82,7 +84,7 @@ func (s *TransferService) GetExistingPreparedClipForTransfer(req PrepareTransfer
 	if strings.TrimSpace(req.Channel) == "" {
 		req.Channel = "drag_out"
 	}
-	return s.app.lookupPreparedClipTransferItem(req.ClipID, req.Channel)
+	return s.app.LookupPreparedClipTransferItem(req.ClipID, req.Channel)
 }
 
 // StartNativeDragOut starts a native OS file drag operation when supported.
@@ -99,7 +101,7 @@ func (s *TransferService) StartNativeDragOut(req StartNativeDragRequest) (bool, 
 		if req.ClipID <= 0 {
 			return "", fmt.Errorf("either abs_path or clip_id must be provided")
 		}
-		prepared, err := s.app.prepareClipTransferItem(req.ClipID, "drag_out")
+		prepared, err := s.app.PrepareClipTransferItem(req.ClipID, "drag_out")
 		if err != nil {
 			return "", err
 		}

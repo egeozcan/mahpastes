@@ -469,6 +469,10 @@ li[data-folder][data-hidden="true"] {
     filter: grayscale(0.4);
 }
 
+.server-mode .desktop-only {
+    display: none !important;
+}
+
 /* Respect reduced-motion preference */
 @media (prefers-reduced-motion: reduce) {
     .folder-status-badges > span { transition: none; }

@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"go-clipboard/internal/wailsbridge"
+	"go-clipboard/internal/bridgeiface"
 
 	lua "github.com/yuin/gopher-lua"
 )
@@ -17,7 +17,7 @@ const (
 
 // ToastAPI provides toast notification functionality for plugins
 type ToastAPI struct {
-	bridge   *wailsbridge.Bridge
+	bridge   bridgeiface.Bridge
 	pluginID int64
 	// Rate limiting
 	mu        sync.Mutex
@@ -25,7 +25,7 @@ type ToastAPI struct {
 }
 
 // NewToastAPI creates a new toast API instance
-func NewToastAPI(b *wailsbridge.Bridge, pluginID int64) *ToastAPI {
+func NewToastAPI(b bridgeiface.Bridge, pluginID int64) *ToastAPI {
 	return &ToastAPI{
 		bridge:    b,
 		pluginID:  pluginID,

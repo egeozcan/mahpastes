@@ -21,7 +21,7 @@ else
     MP_INSTALL_DIR ?= $(if $(GO_BIN),$(GO_BIN),$(HOME)/.local/bin)
 endif
 
-.PHONY: dev build clean install uninstall bindings mp mp-install mp-cross test screenshots
+.PHONY: dev build clean install uninstall bindings mp mp-install mp-cross mahpastesd mahpastesd-cross test screenshots
 
 ## Development
 
@@ -106,6 +106,15 @@ mp-cross: ## Cross-compile mp for all platforms
 	GOOS=linux GOARCH=amd64 go build -o build/bin/mp-linux-amd64 ./cmd/mp
 	GOOS=windows GOARCH=amd64 go build -o build/bin/mp-windows-amd64.exe ./cmd/mp
 
+mahpastesd: ## Build headless server for current platform
+	go build -o build/bin/mahpastesd ./cmd/mahpastesd
+
+mahpastesd-cross: ## Cross-compile headless server for all platforms
+	GOOS=linux GOARCH=amd64 go build -o build/bin/mahpastesd-linux-amd64 ./cmd/mahpastesd
+	GOOS=linux GOARCH=arm64 go build -o build/bin/mahpastesd-linux-arm64 ./cmd/mahpastesd
+	GOOS=darwin GOARCH=amd64 go build -o build/bin/mahpastesd-darwin-amd64 ./cmd/mahpastesd
+	GOOS=darwin GOARCH=arm64 go build -o build/bin/mahpastesd-darwin-arm64 ./cmd/mahpastesd
+
 ## Testing
 
 test: ## Run e2e tests
@@ -140,6 +149,8 @@ help: ## Show this help
 	@echo   mp             Build mp CLI for current platform
 	@echo   mp-install     Install mp to MP_INSTALL_DIR
 	@echo   mp-cross       Cross-compile mp for all platforms
+	@echo   mahpastesd     Build headless server for current platform
+	@echo   mahpastesd-cross Cross-compile headless server for all platforms
 else
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-15s\033[0m %s\n", $$1, $$2}'
