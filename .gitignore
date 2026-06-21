@@ -45,5 +45,6 @@ test-results/
 
 # Generated reports
 *_REPORT.md
+/docs/reviews/
 /mp
 .superpowers/
