@@ -39,6 +39,7 @@ func init() {
 	rootCmd.AddCommand(backupCmd)
 	rootCmd.AddCommand(clipboardCmd)
 	rootCmd.AddCommand(maintenanceCmd)
+	rootCmd.AddCommand(linkCmd)
 }
 
 func main() {

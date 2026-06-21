@@ -833,12 +833,22 @@ func (a *App) UploadFileAndGetID(file FileData) (int64, error) {
 }
 
 // UploadFiles handles file uploads
-func (a *App) UploadFiles(files []FileData, expirationMinutes int, autoTagID int64) error {
-	var expiresAt *time.Time
-	if expirationMinutes > 0 {
-		t := time.Now().Add(time.Duration(expirationMinutes) * time.Minute)
-		expiresAt = &t
+// expiryTimestamp converts a relative minutes-from-now expiry into canonical UTC
+// text ("YYYY-MM-DD HH:MM:SS", the same form SQLite's CURRENT_TIMESTAMP uses) so
+// expires_at comparisons are correct regardless of the server's local timezone.
+// Binding a raw time.Time makes the driver serialize a local-zone Go String()
+// value (with a monotonic-clock suffix) that does not compare correctly against
+// CURRENT_TIMESTAMP. Returns nil when minutes <= 0 (no expiry).
+func expiryTimestamp(minutes int) *string {
+	if minutes <= 0 {
+		return nil
 	}
+	s := time.Now().UTC().Add(time.Duration(minutes) * time.Minute).Format("2006-01-02 15:04:05")
+	return &s
+}
+
+func (a *App) UploadFiles(files []FileData, expirationMinutes int, autoTagID int64) error {
+	expiresAt := expiryTimestamp(expirationMinutes)
 
 	for _, file := range files {
 		// Decode base64 data
@@ -1277,7 +1287,7 @@ func (a *App) SetExpiration(id int64, minutes int) error {
 	if minutes <= 0 {
 		return fmt.Errorf("expiration minutes must be positive")
 	}
-	expiresAt := time.Now().Add(time.Duration(minutes) * time.Minute)
+	expiresAt := expiryTimestamp(minutes)
 	_, err := a.db.Exec("UPDATE clips SET expires_at = ? WHERE id = ?", expiresAt, id)
 	if err != nil {
 		return fmt.Errorf("failed to set expiration: %w", err)
@@ -2376,7 +2386,7 @@ func (a *App) BulkSetExpiration(ids []int64, minutes int) error {
 		return fmt.Errorf("expiration minutes must be positive")
 	}
 
-	expiresAt := time.Now().Add(time.Duration(minutes) * time.Minute)
+	expiresAt := expiryTimestamp(minutes)
 
 	placeholders := make([]string, len(ids))
 	args := make([]interface{}, len(ids)+1)
@@ -3091,16 +3101,22 @@ func (a *App) installPluginFromSource(source string) (*PluginInfo, error) {
 		return nil, fmt.Errorf("plugin manager not initialized")
 	}
 
+	isURL := strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://")
+
 	var p *plugin.Plugin
 	var err error
 
-	if strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://") {
-		cachedSource := a.pluginManager.PopPendingInstall(source)
-		if cachedSource != "" {
-			p, err = a.pluginManager.ImportPluginFromSource(cachedSource, source)
-		} else {
-			p, err = a.pluginManager.ImportPluginFromURL(source)
+	if cachedSource := a.pluginManager.PopPendingInstall(source); cachedSource != "" {
+		// Content was fetched (URL) or uploaded (file) during preview; install
+		// exactly what was reviewed to avoid a TOCTOU re-fetch. Uploaded content
+		// has no update URL, so only carry the source URL forward for real URLs.
+		sourceURL := source
+		if !isURL {
+			sourceURL = ""
 		}
+		p, err = a.pluginManager.ImportPluginFromSource(cachedSource, sourceURL)
+	} else if isURL {
+		p, err = a.pluginManager.ImportPluginFromURL(source)
 	} else {
 		p, err = a.pluginManager.ImportPlugin(source)
 	}

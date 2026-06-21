@@ -39,6 +39,7 @@ func main() {
 	serveService := NewServeService(core)
 	apiService := NewAPIService(core)
 	shareService := NewShareService(core)
+	linkService := NewLinkService(core)
 
 	core.SetClipboardService(clipboardService)
 	transferHandler := coreapp.NewTransferFileHandler(core)
@@ -99,6 +100,7 @@ func main() {
 			serveService,
 			apiService,
 			shareService,
+			linkService,
 		},
 		Mac: &mac.Options{
 			TitleBar: &mac.TitleBar{

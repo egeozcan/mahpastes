@@ -310,6 +310,7 @@ export MP_API_URL=http://localhost:44557  # Optional, this is the default
 | `mp watch` | Add/remove/update watch folders, pause/resume, status |
 | `mp plugin` | Install/remove/enable/disable, storage, run actions, updates |
 | `mp serve` | Start/stop/list tag HTTP servers |
+| `mp link` | Create/list/revoke revocable public share links for a clip |
 | `mp api` | Check API connectivity |
 | `mp backup` | Create/restore backup ZIPs |
 | `mp clipboard` | Copy clip content or file reference to system clipboard |
@@ -360,6 +361,15 @@ API keys with roles (`viewer`, `editor`, `admin`). Auth via `Authorization: Bear
 ### Endpoints
 
 Routes cover all major features: clips, tags, watch folders, plugins, backup, dedup, clipboard, metadata, and serve management. All under `/api/v1/`.
+
+### Share Links
+
+Revocable, single-clip public download links, distinct from the peer-to-peer `share_*.go` tag-sync feature (which is named `share`/`/api/v1/share/*` — do **not** reuse that namespace).
+
+- **Public route**: `GET /s/{token}` — unauthenticated; the 256-bit `crypto/rand` token in the path is the only capability. Streams the clip through the same hardened path as `GET /api/v1/clips/{id}/data` (`writeClipBytes`: `nosniff` + CSP sandbox + `Content-Disposition: attachment` + `Cache-Control: no-store`). Rate-limited per client IP; every reject (missing/revoked/expired/exhausted/clip-archived) is a uniform 404.
+- **Management** (admin-only): `POST /api/v1/links` (mint, returns the token once), `GET /api/v1/links` (list, prefixes only), `DELETE /api/v1/links/{id}` (revoke — instant, re-checked in SQL per request, no cache).
+- Optional `expires_in_seconds` and `max_downloads` (atomic cap). Tag-scoped admin keys can only mint links inside their subtree (`enforceTagScope`). Only the token's SHA-256 hash is stored.
+- **Key files**: `share_link.go` (table-backed logic, token gen, handlers, `handleShareView`), `database.go` (`share_links` table + expiry GC in `StartCleanupJob`), `api_manager.go` (route registration + `writeClipBytes`), `link_service.go` (Wails `LinkService` for the desktop binding), `cmd/mp/link.go` (CLI), `frontend/js/rest-glue.js` (headless shim) + `ui.js`/`modals.js` (the server-mode "Copy → Public Link" affordance).
 
 ## Code Style
 

@@ -101,6 +101,7 @@ type APIManager struct {
 	dataDir          string
 	signingKey       []byte
 	loginLimiter     *loginRateLimiter
+	shareLimiter     *loginRateLimiter
 	trustProxy       bool
 	secureCookies    bool
 	routesRegistered bool
@@ -117,6 +118,7 @@ func NewAPIManager(app *App, dataDir ...string) *APIManager {
 		app:          app,
 		mux:          http.NewServeMux(),
 		loginLimiter: newLoginRateLimiter(),
+		shareLimiter: newLoginRateLimiter(),
 	}
 	// Reverse-proxy posture (headless server). When the daemon sits behind a
 	// trusted TLS-terminating proxy, operators opt in so we can (a) trust
@@ -353,6 +355,7 @@ func (am *APIManager) Start(port int, bindAll bool) (APIStatus, error) {
 		mux.HandleFunc("GET /api/v1/plugins/{id}/permissions", am.authMiddleware(am.requireRole("admin", am.handleGetPluginPermissions)))
 		mux.HandleFunc("POST /api/v1/plugins/{id}/permissions/revoke", am.authMiddleware(am.requireRole("admin", am.handleRevokePluginPermission)))
 		mux.HandleFunc("POST /api/v1/plugins/{id}/url-check", am.authMiddleware(am.requireRole("editor", am.handlePluginURLCheck)))
+		mux.HandleFunc("POST /api/v1/plugins/upload", am.authMiddleware(am.requireRole("admin", am.handleUploadPlugin)))
 		mux.HandleFunc("POST /api/v1/plugins/preview", am.authMiddleware(am.requireRole("admin", am.handlePreviewPluginFromURL)))
 		mux.HandleFunc("POST /api/v1/plugins/confirm", am.authMiddleware(am.requireRole("admin", am.handleConfirmPluginInstall)))
 		// Server-mode replacement for the desktop "plugin:modal:acked/closed"
@@ -412,6 +415,16 @@ func (am *APIManager) Start(port int, bindAll bool) (APIStatus, error) {
 		mux.HandleFunc("DELETE /api/v1/keys/{id}", am.authMiddleware(am.requireRole("admin", am.handleRevokeKey)))
 		mux.HandleFunc("POST /api/v1/auth/login", am.rateLimitLogin(am.handleLogin))
 		mux.HandleFunc("POST /api/v1/auth/logout", am.handleLogout)
+
+		// Public, revocable per-clip share links. The view route is intentionally
+		// unauthenticated — the unguessable token in the path is the capability —
+		// and is more specific than the SPA "/" catch-all, so it wins route
+		// matching. Management is admin-only. Named /links (not /share) to avoid
+		// colliding with the peer-to-peer share feature above.
+		mux.HandleFunc("GET /s/{token}", am.handleShareView)
+		mux.HandleFunc("POST /api/v1/links", am.authMiddleware(am.requireRole("admin", am.handleCreateShareLink)))
+		mux.HandleFunc("GET /api/v1/links", am.authMiddleware(am.requireRole("admin", am.handleListShareLinks)))
+		mux.HandleFunc("DELETE /api/v1/links/{id}", am.authMiddleware(am.requireRole("admin", am.handleRevokeShareLink)))
 		am.routesRegistered = true
 	}
 
@@ -912,13 +925,16 @@ func (am *APIManager) enforceTagScope(keyCtx *apiKeyContext, clipID int64) error
 	if err := am.app.db.QueryRow("SELECT name FROM tags WHERE id = ?", keyCtx.ScopedTagID).Scan(&scopedName); err != nil {
 		return fmt.Errorf("forbidden: scoped tag not found")
 	}
-	// Check if clip has the scoped tag or any descendant
+	// Check if clip has the scoped tag or any descendant. Escape SQL LIKE
+	// wildcards in the scoped name so a tag literally containing _ or % cannot
+	// over-match a sibling subtree (mirrors removeSameTreeTags in app.go).
+	escapedName := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(scopedName)
 	var count int
 	am.app.db.QueryRow(`
 		SELECT COUNT(*) FROM clip_tags ct
 		JOIN tags t ON ct.tag_id = t.id
-		WHERE ct.clip_id = ? AND (t.id = ? OR t.name LIKE ?)`,
-		clipID, keyCtx.ScopedTagID, scopedName+"/%").Scan(&count)
+		WHERE ct.clip_id = ? AND (t.id = ? OR t.name LIKE ? ESCAPE '\')`,
+		clipID, keyCtx.ScopedTagID, escapedName+"/%").Scan(&count)
 	if count == 0 {
 		return fmt.Errorf("forbidden: clip not in scoped tag")
 	}
@@ -1290,35 +1306,47 @@ func (am *APIManager) handleGetClipData(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	if !am.writeClipBytes(w, id) {
+		am.jsonError(w, http.StatusNotFound, "clip not found")
+	}
+}
+
+// writeClipBytes streams a clip's raw bytes to w with the full set of
+// stored-XSS defenses. It performs NO authorization — every caller must gate
+// access first (Bearer/session for the REST route, an unguessable token for the
+// public /s/{token} share route). It returns false without writing anything when
+// the clip row is missing, so the caller can emit its own not-found response.
+//
+// In web-UI (server) mode the SPA and this endpoint share one origin, so a
+// stored text/html (or SVG) clip rendered inline would execute script with the
+// user's session — effectively account takeover. The same risk applies to a
+// public /s/{token} link on the app origin. Defend in depth:
+//   - nosniff: stop content-type sniffing into an executable type.
+//   - Content-Disposition: attachment (always, even with an empty filename):
+//     direct navigation downloads instead of rendering inline. The web UI
+//     reads clip bytes via fetch()+Blob, which ignores this header, so image
+//     previews/editor are unaffected.
+//   - CSP sandbox: even if a browser were coerced into rendering this
+//     response, it runs in an opaque origin with scripts disabled.
+func (am *APIManager) writeClipBytes(w http.ResponseWriter, clipID int64) bool {
 	var data []byte
 	var contentType string
 	var filename sql.NullString
 
-	err = am.app.db.QueryRow("SELECT data, content_type, filename FROM clips WHERE id = ?", id).
-		Scan(&data, &contentType, &filename)
-	if err != nil {
-		am.jsonError(w, http.StatusNotFound, "clip not found")
-		return
+	if err := am.app.db.QueryRow("SELECT data, content_type, filename FROM clips WHERE id = ?", clipID).
+		Scan(&data, &contentType, &filename); err != nil {
+		return false
 	}
 
-	// In web-UI (server) mode the SPA and this endpoint share one origin, so a
-	// stored text/html (or SVG) clip rendered inline would execute script with
-	// the user's session — effectively account takeover. Defend in depth:
-	//   - nosniff: stop content-type sniffing into an executable type.
-	//   - Content-Disposition: attachment (always, even with an empty filename):
-	//     direct navigation downloads instead of rendering inline. The web UI
-	//     reads clip bytes via fetch()+Blob, which ignores this header, so image
-	//     previews/editor are unaffected.
-	//   - CSP sandbox: even if a browser were coerced into rendering this
-	//     response, it runs in an opaque origin with scripts disabled.
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
 	if contentType != "" {
 		w.Header().Set("Content-Type", contentType)
 	}
-	w.Header().Set("Content-Disposition", attachmentDisposition(sanitizeDownloadName(filename.String, id)))
+	w.Header().Set("Content-Disposition", attachmentDisposition(sanitizeDownloadName(filename.String, clipID)))
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(data)))
 	w.Write(data)
+	return true
 }
 
 // sanitizeDownloadName returns a safe, separator-free filename for use in a
@@ -3347,6 +3375,73 @@ func (am *APIManager) handlePluginURLCheck(w http.ResponseWriter, r *http.Reques
 	}
 	allowed := am.app.pluginManager != nil && am.app.pluginManager.IsPluginURLAllowed(id, body.URL, body.Method)
 	am.jsonOK(w, map[string]bool{"allowed": allowed})
+}
+
+// handleUploadPlugin accepts a Lua plugin file via multipart upload and returns a
+// permission preview keyed by an opaque token. This is the headless equivalent of
+// the desktop "open file dialog" import: the browser reads the local file and POSTs
+// it here. The frontend reviews the returned preview, then POSTs the token to
+// /plugins/confirm to install the exact reviewed content (no re-fetch, no TOCTOU).
+func (am *APIManager) handleUploadPlugin(w http.ResponseWriter, r *http.Request) {
+	if am.app.pluginManager == nil {
+		am.jsonError(w, http.StatusServiceUnavailable, "plugin manager not initialized")
+		return
+	}
+
+	const maxPluginUploadBytes = 1 * 1024 * 1024 // 1 MB; Lua plugins are small
+
+	mediaType, params, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if !strings.HasPrefix(mediaType, "multipart/") {
+		am.jsonError(w, http.StatusBadRequest, "expected multipart/form-data")
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxPluginUploadBytes+multipartOverheadBytes)
+
+	reader := multipart.NewReader(r.Body, params["boundary"])
+	part, err := reader.NextPart()
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "failed to read multipart data")
+		return
+	}
+
+	data, err := io.ReadAll(io.LimitReader(part, maxPluginUploadBytes+1))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "failed to read file data")
+		return
+	}
+	if len(data) > maxPluginUploadBytes {
+		am.jsonError(w, http.StatusRequestEntityTooLarge, "plugin file too large (max 1 MB)")
+		return
+	}
+
+	preview, err := plugin.PreviewFromSource(string(data), "")
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	token, err := newPluginUploadToken()
+	if err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to generate upload token")
+		return
+	}
+	am.app.pluginManager.StorePendingInstall(token, string(data))
+	preview.Source = token
+
+	am.jsonOK(w, preview)
+}
+
+// newPluginUploadToken returns an opaque token used to key a pending plugin upload.
+// The "upload:" prefix guarantees it is neither an http(s) URL nor a resolvable
+// filesystem path, so installPluginFromSource only ever resolves it from the
+// pending-install cache.
+func newPluginUploadToken() (string, error) {
+	buf := make([]byte, 16)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return "upload:" + hex.EncodeToString(buf), nil
 }
 
 func (am *APIManager) handlePreviewPluginFromURL(w http.ResponseWriter, r *http.Request) {

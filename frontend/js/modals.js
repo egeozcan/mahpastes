@@ -809,6 +809,9 @@ async function handleLightboxFileAction(action) {
         case 'copy-path':
             saveTempFile(clip.id);
             break;
+        case 'copy-public-link':
+            createAndCopyPublicLink(clip.id);
+            break;
         case 'copy-file':
             copyFileToClipboard(clip.id);
             break;

@@ -214,6 +214,16 @@
         UpdateFollowTag: (id, localTagName) => putJSON(`${api}/share/follow/${id}/tag`, { local_tag_name: localTagName }),
         GetShareLogs: (followID, publicationID) => fetchJSON(`${api}/share/logs?follow_id=${followID || 0}&publication_id=${publicationID || 0}`),
     };
+    window.go.main.LinkService = {
+        CreateShareLink: (clipID, name, expiresInSeconds, maxDownloads) => postJSON(`${api}/links`, {
+            clip_id: clipID,
+            name: name || '',
+            expires_in_seconds: expiresInSeconds || 0,
+            max_downloads: maxDownloads || 0,
+        }),
+        ListShareLinks: () => fetchJSON(`${api}/links`),
+        RevokeShareLink: (id) => del(`${api}/links/${id}`),
+    };
     window.go.main.PluginService = {
         GetPlugins: async () => (await fetchJSON(`${api}/plugins`)).plugins || [],
         GetPluginUIActions: () => fetchJSON(`${api}/plugins/actions`),
@@ -231,7 +241,32 @@
         GetAllPluginStorage: (id) => fetchJSON(`${api}/plugins/${id}/storage`),
         SetPluginStorage: (id, key, value) => putJSON(`${api}/plugins/${id}/storage/${encodeURIComponent(key)}`, { value }),
         TryAcquireModalGuard: async () => true,
-        ImportPlugin: async () => { throw new Error('local plugin import is desktop-only in server mode'); },
+        ImportPlugin: () => new Promise((resolve, reject) => {
+            // Headless equivalent of the desktop file dialog: let the browser pick a
+            // local .lua file, upload it, and return the permission preview. The caller
+            // then reviews it and calls ConfirmPluginInstall(preview.source).
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.lua';
+            input.style.display = 'none';
+            let settled = false;
+            const finish = (fn, arg) => { if (!settled) { settled = true; input.remove(); fn(arg); } };
+            input.addEventListener('cancel', () => finish(resolve, null));
+            input.addEventListener('change', async () => {
+                const file = input.files && input.files[0];
+                if (!file) { finish(resolve, null); return; }
+                try {
+                    const fd = new FormData();
+                    fd.append('file', file, file.name);
+                    const preview = await fetchJSON(`${api}/plugins/upload`, { method: 'POST', body: fd });
+                    finish(resolve, preview);
+                } catch (err) {
+                    finish(reject, err);
+                }
+            });
+            document.body.appendChild(input);
+            input.click();
+        }),
         GetUpdateCheckInterval: () => window.go.main.App.GetSetting('plugin_update_interval'),
         SetUpdateCheckInterval: (value) => window.go.main.App.SetSetting('plugin_update_interval', value),
     };

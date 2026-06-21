@@ -216,6 +216,23 @@ async function copyClipContents(id) {
     }
 }
 
+// Mints a revocable public share link for a clip and copies the full URL to the
+// clipboard. The link is unauthenticated and downloadable by anyone holding it;
+// revoke it from the CLI (`mp link revoke <id>`) or LinkService at any time.
+async function createAndCopyPublicLink(id) {
+    try {
+        const link = await window.go.main.LinkService.CreateShareLink(id, '', 0, 0);
+        const path = (link && link.path) || (link && link.token ? '/s/' + link.token : '');
+        if (!path) {
+            throw new Error('Invalid response');
+        }
+        copyToClipboard(window.location.origin + path);
+    } catch (error) {
+        console.error('Error creating public link:', error);
+        showToast('Failed to create public link.');
+    }
+}
+
 async function deleteAllTempFiles() {
     showConfirmDialog('Delete All Temp Files', 'Are you sure you want to delete ALL temporary files?', async () => {
         try {

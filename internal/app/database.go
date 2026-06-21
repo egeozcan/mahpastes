@@ -306,10 +306,94 @@ func initDB() (*sql.DB, error) {
 	// Shares use the existing status column: status="paused" is a first-class value.
 	_, _ = db.Exec("ALTER TABLE follows ADD COLUMN paused INTEGER NOT NULL DEFAULT 0")
 
+	// Create share_links table (revocable per-clip public URLs served at /s/{token}).
+	// Only the token's SHA-256 hash is stored; a DB leak yields no working links.
+	// ON DELETE CASCADE removes links automatically when their clip is deleted.
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS share_links (
+		id             INTEGER PRIMARY KEY AUTOINCREMENT,
+		clip_id        INTEGER NOT NULL,
+		token_hash     TEXT    NOT NULL UNIQUE,
+		token_prefix   TEXT    NOT NULL,
+		name           TEXT,
+		created_by     INTEGER,
+		is_revoked     INTEGER NOT NULL DEFAULT 0,
+		expires_at     DATETIME,
+		max_downloads  INTEGER,
+		download_count INTEGER NOT NULL DEFAULT 0,
+		created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+		last_used_at   DATETIME,
+		FOREIGN KEY (clip_id) REFERENCES clips(id) ON DELETE CASCADE
+	)`); err != nil {
+		log.Printf("Warning: Failed to create share_links table: %v", err)
+	}
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_share_links_clip ON share_links(clip_id)`); err != nil {
+		log.Printf("Warning: Failed to create idx_share_links_clip: %v", err)
+	}
+
 	// Backfill content hashes for existing clips that don't have one
 	backfillContentHashes(db)
 
+	// Normalize any clips.expires_at rows written by older builds (Go time.Time
+	// String() format, which SQLite cannot compare correctly) to canonical UTC.
+	migrateClipExpiresAtToUTC(db)
+
 	return db, nil
+}
+
+// migrateClipExpiresAtToUTC rewrites any clips.expires_at stored in Go's
+// time.Time.String() format — a local-zone string with a monotonic-clock suffix
+// that SQLite cannot parse or compare against CURRENT_TIMESTAMP — into canonical
+// UTC text. Older builds bound a raw *time.Time, which serialized that way and
+// made expiry comparisons (and the cleanup reaper) wrong on non-UTC servers.
+// Idempotent: rows already in canonical form do not parse as a Go time string
+// and are left untouched.
+func migrateClipExpiresAtToUTC(db *sql.DB) {
+	rows, err := db.Query("SELECT id, CAST(expires_at AS TEXT) FROM clips WHERE expires_at IS NOT NULL")
+	if err != nil {
+		log.Printf("Warning: expires_at migration query failed: %v", err)
+		return
+	}
+	type fix struct {
+		id  int64
+		val string
+	}
+	var fixes []fix
+	for rows.Next() {
+		var id int64
+		var raw string
+		if err := rows.Scan(&id, &raw); err != nil {
+			continue
+		}
+		if canonical, ok := goTimeStringToUTC(raw); ok {
+			fixes = append(fixes, fix{id, canonical})
+		}
+	}
+	rows.Close()
+
+	for _, f := range fixes {
+		if _, err := db.Exec("UPDATE clips SET expires_at = ? WHERE id = ?", f.val, f.id); err != nil {
+			log.Printf("Warning: expires_at migration update for clip %d failed: %v", f.id, err)
+		}
+	}
+	if len(fixes) > 0 {
+		log.Printf("Normalized expires_at to UTC for %d clips", len(fixes))
+	}
+}
+
+// goTimeStringToUTC parses a Go time.Time.String() value (optionally carrying a
+// " m=±..." monotonic-clock suffix) and returns it as canonical UTC text
+// ("2006-01-02 15:04:05"). It returns ("", false) for any value not in that
+// format — including rows already in canonical form — which makes the caller's
+// migration idempotent.
+func goTimeStringToUTC(s string) (string, bool) {
+	if i := strings.Index(s, " m="); i >= 0 {
+		s = s[:i]
+	}
+	t, err := time.Parse("2006-01-02 15:04:05.999999999 -0700 MST", s)
+	if err != nil {
+		return "", false
+	}
+	return t.UTC().Format("2006-01-02 15:04:05"), true
 }
 
 // InitDB initializes the SQLite database.
@@ -474,6 +558,12 @@ func StartCleanupJob(ctx context.Context, db *sql.DB) {
 					if rows > 0 {
 						log.Printf("Cleaned up %d expired clips\n", rows)
 					}
+				}
+				// Garbage-collect expired share links. The view path already rejects
+				// expired rows in SQL, so this only reclaims dead rows. datetime()
+				// normalizes the stored timestamp so the comparison is timezone-safe.
+				if _, err := db.Exec("DELETE FROM share_links WHERE expires_at IS NOT NULL AND datetime(expires_at) <= datetime('now')"); err != nil {
+					log.Printf("Failed to delete expired share links: %v\n", err)
 				}
 			}
 		}

@@ -536,6 +536,71 @@ export namespace app {
 	        this.created_at = source["created_at"];
 	    }
 	}
+	export class ShareLinkInfo {
+	    id: number;
+	    clip_id: number;
+	    token_prefix: string;
+	    name: string;
+	    is_revoked: boolean;
+	    expires_at?: string;
+	    max_downloads?: number;
+	    download_count: number;
+	    created_at: string;
+	    last_used_at?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ShareLinkInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.clip_id = source["clip_id"];
+	        this.token_prefix = source["token_prefix"];
+	        this.name = source["name"];
+	        this.is_revoked = source["is_revoked"];
+	        this.expires_at = source["expires_at"];
+	        this.max_downloads = source["max_downloads"];
+	        this.download_count = source["download_count"];
+	        this.created_at = source["created_at"];
+	        this.last_used_at = source["last_used_at"];
+	    }
+	}
+	export class ShareLinkCreateResult {
+	    token: string;
+	    path: string;
+	    info: ShareLinkInfo;
+	
+	    static createFrom(source: any = {}) {
+	        return new ShareLinkCreateResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.token = source["token"];
+	        this.path = source["path"];
+	        this.info = this.convertValues(source["info"], ShareLinkInfo);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
 	export class ShareLogEntry {
 	    timestamp: number;
 	    level: string;
