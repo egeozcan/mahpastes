@@ -1,0 +1,78 @@
+name: Vulnerability Scan
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  schedule:
+    # Weekly (Mondays 06:17 UTC). The main value of govulncheck in CI: catch
+    # vulnerabilities newly disclosed against ALREADY-pinned deps, even when no
+    # code changes. Without a cron, a fresh advisory would go unnoticed until
+    # the next push.
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: govulncheck-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  govulncheck:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          # Read the version from go.mod so the scan links the SAME standard
+          # library the production binary is built with (the `toolchain go1.26.x`
+          # directive is honored, so stdlib CVE results reflect reality).
+          go-version-file: go.mod
+
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      - name: Run govulncheck
+        run: |
+          set -euo pipefail
+
+          # govulncheck exits non-zero whenever ANY vulnerability is reachable.
+          # We have exactly one permanently-accepted advisory (allowlist below),
+          # so capture JSON and gate ourselves instead of trusting the exit code.
+          govulncheck -format json ./... > govulncheck.json || true
+
+          # Reviewed + accepted advisories (space-separated). Failing CI on these
+          # would be noise.
+          #   GO-2024-3218 — go-libp2p-kad-dht DHT content-censorship. No fixed
+          #     release exists (Fixed: N/A); it cannot expose our share data (the
+          #     share protocol is separately encrypted/authenticated) and is the
+          #     unavoidable cost of WAN peer discovery. Drop from this list and
+          #     bump the dep if/when a fix ships.
+          ALLOWED='GO-2024-3218'
+
+          # "Reachable" = symbol-level findings whose first trace frame names a
+          # function (i.e. the vulnerable symbol is actually called). Module- or
+          # package-only findings (imported but never called) are ignored on
+          # purpose — they don't affect the built binary.
+          reachable=$(jq -rs '[.[] | select(.finding.trace[0].function != null) | .finding.osv] | unique[]' govulncheck.json)
+
+          echo "Reachable advisories:"
+          printf '  %s\n' ${reachable:-"(none)"}
+
+          unexpected=$(printf '%s\n' $reachable | grep -vxFf <(printf '%s\n' $ALLOWED) || true)
+          if [ -n "$unexpected" ]; then
+            echo
+            echo "::error::Reachable vulnerabilities found that are not in the allowlist:"
+            printf '::error::  %s\n' $unexpected
+            echo
+            echo "----- full govulncheck report -----"
+            govulncheck ./... || true
+            exit 1
+          fi
+
+          echo "OK: no reachable vulnerabilities outside the allowlist."
