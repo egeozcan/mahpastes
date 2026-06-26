@@ -356,6 +356,8 @@ Object.assign(window.__testHelpers, {
     }
   },
   handleFolderDrop: (folderFiles, looseFiles, dirPaths) => handleFolderDrop(folderFiles, looseFiles, dirPaths),
+  handlePastedFiles: (files) => handlePastedFiles(files),
+  pastedImageName: (fileData) => pastedImageName(fileData),
   confirmFolderDrop: (fileCount, maxDepth) => confirmFolderDrop(fileCount, maxDepth),
   parseGitignore: (content) => parseGitignore(content),
   buildIgnoreFn: (content) => buildIgnoreFn(content),
@@ -434,7 +436,7 @@ document.addEventListener('paste', e => {
     }
 
     if (e.clipboardData.files.length > 0) {
-        handleFiles(e.clipboardData.files);
+        handlePastedFiles(e.clipboardData.files);
     } else {
         const text = e.clipboardData.getData('text/plain');
         if (text) {
@@ -599,6 +601,52 @@ async function handleFiles(files) {
     }
 
     upload(fileDataArray);
+}
+
+// The system WebView hands clipboard bitmap data (screen captures, "Copy Image")
+// to us under a generic name — "image.png" on WKWebView and WebView2. Every paste
+// yields a fresh "image.png", so the filename-based duplicate check would flag each
+// one as a conflict and prompt. We instead name pasted clipboard images by their
+// content hash: distinct captures get distinct names (no prompt), while re-pasting
+// the same capture produces the same name and is collapsed into the existing
+// identical-content skip. Files pasted with a meaningful name are left untouched, so
+// they still benefit from normal conflict detection.
+const GENERIC_CLIPBOARD_IMAGE_RE = /^image\.(png|jpe?g|gif|webp|bmp)$/i;
+
+async function pastedImageName(fileData) {
+    const m = GENERIC_CLIPBOARD_IMAGE_RE.exec(fileData.name || '');
+    if (!m) return fileData.name;
+    const ext = m[1].toLowerCase();
+    const hash = await computeFileHash(fileData.data);
+    return `pasted_image_${hash.slice(0, 16)}.${ext}`;
+}
+
+// Pastes are serialized so a rapid double Cmd+V of the same capture cannot race:
+// the second paste's duplicate check runs only after the first clip is committed,
+// which lets content-addressed naming collapse it into an identical-content skip.
+let pasteQueue = Promise.resolve();
+
+function handlePastedFiles(files) {
+    const run = pasteQueue.then(() => processPastedFiles(files));
+    pasteQueue = run.catch(() => {}); // keep the queue chainable even if a paste fails
+    return run;
+}
+
+async function processPastedFiles(files) {
+    if (isViewingArchive) {
+        showToast('Switch to Active view to upload.');
+        return;
+    }
+    if (files.length === 0) return;
+
+    const fileDataArray = [];
+    for (let i = 0; i < files.length; i++) {
+        const fileData = await fileToFileData(files[i]);
+        fileData.name = await pastedImageName(fileData);
+        fileDataArray.push(fileData);
+    }
+
+    await upload(fileDataArray);
 }
 
 // --- Directory Traversal Helpers ---

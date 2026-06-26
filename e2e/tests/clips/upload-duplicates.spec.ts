@@ -246,6 +246,81 @@ test.describe('Upload Duplicate Detection', () => {
     await app.expectClipCount(1);
   });
 
+  // The WebView names clipboard bitmap data "image.png" on every paste.
+  const paste = async (app: any, rgb: [number, number, number]) => {
+    const base64 = generateTestImage(50, 50, rgb).toString('base64');
+    await app.page.evaluate(async (data: string) => {
+      const binary = atob(data);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      // Generic clipboard name, exactly what the WebView assigns to a screen capture.
+      const file = new File([bytes], 'image.png', { type: 'image/png' });
+      // @ts-ignore - handlePastedFiles awaits the upload, so this resolves once committed
+      await window.__testHelpers.handlePastedFiles([file]);
+    }, base64);
+  };
+
+  test('different screen captures land as distinct clips without a conflict prompt', async ({ app }) => {
+    await paste(app, [255, 0, 0]);
+    await app.expectClipCount(1);
+
+    // Second paste: different bytes, same generic "image.png" name.
+    await paste(app, [0, 255, 0]);
+
+    // No prompt — both land as distinct clips. (If the dialog had appeared, the
+    // upload would block and the count would never reach 2.)
+    await app.expectClipCount(2);
+    const dialog = app.page.locator(selectors.conflict.dialog);
+    await expect(dialog).toHaveAttribute('inert', '');
+
+    // Both clips were renamed to content-addressed pasted_image_* names.
+    const renamed = app.page.locator('#gallery > li[data-filename^="pasted_image_"]');
+    await expect(renamed).toHaveCount(2);
+  });
+
+  test('re-pasting the same capture is deduped, not duplicated', async ({ app }) => {
+    await paste(app, [0, 0, 255]);
+    await app.expectClipCount(1);
+
+    // Accidental second Cmd+V of the identical capture — same bytes, same generic name.
+    await paste(app, [0, 0, 255]);
+
+    // Content-addressed naming collapses it into the identical-content skip:
+    // still one clip, and no conflict prompt.
+    await app.expectToast('skipped');
+    await app.expectClipCount(1);
+    const dialog = app.page.locator(selectors.conflict.dialog);
+    await expect(dialog).toHaveAttribute('inert', '');
+  });
+
+  test('pastedImageName is content-addressed for generic names and a no-op otherwise', async ({ app }) => {
+    const results = await app.page.evaluate(async () => {
+      // @ts-ignore
+      const fn = window.__testHelpers.pastedImageName;
+      const dataA = btoa('screen-capture-A');
+      const dataB = btoa('screen-capture-B');
+      return {
+        png: await fn({ name: 'image.png', data: dataA }),
+        jpeg: await fn({ name: 'image.jpeg', data: dataA }),
+        jpgUpper: await fn({ name: 'image.JPG', data: dataA }),
+        sameAgain: await fn({ name: 'image.png', data: dataA }),
+        different: await fn({ name: 'image.png', data: dataB }),
+        realName: await fn({ name: 'quarterly-report.png', data: dataA }),
+        pdf: await fn({ name: 'document.pdf', data: dataA }),
+      };
+    });
+
+    expect(results.png).toMatch(/^pasted_image_[0-9a-f]{16}\.png$/);
+    expect(results.jpeg).toMatch(/^pasted_image_[0-9a-f]{16}\.jpeg$/);
+    expect(results.jpgUpper).toMatch(/^pasted_image_[0-9a-f]{16}\.jpg$/); // extension lowercased
+    // Identical bytes → identical name (the dedup key); different bytes → different name.
+    expect(results.sameAgain).toBe(results.png);
+    expect(results.different).not.toBe(results.png);
+    // Meaningful names are left untouched so they keep conflict detection.
+    expect(results.realName).toBe('quarterly-report.png');
+    expect(results.pdf).toBe('document.pdf');
+  });
+
   test.afterEach(async ({ app }) => {
     // Exit folder mode if active
     const btn = app.page.locator('[data-testid="folder-mode-button"]');
