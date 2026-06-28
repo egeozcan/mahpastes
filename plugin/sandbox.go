@@ -210,9 +210,32 @@ func (s *Sandbox) GetPluginID() int64 {
 	return s.pluginID
 }
 
+// scalarMapToLuaTable converts a Go map of scalar values into a Lua table.
+// Non-scalar values are skipped. nil maps yield an empty table.
+func scalarMapToLuaTable(L *lua.LState, m map[string]interface{}) *lua.LTable {
+	t := L.NewTable()
+	for k, v := range m {
+		switch val := v.(type) {
+		case string:
+			t.RawSetString(k, lua.LString(val))
+		case float64:
+			t.RawSetString(k, lua.LNumber(val))
+		case bool:
+			t.RawSetString(k, lua.LBool(val))
+		case int:
+			t.RawSetString(k, lua.LNumber(val))
+		case int64:
+			t.RawSetString(k, lua.LNumber(val))
+		}
+	}
+	return t
+}
+
 // CallUIAction calls the on_ui_action handler with proper context and returns the result.
 // The timeout parameter controls how long the action is allowed to run.
-func (s *Sandbox) CallUIAction(actionID string, clipIDs []int64, options map[string]interface{}, timeout time.Duration) (map[string]interface{}, error) {
+// actionContext carries invocation context (e.g. the active folder's tag) and is passed
+// to the handler as a fourth argument: on_ui_action(action_id, clip_ids, options, context).
+func (s *Sandbox) CallUIAction(actionID string, clipIDs []int64, options map[string]interface{}, actionContext map[string]interface{}, timeout time.Duration) (map[string]interface{}, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -242,29 +265,19 @@ func (s *Sandbox) CallUIAction(actionID string, clipIDs []int64, options map[str
 		clipIDsTable.Append(lua.LNumber(id))
 	}
 
-	// Convert options to Lua table
-	optionsTable := s.L.NewTable()
-	for k, v := range options {
-		switch val := v.(type) {
-		case string:
-			optionsTable.RawSetString(k, lua.LString(val))
-		case float64:
-			optionsTable.RawSetString(k, lua.LNumber(val))
-		case bool:
-			optionsTable.RawSetString(k, lua.LBool(val))
-		case int:
-			optionsTable.RawSetString(k, lua.LNumber(val))
-		}
-	}
+	// Convert options and context to Lua tables
+	optionsTable := scalarMapToLuaTable(s.L, options)
+	contextTable := scalarMapToLuaTable(s.L, actionContext)
 
 	// Push function and arguments
 	s.L.Push(fn)
 	s.L.Push(lua.LString(actionID))
 	s.L.Push(clipIDsTable)
 	s.L.Push(optionsTable)
+	s.L.Push(contextTable)
 
 	// Call with error handling
-	err := s.L.PCall(3, 1, nil)
+	err := s.L.PCall(4, 1, nil)
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			return nil, fmt.Errorf("on_ui_action timed out after %v", timeout)

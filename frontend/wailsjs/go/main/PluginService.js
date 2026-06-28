@@ -22,8 +22,8 @@ export function EnablePlugin(arg1) {
   return window['go']['main']['PluginService']['EnablePlugin'](arg1);
 }
 
-export function ExecutePluginAction(arg1, arg2, arg3, arg4) {
-  return window['go']['main']['PluginService']['ExecutePluginAction'](arg1, arg2, arg3, arg4);
+export function ExecutePluginAction(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['main']['PluginService']['ExecutePluginAction'](arg1, arg2, arg3, arg4, arg5);
 }
 
 export function GetAllPluginStorage(arg1) {

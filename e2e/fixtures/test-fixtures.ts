@@ -2242,21 +2242,22 @@ export class AppHelper {
     pluginId: number,
     actionId: string,
     clipIds: number[],
-    options: Record<string, any> = {}
+    options: Record<string, any> = {},
+    context: Record<string, any> = {}
   ): Promise<{ success: boolean; error?: string; result_clip_id?: number }> {
-    return this.page.evaluate(async ({ pid, aid, cids, opts }) => {
+    return this.page.evaluate(async ({ pid, aid, cids, opts, ctx }) => {
       // @ts-ignore - Wails runtime
       if (typeof window.go?.main?.PluginService?.ExecutePluginAction !== 'function') {
         return { success: false, error: 'API not available' };
       }
       try {
         // @ts-ignore
-        const result = await window.go.main.PluginService.ExecutePluginAction(pid, aid, cids, opts);
+        const result = await window.go.main.PluginService.ExecutePluginAction(pid, aid, cids, opts, ctx);
         return result || { success: false, error: 'No result returned' };
       } catch (e: any) {
         return { success: false, error: e.message || String(e) };
       }
-    }, { pid: pluginId, aid: actionId, cids: clipIds, opts: options });
+    }, { pid: pluginId, aid: actionId, cids: clipIds, opts: options, ctx: context });
   }
 
   async openCardMenu(filename: string): Promise<void> {

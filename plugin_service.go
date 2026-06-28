@@ -441,13 +441,15 @@ func (s *PluginService) GetPluginUIActions() (*UIActionsResponse, error) {
 	return response, nil
 }
 
-// ExecutePluginAction calls a plugin's on_ui_action handler
-func (s *PluginService) ExecutePluginAction(pluginID int64, actionID string, clipIDs []int64, options map[string]interface{}) (*ActionResult, error) {
+// ExecutePluginAction calls a plugin's on_ui_action handler.
+// context carries invocation context (e.g. the active folder's tag) so plugins
+// can place results into the current folder. It may be nil.
+func (s *PluginService) ExecutePluginAction(pluginID int64, actionID string, clipIDs []int64, options map[string]interface{}, context map[string]interface{}) (*ActionResult, error) {
 	if s.app.PluginManager() == nil {
 		return &ActionResult{Success: false, Error: "plugin manager not initialized"}, nil
 	}
 
-	result, err := s.app.PluginManager().ExecuteUIAction(pluginID, actionID, clipIDs, options)
+	result, err := s.app.PluginManager().ExecuteUIAction(pluginID, actionID, clipIDs, options, context)
 	if err != nil {
 		return &ActionResult{Success: false, Error: err.Error()}, nil
 	}

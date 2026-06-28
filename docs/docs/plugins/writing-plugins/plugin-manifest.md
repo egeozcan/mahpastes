@@ -359,7 +359,7 @@ Options support these types: `text`, `password`, `checkbox`, `select`, `range`.
 ### Handler
 
 ```lua
-function on_ui_action(action_id, clip_ids, options)
+function on_ui_action(action_id, clip_ids, options, context)
     if action_id == "enhance" then
         -- Process each clip
         for _, clip_id in ipairs(clip_ids) do
@@ -374,6 +374,17 @@ The handler receives:
 - `action_id` (string) - Which action was triggered
 - `clip_ids` (table) - Array of selected clip IDs
 - `options` (table) - User-provided option values (empty table if no options defined)
+- `context` (table) - Invocation context (empty table when not applicable). When the action is triggered from **folder view** while inside a folder, it carries:
+  - `folder_tag_id` (number) - The active folder's tag ID
+  - `folder_tag_path` (string) - The active folder's full tag path (e.g., `work/client1`)
+
+  Use this to place generated clips into the current folder:
+
+  ```lua
+  if context.folder_tag_id and context.folder_tag_id > 0 then
+      tags.add_to_clip(context.folder_tag_id, new_id)
+  end
+  ```
 
 It should return a table with:
 - `success` (boolean) — Whether the action succeeded
@@ -407,10 +418,10 @@ ui = {
 
 Global actions use the same `UIAction` structure as `lightbox_buttons` and `card_actions` (same fields: `id`, `label`, `icon`, `async`, `options`). The `file_types` and `max_size` fields are ignored since no clip is selected.
 
-When a user clicks a global action, the drawer closes and `on_ui_action` is called with an empty `clip_ids` table. If the action defines `options`, the options dialog opens first.
+When a user clicks a global action, the drawer closes and `on_ui_action` is called with an empty `clip_ids` table. If the action defines `options`, the options dialog opens first. When the drawer is opened from folder view, the `context` argument carries the active folder (see [Handler](#handler)), so a global action that creates clips can drop them into the current folder.
 
 ```lua
-function on_ui_action(action_id, clip_ids, options)
+function on_ui_action(action_id, clip_ids, options, context)
     if action_id == "generate_report" then
         -- clip_ids is empty for global actions
         local all = clips.list()

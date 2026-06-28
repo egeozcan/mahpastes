@@ -821,7 +821,7 @@ func (m *Manager) GetPluginByID(id int64) (*Plugin, bool) {
 // ExecuteUIAction calls a plugin's on_ui_action handler.
 // If the action has async=true in the manifest, it runs in a background goroutine
 // and returns immediately. The plugin should use task.start/progress/complete for feedback.
-func (m *Manager) ExecuteUIAction(pluginID int64, actionID string, clipIDs []int64, options map[string]interface{}) (*ActionResult, error) {
+func (m *Manager) ExecuteUIAction(pluginID int64, actionID string, clipIDs []int64, options map[string]interface{}, context map[string]interface{}) (*ActionResult, error) {
 	m.mu.RLock()
 	p, ok := m.plugins[pluginID]
 	m.mu.RUnlock()
@@ -847,7 +847,7 @@ func (m *Manager) ExecuteUIAction(pluginID int64, actionID string, clipIDs []int
 	// Async actions run in a background goroutine with extended timeout
 	if action.Async {
 		go func() {
-			luaResult, err := p.Sandbox.CallUIAction(actionID, clipIDs, options, MaxUIActionTime)
+			luaResult, err := p.Sandbox.CallUIAction(actionID, clipIDs, options, context, MaxUIActionTime)
 			if err != nil {
 				log.Printf("Plugin %s async action %s failed: %v", p.Name, actionID, err)
 				m.incrementErrorCount(pluginID)
@@ -878,7 +878,7 @@ func (m *Manager) ExecuteUIAction(pluginID int64, actionID string, clipIDs []int
 	}
 
 	// Synchronous actions block and return the result
-	luaResult, err := p.Sandbox.CallUIAction(actionID, clipIDs, options, MaxExecutionTime)
+	luaResult, err := p.Sandbox.CallUIAction(actionID, clipIDs, options, context, MaxExecutionTime)
 	if err != nil {
 		return nil, fmt.Errorf("plugin action failed: %w", err)
 	}

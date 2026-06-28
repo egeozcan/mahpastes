@@ -705,12 +705,33 @@ pluginsModal.addEventListener('click', (e) => {
 
 // Escape handling for plugin modals is unified in ShortcutManager (closeTopModalOverlay).
 
+// Capture the invocation context for a plugin action. When the user is in
+// folder view inside a folder, this carries the active folder's tag so plugins
+// (e.g. fal.ai generate) can place their results into the current folder.
+// Returns an empty object outside folder view.
+function getPluginActionContext() {
+    const context = {};
+    try {
+        if (typeof isFolderMode === 'function' && isFolderMode()
+            && Array.isArray(activeTagFilters) && activeTagFilters.length > 0) {
+            const tagId = activeTagFilters[activeTagFilters.length - 1];
+            context.folder_tag_id = tagId;
+            const tag = Array.isArray(allTags) ? allTags.find(t => t.id === tagId) : null;
+            context.folder_tag_path = tag ? tag.name : '';
+        }
+    } catch (e) {
+        // Folder context is best-effort; never block the action on it.
+    }
+    return context;
+}
+
 // --- Execute Plugin Action ---
 // This function is called when a plugin action is triggered from card menu or lightbox.
 // If isAsync is true, the backend runs the action in a background goroutine and returns immediately.
 async function executePluginAction(pluginId, actionId, clipIds, options, isAsync) {
     try {
-        const result = await window.go.main.PluginService.ExecutePluginAction(pluginId, actionId, clipIds, options || {});
+        const context = getPluginActionContext();
+        const result = await window.go.main.PluginService.ExecutePluginAction(pluginId, actionId, clipIds, options || {}, context);
         if (result && result.success) {
             if (result.modal) {
                 // Acquire modal guard so concurrent modal.show() calls are blocked

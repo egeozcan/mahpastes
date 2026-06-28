@@ -13,7 +13,7 @@ export function DisablePlugin(arg1:number):Promise<void>;
 
 export function EnablePlugin(arg1:number):Promise<void>;
 
-export function ExecutePluginAction(arg1:number,arg2:string,arg3:Array<number>,arg4:Record<string, any>):Promise<plugin.ActionResult>;
+export function ExecutePluginAction(arg1:number,arg2:string,arg3:Array<number>,arg4:Record<string, any>,arg5:Record<string, any>):Promise<plugin.ActionResult>;
 
 export function GetAllPluginStorage(arg1:number):Promise<Record<string, string>>;
 

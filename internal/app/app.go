@@ -3128,12 +3128,13 @@ func (a *App) installPluginFromSource(source string) (*PluginInfo, error) {
 }
 
 // executePluginAction calls a plugin's on_ui_action handler.
-func (a *App) executePluginAction(pluginID int64, actionID string, clipIDs []int64, options map[string]interface{}) (*ActionResult, error) {
+// context carries invocation context (e.g. the active folder's tag) and may be nil.
+func (a *App) executePluginAction(pluginID int64, actionID string, clipIDs []int64, options map[string]interface{}, context map[string]interface{}) (*ActionResult, error) {
 	if a.pluginManager == nil {
 		return &ActionResult{Success: false, Error: "plugin manager not initialized"}, nil
 	}
 
-	result, err := a.pluginManager.ExecuteUIAction(pluginID, actionID, clipIDs, options)
+	result, err := a.pluginManager.ExecuteUIAction(pluginID, actionID, clipIDs, options, context)
 	if err != nil {
 		return &ActionResult{Success: false, Error: err.Error()}, nil
 	}

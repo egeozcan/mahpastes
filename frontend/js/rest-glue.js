@@ -227,7 +227,7 @@
     window.go.main.PluginService = {
         GetPlugins: async () => (await fetchJSON(`${api}/plugins`)).plugins || [],
         GetPluginUIActions: () => fetchJSON(`${api}/plugins/actions`),
-        ExecutePluginAction: (pluginID, actionID, clipIDs, options) => postJSON(`${api}/plugins/${pluginID}/actions/${actionID}`, { clip_ids: clipIDs, options }),
+        ExecutePluginAction: (pluginID, actionID, clipIDs, options, context) => postJSON(`${api}/plugins/${pluginID}/actions/${actionID}`, { clip_ids: clipIDs, options, context }),
         ConfirmPluginInstall: (source) => postJSON(`${api}/plugins/confirm`, { source }),
         PreviewPluginFromURL: (source) => postJSON(`${api}/plugins/preview`, { source }),
         RemovePlugin: (id) => del(`${api}/plugins/${id}`),

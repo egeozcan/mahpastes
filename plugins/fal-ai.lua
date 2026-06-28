@@ -265,8 +265,21 @@ local function ensure_jpeg(clip_id)
     return new_clip.id
 end
 
--- Handle UI action from lightbox or card menu
-function on_ui_action(action_id, clip_ids, options)
+-- Place a freshly created clip into the active folder, if the action was invoked
+-- from folder view. context.folder_tag_id is absent/0 outside folder mode, so this
+-- is a no-op in that case.
+local function add_to_folder(clip_id, context)
+    if not clip_id or clip_id == 0 then return end
+    if not context then return end
+    local tag_id = context.folder_tag_id
+    if tag_id and tag_id > 0 then
+        tags.add_to_clip(tag_id, clip_id)
+    end
+end
+
+-- Handle UI action from lightbox, card menu, or global action.
+-- context carries the active folder's tag when invoked from folder view.
+function on_ui_action(action_id, clip_ids, options, context)
     local api_key = storage.get("api_key")
     if not api_key or api_key == "" then
         toast.show("FAL.AI API key not configured. Please set it in plugin settings.", "error")
@@ -359,6 +372,7 @@ function on_ui_action(action_id, clip_ids, options)
             end
 
             last_clip_id = ensure_jpeg(new_clip.id)
+            add_to_folder(last_clip_id, context)
         end)
 
         if ok then
@@ -451,6 +465,7 @@ function on_ui_action(action_id, clip_ids, options)
             -- Convert to JPEG to reduce file size (fal.ai often returns large PNGs)
             -- ensure_jpeg handles filename renaming to .jpg
             last_clip_id = ensure_jpeg(new_clip.id)
+            add_to_folder(last_clip_id, context)
         end)
 
         if not ok then

@@ -1192,8 +1192,10 @@ type PluginUIAction struct {
 Calls a plugin's `on_ui_action` handler.
 
 ```go
-func (s *PluginService) ExecutePluginAction(pluginID int64, actionID string, clipIDs []int64, options map[string]interface{}) (*ActionResult, error)
+func (s *PluginService) ExecutePluginAction(pluginID int64, actionID string, clipIDs []int64, options map[string]interface{}, context map[string]interface{}) (*ActionResult, error)
 ```
+
+`context` carries invocation context passed to the handler as its fourth argument. When the action is triggered from folder view, it contains `folder_tag_id` and `folder_tag_path` for the active folder so plugins can place results into the current folder. It may be `nil`/empty.
 
 ### PreviewPluginFromURL
 

@@ -3259,11 +3259,12 @@ func (am *APIManager) handleExecutePluginAction(w http.ResponseWriter, r *http.R
 	var body struct {
 		ClipIDs []int64                `json:"clip_ids"`
 		Options map[string]interface{} `json:"options"`
+		Context map[string]interface{} `json:"context"`
 	}
 	// Body is optional for actions that don't need clip IDs or options
 	json.NewDecoder(r.Body).Decode(&body)
 
-	result, err := am.app.executePluginAction(pluginID, actionID, body.ClipIDs, body.Options)
+	result, err := am.app.executePluginAction(pluginID, actionID, body.ClipIDs, body.Options, body.Context)
 	if err != nil {
 		am.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
