@@ -1312,10 +1312,15 @@ async function renderFolderCards() {
 // Expose to other modules and for test hooks.
 window.renderFolderCards = renderFolderCards;
 
-function navigateToFolder(tagId, { focusFirst = false } = {}) {
+function navigateToFolder(tagId, { focusFirst = false, isHistoryNav = false } = {}) {
     // Replace active filters with this tag's ancestors + this tag
     const tag = allTags.find(t => t.id === tagId);
     if (!tag) return;
+
+    // A fresh navigation (folder click, filter change) invalidates the
+    // forward history — just like a browser. Back/forward navigations
+    // preserve it so the user can retrace their steps.
+    if (!isHistoryNav) folderForwardStack.length = 0;
 
     // Build filter chain: all ancestors + this tag
     const ancestors = [];
@@ -1342,3 +1347,66 @@ function navigateToFolder(tagId, { focusFirst = false } = {}) {
     renderTagFilterDropdown();
     loadClips({ focusFirst });
 }
+
+// --- Folder back/forward history (mouse navigation buttons) ---
+//
+// Browsing folders is the app's primary "navigation" axis, so the mouse
+// back/forward buttons walk up and down the folder tree. `back` is always
+// derivable from the current position (go to the parent), while `forward`
+// needs a stack to remember which child the user backed out of.
+let folderForwardStack = [];
+
+// The deepest active folder filter is the folder currently being viewed,
+// or null when at the folder-mode root (showing top-level folder cards).
+function currentFolderTagId() {
+    return activeTagFilters.length ? activeTagFilters[activeTagFilters.length - 1] : null;
+}
+
+function navigateToFolderRoot() {
+    activeTagFilters.length = 0;
+    if (typeof window.rememberCurrentFolder === 'function') {
+        window.rememberCurrentFolder(null);
+    }
+    updateActiveTagsDisplay();
+    renderTagFilterDropdown();
+    loadClips();
+}
+
+// Go up one folder level. Returns true if it navigated.
+function navigateFolderBack() {
+    if (!(typeof isFolderMode === 'function' && isFolderMode())) return false;
+    const currentId = currentFolderTagId();
+    if (currentId == null) return false; // already at the root — nowhere to go up
+
+    folderForwardStack.push(currentId);
+
+    const tag = allTags.find(t => t.id === currentId);
+    const parentName = tag ? getParentTagName(tag.name) : '';
+    if (parentName) {
+        const parentTag = allTags.find(t => t.name === parentName);
+        if (parentTag) {
+            navigateToFolder(parentTag.id, { isHistoryNav: true });
+            return true;
+        }
+    }
+    // Root-level folder: step out to the top-level folder view.
+    navigateToFolderRoot();
+    return true;
+}
+
+// Re-enter the folder most recently backed out of. Returns true if it navigated.
+function navigateFolderForward() {
+    if (!(typeof isFolderMode === 'function' && isFolderMode())) return false;
+    while (folderForwardStack.length) {
+        const targetId = folderForwardStack.pop();
+        if (allTags.some(t => t.id === targetId)) {
+            navigateToFolder(targetId, { isHistoryNav: true });
+            return true;
+        }
+        // Tag was deleted while in the forward stack — skip it.
+    }
+    return false;
+}
+
+window.navigateFolderBack = navigateFolderBack;
+window.navigateFolderForward = navigateFolderForward;

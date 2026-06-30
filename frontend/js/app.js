@@ -557,6 +557,60 @@ lightbox.addEventListener('click', (e) => {
 // All gesture listeners are centralized in modals.js for better cohesion
 initLightboxGestures();
 
+// --- Mouse back/forward navigation buttons ---
+//
+// The side ("back"/"forward") buttons many mice expose for browser history
+// should navigate the app the same way: back closes the topmost open overlay
+// (lightbox, editor, comparison, modal, drawer) — mirroring Escape — or,
+// when none is open, walks up the folder tree. Forward retraces folder steps.
+// Mouse button numbers: 3 = back (X1), 4 = forward (X2).
+function mouseNavOverlayOpen() {
+    if (typeof ShortcutManager === 'undefined') return false;
+    const ctxs = ShortcutManager.getActiveContexts();
+    // An empty context means a blocking modal/drawer owns the screen; the
+    // image/editor/comparison contexts are full-screen overlays too.
+    return ctxs.length === 0 ||
+        ctxs.includes('lightbox') ||
+        ctxs.includes('editor') ||
+        ctxs.includes('comparison');
+}
+
+function handleMouseNavBack() {
+    if (mouseNavOverlayOpen()) {
+        // Reuse the well-tested Escape handling to close the topmost layer
+        // (closes open menus/selections first, then the overlay itself).
+        document.dispatchEvent(new KeyboardEvent('keydown', {
+            key: 'Escape', code: 'Escape', keyCode: 27, which: 27,
+            bubbles: true, cancelable: true,
+        }));
+        return;
+    }
+    if (typeof navigateFolderBack === 'function') navigateFolderBack();
+}
+
+function handleMouseNavForward() {
+    if (mouseNavOverlayOpen()) return; // forward is meaningless inside an overlay
+    if (typeof navigateFolderForward === 'function') navigateFolderForward();
+}
+
+// Desktop only: in the hosted/served build the physical side buttons belong
+// to the browser's own history, so we don't intercept them there.
+if (window.mahpastesMode !== 'server') {
+    // Suppress any default webview history navigation on press, act on release.
+    document.addEventListener('mousedown', (e) => {
+        if (e.button === 3 || e.button === 4) e.preventDefault();
+    }, true);
+    document.addEventListener('mouseup', (e) => {
+        if (e.button === 3) {
+            e.preventDefault();
+            handleMouseNavBack();
+        } else if (e.button === 4) {
+            e.preventDefault();
+            handleMouseNavForward();
+        }
+    }, true);
+}
+
 // Focus Trap for Confirm Dialog
 function setupConfirmDialogFocusTrap() {
     const dialog = document.getElementById('confirm-dialog');
