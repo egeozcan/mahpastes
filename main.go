@@ -24,11 +24,16 @@ func main() {
 	if err != nil {
 		log.Fatalf("data dir: %v", err)
 	}
-	instanceLock, err := coreapp.AcquireInstanceLock(dataDir)
-	if err != nil {
-		log.Fatalf("%v", err)
+	// Skip the single-instance lock during Wails binding generation: that build
+	// (`-tags bindings`) only introspects bound methods and exits, so it must
+	// not collide with the lock held by an already-running instance.
+	if !generatingBindings {
+		instanceLock, err := coreapp.AcquireInstanceLock(dataDir)
+		if err != nil {
+			log.Fatalf("%v", err)
+		}
+		defer instanceLock.Release()
 	}
-	defer instanceLock.Release()
 
 	desktopApp := NewApp()
 	core := desktopApp.core
