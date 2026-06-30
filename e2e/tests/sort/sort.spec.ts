@@ -258,3 +258,31 @@ test.describe('Sorting', () => {
     expect(names[2]).toBe('ccc-maintain.png');
   });
 });
+
+test.describe('Sort and tag filter mutual exclusivity', () => {
+  test('opening the sort popover closes an open tag filter dropdown', async ({ app }) => {
+    await app.openTagFilterDropdown();
+    const dropdown = app.page.locator(selectors.tags.filterDropdown);
+    await expect(dropdown).not.toHaveClass(/hidden/);
+
+    // Click the sort button as a real user would. Its handler stops
+    // propagation, so the tag dropdown's outside-click handler never fires —
+    // the only thing that can close it is the explicit close in openSortPopover().
+    await app.page.locator(selectors.sort.button).click();
+
+    await expect(app.page.locator(selectors.sort.popover)).toBeVisible();
+    await expect(dropdown).toHaveClass(/hidden/);
+  });
+
+  test('opening the tag filter dropdown closes an open sort popover', async ({ app }) => {
+    await app.openSortPopover();
+    await expect(app.page.locator(selectors.sort.popover)).toBeVisible();
+
+    // Mirror the reverse direction: clicking the tag filter button must remove
+    // the sort popover rather than leaving both open at once.
+    await app.page.locator(selectors.tags.filterButton).click();
+
+    await expect(app.page.locator(selectors.tags.filterDropdown)).not.toHaveClass(/hidden/);
+    await expect(app.page.locator(selectors.sort.popover)).toHaveCount(0);
+  });
+});

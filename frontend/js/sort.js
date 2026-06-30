@@ -11,6 +11,8 @@ const sortFields = [
 
 function openSortPopover() {
     closeSortPopover();
+    // Don't let the sort popover and tag filter dropdown coexist.
+    if (typeof closeTagFilterDropdown === 'function') closeTagFilterDropdown(false);
 
     const popover = document.createElement('div');
     popover.className = 'sort-popover fixed bg-white rounded-lg shadow-xl border border-stone-200 p-2 z-[60]';
