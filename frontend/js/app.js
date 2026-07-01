@@ -595,6 +595,14 @@ function handleMouseNavForward() {
 
 // Desktop only: in the hosted/served build the physical side buttons belong
 // to the browser's own history, so we don't intercept them there.
+//
+// Two delivery paths feed the same handlers, one per platform (mutually
+// exclusive, so there's no double-firing):
+//   - Windows (WebView2 / Chromium) reports the side buttons to the DOM
+//     correctly, so we read them here as button 3 (back) / 4 (forward).
+//   - macOS WKWebView does NOT: it reports both as button 1 with an
+//     intermittently-zero `buttons` bitmask. A native NSEvent monitor handles
+//     them there and emits the `mouse:nav` runtime event (subscribed below).
 if (window.mahpastesMode !== 'server') {
     // Suppress any default webview history navigation on press, act on release.
     document.addEventListener('mousedown', (e) => {
@@ -1712,6 +1720,14 @@ window.addEventListener('load', async () => {
         });
         window.runtime.EventsOn('tag:merged', (payload) => {
             window.handleTagReferenceEvent('tag:merged', payload);
+        });
+
+        // macOS side-button navigation arrives as a backend event because
+        // WKWebView can't report the buttons reliably to the DOM (see the
+        // mouse-nav block above).
+        window.runtime.EventsOn('mouse:nav', (direction) => {
+            if (direction === 'forward') handleMouseNavForward();
+            else handleMouseNavBack();
         });
     }
 

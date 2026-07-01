@@ -7,19 +7,17 @@ import path from 'path';
  * The mouse "back" (button 3) and "forward" (button 4) buttons mirror browser
  * history navigation: back closes the topmost overlay or walks up the folder
  * tree, forward retraces folder steps. Playwright's mouse API can't press the
- * physical side buttons, so we dispatch the same mouseup events the webview
- * delivers when they're clicked.
+ * physical side buttons, and on macOS WKWebView reports them too unreliably to
+ * read from the DOM at all, so the desktop build drives navigation from a
+ * native NSEvent monitor that emits the `mouse:nav` runtime event. We exercise
+ * that exact production path here by emitting the same event.
  */
 async function mouseBack(page: import('@playwright/test').Page): Promise<void> {
-  await page.evaluate(() => {
-    document.dispatchEvent(new MouseEvent('mouseup', { button: 3, bubbles: true, cancelable: true }));
-  });
+  await page.evaluate(() => (window as any).runtime.EventsEmit('mouse:nav', 'back'));
 }
 
 async function mouseForward(page: import('@playwright/test').Page): Promise<void> {
-  await page.evaluate(() => {
-    document.dispatchEvent(new MouseEvent('mouseup', { button: 4, bubbles: true, cancelable: true }));
-  });
+  await page.evaluate(() => (window as any).runtime.EventsEmit('mouse:nav', 'forward'));
 }
 
 test.describe('Mouse back/forward navigation', () => {

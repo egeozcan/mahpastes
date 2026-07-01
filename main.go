@@ -67,6 +67,14 @@ func main() {
 			desktopApp.setBridge(bridge)
 			pluginService.setBridge(bridge)
 
+			// Map the mouse back/forward side buttons to in-app navigation.
+			// On macOS this installs a native NSEvent monitor (WKWebView's DOM
+			// reporting of the side buttons is unreliable); other platforms
+			// no-op here and read the buttons from the DOM in the frontend.
+			installMouseNavMonitor(func(direction string) {
+				go bridge.Emit("mouse:nav", direction)
+			})
+
 			db, err := coreapp.InitDB()
 			if err != nil {
 				log.Fatalf("db: %v", err)
