@@ -945,7 +945,8 @@ export class AppHelper {
   }
 
   async bulkCompare(): Promise<void> {
-    await this.page.locator(selectors.bulk.compareButton).click();
+    await this.page.locator(selectors.bulk.moreButton).click();
+    await this.page.locator('.card-menu-dropdown [data-action="compare"]').click();
   }
 
   isBulkToolbarVisible(): Promise<boolean> {
@@ -2222,18 +2223,18 @@ export class AppHelper {
 
   // ==================== Plugin UI Extensions ====================
 
-  async getPluginUIActions(): Promise<{ lightbox_buttons: any[]; card_actions: any[] }> {
+  async getPluginUIActions(): Promise<{ lightbox_buttons: any[]; card_actions: any[]; bulk_actions: any[]; global_actions: any[] }> {
     return this.page.evaluate(async () => {
       // @ts-ignore - Wails runtime
       if (typeof window.go?.main?.PluginService?.GetPluginUIActions !== 'function') {
-        return { lightbox_buttons: [], card_actions: [] };
+        return { lightbox_buttons: [], card_actions: [], bulk_actions: [], global_actions: [] };
       }
       try {
         // @ts-ignore
         const result = await window.go.main.PluginService.GetPluginUIActions();
-        return result || { lightbox_buttons: [], card_actions: [] };
+        return result || { lightbox_buttons: [], card_actions: [], bulk_actions: [], global_actions: [] };
       } catch {
-        return { lightbox_buttons: [], card_actions: [] };
+        return { lightbox_buttons: [], card_actions: [], bulk_actions: [], global_actions: [] };
       }
     });
   }

@@ -6,10 +6,23 @@ let lastCheckedCheckbox = null;
 
 // Plugin UI actions cache
 let pluginUIActions = null;
+let pluginUIActionsLoadGeneration = 0;
 let dragPrepBusyCount = 0;
 
 // Roving tabindex for bulk toolbar
 let bulkToolbarRover = null;
+
+// A cold startup may finish loading the frontend before all plugins have been
+// initialized. Refresh from the definitive backend readiness signal instead
+// of relying only on a fixed retry window. If readiness arrives before the DOM
+// is complete, the normal window-load fetch will pick up the full action set.
+if (window.runtime && window.runtime.EventsOn) {
+    window.runtime.EventsOn('plugin:ready', () => {
+        if (document.readyState === 'complete') {
+            loadPluginUIActions();
+        }
+    });
+}
 
 function beginGlobalDragPrepareCursor() {
     dragPrepBusyCount += 1;
@@ -25,14 +38,124 @@ function endGlobalDragPrepareCursor() {
 
 // Load plugin UI actions from backend
 async function loadPluginUIActions() {
-    try {
-        pluginUIActions = await window.go.main.PluginService.GetPluginUIActions();
-    } catch (error) {
-        console.error('Failed to load plugin UI actions:', error);
-        pluginUIActions = { card_actions: [], lightbox_buttons: [], global_actions: [] };
+    const generation = ++pluginUIActionsLoadGeneration;
+    const retryDelays = [0, 100, 250, 500, 1000];
+
+    for (let attempt = 0; attempt < retryDelays.length; attempt++) {
+        if (retryDelays[attempt] > 0) {
+            await new Promise(resolve => setTimeout(resolve, retryDelays[attempt]));
+        }
+        // A plugin install/enable may trigger a newer load while this retry
+        // loop is waiting. Never let the older response overwrite it.
+        if (generation !== pluginUIActionsLoadGeneration) return pluginUIActions;
+
+        try {
+            const actions = await window.go.main.PluginService.GetPluginUIActions();
+            pluginUIActions = actions || {};
+            const actionCount = ['card_actions', 'lightbox_buttons', 'bulk_actions', 'global_actions']
+                .reduce((count, key) => count + (pluginUIActions[key]?.length || 0), 0);
+            if (actionCount > 0 || attempt === retryDelays.length - 1) break;
+        } catch (error) {
+            if (attempt === retryDelays.length - 1) {
+                console.error('Failed to load plugin UI actions:', error);
+                pluginUIActions = {};
+            }
+        }
     }
+
+    pluginUIActions.card_actions ||= [];
+    pluginUIActions.lightbox_buttons ||= [];
+    pluginUIActions.bulk_actions ||= [];
+    pluginUIActions.global_actions ||= [];
     renderDrawerPluginActions();
+    if (typeof updateBulkToolbar === 'function') updateBulkToolbar();
     return pluginUIActions;
+}
+
+function getApplicableBulkPluginActions() {
+    const selectedClips = Array.from(selectedIds).map(id => {
+        const card = gallery.querySelector(`li[data-id="${id}"]`);
+        return card ? {
+            content_type: card.dataset.type || '',
+            size: Number(card.dataset.size) || 0,
+        } : null;
+    }).filter(Boolean);
+
+    return (pluginUIActions?.bulk_actions || []).filter(action =>
+        selectedClips.length > 0
+        && selectedClips.length === selectedIds.size
+        && selectedClips.every(clip => shouldShowPluginAction(action, clip))
+    );
+}
+
+function canCompareBulkSelection() {
+    if (selectedIds.size !== 2) return false;
+    return Array.from(selectedIds).every(id => {
+        const card = gallery.querySelector(`li[data-id="${id}"]`);
+        return card && card.dataset.type.startsWith('image/');
+    });
+}
+
+function updateBulkMoreButton() {
+    const button = document.getElementById('bulk-more-btn');
+    if (!button) return;
+    if (!button.dataset.menuInitialized) {
+        button.addEventListener('click', () => openBulkMoreMenu(button));
+        button.dataset.menuInitialized = 'true';
+    }
+    const hasActions = canCompareBulkSelection() || getApplicableBulkPluginActions().length > 0;
+    button.classList.toggle('hidden', !hasActions);
+}
+
+function openBulkMoreMenu(anchor) {
+    const items = [];
+    const canCompare = canCompareBulkSelection();
+    const pluginActions = getApplicableBulkPluginActions();
+
+    if (canCompare) {
+        items.push({
+            id: 'compare',
+            label: 'Compare',
+            iconHtml: getMenuIcon('compare'),
+        });
+    }
+    if (canCompare && pluginActions.length > 0) items.push({ type: 'divider' });
+
+    pluginActions.forEach(action => {
+        items.push({
+            id: 'plugin',
+            label: escapeHTML(action.label),
+            iconHtml: typeof getPluginIcon === 'function'
+                ? (getPluginIcon(action.icon) || getPluginIcon('bolt') || '')
+                : '',
+            pluginId: action.plugin_id,
+            actionId: action.id,
+            hasOptions: action.options && action.options.length > 0,
+        });
+    });
+
+    if (items.length === 0) return;
+    ContextMenu.open(items, null, anchor, (menuAction, _id, item) => {
+        if (menuAction === 'compare') {
+            openComparisonModal();
+            return;
+        }
+        if (menuAction !== 'plugin') return;
+
+        const pluginId = Number(item.dataset.pluginId);
+        const actionId = item.dataset.actionId;
+        const action = pluginActions.find(candidate =>
+            candidate.plugin_id === pluginId && candidate.id === actionId
+        );
+        if (!action) return;
+
+        const clipIds = Array.from(selectedIds);
+        if (action.options && action.options.length > 0) {
+            openPluginOptionsDialog(action, clipIds);
+        } else {
+            executePluginAction(action.plugin_id, action.id, clipIds, {}, action.async);
+        }
+    });
 }
 
 // Render global plugin actions in the hamburger menu drawer
@@ -94,6 +217,7 @@ function getMenuIcon(name) {
         'set-expiration': '<path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>',
         'cancel-expiration': '<path stroke-linecap="round" stroke-linejoin="round" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"/>',
         'merge': '<path stroke-linecap="round" stroke-linejoin="round" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"/>',
+        'compare': '<path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>',
         'open': '<path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25"/>',
         'open-with': '<path stroke-linecap="round" stroke-linejoin="round" d="M3.75 9.776c.112-.017.227-.026.344-.026h15.812c.117 0 .232.009.344.026m-16.5 0a2.25 2.25 0 00-1.883 2.542l.857 6a2.25 2.25 0 002.227 1.932H19.05a2.25 2.25 0 002.227-1.932l.857-6a2.25 2.25 0 00-1.883-2.542m-16.5 0V6A2.25 2.25 0 016 3.75h3.879a1.5 1.5 0 011.06.44l2.122 2.12a1.5 1.5 0 001.06.44H18A2.25 2.25 0 0120.25 9v.776"/>',
         'copy': '<path stroke-linecap="round" stroke-linejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 01-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 011.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 00-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 01-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 00-3.375-3.375h-1.5a1.125 1.125 0 01-1.125-1.125v-1.5a3.375 3.375 0 00-3.375-3.375H9.75"/>',
@@ -973,21 +1097,7 @@ function updateBulkToolbar() {
         selectedCountEl.textContent = `${count} selected`;
         bulkArchiveText.textContent = isViewingArchive ? 'Restore' : 'Archive';
 
-        // Comparison Logic: Show compare button if 2 items are selected and BOTH are images
-        if (count === 2) {
-            const selectedImages = Array.from(selectedIds).filter(id => {
-                const card = gallery.querySelector(`li[data-id="${id}"]`);
-                return card && card.dataset.type.startsWith('image/');
-            });
-
-            if (selectedImages.length === 2) {
-                bulkCompareBtn.classList.remove('hidden');
-            } else {
-                bulkCompareBtn.classList.add('hidden');
-            }
-        } else {
-            bulkCompareBtn.classList.add('hidden');
-        }
+        updateBulkMoreButton();
 
         // Show "Clear Expiry" if any selected clip has expiration
         const bulkCancelExpiryBtn = document.getElementById('bulk-cancel-expiry-btn');
@@ -1015,11 +1125,13 @@ function updateBulkToolbar() {
             bulkToolbarRover.update();
         }
     } else {
+        const moreButton = document.getElementById('bulk-more-btn');
+        if (moreButton) moreButton.classList.add('hidden');
         bulkToolbar.setAttribute('inert', '');
         bulkToolbar.classList.remove('translate-y-0', 'opacity-100', 'pointer-events-auto');
         bulkToolbar.classList.add('translate-y-4', 'opacity-0', 'pointer-events-none');
         selectAllCheckbox.checked = false;
-        bulkCompareBtn.classList.add('hidden');
+        if (typeof ContextMenu !== 'undefined') ContextMenu.close();
 
         // Destroy roving tabindex when toolbar is hidden
         if (bulkToolbarRover) {

@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"os"
 	"testing"
 )
 
@@ -396,6 +397,84 @@ Plugin = {
 	}
 	if value != 0.75 {
 		t.Fatalf("Expected range default 0.75, got %v", value)
+	}
+}
+
+func TestParseManifestWithBulkActionAndContentTypeFilter(t *testing.T) {
+	source := `
+Plugin = {
+  name = "Bulk Plugin",
+  ui = {
+    bulk_actions = {
+      {id = "combine", label = "Combine", icon = "sparkles", async = true,
+       file_types = {"image/png", "image/jpeg"}, max_size = 10485760,
+       options = {
+         {id = "prompt", type = "text", label = "Prompt", required = true}
+       }}
+    }
+  }
+}`
+
+	manifest, err := ParseManifest(source)
+	if err != nil {
+		t.Fatalf("ParseManifest failed: %v", err)
+	}
+	if manifest.UI == nil || len(manifest.UI.BulkActions) != 1 {
+		t.Fatalf("expected one bulk action, got %#v", manifest.UI)
+	}
+	action := manifest.UI.BulkActions[0]
+	if action.ID != "combine" || action.Label != "Combine" || !action.Async {
+		t.Fatalf("unexpected bulk action: %#v", action)
+	}
+	if len(action.FileTypes) != 2 || action.FileTypes[0] != "image/png" || action.FileTypes[1] != "image/jpeg" {
+		t.Fatalf("unexpected content type filter: %v", action.FileTypes)
+	}
+	if action.MaxSize != 10485760 {
+		t.Fatalf("unexpected max size: %d", action.MaxSize)
+	}
+	if len(action.Options) != 1 || action.Options[0].ID != "prompt" {
+		t.Fatalf("unexpected options: %#v", action.Options)
+	}
+	if found := findUIAction(manifest, "combine"); found == nil || found.ID != "combine" {
+		t.Fatalf("bulk action was not executable: %#v", found)
+	}
+}
+
+func TestBundledFalAIHasFilteredBulkEdit(t *testing.T) {
+	source, err := os.ReadFile("../plugins/fal-ai.lua")
+	if err != nil {
+		t.Fatalf("read fal.ai plugin: %v", err)
+	}
+	manifest, err := ParseManifest(string(source))
+	if err != nil {
+		t.Fatalf("parse fal.ai plugin: %v", err)
+	}
+	if manifest.UI == nil || len(manifest.UI.BulkActions) != 1 {
+		t.Fatalf("expected fal.ai to declare one bulk action, got %#v", manifest.UI)
+	}
+	action := manifest.UI.BulkActions[0]
+	if action.ID != "edit" || len(action.FileTypes) == 0 {
+		t.Fatalf("expected filtered fal.ai bulk edit, got %#v", action)
+	}
+}
+
+func TestGetPluginsDoesNotExposePartialInitialLoad(t *testing.T) {
+	manager := &Manager{
+		plugins: map[int64]*Plugin{
+			1: {ID: 1, Name: "Loaded First", Enabled: true},
+		},
+		loading: true,
+	}
+
+	if plugins := manager.GetPlugins(); len(plugins) != 0 {
+		t.Fatalf("expected no plugins during initial load, got %d", len(plugins))
+	}
+
+	manager.mu.Lock()
+	manager.loading = false
+	manager.mu.Unlock()
+	if plugins := manager.GetPlugins(); len(plugins) != 1 {
+		t.Fatalf("expected complete plugin set after load, got %d", len(plugins))
 	}
 }
 

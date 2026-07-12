@@ -68,6 +68,7 @@ type SettingField struct {
 type UIManifest struct {
 	LightboxButtons []UIAction `json:"lightbox_buttons,omitempty"`
 	CardActions     []UIAction `json:"card_actions,omitempty"`
+	BulkActions     []UIAction `json:"bulk_actions,omitempty"`
 	GlobalActions   []UIAction `json:"global_actions,omitempty"`
 }
 
@@ -501,7 +502,7 @@ func parseSettingEntry(entry string) SettingField {
 }
 
 // extractUI extracts UI declarations from the manifest
-// Format: ui = { lightbox_buttons = {...}, card_actions = {...}, global_actions = {...} }
+// Format: ui = { lightbox_buttons = {...}, card_actions = {...}, bulk_actions = {...}, global_actions = {...} }
 func extractUI(block string) *UIManifest {
 	// Find the ui block
 	loc := reUIBlock.FindStringIndex(block)
@@ -518,10 +519,11 @@ func extractUI(block string) *UIManifest {
 	ui := &UIManifest{}
 	ui.LightboxButtons = extractUIActions(uiBlock, "lightbox_buttons")
 	ui.CardActions = extractUIActions(uiBlock, "card_actions")
+	ui.BulkActions = extractUIActions(uiBlock, "bulk_actions")
 	ui.GlobalActions = extractUIActions(uiBlock, "global_actions")
 
 	// Return nil if no actions defined
-	if len(ui.LightboxButtons) == 0 && len(ui.CardActions) == 0 && len(ui.GlobalActions) == 0 {
+	if len(ui.LightboxButtons) == 0 && len(ui.CardActions) == 0 && len(ui.BulkActions) == 0 && len(ui.GlobalActions) == 0 {
 		return nil
 	}
 

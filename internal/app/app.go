@@ -285,6 +285,10 @@ func (a *App) Bootstrap(ctx context.Context, opts BootstrapOptions) error {
 		if err := pm.LoadPlugins(); err != nil {
 			log.Printf("Warning: Failed to load plugins: %v", err)
 		}
+		// Plugin loading happens late in Bootstrap and can outlast the frontend's
+		// initial action fetch on a cold launch. Notify the UI when the complete,
+		// atomic action set is actually ready.
+		a.bridge.Emit("plugin:ready", nil)
 
 		pm.EmitEvent("app:startup", nil)
 
@@ -3035,6 +3039,7 @@ func (a *App) getPluginUIActions() (*UIActionsResponse, error) {
 		return &UIActionsResponse{
 			LightboxButtons: []PluginUIAction{},
 			CardActions:     []PluginUIAction{},
+			BulkActions:     []PluginUIAction{},
 			GlobalActions:   []PluginUIAction{},
 		}, nil
 	}
@@ -3042,6 +3047,7 @@ func (a *App) getPluginUIActions() (*UIActionsResponse, error) {
 	response := &UIActionsResponse{
 		LightboxButtons: []PluginUIAction{},
 		CardActions:     []PluginUIAction{},
+		BulkActions:     []PluginUIAction{},
 		GlobalActions:   []PluginUIAction{},
 	}
 
@@ -3067,6 +3073,20 @@ func (a *App) getPluginUIActions() (*UIActionsResponse, error) {
 
 		for _, action := range p.Manifest.UI.CardActions {
 			response.CardActions = append(response.CardActions, PluginUIAction{
+				PluginID:   p.ID,
+				PluginName: p.Name,
+				ID:         action.ID,
+				Label:      action.Label,
+				Icon:       action.Icon,
+				Async:      action.Async,
+				Options:    action.Options,
+				FileTypes:  action.FileTypes,
+				MaxSize:    action.MaxSize,
+			})
+		}
+
+		for _, action := range p.Manifest.UI.BulkActions {
+			response.BulkActions = append(response.BulkActions, PluginUIAction{
 				PluginID:   p.ID,
 				PluginName: p.Name,
 				ID:         action.ID,

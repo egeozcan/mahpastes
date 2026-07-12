@@ -144,7 +144,7 @@ test.describe('Bulk Operations', () => {
   });
 
   test.describe('Bulk Compare (Images)', () => {
-    test('should show compare button when exactly 2 images selected', async ({ app }) => {
+    test('should show compare in the more menu when exactly 2 images selected', async ({ app }) => {
       const files = await Promise.all([
         createTempFile(generateTestImage(100, 100, [255, 0, 0]), 'png'),
         createTempFile(generateTestImage(100, 100, [0, 255, 0]), 'png'),
@@ -154,12 +154,13 @@ test.describe('Bulk Operations', () => {
       await app.uploadFiles(files);
       await app.selectClips(filenames);
 
-      const compareBtn = app.page.locator('#bulk-compare-btn');
-      // Compare button visibility depends on implementation
-      // It should be visible or enabled when 2 images are selected
+      const moreBtn = app.page.locator('#bulk-more-btn');
+      await expect(moreBtn).toBeVisible();
+      await moreBtn.click();
+      await expect(app.page.locator('.card-menu-dropdown [data-action="compare"]')).toBeVisible();
     });
 
-    test('should hide compare button when non-images selected', async ({ app }) => {
+    test('should hide the more menu when non-images have no applicable actions', async ({ app }) => {
       const files = await Promise.all([
         createTempFile(generateTestText('text-1'), 'txt'),
         createTempFile(generateTestText('text-2'), 'txt'),
@@ -169,10 +170,7 @@ test.describe('Bulk Operations', () => {
       await app.uploadFiles(files);
       await app.selectClips(filenames);
 
-      // Compare button should be hidden for text files
-      const compareBtn = app.page.locator('#bulk-compare-btn');
-      const isHidden = await compareBtn.isHidden();
-      // Implementation may vary - button might be hidden or disabled
+      await expect(app.page.locator('#bulk-more-btn')).toBeHidden();
     });
   });
 

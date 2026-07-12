@@ -126,7 +126,6 @@ const lightboxPrev = document.getElementById('lightbox-prev');
 const lightboxNext = document.getElementById('lightbox-next');
 
 // Comparison Modal Elements
-const bulkCompareBtn = document.getElementById('bulk-compare-btn');
 const comparisonModal = document.getElementById('comparison-modal');
 const comparisonClose = document.getElementById('comparison-close');
 const comparisonViewport = document.getElementById('comparison-viewport');
@@ -502,7 +501,6 @@ bulkDeleteBtn.addEventListener('click', bulkDelete);
 bulkArchiveBtn.addEventListener('click', bulkArchive);
 bulkCopyBtn.addEventListener('click', bulkCopyFiles);
 bulkDownloadBtn.addEventListener('click', bulkDownload);
-bulkCompareBtn.addEventListener('click', openComparisonModal);
 bulkExpiryBtn.addEventListener('click', () => {
     openExpirationPopover(null, bulkExpiryBtn, true);
 });
@@ -1746,7 +1744,7 @@ document.addEventListener('click', (e) => {
 
     // Check if click is on menu or menu trigger
     const isMenuClick = e.target.closest('.card-menu-dropdown');
-    const isTriggerClick = e.target.closest('[data-action="menu"]');
+    const isTriggerClick = e.target.closest('[data-action="menu"], #bulk-more-btn');
 
     if (!isMenuClick && !isTriggerClick) {
         closeCardMenu();

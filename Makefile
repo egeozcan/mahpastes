@@ -18,6 +18,7 @@ else
     APP_BUNDLE := $(BUILD_DIR)/$(APP_NAME).app
     INSTALL_DIR := /Applications
     PLUGIN_DIR := $(HOME)/Library/Application Support/mahpastes/plugins
+    APP_PROCESS_PATTERN := [/]$(APP_NAME).app/Contents/MacOS/$(APP_NAME)
     MP_INSTALL_DIR ?= $(if $(GO_BIN),$(GO_BIN),$(HOME)/.local/bin)
 endif
 
@@ -64,8 +65,13 @@ uninstall: ## Remove installed app
 	@echo Removed $(APP_NAME) from $(INSTALL_DIR)
 else
 install: build ## Build and install (kills running instance)
-	@pkill -f "$(APP_NAME).app/Contents/MacOS/$(APP_NAME)" 2>/dev/null || true
-	@sleep 1
+	@# Wait for the old process to really exit. Replacing/opening the bundle while
+	@# it is still shutting down makes LaunchServices focus the stale process.
+	@pkill -TERM -f "$(APP_PROCESS_PATTERN)" 2>/dev/null || true
+	@i=0; while pgrep -f "$(APP_PROCESS_PATTERN)" >/dev/null 2>&1 && [ $$i -lt 50 ]; do sleep 0.1; i=$$((i + 1)); done; \
+	if pgrep -f "$(APP_PROCESS_PATTERN)" >/dev/null 2>&1; then \
+		pkill -KILL -f "$(APP_PROCESS_PATTERN)" 2>/dev/null || true; \
+	fi
 	rm -rf $(INSTALL_DIR)/$(APP_NAME).app
 	cp -R $(APP_BUNDLE) $(INSTALL_DIR)/$(APP_NAME).app
 	xattr -cr $(INSTALL_DIR)/$(APP_NAME).app
@@ -74,7 +80,7 @@ install: build ## Build and install (kills running instance)
 	@mkdir -p "$(PLUGIN_DIR)"
 	@cp plugins/*.lua "$(PLUGIN_DIR)/"
 	@echo "Updated bundled plugins"
-	open $(INSTALL_DIR)/$(APP_NAME).app
+	open -n $(INSTALL_DIR)/$(APP_NAME).app
 
 uninstall: ## Remove installed app
 	@pkill -f "$(APP_NAME).app/Contents/MacOS/$(APP_NAME)" 2>/dev/null || true

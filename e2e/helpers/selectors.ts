@@ -121,7 +121,7 @@ export const selectors = {
     toolbar: '#bulk-toolbar',
     selectAllCheckbox: '#select-all-checkbox',
     selectedCount: '#selected-count',
-    compareButton: '#bulk-compare-btn',
+    moreButton: '#bulk-more-btn',
     copyButton: '#bulk-copy-btn',
     downloadButton: '#bulk-download-btn',
     archiveButton: '#bulk-archive-btn',

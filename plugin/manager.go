@@ -127,6 +127,7 @@ type Manager struct {
 	permCallback     PermissionCallback
 	fsConfinement    string // when set, all plugin fs access is confined under this root (headless)
 	mu               sync.RWMutex
+	loading          bool // true while the initial enabled-plugin set is being loaded
 	pluginsDir       string
 	modalGuard       *modalGuard
 	pendingUpdates   map[int64]string
@@ -187,6 +188,15 @@ func (m *Manager) SetFSConfinementRoot(root string) {
 
 // LoadPlugins loads all enabled plugins from the database
 func (m *Manager) LoadPlugins() error {
+	m.mu.Lock()
+	m.loading = true
+	m.mu.Unlock()
+	defer func() {
+		m.mu.Lock()
+		m.loading = false
+		m.mu.Unlock()
+	}()
+
 	rows, err := m.db.Query(`
 		SELECT id, filename, name, version, enabled, status
 		FROM plugins WHERE enabled = 1 AND status != 'error'
@@ -612,6 +622,12 @@ func filenameFromURL(rawURL, fallbackName string) string {
 func (m *Manager) GetPlugins() []*Plugin {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+	// UI action discovery must be atomic. Returning the plugins loaded so far
+	// lets the frontend cache a partial list and miss later plugins until a
+	// manual disable/enable refreshes it.
+	if m.loading {
+		return []*Plugin{}
+	}
 
 	plugins := make([]*Plugin, 0, len(m.plugins))
 	for _, p := range m.plugins {
@@ -977,6 +993,11 @@ func findUIAction(manifest *Manifest, actionID string) *UIAction {
 	for i := range manifest.UI.CardActions {
 		if manifest.UI.CardActions[i].ID == actionID {
 			return &manifest.UI.CardActions[i]
+		}
+	}
+	for i := range manifest.UI.BulkActions {
+		if manifest.UI.BulkActions[i].ID == actionID {
+			return &manifest.UI.BulkActions[i]
 		}
 	}
 	for i := range manifest.UI.GlobalActions {

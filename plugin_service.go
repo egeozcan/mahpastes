@@ -59,6 +59,7 @@ type PluginUIAction struct {
 type UIActionsResponse struct {
 	LightboxButtons []PluginUIAction `json:"lightbox_buttons"`
 	CardActions     []PluginUIAction `json:"card_actions"`
+	BulkActions     []PluginUIAction `json:"bulk_actions"`
 	GlobalActions   []PluginUIAction `json:"global_actions"`
 }
 
@@ -378,6 +379,7 @@ func (s *PluginService) GetPluginUIActions() (*UIActionsResponse, error) {
 		return &UIActionsResponse{
 			LightboxButtons: []PluginUIAction{},
 			CardActions:     []PluginUIAction{},
+			BulkActions:     []PluginUIAction{},
 			GlobalActions:   []PluginUIAction{},
 		}, nil
 	}
@@ -385,6 +387,7 @@ func (s *PluginService) GetPluginUIActions() (*UIActionsResponse, error) {
 	response := &UIActionsResponse{
 		LightboxButtons: []PluginUIAction{},
 		CardActions:     []PluginUIAction{},
+		BulkActions:     []PluginUIAction{},
 		GlobalActions:   []PluginUIAction{},
 	}
 
@@ -412,6 +415,21 @@ func (s *PluginService) GetPluginUIActions() (*UIActionsResponse, error) {
 		// Add card actions
 		for _, action := range p.Manifest.UI.CardActions {
 			response.CardActions = append(response.CardActions, PluginUIAction{
+				PluginID:   p.ID,
+				PluginName: p.Name,
+				ID:         action.ID,
+				Label:      action.Label,
+				Icon:       action.Icon,
+				Async:      action.Async,
+				Options:    action.Options,
+				FileTypes:  action.FileTypes,
+				MaxSize:    action.MaxSize,
+			})
+		}
+
+		// Add actions that operate on the current multi-selection.
+		for _, action := range p.Manifest.UI.BulkActions {
+			response.BulkActions = append(response.BulkActions, PluginUIAction{
 				PluginID:   p.ID,
 				PluginName: p.Name,
 				ID:         action.ID,

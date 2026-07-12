@@ -9,6 +9,7 @@ const __dirname = path.dirname(__filename);
 
 // Path to the test plugin (in e2e/fixtures to avoid users accidentally enabling it)
 const TEST_PLUGIN_PATH = path.resolve(__dirname, '../../fixtures/test-plugin.lua');
+const FAL_PLUGIN_PATH = path.resolve(__dirname, '../../../plugins/fal-ai.lua');
 
 test.describe('Plugin UI Extensions', () => {
   test.describe('Plugin UI Actions API', () => {
@@ -91,6 +92,7 @@ test.describe('Plugin UI Extensions', () => {
       // Need to reload to refresh plugin UI actions
       await app.page.reload();
       await app.waitForReady();
+      await app.page.setViewportSize({ width: 800, height: 800 });
 
       // Upload clip
       const imagePath = await createTempFile(generateTestImage(), 'png');
@@ -157,6 +159,91 @@ test.describe('Plugin UI Extensions', () => {
       // Plugin container should be hidden
       const pluginContainer = app.page.locator(selectors.lightbox.pluginActions);
       await expect(pluginContainer).toHaveClass(/hidden/);
+    });
+  });
+
+  test.describe('Bulk Plugin Actions', () => {
+    test('should show fal.ai edit for a multi-image selection', async ({ app }) => {
+      const plugin = await app.importPluginFromPath(FAL_PLUGIN_PATH);
+      expect(plugin).not.toBeNull();
+      await app.enablePlugin(plugin!.id);
+
+      await app.page.reload();
+      await app.waitForReady();
+
+      // Production assets can finish loading before the desktop plugin manager.
+      // Simulate that startup race by returning an empty response once.
+      const retryCalls = await app.page.evaluate(async () => {
+        // @ts-ignore Wails bindings and classic-script globals are runtime-provided.
+        const service = window.go.main.PluginService;
+        const original = service.GetPluginUIActions;
+        let calls = 0;
+        service.GetPluginUIActions = async () => {
+          calls++;
+          if (calls === 1) {
+            return { lightbox_buttons: [], card_actions: [], bulk_actions: [], global_actions: [] };
+          }
+          return original();
+        };
+        try {
+          // @ts-ignore loadPluginUIActions is defined by frontend/js/ui.js.
+          await window.loadPluginUIActions();
+        } finally {
+          service.GetPluginUIActions = original;
+        }
+        return calls;
+      });
+      expect(retryCalls).toBeGreaterThanOrEqual(2);
+
+      const firstPath = await createTempFile(generateTestImage(), 'png');
+      const secondPath = await createTempFile(generateTestImage(), 'png');
+      await app.uploadFile(firstPath);
+      await app.uploadFile(secondPath);
+      await app.expectClipCount(2);
+
+      const cards = app.page.locator(selectors.gallery.clipCard);
+      await cards.nth(0).locator(selectors.gallery.clipCheckbox).check();
+      await cards.nth(1).locator(selectors.gallery.clipCheckbox).check();
+
+      const toolbar = app.page.locator('#bulk-toolbar');
+      await expect(toolbar.getByText('AI Edit', { exact: true })).toHaveCount(0);
+      await expect(toolbar.getByText('Compare', { exact: true })).toHaveCount(0);
+
+      const moreButton = app.page.locator('#bulk-more-btn');
+      await expect(moreButton).toBeVisible();
+
+      const layout = await moreButton.evaluate((button) => {
+        const actionRow = button.parentElement!;
+        const toolbar = actionRow.parentElement!;
+        const buttons = Array.from(actionRow.querySelectorAll('button:not(.hidden)'));
+        const rowRect = actionRow.getBoundingClientRect();
+        const toolbarRect = toolbar.getBoundingClientRect();
+        const firstRect = buttons[0].getBoundingClientRect();
+        const lastRect = buttons[buttons.length - 1].getBoundingClientRect();
+        return {
+          clientWidth: actionRow.clientWidth,
+          scrollWidth: actionRow.scrollWidth,
+          toolbarWidth: toolbarRect.width,
+          viewportWidth: window.innerWidth,
+          justifyContent: getComputedStyle(actionRow).justifyContent,
+          edgeInsetDelta: Math.abs(
+            (firstRect.left - toolbarRect.left) - (toolbarRect.right - lastRect.right)
+          ),
+          buttonsOutside: buttons.some(button => {
+            const rect = button.getBoundingClientRect();
+            return rect.left < rowRect.left || rect.right > rowRect.right;
+          }),
+        };
+      });
+      expect(layout.buttonsOutside, JSON.stringify(layout)).toBe(false);
+      expect(layout.toolbarWidth).toBeLessThan(layout.viewportWidth * 0.9);
+      expect(layout.justifyContent).toBe('space-between');
+      expect(layout.edgeInsetDelta).toBeLessThanOrEqual(1);
+
+      await moreButton.click();
+      const menu = app.page.locator('.card-menu-dropdown');
+      await expect(menu.getByText('Compare', { exact: true })).toBeVisible();
+      await expect(menu.getByText('AI Edit', { exact: true })).toBeVisible();
     });
   });
 

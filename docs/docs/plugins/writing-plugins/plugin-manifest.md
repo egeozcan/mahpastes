@@ -306,7 +306,7 @@ end
 
 ## UI Actions
 
-Plugins can add custom buttons to the lightbox and card context menus. When a user clicks a plugin action, the `on_ui_action(action_id, clip_ids, options)` handler is called.
+Plugins can add custom buttons to the lightbox, card context menus, and bulk-selection toolbar. When a user clicks a plugin action, the `on_ui_action(action_id, clip_ids, options, context)` handler is called.
 
 ```lua
 ui = {
@@ -327,6 +327,13 @@ ui = {
         {id = "enhance", label = "Enhance", icon = "wand", async = true, file_types = {"image/*"}},
         {id = "generate_qr", label = "Generate QR", icon = "qrcode", async = true, file_types = {"text/*", "application/json"}, max_size = 4296},
     },
+
+    -- Actions shown when one or more clips are selected. The action receives
+    -- every selected clip ID in one on_ui_action invocation.
+    bulk_actions = {
+        {id = "combine", label = "Combine Images", icon = "sparkles", async = true,
+         file_types = {"image/png", "image/jpeg"}},
+    },
 },
 ```
 
@@ -341,6 +348,8 @@ ui = {
 | `options` | No | Array of form fields shown in a dialog before execution |
 | `file_types` | No | MIME type filters. Supports exact match (`"text/plain"`) and wildcard prefixes (`"image/*"`) |
 | `max_size` | No | Maximum clip size in bytes. Action is hidden when clip size exceeds this value |
+
+For `bulk_actions`, `file_types` and `max_size` must match every selected clip. If any selected clip does not match, the action is hidden.
 
 ### Option Form Fields
 

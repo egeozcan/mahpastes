@@ -376,7 +376,7 @@
         </section>
 
         <div id="bulk-toolbar" role="toolbar" aria-label="Bulk actions for selected clips" inert
-            class="fixed bottom-16 left-1/2 -translate-x-1/2 w-[90%] max-w-3xl bg-white/95 backdrop-blur-sm shadow-lg shadow-stone-200/50 rounded-lg p-3 flex flex-wrap items-center justify-between gap-3 z-50 pointer-events-none opacity-0 border border-stone-200 transition-all duration-200 translate-y-4">
+            class="fixed bottom-16 left-1/2 -translate-x-1/2 w-fit max-w-[calc(100vw-2rem)] bg-white/95 backdrop-blur-sm shadow-lg shadow-stone-200/50 rounded-lg p-3 flex flex-wrap items-center justify-between gap-3 z-50 pointer-events-none opacity-0 border border-stone-200 transition-all duration-200 translate-y-4">
             <div class="flex items-center gap-4">
                 <label class="flex items-center cursor-pointer group">
                     <input type="checkbox" id="select-all-checkbox"
@@ -388,15 +388,15 @@
                     class="text-stone-500 text-xs font-medium">0 selected</span>
             </div>
 
-            <div class="flex items-center gap-2">
-                <button id="bulk-compare-btn"
-                    class="hidden flex items-center gap-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 px-3 py-1.5 rounded-md text-xs font-medium transition-colors"
-                    data-tooltip="Open selected images in side-by-side comparison view">
-                    <svg class="w-4 h-4 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
-                            d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+            <div class="flex w-full min-w-max items-center justify-between gap-2">
+                <button id="bulk-more-btn" aria-label="More bulk actions" aria-haspopup="menu"
+                    class="hidden flex items-center justify-center bg-stone-100 hover:bg-stone-200 text-stone-700 px-2 py-1.5 rounded-md text-xs font-medium transition-colors"
+                    data-tooltip="More actions">
+                    <svg class="w-4 h-4 opacity-60" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                        <circle cx="5" cy="12" r="1.5"></circle>
+                        <circle cx="12" cy="12" r="1.5"></circle>
+                        <circle cx="19" cy="12" r="1.5"></circle>
                     </svg>
-                    Compare
                 </button>
                 <button id="bulk-tag-btn"
                     class="flex items-center gap-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 px-3 py-1.5 rounded-md text-xs font-medium transition-colors"

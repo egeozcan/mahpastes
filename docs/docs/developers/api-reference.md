@@ -1157,7 +1157,7 @@ func (s *PluginService) GetAllPluginStorage(pluginID int64) (map[string]string, 
 
 ### GetPluginUIActions
 
-Returns all UI actions (lightbox buttons, card actions, global actions) from enabled plugins.
+Returns all UI actions (lightbox buttons, card actions, bulk actions, global actions) from enabled plugins.
 
 ```go
 func (s *PluginService) GetPluginUIActions() (*UIActionsResponse, error)
@@ -1168,6 +1168,7 @@ func (s *PluginService) GetPluginUIActions() (*UIActionsResponse, error)
 type UIActionsResponse struct {
     LightboxButtons []PluginUIAction `json:"lightbox_buttons"`
     CardActions     []PluginUIAction `json:"card_actions"`
+    BulkActions     []PluginUIAction `json:"bulk_actions"`
     GlobalActions   []PluginUIAction `json:"global_actions"`
 }
 

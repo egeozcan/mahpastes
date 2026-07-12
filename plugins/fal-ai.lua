@@ -3,7 +3,7 @@
 
 Plugin = {
     name = "FAL.AI Image Processing",
-    version = "1.0.0",
+    version = "1.1.0",
     description = "AI-powered image processing using fal.ai - text-to-image generation, colorization, upscaling, restoration, and AI editing.",
     author = "mahpastes",
 
@@ -37,7 +37,8 @@ Plugin = {
                     {id = "remove_scratches", type = "checkbox", label = "Remove Scratches", default = true},
                 }
             },
-            {id = "edit", label = "AI Edit", icon = "pencil", async = true, file_types = {"image/*"},
+            {id = "edit", label = "AI Edit", icon = "pencil", async = true,
+                file_types = {"image/png", "image/jpeg", "image/webp", "image/gif", "image/tiff", "image/bmp"},
                 options = {
                     {id = "prompt", type = "text", label = "Edit Prompt", required = true},
                     {id = "model", type = "select", label = "Model", default = "flux2",
@@ -70,6 +71,21 @@ Plugin = {
                 options = {
                     {id = "fix_colors", type = "checkbox", label = "Fix Colors", default = true},
                     {id = "remove_scratches", type = "checkbox", label = "Remove Scratches", default = true},
+                }
+            },
+        },
+        bulk_actions = {
+            {id = "edit", label = "AI Edit", icon = "pencil", async = true,
+                file_types = {"image/png", "image/jpeg", "image/webp", "image/gif", "image/tiff", "image/bmp"},
+                options = {
+                    {id = "prompt", type = "text", label = "Edit Prompt", required = true},
+                    {id = "model", type = "select", label = "Model", default = "flux2",
+                        choices = {
+                            {value = "flux2", label = "FLUX.2 Turbo"},
+                            {value = "flux2pro", label = "FLUX.2 Pro"},
+                            {value = "nanobanana2", label = "Nano Banana 2"},
+                        }
+                    },
                 }
             },
         },
@@ -202,6 +218,23 @@ local function build_request(action_id, data_uri, options)
     else
         return nil, nil
     end
+end
+
+-- Build a single multi-image edit request. Unlike applying a card action to
+-- each image independently, the selected images are sent together so the
+-- model can use all of them as edit inputs/references.
+local function build_multi_edit_request(data_uris, options)
+    local model = options.model or "flux2"
+    local endpoint = FAL_ENDPOINTS[model] or FAL_ENDPOINTS.flux2
+    local payload = {
+        image_urls = data_uris,
+        prompt = options.prompt or "",
+        safety_tolerance = model == "nanobanana2" and 6 or 5,
+    }
+    if model ~= "nanobanana2" then
+        payload.guidance_scale = 2.5
+    end
+    return endpoint, payload
 end
 
 -- Extract result image URL from API response
@@ -383,6 +416,80 @@ function on_ui_action(action_id, clip_ids, options, context)
             task.fail(task_id, tostring(err))
             return {success = false, error = tostring(err)}
         end
+    end
+
+    -- A bulk AI edit is one model invocation with all selected images. The
+    -- result is a single new clip informed by the complete selection.
+    if action_id == "edit" and #clip_ids > 1 then
+        local prompt = options.prompt or ""
+        if prompt == "" then
+            toast.show("Please enter an edit prompt.", "error")
+            return {success = false, error = "Prompt is required"}
+        end
+
+        local task_id = task.start("AI Edit (" .. #clip_ids .. " images)", 1)
+        local result_clip_id = nil
+        local ok, err = pcall(function()
+            local data_uris = {}
+            local first_info = nil
+            local supported_types = {
+                ["image/png"] = true,
+                ["image/jpeg"] = true,
+                ["image/webp"] = true,
+                ["image/gif"] = true,
+                ["image/tiff"] = true,
+                ["image/bmp"] = true,
+            }
+
+            for _, clip_id in ipairs(clip_ids) do
+                local data, mime_type = clips.get_data(clip_id)
+                if not data then error("Failed to get clip data for clip " .. clip_id) end
+                if not supported_types[mime_type] then
+                    error("Unsupported image format: " .. (mime_type or "unknown"))
+                end
+                table.insert(data_uris, "data:" .. mime_type .. ";base64," .. data)
+                if not first_info then first_info = clips.get(clip_id) end
+            end
+
+            local endpoint, payload = build_multi_edit_request(data_uris, options)
+            local resp, http_err = http.post(
+                "https://fal.run/" .. endpoint,
+                {
+                    body = json.encode(payload),
+                    headers = {
+                        Authorization = "Key " .. api_key,
+                        ["Content-Type"] = "application/json",
+                    },
+                }
+            )
+            if not resp then error("HTTP request failed: " .. (http_err or "unknown error")) end
+            if resp.status ~= 200 then
+                error("API error (status " .. resp.status .. "): " .. (resp.body or ""))
+            end
+
+            local result = json.decode(resp.body)
+            if result.msg and result.msg ~= "" then error(result.msg) end
+            local result_url = get_result_url(result)
+            if not result_url then error("No image URL in API response") end
+
+            local original_name = (first_info and first_info.filename) or "multi_image.png"
+            local new_clip, create_err = clips.create_from_url(result_url, {
+                name = generate_filename(original_name, "edit"),
+            })
+            if not new_clip then
+                error("Failed to save result: " .. (create_err or "unknown error"))
+            end
+            result_clip_id = ensure_jpeg(new_clip.id)
+            add_to_folder(result_clip_id, context)
+        end)
+
+        if not ok then
+            task.fail(task_id, tostring(err))
+            return {success = false, error = tostring(err)}
+        end
+        task.progress(task_id, 1)
+        task.complete(task_id)
+        return {success = true, result_clip_id = result_clip_id or 0}
     end
 
     local clip_count = #clip_ids

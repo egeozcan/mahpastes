@@ -30,6 +30,7 @@ type PluginUIAction struct {
 type UIActionsResponse struct {
 	LightboxButtons []PluginUIAction `json:"lightbox_buttons"`
 	CardActions     []PluginUIAction `json:"card_actions"`
+	BulkActions     []PluginUIAction `json:"bulk_actions"`
 	GlobalActions   []PluginUIAction `json:"global_actions"`
 }
 
