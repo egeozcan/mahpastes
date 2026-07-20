@@ -224,6 +224,7 @@ test.describe('Sorting', () => {
     // Reload the page
     await app.page.reload();
     await app.page.waitForLoadState('networkidle');
+    await app.page.waitForFunction(() => (window as any).__appReady === true, { timeout: 10000 });
 
     // Verify name sort is still active with correct direction
     await app.openSortPopover();
