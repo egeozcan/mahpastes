@@ -1009,6 +1009,13 @@ export class AppHelper {
       const btn = document.querySelector(selector);
       if (btn) (btn as HTMLElement).click();
     }, selectors.editor.cancelButton);
+
+    const needsDiscardConfirmation = await this.page.locator(selectors.confirm.dialog)
+      .evaluate((dialog) => dialog.classList.contains('opacity-100'));
+    if (needsDiscardConfirmation) {
+      await this.page.locator(selectors.confirm.confirmButton).click();
+    }
+
     await this.page.waitForSelector(`${selectors.editor.modal}:not(.active)`);
   }
 
@@ -1378,7 +1385,8 @@ export class AppHelper {
 
   async openTextEditor(filename: string): Promise<void> {
     await this.editClip(filename);
-    await this.page.waitForSelector(selectors.textEditor.modal);
+    await this.page.waitForSelector(`${selectors.textEditor.modal}.active`);
+    await this.page.waitForSelector('#text-editor-view:not(.hidden)');
   }
 
   async getTextEditorContent(): Promise<string> {
@@ -1391,12 +1399,19 @@ export class AppHelper {
 
   async saveTextEditor(): Promise<void> {
     await this.page.locator(selectors.textEditor.saveButton).click();
-    await this.page.waitForSelector(selectors.textEditor.modal, { state: 'hidden' });
+    await this.page.waitForSelector(`${selectors.textEditor.modal}:not(.active)`);
   }
 
   async cancelTextEditor(): Promise<void> {
     await this.page.locator(selectors.textEditor.cancelButton).click();
-    await this.page.waitForSelector(selectors.textEditor.modal, { state: 'hidden' });
+
+    const needsDiscardConfirmation = await this.page.locator(selectors.confirm.dialog)
+      .evaluate((dialog) => dialog.classList.contains('opacity-100'));
+    if (needsDiscardConfirmation) {
+      await this.page.locator(selectors.confirm.confirmButton).click();
+    }
+
+    await this.page.waitForSelector(`${selectors.textEditor.modal}:not(.active)`);
   }
 
   // ==================== Assertions ====================

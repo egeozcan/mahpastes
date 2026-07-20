@@ -46,6 +46,7 @@ const EditorCore = (() => {
     const MAX_MEMORY_BYTES = 100 * 1024 * 1024; // 100MB ceiling
     let undoStack = [];
     let redoStack = [];
+    let cleanUndoEntry = null;
 
     // --- Listener tracking ---
     let listenersAttached = false;
@@ -105,6 +106,7 @@ const EditorCore = (() => {
         ctx.drawImage(originalImage, 0, 0, width, height);
         syncOverlay();
         saveUndoState();
+        cleanUndoEntry = undoStack[undoStack.length - 1];
     }
 
     // --- Coordinate translation ---
@@ -376,6 +378,14 @@ const EditorCore = (() => {
             redoBtn.disabled = redoStack.length === 0;
             redoBtn.classList.toggle('opacity-50', redoStack.length === 0);
         }
+    }
+
+    /**
+     * Whether the current canvas state differs from the state loaded into the editor.
+     * Tracking the clean history entry means undoing all edits returns to a clean state.
+     */
+    function isDirty() {
+        return undoStack.length > 0 && undoStack[undoStack.length - 1] !== cleanUndoEntry;
     }
 
     // --- Event dispatch ---
@@ -674,6 +684,7 @@ const EditorCore = (() => {
         // Clear undo/redo stacks
         undoStack = [];
         redoStack = [];
+        cleanUndoEntry = null;
     }
 
     // --- Public API ---
@@ -748,6 +759,7 @@ const EditorCore = (() => {
         updateUndoRedoButtons,
         get undoStack() { return undoStack; },
         get redoStack() { return redoStack; },
+        isDirty,
 
         // Listener lifecycle
         attachListeners,

@@ -376,7 +376,7 @@ The editor preserves the original image format when saving:
 
 ### Cancel
 
-Click the close button (X) or press <span className="keyboard-key">Esc</span> to discard changes and close the editor.
+Click the close button (X) or press <span className="keyboard-key">Esc</span> to close the editor. If the image has changed since you opened it, mahpastes asks you to confirm before discarding the unsaved changes. Undoing all edits back to the original image lets you close without a prompt.
 
 ## Tips
 

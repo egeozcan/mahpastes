@@ -317,10 +317,10 @@ export const selectors = {
 
   // Text editor
   textEditor: {
-    modal: '#text-editor-modal',
-    textarea: '#text-editor-content',
-    saveButton: '#text-editor-save',
-    cancelButton: '#text-editor-cancel',
+    modal: '#editor-modal',
+    textarea: '#text-editor-textarea',
+    saveButton: '#editor-save-in-place',
+    cancelButton: '#editor-close',
   },
 
   // Tags

@@ -129,7 +129,7 @@ The content type (text/plain, application/json, etc.) is preserved when saving w
 
 ### Cancel
 
-Click the close button (X) or press <span className="keyboard-key">Esc</span> to discard changes and close the editor.
+Click the close button (X) or press <span className="keyboard-key">Esc</span> to close the editor. If the content has changed since you opened it, mahpastes asks you to confirm before discarding the unsaved changes.
 
 ## Use Cases
 

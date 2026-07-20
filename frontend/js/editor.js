@@ -8,6 +8,7 @@ let editorClipId = null;
 let editorContentType = '';
 let editorFilename = '';
 let isTextEditor = false;
+let editorOriginalText = '';
 
 // --- Utility Functions ---
 
@@ -98,7 +99,8 @@ async function openEditor(clipId) {
             textEditorView.classList.remove('hidden');
 
             // For text, data is already a string
-            document.getElementById('text-editor-textarea').value = clipData.data;
+            editorOriginalText = clipData.data;
+            document.getElementById('text-editor-textarea').value = editorOriginalText;
         }
 
         editorModal.removeAttribute('inert');
@@ -111,7 +113,29 @@ async function openEditor(clipId) {
     }
 }
 
-function closeEditor() {
+function hasUnsavedEditorChanges() {
+    if (!editorClipId) return false;
+
+    if (isTextEditor) {
+        return document.getElementById('text-editor-textarea').value !== editorOriginalText;
+    }
+
+    return EditorCore.isDirty();
+}
+
+function closeEditor(options) {
+    const force = options === true || options?.force === true;
+    if (!force && hasUnsavedEditorChanges()) {
+        showConfirmDialog(
+            'Discard unsaved changes?',
+            'Your changes have not been saved. Discard them and close the editor?',
+            () => closeEditor({ force: true }),
+            null,
+            { variant: 'danger', confirmLabel: 'Discard' }
+        );
+        return;
+    }
+
     const editorModal = document.getElementById('editor-modal');
     editorModal.classList.remove('active');
     editorModal.setAttribute('inert', '');
@@ -123,6 +147,7 @@ function closeEditor() {
     editorClipId = null;
     editorContentType = '';
     editorFilename = '';
+    editorOriginalText = '';
 
     // Hide text input
     const textInput = document.getElementById('canvas-text-input');
@@ -228,7 +253,7 @@ async function saveEditorInPlace() {
     try {
         await window.go.main.App.UpdateClipData(editorClipId, contentType, base64Data, editorFilename);
         showToast('Saved!');
-        closeEditor();
+        closeEditor({ force: true });
         loadClips();
     } catch (error) {
         console.error('Error saving in place:', error);
@@ -272,7 +297,7 @@ async function saveEditorContent() {
         await upload([fileData]);
 
         showToast('Saved as new clip!');
-        closeEditor();
+        closeEditor({ force: true });
         loadClips(); // Refresh gallery
 
     } catch (error) {

@@ -2,6 +2,7 @@ import { test, expect } from '../../fixtures/test-fixtures';
 import {
   createTempFile,
   generateTestImage,
+  generateTestText,
 } from '../../helpers/test-data';
 import { selectors } from '../../helpers/selectors';
 import * as path from 'path';
@@ -43,6 +44,56 @@ test.describe('Image Editor', () => {
 
       const canvas = app.page.locator(selectors.editor.canvas);
       await expect(canvas).toBeVisible();
+    });
+
+    test('should confirm before discarding image edits', async ({ app }) => {
+      const imagePath = await createTempFile(generateTestImage(200, 200), 'png');
+      const filename = path.basename(imagePath);
+
+      await app.uploadFile(imagePath);
+      await app.openImageEditor(filename);
+      await app.drawOnCanvas({ x: 50, y: 50 }, { x: 100, y: 100 });
+      await app.page.locator(selectors.editor.cancelButton).click();
+
+      await expect(app.page.locator(selectors.confirm.title)).toHaveText('Discard unsaved changes?');
+      await expect(app.page.locator(selectors.editor.modal)).toHaveClass(/active/);
+
+      await app.page.locator(selectors.confirm.cancelButton).click();
+      await expect(app.page.locator(selectors.editor.modal)).toHaveClass(/active/);
+
+      await app.page.locator(selectors.editor.cancelButton).click();
+      await app.page.locator(selectors.confirm.confirmButton).click();
+      await expect(app.page.locator(selectors.editor.modal)).not.toHaveClass(/active/);
+    });
+
+    test('should close without confirmation after undoing all image edits', async ({ app }) => {
+      const imagePath = await createTempFile(generateTestImage(200, 200), 'png');
+      const filename = path.basename(imagePath);
+
+      await app.uploadFile(imagePath);
+      await app.openImageEditor(filename);
+      await app.drawOnCanvas({ x: 50, y: 50 }, { x: 100, y: 100 });
+      await app.editorUndo();
+      await app.page.locator(selectors.editor.cancelButton).click();
+
+      await expect(app.page.locator(selectors.editor.modal)).not.toHaveClass(/active/);
+      await expect(app.page.locator(selectors.confirm.dialog)).not.toHaveClass(/opacity-100/);
+    });
+
+    test('should confirm before discarding text edits', async ({ app }) => {
+      const textPath = await createTempFile(generateTestText('editor-close'), 'txt');
+      const filename = path.basename(textPath);
+
+      await app.uploadFile(textPath);
+      await app.openTextEditor(filename);
+      await app.setTextEditorContent('changed but not saved');
+      await app.page.keyboard.press('Escape');
+
+      await expect(app.page.locator(selectors.confirm.title)).toHaveText('Discard unsaved changes?');
+      await expect(app.page.locator(selectors.editor.modal)).toHaveClass(/active/);
+
+      await app.page.locator(selectors.confirm.confirmButton).click();
+      await expect(app.page.locator(selectors.editor.modal)).not.toHaveClass(/active/);
     });
   });
 
@@ -212,6 +263,22 @@ test.describe('Image Editor', () => {
   });
 
   test.describe('Save Changes', () => {
+    test('should save text edits in place without a discard confirmation', async ({ app }) => {
+      const textPath = await createTempFile(generateTestText('save-in-place'), 'txt');
+      const filename = path.basename(textPath);
+
+      await app.uploadFile(textPath);
+      await app.openTextEditor(filename);
+      await app.setTextEditorContent('saved text content');
+      await app.saveTextEditor();
+
+      await expect(app.page.locator(selectors.confirm.dialog)).not.toHaveClass(/opacity-100/);
+
+      await app.openTextEditor(filename);
+      await expect(app.page.locator(selectors.textEditor.textarea)).toHaveValue('saved text content');
+      await app.cancelTextEditor();
+    });
+
     test('should save edited image as new clip', async ({ app }) => {
       const imagePath = await createTempFile(generateTestImage(200, 200), 'png');
       const filename = path.basename(imagePath);
