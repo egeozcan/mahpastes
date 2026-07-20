@@ -13,10 +13,14 @@ const CropTool = (() => {
     let rotationAngle = 0;      // Degrees
     let marchingAntsOffset = 0;
     let animFrameId = null;
+    let overlayOriginX = 0;
+    let overlayOriginY = 0;
 
     const HANDLE_SIZE = 6;
     const HANDLE_HIT = 8;       // Hit-test tolerance in canvas pixels
     const MIN_SIZE = 10;        // Minimum crop dimension
+    const OVERLAY_PADDING = HANDLE_SIZE / 2 + 1;
+    const LABEL_SPACE = 28;
 
     // --- Handle positions ---
 
@@ -78,6 +82,53 @@ const CropTool = (() => {
         move: 'move',
     };
 
+    /**
+     * Expand and position the overlay so crop UI outside the source image is not clipped.
+     * Returns the crop rectangle translated into overlay-canvas coordinates.
+     */
+    function syncOverlayBounds() {
+        const canvas = EditorCore.canvas;
+        const overlayCanvas = EditorCore.overlayCanvas;
+        if (!canvas || !overlayCanvas || !cropRect) return null;
+
+        const cropRight = cropRect.x + cropRect.w;
+        const cropBottom = cropRect.y + cropRect.h;
+        const minX = Math.min(0, Math.floor(cropRect.x - OVERLAY_PADDING));
+        const minY = Math.min(0, Math.floor(cropRect.y - OVERLAY_PADDING));
+        const maxX = Math.max(canvas.width, Math.ceil(cropRight + OVERLAY_PADDING));
+        const maxY = Math.max(canvas.height, Math.ceil(cropBottom + LABEL_SPACE));
+        const width = maxX - minX;
+        const height = maxY - minY;
+
+        if (overlayCanvas.width !== width) overlayCanvas.width = width;
+        if (overlayCanvas.height !== height) overlayCanvas.height = height;
+
+        overlayOriginX = minX;
+        overlayOriginY = minY;
+        overlayCanvas.style.left = minX + 'px';
+        overlayCanvas.style.top = minY + 'px';
+
+        return {
+            x: cropRect.x - overlayOriginX,
+            y: cropRect.y - overlayOriginY,
+            w: cropRect.w,
+            h: cropRect.h,
+        };
+    }
+
+    function resetOverlayBounds() {
+        const canvas = EditorCore.canvas;
+        const overlayCanvas = EditorCore.overlayCanvas;
+        if (!canvas || !overlayCanvas) return;
+
+        overlayOriginX = 0;
+        overlayOriginY = 0;
+        overlayCanvas.style.left = '0px';
+        overlayCanvas.style.top = '0px';
+        overlayCanvas.width = canvas.width;
+        overlayCanvas.height = canvas.height;
+    }
+
     // --- Overlay rendering ---
 
     function renderOverlay() {
@@ -85,9 +136,12 @@ const CropTool = (() => {
         const overlayCanvas = EditorCore.overlayCanvas;
         if (!oc || !overlayCanvas || !cropRect) return;
 
+        const overlayRect = syncOverlayBounds();
+        if (!overlayRect) return;
+
         const cw = overlayCanvas.width;
         const ch = overlayCanvas.height;
-        const { x, y, w, h } = cropRect;
+        const { x, y, w, h } = overlayRect;
 
         oc.clearRect(0, 0, cw, ch);
 
@@ -95,8 +149,23 @@ const CropTool = (() => {
         oc.fillStyle = 'rgba(28, 25, 23, 0.6)';
         oc.fillRect(0, 0, cw, ch);
 
-        // 2. Clear the crop region so the image shows through
-        oc.clearRect(x, y, w, h);
+        // 2. Preview the canvas background where the crop extends beyond the
+        // source image, while revealing source pixels in the overlapping area.
+        const canvas = EditorCore.canvas;
+        oc.fillStyle = getComputedStyle(canvas).backgroundColor || '#fff';
+        oc.fillRect(x, y, w, h);
+        const sourceLeft = Math.max(cropRect.x, 0);
+        const sourceTop = Math.max(cropRect.y, 0);
+        const sourceRight = Math.min(cropRect.x + cropRect.w, canvas.width);
+        const sourceBottom = Math.min(cropRect.y + cropRect.h, canvas.height);
+        if (sourceRight > sourceLeft && sourceBottom > sourceTop) {
+            oc.clearRect(
+                sourceLeft - overlayOriginX,
+                sourceTop - overlayOriginY,
+                sourceRight - sourceLeft,
+                sourceBottom - sourceTop
+            );
+        }
 
         // 3. Rule-of-thirds grid
         oc.strokeStyle = 'rgba(168, 162, 158, 0.4)';
@@ -133,11 +202,13 @@ const CropTool = (() => {
         const handles = getHandles();
         const half = HANDLE_SIZE / 2;
         for (const pos of Object.values(handles)) {
+            const handleX = pos.x - overlayOriginX;
+            const handleY = pos.y - overlayOriginY;
             oc.fillStyle = '#ffffff';
-            oc.fillRect(pos.x - half, pos.y - half, HANDLE_SIZE, HANDLE_SIZE);
+            oc.fillRect(handleX - half, handleY - half, HANDLE_SIZE, HANDLE_SIZE);
             oc.strokeStyle = '#292524';
             oc.lineWidth = 1;
-            oc.strokeRect(pos.x - half, pos.y - half, HANDLE_SIZE, HANDLE_SIZE);
+            oc.strokeRect(handleX - half, handleY - half, HANDLE_SIZE, HANDLE_SIZE);
         }
 
         // 6. Dimensions label
@@ -238,7 +309,10 @@ const CropTool = (() => {
         return {
             activate() {
                 const canvas = EditorCore.canvas;
+                const overlayCanvas = EditorCore.overlayCanvas;
                 if (!canvas) return;
+
+                if (overlayCanvas) overlayCanvas.style.pointerEvents = 'auto';
 
                 // Initialize crop rect to center 80% of canvas
                 const margin = 0.1;
@@ -273,13 +347,9 @@ const CropTool = (() => {
 
             deactivate() {
                 stopAnimation();
-
-                // Clear overlay
-                const oc = EditorCore.overlayCtx;
                 const overlayCanvas = EditorCore.overlayCanvas;
-                if (oc && overlayCanvas) {
-                    oc.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
-                }
+                if (overlayCanvas) overlayCanvas.style.pointerEvents = 'none';
+                resetOverlayBounds();
 
                 cropRect = null;
                 activeHandle = null;
@@ -325,7 +395,7 @@ const CropTool = (() => {
             onMouseMove(coords, e) {
                 if (!activeHandle || !originalRect) {
                     // Update cursor based on hover position
-                    EditorCore.updateCursor();
+                    EditorCore.updateCursor(coords);
                     return;
                 }
 
@@ -393,10 +463,15 @@ const CropTool = (() => {
                 originalRect = null;
             },
 
-            getCursor() {
-                // Dynamic cursor based on what's under the mouse
-                // We can't easily get mouse position here, so return crosshair as default
-                // The actual cursor changes happen in handleMouseMove via canvas style
+            getCursor(coords) {
+                if (activeHandle) {
+                    return handleCursors[activeHandle] || 'crosshair';
+                }
+                if (coords) {
+                    const handle = hitTestHandles(coords.x, coords.y);
+                    if (handle) return handleCursors[handle];
+                    if (insideCropRect(coords.x, coords.y)) return handleCursors.move;
+                }
                 return 'crosshair';
             },
         };
@@ -507,13 +582,7 @@ const CropTool = (() => {
 
     function cancel() {
         stopAnimation();
-
-        // Clear overlay
-        const oc = EditorCore.overlayCtx;
-        const overlayCanvas = EditorCore.overlayCanvas;
-        if (oc && overlayCanvas) {
-            oc.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
-        }
+        resetOverlayBounds();
 
         // Reset state
         cropRect = null;

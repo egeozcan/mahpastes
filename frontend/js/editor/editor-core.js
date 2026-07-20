@@ -187,7 +187,7 @@ const EditorCore = (() => {
      *   onMouseDown(coords, e)   - canvas mousedown
      *   onMouseMove(coords, e)   - canvas mousemove
      *   onMouseUp(coords, e)     - canvas mouseup
-     *   getCursor()              - return CSS cursor string
+     *   getCursor(coords)        - return CSS cursor string for optional canvas coordinates
      */
     function registerTool(name, tool) {
         tools.set(name, tool);
@@ -231,18 +231,19 @@ const EditorCore = (() => {
     /**
      * Update canvas cursor based on active tool or pan state.
      */
-    function updateCursor() {
+    function updateCursor(coords = null) {
         if (!canvas) return;
+        let cursor;
         if (spaceHeld || isPanning) {
-            canvas.style.cursor = isPanning ? 'grabbing' : 'grab';
-            return;
-        }
-        const tool = getActiveTool();
-        if (tool && typeof tool.getCursor === 'function') {
-            canvas.style.cursor = tool.getCursor();
+            cursor = isPanning ? 'grabbing' : 'grab';
         } else {
-            canvas.style.cursor = 'crosshair';
+            const tool = getActiveTool();
+            cursor = tool && typeof tool.getCursor === 'function'
+                ? tool.getCursor(coords)
+                : 'crosshair';
         }
+        canvas.style.cursor = cursor;
+        if (overlayCanvas) overlayCanvas.style.cursor = cursor;
     }
 
     // --- Undo/redo with ImageData ---
@@ -421,9 +422,12 @@ const EditorCore = (() => {
             return;
         }
 
-        if (!isDrawing) return;
-
         const coords = screenToCanvas(e.clientX, e.clientY);
+
+        if (!isDrawing) {
+            updateCursor(coords);
+            return;
+        }
 
         const tool = getActiveTool();
         if (tool && typeof tool.onMouseMove === 'function') {
@@ -453,6 +457,8 @@ const EditorCore = (() => {
         if (tool && typeof tool.onMouseUp === 'function') {
             tool.onMouseUp(coords, e);
         }
+
+        updateCursor(coords);
     }
 
     function handleMouseLeave(e) {
@@ -554,13 +560,19 @@ const EditorCore = (() => {
         boundContextMenu = handleContextMenu;
 
         canvas.addEventListener('mousedown', boundMouseDown);
+        overlayCanvas.addEventListener('mousedown', boundMouseDown);
         document.addEventListener('mousemove', boundMouseMove);
         document.addEventListener('mouseup', boundMouseUp);
         canvas.addEventListener('touchstart', boundTouchStart, { passive: false });
         canvas.addEventListener('touchmove', boundTouchMove, { passive: false });
         canvas.addEventListener('touchend', boundTouchEnd);
+        overlayCanvas.addEventListener('touchstart', boundTouchStart, { passive: false });
+        overlayCanvas.addEventListener('touchmove', boundTouchMove, { passive: false });
+        overlayCanvas.addEventListener('touchend', boundTouchEnd);
         canvas.addEventListener('wheel', boundWheel, { passive: false });
+        overlayCanvas.addEventListener('wheel', boundWheel, { passive: false });
         canvas.addEventListener('contextmenu', boundContextMenu);
+        overlayCanvas.addEventListener('contextmenu', boundContextMenu);
 
         document.addEventListener('keydown', boundKeyDown);
         document.addEventListener('keyup', boundKeyUp);
@@ -577,6 +589,9 @@ const EditorCore = (() => {
         if (canvas) {
             canvas.removeEventListener('mousedown', boundMouseDown);
         }
+        if (overlayCanvas) {
+            overlayCanvas.removeEventListener('mousedown', boundMouseDown);
+        }
         document.removeEventListener('mousemove', boundMouseMove);
         document.removeEventListener('mouseup', boundMouseUp);
 
@@ -586,6 +601,13 @@ const EditorCore = (() => {
             canvas.removeEventListener('touchend', boundTouchEnd);
             canvas.removeEventListener('wheel', boundWheel);
             canvas.removeEventListener('contextmenu', boundContextMenu);
+        }
+        if (overlayCanvas) {
+            overlayCanvas.removeEventListener('touchstart', boundTouchStart);
+            overlayCanvas.removeEventListener('touchmove', boundTouchMove);
+            overlayCanvas.removeEventListener('touchend', boundTouchEnd);
+            overlayCanvas.removeEventListener('wheel', boundWheel);
+            overlayCanvas.removeEventListener('contextmenu', boundContextMenu);
         }
 
         document.removeEventListener('keydown', boundKeyDown);

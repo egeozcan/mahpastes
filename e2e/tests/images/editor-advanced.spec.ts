@@ -318,6 +318,35 @@ test.describe('Advanced Editor Tools', () => {
       await expect(app.page.locator(selectors.editor.cropCancel)).toBeVisible();
     });
 
+    test('should show resize cursors when hovering crop handles', async ({ app }) => {
+      const imagePath = await createTempFile(generateTestImage(200, 200), 'png');
+      const filename = path.basename(imagePath);
+      await app.uploadFile(imagePath);
+      await app.openImageEditor(filename);
+
+      await app.selectTool('crop');
+
+      const canvas = app.page.locator(selectors.editor.canvas);
+      const box = await canvas.boundingBox();
+      if (!box) throw new Error('Canvas not visible');
+
+      const handles = [
+        { x: 20, y: 20, cursor: 'nwse-resize' },
+        { x: 100, y: 20, cursor: 'ns-resize' },
+        { x: 180, y: 20, cursor: 'nesw-resize' },
+        { x: 180, y: 100, cursor: 'ew-resize' },
+        { x: 180, y: 180, cursor: 'nwse-resize' },
+        { x: 100, y: 180, cursor: 'ns-resize' },
+        { x: 20, y: 180, cursor: 'nesw-resize' },
+        { x: 20, y: 100, cursor: 'ew-resize' },
+      ];
+
+      for (const handle of handles) {
+        await app.page.mouse.move(box.x + handle.x, box.y + handle.y);
+        await expect(canvas).toHaveCSS('cursor', handle.cursor);
+      }
+    });
+
     test('should crop image and reduce canvas size', async ({ app }) => {
       const imagePath = await createTempFile(generateTestImage(200, 200), 'png');
       const filename = path.basename(imagePath);
@@ -364,6 +393,49 @@ test.describe('Advanced Editor Tools', () => {
       });
       expect(pixels.source).toEqual([...sourceColor, 255]);
       expect(pixels.background).toEqual([...backgroundColor, 255]);
+    });
+
+    test('should keep the crop border and handle visible beyond the image bounds', async ({ app }) => {
+      const imagePath = await createTempFile(generateTestImage(200, 200), 'png');
+      const filename = path.basename(imagePath);
+      await app.uploadFile(imagePath);
+      await app.openImageEditor(filename);
+
+      await app.selectTool('crop');
+      await app.drawOnCanvas({ x: 5, y: 5 }, { x: 250, y: 250 });
+
+      const overlay = app.page.locator(selectors.editor.overlayCanvas);
+      await expect.poll(async () => overlay.evaluate((canvas) => {
+        const overlayCanvas = canvas as HTMLCanvasElement;
+        if (overlayCanvas.width < 254 || overlayCanvas.height < 254) return false;
+        const context = overlayCanvas.getContext('2d');
+        if (!context) return false;
+        const handlePixel = context.getImageData(248, 248, 1, 1).data;
+        return handlePixel[3] > 0;
+      })).toBe(true);
+
+      // The visible out-of-bounds handle should remain interactive.
+      await app.drawOnCanvas({ x: 250, y: 250 }, { x: 275, y: 275 });
+      await expect.poll(async () => overlay.evaluate((canvas) => {
+        const overlayCanvas = canvas as HTMLCanvasElement;
+        if (overlayCanvas.width < 279 || overlayCanvas.height < 279) return false;
+        const context = overlayCanvas.getContext('2d');
+        if (!context) return false;
+        return context.getImageData(273, 273, 1, 1).data[3] > 0;
+      })).toBe(true);
+
+      // Move the same selection beyond the top-left edge as well. The overlay
+      // should translate its origin and keep that corner handle rendered.
+      await app.drawOnCanvas({ x: 100, y: 100 }, { x: -25, y: -25 });
+      await expect.poll(async () => overlay.evaluate((canvas) => {
+        const overlayCanvas = canvas as HTMLCanvasElement;
+        const context = overlayCanvas.getContext('2d');
+        if (!context) return false;
+        const handlePixel = context.getImageData(3, 3, 1, 1).data;
+        return parseFloat(overlayCanvas.style.left) < 0 &&
+          parseFloat(overlayCanvas.style.top) < 0 &&
+          handlePixel[3] > 0;
+      })).toBe(true);
     });
 
     test('should cancel crop without changing canvas', async ({ app }) => {
