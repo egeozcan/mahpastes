@@ -232,22 +232,6 @@ const CropTool = (() => {
         return r;
     }
 
-    // --- Clamping ---
-
-    function clampRect(r) {
-        const canvas = EditorCore.canvas;
-        if (!canvas) return r;
-        const cw = canvas.width;
-        const ch = canvas.height;
-
-        r.x = Math.max(0, Math.min(r.x, cw - MIN_SIZE));
-        r.y = Math.max(0, Math.min(r.y, ch - MIN_SIZE));
-        r.w = Math.max(MIN_SIZE, Math.min(r.w, cw - r.x));
-        r.h = Math.max(MIN_SIZE, Math.min(r.h, ch - r.y));
-
-        return r;
-    }
-
     // --- Tool interface ---
 
     function create() {
@@ -349,12 +333,9 @@ const CropTool = (() => {
                 const dy = coords.y - dragStartY;
 
                 if (activeHandle === 'move') {
-                    const canvas = EditorCore.canvas;
-                    const maxX = canvas ? canvas.width - originalRect.w : Infinity;
-                    const maxY = canvas ? canvas.height - originalRect.h : Infinity;
                     cropRect = {
-                        x: Math.max(0, Math.min(originalRect.x + dx, maxX)),
-                        y: Math.max(0, Math.min(originalRect.y + dy, maxY)),
+                        x: originalRect.x + dx,
+                        y: originalRect.y + dy,
                         w: originalRect.w,
                         h: originalRect.h,
                     };
@@ -390,8 +371,7 @@ const CropTool = (() => {
                     // Enforce aspect ratio
                     r = constrainToAspect(r, activeHandle);
 
-                    // Clamp to canvas bounds
-                    cropRect = clampRect(r);
+                    cropRect = r;
                 }
 
                 // Overlay is redrawn by the marching ants animation loop
@@ -404,10 +384,9 @@ const CropTool = (() => {
                 if (cropRect.w < MIN_SIZE) cropRect.w = MIN_SIZE;
                 if (cropRect.h < MIN_SIZE) cropRect.h = MIN_SIZE;
 
-                // Re-enforce aspect ratio after clamping
+                // Re-enforce aspect ratio after applying the minimum size
                 if (aspectRatio && activeHandle && activeHandle !== 'move') {
                     cropRect = constrainToAspect(cropRect, activeHandle);
-                    cropRect = clampRect(cropRect);
                 }
 
                 activeHandle = null;
@@ -481,7 +460,10 @@ const CropTool = (() => {
         cropCanvas.height = rh;
         const cropCtx = cropCanvas.getContext('2d');
 
-        // Draw the relevant portion of the source onto the new canvas
+        // Fill areas outside the source image with the canvas background.
+        // Drawing the source afterward preserves its pixels where the two overlap.
+        cropCtx.fillStyle = getComputedStyle(canvas).backgroundColor || '#fff';
+        cropCtx.fillRect(0, 0, rw, rh);
         cropCtx.drawImage(source, rx, ry, rw, rh, 0, 0, rw, rh);
 
         // Resize EditorCore's canvases to new dimensions
@@ -552,7 +534,6 @@ const CropTool = (() => {
         // Re-constrain existing crop rect if one exists
         if (cropRect && ratio) {
             cropRect = constrainToAspect(cropRect, 'se');
-            cropRect = clampRect(cropRect);
         }
     }
 
@@ -563,7 +544,6 @@ const CropTool = (() => {
         // Re-constrain existing crop rect
         if (cropRect) {
             cropRect = constrainToAspect(cropRect, 'se');
-            cropRect = clampRect(cropRect);
         }
     }
 

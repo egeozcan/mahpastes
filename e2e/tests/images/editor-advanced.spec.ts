@@ -335,6 +335,37 @@ test.describe('Advanced Editor Tools', () => {
       expect(after.height).toBeLessThan(before.height);
     });
 
+    test('should crop beyond the image and fill the added area with the canvas background', async ({ app }) => {
+      const sourceColor: [number, number, number] = [200, 100, 50];
+      const imagePath = await createTempFile(generateTestImage(200, 200, sourceColor), 'png');
+      const filename = path.basename(imagePath);
+      await app.uploadFile(imagePath);
+      await app.openImageEditor(filename);
+
+      const backgroundColor = [17, 34, 51];
+      await app.page.locator(selectors.editor.canvas).evaluate((canvas, color) => {
+        (canvas as HTMLCanvasElement).style.backgroundColor = `rgb(${color.join(', ')})`;
+      }, backgroundColor);
+
+      await app.cropImage({ x: 5, y: 5 }, { x: 250, y: 250 });
+
+      const dimensions = await app.getCanvasDimensions();
+      expect(dimensions.width).toBeGreaterThan(200);
+      expect(dimensions.height).toBeGreaterThan(200);
+
+      const pixels = await app.page.locator(selectors.editor.canvas).evaluate((canvas) => {
+        const imageCanvas = canvas as HTMLCanvasElement;
+        const context = imageCanvas.getContext('2d');
+        if (!context) throw new Error('Canvas context unavailable');
+        return {
+          source: Array.from(context.getImageData(0, 0, 1, 1).data),
+          background: Array.from(context.getImageData(imageCanvas.width - 1, imageCanvas.height - 1, 1, 1).data),
+        };
+      });
+      expect(pixels.source).toEqual([...sourceColor, 255]);
+      expect(pixels.background).toEqual([...backgroundColor, 255]);
+    });
+
     test('should cancel crop without changing canvas', async ({ app }) => {
       const imagePath = await createTempFile(generateTestImage(200, 200), 'png');
       const filename = path.basename(imagePath);
