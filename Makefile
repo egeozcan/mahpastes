@@ -22,7 +22,7 @@ else
     MP_INSTALL_DIR ?= $(if $(GO_BIN),$(GO_BIN),$(HOME)/.local/bin)
 endif
 
-.PHONY: dev build clean install uninstall bindings mp mp-install mp-cross mahpastesd mahpastesd-cross test screenshots
+.PHONY: dev build clean install install-bundle uninstall bindings mp mp-install mp-cross mahpastesd mahpastesd-cross test screenshots
 
 ## Development
 
@@ -72,15 +72,24 @@ install: build ## Build and install (kills running instance)
 	if pgrep -f "$(APP_PROCESS_PATTERN)" >/dev/null 2>&1; then \
 		pkill -KILL -f "$(APP_PROCESS_PATTERN)" 2>/dev/null || true; \
 	fi
-	rm -rf $(INSTALL_DIR)/$(APP_NAME).app
-	cp -R $(APP_BUNDLE) $(INSTALL_DIR)/$(APP_NAME).app
-	xattr -cr $(INSTALL_DIR)/$(APP_NAME).app
+	@$(MAKE) install-bundle
 	@echo "Installed to $(INSTALL_DIR)/$(APP_NAME).app"
 	@# Update bundled plugins
 	@mkdir -p "$(PLUGIN_DIR)"
 	@cp plugins/*.lua "$(PLUGIN_DIR)/"
 	@echo "Updated bundled plugins"
 	open -n $(INSTALL_DIR)/$(APP_NAME).app
+
+install-bundle:
+	@set -eu; \
+	staging="$(INSTALL_DIR)/.$(APP_NAME).installing.$$$$"; \
+	trap 'rm -rf "$$staging"' EXIT HUP INT TERM; \
+	rm -rf "$$staging"; \
+	cp -R "$(APP_BUNDLE)" "$$staging"; \
+	xattr -cr "$$staging"; \
+	rm -rf "$(INSTALL_DIR)/$(APP_NAME).app"; \
+	mv "$$staging" "$(INSTALL_DIR)/$(APP_NAME).app"; \
+	trap - EXIT HUP INT TERM
 
 uninstall: ## Remove installed app
 	@pkill -f "$(APP_NAME).app/Contents/MacOS/$(APP_NAME)" 2>/dev/null || true
