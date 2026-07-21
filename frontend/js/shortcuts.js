@@ -211,10 +211,13 @@ const ShortcutManager = (() => {
         // Don't intercept keys when a context menu is open — it has its own keyboard handler
         if (typeof ContextMenu !== 'undefined' && ContextMenu.isOpen()) return;
 
-        // Input guard: suppress shortcuts when interacting with form fields (except Escape)
+        // Input guard: suppress shortcuts when interacting with form fields. Escape
+        // normally closes the active modal, except for editor controls that use it
+        // locally to dismiss an inline mode without closing the whole editor.
         const tag = e.target.tagName;
         const isEditable = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable;
-        if (isEditable && e.key !== 'Escape') return;
+        const handlesEscapeLocally = e.target.matches?.('#editor-filename, #text-editor-find, #text-editor-replace');
+        if (isEditable && (e.key !== 'Escape' || handlesEscapeLocally)) return;
 
         // Handle Escape for modal overlays that block all shortcut contexts.
         // These modals cause getActiveContexts() to return [], so they can't be

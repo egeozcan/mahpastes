@@ -873,29 +873,38 @@
         <div class="editor-container">
             <!-- Header -->
             <div class="editor-header">
-                <h3 class="text-sm font-medium">Edit</h3>
-                <div class="flex items-center gap-3">
+                <h3 class="text-sm font-medium flex items-center gap-2 min-w-0">
+                    <span>Edit</span>
+                    <span aria-hidden="true" class="text-stone-500">·</span>
+                    <span id="editor-current-filename" class="text-xs text-stone-300 truncate"></span>
+                </h3>
+                <div class="flex items-center gap-2">
+                    <label for="editor-filename" class="sr-only">New clip filename</label>
                     <input type="text" id="editor-filename"
-                        class="px-2.5 py-1.5 bg-white/10 border border-white/20 rounded-md text-white text-xs focus:outline-none focus:ring-1 focus:ring-white/30"
-                        placeholder="filename.ext">
+                        class="hidden w-48 px-2.5 py-1.5 bg-white/10 border border-white/20 rounded-md text-white text-xs focus:outline-none focus:ring-1 focus:ring-white/30"
+                        placeholder="filename.ext" autocomplete="off">
+                    <button id="editor-save-as-cancel"
+                        class="hidden px-2.5 py-1.5 text-stone-300 text-xs font-medium rounded-md hover:bg-white/10 transition-colors">
+                        Cancel
+                    </button>
                     <button id="editor-save-in-place"
-                        class="px-3 py-1.5 bg-white text-stone-800 text-xs font-medium rounded-md hover:bg-stone-100 transition-colors flex items-center gap-1.5"
+                        class="px-3 py-1.5 bg-white text-stone-800 text-xs font-medium rounded-md hover:bg-stone-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
                         data-tooltip="Overwrite the original clip with your edits">
                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                 d="M5 13l4 4L19 7"></path>
                         </svg>
-                        Save
+                        <span id="editor-save-label">Save</span>
                     </button>
                     <button id="editor-save"
-                        class="px-3 py-1.5 bg-white/20 text-white text-xs font-medium rounded-md hover:bg-white/30 transition-colors flex items-center gap-1.5"
+                        class="px-3 py-1.5 bg-white/20 text-white text-xs font-medium rounded-md hover:bg-white/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
                         data-tooltip="Save edits as a new clip in your library">
                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                 d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4">
                             </path>
                         </svg>
-                        Save As
+                        <span id="editor-save-as-label">Save As</span>
                     </button>
                     <button id="editor-close" class="p-1.5 hover:bg-white/10 rounded-md transition-colors"
                         aria-label="Close editor" data-tooltip="Discard all edits and close editor (Esc)">
@@ -909,9 +918,44 @@
 
             <!-- Text Editor View -->
             <div id="text-editor-view" class="editor-content hidden">
-                <textarea id="text-editor-textarea"
-                    class="w-full h-full bg-stone-900 text-stone-200 font-mono text-xs p-4 resize-none focus:outline-none leading-relaxed"
-                    spellcheck="false"></textarea>
+                <div id="text-editor-toolbar" class="flex flex-wrap items-center gap-2 px-3 py-2 bg-stone-800 border-b border-stone-700 text-stone-300" role="toolbar" aria-label="Text editing tools">
+                    <button id="text-editor-find-toggle"
+                        class="border border-stone-600 hover:border-stone-500 hover:bg-stone-700 text-[10px] font-medium py-1.5 px-2.5 rounded-md transition-colors"
+                        aria-expanded="false" aria-controls="text-editor-find-panel">Find / Replace</button>
+                    <button id="text-editor-wrap-toggle"
+                        class="border border-stone-600 hover:border-stone-500 hover:bg-stone-700 text-[10px] font-medium py-1.5 px-2.5 rounded-md transition-colors"
+                        aria-pressed="true">Wrap</button>
+                    <button id="text-editor-format-json"
+                        class="hidden border border-stone-600 hover:border-stone-500 hover:bg-stone-700 text-[10px] font-medium py-1.5 px-2.5 rounded-md transition-colors">Format JSON</button>
+                    <span id="text-editor-validation-status" class="ml-auto text-[10px]" role="status" aria-live="polite"></span>
+                </div>
+                <div id="text-editor-find-panel" class="hidden flex-wrap items-center gap-2 px-3 py-2 bg-stone-100 border-b border-stone-200">
+                    <label for="text-editor-find" class="sr-only">Find text</label>
+                    <input id="text-editor-find" type="text" autocomplete="off" placeholder="Find"
+                        class="w-44 border border-stone-200 rounded-md text-xs bg-white px-2.5 py-1.5 placeholder-stone-400 focus:outline-none focus:border-stone-400 focus:ring-1 focus:ring-stone-400/20">
+                    <label for="text-editor-replace" class="sr-only">Replacement text</label>
+                    <input id="text-editor-replace" type="text" autocomplete="off" placeholder="Replace with"
+                        class="w-44 border border-stone-200 rounded-md text-xs bg-white px-2.5 py-1.5 placeholder-stone-400 focus:outline-none focus:border-stone-400 focus:ring-1 focus:ring-stone-400/20">
+                    <button id="text-editor-find-previous" class="border border-stone-200 hover:border-stone-300 hover:bg-stone-200 text-stone-600 text-[10px] font-medium py-1.5 px-2 rounded-md transition-colors" aria-label="Find previous match">Previous</button>
+                    <button id="text-editor-find-next" class="border border-stone-200 hover:border-stone-300 hover:bg-stone-200 text-stone-600 text-[10px] font-medium py-1.5 px-2 rounded-md transition-colors" aria-label="Find next match">Next</button>
+                    <button id="text-editor-replace-current" class="border border-stone-200 hover:border-stone-300 hover:bg-stone-200 text-stone-600 text-[10px] font-medium py-1.5 px-2 rounded-md transition-colors">Replace</button>
+                    <button id="text-editor-replace-all" class="bg-stone-800 hover:bg-stone-700 text-white text-[10px] font-medium py-1.5 px-2 rounded-md transition-colors">Replace All</button>
+                    <span id="text-editor-search-status" class="text-[10px] text-stone-500" role="status" aria-live="polite"></span>
+                    <button id="text-editor-find-close" class="ml-auto p-1 text-stone-400 hover:text-stone-600 hover:bg-stone-200 rounded transition-colors" aria-label="Close find and replace">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12"></path></svg>
+                    </button>
+                </div>
+                <div id="text-editor-body">
+                    <textarea id="text-editor-textarea"
+                        class="w-full h-full bg-stone-900 text-stone-200 font-mono text-xs p-4 resize-none focus:outline-none leading-relaxed"
+                        aria-label="Clip content" wrap="soft" spellcheck="false"></textarea>
+                    <div id="text-editor-highlight-layer" class="hidden" aria-hidden="true"></div>
+                </div>
+                <div class="flex items-center gap-3 px-3 py-1.5 bg-stone-800 border-t border-stone-700 text-[10px] text-stone-400">
+                    <span id="text-editor-cursor-status">Ln 1, Col 1</span>
+                    <span id="text-editor-character-status">0 characters</span>
+                    <span id="text-editor-draft-status" class="ml-auto" role="status" aria-live="polite"></span>
+                </div>
             </div>
 
             <!-- Image Editor View -->
@@ -2052,6 +2096,7 @@
     <script src="js/editor/tool-crop.js"></script>
     <script src="js/editor/tool-select.js"></script>
     <script src="js/editor/tool-anonymize.js"></script>
+    <script src="js/editor/text-clip-editor.js"></script>
     <script src="js/editor.js"></script>
     <script src="js/watch.js"></script>
     <script src="js/serve.js"></script>

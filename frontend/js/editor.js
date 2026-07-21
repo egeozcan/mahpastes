@@ -8,7 +8,8 @@ let editorClipId = null;
 let editorContentType = '';
 let editorFilename = '';
 let isTextEditor = false;
-let editorOriginalText = '';
+let saveAsMode = false;
+let editorSaving = false;
 
 // --- Utility Functions ---
 
@@ -33,6 +34,51 @@ function getNewFilename(original) {
     return name + '_edited' + ext;
 }
 
+function encodeTextToBase64(text) {
+    const bytes = new TextEncoder().encode(text);
+    let binary = '';
+    const chunkSize = 0x8000;
+    for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+        binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+    }
+    return btoa(binary);
+}
+
+function setSaveAsMode(enabled) {
+    saveAsMode = enabled;
+    const filenameInput = document.getElementById('editor-filename');
+    const cancelButton = document.getElementById('editor-save-as-cancel');
+    const saveInPlaceButton = document.getElementById('editor-save-in-place');
+    const saveAsLabel = document.getElementById('editor-save-as-label');
+
+    filenameInput.classList.toggle('hidden', !enabled);
+    cancelButton.classList.toggle('hidden', !enabled);
+    saveInPlaceButton.classList.toggle('hidden', enabled);
+    saveAsLabel.textContent = enabled ? 'Create Copy' : 'Save As';
+
+    if (enabled) {
+        filenameInput.focus();
+        filenameInput.select();
+    }
+}
+
+function cancelSaveAs() {
+    setSaveAsMode(false);
+    document.getElementById('editor-save').focus();
+}
+
+function setEditorSaving(saving) {
+    editorSaving = saving;
+    const saveButton = document.getElementById('editor-save-in-place');
+    const saveAsButton = document.getElementById('editor-save');
+    document.getElementById('editor-save-label').textContent = saving ? 'Saving…' : 'Save';
+    document.getElementById('editor-save-as-label').textContent = saving
+        ? 'Saving…'
+        : (saveAsMode ? 'Create Copy' : 'Save As');
+    saveButton.disabled = saving || (isTextEditor && !TextClipEditor.isDirty());
+    saveAsButton.disabled = saving;
+}
+
 // --- Open / Close ---
 
 async function openEditor(clipId) {
@@ -51,14 +97,18 @@ async function openEditor(clipId) {
         const imageEditorView = document.getElementById('image-editor-view');
         const editorFilenameInput = document.getElementById('editor-filename');
 
-        // Set filename in input
+        // Show the original filename; request a new name only after Save As.
+        document.getElementById('editor-current-filename').textContent = editorFilename;
         editorFilenameInput.value = getNewFilename(editorFilename);
+        setSaveAsMode(false);
+        setEditorSaving(false);
 
         if (isImageType(contentType)) {
             // Image editor
             isTextEditor = false;
             textEditorView.classList.add('hidden');
             imageEditorView.classList.remove('hidden');
+            document.getElementById('editor-save-in-place').disabled = false;
 
             // Convert base64 to blob
             const binaryData = atob(clipData.data);
@@ -98,9 +148,13 @@ async function openEditor(clipId) {
             imageEditorView.classList.add('hidden');
             textEditorView.classList.remove('hidden');
 
-            // For text, data is already a string
-            editorOriginalText = clipData.data;
-            document.getElementById('text-editor-textarea').value = editorOriginalText;
+            // For text, data is already a string.
+            TextClipEditor.open({
+                clipID: clipId,
+                filename: editorFilename,
+                contentType,
+                text: clipData.data,
+            });
         }
 
         editorModal.removeAttribute('inert');
@@ -117,7 +171,7 @@ function hasUnsavedEditorChanges() {
     if (!editorClipId) return false;
 
     if (isTextEditor) {
-        return document.getElementById('text-editor-textarea').value !== editorOriginalText;
+        return TextClipEditor.isDirty();
     }
 
     return EditorCore.isDirty();
@@ -129,7 +183,7 @@ function closeEditor(options) {
         showConfirmDialog(
             'Discard unsaved changes?',
             'Your changes have not been saved. Discard them and close the editor?',
-            () => closeEditor({ force: true }),
+            () => closeEditor({ force: true, discardDraft: true }),
             null,
             { variant: 'danger', confirmLabel: 'Discard' }
         );
@@ -140,14 +194,20 @@ function closeEditor(options) {
     editorModal.classList.remove('active');
     editorModal.setAttribute('inert', '');
 
+    if (isTextEditor) {
+        TextClipEditor.close({ discardDraft: options?.discardDraft === true });
+    }
+
     // Reset EditorCore (detaches listeners, clears canvases, clears undo/redo)
     EditorCore.reset();
+    setSaveAsMode(false);
 
     // Clear editor metadata
     editorClipId = null;
     editorContentType = '';
     editorFilename = '';
-    editorOriginalText = '';
+    isTextEditor = false;
+    editorSaving = false;
 
     // Hide text input
     const textInput = document.getElementById('canvas-text-input');
@@ -228,18 +288,12 @@ function selectTool(tool) {
 
 // --- Save ---
 
-async function saveEditorInPlace() {
-    if (!editorClipId) {
-        showToast('No clip to overwrite.');
-        return;
-    }
-
+async function performSaveEditorInPlace() {
     let base64Data;
     let contentType = editorContentType;
 
     if (isTextEditor) {
-        const text = document.getElementById('text-editor-textarea').value;
-        base64Data = btoa(unescape(encodeURIComponent(text)));
+        base64Data = encodeTextToBase64(TextClipEditor.getValue());
     } else {
         const savedContentType = EditorCore.originalContentType;
         const exportType = (savedContentType === 'image/jpeg' || savedContentType === 'image/webp')
@@ -250,21 +304,38 @@ async function saveEditorInPlace() {
         contentType = exportType;
     }
 
+    setEditorSaving(true);
     try {
         await window.go.main.App.UpdateClipData(editorClipId, contentType, base64Data, editorFilename);
+        if (isTextEditor) TextClipEditor.clearDraft();
         showToast('Saved!');
         closeEditor({ force: true });
         loadClips();
     } catch (error) {
         console.error('Error saving in place:', error);
         showToast('Failed to save.');
+        setEditorSaving(false);
     }
 }
 
-async function saveEditorContent() {
+function saveEditorInPlace() {
+    if (!editorClipId || editorSaving) {
+        if (!editorClipId) showToast('No clip to overwrite.');
+        return;
+    }
+
+    if (isTextEditor) {
+        TextClipEditor.confirmSave(performSaveEditorInPlace);
+    } else {
+        performSaveEditorInPlace();
+    }
+}
+
+async function performSaveEditorContent() {
     const filename = document.getElementById('editor-filename').value.trim();
     if (!filename) {
         showToast('Please enter a filename.');
+        document.getElementById('editor-filename').focus();
         return;
     }
 
@@ -272,9 +343,7 @@ async function saveEditorContent() {
     let contentType = editorContentType;
 
     if (isTextEditor) {
-        const text = document.getElementById('text-editor-textarea').value;
-        // Convert text to base64
-        base64Data = btoa(unescape(encodeURIComponent(text)));
+        base64Data = encodeTextToBase64(TextClipEditor.getValue());
     } else {
         // Use EditorCore's canvas and preserve original format when possible
         const savedContentType = EditorCore.originalContentType;
@@ -286,35 +355,63 @@ async function saveEditorContent() {
         contentType = exportType;
     }
 
-    // Create FileData for upload
     const fileData = {
         name: filename,
         content_type: contentType,
         data: base64Data
     };
 
+    setEditorSaving(true);
     try {
         await upload([fileData]);
-
+        if (isTextEditor) TextClipEditor.clearDraft();
         showToast('Saved as new clip!');
         closeEditor({ force: true });
         loadClips(); // Refresh gallery
-
     } catch (error) {
         console.error('Error saving:', error);
         showToast('Failed to save.');
+        setEditorSaving(false);
+    }
+}
+
+function saveEditorContent() {
+    if (editorSaving) return;
+    if (!saveAsMode) {
+        setSaveAsMode(true);
+        return;
+    }
+
+    if (isTextEditor) {
+        TextClipEditor.confirmSave(performSaveEditorContent);
+    } else {
+        performSaveEditorContent();
     }
 }
 
 // --- Event Listener Setup (called from app.js) ---
 
 function setupEditorListeners() {
+    TextClipEditor.setup();
+
     // Close button
     document.getElementById('editor-close').addEventListener('click', closeEditor);
 
     // Save buttons
     document.getElementById('editor-save').addEventListener('click', saveEditorContent);
     document.getElementById('editor-save-in-place').addEventListener('click', saveEditorInPlace);
+    document.getElementById('editor-save-as-cancel').addEventListener('click', cancelSaveAs);
+    document.getElementById('editor-filename').addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            saveEditorContent();
+        } else if (event.key === 'Escape') {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            cancelSaveAs();
+        }
+    });
 
     // Tool buttons — delegate to EditorCore via selectTool wrapper
     document.querySelectorAll('.editor-tool-btn').forEach(btn => {

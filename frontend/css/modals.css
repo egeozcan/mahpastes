@@ -642,9 +642,54 @@ input[type="range"].comparison-range::-webkit-slider-thumb {
     flex-direction: column;
 }
 
-#text-editor-textarea {
+#text-editor-body {
+    position: relative;
     flex: 1;
     min-height: 0;
+    overflow: hidden;
+    background: #1c1917;
+}
+
+#text-editor-textarea {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    min-height: 0;
+    overflow: auto;
+}
+
+#text-editor-highlight-layer {
+    position: absolute;
+    inset: 0 auto auto 0;
+    z-index: 2;
+    box-sizing: border-box;
+    overflow: hidden;
+    pointer-events: none;
+    padding: 1rem;
+    color: transparent;
+    font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.75rem;
+    line-height: 1.625;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+    tab-size: 8;
+}
+
+#text-editor-textarea.text-editor-nowrap,
+#text-editor-highlight-layer.text-editor-nowrap {
+    white-space: pre;
+    overflow-wrap: normal;
+}
+
+#text-editor-highlight-layer [data-search-match] {
+    color: transparent;
+    background: rgba(245, 158, 11, 0.28);
+    border-radius: 2px;
+}
+
+#text-editor-highlight-layer [data-search-active="true"] {
+    background: rgba(245, 158, 11, 0.58);
+    box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.8);
 }
 
 .editor-toolbar-wrapper {

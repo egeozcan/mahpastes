@@ -1050,7 +1050,11 @@ export class AppHelper {
     await this.page.locator(selectors.editor.redoButton).click();
   }
 
-  async saveEditorAsNewClip(): Promise<void> {
+  async saveEditorAsNewClip(filename?: string): Promise<void> {
+    await this.page.locator(selectors.editor.saveButton).click();
+    const filenameInput = this.page.locator('#editor-filename');
+    await expect(filenameInput).toBeVisible();
+    if (filename) await filenameInput.fill(filename);
     await this.page.locator(selectors.editor.saveButton).click();
     await this.page.waitForSelector(`${selectors.editor.modal}:not(.active)`);
   }
