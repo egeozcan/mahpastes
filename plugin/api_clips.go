@@ -15,6 +15,8 @@ import (
 	"strings"
 	"time"
 
+	"go-clipboard/internal/cliptype"
+
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -252,6 +254,8 @@ func (c *ClipsAPI) create(L *lua.LState) int {
 		filename = nm.String()
 	}
 
+	contentType = cliptype.PromoteMarkdown(filename, contentType)
+
 	// Determine if data is base64 encoded
 	// Check explicit encoding flag or auto-detect for binary content types
 	isBase64 := false
@@ -453,6 +457,8 @@ func (c *ClipsAPI) createFromURL(L *lua.LState) int {
 			filename = "downloaded"
 		}
 	}
+
+	contentType = cliptype.PromoteMarkdown(filename, contentType)
 
 	// Insert into database
 	hash := sha256.Sum256(data)

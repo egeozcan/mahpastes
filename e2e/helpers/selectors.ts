@@ -342,6 +342,11 @@ export const selectors = {
     cursorStatus: '#text-editor-cursor-status',
     characterStatus: '#text-editor-character-status',
     draftStatus: '#text-editor-draft-status',
+    modeLabel: '#editor-mode-label',
+    previewTab: '#markdown-preview-tab',
+    editTab: '#markdown-edit-tab',
+    previewPanel: '#markdown-preview-panel',
+    previewContent: '#markdown-preview-content',
   },
 
   // Tags
@@ -481,6 +486,8 @@ export const selectors = {
     deduplicateButton: '#maintenance-deduplicate-btn',
     removeEmptyTagsButton: '#maintenance-remove-empty-tags-btn',
     compactDbButton: '#maintenance-compact-db-btn',
+    markdownCacheSize: '#maintenance-markdown-cache-size',
+    clearMarkdownCacheButton: '#maintenance-clear-markdown-cache-btn',
   },
 
   // Tooltips

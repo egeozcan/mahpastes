@@ -1,42 +1,5 @@
 // --- Plugin Result Modal Renderer ---
 
-// DOMPurify config
-const PURIFY_CONFIG = {
-    ALLOWED_TAGS: ['h1','h2','h3','h4','h5','h6','p','br','hr',
-                   'strong','em','del','code','pre','blockquote',
-                   'ul','ol','li','a','img','table','thead','tbody',
-                   'tr','th','td','span'],
-    ALLOWED_ATTR: ['href','src','alt','title','class'],
-    ALLOW_DATA_ATTR: false,
-};
-
-// Configure DOMPurify hooks for link safety
-if (typeof DOMPurify !== 'undefined') {
-    DOMPurify.addHook('afterSanitizeAttributes', function(node) {
-        if (node.tagName === 'A') {
-            node.setAttribute('target', '_blank');
-            node.setAttribute('rel', 'noopener noreferrer');
-        }
-        // IMG src validation: allow only https:// and data: synchronously.
-        // The async plugin-network-allowlist check for https:// URLs happens
-        // after sanitization in renderPluginContent.
-        if (node.tagName === 'IMG') {
-            const src = node.getAttribute('src') || '';
-            if (!src.startsWith('https://') && !src.startsWith('data:')) {
-                node.removeAttribute('src');
-            }
-        }
-    });
-}
-
-// Configure marked for GFM with tables
-if (typeof marked !== 'undefined') {
-    marked.setOptions({
-        gfm: true,
-        breaks: false,
-    });
-}
-
 // State
 let currentModalData = null;
 let modalRenderGen = 0;
@@ -49,36 +12,38 @@ const pluginResultClose = document.getElementById('plugin-result-close');
 const pluginResultCopy = document.getElementById('plugin-result-copy');
 const pluginResultPaste = document.getElementById('plugin-result-paste');
 
-async function renderPluginContent(content, format, pluginId) {
+async function renderPluginContent(content, format, pluginId, renderGen) {
     switch (format) {
         case 'markdown': {
-            const rawHTML = marked.parse(content);
-            const cleanHTML = DOMPurify.sanitize(rawHTML, PURIFY_CONFIG);
-            // Neutralize https:// img srcs before DOM insertion to prevent
-            // the browser from prefetching disallowed domains while the async
-            // allowlist check runs. After DOMPurify, only img elements carry
-            // https:// src attributes; data: srcs are always allowed and kept.
-            const safeHTML = cleanHTML.replace(
-                /\ssrc="https:\/\//g,
-                ' data-pending-src="https://'
-            );
-            const container = document.createElement('div');
-            container.className = 'plugin-md-content';
-            container.innerHTML = safeHTML;
-            // Validate pending srcs against plugin network allowlist.
-            // Fail-closed: block if plugin_id is missing.
-            const imgs = container.querySelectorAll('img[data-pending-src]');
-            for (const img of imgs) {
-                const src = img.getAttribute('data-pending-src');
-                img.removeAttribute('data-pending-src');
-                const allowed = pluginId
-                    ? await window.go.main.PluginService.IsPluginURLAllowed(pluginId, src, 'GET')
-                    : false;
-                if (allowed) {
-                    img.src = src;
-                } else {
-                    img.alt = 'Image blocked — domain not in plugin allowlist';
+            const container = MarkdownRenderer.render(content);
+            container.querySelectorAll('a[href]').forEach((link) => {
+                link.setAttribute('target', '_blank');
+                link.setAttribute('rel', 'noopener noreferrer');
+            });
+            const markdownImages = container.markdownImages || [];
+            markdownImages.slice(256).forEach(descriptor => {
+                descriptor.placeholder.querySelector('.markdown-image-label').textContent = 'Plugin image limit exceeded';
+            });
+            for (const descriptor of markdownImages.slice(0, 256)) {
+                const src = descriptor.source;
+                let allowed = src.startsWith('data:');
+                if (src.startsWith('https://')) {
+                    allowed = pluginId
+                        ? await window.go.main.PluginService.IsPluginURLAllowed(pluginId, src, 'GET')
+                        : false;
+                    if (renderGen !== modalRenderGen) return null;
                 }
+                if (!allowed) {
+                    descriptor.placeholder.querySelector('.markdown-image-label').textContent =
+                        'Image blocked — domain not in plugin allowlist';
+                    continue;
+                }
+                if (renderGen !== modalRenderGen) return null;
+                const img = document.createElement('img');
+                img.src = src;
+                img.alt = descriptor.alt || 'Plugin result';
+                if (descriptor.title) img.title = descriptor.title;
+                descriptor.placeholder.replaceWith(img);
             }
             return container;
         }
@@ -90,10 +55,11 @@ async function renderPluginContent(content, format, pluginId) {
                 const allowed = pluginId
                     ? await window.go.main.PluginService.IsPluginURLAllowed(pluginId, content, 'GET')
                     : false;
-                if (!allowed) return null;
+                if (renderGen !== modalRenderGen || !allowed) return null;
             } else {
                 return null;
             }
+            if (renderGen !== modalRenderGen) return null;
             const container = document.createElement('div');
             container.className = 'plugin-image-content';
             const img = document.createElement('img');
@@ -127,7 +93,7 @@ async function showPluginResultModal(data) {
     pluginResultTitle.textContent = data.title || 'Result';
 
     pluginResultBody.innerHTML = '';
-    const rendered = await renderPluginContent(data.content, data.format, data.plugin_id);
+    const rendered = await renderPluginContent(data.content, data.format, data.plugin_id, gen);
 
     // Drop stale render if a newer modal request arrived during async rendering
     if (gen !== modalRenderGen) return;
@@ -142,6 +108,7 @@ async function showPluginResultModal(data) {
 }
 
 function closePluginResultModal() {
+    modalRenderGen++;
     pluginResultModal.classList.remove('opacity-100');
     pluginResultModal.classList.add('opacity-0', 'pointer-events-none');
     pluginResultModal.setAttribute('inert', '');

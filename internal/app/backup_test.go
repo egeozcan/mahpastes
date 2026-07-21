@@ -298,6 +298,36 @@ func TestRestoreKeepInvalidatesShares(t *testing.T) {
 	}
 }
 
+func TestRestoreBackupPromotesMarkdownClips(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("MAHPASTES_DATA_DIR", dataDir)
+	if err := os.MkdirAll(filepath.Join(dataDir, "plugins"), 0755); err != nil {
+		t.Fatalf("mkdir plugins: %v", err)
+	}
+
+	srcDB := newBackupTestDB(t)
+	if _, err := srcDB.Exec(`INSERT INTO clips (content_type, data, filename) VALUES ('application/octet-stream', '# Restored', 'restored.md')`); err != nil {
+		t.Fatalf("insert source clip: %v", err)
+	}
+	backupZip := filepath.Join(t.TempDir(), "markdown.zip")
+	if err := (&App{db: srcDB}).CreateBackup(backupZip); err != nil {
+		t.Fatalf("CreateBackup: %v", err)
+	}
+
+	dstDB := newBackupTestDB(t)
+	if err := (&App{db: dstDB}).RestoreBackup(backupZip, "none"); err != nil {
+		t.Fatalf("RestoreBackup: %v", err)
+	}
+
+	var contentType string
+	if err := dstDB.QueryRow(`SELECT content_type FROM clips WHERE filename = 'restored.md'`).Scan(&contentType); err != nil {
+		t.Fatalf("query restored clip: %v", err)
+	}
+	if contentType != "text/markdown" {
+		t.Fatalf("content type = %q, want text/markdown", contentType)
+	}
+}
+
 // TestRestoreBackupUnknownPolicyErrors verifies that RestoreBackup returns an
 // error immediately for an unrecognised identityPolicy without touching the DB.
 func TestRestoreBackupUnknownPolicyErrors(t *testing.T) {

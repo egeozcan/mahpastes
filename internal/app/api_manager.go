@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"go-clipboard/internal/bridgeiface"
+	"go-clipboard/internal/cliptype"
 	"go-clipboard/plugin"
 )
 
@@ -1427,6 +1428,7 @@ func (am *APIManager) handleCreateClip(w http.ResponseWriter, r *http.Request) {
 			partContentType = http.DetectContentType(data)
 		}
 	}
+	partContentType = cliptype.PromoteMarkdown(filename, partContentType)
 
 	// Compute content hash for dedup
 	contentHash := computeContentHash(data)

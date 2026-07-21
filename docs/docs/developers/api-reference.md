@@ -81,14 +81,16 @@ func (a *App) GetClipData(id int64) (*ClipData, error)
 **ClipData structure:**
 ```go
 type ClipData struct {
-    ID          int64  `json:"id"`
-    ContentType string `json:"content_type"`
-    Data        string `json:"data"`     // Base64 for binary, raw for text
-    Filename    string `json:"filename"`
+    ID           int64  `json:"id"`
+    ContentType  string `json:"content_type"`
+    Data         string `json:"data"`          // Base64 for binary, raw for valid text
+    Filename     string `json:"filename"`
+    ValidUTF8    bool   `json:"valid_utf8"`
+    DataEncoding string `json:"data_encoding"` // "utf8" or "base64"
 }
 ```
 
-**Note:** Binary data is base64 encoded. Text content is returned as-is.
+**Note:** Binary data is base64 encoded. Valid text content is returned as-is. Invalid UTF-8 Markdown is returned as base64 so JSON bridging cannot replace the original bytes.
 
 ---
 
@@ -1090,6 +1092,23 @@ func (a *App) ConfirmRestoreBackup(backupPath string) error
 ```
 
 ---
+
+## MarkdownService Operations
+
+Markdown rendering is desktop-only. These methods are exposed as `window.go.main.MarkdownService.*`; REST downloads and tag servers continue returning raw clip bytes.
+
+| Method | Purpose |
+|--------|---------|
+| `ResolveReferences(sourceClipID, references)` | Resolve relative links through same/descendant tag paths, returning missing, unique, ambiguous, or invalid results |
+| `GetLocalImage(clipID)` | Return validated PNG/JPEG/GIF/WebP clip bytes for inline display |
+| `ValidateEmbeddedImage(dataBase64, contentType)` | Validate an embedded raster image against size/dimension/frame limits |
+| `GetCachedRemoteImage(rawURL)` | Probe the exact-URL remote image cache without making a network request |
+| `LoadRemoteImage(requestID, rawURL)` | Explicitly fetch, validate, and optionally cache an HTTPS image |
+| `CancelRemoteImage(requestID)` | Cancel a queued or active image request |
+| `GetImageCacheStats()` | Return cache entry count and byte size |
+| `ClearImageCache()` | Cancel active image requests and clear cached files |
+
+Remote image progress is emitted as `markdown:image-progress` with `request_id`, `state`, `bytes`, `total`, and `percent`. The loader permits HTTPS only, rejects private/local network destinations and unsafe redirects, downloads at most 15 MB per image, and validates raster bytes before returning them.
 
 ## Plugin Service Operations
 

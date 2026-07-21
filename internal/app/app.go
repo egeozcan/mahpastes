@@ -24,6 +24,7 @@ import (
 	"unicode/utf8"
 
 	"go-clipboard/internal/bridgeiface"
+	"go-clipboard/internal/cliptype"
 	"go-clipboard/plugin"
 
 	"golang.design/x/clipboard"
@@ -56,6 +57,8 @@ type App struct {
 	pluginManager    *plugin.Manager
 	clipboardService ClipboardCopier
 	shareManager     *ShareManager
+	markdownCache    *markdownImageCache
+	markdownLoader   *markdownRemoteImageLoader
 }
 
 // NewApp creates a new App instance
@@ -221,6 +224,10 @@ func (a *App) Bootstrap(ctx context.Context, opts BootstrapOptions) error {
 	a.SetBridge(opts.Bridge)
 	a.db = opts.DB
 
+	if err := a.InitMarkdownImages(opts.DataDir); err != nil {
+		log.Printf("Warning: Failed to initialize Markdown images: %v", err)
+	}
+
 	StartCleanupJob(ctx, a.db)
 
 	if err := a.InitTempStore(opts.DataDir); err != nil {
@@ -304,6 +311,10 @@ func (a *App) Bootstrap(ctx context.Context, opts BootstrapOptions) error {
 
 // Shutdown is called when the app is closing
 func (a *App) Shutdown(ctx context.Context) {
+	if a.markdownLoader != nil {
+		a.markdownLoader.CancelAll()
+	}
+
 	// Shutdown plugins first
 	if a.pluginManager != nil {
 		a.pluginManager.Shutdown()
@@ -389,10 +400,12 @@ type DuplicateGroup struct {
 
 // ClipData for full clip retrieval
 type ClipData struct {
-	ID          int64  `json:"id"`
-	ContentType string `json:"content_type"`
-	Data        string `json:"data"` // base64 encoded for binary, raw for text
-	Filename    string `json:"filename"`
+	ID           int64  `json:"id"`
+	ContentType  string `json:"content_type"`
+	Data         string `json:"data"` // base64 encoded for binary, raw for valid text
+	Filename     string `json:"filename"`
+	ValidUTF8    bool   `json:"valid_utf8"`
+	DataEncoding string `json:"data_encoding"` // "utf8" or "base64"
 }
 
 // DiffResult returned by GetImageDiff
@@ -769,14 +782,22 @@ func (a *App) GetClipData(id int64) (*ClipData, error) {
 	}
 
 	clip := &ClipData{
-		ID:          id,
-		ContentType: contentType,
-		Filename:    filename.String,
+		ID:           id,
+		ContentType:  contentType,
+		Filename:     filename.String,
+		ValidUTF8:    utf8.Valid(data),
+		DataEncoding: "base64",
 	}
 
-	// For text content, return as-is; for binary, base64 encode
+	// For text content, return as-is; for binary, base64 encode. Invalid UTF-8
+	// Markdown remains base64 so crossing the JSON bridge cannot replace bytes.
 	if strings.HasPrefix(contentType, "text/") || contentType == "application/json" {
-		clip.Data = string(data)
+		if cliptype.IsMarkdownFilename(filename.String) && !clip.ValidUTF8 {
+			clip.Data = base64.StdEncoding.EncodeToString(data)
+		} else {
+			clip.Data = string(data)
+			clip.DataEncoding = "utf8"
+		}
 	} else {
 		clip.Data = base64.StdEncoding.EncodeToString(data)
 	}
@@ -792,7 +813,7 @@ func (a *App) UploadFileAndGetID(file FileData) (int64, error) {
 		return 0, fmt.Errorf("failed to decode base64 data: %w", err)
 	}
 
-	contentType := file.ContentType
+	contentType := cliptype.PromoteMarkdown(file.Name, file.ContentType)
 
 	// Special handling for text
 	if contentType == "text/plain" || contentType == "" {
@@ -862,7 +883,7 @@ func (a *App) UploadFiles(files []FileData, expirationMinutes int, autoTagID int
 			continue
 		}
 
-		contentType := file.ContentType
+		contentType := cliptype.PromoteMarkdown(file.Name, file.ContentType)
 
 		// Special handling for text
 		if contentType == "text/plain" || contentType == "" {
@@ -931,6 +952,7 @@ func (a *App) UpdateClipData(id int64, contentType string, base64Data string, fi
 		return fmt.Errorf("failed to decode base64 data: %w", err)
 	}
 
+	contentType = cliptype.PromoteMarkdown(filename, contentType)
 	contentHash := computeContentHash(data)
 	_, err = a.db.Exec(
 		"UPDATE clips SET data = ?, content_type = ?, filename = ?, content_hash = ? WHERE id = ?",
@@ -1019,7 +1041,15 @@ func (a *App) RenameClip(id int64, newFilename string) error {
 		return fmt.Errorf("filename contains null byte")
 	}
 
-	result, err := a.db.Exec("UPDATE clips SET filename = ? WHERE id = ?", newFilename, id)
+	result, err := a.db.Exec(`
+		UPDATE clips
+		SET filename = ?,
+			content_type = CASE
+				WHEN LOWER(?) LIKE '%.md' OR LOWER(?) LIKE '%.markdown' THEN ?
+				ELSE content_type
+			END
+		WHERE id = ?`,
+		newFilename, newFilename, newFilename, cliptype.MarkdownContentType, id)
 	if err != nil {
 		return fmt.Errorf("failed to rename clip: %w", err)
 	}

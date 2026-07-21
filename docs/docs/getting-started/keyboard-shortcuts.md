@@ -161,6 +161,14 @@ The image editor maintains up to 50 undo steps.
 
 There is no default keyboard shortcut for the editor's in-place **Save** button.
 
+## Text and Markdown Editor
+
+| Shortcut | Action |
+|----------|--------|
+| <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">Shift</span> + <span className="keyboard-key">P</span> | Toggle Markdown Preview/Edit (Markdown clips only) |
+| <span className="keyboard-key">←</span> / <span className="keyboard-key">→</span> | Switch Preview/Edit when the mode tabs are focused |
+| <span className="keyboard-key">Esc</span> | Close the editor; confirms before discarding changes |
+
 ## Text Placement (Editor)
 
 | Shortcut | Action |

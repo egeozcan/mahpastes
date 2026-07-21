@@ -45,6 +45,7 @@ func main() {
 	apiService := NewAPIService(core)
 	shareService := NewShareService(core)
 	linkService := NewLinkService(core)
+	markdownService := NewMarkdownService(core)
 
 	core.SetClipboardService(clipboardService)
 	transferHandler := coreapp.NewTransferFileHandler(core)
@@ -114,6 +115,7 @@ func main() {
 			apiService,
 			shareService,
 			linkService,
+			markdownService,
 		},
 		Mac: &mac.Options{
 			TitleBar: &mac.TitleBar{

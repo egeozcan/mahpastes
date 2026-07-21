@@ -874,7 +874,7 @@
             <!-- Header -->
             <div class="editor-header">
                 <h3 class="text-sm font-medium flex items-center gap-2 min-w-0">
-                    <span>Edit</span>
+                    <span id="editor-mode-label">Edit</span>
                     <span aria-hidden="true" class="text-stone-500">·</span>
                     <span id="editor-current-filename" class="text-xs text-stone-300 truncate"></span>
                 </h3>
@@ -919,13 +919,19 @@
             <!-- Text Editor View -->
             <div id="text-editor-view" class="editor-content hidden">
                 <div id="text-editor-toolbar" class="flex flex-wrap items-center gap-2 px-3 py-2 bg-stone-800 border-b border-stone-700 text-stone-300" role="toolbar" aria-label="Text editing tools">
-                    <button id="text-editor-find-toggle"
+                    <div id="markdown-mode-tabs" class="hidden items-center rounded-md border border-stone-600 p-0.5" role="tablist" aria-label="Markdown view mode">
+                        <button id="markdown-preview-tab" type="button" role="tab" aria-selected="false" aria-controls="markdown-preview-panel" tabindex="-1"
+                            class="px-2.5 py-1 text-[10px] font-medium rounded transition-colors">Preview</button>
+                        <button id="markdown-edit-tab" type="button" role="tab" aria-selected="true" aria-controls="text-editor-textarea" tabindex="0"
+                            class="px-2.5 py-1 text-[10px] font-medium rounded transition-colors">Edit</button>
+                    </div>
+                    <button id="text-editor-find-toggle" data-markdown-edit-only
                         class="border border-stone-600 hover:border-stone-500 hover:bg-stone-700 text-[10px] font-medium py-1.5 px-2.5 rounded-md transition-colors"
                         aria-expanded="false" aria-controls="text-editor-find-panel">Find / Replace</button>
-                    <button id="text-editor-wrap-toggle"
+                    <button id="text-editor-wrap-toggle" data-markdown-edit-only
                         class="border border-stone-600 hover:border-stone-500 hover:bg-stone-700 text-[10px] font-medium py-1.5 px-2.5 rounded-md transition-colors"
                         aria-pressed="true">Wrap</button>
-                    <button id="text-editor-format-json"
+                    <button id="text-editor-format-json" data-markdown-edit-only
                         class="hidden border border-stone-600 hover:border-stone-500 hover:bg-stone-700 text-[10px] font-medium py-1.5 px-2.5 rounded-md transition-colors">Format JSON</button>
                     <span id="text-editor-validation-status" class="ml-auto text-[10px]" role="status" aria-live="polite"></span>
                 </div>
@@ -948,8 +954,11 @@
                 <div id="text-editor-body">
                     <textarea id="text-editor-textarea"
                         class="w-full h-full bg-stone-900 text-stone-200 font-mono text-xs p-4 resize-none focus:outline-none leading-relaxed"
-                        aria-label="Clip content" wrap="soft" spellcheck="false"></textarea>
+                        aria-label="Clip content" role="tabpanel" aria-labelledby="markdown-edit-tab" wrap="soft" spellcheck="false"></textarea>
                     <div id="text-editor-highlight-layer" class="hidden" aria-hidden="true"></div>
+                    <section id="markdown-preview-panel" class="hidden" role="tabpanel" aria-labelledby="markdown-preview-tab" tabindex="0">
+                        <div id="markdown-preview-content" class="markdown-content"></div>
+                    </section>
                 </div>
                 <div class="flex items-center gap-3 px-3 py-1.5 bg-stone-800 border-t border-stone-700 text-[10px] text-stone-400">
                     <span id="text-editor-cursor-status">Ln 1, Col 1</span>
@@ -1534,6 +1543,22 @@
                         Sweep stale files
                     </button>
                 </div>
+                <!-- Markdown Image Cache -->
+                <div class="pt-4 border-t border-stone-100" id="maintenance-markdown-cache-section">
+                    <h3 class="text-xs font-semibold text-stone-600 uppercase tracking-wider mb-3 flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4-4 4 4 4-6 4 6M4 20h16M5 4h14a1 1 0 011 1v11H4V5a1 1 0 011-1z" />
+                        </svg>
+                        Markdown Image Cache
+                    </h3>
+                    <p class="text-[11px] text-stone-500 mb-3">
+                        Cached remote images: <span id="maintenance-markdown-cache-size">Loading…</span>
+                    </p>
+                    <button id="maintenance-clear-markdown-cache-btn" data-testid="maintenance-clear-markdown-cache-btn"
+                        class="bg-stone-800 hover:bg-stone-700 text-white text-xs font-medium py-2 px-4 rounded-md transition-colors">
+                        Clear Markdown Image Cache
+                    </button>
+                </div>
                 <!-- Clean Orphan Rows -->
                 <div class="pt-4 border-t border-stone-100">
                     <h3 class="text-xs font-semibold text-stone-600 uppercase tracking-wider mb-3 flex items-center gap-2">
@@ -2066,6 +2091,7 @@
     <!-- Vendor libraries for plugin result rendering -->
     <script src="vendor/marked.min.js"></script>
     <script src="vendor/purify.min.js"></script>
+    <script src="js/markdown-renderer.js"></script>
     <script src="js/vendor/qrcode.min.js"></script>
 
     <!-- Scripts split for better organization -->
@@ -2096,6 +2122,7 @@
     <script src="js/editor/tool-crop.js"></script>
     <script src="js/editor/tool-select.js"></script>
     <script src="js/editor/tool-anonymize.js"></script>
+    <script src="js/editor/markdown-preview.js"></script>
     <script src="js/editor/text-clip-editor.js"></script>
     <script src="js/editor.js"></script>
     <script src="js/watch.js"></script>

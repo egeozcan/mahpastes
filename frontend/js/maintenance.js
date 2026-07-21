@@ -8,9 +8,27 @@ const maintenanceRemoveEmptyTagsBtn = document.getElementById('maintenance-remov
 const maintenanceCompactDbBtn = document.getElementById('maintenance-compact-db-btn');
 const maintenanceStaleFilesBtn = document.getElementById('maintenance-stale-files-btn');
 const maintenanceOrphanRowsBtn = document.getElementById('maintenance-orphan-rows-btn');
+const maintenanceMarkdownCacheSection = document.getElementById('maintenance-markdown-cache-section');
+const maintenanceMarkdownCacheSize = document.getElementById('maintenance-markdown-cache-size');
+const maintenanceClearMarkdownCacheBtn = document.getElementById('maintenance-clear-markdown-cache-btn');
 
 let lastFocusedElementBeforeMaintenance = null;
 let maintenanceFocusTrapCleanup = null;
+
+async function refreshMarkdownCacheStats() {
+    const api = window.go?.main?.MarkdownService;
+    if (!api) {
+        maintenanceMarkdownCacheSection?.classList.add('hidden');
+        return;
+    }
+    maintenanceMarkdownCacheSection?.classList.remove('hidden');
+    try {
+        const stats = await api.GetImageCacheStats();
+        maintenanceMarkdownCacheSize.textContent = `${formatFileSize(stats.bytes || 0)} · ${stats.entries || 0} image${stats.entries === 1 ? '' : 's'}`;
+    } catch (error) {
+        maintenanceMarkdownCacheSize.textContent = 'Unavailable';
+    }
+}
 
 function openMaintenance() {
     lastFocusedElementBeforeMaintenance = document.activeElement;
@@ -22,6 +40,7 @@ function openMaintenance() {
     if (maintenanceFocusTrapCleanup) maintenanceFocusTrapCleanup();
     maintenanceFocusTrapCleanup = trapFocus(maintenanceModal);
     maintenanceModal.focus();
+    refreshMarkdownCacheStats();
 }
 
 function closeMaintenance() {
@@ -244,3 +263,20 @@ maintenanceRemoveEmptyTagsBtn.addEventListener('click', runRemoveEmptyTags);
 maintenanceCompactDbBtn.addEventListener('click', runCompactDatabase);
 maintenanceStaleFilesBtn?.addEventListener('click', runStaleFileSweep);
 maintenanceOrphanRowsBtn?.addEventListener('click', runOrphanRowsSweep);
+maintenanceClearMarkdownCacheBtn?.addEventListener('click', () => {
+    closeMaintenance();
+    showConfirmDialog(
+        'Clear Markdown Image Cache?',
+        'Cached remote Markdown images will be removed. Clips are not affected.',
+        async () => {
+            try {
+                await window.go.main.MarkdownService.ClearImageCache();
+                showToast('Markdown image cache cleared', 'success');
+            } catch (error) {
+                showToast('Failed to clear Markdown image cache', 'error');
+            }
+        },
+        null,
+        { variant: 'danger', confirmLabel: 'Clear Cache' }
+    );
+});

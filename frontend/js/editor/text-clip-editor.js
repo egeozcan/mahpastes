@@ -15,6 +15,12 @@ const TextClipEditor = (() => {
     let draftTimer = null;
     let initialized = false;
     let wrapEnabled = true;
+    let markdownClip = false;
+    let invalidMarkdown = false;
+    let markdownMode = 'edit';
+    let editScrollTop = 0;
+    let previewScrollTop = 0;
+    let lastRenderedMarkdown = null;
 
     function element(id) {
         return document.getElementById(id);
@@ -125,6 +131,76 @@ const TextClipEditor = (() => {
 
     function isJSON() {
         return contentType === 'application/json';
+    }
+
+    function isMarkdownFilename(value) {
+        return /\.(?:md|markdown)$/i.test(value || '');
+    }
+
+    function updateMarkdownTab(tab, selected) {
+        tab.setAttribute('aria-selected', selected ? 'true' : 'false');
+        tab.tabIndex = selected ? 0 : -1;
+        tab.classList.toggle('bg-white', selected);
+        tab.classList.toggle('text-stone-800', selected);
+        tab.classList.toggle('text-stone-300', !selected);
+    }
+
+    function renderMarkdownPreview() {
+        const source = getValue();
+        if (source === lastRenderedMarkdown) return;
+        lastRenderedMarkdown = source;
+        MarkdownPreview.beginRender();
+        const content = element('markdown-preview-content');
+        const rendered = MarkdownRenderer.render(source);
+        content.replaceChildren(rendered);
+        MarkdownPreview.enhance(rendered);
+    }
+
+    function setMarkdownMode(mode, options = {}) {
+        if (!markdownClip || invalidMarkdown || (mode !== 'preview' && mode !== 'edit')) return;
+
+        if (markdownMode === 'preview') {
+            previewScrollTop = element('markdown-preview-panel').scrollTop;
+        } else {
+            editScrollTop = textarea().scrollTop;
+        }
+
+        markdownMode = mode;
+        const preview = mode === 'preview';
+        updateMarkdownTab(element('markdown-preview-tab'), preview);
+        updateMarkdownTab(element('markdown-edit-tab'), !preview);
+        textarea().classList.toggle('hidden', preview);
+        element('markdown-preview-panel').classList.toggle('hidden', !preview);
+        element('text-editor-highlight-layer').classList.add('hidden');
+        element('editor-mode-label').textContent = preview ? 'Preview' : 'Edit';
+        element('text-editor-find-panel').classList.add('hidden');
+        element('text-editor-find-panel').classList.remove('flex');
+        element('text-editor-find-toggle').setAttribute('aria-expanded', 'false');
+        document.querySelectorAll('[data-markdown-edit-only]').forEach((control) => {
+            control.classList.toggle('hidden', preview);
+        });
+
+        if (preview) renderMarkdownPreview();
+        requestAnimationFrame(() => {
+            if (preview) {
+                element('markdown-preview-panel').scrollTop = previewScrollTop;
+                if (options.focus) element('markdown-preview-panel').focus();
+            } else {
+                textarea().scrollTop = editScrollTop;
+                if (options.focus) textarea().focus();
+            }
+        });
+    }
+
+    function toggleMarkdownMode() {
+        if (!markdownClip || invalidMarkdown) return;
+        setMarkdownMode(markdownMode === 'preview' ? 'edit' : 'preview', { focus: true });
+    }
+
+    function refreshMarkdownPreview() {
+        if (!markdownClip || invalidMarkdown || markdownMode !== 'preview') return;
+        lastRenderedMarkdown = null;
+        renderMarkdownPreview();
     }
 
     function getJSONValidation() {
@@ -470,6 +546,13 @@ const TextClipEditor = (() => {
         filename = options.filename;
         contentType = options.contentType;
         originalText = options.text;
+        markdownClip = isMarkdownFilename(filename);
+        invalidMarkdown = markdownClip && options.validUTF8 === false;
+        markdownMode = 'edit';
+        editScrollTop = 0;
+        previewScrollTop = 0;
+        lastRenderedMarkdown = null;
+        MarkdownPreview.open(clipID);
 
         textarea().value = originalText;
         element('text-editor-find').value = '';
@@ -483,11 +566,42 @@ const TextClipEditor = (() => {
         applyWrap();
 
         element('text-editor-format-json').classList.toggle('hidden', !isJSON());
-        restoreDraft();
+        const recoveredDraft = restoreDraft();
         updateValidation();
         updateCursorStatus();
         updateSaveState();
-        requestAnimationFrame(() => textarea().focus());
+
+        const tabs = element('markdown-mode-tabs');
+        tabs.classList.toggle('hidden', !markdownClip || invalidMarkdown);
+        tabs.classList.toggle('flex', markdownClip && !invalidMarkdown);
+        if (invalidMarkdown) {
+            textarea().classList.add('hidden');
+            element('markdown-preview-panel').classList.remove('hidden');
+            const message = document.createElement('p');
+            message.className = 'markdown-preview-message markdown-preview-message-error';
+            message.textContent = 'Markdown preview unavailable—file is not valid UTF-8.';
+            element('markdown-preview-content').replaceChildren(message);
+            element('editor-mode-label').textContent = 'Preview unavailable';
+            element('editor-save-in-place').disabled = true;
+            element('editor-save').disabled = true;
+            document.querySelectorAll('[data-markdown-edit-only]').forEach((control) => {
+                control.classList.add('hidden');
+            });
+            requestAnimationFrame(() => element('markdown-preview-panel').focus());
+        } else if (markdownClip) {
+            setMarkdownMode(recoveredDraft ? 'edit' : 'preview');
+            requestAnimationFrame(() => {
+                element(recoveredDraft ? 'markdown-edit-tab' : 'markdown-preview-tab').focus();
+            });
+        } else {
+            textarea().classList.remove('hidden');
+            element('markdown-preview-panel').classList.add('hidden');
+            element('editor-mode-label').textContent = 'Edit';
+            document.querySelectorAll('[data-markdown-edit-only]').forEach((control) => {
+                control.classList.remove('hidden');
+            });
+            requestAnimationFrame(() => textarea().focus());
+        }
     }
 
     function close(options) {
@@ -501,6 +615,14 @@ const TextClipEditor = (() => {
         filename = '';
         contentType = '';
         originalText = '';
+        markdownClip = false;
+        invalidMarkdown = false;
+        markdownMode = 'edit';
+        element('markdown-mode-tabs').classList.add('hidden');
+        element('markdown-mode-tabs').classList.remove('flex');
+        element('markdown-preview-content').replaceChildren();
+        lastRenderedMarkdown = null;
+        MarkdownPreview.close();
         setFindPanelOpen(false);
     }
 
@@ -547,6 +669,14 @@ const TextClipEditor = (() => {
         element('text-editor-find').addEventListener('input', () => refreshSearch(true));
         element('text-editor-wrap-toggle').addEventListener('click', toggleWrap);
         element('text-editor-format-json').addEventListener('click', formatJSON);
+        element('markdown-preview-tab').addEventListener('click', () => setMarkdownMode('preview', { focus: true }));
+        element('markdown-edit-tab').addEventListener('click', () => setMarkdownMode('edit', { focus: true }));
+        element('markdown-mode-tabs').addEventListener('keydown', event => {
+            if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+            event.preventDefault();
+            setMarkdownMode(markdownMode === 'preview' ? 'edit' : 'preview');
+            element(markdownMode === 'preview' ? 'markdown-preview-tab' : 'markdown-edit-tab').focus();
+        });
 
         [element('text-editor-find'), element('text-editor-replace')].forEach(searchInput => {
             searchInput.addEventListener('keydown', event => {
@@ -580,5 +710,7 @@ const TextClipEditor = (() => {
         isDirty,
         clearDraft,
         confirmSave,
+        toggleMarkdownMode,
+        refreshMarkdownPreview,
     };
 })();

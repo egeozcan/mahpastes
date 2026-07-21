@@ -1,5 +1,5 @@
 export namespace app {
-	
+
 	export class APIKeyInfo {
 	    id: number;
 	    name: string;
@@ -10,11 +10,11 @@ export namespace app {
 	    is_revoked: boolean;
 	    created_at: string;
 	    last_used_at?: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new APIKeyInfo(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -31,17 +31,17 @@ export namespace app {
 	export class APIKeyCreateResult {
 	    key: string;
 	    info: APIKeyInfo;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new APIKeyCreateResult(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.key = source["key"];
 	        this.info = this.convertValues(source["info"], APIKeyInfo);
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -60,18 +60,18 @@ export namespace app {
 		    return a;
 		}
 	}
-	
+
 	export class APIStatus {
 	    running: boolean;
 	    port: number;
 	    bind_all: boolean;
 	    url: string;
 	    request_count: number;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new APIStatus(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.running = source["running"];
@@ -85,11 +85,11 @@ export namespace app {
 	    has_identity: boolean;
 	    target_has_identity: boolean;
 	    target_publication_tags: string[];
-	
+
 	    static createFrom(source: any = {}) {
 	        return new BackupInspection(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.has_identity = source["has_identity"];
@@ -102,11 +102,11 @@ export namespace app {
 	    tags: number;
 	    plugins: number;
 	    watch_folders: number;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new BackupSummary(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.clips = source["clips"];
@@ -123,11 +123,11 @@ export namespace app {
 	    platform: string;
 	    summary: BackupSummary;
 	    excluded: string[];
-	
+
 	    static createFrom(source: any = {}) {
 	        return new BackupManifest(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.format_version = source["format_version"];
@@ -137,7 +137,7 @@ export namespace app {
 	        this.summary = this.convertValues(source["summary"], BackupSummary);
 	        this.excluded = source["excluded"];
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -156,15 +156,15 @@ export namespace app {
 		    return a;
 		}
 	}
-	
+
 	export class CleanStaleResult {
 	    count: number;
 	    bytes: number;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new CleanStaleResult(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.count = source["count"];
@@ -176,28 +176,32 @@ export namespace app {
 	    content_type: string;
 	    data: string;
 	    filename: string;
-	
+	    valid_utf8: boolean;
+	    data_encoding: string;
+
 	    static createFrom(source: any = {}) {
 	        return new ClipData(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
 	        this.content_type = source["content_type"];
 	        this.data = source["data"];
 	        this.filename = source["filename"];
+	        this.valid_utf8 = source["valid_utf8"];
+	        this.data_encoding = source["data_encoding"];
 	    }
 	}
 	export class ClipMatch {
 	    id: number;
 	    filename: string;
 	    content_hash: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new ClipMatch(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -210,11 +214,11 @@ export namespace app {
 	    name: string;
 	    color: string;
 	    count: number;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new Tag(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -236,11 +240,11 @@ export namespace app {
 	    tags: Tag[];
 	    size: number;
 	    duplicate_count: number;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new ClipPreview(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -254,7 +258,7 @@ export namespace app {
 	        this.size = source["size"];
 	        this.duplicate_count = source["duplicate_count"];
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -276,11 +280,11 @@ export namespace app {
 	export class CompactResult {
 	    before: number;
 	    after: number;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new CompactResult(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.before = source["before"];
@@ -290,11 +294,11 @@ export namespace app {
 	export class DiffResult {
 	    similarity: number;
 	    diff_data_url: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new DiffResult(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.similarity = source["similarity"];
@@ -306,11 +310,11 @@ export namespace app {
 	    strategy: string;
 	    reason: string;
 	    native_drag: boolean;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new DragCapability(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.enabled = source["enabled"];
@@ -325,11 +329,11 @@ export namespace app {
 	    content_type: string;
 	    count: number;
 	    oldest_id: number;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new DuplicateGroup(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.content_hash = source["content_hash"];
@@ -343,11 +347,11 @@ export namespace app {
 	    name: string;
 	    content_type: string;
 	    data: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new FileData(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
@@ -366,11 +370,11 @@ export namespace app {
 	    last_seq: number;
 	    last_seen_at?: number;
 	    created_at: number;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new FollowInfo(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -385,17 +389,165 @@ export namespace app {
 	        this.created_at = source["created_at"];
 	    }
 	}
+	export class MarkdownCachedImageResult {
+	    hit: boolean;
+	    content_type?: string;
+	    data?: string;
+	    size?: number;
+	    width?: number;
+	    height?: number;
+	    decoded_size?: number;
+
+	    static createFrom(source: any = {}) {
+	        return new MarkdownCachedImageResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.hit = source["hit"];
+	        this.content_type = source["content_type"];
+	        this.data = source["data"];
+	        this.size = source["size"];
+	        this.width = source["width"];
+	        this.height = source["height"];
+	        this.decoded_size = source["decoded_size"];
+	    }
+	}
+	export class MarkdownImageCacheStats {
+	    entries: number;
+	    bytes: number;
+
+	    static createFrom(source: any = {}) {
+	        return new MarkdownImageCacheStats(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.entries = source["entries"];
+	        this.bytes = source["bytes"];
+	    }
+	}
+	export class MarkdownImageData {
+	    clip_id: number;
+	    content_type: string;
+	    data: string;
+	    size: number;
+	    width: number;
+	    height: number;
+	    decoded_size: number;
+
+	    static createFrom(source: any = {}) {
+	        return new MarkdownImageData(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.clip_id = source["clip_id"];
+	        this.content_type = source["content_type"];
+	        this.data = source["data"];
+	        this.size = source["size"];
+	        this.width = source["width"];
+	        this.height = source["height"];
+	        this.decoded_size = source["decoded_size"];
+	    }
+	}
+	export class MarkdownReferenceCandidate {
+	    clip_id: number;
+	    filename: string;
+	    content_type: string;
+	    is_archived: boolean;
+	    matched_tag_paths: string[];
+
+	    static createFrom(source: any = {}) {
+	        return new MarkdownReferenceCandidate(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.clip_id = source["clip_id"];
+	        this.filename = source["filename"];
+	        this.content_type = source["content_type"];
+	        this.is_archived = source["is_archived"];
+	        this.matched_tag_paths = source["matched_tag_paths"];
+	    }
+	}
+	export class MarkdownReferenceResult {
+	    reference: string;
+	    path: string;
+	    fragment: string;
+	    status: string;
+	    error?: string;
+	    candidates: MarkdownReferenceCandidate[];
+
+	    static createFrom(source: any = {}) {
+	        return new MarkdownReferenceResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.reference = source["reference"];
+	        this.path = source["path"];
+	        this.fragment = source["fragment"];
+	        this.status = source["status"];
+	        this.error = source["error"];
+	        this.candidates = this.convertValues(source["candidates"], MarkdownReferenceCandidate);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class MarkdownRemoteImageResult {
+	    request_id: string;
+	    content_type: string;
+	    data: string;
+	    size: number;
+	    width: number;
+	    height: number;
+	    decoded_size: number;
+	    cached: boolean;
+
+	    static createFrom(source: any = {}) {
+	        return new MarkdownRemoteImageResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.request_id = source["request_id"];
+	        this.content_type = source["content_type"];
+	        this.data = source["data"];
+	        this.size = source["size"];
+	        this.width = source["width"];
+	        this.height = source["height"];
+	        this.decoded_size = source["decoded_size"];
+	        this.cached = source["cached"];
+	    }
+	}
 	export class MergeTagPreview {
 	    clip_count: number;
 	    descendant_count: number;
 	    blockers: string[];
 	    source_name: string;
 	    dest_name: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new MergeTagPreview(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.clip_count = source["clip_count"];
@@ -411,11 +563,11 @@ export namespace app {
 	    stale_follows: number;
 	    stale_auto_tags: number;
 	    stale_hidden_tag_ids: number;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new OrphanReport(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.plugin_storage = source["plugin_storage"];
@@ -428,11 +580,11 @@ export namespace app {
 	export class PrepareTransferRequest {
 	    clip_id: number;
 	    channel: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new PrepareTransferRequest(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.clip_id = source["clip_id"];
@@ -448,11 +600,11 @@ export namespace app {
 	    content_type: string;
 	    // Go type: time
 	    lease_expires_at: any;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new PreparedTransferItem(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.clip_id = source["clip_id"];
@@ -463,7 +615,7 @@ export namespace app {
 	        this.content_type = source["content_type"];
 	        this.lease_expires_at = this.convertValues(source["lease_expires_at"], null);
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -491,11 +643,11 @@ export namespace app {
 	    running: boolean;
 	    request_count: number;
 	    api_access: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new ServeInfo(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.tag_id = source["tag_id"];
@@ -518,11 +670,11 @@ export namespace app {
 	    clips_pushed: number;
 	    last_seq: number;
 	    created_at: number;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new ShareInfo(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -547,11 +699,11 @@ export namespace app {
 	    download_count: number;
 	    created_at: string;
 	    last_used_at?: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new ShareLinkInfo(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -570,18 +722,18 @@ export namespace app {
 	    token: string;
 	    path: string;
 	    info: ShareLinkInfo;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new ShareLinkCreateResult(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.token = source["token"];
 	        this.path = source["path"];
 	        this.info = this.convertValues(source["info"], ShareLinkInfo);
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -600,7 +752,7 @@ export namespace app {
 		    return a;
 		}
 	}
-	
+
 	export class ShareLogEntry {
 	    timestamp: number;
 	    level: string;
@@ -608,11 +760,11 @@ export namespace app {
 	    follow_id?: number;
 	    publication_id?: number;
 	    message: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new ShareLogEntry(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.timestamp = source["timestamp"];
@@ -628,11 +780,11 @@ export namespace app {
 	    name: string;
 	    size: number;
 	    age_hours: number;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new StaleFile(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.source = source["source"];
@@ -644,32 +796,32 @@ export namespace app {
 	export class StartNativeDragRequest {
 	    clip_id: number;
 	    abs_path: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new StartNativeDragRequest(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.clip_id = source["clip_id"];
 	        this.abs_path = source["abs_path"];
 	    }
 	}
-	
+
 	export class TransferCapabilities {
 	    drag_out: DragCapability;
 	    clipboard_file: boolean;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new TransferCapabilities(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.drag_out = this.convertValues(source["drag_out"], DragCapability);
 	        this.clipboard_file = source["clipboard_file"];
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -693,11 +845,11 @@ export namespace app {
 	    active_count: number;
 	    total_count: number;
 	    is_watching: boolean;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new WatchStatus(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.global_paused = source["global_paused"];
@@ -719,11 +871,11 @@ export namespace app {
 	    // Go type: time
 	    created_at: any;
 	    exists: boolean;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new WatchedFolder(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -738,7 +890,7 @@ export namespace app {
 	        this.created_at = this.convertValues(source["created_at"], null);
 	        this.exists = source["exists"];
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -765,11 +917,11 @@ export namespace app {
 	    process_existing: boolean;
 	    auto_archive: boolean;
 	    auto_tag_id?: number;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new WatchedFolderConfig(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.path = source["path"];
@@ -785,7 +937,7 @@ export namespace app {
 }
 
 export namespace main {
-	
+
 	export class PluginInfo {
 	    id: number;
 	    name: string;
@@ -796,11 +948,11 @@ export namespace main {
 	    status: string;
 	    events: string[];
 	    settings: plugin.SettingField[];
-	
+
 	    static createFrom(source: any = {}) {
 	        return new PluginInfo(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -813,7 +965,7 @@ export namespace main {
 	        this.events = source["events"];
 	        this.settings = this.convertValues(source["settings"], plugin.SettingField);
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -842,11 +994,11 @@ export namespace main {
 	    options?: plugin.FormField[];
 	    file_types?: string[];
 	    max_size?: number;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new PluginUIAction(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.plugin_id = source["plugin_id"];
@@ -859,7 +1011,7 @@ export namespace main {
 	        this.file_types = source["file_types"];
 	        this.max_size = source["max_size"];
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -881,17 +1033,17 @@ export namespace main {
 	export class ShareStatus {
 	    shares: app.ShareInfo[];
 	    follows: app.FollowInfo[];
-	
+
 	    static createFrom(source: any = {}) {
 	        return new ShareStatus(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.shares = this.convertValues(source["shares"], app.ShareInfo);
 	        this.follows = this.convertValues(source["follows"], app.FollowInfo);
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -915,11 +1067,11 @@ export namespace main {
 	    card_actions: PluginUIAction[];
 	    bulk_actions: PluginUIAction[];
 	    global_actions: PluginUIAction[];
-	
+
 	    static createFrom(source: any = {}) {
 	        return new UIActionsResponse(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.lightbox_buttons = this.convertValues(source["lightbox_buttons"], PluginUIAction);
@@ -927,7 +1079,7 @@ export namespace main {
 	        this.bulk_actions = this.convertValues(source["bulk_actions"], PluginUIAction);
 	        this.global_actions = this.convertValues(source["global_actions"], PluginUIAction);
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -952,11 +1104,11 @@ export namespace main {
 	    preview?: plugin.PluginPreview;
 	    plugin_info?: PluginInfo;
 	    error?: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new UpdateResult(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.success = source["success"];
@@ -965,7 +1117,7 @@ export namespace main {
 	        this.plugin_info = this.convertValues(source["plugin_info"], PluginInfo);
 	        this.error = source["error"];
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -988,7 +1140,7 @@ export namespace main {
 }
 
 export namespace plugin {
-	
+
 	export class ModalData {
 	    plugin_id: number;
 	    title: string;
@@ -999,11 +1151,11 @@ export namespace plugin {
 	    paste_data_base64?: boolean;
 	    paste_name?: string;
 	    paste_content_type?: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new ModalData(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.plugin_id = source["plugin_id"];
@@ -1022,11 +1174,11 @@ export namespace plugin {
 	    error?: string;
 	    result_clip_id?: number;
 	    modal?: ModalData;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new ActionResult(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.success = source["success"];
@@ -1034,7 +1186,7 @@ export namespace plugin {
 	        this.result_clip_id = source["result_clip_id"];
 	        this.modal = this.convertValues(source["modal"], ModalData);
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -1056,11 +1208,11 @@ export namespace plugin {
 	export class Choice {
 	    value: string;
 	    label: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new Choice(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.value = source["value"];
@@ -1070,11 +1222,11 @@ export namespace plugin {
 	export class FilesystemPerms {
 	    Read: boolean;
 	    Write: boolean;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new FilesystemPerms(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.Read = source["Read"];
@@ -1091,11 +1243,11 @@ export namespace plugin {
 	    min?: number;
 	    max?: number;
 	    step?: number;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new FormField(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -1108,7 +1260,7 @@ export namespace plugin {
 	        this.max = source["max"];
 	        this.step = source["step"];
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -1127,7 +1279,7 @@ export namespace plugin {
 		    return a;
 		}
 	}
-	
+
 	export class PluginPreview {
 	    name: string;
 	    version: string;
@@ -1138,11 +1290,11 @@ export namespace plugin {
 	    clipboard: boolean;
 	    events: string[];
 	    source: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new PluginPreview(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
@@ -1155,7 +1307,7 @@ export namespace plugin {
 	        this.events = source["events"];
 	        this.source = source["source"];
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -1179,11 +1331,11 @@ export namespace plugin {
 	    current_version: string;
 	    new_version: string;
 	    has_permission_changes: boolean;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new PluginUpdateInfo(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.plugin_id = source["plugin_id"];
@@ -1199,11 +1351,11 @@ export namespace plugin {
 	    description?: string;
 	    default?: any;
 	    options?: string[];
-	
+
 	    static createFrom(source: any = {}) {
 	        return new SettingField(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.key = source["key"];

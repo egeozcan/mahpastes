@@ -24,6 +24,27 @@ Text-based clips include:
 - Code (any language)
 - JSON
 - HTML
+- Markdown (`.md` and `.markdown`, case-insensitive)
+
+## Markdown Preview
+
+Markdown clips open in **Preview** by default. Use the **Preview** and **Edit** tabs—or <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">Shift</span> + <span className="keyboard-key">P</span>—to switch modes. Preview always renders the current editor text, including unsaved changes. A recovered unsaved draft opens in Edit so it cannot be mistaken for saved content.
+
+Preview supports sanitized GitHub-Flavored Markdown: headings, lists, read-only task lists, tables, fenced code, strikethrough, and autolinks. Embedded HTML is restricted to safe semantic markup; scripts, forms, iframes, styles, event handlers, and author-supplied classes or IDs are removed. Mermaid, math, footnotes, and syntax highlighting are not included.
+
+### Links and images
+
+- Web and email links open with the operating system's default handler. Unsafe URL schemes are blocked.
+- Relative links resolve to clips through the Markdown clip's exact tags and descendant tag paths. Parent (`..`) traversal is not supported. Ambiguous matches let you choose a clip.
+- Valid PNG, JPEG, GIF, and WebP clips referenced through the same tag paths render inline. SVG is not rendered inline.
+- HTTPS images show their full URL and a **Load Image** button before the first download. HTTP images remain external links only.
+- Approved remote images are cached by exact URL for up to one hour. A valid cache hit may display automatically. Clear the cache from **Maintenance → Markdown Image Cache**.
+
+Images are limited to 15 MB each, 100 MB per Preview, and 256 image references, with additional dimension, decoded-pixel, and GIF-frame limits. Markdown source above 2 MB remains editable but is not rendered. Invalid UTF-8 Markdown retains its original bytes but cannot be previewed or edited in-app.
+
+:::note Raw content is unchanged
+Markdown rendering is a desktop viewing feature. Downloads, REST responses, public links, tag servers, and `mp clip data` return the original Markdown bytes.
+:::
 
 ## Editor Features
 
@@ -66,6 +87,7 @@ Standard text editing operations work as expected:
 | <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">Shift</span> + <span className="keyboard-key">Z</span> | Redo |
 | <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">Y</span> | Redo (alternative) |
 | <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">S</span> | Save as new clip |
+| <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">Shift</span> + <span className="keyboard-key">P</span> | Toggle Markdown Preview/Edit |
 | <span className="keyboard-key">Esc</span> | Close editor |
 
 ## Working with Different Content Types

@@ -1618,6 +1618,7 @@ window.addEventListener('load', async () => {
         ShortcutManager.register({ id: 'editor.rotate_cw',  label: 'Rotate 90° CW',   category: 'editor', context: 'editor', defaultKey: 'r', callback: () => TransformTool.rotateCW() });
         ShortcutManager.register({ id: 'editor.rotate_ccw', label: 'Rotate 90° CCW',   category: 'editor', context: 'editor', defaultKey: 'shift+r', callback: () => TransformTool.rotateCCW() });
         ShortcutManager.register({ id: 'editor.save',      label: 'Save as new clip',  category: 'editor', context: 'editor', defaultKey: 'mod+s', callback: () => saveEditorContent() });
+        ShortcutManager.register({ id: 'editor.markdown_preview', label: 'Toggle Markdown Preview', category: 'editor', context: 'editor', defaultKey: 'mod+shift+p', callback: () => TextClipEditor.toggleMarkdownMode() });
         ShortcutManager.register({ id: 'editor.close',     label: 'Close editor',      category: 'editor', context: 'editor', defaultKey: 'Escape', callback: () => {
             // If select tool has an active selection, cancel it instead of closing editor
             if (EditorCore.activeToolName === 'select' && typeof SelectTool !== 'undefined' && SelectTool.hasSelection()) {

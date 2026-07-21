@@ -318,6 +318,16 @@ function formatFileSize(bytes) {
 const formatBytes = formatFileSize;
 
 function getFriendlyFileType(contentType, filename) {
+    // Markdown behavior is filename-authoritative. Preserve a declared
+    // text/markdown MIME for transfers without showing an MD badge on a
+    // differently named clip.
+    if (contentType === 'text/markdown' && !/\.(?:md|markdown)$/i.test(filename || '')) {
+        const filenameExt = (filename || '').split('.').pop();
+        return filenameExt && filenameExt !== filename && filenameExt.length <= 5
+            ? filenameExt.toUpperCase()
+            : 'FILE';
+    }
+
     // Map of MIME types to friendly names
     const mimeMap = {
         'application/pdf': 'PDF',

@@ -66,6 +66,34 @@ func TestAssemblerWritesClipAndTag(t *testing.T) {
 	}
 }
 
+func TestAssemblerPromotesMarkdownFilename(t *testing.T) {
+	db := newTestDB(t)
+	if _, err := db.Exec(`INSERT INTO tags (id, name, color) VALUES (42, 'docs', '#888')`); err != nil {
+		t.Fatal(err)
+	}
+	asm := newClipAssembler(t.TempDir())
+	data := []byte("# Shared")
+	hash := sha256.Sum256(data)
+
+	asm.onStart(ClipStartPayload{
+		ClipID: 1, Filename: "shared.MD", ContentType: "application/octet-stream",
+		TotalSize: uint64(len(data)), ChunkCount: 1,
+	})
+	asm.onChunk(ClipChunkPayload{ClipID: 1, Index: 0, Data: data})
+	id, err := asm.onEnd(ClipEndPayload{ClipID: 1, SHA256: hash[:]}, db, 42)
+	if err != nil {
+		t.Fatalf("onEnd: %v", err)
+	}
+
+	var contentType string
+	if err := db.QueryRow(`SELECT content_type FROM clips WHERE id = ?`, id).Scan(&contentType); err != nil {
+		t.Fatalf("query content type: %v", err)
+	}
+	if contentType != "text/markdown" {
+		t.Fatalf("content type = %q, want text/markdown", contentType)
+	}
+}
+
 func TestAssemblerRejectsWrongSHA256(t *testing.T) {
 	db := newTestDB(t)
 	if _, err := db.Exec(`INSERT INTO tags (id, name, color) VALUES (42, 'x', '#888')`); err != nil {

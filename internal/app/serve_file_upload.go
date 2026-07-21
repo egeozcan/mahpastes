@@ -7,6 +7,8 @@ import (
 	"log"
 	"net/http"
 	"strings"
+
+	"go-clipboard/internal/cliptype"
 )
 
 const maxUploadSize = 10 * 1024 * 1024 // 10 MB
@@ -145,6 +147,7 @@ func (sm *ServeManager) handleFileUpload(w http.ResponseWriter, r *http.Request,
 
 	// Insert clip.
 	filename := header.Filename
+	contentType = cliptype.PromoteMarkdown(filename, contentType)
 	contentHash := computeContentHash(data)
 	result, err := sm.app.db.Exec(
 		"INSERT INTO clips (content_type, data, filename, content_hash) VALUES (?, ?, ?, ?)",

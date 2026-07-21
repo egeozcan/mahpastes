@@ -664,6 +664,13 @@ func (a *App) RestoreBackup(backupPath, identityPolicy string) error {
 		}
 	}
 
+	// Backup SQL may contain legacy or externally supplied MIME values. Apply
+	// the same filename-authoritative Markdown promotion used at startup before
+	// exposing restored rows.
+	if err := promoteMarkdownClipTypes(tx); err != nil {
+		return fmt.Errorf("promote restored Markdown clips: %w", err)
+	}
+
 	// Mark all plugin_permissions as pending_reconfirm
 	if _, err := tx.Exec("UPDATE plugin_permissions SET pending_reconfirm = 1"); err != nil {
 		fmt.Printf("Warning: failed to mark permissions as pending: %v\n", err)

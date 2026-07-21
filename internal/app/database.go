@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"go-clipboard/internal/cliptype"
+
 	_ "modernc.org/sqlite"
 )
 
@@ -330,6 +332,12 @@ func initDB() (*sql.DB, error) {
 		log.Printf("Warning: Failed to create idx_share_links_clip: %v", err)
 	}
 
+	// Promote legacy Markdown clips whose MIME type was supplied inconsistently
+	// by browsers, operating systems, or API clients.
+	if err := promoteMarkdownClipTypes(db); err != nil {
+		log.Printf("Warning: Markdown content-type migration failed: %v", err)
+	}
+
 	// Backfill content hashes for existing clips that don't have one
 	backfillContentHashes(db)
 
@@ -338,6 +346,20 @@ func initDB() (*sql.DB, error) {
 	migrateClipExpiresAtToUTC(db)
 
 	return db, nil
+}
+
+type sqlExecer interface {
+	Exec(query string, args ...interface{}) (sql.Result, error)
+}
+
+func promoteMarkdownClipTypes(db sqlExecer) error {
+	_, err := db.Exec(`
+		UPDATE clips
+		SET content_type = ?
+		WHERE filename IS NOT NULL
+		  AND (LOWER(filename) LIKE '%.md' OR LOWER(filename) LIKE '%.markdown')
+		  AND content_type <> ?`, cliptype.MarkdownContentType, cliptype.MarkdownContentType)
+	return err
 }
 
 // migrateClipExpiresAtToUTC rewrites any clips.expires_at stored in Go's

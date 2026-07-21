@@ -217,6 +217,26 @@ test.describe('Plugin Result Modal', () => {
       expect(hasTable).toBe(true);
     });
 
+    test('should strip authored UI attributes and unsafe markup from markdown', async ({ app }) => {
+      await app.page.evaluate((data) => {
+        // @ts-ignore
+        showPluginResultModal(data);
+      }, {
+        title: 'Sanitizer Test',
+        content: '<p class="fixed" id="app" style="position:fixed" onclick="alert(1)">Safe</p><script>bad()</script>',
+        format: 'markdown',
+      });
+
+      const attributes = await app.page.locator('#plugin-result-body p').evaluate((element) => ({
+        className: element.getAttribute('class'),
+        id: element.getAttribute('id'),
+        style: element.getAttribute('style'),
+        onclick: element.getAttribute('onclick'),
+      }));
+      expect(attributes).toEqual({ className: null, id: null, style: null, onclick: null });
+      await expect(app.page.locator('#plugin-result-body script')).toHaveCount(0);
+    });
+
     test('should render text format in pre element', async ({ app }) => {
       await app.page.evaluate((data) => {
         // @ts-ignore

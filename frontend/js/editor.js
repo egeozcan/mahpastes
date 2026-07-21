@@ -154,6 +154,7 @@ async function openEditor(clipId) {
                 filename: editorFilename,
                 contentType,
                 text: clipData.data,
+                validUTF8: clipData.valid_utf8 !== false,
             });
         }
 
@@ -165,6 +166,47 @@ async function openEditor(clipId) {
         console.error('Error opening editor:', error);
         showToast('Failed to open editor.');
     }
+}
+
+async function openMarkdownReferenceCandidate(candidate, fragment) {
+    const openTarget = async () => {
+        closeEditor({ force: true, discardDraft: true });
+        const contentType = candidate.content_type || '';
+        const filename = candidate.filename || '';
+        if (contentType.startsWith('image/')) {
+            await openLinkedImageLightbox({
+                id: candidate.clip_id,
+                filename,
+                content_type: contentType,
+                is_archived: candidate.is_archived || false,
+            });
+            return;
+        }
+        if (isEditableType(contentType) || /\.(?:md|markdown)$/i.test(filename)) {
+            await openEditor(candidate.clip_id);
+            if (fragment) {
+                requestAnimationFrame(() => requestAnimationFrame(() => {
+                    let headingID = fragment;
+                    try { headingID = decodeURIComponent(fragment); } catch (_) { /* keep raw fragment */ }
+                    document.querySelector(`#markdown-preview-content #${CSS.escape(headingID)}`)?.scrollIntoView({ block: 'start' });
+                }));
+            }
+            return;
+        }
+        await window.go.main.App.OpenClipWithDefaultApp(candidate.clip_id);
+    };
+
+    if (hasUnsavedEditorChanges()) {
+        showConfirmDialog(
+            'Discard unsaved changes?',
+            'Opening this linked clip will discard your unsaved changes.',
+            openTarget,
+            null,
+            { variant: 'danger', confirmLabel: 'Open Clip' }
+        );
+        return;
+    }
+    await openTarget();
 }
 
 function hasUnsavedEditorChanges() {

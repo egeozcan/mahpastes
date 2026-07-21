@@ -90,6 +90,8 @@ serve_file_upload.go     File upload handler for served tags (/_api/_upload)
 serve_service.go         Tag serve Wails service (start/stop/status)
 api_manager.go           REST API HTTP server, route registration, key management
 api_service.go           REST API Wails service (start/stop/keys)
+markdown_service.go      Desktop Markdown reference/image/cache Wails service
+internal/app/markdown_*  Markdown classification, references, image validation, secure fetching, cache
 tag_hierarchy.go         Tag tree helpers (parent, root, ancestor, descendant checks)
 plugin/                  Lua plugin system
 ├── manager.go           Plugin lifecycle, event dispatch
@@ -133,6 +135,8 @@ frontend/
 │   ├── watch.js         Watch folders UI
 │   ├── transfer.js      Drag-out transfer state management
 │   ├── transfer-strategies.js  Platform-specific drag data adapters
+│   ├── markdown-renderer.js    Shared sanitized GFM renderer
+│   ├── editor/markdown-preview.js Markdown clip link/image policy and preview lifecycle
 │   ├── modal-renderer.js       Plugin result modal rendering
 │   ├── metadata.js      Clip metadata UI
 │   ├── sort.js          Gallery sorting controls
@@ -163,8 +167,9 @@ The backend exposes multiple Go structs to the frontend via Wails bindings. As t
 | `TransferService` | `transfer_service.go` | `window.go.main.TransferService.*` | Drag-out preparation and native OS drag |
 | `ServeService` | `serve_service.go` | `window.go.main.ServeService.*` | Start/stop tag HTTP servers, status queries |
 | `APIService` | `api_service.go` | `window.go.main.APIService.*` | REST API server lifecycle, API key management |
+| `MarkdownService` | `markdown_service.go` | `window.go.main.MarkdownService.*` | Desktop-only local references, validated images, secure remote loading, and cache maintenance |
 
-All six structs are bound in `main.go` via the `Bind` option.
+All bound structs are registered in `main.go` via the `Bind` option.
 
 ## REST API Server
 
@@ -273,6 +278,14 @@ Frontend
 - No build step for development
 - Easy to understand and modify
 - Reduced bundle size
+
+### Markdown rendering
+
+Markdown identity is filename-authoritative: final `.md` and `.markdown` extensions promote stored MIME to `text/markdown`, while removing the extension disables rendering without rewriting transfer metadata. Existing rows are normalized when the database opens.
+
+The frontend's shared `MarkdownRenderer` parses GFM and sanitizes into a detached tree. `MarkdownPreview` adds desktop policies for OS-opened links, deterministic tag-relative clip references, and image placeholders. The backend `MarkdownService` validates local/embedded raster bytes and performs explicit HTTPS downloads through an SSRF-resistant dialer. Remote images use a one-hour, 250 MB LRU disk cache keyed by SHA-256 of the exact URL; progress is emitted through `markdown:image-progress` events.
+
+Relative references are independent of the active gallery view. They resolve from every exact source tag—or the tag root for an untagged source—into the same or descendant tag paths, reject parent traversal, include archived targets, exclude expired targets, and deduplicate by clip ID. See ADRs 0001 and 0002.
 
 ### Why Base64 for Binary Data?
 

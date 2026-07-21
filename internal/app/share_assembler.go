@@ -10,6 +10,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+
+	"go-clipboard/internal/cliptype"
 )
 
 // clipAssembler buffers one in-flight clip (across clip_start / clip_chunk /
@@ -103,9 +105,10 @@ func (a *clipAssembler) onEnd(p ClipEndPayload, db *sql.DB, localTagID int64) (i
 		return 0, err
 	}
 	defer tx.Rollback()
+	contentType := cliptype.PromoteMarkdown(a.filename, a.cType)
 	res, err := tx.Exec(
 		`INSERT INTO clips (content_type, data, filename, metadata) VALUES (?, ?, ?, ?)`,
-		a.cType, body, a.filename, string(metaJSON),
+		contentType, body, a.filename, string(metaJSON),
 	)
 	if err != nil {
 		return 0, err

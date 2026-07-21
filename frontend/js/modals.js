@@ -9,6 +9,7 @@ let comparisonFocusTrapCleanup = null;
 
 // Lightbox image element - managed here, accessed via getLightboxImg()
 let lightboxImg = null;
+let linkedLightboxPreviousClips = null;
 
 function getLightboxImg() {
     if (!lightboxImg) {
@@ -411,6 +412,15 @@ function handleLightboxWheel(e) {
     }
 }
 
+async function openLinkedImageLightbox(clip) {
+    if (linkedLightboxPreviousClips) {
+        imageClips = linkedLightboxPreviousClips;
+    }
+    linkedLightboxPreviousClips = imageClips;
+    imageClips = [clip];
+    await openLightbox(0);
+}
+
 async function openLightbox(index) {
     if (index < 0 || index >= imageClips.length) return;
     currentLightboxIndex = index;
@@ -482,6 +492,10 @@ function closeLightbox() {
     lightbox.classList.remove('active');
     lightbox.setAttribute('inert', '');
     resetLightboxZoom();
+    if (linkedLightboxPreviousClips) {
+        imageClips = linkedLightboxPreviousClips;
+        linkedLightboxPreviousClips = null;
+    }
     setTimeout(() => {
         // Remove the image element completely to avoid any residue
         lightboxImg?.parentNode?.removeChild(lightboxImg);
