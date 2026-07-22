@@ -1,125 +1,72 @@
 // --- Transform Tool ---
-// Whole-image rotation (90° CW/CCW) and flip (horizontal/vertical) operations.
+// Whole-image rotation (90° CW/CCW) and flip operations. The opening-image
+// baseline follows the same geometry so the eraser stays aligned.
 
 const TransformTool = (() => {
-    /**
-     * Rotate the canvas 90° clockwise.
-     * Creates a temp canvas with swapped dimensions, draws the rotated image,
-     * then copies it back to the main canvas.
-     */
-    function rotateCW() {
+    function drawTransformed(source, kind) {
+        const output = document.createElement('canvas');
+        const swapDimensions = kind === 'rotate-cw' || kind === 'rotate-ccw';
+        output.width = swapDimensions ? source.height : source.width;
+        output.height = swapDimensions ? source.width : source.height;
+        const context = output.getContext('2d');
+
+        if (kind === 'rotate-cw') {
+            context.translate(output.width, 0);
+            context.rotate(Math.PI / 2);
+        } else if (kind === 'rotate-ccw') {
+            context.translate(0, output.height);
+            context.rotate(-Math.PI / 2);
+        } else if (kind === 'flip-h') {
+            context.translate(output.width, 0);
+            context.scale(-1, 1);
+        } else if (kind === 'flip-v') {
+            context.translate(0, output.height);
+            context.scale(1, -1);
+        }
+        context.drawImage(source, 0, 0);
+        return output;
+    }
+
+    function baselineCanvas() {
+        const canvas = EditorCore.canvas;
+        if (!canvas) return null;
+        const imageData = EditorCore.getBaselineRegion(0, 0, canvas.width, canvas.height);
+        if (!imageData) return null;
+        const baseline = document.createElement('canvas');
+        baseline.width = canvas.width;
+        baseline.height = canvas.height;
+        baseline.getContext('2d').putImageData(imageData, 0, 0);
+        return baseline;
+    }
+
+    function apply(kind) {
+        if (EditorCore.prepareForAction('transform') === 'consumed') return;
         const canvas = EditorCore.canvas;
         const ctx = EditorCore.ctx;
         const overlay = EditorCore.overlayCanvas;
         if (!canvas || !ctx) return;
 
-        const tmp = document.createElement('canvas');
-        tmp.width = canvas.height;
-        tmp.height = canvas.width;
-        const tmpCtx = tmp.getContext('2d');
+        const transformed = drawTransformed(canvas, kind);
+        const baseline = baselineCanvas();
+        const transformedBaseline = baseline ? drawTransformed(baseline, kind) : transformed;
 
-        tmpCtx.translate(tmp.width, 0);
-        tmpCtx.rotate(Math.PI / 2);
-        tmpCtx.drawImage(canvas, 0, 0);
-
-        // Resize main canvas and overlay to new dimensions
-        canvas.width = tmp.width;
-        canvas.height = tmp.height;
+        canvas.width = transformed.width;
+        canvas.height = transformed.height;
         if (overlay) {
-            overlay.width = tmp.width;
-            overlay.height = tmp.height;
+            overlay.width = transformed.width;
+            overlay.height = transformed.height;
         }
-
-        ctx.drawImage(tmp, 0, 0);
-
+        ctx.drawImage(transformed, 0, 0);
+        EditorCore.setBaselineFromCanvas(transformedBaseline);
         EditorCore.syncOverlay();
         EditorCore.saveUndoState();
-    }
-
-    /**
-     * Rotate the canvas 90° counter-clockwise.
-     * Creates a temp canvas with swapped dimensions, draws the rotated image,
-     * then copies it back to the main canvas.
-     */
-    function rotateCCW() {
-        const canvas = EditorCore.canvas;
-        const ctx = EditorCore.ctx;
-        const overlay = EditorCore.overlayCanvas;
-        if (!canvas || !ctx) return;
-
-        const tmp = document.createElement('canvas');
-        tmp.width = canvas.height;
-        tmp.height = canvas.width;
-        const tmpCtx = tmp.getContext('2d');
-
-        tmpCtx.translate(0, tmp.height);
-        tmpCtx.rotate(-Math.PI / 2);
-        tmpCtx.drawImage(canvas, 0, 0);
-
-        // Resize main canvas and overlay to new dimensions
-        canvas.width = tmp.width;
-        canvas.height = tmp.height;
-        if (overlay) {
-            overlay.width = tmp.width;
-            overlay.height = tmp.height;
-        }
-
-        ctx.drawImage(tmp, 0, 0);
-
-        EditorCore.syncOverlay();
-        EditorCore.saveUndoState();
-    }
-
-    /**
-     * Flip the canvas horizontally (mirror left-right).
-     */
-    function flipH() {
-        const canvas = EditorCore.canvas;
-        const ctx = EditorCore.ctx;
-        if (!canvas || !ctx) return;
-
-        const tmp = document.createElement('canvas');
-        tmp.width = canvas.width;
-        tmp.height = canvas.height;
-        const tmpCtx = tmp.getContext('2d');
-
-        tmpCtx.translate(tmp.width, 0);
-        tmpCtx.scale(-1, 1);
-        tmpCtx.drawImage(canvas, 0, 0);
-
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(tmp, 0, 0);
-
-        EditorCore.saveUndoState();
-    }
-
-    /**
-     * Flip the canvas vertically (mirror top-bottom).
-     */
-    function flipV() {
-        const canvas = EditorCore.canvas;
-        const ctx = EditorCore.ctx;
-        if (!canvas || !ctx) return;
-
-        const tmp = document.createElement('canvas');
-        tmp.width = canvas.width;
-        tmp.height = canvas.height;
-        const tmpCtx = tmp.getContext('2d');
-
-        tmpCtx.translate(0, tmp.height);
-        tmpCtx.scale(1, -1);
-        tmpCtx.drawImage(canvas, 0, 0);
-
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(tmp, 0, 0);
-
-        EditorCore.saveUndoState();
+        if (typeof ZoomTool !== 'undefined') ZoomTool.zoomToFit();
     }
 
     return {
-        rotateCW,
-        rotateCCW,
-        flipH,
-        flipV
+        rotateCW: () => apply('rotate-cw'),
+        rotateCCW: () => apply('rotate-ccw'),
+        flipH: () => apply('flip-h'),
+        flipV: () => apply('flip-v'),
     };
 })();

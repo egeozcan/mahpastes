@@ -54,6 +54,12 @@ const ShortcutManager = (() => {
         if (confirmDialog && confirmDialog.classList.contains('opacity-100')) return [];
         if (editorModal && editorModal.classList.contains('active')) {
             contexts.push('editor');
+            const imageEditorView = document.getElementById('image-editor-view');
+            if (imageEditorView && !imageEditorView.classList.contains('hidden')) {
+                contexts.push('image-editor');
+            } else {
+                contexts.push('text-editor');
+            }
             return contexts;
         }
         if (comparisonModal && comparisonModal.classList.contains('active')) {
@@ -216,7 +222,7 @@ const ShortcutManager = (() => {
         // locally to dismiss an inline mode without closing the whole editor.
         const tag = e.target.tagName;
         const isEditable = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable;
-        const handlesEscapeLocally = e.target.matches?.('#editor-filename, #text-editor-find, #text-editor-replace');
+        const handlesEscapeLocally = e.target.matches?.('#editor-filename, #text-editor-find, #text-editor-replace, #canvas-text-input');
         if (isEditable && (e.key !== 'Escape' || handlesEscapeLocally)) return;
 
         // Handle Escape for modal overlays that block all shortcut contexts.
@@ -250,7 +256,7 @@ const ShortcutManager = (() => {
 
         // Check contexts in priority order (most specific first)
         // clip > bulk > lightbox > watch > gallery > global
-        const priority = ['clip', 'bulk', 'lightbox', 'editor', 'comparison', 'watch', 'gallery', 'global'];
+        const priority = ['clip', 'bulk', 'lightbox', 'image-editor', 'text-editor', 'editor', 'comparison', 'watch', 'gallery', 'global'];
 
         for (const ctx of priority) {
             if (!activeContexts.includes(ctx)) continue;
@@ -357,13 +363,14 @@ const ShortcutManager = (() => {
     // --- Conflict Detection ---
 
     // Context overlap: two contexts overlap if one is a parent of the other
-    // or they are the same. The hierarchy is:
-    // global > gallery > clip, global > gallery > bulk, global > lightbox, global > watch
+    // or they are the same. Image-only editor actions live below the shared
+    // editor context used by both image and text editors.
     function contextsOverlap(ctx1, ctx2) {
         if (ctx1 === ctx2) return true;
         const hierarchy = {
-            global: ['gallery', 'lightbox', 'editor', 'comparison', 'watch', 'bulk', 'clip'],
+            global: ['gallery', 'lightbox', 'editor', 'image-editor', 'text-editor', 'comparison', 'watch', 'bulk', 'clip'],
             gallery: ['clip', 'bulk'],
+            editor: ['image-editor', 'text-editor'],
         };
         return (hierarchy[ctx1]?.includes(ctx2)) || (hierarchy[ctx2]?.includes(ctx1));
     }

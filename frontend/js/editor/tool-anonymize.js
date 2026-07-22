@@ -63,46 +63,84 @@ const AnonymizeTool = (() => {
 
         const imageData = ctx.getImageData(x, y, w, h);
         const src = imageData.data;
-        const dst = new Uint8ClampedArray(src);
+        const horizontal = new Uint8ClampedArray(src.length);
+        const dst = new Uint8ClampedArray(src.length);
         const r = Math.max(1, Math.round(radius));
 
-        // Horizontal pass
+        // Sliding-window box blur: O(width * height), independent of radius.
+        // RGB is averaged in premultiplied-alpha space to avoid dark or colored
+        // fringes around transparent pixels.
+        const addSourcePixel = (sums, index, direction) => {
+            const alpha = src[index + 3];
+            const alphaScale = alpha / 255;
+            sums.r += direction * src[index] * alphaScale;
+            sums.g += direction * src[index + 1] * alphaScale;
+            sums.b += direction * src[index + 2] * alphaScale;
+            sums.a += direction * alpha;
+        };
         for (let row = 0; row < h; row++) {
+            const sums = { r: 0, g: 0, b: 0, a: 0 };
+            let count = 0;
+            for (let col = 0; col <= Math.min(r, w - 1); col++) {
+                addSourcePixel(sums, (row * w + col) * 4, 1);
+                count++;
+            }
             for (let col = 0; col < w; col++) {
-                let rr = 0, gg = 0, bb = 0, aa = 0, count = 0;
-                for (let k = -r; k <= r; k++) {
-                    const c = col + k;
-                    if (c < 0 || c >= w) continue;
-                    const i = (row * w + c) * 4;
-                    rr += src[i]; gg += src[i+1]; bb += src[i+2]; aa += src[i+3]; count++;
-                }
                 const i = (row * w + col) * 4;
-                dst[i] = rr / count; dst[i+1] = gg / count; dst[i+2] = bb / count; dst[i+3] = aa / count;
+                horizontal[i] = sums.r / count;
+                horizontal[i + 1] = sums.g / count;
+                horizontal[i + 2] = sums.b / count;
+                horizontal[i + 3] = sums.a / count;
+                const remove = col - r;
+                const add = col + r + 1;
+                if (remove >= 0) {
+                    addSourcePixel(sums, (row * w + remove) * 4, -1);
+                    count--;
+                }
+                if (add < w) {
+                    addSourcePixel(sums, (row * w + add) * 4, 1);
+                    count++;
+                }
             }
         }
 
-        // Vertical pass (read from dst, write back to dst via a copy)
-        const src2 = new Uint8ClampedArray(dst);
         for (let col = 0; col < w; col++) {
-            for (let row = 0; row < h; row++) {
-                let rr = 0, gg = 0, bb = 0, aa = 0, count = 0;
-                for (let k = -r; k <= r; k++) {
-                    const ro = row + k;
-                    if (ro < 0 || ro >= h) continue;
-                    const i = (ro * w + col) * 4;
-                    rr += src2[i]; gg += src2[i+1]; bb += src2[i+2]; aa += src2[i+3]; count++;
-                }
+            let rr = 0, gg = 0, bb = 0, aa = 0;
+            let count = 0;
+            for (let row = 0; row <= Math.min(r, h - 1); row++) {
                 const i = (row * w + col) * 4;
-                dst[i] = rr / count; dst[i+1] = gg / count; dst[i+2] = bb / count; dst[i+3] = aa / count;
+                rr += horizontal[i]; gg += horizontal[i + 1]; bb += horizontal[i + 2]; aa += horizontal[i + 3]; count++;
+            }
+            for (let row = 0; row < h; row++) {
+                const i = (row * w + col) * 4;
+                const alpha = aa / count;
+                dst[i + 3] = alpha;
+                if (alpha > 0) {
+                    dst[i] = (rr / count) * 255 / alpha;
+                    dst[i + 1] = (gg / count) * 255 / alpha;
+                    dst[i + 2] = (bb / count) * 255 / alpha;
+                } else {
+                    dst[i] = 0; dst[i + 1] = 0; dst[i + 2] = 0;
+                }
+                const remove = row - r;
+                const add = row + r + 1;
+                if (remove >= 0) {
+                    const j = (remove * w + col) * 4;
+                    rr -= horizontal[j]; gg -= horizontal[j + 1]; bb -= horizontal[j + 2]; aa -= horizontal[j + 3]; count--;
+                }
+                if (add < h) {
+                    const j = (add * w + col) * 4;
+                    rr += horizontal[j]; gg += horizontal[j + 1]; bb += horizontal[j + 2]; aa += horizontal[j + 3]; count++;
+                }
             }
         }
 
-        // Add per-pixel noise to destroy reversibility
         const noiseAmp = Math.max(6, r);
         for (let i = 0; i < dst.length; i += 4) {
-            dst[i]   = clamp(dst[i]   + noise(noiseAmp));
-            dst[i+1] = clamp(dst[i+1] + noise(noiseAmp));
-            dst[i+2] = clamp(dst[i+2] + noise(noiseAmp));
+            if (dst[i + 3] === 0) continue;
+            dst[i] = clamp(dst[i] + noise(noiseAmp));
+            dst[i + 1] = clamp(dst[i + 1] + noise(noiseAmp));
+            dst[i + 2] = clamp(dst[i + 2] + noise(noiseAmp));
         }
 
         imageData.data.set(dst);
@@ -133,6 +171,7 @@ const AnonymizeTool = (() => {
     // --- Tool factory ---
 
     function create() {
+        let lastBrushPoint = null;
         return {
             activate() {
                 // No setup needed
@@ -153,6 +192,7 @@ const AnonymizeTool = (() => {
 
                 if (mode === 'brush') {
                     applyAtCursor(ctx, coords.x, coords.y);
+                    lastBrushPoint = { x: coords.x, y: coords.y };
                 }
                 // For rect mode, start point is already recorded by EditorCore
             },
@@ -162,7 +202,16 @@ const AnonymizeTool = (() => {
                 if (!ctx) return;
 
                 if (mode === 'brush') {
-                    applyAtCursor(ctx, coords.x, coords.y);
+                    const previous = lastBrushPoint || coords;
+                    const dx = coords.x - previous.x;
+                    const dy = coords.y - previous.y;
+                    const distance = Math.hypot(dx, dy);
+                    const spacing = Math.max(2, EditorCore.brushSize);
+                    const steps = Math.max(1, Math.ceil(distance / spacing));
+                    for (let step = 1; step <= steps; step++) {
+                        applyAtCursor(ctx, previous.x + dx * step / steps, previous.y + dy * step / steps);
+                    }
+                    lastBrushPoint = { x: coords.x, y: coords.y };
                 } else {
                     // Rectangle mode: draw preview on overlay
                     const oc = EditorCore.overlayCtx;
@@ -213,6 +262,7 @@ const AnonymizeTool = (() => {
                     }
                 }
 
+                lastBrushPoint = null;
                 EditorCore.saveUndoState();
             },
 

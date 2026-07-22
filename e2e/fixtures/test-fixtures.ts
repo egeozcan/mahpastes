@@ -654,6 +654,17 @@ export class AppHelper {
 
       // --- 2. Close all modals via DOM ---
 
+      // Use the real editor teardown so worker-scoped pages do not retain
+      // canvas listeners, history, selections, or animation frames.
+      const editorModal = document.getElementById('editor-modal');
+      const closeEditorFn = (window as any).closeEditor;
+      if (typeof closeEditorFn === 'function') {
+        closeEditorFn({ force: true, discardDraft: true });
+      } else if (editorModal) {
+        editorModal.classList.remove('active');
+        editorModal.setAttribute('inert', '');
+      }
+
       // All modals use opacity-0/pointer-events-none when closed
       const modalIds = [
         'confirm-dialog', 'restore-confirm-dialog', 'folder-modal',

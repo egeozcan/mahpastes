@@ -16,6 +16,8 @@ const SelectTool = (() => {
     let creating = false;           // Whether we are dragging to create a new selection
     let originalPosition = null;    // {x, y} where selection was first captured (for cancel)
     let originalCanvasData = null;  // Full canvas snapshot at time of capture (for cancel)
+    let selectionSurface = null;    // Cached raster used by overlay rendering
+    let lastAnimationTime = 0;
 
     const HANDLE_SIZE = 6;
     const HANDLE_HIT = 8;
@@ -86,15 +88,8 @@ const SelectTool = (() => {
         const { x, y, w, h } = selectionRect;
 
         // 1. Draw selection image data on overlay at current position (scaled if resized)
-        if (selectionImageData) {
-            // Use offscreen canvas to handle potential resizing
-            const offscreen = document.createElement('canvas');
-            offscreen.width = selectionImageData.width;
-            offscreen.height = selectionImageData.height;
-            const offCtx = offscreen.getContext('2d');
-            offCtx.putImageData(selectionImageData, 0, 0);
-
-            oc.drawImage(offscreen, x, y, w, h);
+        if (selectionSurface) {
+            oc.drawImage(selectionSurface, x, y, w, h);
         }
 
         // 2. Marching ants border (two dashed lines for contrast)
@@ -128,15 +123,23 @@ const SelectTool = (() => {
 
     // --- Marching ants animation ---
 
-    function animateMarchingAnts() {
-        marchingAntsOffset = (marchingAntsOffset + 0.5) % 12;
-        renderOverlay();
+    function animateMarchingAnts(timestamp) {
+        if (timestamp - lastAnimationTime >= 66) {
+            marchingAntsOffset = (marchingAntsOffset + 1) % 12;
+            renderOverlay();
+            lastAnimationTime = timestamp;
+        }
         animFrameId = requestAnimationFrame(animateMarchingAnts);
     }
 
     function startAnimation() {
+        if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+            renderOverlay();
+            return;
+        }
         if (animFrameId != null) return;
-        animateMarchingAnts();
+        lastAnimationTime = 0;
+        animFrameId = requestAnimationFrame(animateMarchingAnts);
     }
 
     function stopAnimation() {
@@ -203,6 +206,7 @@ const SelectTool = (() => {
         committed = true;
         originalPosition = null;
         originalCanvasData = null;
+        selectionSurface = null;
 
         // Clear overlay
         const oc = EditorCore.overlayCtx;
@@ -210,6 +214,7 @@ const SelectTool = (() => {
         if (oc && overlayCanvas) {
             oc.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
         }
+        if (typeof updateEditorSaveState === 'function') updateEditorSaveState();
     }
 
     // --- Capture pixels from canvas into selection ---
@@ -227,14 +232,17 @@ const SelectTool = (() => {
         if (cw <= 0 || ch <= 0) return;
 
         // Save full canvas state for cancel
-        originalCanvasData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        originalCanvasData = EditorCore.getCurrentSnapshot() || ctx.getImageData(0, 0, canvas.width, canvas.height);
 
         // Capture pixel data from the region
         selectionImageData = ctx.getImageData(cx, cy, cw, ch);
+        selectionSurface = document.createElement('canvas');
+        selectionSurface.width = cw;
+        selectionSurface.height = ch;
+        selectionSurface.getContext('2d').putImageData(selectionImageData, 0, 0);
 
-        // Clear the region on the main canvas (fill with white)
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(cx, cy, cw, ch);
+        // Lift pixels without destroying transparency.
+        ctx.clearRect(cx, cy, cw, ch);
 
         // Update the selection rect to clamped values
         selectionRect = { x: cx, y: cy, w: cw, h: ch };
@@ -292,12 +300,10 @@ const SelectTool = (() => {
                                 offCtx.putImageData(selectionImageData, 0, 0);
                                 mainCtx.drawImage(offscreen, selectionRect.x, selectionRect.y, selectionRect.w, selectionRect.h);
                             }
-                            // Now the canvas has the image baked in at current position;
-                            // update originalCanvasData so cancel restores to this new state
+                            // Keep the original baked into the canvas while the same
+                            // pixels remain floating as the duplicate. Cancelling the
+                            // duplicate restores this state.
                             originalCanvasData = EditorCore.ctx.getImageData(0, 0, EditorCore.canvas.width, EditorCore.canvas.height);
-                            // Clear the region again for the "copy" to float
-                            EditorCore.ctx.fillStyle = '#ffffff';
-                            EditorCore.ctx.fillRect(selectionRect.x, selectionRect.y, selectionRect.w, selectionRect.h);
                         }
 
                         activeHandle = 'move';
@@ -388,6 +394,23 @@ const SelectTool = (() => {
                         r.h = Math.abs(r.h);
                     }
 
+                    if (e.shiftKey) {
+                        const ratio = originalRect.w / originalRect.h || 1;
+                        if (activeHandle === 'e' || activeHandle === 'w') {
+                            const centerY = originalRect.y + originalRect.h / 2;
+                            r.h = r.w / ratio;
+                            r.y = centerY - r.h / 2;
+                        } else if (activeHandle === 'n' || activeHandle === 's') {
+                            const centerX = originalRect.x + originalRect.w / 2;
+                            r.w = r.h * ratio;
+                            r.x = centerX - r.w / 2;
+                        } else {
+                            const heightFromWidth = r.w / ratio;
+                            if (activeHandle.includes('n')) r.y += r.h - heightFromWidth;
+                            r.h = heightFromWidth;
+                        }
+                    }
+
                     // Enforce minimum size
                     r.w = Math.max(MIN_SEL, r.w);
                     r.h = Math.max(MIN_SEL, r.h);
@@ -422,9 +445,22 @@ const SelectTool = (() => {
                 originalRect = null;
             },
 
-            getCursor() {
-                if (creating) return 'crosshair';
+            getCursor(coords) {
+                if (creating || !coords) return 'crosshair';
+                const handle = hitTestHandles(coords.x, coords.y);
+                if (handle) return handleCursors[handle];
+                if (insideSelectionRect(coords.x, coords.y)) return 'move';
                 return 'crosshair';
+            },
+
+            prepareForAction(intent) {
+                if (!selectionRect) return 'proceed';
+                if (intent === 'undo' || intent === 'redo') {
+                    cancelSelection();
+                    return 'consumed';
+                }
+                if (intent === 'save' || intent === 'transform') commitSelection();
+                return 'proceed';
             },
         };
     }
@@ -489,7 +525,7 @@ const SelectTool = (() => {
 
         // Save canvas state for cancel
         const ctx = EditorCore.ctx;
-        originalCanvasData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        originalCanvasData = EditorCore.getCurrentSnapshot() || ctx.getImageData(0, 0, canvas.width, canvas.height);
 
         // Deep copy clipboard data
         selectionImageData = new ImageData(
@@ -497,6 +533,10 @@ const SelectTool = (() => {
             clipboard.width,
             clipboard.height
         );
+        selectionSurface = document.createElement('canvas');
+        selectionSurface.width = pw;
+        selectionSurface.height = ph;
+        selectionSurface.getContext('2d').putImageData(selectionImageData, 0, 0);
 
         selectionRect = { x: cx, y: cy, w: pw, h: ph };
         originalPosition = { x: cx, y: cy };
@@ -525,9 +565,8 @@ const SelectTool = (() => {
             EditorCore.saveUndoState();
             clearSelection();
         } else {
-            // Committed selection: fill the region with white
-            ctx.fillStyle = '#ffffff';
-            ctx.fillRect(
+            // Committed selection: delete to transparency.
+            ctx.clearRect(
                 Math.round(selectionRect.x),
                 Math.round(selectionRect.y),
                 Math.round(selectionRect.w),

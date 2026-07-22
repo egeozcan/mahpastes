@@ -869,14 +869,15 @@
     </div>
 
     <!-- Editor Modal -->
-    <div id="editor-modal" class="editor-backdrop" role="dialog" aria-modal="true" aria-label="File Editor" inert>
+    <div id="editor-modal" class="editor-backdrop" role="dialog" aria-modal="true" aria-labelledby="editor-title" inert>
         <div class="editor-container">
             <!-- Header -->
             <div class="editor-header">
-                <h3 class="text-sm font-medium flex items-center gap-2 min-w-0">
+                <h3 id="editor-title" class="text-sm font-medium flex items-center gap-2 min-w-0">
                     <span id="editor-mode-label">Edit</span>
                     <span aria-hidden="true" class="text-stone-500">·</span>
                     <span id="editor-current-filename" class="text-xs text-stone-300 truncate"></span>
+                    <span id="editor-downscale-warning" class="hidden text-[10px] text-amber-200" role="status"></span>
                 </h3>
                 <div class="flex items-center gap-2">
                     <label for="editor-filename" class="sr-only">New clip filename</label>
@@ -1058,20 +1059,20 @@
                     <div class="flex items-center gap-3 flex-wrap mt-1.5 pt-1.5 border-t border-stone-200/60">
                         <!-- Color/Opacity/Size controls -->
                         <div class="flex items-center gap-3">
-                            <div class="flex items-center gap-1.5">
-                                <label class="text-[10px] font-medium text-stone-500 uppercase tracking-wide">Color</label>
+                            <div class="flex items-center gap-1.5" data-editor-property="color">
+                                <label for="editor-color" class="text-[10px] font-medium text-stone-500 uppercase tracking-wide">Color</label>
                                 <input type="color" id="editor-color" value="#44403c"
                                     class="w-6 h-6 rounded cursor-pointer border border-stone-200">
                             </div>
-                            <div class="flex items-center gap-1.5">
-                                <label class="text-[10px] font-medium text-stone-500 uppercase tracking-wide">Opacity</label>
+                            <div class="flex items-center gap-1.5" data-editor-property="opacity">
+                                <label for="editor-opacity" class="text-[10px] font-medium text-stone-500 uppercase tracking-wide">Opacity</label>
                                 <input type="range" id="editor-opacity" min="0" max="100" value="100" class="w-16 accent-stone-600">
-                                <span id="editor-opacity-value" class="text-[10px] font-medium text-stone-600 w-8">100%</span>
+                                <output id="editor-opacity-value" for="editor-opacity" class="text-[10px] font-medium text-stone-600 w-8">100%</output>
                             </div>
-                            <div class="flex items-center gap-1.5">
-                                <label class="text-[10px] font-medium text-stone-500 uppercase tracking-wide">Size</label>
+                            <div class="flex items-center gap-1.5" data-editor-property="size">
+                                <label for="editor-brush-size" class="text-[10px] font-medium text-stone-500 uppercase tracking-wide">Size</label>
                                 <input type="range" id="editor-brush-size" min="1" max="50" value="8" class="w-16 accent-stone-600">
-                                <span id="editor-brush-size-value" class="text-[10px] font-medium text-stone-600 w-8">8px</span>
+                                <output id="editor-brush-size-value" for="editor-brush-size" class="text-[10px] font-medium text-stone-600 w-8">8px</output>
                             </div>
                         </div>
 
@@ -1137,7 +1138,7 @@
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 12H4"></path>
                                 </svg>
                             </button>
-                            <span id="editor-zoom-display" class="text-[10px] font-medium text-stone-600 w-8 text-center">100%</span>
+                            <output id="editor-zoom-display" class="text-[10px] font-medium text-stone-600 w-8 text-center" aria-label="Zoom level" aria-live="polite">100%</output>
                             <button id="editor-zoom-in" class="p-1.5 bg-stone-100 hover:bg-stone-200 rounded-md transition-colors"
                                 aria-label="Zoom in" data-tooltip="Zoom in (Ctrl+=)">
                                 <svg class="w-3.5 h-3.5 text-stone-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1151,7 +1152,7 @@
                 <!-- Contextual sub-toolbars -->
                 <div id="editor-crop-options" class="editor-context-toolbar" role="toolbar" aria-label="Crop options" style="display: none;">
                     <div class="flex items-center gap-1.5">
-                        <label class="text-[10px] font-medium text-stone-500 uppercase tracking-wide">Ratio</label>
+                        <label for="editor-crop-ratio" class="text-[10px] font-medium text-stone-500 uppercase tracking-wide">Ratio</label>
                         <select id="editor-crop-ratio" class="text-[10px] font-medium text-stone-600 bg-stone-100 border border-stone-200 rounded px-1.5 py-1">
                             <option value="free">Free</option>
                             <option value="1:1">1:1</option>
@@ -1167,9 +1168,9 @@
                     </div>
                     <div class="h-5 w-px bg-stone-300"></div>
                     <div class="flex items-center gap-1.5">
-                        <label class="text-[10px] font-medium text-stone-500 uppercase tracking-wide">Straighten</label>
+                        <label for="editor-crop-rotate" class="text-[10px] font-medium text-stone-500 uppercase tracking-wide">Straighten</label>
                         <input type="range" id="editor-crop-rotate" min="-45" max="45" value="0" step="0.5" class="w-24 accent-stone-600">
-                        <span id="editor-crop-rotate-value" class="text-[10px] font-medium text-stone-600 w-8">0°</span>
+                        <output id="editor-crop-rotate-value" for="editor-crop-rotate" class="text-[10px] font-medium text-stone-600 w-8">0°</output>
                     </div>
                     <div class="h-5 w-px bg-stone-300"></div>
                     <div class="flex items-center gap-1">
@@ -1179,14 +1180,14 @@
                 </div>
 
                 <div id="editor-anonymize-options" class="editor-context-toolbar" role="toolbar" aria-label="Anonymize options" style="display: none;">
-                    <div class="flex items-center gap-1.5">
-                        <label class="text-[10px] font-medium text-stone-500 uppercase tracking-wide">Mode</label>
+                    <div class="flex items-center gap-1.5" role="group" aria-label="Anonymize mode">
+                        <span class="text-[10px] font-medium text-stone-500 uppercase tracking-wide">Mode</span>
                         <button id="editor-anon-brush" class="px-2 py-1 bg-stone-800 text-white text-[10px] font-medium rounded-md transition-colors" aria-label="Brush mode" aria-pressed="true">Brush</button>
                         <button id="editor-anon-rect" class="px-2 py-1 bg-stone-100 text-stone-600 text-[10px] font-medium rounded-md transition-colors" aria-label="Rectangle mode" aria-pressed="false">Rectangle</button>
                     </div>
                     <div class="h-5 w-px bg-stone-300"></div>
-                    <div class="flex items-center gap-1.5">
-                        <label class="text-[10px] font-medium text-stone-500 uppercase tracking-wide">Effect</label>
+                    <div class="flex items-center gap-1.5" role="group" aria-label="Anonymize effect">
+                        <span class="text-[10px] font-medium text-stone-500 uppercase tracking-wide">Effect</span>
                         <button id="editor-anon-pixelate" class="px-2 py-1 bg-stone-800 text-white text-[10px] font-medium rounded-md transition-colors" aria-label="Pixelate effect" aria-pressed="true">Pixelate</button>
                         <button id="editor-anon-blur" class="px-2 py-1 bg-stone-100 text-stone-600 text-[10px] font-medium rounded-md transition-colors" aria-label="Blur effect" aria-pressed="false">Blur</button>
                     </div>
@@ -1194,7 +1195,7 @@
 
                 <div id="editor-text-options" class="editor-context-toolbar" role="toolbar" aria-label="Text options" style="display: none;">
                     <div class="flex items-center gap-1.5">
-                        <label class="text-[10px] font-medium text-stone-500 uppercase tracking-wide">Font Size</label>
+                        <label for="editor-font-size" class="text-[10px] font-medium text-stone-500 uppercase tracking-wide">Font Size</label>
                         <input type="number" id="editor-font-size" min="8" max="200" value="24"
                             class="w-14 text-[10px] font-medium text-stone-600 bg-stone-100 border border-stone-200 rounded px-1.5 py-1 text-center">
                         <span class="text-[10px] text-stone-400">px</span>
@@ -1205,16 +1206,16 @@
                 <!-- Canvas Container -->
                 <div class="editor-canvas-container">
                     <div class="editor-canvas-pair">
-                        <canvas id="editor-canvas"></canvas>
-                        <canvas id="editor-overlay-canvas"></canvas>
+                        <canvas id="editor-canvas" aria-label="Image editing canvas">Image editing canvas</canvas>
+                        <canvas id="editor-overlay-canvas" aria-hidden="true"></canvas>
                     </div>
                 </div>
             </div>
+            <input type="text" id="canvas-text-input" aria-label="Text annotation" autocomplete="off"
+                class="fixed bg-transparent border border-stone-400 text-stone-700 font-sans text-sm px-1 focus:outline-none z-[250]"
+                style="display: none; min-width: 100px;">
         </div>
     </div>
-    <input type="text" id="canvas-text-input"
-        class="fixed bg-transparent border border-stone-400 text-stone-700 font-sans text-sm px-1 focus:outline-none z-[250]"
-        style="display: none; min-width: 100px;">
 
     <!-- Add/Edit Folder Modal -->
     <div id="folder-modal" role="dialog" aria-modal="true" aria-labelledby="folder-modal-title" inert
@@ -2124,6 +2125,7 @@
     <script src="js/editor/tool-anonymize.js"></script>
     <script src="js/editor/markdown-preview.js"></script>
     <script src="js/editor/text-clip-editor.js"></script>
+    <script src="js/editor/editor-export.js"></script>
     <script src="js/editor.js"></script>
     <script src="js/watch.js"></script>
     <script src="js/serve.js"></script>

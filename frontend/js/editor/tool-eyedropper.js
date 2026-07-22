@@ -12,9 +12,8 @@ const EyedropperTool = (() => {
         let previousTool = null;
 
         return {
-            activate() {
-                // Remember the current tool so we can switch back after sampling
-                previousTool = EditorCore.activeToolName;
+            activate(context = {}) {
+                previousTool = context.previousToolName || null;
             },
 
             deactivate() {
@@ -25,13 +24,9 @@ const EyedropperTool = (() => {
                 const ctx = EditorCore.ctx;
                 if (!ctx) return;
 
-                // Sample the pixel at the click position
-                const pixel = ctx.getImageData(
-                    Math.round(coords.x),
-                    Math.round(coords.y),
-                    1,
-                    1
-                ).data;
+                const x = Math.max(0, Math.min(ctx.canvas.width - 1, Math.floor(coords.x)));
+                const y = Math.max(0, Math.min(ctx.canvas.height - 1, Math.floor(coords.y)));
+                const pixel = ctx.getImageData(x, y, 1, 1).data;
 
                 // Convert RGBA to hex (ignore alpha)
                 const hex = '#' +

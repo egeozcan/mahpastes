@@ -12,6 +12,10 @@ const EditorCore = (() => {
     // --- Image state ---
     let originalImage = null;
     let originalContentType = '';
+    let originalWidth = 0;
+    let originalHeight = 0;
+    let wasDownscaled = false;
+    let baselineVersion = null;
 
     // --- Drawing properties ---
     let currentColor = '#44403c';
@@ -46,7 +50,9 @@ const EditorCore = (() => {
     const MAX_MEMORY_BYTES = 100 * 1024 * 1024; // 100MB ceiling
     let undoStack = [];
     let redoStack = [];
-    let cleanUndoEntry = null;
+    let cleanRevision = 0;
+    let currentRevision = 0;
+    let nextRevision = 1;
 
     // --- Listener tracking ---
     let listenersAttached = false;
@@ -76,23 +82,32 @@ const EditorCore = (() => {
         overlayCtx = overlayCanvas.getContext('2d');
 
         originalContentType = contentType || 'image/png';
+        undoStack = [];
+        redoStack = [];
+        cleanRevision = 0;
+        currentRevision = 0;
+        nextRevision = 1;
 
         originalImage = new Image();
         const objectURL = URL.createObjectURL(imageBlob);
-        originalImage.src = objectURL;
+        try {
+            originalImage.src = objectURL;
+            await new Promise((resolve, reject) => {
+                originalImage.onload = resolve;
+                originalImage.onerror = reject;
+            });
+        } finally {
+            URL.revokeObjectURL(objectURL);
+        }
 
-        await new Promise((resolve, reject) => {
-            originalImage.onload = resolve;
-            originalImage.onerror = reject;
-        });
-
-        URL.revokeObjectURL(objectURL);
-
+        originalWidth = originalImage.width;
+        originalHeight = originalImage.height;
         const maxSize = 4000;
-        let width = originalImage.width;
-        let height = originalImage.height;
+        let width = originalWidth;
+        let height = originalHeight;
+        wasDownscaled = width > maxSize || height > maxSize;
 
-        if (width > maxSize || height > maxSize) {
+        if (wasDownscaled) {
             const ratio = Math.min(maxSize / width, maxSize / height);
             width = Math.floor(width * ratio);
             height = Math.floor(height * ratio);
@@ -104,9 +119,11 @@ const EditorCore = (() => {
         overlayCanvas.height = height;
 
         ctx.drawImage(originalImage, 0, 0, width, height);
+        baselineVersion = captureBaselineFromCanvas(canvas);
         syncOverlay();
-        saveUndoState();
-        cleanUndoEntry = undoStack[undoStack.length - 1];
+        saveUndoState({ force: true });
+        cleanRevision = currentRevision;
+        originalImage = null;
     }
 
     // --- Coordinate translation ---
@@ -142,19 +159,26 @@ const EditorCore = (() => {
     /**
      * Set zoom level, clamped to [0.1, 10].
      */
-    function setZoom(level, centerX, centerY) {
-        const newZoom = Math.max(0.1, Math.min(10, level));
+    function setZoom(level, clientX, clientY) {
+        const newZoom = Math.max(0.1, Math.min(8, level));
         if (newZoom === zoomLevel) return;
 
-        // If center point is provided, adjust pan to keep that point stationary
-        if (centerX !== undefined && centerY !== undefined) {
-            const zoomRatio = newZoom / zoomLevel;
-            panX = centerX - (centerX - panX) * zoomRatio;
-            panY = centerY - (centerY - panY) * zoomRatio;
+        let focalPoint = null;
+        if (clientX !== undefined && clientY !== undefined && canvas) {
+            focalPoint = screenToCanvas(clientX, clientY);
         }
 
         zoomLevel = newZoom;
         applyTransform();
+
+        if (focalPoint && canvas) {
+            const rect = canvas.getBoundingClientRect();
+            const renderedX = rect.left + focalPoint.x / canvas.width * rect.width;
+            const renderedY = rect.top + focalPoint.y / canvas.height * rect.height;
+            panX += clientX - renderedX;
+            panY += clientY - renderedY;
+            applyTransform();
+        }
     }
 
     /**
@@ -178,6 +202,42 @@ const EditorCore = (() => {
         // Nothing to do — overlay shares the wrapper with the main canvas
         // and CSS handles positioning. Pixel dimensions are synced when
         // the canvas is resized (loadImage, crop, rotate).
+    }
+
+    function captureBaselineFromCanvas(sourceCanvas) {
+        const sourceCtx = sourceCanvas?.getContext('2d');
+        if (!sourceCtx) return null;
+        return {
+            width: sourceCanvas.width,
+            height: sourceCanvas.height,
+            imageData: sourceCtx.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height),
+        };
+    }
+
+    function setBaselineFromCanvas(sourceCanvas) {
+        baselineVersion = captureBaselineFromCanvas(sourceCanvas);
+    }
+
+    function getBaselineRegion(x, y, width, height) {
+        if (!baselineVersion || width <= 0 || height <= 0) return null;
+        const result = new ImageData(width, height);
+        const source = baselineVersion.imageData.data;
+        const destination = result.data;
+        for (let row = 0; row < height; row++) {
+            const sourceY = y + row;
+            if (sourceY < 0 || sourceY >= baselineVersion.height) continue;
+            for (let column = 0; column < width; column++) {
+                const sourceX = x + column;
+                if (sourceX < 0 || sourceX >= baselineVersion.width) continue;
+                const sourceIndex = (sourceY * baselineVersion.width + sourceX) * 4;
+                const destinationIndex = (row * width + column) * 4;
+                destination[destinationIndex] = source[sourceIndex];
+                destination[destinationIndex + 1] = source[sourceIndex + 1];
+                destination[destinationIndex + 2] = source[sourceIndex + 2];
+                destination[destinationIndex + 3] = source[sourceIndex + 3];
+            }
+        }
+        return result;
     }
 
     // --- Tool registry ---
@@ -204,7 +264,7 @@ const EditorCore = (() => {
             return;
         }
 
-        // Deactivate current tool
+        const previousToolName = activeToolName;
         const current = getActiveTool();
         if (current && typeof current.deactivate === 'function') {
             current.deactivate();
@@ -212,10 +272,9 @@ const EditorCore = (() => {
 
         activeToolName = name;
 
-        // Activate new tool
         const next = tools.get(name);
         if (next && typeof next.activate === 'function') {
-            next.activate();
+            next.activate({ previousToolName });
         }
 
         // Update cursor
@@ -251,40 +310,55 @@ const EditorCore = (() => {
     // --- Undo/redo with ImageData ---
 
     /**
-     * Estimate memory usage of an undo entry in bytes.
-     * Each pixel is 4 bytes (RGBA).
-     */
-    function entryBytes(entry) {
-        return entry.imageData.data.byteLength;
-    }
-
-    /**
-     * Calculate total memory used by both stacks.
+     * Calculate unique raw-pixel memory retained by undo/redo history. The
+     * active eraser baseline is a working buffer, but older baseline versions
+     * retained solely for history count toward the same ceiling.
      */
     function totalMemoryUsage() {
+        const buffers = new Set();
+        const activeBaselineBuffer = undoStack[undoStack.length - 1]
+            ?.baselineVersion?.imageData?.data?.buffer;
+
+        for (const entry of [...undoStack, ...redoStack]) {
+            const imageBuffer = entry.imageData?.data?.buffer;
+            if (imageBuffer) buffers.add(imageBuffer);
+            const baselineBuffer = entry.baselineVersion?.imageData?.data?.buffer;
+            if (baselineBuffer && baselineBuffer !== activeBaselineBuffer) {
+                buffers.add(baselineBuffer);
+            }
+        }
+
         let total = 0;
-        for (const entry of undoStack) {
-            total += entryBytes(entry);
-        }
-        for (const entry of redoStack) {
-            total += entryBytes(entry);
-        }
+        for (const buffer of buffers) total += buffer.byteLength;
         return total;
     }
 
     /**
-     * Trim the undo stack from the front to stay under memory ceiling and max count.
+     * Keep history within the advertised count and raw RGBA memory ceilings.
+     * The current state is retained even when a large document leaves no room
+     * for an older undo state.
      */
-    function trimUndoStack() {
-        // Enforce count limit
-        while (undoStack.length > MAX_UNDO) {
-            undoStack.shift();
+    function trimHistory() {
+        // One opening state plus up to MAX_UNDO reversible actions.
+        while (undoStack.length + redoStack.length > MAX_UNDO + 1) {
+            if (undoStack.length > 1) undoStack.shift();
+            else redoStack.shift();
         }
+        while (totalMemoryUsage() > MAX_MEMORY_BYTES) {
+            if (undoStack.length > 1) undoStack.shift();
+            else if (redoStack.length > 0) redoStack.shift();
+            else break;
+        }
+    }
 
-        // Enforce memory ceiling (keep at least 2 entries for meaningful undo)
-        while (undoStack.length > 2 && totalMemoryUsage() > MAX_MEMORY_BYTES) {
-            undoStack.shift();
+    function imageDataEquals(a, b) {
+        if (!a || !b || a.width !== b.width || a.height !== b.height || a.data.length !== b.data.length) return false;
+        const left = a.data;
+        const right = b.data;
+        for (let i = 0; i < left.length; i++) {
+            if (left[i] !== right[i]) return false;
         }
+        return true;
     }
 
     /**
@@ -292,18 +366,30 @@ const EditorCore = (() => {
      * Each entry stores {imageData, width, height} so undo/redo can
      * restore canvas dimensions after crop or rotate operations.
      */
-    function saveUndoState() {
-        if (!canvas || !ctx) return;
+    function saveUndoState(options = {}) {
+        if (!canvas || !ctx) return false;
 
-        // Clear redo stack when new action is taken
-        redoStack = [];
-
-        // Save as ImageData plus canvas dimensions
         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        undoStack.push({ imageData, width: canvas.width, height: canvas.height });
+        const previous = undoStack[undoStack.length - 1];
+        if (!options.force && previous && imageDataEquals(previous.imageData, imageData) &&
+                previous.baselineVersion === baselineVersion) {
+            updateUndoRedoButtons();
+            return false;
+        }
 
-        trimUndoStack();
+        redoStack = [];
+        currentRevision = nextRevision++;
+        undoStack.push({
+            imageData,
+            width: canvas.width,
+            height: canvas.height,
+            baselineVersion,
+            revision: currentRevision,
+        });
+
+        trimHistory();
         updateUndoRedoButtons();
+        return true;
     }
 
     /**
@@ -323,6 +409,8 @@ const EditorCore = (() => {
         }
 
         ctx.putImageData(entry.imageData, 0, 0);
+        baselineVersion = entry.baselineVersion || baselineVersion;
+        currentRevision = entry.revision;
         syncOverlay();
     }
 
@@ -330,13 +418,13 @@ const EditorCore = (() => {
      * Undo: pop last state to redo stack, restore previous.
      */
     function undo() {
-        if (undoStack.length <= 1) return; // Keep at least the original
+        if (prepareForAction('undo') === 'consumed') return;
+        if (undoStack.length <= 1) return;
 
         redoStack.push(undoStack.pop());
-
         const entry = undoStack[undoStack.length - 1];
         restoreState(entry);
-
+        trimHistory();
         updateUndoRedoButtons();
     }
 
@@ -344,13 +432,13 @@ const EditorCore = (() => {
      * Redo: pop from redo stack, push to undo, restore.
      */
     function redo() {
+        if (prepareForAction('redo') === 'consumed') return;
         if (redoStack.length === 0) return;
 
         const entry = redoStack.pop();
         undoStack.push(entry);
-
         restoreState(entry);
-
+        trimHistory();
         updateUndoRedoButtons();
     }
 
@@ -378,6 +466,7 @@ const EditorCore = (() => {
             redoBtn.disabled = redoStack.length === 0;
             redoBtn.classList.toggle('opacity-50', redoStack.length === 0);
         }
+        if (typeof updateEditorSaveState === 'function') updateEditorSaveState();
     }
 
     /**
@@ -385,7 +474,26 @@ const EditorCore = (() => {
      * Tracking the clean history entry means undoing all edits returns to a clean state.
      */
     function isDirty() {
-        return undoStack.length > 0 && undoStack[undoStack.length - 1] !== cleanUndoEntry;
+        return currentRevision !== 0 && currentRevision !== cleanRevision;
+    }
+
+    function prepareForAction(intent) {
+        const tool = getActiveTool();
+        if (!tool || typeof tool.prepareForAction !== 'function') return 'proceed';
+        return tool.prepareForAction(intent) || 'proceed';
+    }
+
+    function getCurrentSnapshot() {
+        return undoStack[undoStack.length - 1]?.imageData || null;
+    }
+
+    function getHistoryStats() {
+        return {
+            undoDepth: Math.max(0, undoStack.length - 1),
+            redoDepth: redoStack.length,
+            bytes: totalMemoryUsage(),
+            maxBytes: MAX_MEMORY_BYTES,
+        };
     }
 
     // --- Event dispatch ---
@@ -469,6 +577,7 @@ const EditorCore = (() => {
         }
 
         updateCursor(coords);
+        if (typeof updateEditorSaveState === 'function') updateEditorSaveState();
     }
 
     function handleMouseLeave(e) {
@@ -512,11 +621,8 @@ const EditorCore = (() => {
         // Pinch-to-zoom or ctrl+scroll
         if (e.ctrlKey || e.metaKey) {
             e.preventDefault();
-            const rect = canvas.getBoundingClientRect();
-            const centerX = e.clientX - rect.left;
-            const centerY = e.clientY - rect.top;
             const delta = e.deltaY > 0 ? 0.9 : 1.1;
-            setZoom(zoomLevel * delta, centerX, centerY);
+            setZoom(zoomLevel * delta, e.clientX, e.clientY);
             if (typeof ZoomTool !== 'undefined') ZoomTool.updateZoomDisplay();
         }
     }
@@ -656,6 +762,10 @@ const EditorCore = (() => {
         overlayCtx = null;
         originalImage = null;
         originalContentType = '';
+        originalWidth = 0;
+        originalHeight = 0;
+        wasDownscaled = false;
+        baselineVersion = null;
 
         // Reset drawing properties
         currentColor = '#44403c';
@@ -684,7 +794,9 @@ const EditorCore = (() => {
         // Clear undo/redo stacks
         undoStack = [];
         redoStack = [];
-        cleanUndoEntry = null;
+        cleanRevision = 0;
+        currentRevision = 0;
+        nextRevision = 1;
     }
 
     // --- Public API ---
@@ -700,6 +812,9 @@ const EditorCore = (() => {
         get overlayCtx() { return overlayCtx; },
         get originalImage() { return originalImage; },
         get originalContentType() { return originalContentType; },
+        get originalWidth() { return originalWidth; },
+        get originalHeight() { return originalHeight; },
+        get wasDownscaled() { return wasDownscaled; },
 
         // Drawing properties (getters and setters)
         get currentColor() { return currentColor; },
@@ -743,6 +858,8 @@ const EditorCore = (() => {
 
         // Overlay
         syncOverlay,
+        setBaselineFromCanvas,
+        getBaselineRegion,
 
         // Tool registry
         registerTool,
@@ -760,6 +877,9 @@ const EditorCore = (() => {
         get undoStack() { return undoStack; },
         get redoStack() { return redoStack; },
         isDirty,
+        prepareForAction,
+        getHistoryStats,
+        getCurrentSnapshot,
 
         // Listener lifecycle
         attachListeners,

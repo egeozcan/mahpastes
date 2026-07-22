@@ -72,6 +72,16 @@ const TextTool = (() => {
         textInputActive = false;
     }
 
+    function cancelTextInput() {
+        const input = document.getElementById('canvas-text-input');
+        if (input) {
+            input.style.display = 'none';
+            input.value = '';
+        }
+        textInputActive = false;
+        if (typeof updateEditorSaveState === 'function') updateEditorSaveState();
+    }
+
     /**
      * Create a text tool instance.
      */
@@ -109,6 +119,16 @@ const TextTool = (() => {
 
             getCursor() {
                 return 'text';
+            },
+
+            prepareForAction(intent) {
+                if (!textInputActive) return 'proceed';
+                if (intent === 'undo' || intent === 'redo') {
+                    cancelTextInput();
+                    return 'consumed';
+                }
+                if (intent === 'save' || intent === 'transform') commitTextInput();
+                return 'proceed';
             }
         };
     }
@@ -116,6 +136,7 @@ const TextTool = (() => {
     return {
         create,
         commitTextInput,
+        cancelTextInput,
         get isActive() {
             return textInputActive;
         }

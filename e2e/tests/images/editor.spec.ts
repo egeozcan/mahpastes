@@ -109,7 +109,7 @@ test.describe('Image Editor', () => {
 
       // Tool should be selected (active state)
       const brushBtn = app.page.locator(selectors.editor.tools.brush);
-      await expect(brushBtn).toBeVisible();
+      await expect(brushBtn).toHaveAttribute('aria-pressed', 'true');
     });
 
     test('should select line tool', async ({ app }) => {
@@ -122,7 +122,7 @@ test.describe('Image Editor', () => {
       await app.selectTool('line');
 
       const lineBtn = app.page.locator(selectors.editor.tools.line);
-      await expect(lineBtn).toBeVisible();
+      await expect(lineBtn).toHaveAttribute('aria-pressed', 'true');
     });
 
     test('should select rectangle tool', async ({ app }) => {
@@ -135,7 +135,7 @@ test.describe('Image Editor', () => {
       await app.selectTool('rectangle');
 
       const rectBtn = app.page.locator(selectors.editor.tools.rectangle);
-      await expect(rectBtn).toBeVisible();
+      await expect(rectBtn).toHaveAttribute('aria-pressed', 'true');
     });
 
     test('should select circle tool', async ({ app }) => {
@@ -148,7 +148,7 @@ test.describe('Image Editor', () => {
       await app.selectTool('circle');
 
       const circleBtn = app.page.locator(selectors.editor.tools.circle);
-      await expect(circleBtn).toBeVisible();
+      await expect(circleBtn).toHaveAttribute('aria-pressed', 'true');
     });
 
     test('should select eraser tool', async ({ app }) => {
@@ -161,7 +161,7 @@ test.describe('Image Editor', () => {
       await app.selectTool('eraser');
 
       const eraserBtn = app.page.locator(selectors.editor.tools.eraser);
-      await expect(eraserBtn).toBeVisible();
+      await expect(eraserBtn).toHaveAttribute('aria-pressed', 'true');
     });
 
     test('should draw on canvas with brush', async ({ app }) => {
@@ -174,10 +174,7 @@ test.describe('Image Editor', () => {
       await app.selectTool('brush');
       await app.drawOnCanvas({ x: 50, y: 50 }, { x: 150, y: 150 });
 
-      // Drawing should be recorded (canvas state changed)
-      // We verify by checking undo is available
-      const undoBtn = app.page.locator(selectors.editor.undoButton);
-      await expect(undoBtn).toBeVisible();
+      expect(await app.isUndoEnabled()).toBe(true);
     });
   });
 
@@ -222,9 +219,7 @@ test.describe('Image Editor', () => {
 
       await app.editorUndo();
 
-      // Redo should now be available
-      const redoBtn = app.page.locator(selectors.editor.redoButton);
-      await expect(redoBtn).toBeVisible();
+      await expect(app.page.locator(selectors.editor.redoButton)).toBeEnabled();
     });
 
     test('should redo undone action', async ({ app }) => {
@@ -239,9 +234,7 @@ test.describe('Image Editor', () => {
       await app.editorUndo();
       await app.editorRedo();
 
-      // Action should be redone
-      const undoBtn = app.page.locator(selectors.editor.undoButton);
-      await expect(undoBtn).toBeVisible();
+      expect(await app.isUndoEnabled()).toBe(true);
     });
 
     test('should support keyboard shortcuts for undo/redo', async ({ app }) => {
@@ -306,7 +299,7 @@ test.describe('Image Editor', () => {
 
       await app.page.keyboard.press('b');
 
-      // Brush should be selected
+      expect(await app.isToolActive('brush')).toBe(true);
     });
 
     test('should switch to eraser tool with E key', async ({ app }) => {
@@ -318,7 +311,7 @@ test.describe('Image Editor', () => {
 
       await app.page.keyboard.press('e');
 
-      // Eraser should be selected
+      expect(await app.isToolActive('eraser')).toBe(true);
     });
   });
 });

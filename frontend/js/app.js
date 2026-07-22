@@ -1593,44 +1593,58 @@ window.addEventListener('load', async () => {
         });
 
         // --- Editor shortcuts ---
-        ShortcutManager.register({ id: 'editor.brush',     label: 'Brush tool',        category: 'editor', context: 'editor', defaultKey: 'b', callback: () => selectTool('brush') });
-        ShortcutManager.register({ id: 'editor.eraser',    label: 'Eraser tool',       category: 'editor', context: 'editor', defaultKey: 'e', callback: () => selectTool('eraser') });
-        ShortcutManager.register({ id: 'editor.line',      label: 'Line tool',         category: 'editor', context: 'editor', defaultKey: 'l', callback: () => selectTool('line') });
-        ShortcutManager.register({ id: 'editor.rectangle', label: 'Rectangle tool',    category: 'editor', context: 'editor', defaultKey: 'u', callback: () => selectTool('rectangle') });
-        ShortcutManager.register({ id: 'editor.circle',    label: 'Circle tool',       category: 'editor', context: 'editor', defaultKey: 'o', callback: () => selectTool('circle') });
-        ShortcutManager.register({ id: 'editor.arrow',     label: 'Arrow tool',        category: 'editor', context: 'editor', defaultKey: 'w', callback: () => selectTool('arrow') });
-        ShortcutManager.register({ id: 'editor.text',      label: 'Text tool',         category: 'editor', context: 'editor', defaultKey: 't', callback: () => selectTool('text') });
-        ShortcutManager.register({ id: 'editor.undo',      label: 'Undo',              category: 'editor', context: 'editor', defaultKey: 'mod+z', callback: () => EditorCore.undo() });
-        ShortcutManager.register({ id: 'editor.redo',      label: 'Redo',              category: 'editor', context: 'editor', defaultKey: 'mod+shift+z', callback: () => EditorCore.redo() });
-        ShortcutManager.register({ id: 'editor.redo-y',    label: 'Redo (Alt)',        category: 'editor', context: 'editor', defaultKey: 'mod+y', callback: () => EditorCore.redo() });
-        ShortcutManager.register({ id: 'editor.eyedropper', label: 'Eyedropper',        category: 'editor', context: 'editor', defaultKey: 'i', callback: () => { selectTool('eyedropper'); updateToolButtons(); } });
-        ShortcutManager.register({ id: 'editor.select',     label: 'Select tool',       category: 'editor', context: 'editor', defaultKey: 'v', callback: () => { selectTool('select'); updateToolButtons(); } });
-        ShortcutManager.register({ id: 'editor.select_all', label: 'Select all',       category: 'editor', context: 'editor', defaultKey: 'mod+a', callback: () => { if (typeof SelectTool !== 'undefined') SelectTool.selectAll(); } });
-        ShortcutManager.register({ id: 'editor.copy',      label: 'Copy selection',    category: 'editor', context: 'editor', defaultKey: 'mod+c', callback: () => { if (typeof SelectTool !== 'undefined') SelectTool.copySelection(); } });
-        ShortcutManager.register({ id: 'editor.paste',     label: 'Paste selection',   category: 'editor', context: 'editor', defaultKey: 'mod+v', callback: () => { if (typeof SelectTool !== 'undefined') SelectTool.pasteSelection(); } });
-        ShortcutManager.register({ id: 'editor.delete_sel', label: 'Delete selection', category: 'editor', context: 'editor', defaultKey: 'Delete', callback: () => { if (typeof SelectTool !== 'undefined') SelectTool.deleteSelection(); } });
-        ShortcutManager.register({ id: 'editor.anonymize',  label: 'Anonymize tool',    category: 'editor', context: 'editor', defaultKey: 'x', callback: () => { selectTool('anonymize'); updateToolButtons(); } });
-        ShortcutManager.register({ id: 'editor.crop',       label: 'Crop tool',         category: 'editor', context: 'editor', defaultKey: 'c', callback: () => { selectTool('crop'); updateToolButtons(); } });
-        ShortcutManager.register({ id: 'editor.confirm',    label: 'Confirm crop/selection', category: 'editor', context: 'editor', defaultKey: 'Enter', callback: () => {
+        // Image-only actions use a child context so they never consume keys in
+        // the text editor. Shared Save/Close actions remain in `editor`.
+        ShortcutManager.register({ id: 'editor.brush',     label: 'Brush tool',        category: 'editor', context: 'image-editor', defaultKey: 'b', callback: () => selectTool('brush') });
+        ShortcutManager.register({ id: 'editor.eraser',    label: 'Eraser tool',       category: 'editor', context: 'image-editor', defaultKey: 'e', callback: () => selectTool('eraser') });
+        ShortcutManager.register({ id: 'editor.line',      label: 'Line tool',         category: 'editor', context: 'image-editor', defaultKey: 'l', callback: () => selectTool('line') });
+        ShortcutManager.register({ id: 'editor.rectangle', label: 'Rectangle tool',    category: 'editor', context: 'image-editor', defaultKey: 'u', callback: () => selectTool('rectangle') });
+        ShortcutManager.register({ id: 'editor.circle',    label: 'Circle tool',       category: 'editor', context: 'image-editor', defaultKey: 'o', callback: () => selectTool('circle') });
+        ShortcutManager.register({ id: 'editor.arrow',     label: 'Arrow tool',        category: 'editor', context: 'image-editor', defaultKey: 'w', callback: () => selectTool('arrow') });
+        ShortcutManager.register({ id: 'editor.text',      label: 'Text tool',         category: 'editor', context: 'image-editor', defaultKey: 't', callback: () => selectTool('text') });
+        ShortcutManager.register({ id: 'editor.undo',      label: 'Undo',              category: 'editor', context: 'image-editor', defaultKey: 'mod+z', callback: () => EditorCore.undo() });
+        ShortcutManager.register({ id: 'editor.redo',      label: 'Redo',              category: 'editor', context: 'image-editor', defaultKey: 'mod+shift+z', callback: () => EditorCore.redo() });
+        ShortcutManager.register({ id: 'editor.redo-y',    label: 'Redo (Alt)',        category: 'editor', context: 'image-editor', defaultKey: 'mod+y', callback: () => EditorCore.redo() });
+        ShortcutManager.register({ id: 'editor.eyedropper', label: 'Eyedropper',        category: 'editor', context: 'image-editor', defaultKey: 'i', callback: () => { selectTool('eyedropper'); updateToolButtons(); } });
+        ShortcutManager.register({ id: 'editor.select',     label: 'Select tool',       category: 'editor', context: 'image-editor', defaultKey: 'v', callback: () => { selectTool('select'); updateToolButtons(); } });
+        ShortcutManager.register({ id: 'editor.select_all', label: 'Select all',       category: 'editor', context: 'image-editor', defaultKey: 'mod+a', callback: () => { if (typeof SelectTool !== 'undefined') SelectTool.selectAll(); } });
+        ShortcutManager.register({ id: 'editor.copy',      label: 'Copy selection',    category: 'editor', context: 'image-editor', defaultKey: 'mod+c', callback: () => { if (typeof SelectTool !== 'undefined') SelectTool.copySelection(); } });
+        ShortcutManager.register({ id: 'editor.paste',     label: 'Paste selection',   category: 'editor', context: 'image-editor', defaultKey: 'mod+v', callback: () => { if (typeof SelectTool !== 'undefined') SelectTool.pasteSelection(); } });
+        ShortcutManager.register({ id: 'editor.delete_sel', label: 'Delete selection', category: 'editor', context: 'image-editor', defaultKey: 'Delete', callback: () => { if (typeof SelectTool !== 'undefined') SelectTool.deleteSelection(); } });
+        ShortcutManager.register({ id: 'editor.backspace_sel', label: 'Delete selection (Backspace)', category: 'editor', context: 'image-editor', defaultKey: 'Backspace', callback: () => { if (typeof SelectTool !== 'undefined') SelectTool.deleteSelection(); } });
+        ShortcutManager.register({ id: 'editor.anonymize',  label: 'Anonymize tool',    category: 'editor', context: 'image-editor', defaultKey: 'x', callback: () => { selectTool('anonymize'); updateToolButtons(); } });
+        ShortcutManager.register({ id: 'editor.crop',       label: 'Crop tool',         category: 'editor', context: 'image-editor', defaultKey: 'c', callback: () => { selectTool('crop'); updateToolButtons(); } });
+        ShortcutManager.register({ id: 'editor.confirm',    label: 'Confirm crop/selection', category: 'editor', context: 'image-editor', defaultKey: 'Enter', callback: () => {
             if (EditorCore.activeToolName === 'crop' && typeof CropTool !== 'undefined') CropTool.confirm();
             else if (EditorCore.activeToolName === 'select' && typeof SelectTool !== 'undefined') SelectTool.confirmSelection();
         }});
-        ShortcutManager.register({ id: 'editor.rotate_cw',  label: 'Rotate 90° CW',   category: 'editor', context: 'editor', defaultKey: 'r', callback: () => TransformTool.rotateCW() });
-        ShortcutManager.register({ id: 'editor.rotate_ccw', label: 'Rotate 90° CCW',   category: 'editor', context: 'editor', defaultKey: 'shift+r', callback: () => TransformTool.rotateCCW() });
+        ShortcutManager.register({ id: 'editor.rotate_cw',  label: 'Rotate 90° CW',   category: 'editor', context: 'image-editor', defaultKey: 'r', callback: () => TransformTool.rotateCW() });
+        ShortcutManager.register({ id: 'editor.rotate_ccw', label: 'Rotate 90° CCW',   category: 'editor', context: 'image-editor', defaultKey: 'shift+r', callback: () => TransformTool.rotateCCW() });
         ShortcutManager.register({ id: 'editor.save',      label: 'Save as new clip',  category: 'editor', context: 'editor', defaultKey: 'mod+s', callback: () => saveEditorContent() });
-        ShortcutManager.register({ id: 'editor.markdown_preview', label: 'Toggle Markdown Preview', category: 'editor', context: 'editor', defaultKey: 'mod+shift+p', callback: () => TextClipEditor.toggleMarkdownMode() });
+        ShortcutManager.register({ id: 'editor.zoom_fit',  label: 'Zoom to fit',       category: 'editor', context: 'image-editor', defaultKey: 'mod+0', callback: () => ZoomTool.zoomToFit() });
+        ShortcutManager.register({ id: 'editor.zoom_100',  label: 'Zoom to 100%',      category: 'editor', context: 'image-editor', defaultKey: 'mod+1', callback: () => ZoomTool.zoomTo100() });
+        ShortcutManager.register({ id: 'editor.zoom_in',   label: 'Zoom in',           category: 'editor', context: 'image-editor', defaultKey: 'mod+=', callback: () => ZoomTool.zoomIn() });
+        ShortcutManager.register({ id: 'editor.zoom_out',  label: 'Zoom out',          category: 'editor', context: 'image-editor', defaultKey: 'mod+-', callback: () => ZoomTool.zoomOut() });
+        ShortcutManager.register({ id: 'editor.markdown_preview', label: 'Toggle Markdown Preview', category: 'editor', context: 'text-editor', defaultKey: 'mod+shift+p', callback: () => TextClipEditor.toggleMarkdownMode() });
         ShortcutManager.register({ id: 'editor.close',     label: 'Close editor',      category: 'editor', context: 'editor', defaultKey: 'Escape', callback: () => {
-            // If select tool has an active selection, cancel it instead of closing editor
+            if (typeof TextTool !== 'undefined' && TextTool.isActive) {
+                TextTool.cancelTextInput();
+                return;
+            }
+            if (EditorCore.activeToolName === 'crop' && typeof CropTool !== 'undefined') {
+                CropTool.cancel();
+                return;
+            }
             if (EditorCore.activeToolName === 'select' && typeof SelectTool !== 'undefined' && SelectTool.hasSelection()) {
                 SelectTool.cancelSelectionKey();
                 return;
             }
             closeEditor();
         } });
-        ShortcutManager.register({ id: 'editor.size_up',    label: 'Increase brush size', category: 'editor', context: 'editor', defaultKey: ']', callback: () => adjustBrushSize(2) });
-        ShortcutManager.register({ id: 'editor.size_down',  label: 'Decrease brush size', category: 'editor', context: 'editor', defaultKey: '[', callback: () => adjustBrushSize(-2) });
-        ShortcutManager.register({ id: 'editor.opacity_up', label: 'Increase opacity',    category: 'editor', context: 'editor', defaultKey: '}', callback: () => adjustOpacity(0.1) });
-        ShortcutManager.register({ id: 'editor.opacity_down', label: 'Decrease opacity',  category: 'editor', context: 'editor', defaultKey: '{', callback: () => adjustOpacity(-0.1) });
+        ShortcutManager.register({ id: 'editor.size_up',    label: 'Increase brush size', category: 'editor', context: 'image-editor', defaultKey: ']', callback: () => adjustBrushSize(2) });
+        ShortcutManager.register({ id: 'editor.size_down',  label: 'Decrease brush size', category: 'editor', context: 'image-editor', defaultKey: '[', callback: () => adjustBrushSize(-2) });
+        ShortcutManager.register({ id: 'editor.opacity_up', label: 'Increase opacity',    category: 'editor', context: 'image-editor', defaultKey: '}', callback: () => adjustOpacity(0.1) });
+        ShortcutManager.register({ id: 'editor.opacity_down', label: 'Decrease opacity',  category: 'editor', context: 'image-editor', defaultKey: '{', callback: () => adjustOpacity(-0.1) });
 
         // Initialize the shortcut manager (loads user overrides and starts listening)
         await ShortcutManager.init();

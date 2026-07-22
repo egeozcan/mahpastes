@@ -145,7 +145,7 @@ Create rectangular pixel selections that you can move, resize, duplicate, copy, 
 
 **How to use:**
 1. Click and drag to create a selection rectangle
-2. The selected region is lifted from the canvas (the area underneath fills with white)
+2. The selected region is lifted from the canvas (the area underneath becomes transparent)
 3. Drag inside the selection to move it, or drag the 8 handles to resize
 4. Press <span className="keyboard-key">Enter</span> to commit the selection at its new position
 5. Press <span className="keyboard-key">Esc</span> to cancel and restore the original
@@ -163,7 +163,7 @@ A marching-ants border shows the active selection boundary.
 | Select all | <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">A</span> |
 | Copy | <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">C</span> (internal clipboard) |
 | Paste | <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">V</span> (pastes at center) |
-| Delete | <span className="keyboard-key">Delete</span> (fills region with white) |
+| Delete | <span className="keyboard-key">Delete</span> or <span className="keyboard-key">Backspace</span> (clears the region to transparency) |
 
 :::note
 Copy and paste use an internal editor clipboard, separate from the system clipboard. You can copy a selection and paste it multiple times within the same editing session.
@@ -285,7 +285,7 @@ Fix mistakes with full undo support:
 | Redo | <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">Shift</span> + <span className="keyboard-key">Z</span> or <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">Y</span> |
 | Save as new clip | <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">S</span> |
 
-The editor maintains up to **50 undo steps** (with a 100 MB memory ceiling). The redo stack is cleared when you make a new edit. Undo and redo fully support operations that change the canvas dimensions, such as crop and rotate.
+The editor maintains up to **50 undo steps** within a strict 100 MB budget for undo/redo snapshots. The active canvas and the eraser's aligned source image are separate working buffers. Large images may therefore retain fewer undo steps. No-op clicks are not recorded, and the redo stack is cleared only when pixels actually change. Undo and redo support operations that change canvas dimensions, such as crop and rotate.
 
 ## Keyboard Shortcuts
 
@@ -322,13 +322,16 @@ Every tool and common action has a keyboard shortcut.
 | <span className="keyboard-key">Shift</span> + <span className="keyboard-key">]</span> | Increase opacity |
 | <span className="keyboard-key">Shift</span> + <span className="keyboard-key">[</span> | Decrease opacity |
 | <span className="keyboard-key">Enter</span> | Confirm crop or selection |
-| <span className="keyboard-key">Esc</span> | Cancel selection / Close editor |
+| <span className="keyboard-key">Esc</span> | Cancel pending text, crop, or selection; press again to close |
 | <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">A</span> | Select all (Select tool) |
 | <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">C</span> | Copy selection (Select tool) |
 | <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">V</span> | Paste selection (Select tool) |
-| <span className="keyboard-key">Delete</span> | Delete selection (Select tool) |
+| <span className="keyboard-key">Delete</span> / <span className="keyboard-key">Backspace</span> | Delete selection (Select tool) |
+| <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">0</span> | Zoom to fit |
+| <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">1</span> | Zoom to 100% |
+| <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">+</span> / <span className="keyboard-key">-</span> | Zoom in / out |
 | Hold <span className="keyboard-key">Space</span> + drag | Pan canvas |
-| <span className="keyboard-key">Ctrl</span>/<span className="keyboard-key">Cmd</span> + scroll | Zoom |
+| <span className="keyboard-key">Ctrl</span>/<span className="keyboard-key">Cmd</span> + scroll | Zoom around the pointer |
 
 ## Workflow Example
 
@@ -369,10 +372,11 @@ Click **Save** to overwrite the original clip with your edits. The original clip
 
 Click **Save As** (or press <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">S</span>) to create a new clip with your annotations. The original clip is preserved unchanged, and the new clip is saved with `_edited` appended to the filename.
 
-The editor preserves the original image format when saving:
-- **JPEG** originals are saved as JPEG
-- **WebP** originals are saved as WebP
-- All other formats (PNG, GIF, BMP, etc.) are saved as PNG
+The editor keeps JPEG, PNG, and WebP when the embedded browser supports the requested encoder. Other formats, including GIF, BMP, and SVG, are rasterized to PNG. The saved filename extension is normalized to the actual encoded format, including for Save As names. JPEG export applies a white background; PNG and WebP preserve transparency.
+
+Images larger than 4000 pixels on either dimension are resized to a maximum 4000-pixel working copy. The editor shows the original and working dimensions in the header. In-place Save is disabled until the image has actually changed, so merely opening a large or lossy image cannot overwrite it.
+
+Visible pending text, crop, and selection operations are applied before Save or whole-image transforms. Pressing Undo while one of those operations is still pending cancels it first.
 
 ### Cancel
 
@@ -404,7 +408,7 @@ The editor supports touch drawing on touchscreen devices. Touch events are mappe
 
 ## Limitations
 
-- **Canvas max 4000px**: Images are downscaled to a maximum of 4000 pixels on either dimension
+- **Canvas max 4000px**: Larger images use an explicitly indicated, downscaled working copy
 - **No layers**: Annotations are flattened on save
 - **Raster only**: SVG images are rasterized for editing
 - **Single text line**: The Text tool commits a single line per placement -- for multiline text, place multiple text annotations

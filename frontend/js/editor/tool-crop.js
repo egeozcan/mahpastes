@@ -15,6 +15,8 @@ const CropTool = (() => {
     let animFrameId = null;
     let overlayOriginX = 0;
     let overlayOriginY = 0;
+    let lastAnimationTime = 0;
+    let canvasBackground = '#fff';
 
     const HANDLE_SIZE = 6;
     const HANDLE_HIT = 8;       // Hit-test tolerance in canvas pixels
@@ -152,7 +154,7 @@ const CropTool = (() => {
         // 2. Preview the canvas background where the crop extends beyond the
         // source image, while revealing source pixels in the overlapping area.
         const canvas = EditorCore.canvas;
-        oc.fillStyle = getComputedStyle(canvas).backgroundColor || '#fff';
+        oc.fillStyle = canvasBackground;
         oc.fillRect(x, y, w, h);
         const sourceLeft = Math.max(cropRect.x, 0);
         const sourceTop = Math.max(cropRect.y, 0);
@@ -237,15 +239,24 @@ const CropTool = (() => {
 
     // --- Marching ants animation ---
 
-    function animateMarchingAnts() {
-        marchingAntsOffset = (marchingAntsOffset + 0.5) % 20;
-        renderOverlay();
+    function animateMarchingAnts(timestamp) {
+        if (timestamp - lastAnimationTime >= 66) {
+            marchingAntsOffset = (marchingAntsOffset + 1) % 20;
+            renderOverlay();
+            lastAnimationTime = timestamp;
+        }
         animFrameId = requestAnimationFrame(animateMarchingAnts);
     }
 
     function startAnimation() {
+        if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+            renderOverlay();
+            return;
+        }
         if (animFrameId != null) return;
-        animateMarchingAnts();
+        lastAnimationTime = 0;
+        renderOverlay();
+        animFrameId = requestAnimationFrame(animateMarchingAnts);
     }
 
     function stopAnimation() {
@@ -313,6 +324,8 @@ const CropTool = (() => {
                 if (!canvas) return;
 
                 if (overlayCanvas) overlayCanvas.style.pointerEvents = 'auto';
+                canvasBackground = getComputedStyle(canvas).backgroundColor || '#fff';
+                lastAnimationTime = 0;
 
                 // Initialize crop rect to center 80% of canvas
                 const margin = 0.1;
@@ -444,7 +457,8 @@ const CropTool = (() => {
                     cropRect = r;
                 }
 
-                // Overlay is redrawn by the marching ants animation loop
+                // Reduced-motion mode has no animation loop, so redraw explicitly.
+                if (animFrameId == null) renderOverlay();
             },
 
             onMouseUp(coords, e) {
@@ -473,6 +487,16 @@ const CropTool = (() => {
                     if (insideCropRect(coords.x, coords.y)) return handleCursors.move;
                 }
                 return 'crosshair';
+            },
+
+            prepareForAction(intent) {
+                if (!cropRect) return 'proceed';
+                if (intent === 'undo' || intent === 'redo') {
+                    cancel();
+                    return 'consumed';
+                }
+                if (intent === 'save' || intent === 'transform') confirm();
+                return 'proceed';
             },
         };
     }
@@ -511,35 +535,36 @@ const CropTool = (() => {
         const rw = Math.round(w);
         const rh = Math.round(h);
 
-        let source = canvas;
+        const makeBaselineCanvas = () => {
+            const baselineData = EditorCore.getBaselineRegion(0, 0, canvas.width, canvas.height);
+            if (!baselineData) return canvas;
+            const baseline = document.createElement('canvas');
+            baseline.width = canvas.width;
+            baseline.height = canvas.height;
+            baseline.getContext('2d').putImageData(baselineData, 0, 0);
+            return baseline;
+        };
+        const rotateSource = (input) => {
+            if (rotationAngle === 0) return input;
+            const rotated = document.createElement('canvas');
+            rotated.width = canvas.width;
+            rotated.height = canvas.height;
+            const rotatedContext = rotated.getContext('2d');
+            rotatedContext.translate(canvas.width / 2, canvas.height / 2);
+            rotatedContext.rotate(rotationAngle * Math.PI / 180);
+            rotatedContext.translate(-canvas.width / 2, -canvas.height / 2);
+            rotatedContext.drawImage(input, 0, 0);
+            return rotated;
+        };
 
-        // If rotation is applied, create rotated intermediate canvas
-        if (rotationAngle !== 0) {
-            const radians = rotationAngle * Math.PI / 180;
-            const tmpCanvas = document.createElement('canvas');
-            tmpCanvas.width = canvas.width;
-            tmpCanvas.height = canvas.height;
-            const tmpCtx = tmpCanvas.getContext('2d');
-
-            tmpCtx.translate(canvas.width / 2, canvas.height / 2);
-            tmpCtx.rotate(radians);
-            tmpCtx.translate(-canvas.width / 2, -canvas.height / 2);
-            tmpCtx.drawImage(canvas, 0, 0);
-
-            source = tmpCanvas;
-        }
-
-        // Create new canvas at crop rect dimensions
+        const source = rotateSource(canvas);
+        const baselineSource = rotateSource(makeBaselineCanvas());
         const cropCanvas = document.createElement('canvas');
-        cropCanvas.width = rw;
-        cropCanvas.height = rh;
-        const cropCtx = cropCanvas.getContext('2d');
-
-        // Fill areas outside the source image with the canvas background.
-        // Drawing the source afterward preserves its pixels where the two overlap.
-        cropCtx.fillStyle = getComputedStyle(canvas).backgroundColor || '#fff';
-        cropCtx.fillRect(0, 0, rw, rh);
-        cropCtx.drawImage(source, rx, ry, rw, rh, 0, 0, rw, rh);
+        const baselineCropCanvas = document.createElement('canvas');
+        cropCanvas.width = baselineCropCanvas.width = rw;
+        cropCanvas.height = baselineCropCanvas.height = rh;
+        cropCanvas.getContext('2d').drawImage(source, rx, ry, rw, rh, 0, 0, rw, rh);
+        baselineCropCanvas.getContext('2d').drawImage(baselineSource, rx, ry, rw, rh, 0, 0, rw, rh);
 
         // Resize EditorCore's canvases to new dimensions
         canvas.width = rw;
@@ -551,6 +576,7 @@ const CropTool = (() => {
 
         // Draw the cropped image onto the main canvas
         ctx.drawImage(cropCanvas, 0, 0);
+        EditorCore.setBaselineFromCanvas(baselineCropCanvas);
 
         // Sync overlay and save undo state
         EditorCore.syncOverlay();
@@ -603,6 +629,7 @@ const CropTool = (() => {
         // Re-constrain existing crop rect if one exists
         if (cropRect && ratio) {
             cropRect = constrainToAspect(cropRect, 'se');
+            if (animFrameId == null) renderOverlay();
         }
     }
 
@@ -613,11 +640,13 @@ const CropTool = (() => {
         // Re-constrain existing crop rect
         if (cropRect) {
             cropRect = constrainToAspect(cropRect, 'se');
+            if (animFrameId == null) renderOverlay();
         }
     }
 
     function setRotation(degrees) {
         rotationAngle = degrees;
+        if (animFrameId == null) renderOverlay();
     }
 
     return {

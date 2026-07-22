@@ -10,6 +10,8 @@ let editorFilename = '';
 let isTextEditor = false;
 let saveAsMode = false;
 let editorSaving = false;
+let lastFocusedBeforeEditor = null;
+let editorFocusTrapCleanup = null;
 
 // --- Utility Functions ---
 
@@ -75,13 +77,31 @@ function setEditorSaving(saving) {
     document.getElementById('editor-save-as-label').textContent = saving
         ? 'Saving…'
         : (saveAsMode ? 'Create Copy' : 'Save As');
-    saveButton.disabled = saving || (isTextEditor && !TextClipEditor.isDirty());
+    const pendingImageOperation = !isTextEditor && (
+        EditorCore.activeToolName === 'crop' ||
+        (EditorCore.activeToolName === 'select' && SelectTool.hasSelection()) ||
+        TextTool.isActive
+    );
+    saveButton.disabled = saving || (isTextEditor ? !TextClipEditor.isDirty() : (!EditorCore.isDirty() && !pendingImageOperation));
     saveAsButton.disabled = saving;
+}
+
+function updateEditorSaveState() {
+    if (!document.getElementById('editor-modal')?.classList.contains('active') || editorSaving) return;
+    const saveButton = document.getElementById('editor-save-in-place');
+    const pendingImageOperation = !isTextEditor && (
+        EditorCore.activeToolName === 'crop' ||
+        (EditorCore.activeToolName === 'select' && SelectTool.hasSelection()) ||
+        TextTool.isActive
+    );
+    saveButton.disabled = isTextEditor ? !TextClipEditor.isDirty() : (!EditorCore.isDirty() && !pendingImageOperation);
 }
 
 // --- Open / Close ---
 
 async function openEditor(clipId) {
+    const editorModal = document.getElementById('editor-modal');
+    if (!editorModal.classList.contains('active')) lastFocusedBeforeEditor = document.activeElement;
     try {
         // Fetch the clip data via Wails binding
         const clipData = await getClipData(clipId);
@@ -92,13 +112,16 @@ async function openEditor(clipId) {
         editorContentType = contentType;
         editorFilename = clipData.filename || `clip_${clipId}`;
 
-        const editorModal = document.getElementById('editor-modal');
         const textEditorView = document.getElementById('text-editor-view');
         const imageEditorView = document.getElementById('image-editor-view');
         const editorFilenameInput = document.getElementById('editor-filename');
 
         // Show the original filename; request a new name only after Save As.
+        document.getElementById('editor-mode-label').textContent = 'Edit';
         document.getElementById('editor-current-filename').textContent = editorFilename;
+        const downscaleWarning = document.getElementById('editor-downscale-warning');
+        downscaleWarning.classList.add('hidden');
+        downscaleWarning.textContent = '';
         editorFilenameInput.value = getNewFilename(editorFilename);
         setSaveAsMode(false);
         setEditorSaving(false);
@@ -142,6 +165,10 @@ async function openEditor(clipId) {
 
             // Select default tool
             EditorCore.selectTool('brush');
+            if (EditorCore.wasDownscaled) {
+                downscaleWarning.textContent = `${EditorCore.originalWidth}×${EditorCore.originalHeight} resized to ${EditorCore.canvas.width}×${EditorCore.canvas.height} for editing`;
+                downscaleWarning.classList.remove('hidden');
+            }
         } else {
             // Text editor
             isTextEditor = true;
@@ -161,9 +188,17 @@ async function openEditor(clipId) {
         editorModal.removeAttribute('inert');
         editorModal.classList.add('active');
         resetToolState();
+        updateEditorSaveState();
+        if (editorFocusTrapCleanup) editorFocusTrapCleanup();
+        editorFocusTrapCleanup = trapFocus(editorModal);
+        if (!isTextEditor) requestAnimationFrame(() => document.querySelector('.editor-tool-btn.active')?.focus());
 
     } catch (error) {
         console.error('Error opening editor:', error);
+        if (editorFocusTrapCleanup) editorFocusTrapCleanup();
+        editorFocusTrapCleanup = null;
+        editorModal.classList.remove('active');
+        editorModal.setAttribute('inert', '');
         showToast('Failed to open editor.');
     }
 }
@@ -233,6 +268,8 @@ function closeEditor(options) {
     }
 
     const editorModal = document.getElementById('editor-modal');
+    if (editorFocusTrapCleanup) editorFocusTrapCleanup();
+    editorFocusTrapCleanup = null;
     editorModal.classList.remove('active');
     editorModal.setAttribute('inert', '');
 
@@ -244,6 +281,8 @@ function closeEditor(options) {
     EditorCore.reset();
     setSaveAsMode(false);
 
+    const fallbackFocusTarget = document.querySelector(`li[data-id="${editorClipId}"] [data-action="menu"]`);
+
     // Clear editor metadata
     editorClipId = null;
     editorContentType = '';
@@ -251,12 +290,18 @@ function closeEditor(options) {
     isTextEditor = false;
     editorSaving = false;
 
-    // Hide text input
-    const textInput = document.getElementById('canvas-text-input');
-    if (textInput) {
-        textInput.style.display = 'none';
-        textInput.value = '';
-    }
+    TextTool.cancelTextInput();
+    document.getElementById('editor-mode-label').textContent = 'Edit';
+    document.getElementById('editor-downscale-warning').classList.add('hidden');
+
+    const focusTarget = lastFocusedBeforeEditor;
+    lastFocusedBeforeEditor = null;
+    requestAnimationFrame(() => {
+        const target = focusTarget?.isConnected && focusTarget.offsetParent !== null
+            ? focusTarget
+            : fallbackFocusTarget;
+        if (target?.isConnected && typeof target.focus === 'function') target.focus();
+    });
 }
 
 // --- Tool State UI ---
@@ -304,6 +349,28 @@ function updateToolButtons() {
         btn.classList.toggle('active', isActive);
         btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
     });
+    updatePropertyControls();
+}
+
+function updatePropertyControls() {
+    const tool = EditorCore.activeToolName;
+    const supported = {
+        color: ['brush', 'line', 'arrow', 'rectangle', 'circle', 'text'],
+        opacity: ['brush', 'line', 'arrow', 'rectangle', 'circle', 'text'],
+        size: ['brush', 'eraser', 'line', 'arrow', 'rectangle', 'circle', 'anonymize'],
+    };
+    const controls = {
+        color: document.getElementById('editor-color'),
+        opacity: document.getElementById('editor-opacity'),
+        size: document.getElementById('editor-brush-size'),
+    };
+    Object.entries(controls).forEach(([property, control]) => {
+        const enabled = supported[property].includes(tool);
+        control.disabled = !enabled;
+        const group = control.closest('[data-editor-property]');
+        group?.classList.toggle('opacity-40', !enabled);
+        group?.classList.toggle('cursor-not-allowed', !enabled);
+    });
 }
 
 function updateContextToolbar() {
@@ -326,28 +393,28 @@ function selectTool(tool) {
     EditorCore.selectTool(tool);
     updateToolButtons();
     updateContextToolbar();
+    updateEditorSaveState();
 }
 
 // --- Save ---
 
 async function performSaveEditorInPlace() {
-    let base64Data;
-    let contentType = editorContentType;
-
-    if (isTextEditor) {
-        base64Data = encodeTextToBase64(TextClipEditor.getValue());
-    } else {
-        const savedContentType = EditorCore.originalContentType;
-        const exportType = (savedContentType === 'image/jpeg' || savedContentType === 'image/webp')
-            ? savedContentType
-            : 'image/png';
-        const dataUrl = EditorCore.canvas.toDataURL(exportType);
-        base64Data = dataUrl.split(',')[1];
-        contentType = exportType;
-    }
-
     setEditorSaving(true);
     try {
+        let base64Data;
+        let contentType = editorContentType;
+        if (isTextEditor) {
+            base64Data = encodeTextToBase64(TextClipEditor.getValue());
+        } else {
+            const exported = await EditorExport.exportCanvas({
+                canvas: EditorCore.canvas,
+                originalMime: EditorCore.originalContentType,
+                filename: editorFilename,
+            });
+            base64Data = exported.data;
+            contentType = exported.contentType;
+            editorFilename = exported.filename;
+        }
         await window.go.main.App.UpdateClipData(editorClipId, contentType, base64Data, editorFilename);
         if (isTextEditor) TextClipEditor.clearDraft();
         showToast('Saved!');
@@ -369,47 +436,50 @@ function saveEditorInPlace() {
     if (isTextEditor) {
         TextClipEditor.confirmSave(performSaveEditorInPlace);
     } else {
+        EditorCore.prepareForAction('save');
+        if (!EditorCore.isDirty()) {
+            showToast('No image changes to save.');
+            updateEditorSaveState();
+            return;
+        }
         performSaveEditorInPlace();
     }
 }
 
 async function performSaveEditorContent() {
-    const filename = document.getElementById('editor-filename').value.trim();
+    const filenameInput = document.getElementById('editor-filename');
+    const filename = filenameInput.value.trim();
     if (!filename) {
         showToast('Please enter a filename.');
-        document.getElementById('editor-filename').focus();
+        filenameInput.focus();
         return;
     }
 
-    let base64Data;
-    let contentType = editorContentType;
-
-    if (isTextEditor) {
-        base64Data = encodeTextToBase64(TextClipEditor.getValue());
-    } else {
-        // Use EditorCore's canvas and preserve original format when possible
-        const savedContentType = EditorCore.originalContentType;
-        const exportType = (savedContentType === 'image/jpeg' || savedContentType === 'image/webp')
-            ? savedContentType
-            : 'image/png';
-        const dataUrl = EditorCore.canvas.toDataURL(exportType);
-        base64Data = dataUrl.split(',')[1];
-        contentType = exportType;
-    }
-
-    const fileData = {
-        name: filename,
-        content_type: contentType,
-        data: base64Data
-    };
-
     setEditorSaving(true);
     try {
-        await upload([fileData]);
+        let base64Data;
+        let contentType = editorContentType;
+        let outputFilename = filename;
+        if (isTextEditor) {
+            base64Data = encodeTextToBase64(TextClipEditor.getValue());
+        } else {
+            EditorCore.prepareForAction('save');
+            const exported = await EditorExport.exportCanvas({
+                canvas: EditorCore.canvas,
+                originalMime: EditorCore.originalContentType,
+                filename,
+            });
+            base64Data = exported.data;
+            contentType = exported.contentType;
+            outputFilename = exported.filename;
+            filenameInput.value = outputFilename;
+        }
+
+        await upload([{ name: outputFilename, content_type: contentType, data: base64Data }]);
         if (isTextEditor) TextClipEditor.clearDraft();
         showToast('Saved as new clip!');
         closeEditor({ force: true });
-        loadClips(); // Refresh gallery
+        loadClips();
     } catch (error) {
         console.error('Error saving:', error);
         showToast('Failed to save.');
@@ -506,8 +576,9 @@ function setupEditorListeners() {
             TextTool.commitTextInput();
         } else if (e.key === 'Escape') {
             e.preventDefault();
-            textInput.style.display = 'none';
-            textInput.value = '';
+            e.stopImmediatePropagation();
+            TextTool.cancelTextInput();
+            document.querySelector('.editor-tool-btn[data-tool="text"]')?.focus();
         }
     });
     textInput.addEventListener('blur', () => {
