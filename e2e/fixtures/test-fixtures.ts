@@ -2222,9 +2222,14 @@ export class AppHelper {
   }
 
   async togglePluginViaUI(pluginId: number, enable: boolean): Promise<void> {
-    // The toggle is a hidden checkbox with a styled div - click the parent label
+    // The change handler performs an async Wails call after the checkbox click.
+    // Wait for the backend state so callers cannot race that update.
     const toggleLabel = this.page.locator(`[data-testid="plugin-card-${pluginId}"] [data-action="toggle-enable"]`);
     await toggleLabel.click();
+    await expect.poll(async () => {
+      const plugins = await this.getPlugins();
+      return plugins.find(plugin => plugin.id === pluginId)?.enabled;
+    }, { timeout: 5000 }).toBe(enable);
   }
 
   async removePluginViaUI(pluginId: number): Promise<void> {
