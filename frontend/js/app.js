@@ -1133,7 +1133,7 @@ async function handleFolderDrop(folderFiles, looseFiles, dirPaths) {
     } else {
         showToast('No files to upload.');
     }
-    loadClips();
+    await loadClips();
 }
 
 async function handleText(text) {
