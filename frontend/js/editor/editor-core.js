@@ -172,12 +172,20 @@ const EditorCore = (() => {
         applyTransform();
 
         if (focalPoint && canvas) {
-            const rect = canvas.getBoundingClientRect();
-            const renderedX = rect.left + focalPoint.x / canvas.width * rect.width;
-            const renderedY = rect.top + focalPoint.y / canvas.height * rect.height;
-            panX += clientX - renderedX;
-            panY += clientY - renderedY;
-            applyTransform();
+            // A transformed DOMRect can be rounded to device pixels. Apply one
+            // bounded residual correction so that rounding cannot leave the
+            // canvas coordinate beneath the cursor drifting between zooms.
+            for (let correction = 0; correction < 2; correction++) {
+                const rect = canvas.getBoundingClientRect();
+                const renderedX = rect.left + focalPoint.x / canvas.width * rect.width;
+                const renderedY = rect.top + focalPoint.y / canvas.height * rect.height;
+                const deltaX = clientX - renderedX;
+                const deltaY = clientY - renderedY;
+                panX += deltaX;
+                panY += deltaY;
+                applyTransform();
+                if (Math.abs(deltaX) < 0.01 && Math.abs(deltaY) < 0.01) break;
+            }
         }
     }
 
