@@ -759,7 +759,12 @@ func (am *APIManager) validateAPIKey(token string) (*apiKeyContext, error) {
 	if scopedTagID.Valid {
 		keyCtx.ScopedTagID = scopedTagID.Int64
 	}
-	go am.app.db.Exec("UPDATE api_keys SET last_used_at = CURRENT_TIMESTAMP WHERE id = ?", keyCtx.KeyID)
+	// Complete bookkeeping before dispatching the authenticated handler. An
+	// asynchronous write here races write transactions started by the handler
+	// and can surface SQLITE_BUSY to otherwise valid API requests.
+	if _, err := am.app.db.Exec("UPDATE api_keys SET last_used_at = CURRENT_TIMESTAMP WHERE id = ?", keyCtx.KeyID); err != nil {
+		log.Printf("validateAPIKey: failed to update last_used_at: %v", err)
+	}
 	return &keyCtx, nil
 }
 

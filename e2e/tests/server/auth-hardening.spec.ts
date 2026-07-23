@@ -17,12 +17,14 @@ test('tag-scoped keys cannot read foreign clips via folder_tag or open the event
     let foreignTagId = 0;
     try {
       const tScope = await admin.post('/api/v1/tags', { data: { name: 'scope-tag' } });
-      expect(tScope.status()).toBe(201);
-      scopeTagId = (await tScope.json()).id;
+      const tScopeBody = await tScope.text();
+      expect(tScope.status(), tScopeBody).toBe(201);
+      scopeTagId = JSON.parse(tScopeBody).id;
 
       const tForeign = await admin.post('/api/v1/tags', { data: { name: 'foreign-tag' } });
-      expect(tForeign.status()).toBe(201);
-      foreignTagId = (await tForeign.json()).id;
+      const tForeignBody = await tForeign.text();
+      expect(tForeign.status(), tForeignBody).toBe(201);
+      foreignTagId = JSON.parse(tForeignBody).id;
 
       // A clip the scoped key must never see, tagged into the foreign tree.
       const upload = await admin.post('/api/v1/clips?filename=secret.txt', {
