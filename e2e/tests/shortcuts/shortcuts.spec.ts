@@ -627,7 +627,7 @@ test.describe('Keyboard Shortcuts', () => {
       await app.page.keyboard.press('Shift+=');
       await app.page.waitForTimeout(100);
       const afterZoomIn = await app.page.locator(selectors.lightbox.zoomSlider).inputValue();
-      expect(parseInt(afterZoomIn)).toBeGreaterThan(100);
+      expect(parseInt(afterZoomIn)).toBeGreaterThan(0);
 
       // Press - to zoom out
       await app.page.keyboard.press('-');
@@ -635,6 +635,21 @@ test.describe('Keyboard Shortcuts', () => {
 
       const afterZoomOut = await app.page.locator(selectors.lightbox.zoomSlider).inputValue();
       expect(parseInt(afterZoomOut)).toBeLessThan(parseInt(afterZoomIn));
+    });
+
+    test('should switch between actual size and Fit without changing images', async ({ app }) => {
+      const imagePath1 = await createTempFile(generateTestImage(1600, 1200, [255, 0, 0]), 'png');
+      const imagePath2 = await createTempFile(generateTestImage(1600, 1200, [0, 0, 255]), 'png');
+      await app.uploadFiles([imagePath1, imagePath2]);
+      await app.openLightbox(path.basename(imagePath2));
+      const caption = await app.page.locator(selectors.lightbox.caption).textContent();
+
+      await app.page.keyboard.press('1');
+      await expect(app.page.locator(selectors.lightbox.zoomInfo)).toHaveText('100%');
+      await app.page.keyboard.press('Shift+ArrowRight');
+      await expect(app.page.locator(selectors.lightbox.caption)).toHaveText(caption || '');
+      await app.page.keyboard.press('0');
+      await expect(app.page.locator(selectors.lightbox.zoomFit)).toHaveAttribute('aria-pressed', 'true');
     });
   });
 

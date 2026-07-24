@@ -119,11 +119,68 @@ const cancelSelectionBtn = document.getElementById('cancel-selection-btn');
 
 // Lightbox Elements
 const lightbox = document.getElementById('lightbox');
-// Note: lightboxImg is managed by modals.js via getLightboxImg()
 const lightboxCaption = document.getElementById('lightbox-caption');
 const lightboxClose = document.getElementById('lightbox-close');
 const lightboxPrev = document.getElementById('lightbox-prev');
 const lightboxNext = document.getElementById('lightbox-next');
+
+window.LightboxController = window.createLightboxController({
+    elements: {
+        root: lightbox,
+        viewport: document.getElementById('lightbox-viewport'),
+        panLayer: document.getElementById('lightbox-pan-layer'),
+        image: document.getElementById('lightbox-img'),
+        caption: lightboxCaption,
+        status: document.getElementById('lightbox-status'),
+        loading: document.getElementById('lightbox-loading'),
+        error: document.getElementById('lightbox-error'),
+        retry: document.getElementById('lightbox-retry'),
+        close: lightboxClose,
+        previous: lightboxPrev,
+        next: lightboxNext,
+        imageInfo: document.getElementById('lightbox-image-info'),
+        slider: document.getElementById('lightbox-zoom-slider'),
+        zoomOut: document.getElementById('lightbox-zoom-out'),
+        zoomIn: document.getElementById('lightbox-zoom-in'),
+        fit: document.getElementById('lightbox-zoom-fit'),
+        actual: document.getElementById('lightbox-zoom-actual'),
+        zoomInfo: document.getElementById('lightbox-zoom-info'),
+    },
+    backgroundRoots: [
+        document.querySelector('header'),
+        document.querySelector('main'),
+        document.querySelector('footer'),
+        document.getElementById('nav-drawer'),
+    ].filter(Boolean),
+    loadImage: clip => getImageDataUrl(clip.id),
+    trapFocus,
+    renderPluginActions: clip => renderLightboxPluginButtons(clip),
+    renderFileActions: clip => renderLightboxFileActions(clip),
+    editClip: clip => {
+        window.LightboxController.close();
+        openEditor(clip.id);
+    },
+    copyClip: clip => copyClipContents(clip.id),
+    closeMenus: () => {
+        closeLightboxPluginMenu(true);
+        closeLightboxFileMenu(true);
+    },
+    getOpenerIndex: opener => Array.from(gallery.querySelectorAll(':scope > li'))
+        .indexOf(opener?.closest?.('li')),
+    restoreFocus: (opener, formerIndex) => {
+        if (opener?.isConnected && opener.getClientRects().length > 0) {
+            opener.focus();
+            return;
+        }
+        const visible = Array.from(gallery.querySelectorAll(':scope > li'))
+            .filter(card => card.getClientRects().length > 0);
+        const fallbackIndex = Math.max(0, Math.min(formerIndex, visible.length - 1));
+        const fallback = visible[fallbackIndex];
+        if (fallback) fallback.focus();
+        else gallery.focus();
+    },
+    reportError: (error, clip) => console.error(`Failed to load ${clip.filename || 'image'}:`, error),
+});
 
 // Comparison Modal Elements
 const comparisonModal = document.getElementById('comparison-modal');
@@ -169,9 +226,6 @@ function updateClipCount(count) {
 // --- State ---
 let isViewingArchive = false;
 let selectedIds = new Set();
-let imageClips = []; // Store image clips for lightbox navigation
-let currentLightboxIndex = -1;
-let lastFocusedElementBeforeLightbox = null;
 
 let comparisonMode = 'fade';
 let zoomLevel = 1;
@@ -545,15 +599,18 @@ comparisonContainer.addEventListener('mousedown', (e) => {
 });
 
 // Lightbox Listeners
-lightboxClose.addEventListener('click', closeLightbox);
-lightboxPrev.addEventListener('click', (e) => { e.stopPropagation(); showPrevImage(); });
-lightboxNext.addEventListener('click', (e) => { e.stopPropagation(); showNextImage(); });
-lightbox.addEventListener('click', (e) => {
-    if (e.target === lightbox) closeLightbox();
+lightboxClose.addEventListener('click', () => window.LightboxController.close());
+lightboxPrev.addEventListener('click', (event) => {
+    event.stopPropagation();
+    window.LightboxController.command('previous');
 });
-// Initialize lightbox gestures (touch, wheel, drag, zoom slider)
-// All gesture listeners are centralized in modals.js for better cohesion
-initLightboxGestures();
+lightboxNext.addEventListener('click', (event) => {
+    event.stopPropagation();
+    window.LightboxController.command('next');
+});
+lightbox.addEventListener('click', (event) => {
+    if (event.target === lightbox) window.LightboxController.close();
+});
 
 // --- Mouse back/forward navigation buttons ---
 //
@@ -1463,75 +1520,32 @@ window.addEventListener('load', async () => {
             id: 'lightbox-close', label: 'Close Lightbox', category: 'lightbox',
             defaultKey: 'Escape', context: 'lightbox',
             callback: () => {
-                // Close any open menu first
                 if (ContextMenu.isOpen()) {
                     ContextMenu.close();
-                    const trigger = document.getElementById('lightbox-file-menu-trigger');
-                    if (trigger) trigger.focus();
+                    document.getElementById('lightbox-file-menu-trigger')?.focus();
                     return;
                 }
-                const pluginMenu = document.getElementById('lightbox-plugin-menu');
-                if (pluginMenu) {
-                    closeLightboxPluginMenu();
-                    const trigger = document.getElementById('lightbox-plugin-menu-trigger');
-                    if (trigger) trigger.focus();
+                if (document.getElementById('lightbox-plugin-menu')) {
+                    closeLightboxPluginMenu(true);
+                    document.getElementById('lightbox-plugin-menu-trigger')?.focus();
                     return;
                 }
-                closeLightbox();
+                window.LightboxController.close();
             }
         });
-        ShortcutManager.register({
-            id: 'lightbox-next', label: 'Next Image', category: 'lightbox',
-            defaultKey: 'ArrowRight', context: 'lightbox',
-            callback: () => showNextImage()
-        });
-        ShortcutManager.register({
-            id: 'lightbox-prev', label: 'Previous Image', category: 'lightbox',
-            defaultKey: 'ArrowLeft', context: 'lightbox',
-            callback: () => showPrevImage()
-        });
-        ShortcutManager.register({
-            id: 'lightbox-zoom-in', label: 'Zoom In', category: 'lightbox',
-            defaultKey: '+', context: 'lightbox',
-            callback: () => {
-                const slider = document.getElementById('lightbox-zoom-slider');
-                if (slider) {
-                    slider.value = Math.min(400, parseInt(slider.value) + 25);
-                    slider.dispatchEvent(new Event('input'));
-                }
-            }
-        });
-        ShortcutManager.register({
-            id: 'lightbox-zoom-out', label: 'Zoom Out', category: 'lightbox',
-            defaultKey: '-', context: 'lightbox',
-            callback: () => {
-                const slider = document.getElementById('lightbox-zoom-slider');
-                if (slider) {
-                    slider.value = Math.max(100, parseInt(slider.value) - 25);
-                    slider.dispatchEvent(new Event('input'));
-                }
-            }
-        });
-        ShortcutManager.register({
-            id: 'lightbox-edit', label: 'Open Editor', category: 'lightbox',
-            defaultKey: 'e', context: 'lightbox',
-            callback: () => {
-                const clip = imageClips[currentLightboxIndex];
-                if (clip && isEditableType(clip.content_type)) {
-                    closeLightbox();
-                    setTimeout(() => openEditor(clip.id), LIGHTBOX_CLOSE_DELAY);
-                }
-            }
-        });
+        ShortcutManager.register({ id: 'lightbox-next', label: 'Next Image', category: 'lightbox', defaultKey: 'ArrowRight', context: 'lightbox', callback: () => window.LightboxController.command('next') });
+        ShortcutManager.register({ id: 'lightbox-prev', label: 'Previous Image', category: 'lightbox', defaultKey: 'ArrowLeft', context: 'lightbox', callback: () => window.LightboxController.command('previous') });
+        ShortcutManager.register({ id: 'lightbox-zoom-in', label: 'Zoom In', category: 'lightbox', defaultKey: '+', context: 'lightbox', callback: () => window.LightboxController.command('zoom-in') });
+        ShortcutManager.register({ id: 'lightbox-zoom-out', label: 'Zoom Out', category: 'lightbox', defaultKey: '-', context: 'lightbox', callback: () => window.LightboxController.command('zoom-out') });
+        ShortcutManager.register({ id: 'lightbox-fit', label: 'Fit Image', category: 'lightbox', defaultKey: '0', context: 'lightbox', callback: () => window.LightboxController.command('fit') });
+        ShortcutManager.register({ id: 'lightbox-actual', label: 'Actual Size', category: 'lightbox', defaultKey: '1', context: 'lightbox', callback: () => window.LightboxController.command('actual-size') });
+        ShortcutManager.register({ id: 'lightbox-pan-left', label: 'Pan Left', category: 'lightbox', defaultKey: 'shift+ArrowLeft', context: 'lightbox', callback: () => window.LightboxController.command('pan', { dx: 48, dy: 0 }) });
+        ShortcutManager.register({ id: 'lightbox-pan-right', label: 'Pan Right', category: 'lightbox', defaultKey: 'shift+ArrowRight', context: 'lightbox', callback: () => window.LightboxController.command('pan', { dx: -48, dy: 0 }) });
+        ShortcutManager.register({ id: 'lightbox-pan-up', label: 'Pan Up', category: 'lightbox', defaultKey: 'shift+ArrowUp', context: 'lightbox', callback: () => window.LightboxController.command('pan', { dx: 0, dy: 48 }) });
+        ShortcutManager.register({ id: 'lightbox-pan-down', label: 'Pan Down', category: 'lightbox', defaultKey: 'shift+ArrowDown', context: 'lightbox', callback: () => window.LightboxController.command('pan', { dx: 0, dy: -48 }) });
+        ShortcutManager.register({ id: 'lightbox-edit', label: 'Open Editor', category: 'lightbox', defaultKey: 'e', context: 'lightbox', callback: () => window.LightboxController.command('edit') });
         if (window.mahpastesMode !== 'server') {
-            ShortcutManager.register({
-                id: 'lightbox-copy', label: 'Copy Image', category: 'lightbox',
-                defaultKey: 'mod+c', context: 'lightbox',
-                callback: () => {
-                    const clip = imageClips[currentLightboxIndex];
-                    if (clip) copyClipContents(clip.id);
-                }
-            });
+            ShortcutManager.register({ id: 'lightbox-copy', label: 'Copy Image', category: 'lightbox', defaultKey: 'mod+c', context: 'lightbox', callback: () => window.LightboxController.command('copy') });
         }
 
         // Comparison

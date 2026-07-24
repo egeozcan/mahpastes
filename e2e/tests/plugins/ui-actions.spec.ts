@@ -160,6 +160,77 @@ test.describe('Plugin UI Extensions', () => {
       const pluginContainer = app.page.locator(selectors.lightbox.pluginActions);
       await expect(pluginContainer).toHaveClass(/hidden/);
     });
+
+    test('keeps Tab focus inside the lightbox after closing the plugin menu', async ({ app }) => {
+      const plugin = await app.importPluginFromPath(TEST_PLUGIN_PATH);
+      expect(plugin).not.toBeNull();
+      await app.enablePlugin(plugin!.id);
+      await app.page.reload();
+      await app.waitForReady();
+
+      const imagePath = await createTempFile(generateTestImage(), 'png');
+      await app.uploadFile(imagePath);
+      await app.openLightbox(path.basename(imagePath));
+      const trigger = app.page.locator(selectors.lightbox.pluginTrigger);
+      await trigger.click();
+      await expect(app.page.locator(selectors.lightbox.pluginMenu)).toBeVisible();
+      await app.page.keyboard.press('Tab');
+
+      await expect(app.page.locator(selectors.lightbox.pluginMenu)).toHaveCount(0);
+      await expect(trigger).toBeFocused();
+      const focusInside = await app.page.evaluate(() => {
+        const lightbox = document.getElementById('lightbox');
+        return lightbox?.contains(document.activeElement) ?? false;
+      });
+      expect(focusInside).toBe(true);
+    });
+
+    test('targets plugin actions at the clip selected after navigation', async ({ app }) => {
+      const plugin = await app.importPluginFromPath(TEST_PLUGIN_PATH);
+      expect(plugin).not.toBeNull();
+      await app.enablePlugin(plugin!.id);
+      await app.page.reload();
+      await app.waitForReady();
+
+      const files = await Promise.all([
+        createTempFile(generateTestImage(100, 100, [255, 0, 0]), 'png'),
+        createTempFile(generateTestImage(100, 100, [0, 0, 255]), 'png'),
+      ]);
+      await app.uploadFiles(files);
+      const expectedId = await app.page.evaluate(async (filename) => {
+        // @ts-ignore Wails binding
+        const clips = await window.go.main.App.GetClips(false, [], [], '', '');
+        return clips.find((clip: { filename: string; id: number }) => clip.filename === filename)?.id;
+      }, path.basename(files[0]));
+
+      await app.openLightbox(path.basename(files[1]));
+      await app.page.keyboard.press('ArrowRight');
+      await app.page.evaluate(() => {
+        // @ts-ignore Wails binding and test capture
+        const service = window.go.main.PluginService;
+        const original = service.ExecutePluginAction;
+        // @ts-ignore test capture
+        window.__restoreLightboxExecute = () => { service.ExecutePluginAction = original; };
+        service.ExecutePluginAction = async (_pluginId: number, _actionId: string, clipIds: number[]) => {
+          // @ts-ignore test capture
+          window.__lightboxActionClipIds = clipIds;
+          return { success: true };
+        };
+      });
+      await app.clickLightboxPluginAction(plugin!.id, 'test_simple');
+      await expect.poll(() => app.page.evaluate(() => {
+        // @ts-ignore test capture
+        return window.__lightboxActionClipIds?.[0];
+      })).toBe(expectedId);
+      await app.page.evaluate(() => {
+        // @ts-ignore test capture
+        window.__restoreLightboxExecute?.();
+        // @ts-ignore test capture
+        delete window.__restoreLightboxExecute;
+        // @ts-ignore test capture
+        delete window.__lightboxActionClipIds;
+      });
+    });
   });
 
   test.describe('Bulk Plugin Actions', () => {

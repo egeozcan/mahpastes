@@ -278,19 +278,26 @@ test.describe('HTML Integrity', () => {
           // @ts-ignore
           return checkElement(lightbox, {
             requiredChildren: [
+              '#lightbox-viewport',
               '#lightbox-img',
               '#lightbox-close',
               '#lightbox-prev',
               '#lightbox-next',
-              '#lightbox-file-menu-trigger',     // Actions button
+              '#lightbox-file-menu-trigger',
+              '#lightbox-zoom-out',
               '#lightbox-zoom-slider',
+              '#lightbox-zoom-in',
+              '#lightbox-zoom-fit',
+              '#lightbox-zoom-actual',
               '#lightbox-zoom-info',
+              '#lightbox-status',
             ],
-            requiredAttributes: ['role', 'aria-modal', 'aria-label'],
+            requiredAttributes: ['role', 'aria-modal', 'aria-labelledby'],
             childAttributes: [
               { selector: '#lightbox-close', attrs: ['aria-label'] },
               { selector: '#lightbox-prev', attrs: ['aria-label'] },
               { selector: '#lightbox-next', attrs: ['aria-label'] },
+              { selector: '#lightbox-zoom-slider', attrs: ['aria-describedby', 'aria-valuetext'] },
             ],
           });
         },

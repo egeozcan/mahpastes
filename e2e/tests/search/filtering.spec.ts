@@ -7,6 +7,7 @@ import {
 } from '../../helpers/test-data';
 import { selectors } from '../../helpers/selectors';
 import * as path from 'path';
+import * as fs from 'fs/promises';
 
 test.describe('Search and Filtering', () => {
   test.describe('Basic Search', () => {
@@ -65,6 +66,23 @@ test.describe('Search and Filtering', () => {
       const count = await app.getClipCount();
       expect(count).toBeGreaterThanOrEqual(0); // Implementation dependent
     });
+  });
+
+  test('lightbox navigation includes only search-visible images', async ({ app }) => {
+    const matchingSource = await createTempFile(generateTestImage(100, 100, [255, 0, 0]), 'png');
+    const hiddenSource = await createTempFile(generateTestImage(100, 100, [0, 0, 255]), 'png');
+    const matching = path.join(path.dirname(matchingSource), `match-image-${uniqueId()}.png`);
+    const hidden = path.join(path.dirname(hiddenSource), `other-image-${uniqueId()}.png`);
+    await fs.rename(matchingSource, matching);
+    await fs.rename(hiddenSource, hidden);
+    await app.uploadFiles([matching, hidden]);
+    await app.page.locator(selectors.header.searchInput).fill('match-image');
+    await app.openLightbox(path.basename(matching));
+
+    await expect(app.page.locator(selectors.lightbox.prevButton)).toBeHidden();
+    await expect(app.page.locator(selectors.lightbox.nextButton)).toBeHidden();
+    await app.page.keyboard.press('ArrowRight');
+    await expect(app.page.locator(selectors.lightbox.caption)).toContainText(path.basename(matching));
   });
 
   test.describe('Search by Content Type', () => {

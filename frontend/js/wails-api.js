@@ -46,8 +46,8 @@ async function loadClips({ focusFirst = false } = {}) {
         }
 
         gallery.innerHTML = '';
+        clearRenderedClips();
         selectedIds.clear();
-        imageClips = [];
         updateBulkToolbar();
 
         // Render folder cards in folder mode
@@ -78,6 +78,7 @@ async function loadClips({ focusFirst = false } = {}) {
             updateClipCount(gallery.querySelectorAll('[data-folder]').length);
         }
         if (typeof applySearchFilter === 'function') applySearchFilter();
+        window.LightboxController?.setClips(getVisibleImageClips());
 
         // Re-index roving tabindex after gallery re-render
         if (window.__galleryRover) window.__galleryRover.update();

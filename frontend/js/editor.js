@@ -209,11 +209,14 @@ async function openMarkdownReferenceCandidate(candidate, fragment) {
         const contentType = candidate.content_type || '';
         const filename = candidate.filename || '';
         if (contentType.startsWith('image/')) {
-            await openLinkedImageLightbox({
-                id: candidate.clip_id,
-                filename,
-                content_type: contentType,
-                is_archived: candidate.is_archived || false,
+            await window.LightboxController.openSingle({
+                clip: {
+                    id: candidate.clip_id,
+                    filename,
+                    content_type: contentType,
+                    is_archived: candidate.is_archived || false,
+                },
+                opener: document.activeElement,
             });
             return;
         }

@@ -686,8 +686,10 @@ export class AppHelper {
         pluginsModal.classList.add('opacity-0', 'pointer-events-none');
       }
 
-      // Lightbox & editor use .active class
-      document.querySelector('#lightbox')?.classList.remove('active');
+      // Close through the controller so its focus trap and background inert state are released.
+      // @ts-ignore classic-script controller
+      if (window.LightboxController) window.LightboxController.close();
+      else document.querySelector('#lightbox')?.classList.remove('active');
       document.querySelector('#editor-modal')?.classList.remove('active');
       document.querySelector('#comparison-modal')?.classList.remove('active');
 
@@ -972,31 +974,25 @@ export class AppHelper {
 
   async openLightbox(filename: string): Promise<void> {
     await this.viewClip(filename);
-    await this.page.waitForSelector(selectors.lightbox.overlay);
+    await this.page.locator(`${selectors.lightbox.overlay}.active`).waitFor({ state: 'visible' });
+    await expect(this.page.locator(selectors.lightbox.caption)).toContainText(filename);
+    await expect.poll(async () => {
+      const image = this.page.locator(selectors.lightbox.image);
+      return image.evaluate((element: HTMLImageElement) => element.complete && element.naturalWidth > 0);
+    }).toBe(true);
   }
 
   async closeLightbox(): Promise<void> {
-    // Use JavaScript click to bypass viewport constraints for absolutely positioned elements
-    await this.page.evaluate((selector) => {
-      const btn = document.querySelector(selector);
-      if (btn) (btn as HTMLElement).click();
-    }, selectors.lightbox.closeButton);
-    // Wait for active class to be removed (lightbox uses opacity, not display)
-    await this.page.waitForSelector(`${selectors.lightbox.overlay}:not(.active)`);
+    await this.page.locator(selectors.lightbox.closeButton).click();
+    await expect(this.page.locator(selectors.lightbox.overlay)).not.toHaveClass(/active/);
   }
 
   async lightboxNext(): Promise<void> {
-    await this.page.evaluate((selector) => {
-      const btn = document.querySelector(selector);
-      if (btn) (btn as HTMLElement).click();
-    }, selectors.lightbox.nextButton);
+    await this.page.locator(selectors.lightbox.nextButton).click();
   }
 
   async lightboxPrev(): Promise<void> {
-    await this.page.evaluate((selector) => {
-      const btn = document.querySelector(selector);
-      if (btn) (btn as HTMLElement).click();
-    }, selectors.lightbox.prevButton);
+    await this.page.locator(selectors.lightbox.prevButton).click();
   }
 
   isLightboxOpen(): Promise<boolean> {

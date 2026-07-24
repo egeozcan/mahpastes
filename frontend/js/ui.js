@@ -1,5 +1,21 @@
 // Image cache for base64 data
 const imageCache = new Map();
+const renderedClipsById = new Map();
+
+function rememberRenderedClip(clip) {
+    renderedClipsById.set(Number(clip.id), clip);
+}
+
+function clearRenderedClips() {
+    renderedClipsById.clear();
+}
+
+function getVisibleImageClips() {
+    return Array.from(gallery.querySelectorAll(':scope > li[data-id]'))
+        .filter(card => card.style.display !== 'none' && card.getClientRects().length > 0)
+        .map(card => renderedClipsById.get(Number(card.dataset.id)))
+        .filter(clip => clip && clip.content_type.startsWith('image/'));
+}
 
 // Track last checked checkbox for shift-click range selection
 let lastCheckedCheckbox = null;
@@ -847,6 +863,7 @@ async function createClipCard(clip, options = {}) {
     card.dataset.type = (clip.content_type || '').toLowerCase();
     card.dataset.size = clip.size || 0;
     card.dataset.createdAt = clip.created_at || '';
+    rememberRenderedClip(clip);
     if (clip.expires_at) {
         card.dataset.expiresAt = clip.expires_at;
     }
@@ -1013,20 +1030,14 @@ async function createClipCard(clip, options = {}) {
 
     // Lightbox trigger logic
     if (clip.content_type.startsWith('image/')) {
-        if (options.prepend) {
-            imageClips.unshift(clip);
-        } else {
-            imageClips.push(clip);
-        }
-        card.querySelector('[data-action="open-lightbox"]').addEventListener('click', () => {
-            const idx = imageClips.findIndex(c => c.id === clip.id);
-            if (idx !== -1) openLightbox(idx);
+        const lightboxTrigger = card.querySelector('[data-action="open-lightbox"]');
+        lightboxTrigger.addEventListener('click', () => {
+            window.LightboxController.open({
+                clips: getVisibleImageClips(),
+                currentId: clip.id,
+                opener: card,
+            });
         });
-
-        // Bump lightbox index if prepending while lightbox is open
-        if (options.prepend && lightbox.classList.contains('active')) {
-            currentLightboxIndex++;
-        }
 
         // Load image asynchronously
         loadImageForCard(clip.id, card);
@@ -1041,6 +1052,7 @@ async function createClipCard(clip, options = {}) {
 
     if (options.prepend) {
         gallery.prepend(card);
+        window.LightboxController?.setClips(getVisibleImageClips());
     } else {
         gallery.appendChild(card);
     }
@@ -1224,6 +1236,7 @@ function applySearchFilter() {
             card.style.display = (filename.includes(query) || type.includes(query)) ? '' : 'none';
         }
     });
+    window.LightboxController?.setClips(getVisibleImageClips());
 }
 
 searchInput.addEventListener('input', () => {

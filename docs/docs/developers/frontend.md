@@ -155,24 +155,21 @@ let undoStack = [];
 let redoStack = [];
 ```
 
-### modals.js — Lightbox And Comparison
+### lightbox.js — Image Viewer
 
-**Key functions:**
+`LightboxController` owns the complete image-viewer lifecycle and exposes:
+
 ```javascript
-openLightbox(index)        // Show the image lightbox
-closeLightbox()            // Hide the lightbox
-openComparisonModal()      // Compare two selected images
-closeComparisonModal()     // Close the comparison view
-initLightboxGestures()     // Wheel, swipe, pan, and pinch handling
+LightboxController.open({ clips, currentId, opener })
+LightboxController.openSingle({ clip, opener })
+LightboxController.setClips(clips)
+LightboxController.command(name, detail)
+LightboxController.close()
 ```
 
-**Focus trapping:**
-The lightbox and comparison modal trap keyboard focus for accessibility and manage their own keyboard handling:
-```javascript
-lightbox.addEventListener('keydown', e => {
-    if (e.key === 'Escape') closeLightbox();
-});
-```
+The controller uses stable clip IDs, generation-guarded image loading, actual-scale Fit/1:1 zoom, focal-point transforms, focus restoration, and keyboard/mouse/touchpad/touch adapters. Callers must not mutate lightbox DOM or state directly.
+
+`modals.js` retains image comparison and other modal behavior.
 
 ### watch.js — Watch Folders
 

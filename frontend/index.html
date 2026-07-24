@@ -472,7 +472,7 @@
         <!-- Gallery -->
         <section aria-labelledby="gallery-heading">
             <h2 id="gallery-heading" class="sr-only">Gallery of Clips</h2>
-            <ul id="gallery" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+            <ul id="gallery" tabindex="-1" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
                 <!-- Clip cards will be inserted here by JavaScript as <li> items -->
             </ul>
         </section>
@@ -709,44 +709,57 @@
     </div>
 
     <!-- Lightbox -->
-    <div id="lightbox" class="lightbox-backdrop" role="dialog" aria-modal="true" aria-label="Image Lightbox"
-        tabindex="-1" inert>
-        <button id="lightbox-close" class="lightbox-close" aria-label="Close lightbox" data-tooltip="Close viewer (Esc)">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"
-                xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12"></path>
-            </svg>
-        </button>
-
-        <button id="lightbox-prev" class="lightbox-nav lightbox-nav-prev" aria-label="Previous image" data-tooltip="Previous clip (Left)">
-            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"
-                xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 19l-7-7 7-7"></path>
-            </svg>
-        </button>
-
-        <div class="lightbox-content">
-            <img id="lightbox-img" src="" alt="" class="lightbox-image" draggable="false">
-            <p id="lightbox-caption" class="lightbox-caption"></p>
+    <div id="lightbox" class="lightbox-backdrop" role="dialog" aria-modal="true"
+        aria-labelledby="lightbox-caption" tabindex="-1" inert>
+        <div id="lightbox-viewport" class="lightbox-viewport" aria-busy="false">
+            <button id="lightbox-close" class="lightbox-close" aria-label="Close lightbox" data-tooltip="Close viewer (Esc)">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12"></path>
+                </svg>
+            </button>
+            <button id="lightbox-prev" class="lightbox-nav lightbox-nav-prev" aria-label="Previous image" data-tooltip="Previous clip (Left)">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 19l-7-7 7-7"></path>
+                </svg>
+            </button>
+            <div id="lightbox-pan-layer" class="lightbox-pan-layer">
+                <img id="lightbox-img" src="" alt="" class="lightbox-image" draggable="false">
+            </div>
+            <button id="lightbox-next" class="lightbox-nav lightbox-nav-next" aria-label="Next image" data-tooltip="Next clip (Right)">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5l7 7-7 7"></path>
+                </svg>
+            </button>
+            <div id="lightbox-loading" class="lightbox-state" role="status" hidden>
+                <svg class="lightbox-spinner" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle></svg>
+                <span>Loading image…</span>
+            </div>
+            <div id="lightbox-error" class="lightbox-state" hidden>
+                <p>Could not load this image.</p>
+                <button id="lightbox-retry" class="lightbox-state-button">Retry</button>
+            </div>
+            <p id="lightbox-caption" class="sr-only">Image preview</p>
+            <div id="lightbox-status" class="sr-only" aria-live="polite" aria-atomic="true"></div>
         </div>
 
-        <button id="lightbox-next" class="lightbox-nav lightbox-nav-next" aria-label="Next image" data-tooltip="Next clip (Right)">
-            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"
-                xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5l7 7-7 7"></path>
-            </svg>
-        </button>
-
         <div class="lightbox-bar">
-            <div id="lightbox-plugin-actions" class="lightbox-plugin-actions hidden">
-                <!-- Plugin buttons rendered by JS -->
+            <div class="lightbox-action-groups">
+                <div id="lightbox-plugin-actions" class="lightbox-plugin-actions hidden">
+                    <!-- Plugin buttons rendered by JS -->
+                </div>
+                <div id="lightbox-file-actions" class="lightbox-file-actions">
+                    <!-- File action menu rendered by JS -->
+                </div>
             </div>
             <div id="lightbox-image-info" class="lightbox-image-info"></div>
-            <div id="lightbox-file-actions" class="lightbox-file-actions">
-                <!-- File action menu rendered by JS -->
-            </div>
-            <div class="lightbox-zoom-control" data-tooltip="Adjust zoom level">
-                <input type="range" id="lightbox-zoom-slider" class="lightbox-range" min="100" max="400" value="100">
+            <div class="lightbox-zoom-control" role="group" aria-label="Image zoom controls">
+                <button id="lightbox-zoom-out" class="lightbox-zoom-button" aria-label="Zoom out" data-tooltip="Zoom out (-)">−</button>
+                <label class="sr-only" for="lightbox-zoom-slider">Image zoom</label>
+                <input type="range" id="lightbox-zoom-slider" class="lightbox-range" min="0" max="100" step="1" value="0"
+                    aria-describedby="lightbox-zoom-info" aria-valuetext="100% actual; Fit is 100%">
+                <button id="lightbox-zoom-in" class="lightbox-zoom-button" aria-label="Zoom in" data-tooltip="Zoom in (+)">+</button>
+                <button id="lightbox-zoom-fit" class="lightbox-zoom-mode" aria-label="Fit image to window" aria-pressed="true" data-tooltip="Fit image (0)">Fit</button>
+                <button id="lightbox-zoom-actual" class="lightbox-zoom-mode" aria-label="Show image at actual size" aria-pressed="true" data-tooltip="Actual size (1)">1:1</button>
                 <span id="lightbox-zoom-info" class="lightbox-zoom-info">100%</span>
             </div>
         </div>
@@ -2110,6 +2123,7 @@
     <script src="js/folder-context-menu.js"></script>
     <script src="js/folder-empty-context-menu.js"></script>
     <script src="js/folder-move-modal.js"></script>
+    <script src="js/lightbox.js"></script>
     <script src="js/ui.js"></script>
     <script src="js/modals.js"></script>
     <script src="js/editor/editor-core.js"></script>

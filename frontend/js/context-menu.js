@@ -10,6 +10,7 @@ const ContextMenu = (() => {
     let onActionCallback = null;
     let currentClipId = null;
     let lastFocusedBeforeOpen = null;
+    let activePortalRoot = document.body;
 
     // Maps submenu trigger elements to their children data
     const submenuChildrenMap = new WeakMap();
@@ -142,7 +143,7 @@ const ContextMenu = (() => {
 
         // Temporarily add to DOM to measure
         panel.style.visibility = 'hidden';
-        document.body.appendChild(panel);
+        activePortalRoot.appendChild(panel);
         const panelRect = panel.getBoundingClientRect();
 
         // Prefer right of trigger, flip left if overflow
@@ -458,9 +459,10 @@ const ContextMenu = (() => {
 
     // --- Public API ---
 
-    function open(items, clipId, anchor, onAction) {
+    function open(items, clipId, anchor, onAction, options = {}) {
         // Close any existing menu
         close();
+        activePortalRoot = options.portalRoot || document.body;
 
         // Dismiss tag popover if visible (it has higher z-index)
         if (typeof closeTagPopover === 'function') closeTagPopover();
@@ -473,7 +475,8 @@ const ContextMenu = (() => {
         const menu = document.createElement('div');
         menu.className = 'card-menu-dropdown fixed';
         menu.setAttribute('role', 'menu');
-        menu.setAttribute('aria-label', 'Clip actions');
+        menu.setAttribute('aria-label', options.ariaLabel || 'Clip actions');
+        if (options.menuId) menu.id = options.menuId;
         if (clipId != null) menu.dataset.clipId = clipId;
 
         // Populate items
@@ -496,8 +499,9 @@ const ContextMenu = (() => {
         });
 
         // Add to DOM and position
-        document.body.appendChild(menu);
+        activePortalRoot.appendChild(menu);
         positionMainMenu(menu, anchor);
+        if (anchor?.setAttribute) anchor.setAttribute('aria-expanded', 'true');
 
         // Setup interactions
         setupSubmenuHover(menu);
@@ -532,10 +536,12 @@ const ContextMenu = (() => {
 
         onActionCallback = null;
         currentClipId = null;
+        activePortalRoot = document.body;
 
         // Restore focus to the element that was focused before the menu opened
         if (lastFocusedBeforeOpen) {
-            lastFocusedBeforeOpen.focus();
+            lastFocusedBeforeOpen.setAttribute?.('aria-expanded', 'false');
+            if (lastFocusedBeforeOpen.isConnected) lastFocusedBeforeOpen.focus();
             lastFocusedBeforeOpen = null;
         }
     }
