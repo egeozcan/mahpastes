@@ -101,6 +101,12 @@ async function loadClips({ focusFirst = false } = {}) {
     } catch (error) {
         console.error('Error loading clips:', error);
         gallery.innerHTML = '<p class="text-red-500 col-span-full text-center">Error loading clips.</p>';
+    } finally {
+        // Render-completion signal. Several callers (folder-mode toggle, folder
+        // navigation) fire loadClips() without awaiting it from a sync click
+        // handler, so there is otherwise no way to tell that the gallery has
+        // finished re-rendering. Tests wait for this to advance.
+        window.__galleryRenderSeq = (window.__galleryRenderSeq || 0) + 1;
     }
 }
 

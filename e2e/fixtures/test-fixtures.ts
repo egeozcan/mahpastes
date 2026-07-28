@@ -1918,9 +1918,30 @@ export class AppHelper {
 
   // ==================== Folder Mode ====================
 
+  /**
+   * Run an action that triggers a gallery re-render and wait for that render
+   * to actually complete.
+   *
+   * Folder-mode toggling and folder navigation call loadClips() from a sync
+   * click handler without awaiting it, and never touch __appReady — so waiting
+   * on __appReady returns immediately (it is already true) and leaves the test
+   * asserting against the pre-click DOM. Waiting for the render counter to
+   * advance is the real signal.
+   */
+  private async withGalleryRender(action: () => Promise<void>): Promise<void> {
+    const before = await this.page.evaluate(() => (window as any).__galleryRenderSeq || 0);
+    await action();
+    await this.page.waitForFunction(
+      (prev) => ((window as any).__galleryRenderSeq || 0) > prev,
+      before,
+      { timeout: 10000 },
+    );
+  }
+
   async toggleFolderMode(): Promise<void> {
-    await this.page.locator(selectors.tags.folderModeButton).click();
-    await this.page.waitForFunction(() => (window as any).__appReady === true, null, { timeout: 10000 });
+    await this.withGalleryRender(async () => {
+      await this.page.locator(selectors.tags.folderModeButton).click();
+    });
   }
 
   async expectFolderVisible(name: string): Promise<void> {
@@ -1934,8 +1955,9 @@ export class AppHelper {
   async clickFolder(name: string): Promise<void> {
     const folder = this.page.locator(selectors.tags.folderCard(name));
     await folder.waitFor({ state: 'visible', timeout: 10000 });
-    await folder.click();
-    await this.page.waitForFunction(() => (window as any).__appReady === true, null, { timeout: 10000 });
+    await this.withGalleryRender(async () => {
+      await folder.click();
+    });
   }
 
   async setFolderMode(enabled: boolean): Promise<void> {
