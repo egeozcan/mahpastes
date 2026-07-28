@@ -5,8 +5,12 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Read worker count from environment or use default
-const workers = process.env.PW_WORKERS ? parseInt(process.env.PW_WORKERS) : 4;
+// Read worker count from environment or use default.
+// Each worker is a `wails dev` process plus a Chromium context, so memory is
+// the ceiling rather than CPU. Past ~6 the gain flattens anyway: global-setup
+// spawns instances sequentially, so added workers cost setup time linearly
+// while only dividing the (now small) execution time.
+const workers = process.env.PW_WORKERS ? parseInt(process.env.PW_WORKERS) : 6;
 
 export default defineConfig({
   testDir: './tests',

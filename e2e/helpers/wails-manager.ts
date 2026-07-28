@@ -122,7 +122,24 @@ async function waitForServer(url: string, timeoutMs?: number): Promise<void> {
   throw new Error(`Server at ${url} did not start within ${timeout}ms. Last error: ${lastError}`);
 }
 
-export async function spawnWailsInstance(workerIndex: number): Promise<WailsInstance> {
+/**
+ * Flags that skip build steps `wails dev` would otherwise redo on every spawn:
+ * the Tailwind build, binding generation, embed-file creation and `go mod tidy`.
+ *
+ * Only safe once a full build has already run in this session — the committed
+ * `frontend/dist/output.css` and `frontend/wailsjs/` are reused as-is. The
+ * first instance in global-setup always does a full build so that any local
+ * Go/CSS edits are picked up; every later spawn (extra workers, mid-suite
+ * restarts, secondary share instances) reuses that output.
+ *
+ * Measured on a warm cache: 22s full spawn vs 11s with these flags.
+ */
+const FAST_BUILD_FLAGS = ['-s', '-skipbindings', '-skipembedcreate', '-m'];
+
+export async function spawnWailsInstance(
+  workerIndex: number,
+  opts: { fastBuild?: boolean } = {},
+): Promise<WailsInstance> {
   const port = BASE_PORT + workerIndex;
   const dataDir = path.join(os.tmpdir(), `mahpastes-test-${workerIndex}-${Date.now()}`);
 
@@ -159,6 +176,7 @@ export async function spawnWailsInstance(workerIndex: number): Promise<WailsInst
     'dev',
     '-loglevel', 'warning',
     '-devserver', `localhost:${port}`,
+    ...(opts.fastBuild ? FAST_BUILD_FLAGS : []),
   ], {
     cwd: PROJECT_ROOT,
     env: {
@@ -358,11 +376,13 @@ export async function restartWailsInstance(workerIndex: number): Promise<WailsIn
     } catch { /* try next */ }
   }
 
-  // Spawn on the same port + same dataDir.
+  // Spawn on the same port + same dataDir. A restart only ever happens mid-run,
+  // long after global-setup did a full build, so the skip flags always apply.
   const proc = spawn(wailsBin, [
     'dev',
     '-loglevel', 'warning',
     '-devserver', `localhost:${port}`,
+    ...FAST_BUILD_FLAGS,
   ], {
     cwd: PROJECT_ROOT,
     env: {
@@ -457,7 +477,8 @@ export async function spawnSecondaryInstance(workerIndex: number): Promise<{
   const releaseSpawnLock = await acquireRestartLock(300000);
   let instance: WailsInstance;
   try {
-    instance = await spawnWailsInstance(secondaryIndex);
+    // Secondary instances only spawn mid-test, so the build is already warm.
+    instance = await spawnWailsInstance(secondaryIndex, { fastBuild: true });
   } finally {
     await releaseSpawnLock();
   }

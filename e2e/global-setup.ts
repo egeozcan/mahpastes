@@ -49,7 +49,9 @@ async function globalSetup(config: FullConfig): Promise<void> {
   // Each wails dev instance compiles the app, so parallel spawning causes conflicts
   for (let i = 0; i < workerCount; i++) {
     try {
-      const instance = await spawnWailsInstance(i);
+      // Worker 0 does a full build (picking up any local Go/CSS edits); the
+      // rest reuse its output and skip the redundant rebuild steps.
+      const instance = await spawnWailsInstance(i, { fastBuild: i > 0 });
       console.log(`  ✅ Worker ${i}: ${instance.baseURL} (data: ${instance.dataDir})`);
       instances.push({
         workerIndex: i,
