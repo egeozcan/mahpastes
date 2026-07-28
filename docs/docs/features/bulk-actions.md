@@ -42,6 +42,14 @@ When clips are selected:
 - A bulk action bar slides up at the bottom of the window
 - A **Cancel** button lets you clear the selection (or press <span className="keyboard-key">Esc</span>)
 
+### Bulk Context Menu
+
+The action bar is not the only way to reach these operations. With **more than one clip selected**, right-click any of the selected clips (or press <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">Enter</span> on a focused selected card) to open the bulk actions as a context menu right where the pointer is.
+
+The menu mirrors the action bar -- Tag, Set Expiration, Clear Expiration, Copy, Download, Compare, Archive/Restore, Delete, any applicable plugin bulk actions, and Deselect All. Labels carry the selection count (for example **Delete 3 clips**) so it is always clear the action applies to the whole selection.
+
+Right-clicking a clip that is **not** part of the selection opens the normal single-clip context menu instead, and so does right-clicking when only one clip is selected. The selection is left untouched either way.
+
 ## Available Bulk Actions
 
 ### Copy

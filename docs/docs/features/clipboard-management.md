@@ -133,6 +133,8 @@ Click the three-dot menu button on any clip card, or right-click anywhere on the
 
 If plugins define card actions, they appear in a **Plugins** submenu below a divider.
 
+When more than one clip is selected, right-clicking one of the selected clips opens the bulk actions instead of this menu. See [Bulk Actions](./bulk-actions.md#bulk-context-menu).
+
 :::note Temporary Files
 Files created via "Copy Path" are stored in a temp directory and cleaned up periodically (60-minute lease) and when mahpastes exits. Don't rely on them for permanent storage.
 :::

@@ -1486,6 +1486,16 @@ window.addEventListener('load', async () => {
                 const focused = ShortcutManager.getFocusedClip();
                 if (!focused) return;
                 const clipId = focused.dataset.id;
+                // Mirror right-click: a multi-selection containing this clip
+                // gets the bulk actions instead of the single-clip menu.
+                if (selectedIds.size > 1 && selectedIds.has(Number(clipId))) {
+                    const rect = focused.getBoundingClientRect();
+                    openBulkContextMenu({
+                        top: rect.top, left: rect.left, right: rect.right,
+                        bottom: rect.bottom, width: rect.width, height: rect.height,
+                    }, focused);
+                    return;
+                }
                 const menuBtn = focused.querySelector('[data-action="menu"]');
                 if (menuBtn && clipId) {
                     menuBtn.click();

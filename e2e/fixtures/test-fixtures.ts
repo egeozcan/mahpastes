@@ -964,6 +964,25 @@ export class AppHelper {
     await this.page.locator('.card-menu-dropdown [data-action="compare"]').click();
   }
 
+  /**
+   * Right-click a clip card. With more than one clip selected and the card
+   * among them, this opens the bulk actions context menu.
+   */
+  async openBulkContextMenu(filename: string): Promise<void> {
+    const clip = await this.getClipByFilename(filename);
+    await clip.click({ button: 'right' });
+    await this.page.locator(selectors.bulk.contextMenu).waitFor({ state: 'visible', timeout: 5000 });
+  }
+
+  getBulkContextMenuItem(action: string) {
+    return this.page.locator(selectors.bulk.contextMenuItem(action));
+  }
+
+  async clickBulkContextMenuItem(filename: string, action: string): Promise<void> {
+    await this.openBulkContextMenu(filename);
+    await this.getBulkContextMenuItem(action).click();
+  }
+
   isBulkToolbarVisible(): Promise<boolean> {
     // Toolbar uses opacity and pointer-events classes, not display
     return this.page.evaluate((selector) => {

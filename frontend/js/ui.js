@@ -129,6 +129,37 @@ function updateBulkMoreButton() {
     button.classList.toggle('hidden', !hasActions);
 }
 
+// Build menu entries for the applicable plugin bulk actions
+function buildBulkPluginItems(pluginActions) {
+    return pluginActions.map(action => ({
+        id: 'plugin',
+        label: escapeHTML(action.label),
+        iconHtml: typeof getPluginIcon === 'function'
+            ? (getPluginIcon(action.icon) || getPluginIcon('bolt') || '')
+            : '',
+        pluginId: action.plugin_id,
+        actionId: action.id,
+        hasOptions: action.options && action.options.length > 0,
+    }));
+}
+
+// Dispatch a plugin bulk action clicked in a menu built by buildBulkPluginItems
+function runBulkPluginAction(pluginActions, item) {
+    const pluginId = Number(item.dataset.pluginId);
+    const actionId = item.dataset.actionId;
+    const action = pluginActions.find(candidate =>
+        candidate.plugin_id === pluginId && candidate.id === actionId
+    );
+    if (!action) return;
+
+    const clipIds = Array.from(selectedIds);
+    if (action.options && action.options.length > 0) {
+        openPluginOptionsDialog(action, clipIds);
+    } else {
+        executePluginAction(action.plugin_id, action.id, clipIds, {}, action.async);
+    }
+}
+
 function openBulkMoreMenu(anchor) {
     const items = [];
     const canCompare = canCompareBulkSelection();
@@ -143,18 +174,7 @@ function openBulkMoreMenu(anchor) {
     }
     if (canCompare && pluginActions.length > 0) items.push({ type: 'divider' });
 
-    pluginActions.forEach(action => {
-        items.push({
-            id: 'plugin',
-            label: escapeHTML(action.label),
-            iconHtml: typeof getPluginIcon === 'function'
-                ? (getPluginIcon(action.icon) || getPluginIcon('bolt') || '')
-                : '',
-            pluginId: action.plugin_id,
-            actionId: action.id,
-            hasOptions: action.options && action.options.length > 0,
-        });
-    });
+    items.push(...buildBulkPluginItems(pluginActions));
 
     if (items.length === 0) return;
     ContextMenu.open(items, null, anchor, (menuAction, _id, item) => {
@@ -163,21 +183,118 @@ function openBulkMoreMenu(anchor) {
             return;
         }
         if (menuAction !== 'plugin') return;
-
-        const pluginId = Number(item.dataset.pluginId);
-        const actionId = item.dataset.actionId;
-        const action = pluginActions.find(candidate =>
-            candidate.plugin_id === pluginId && candidate.id === actionId
-        );
-        if (!action) return;
-
-        const clipIds = Array.from(selectedIds);
-        if (action.options && action.options.length > 0) {
-            openPluginOptionsDialog(action, clipIds);
-        } else {
-            executePluginAction(action.plugin_id, action.id, clipIds, {}, action.async);
-        }
+        runBulkPluginAction(pluginActions, item);
     });
+}
+
+// --- Multi-select context menu ---
+// Right-clicking a selected card while several clips are selected opens the
+// bulk actions as a context menu instead of the single-clip one.
+
+function anySelectedClipExpiring() {
+    return Array.from(selectedIds).some(id => {
+        const card = gallery.querySelector(`li[data-id="${id}"]`);
+        return !!(card && card.dataset.expiresAt);
+    });
+}
+
+function buildBulkMenuItemList(pluginActions) {
+    const isServerMode = window.mahpastesMode === 'server';
+    const count = selectedIds.size;
+    const items = [];
+
+    items.push({ id: 'bulk-tag', label: `Tag ${count} clips`, iconHtml: getMenuIcon('tags'), tooltip: 'Add a tag to selected clips' });
+    items.push({ id: 'bulk-expiry', label: 'Set Expiration', iconHtml: getMenuIcon('set-expiration'), tooltip: 'Set expiration on selected clips' });
+    if (anySelectedClipExpiring()) {
+        items.push({ id: 'bulk-cancel-expiry', label: 'Clear Expiration', iconHtml: getMenuIcon('cancel-expiration'), tooltip: 'Remove expiration from selected clips' });
+    }
+
+    items.push({ type: 'divider' });
+
+    // Copying files onto the host clipboard is desktop-only, same as the
+    // toolbar's .desktop-only Copy button.
+    if (!isServerMode) {
+        items.push({ id: 'bulk-copy', label: `Copy ${count} files`, iconHtml: getMenuIcon('copy-file'), tooltip: 'Copy selected files to clipboard for pasting' });
+    }
+    items.push({ id: 'bulk-download', label: `Download ${count} clips`, iconHtml: getMenuIcon('save'), tooltip: 'Save selected files to your Downloads folder' });
+    if (canCompareBulkSelection()) {
+        items.push({ id: 'bulk-compare', label: 'Compare', iconHtml: getMenuIcon('compare'), tooltip: 'Compare the two selected images' });
+    }
+    items.push({
+        id: 'bulk-archive',
+        label: isViewingArchive ? `Restore ${count} clips` : `Archive ${count} clips`,
+        iconHtml: getMenuIcon(isViewingArchive ? 'restore' : 'archive'),
+        tooltip: isViewingArchive ? 'Move selected clips back from archive' : 'Archive selected clips',
+    });
+    items.push({ id: 'bulk-delete', label: `Delete ${count} clips`, iconHtml: getMenuIcon('delete'), danger: true, tooltip: 'Permanently delete selected -- cannot be undone' });
+
+    if (pluginActions.length > 0) {
+        items.push({ type: 'divider' });
+        items.push({
+            type: 'submenu',
+            label: 'Plugins',
+            iconHtml: getMenuIcon('plugins'),
+            submenuId: 'bulk-plugins',
+            children: buildBulkPluginItems(pluginActions),
+        });
+    }
+
+    items.push({ type: 'divider' });
+    items.push({ id: 'bulk-deselect', label: 'Deselect All', iconHtml: getMenuIcon('deselect'), tooltip: 'Clear the selection' });
+
+    return items;
+}
+
+// `anchor` positions the menu (pointer rect or element); `popoverAnchor` must be
+// a real element because the tag/expiration popovers measure it.
+function openBulkContextMenu(anchor, popoverAnchor) {
+    const pluginActions = getApplicableBulkPluginActions();
+    const items = buildBulkMenuItemList(pluginActions);
+
+    const menu = ContextMenu.open(items, null, anchor, (action, _id, item) => {
+        if (action === 'plugin') {
+            runBulkPluginAction(pluginActions, item);
+            return;
+        }
+        handleBulkMenuAction(action, popoverAnchor);
+    }, { ariaLabel: 'Bulk actions for selected clips' });
+
+    // Tag the menu so bulk-specific selectors can distinguish it from the
+    // single-clip and folder menus.
+    if (menu) menu.setAttribute('data-source', 'bulk');
+    return menu;
+}
+
+function handleBulkMenuAction(action, popoverAnchor) {
+    switch (action) {
+        case 'bulk-tag':
+            openBulkTagPopover(popoverAnchor);
+            break;
+        case 'bulk-expiry':
+            openExpirationPopover(null, popoverAnchor, true);
+            break;
+        case 'bulk-cancel-expiry':
+            bulkCancelExpiry();
+            break;
+        case 'bulk-copy':
+            bulkCopyFiles();
+            break;
+        case 'bulk-download':
+            bulkDownload();
+            break;
+        case 'bulk-compare':
+            openComparisonModal();
+            break;
+        case 'bulk-archive':
+            bulkArchive();
+            break;
+        case 'bulk-delete':
+            bulkDelete();
+            break;
+        case 'bulk-deselect':
+            cancelSelection();
+            break;
+    }
 }
 
 // Render global plugin actions in the hamburger menu drawer
@@ -239,6 +356,7 @@ function getMenuIcon(name) {
         'set-expiration': '<path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>',
         'cancel-expiration': '<path stroke-linecap="round" stroke-linejoin="round" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"/>',
         'merge': '<path stroke-linecap="round" stroke-linejoin="round" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"/>',
+        'deselect': '<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>',
         'compare': '<path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>',
         'open': '<path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25"/>',
         'open-with': '<path stroke-linecap="round" stroke-linejoin="round" d="M3.75 9.776c.112-.017.227-.026.344-.026h15.812c.117 0 .232.009.344.026m-16.5 0a2.25 2.25 0 00-1.883 2.542l.857 6a2.25 2.25 0 002.227 1.932H19.05a2.25 2.25 0 002.227-1.932l.857-6a2.25 2.25 0 00-1.883-2.542m-16.5 0V6A2.25 2.25 0 016 3.75h3.879a1.5 1.5 0 011.06.44l2.122 2.12a1.5 1.5 0 001.06.44H18A2.25 2.25 0 0120.25 9v.776"/>',
@@ -971,10 +1089,16 @@ async function createClipCard(clip, options = {}) {
     });
 
     // Right-click anywhere on the card opens the same actions menu as the three-dot trigger.
+    // With several clips selected, right-clicking one of them opens the bulk
+    // actions instead, so the toolbar's operations are reachable in place.
     card.addEventListener('contextmenu', (e) => {
         e.preventDefault();
         e.stopPropagation();
         const anchor = { top: e.clientY, left: e.clientX, right: e.clientX, bottom: e.clientY, width: 0, height: 0 };
+        if (selectedIds.size > 1 && selectedIds.has(Number(clip.id))) {
+            openBulkContextMenu(anchor, card);
+            return;
+        }
         renderCardMenu(clip.id, menuTrigger, clip, anchor);
     });
 

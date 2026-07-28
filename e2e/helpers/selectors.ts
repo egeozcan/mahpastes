@@ -128,6 +128,9 @@ export const selectors = {
     deleteButton: '#bulk-delete-btn',
     expiryButton: '#bulk-expiry-btn',
     cancelExpiryButton: '#bulk-cancel-expiry-btn',
+    contextMenu: '.card-menu-dropdown[data-source="bulk"]',
+    contextMenuItem: (action: string) =>
+      `.card-menu-dropdown[data-source="bulk"] [data-action="${action}"]`,
   },
 
   // Expiration
