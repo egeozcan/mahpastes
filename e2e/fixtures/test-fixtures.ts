@@ -1534,9 +1534,8 @@ export class AppHelper {
       await window.go.main.App.AddTagToClip(clip.id, tagObj.id);
 
       // @ts-ignore
-      if (window.__testHelpers?.loadClips) window.__testHelpers.loadClips();
+      if (window.__testHelpers?.loadClips) await window.__testHelpers.loadClips();
     }, { idx: index, tag: tagName });
-    await this.page.waitForFunction(() => (window as any).__appReady === true, { timeout: 5000 });
   }
 
   /**
@@ -1566,10 +1565,9 @@ export class AppHelper {
         // @ts-ignore
         window.__testHelpers.setActiveTagFilters([tag.id]);
         // @ts-ignore
-        window.__testHelpers.loadClips();
+        await window.__testHelpers.loadClips();
       }
     }, tagName);
-    await this.page.waitForFunction(() => (window as any).__appReady === true, { timeout: 10000 });
   }
 
   /**
@@ -1638,11 +1636,9 @@ export class AppHelper {
       // @ts-ignore
       if (window.__testHelpers && window.__testHelpers.loadClips) {
         // @ts-ignore
-        window.__testHelpers.loadClips();
+        await window.__testHelpers.loadClips();
       }
     }, { filename: clipFilename, tag: tagName });
-
-    await this.page.waitForFunction(() => (window as any).__appReady === true, { timeout: 5000 });
   }
 
   async removeTagFromClip(clipFilename: string, tagName: string): Promise<void> {
@@ -1674,11 +1670,9 @@ export class AppHelper {
       // @ts-ignore
       if (window.__testHelpers && window.__testHelpers.loadClips) {
         // @ts-ignore
-        window.__testHelpers.loadClips();
+        await window.__testHelpers.loadClips();
       }
     }, { filename: clipFilename, tag: tagName });
-
-    await this.page.waitForFunction(() => (window as any).__appReady === true, { timeout: 5000 });
   }
 
   async enterFolderMode(): Promise<void> {
@@ -1754,11 +1748,9 @@ export class AppHelper {
         // @ts-ignore
         if (typeof updateActiveTagsDisplay === 'function') updateActiveTagsDisplay();
         // @ts-ignore
-        window.__testHelpers.loadClips();
+        await window.__testHelpers.loadClips();
       }
     }, tagName);
-
-    await this.page.waitForFunction(() => (window as any).__appReady === true, { timeout: 5000 });
   }
 
   async filterByTags(tagNames: string[]): Promise<void> {
@@ -1783,26 +1775,22 @@ export class AppHelper {
         // @ts-ignore
         window.__testHelpers.setActiveTagFilters(tagIds);
         // @ts-ignore
-        window.__testHelpers.loadClips();
+        await window.__testHelpers.loadClips();
       }
     }, tagNames);
-
-    await this.page.waitForFunction(() => (window as any).__appReady === true, { timeout: 5000 });
   }
 
   async clearTagFilters(): Promise<void> {
     // Clear filters via API
-    await this.page.evaluate(() => {
+    await this.page.evaluate(async () => {
       // @ts-ignore
       if (window.__testHelpers) {
         // @ts-ignore
         window.__testHelpers.setActiveTagFilters([]);
         // @ts-ignore
-        window.__testHelpers.loadClips();
+        await window.__testHelpers.loadClips();
       }
     });
-
-    await this.page.waitForFunction(() => (window as any).__appReady === true, { timeout: 5000 });
   }
 
   async expectClipHasTag(clipFilename: string, tagName: string): Promise<void> {
@@ -1858,11 +1846,9 @@ export class AppHelper {
       // @ts-ignore
       if (window.__testHelpers && window.__testHelpers.loadClips) {
         // @ts-ignore
-        window.__testHelpers.loadClips();
+        await window.__testHelpers.loadClips();
       }
     }, { clipIds: selectedClipIds, tag: tagName });
-
-    await this.page.waitForFunction(() => (window as any).__appReady === true, { timeout: 5000 });
   }
 
   async bulkRemoveTag(tagName: string): Promise<void> {
@@ -1894,11 +1880,9 @@ export class AppHelper {
       // @ts-ignore
       if (window.__testHelpers && window.__testHelpers.loadClips) {
         // @ts-ignore
-        window.__testHelpers.loadClips();
+        await window.__testHelpers.loadClips();
       }
     }, { clipIds: selectedClipIds, tag: tagName });
-
-    await this.page.waitForFunction(() => (window as any).__appReady === true, { timeout: 5000 });
   }
 
   async deleteAllTags(): Promise<void> {

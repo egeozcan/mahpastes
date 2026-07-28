@@ -402,11 +402,14 @@ Object.assign(window.__testHelpers, {
   isFolderMode: () => isFolderMode(),
   setFolderMode: (val) => { folderMode = val; },
   getShortcutManager: () => typeof ShortcutManager !== 'undefined' ? ShortcutManager : null,
-  // Expose loadClips function (defined in wails-api.js, but called here)
+  // Expose loadClips function (defined in wails-api.js, but called here).
+  // Returns the promise so callers can await the re-render — without it the
+  // gallery is still showing stale content when the helper resolves.
   loadClips: () => {
     if (typeof loadClips === 'function') {
-      loadClips();
+      return loadClips();
     }
+    return Promise.resolve();
   },
   handleFolderDrop: (folderFiles, looseFiles, dirPaths) => handleFolderDrop(folderFiles, looseFiles, dirPaths),
   handlePastedFiles: (files) => handlePastedFiles(files),
