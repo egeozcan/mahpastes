@@ -16,6 +16,7 @@ function openSettings() {
     loadUpdateInterval();
     renderShortcutsSettings();
     loadTooltipToggle();
+    loadLightboxBackdropToggle();
     settingsModal.removeAttribute('inert');
     settingsModal.classList.remove('opacity-0', 'pointer-events-none');
     settingsModal.classList.add('opacity-100');
@@ -529,6 +530,26 @@ if (tooltipsToggle) {
     tooltipsToggle.addEventListener('change', () => {
         if (typeof window.toggleTooltips === 'function') {
             window.toggleTooltips(tooltipsToggle.checked);
+        }
+    });
+}
+
+// --- Lightbox Backdrop Close Toggle ---
+const lightboxBackdropToggle = document.getElementById('lightbox-backdrop-close-toggle');
+
+// Reads the value app.js already cached at startup: a fresh GetSetting here
+// would resolve after the modal is interactive and clobber a quick toggle.
+function loadLightboxBackdropToggle() {
+    if (!lightboxBackdropToggle) return;
+    lightboxBackdropToggle.checked = typeof window.getLightboxCloseOnBackdrop === 'function'
+        ? window.getLightboxCloseOnBackdrop()
+        : true; // default enabled
+}
+
+if (lightboxBackdropToggle) {
+    lightboxBackdropToggle.addEventListener('change', () => {
+        if (typeof window.setLightboxCloseOnBackdrop === 'function') {
+            window.setLightboxCloseOnBackdrop(lightboxBackdropToggle.checked);
         }
     });
 }

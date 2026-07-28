@@ -458,6 +458,8 @@ export const selectors = {
     hiddenTagsList: '[data-testid="hidden-tags-list"]',
     hiddenTagRow: (name: string) => `[data-testid="hidden-tag-row-${name}"]`,
     hiddenTagToggle: (name: string) => `[data-testid="hidden-tag-toggle-${name}"]`,
+    lightboxBackdropToggle: '[data-testid="lightbox-backdrop-close-toggle"]',
+    lightboxBackdropLabel: '[data-testid="lightbox-backdrop-close-label"]',
   },
 
   // Settings - update interval

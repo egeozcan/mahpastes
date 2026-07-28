@@ -105,6 +105,56 @@ test.describe('Context Menu Structure', () => {
     const openWithItem = menu.locator('[data-action="open-with"]');
     await expect(openWithItem).toBeVisible();
   });
+
+  test('should open the actions menu when right-clicking the lightbox image', async ({ app }) => {
+    const imagePath = await createTempFile(generateTestImage(), 'png');
+    await app.uploadFile(imagePath);
+
+    await app.openLightbox(path.basename(imagePath));
+    await app.page.locator(selectors.lightbox.image).click({ button: 'right' });
+
+    const menu = app.page.locator(selectors.cardMenu.dropdown);
+    await expect(menu).toBeVisible();
+    await expect(menu.locator('[data-action="open"]')).toBeVisible();
+    // Portaled into the lightbox so it stacks above the backdrop
+    await expect(app.page.locator(`${selectors.lightbox.overlay} > ${selectors.cardMenu.dropdown}`)).toHaveCount(1);
+  });
+
+  test('should anchor the lightbox right-click menu at the pointer', async ({ app }) => {
+    const imagePath = await createTempFile(generateTestImage(), 'png');
+    await app.uploadFile(imagePath);
+
+    await app.openLightbox(path.basename(imagePath));
+    const viewport = app.page.locator(selectors.lightbox.viewport);
+    const viewportBox = (await viewport.boundingBox())!;
+    // Upper area, right of centre: leaves room for the menu to open below-left
+    // of the cursor without being clamped to the viewport edges.
+    const clickX = viewportBox.x + viewportBox.width * 0.6;
+    const clickY = viewportBox.y + viewportBox.height * 0.25;
+    await app.page.mouse.click(clickX, clickY, { button: 'right' });
+
+    const menu = app.page.locator(selectors.cardMenu.dropdown);
+    await expect(menu).toBeVisible();
+    const menuBox = (await menu.boundingBox())!;
+    // Menu is placed at the cursor, not at the Actions button in the bottom bar
+    expect(Math.abs(menuBox.x + menuBox.width - clickX)).toBeLessThan(20);
+    expect(Math.abs(menuBox.y - clickY)).toBeLessThan(20);
+  });
+
+  test('should close the lightbox right-click menu with Escape without closing the lightbox', async ({ app }) => {
+    const imagePath = await createTempFile(generateTestImage(), 'png');
+    await app.uploadFile(imagePath);
+
+    await app.openLightbox(path.basename(imagePath));
+    await app.page.locator(selectors.lightbox.image).click({ button: 'right' });
+
+    const menu = app.page.locator(selectors.cardMenu.dropdown);
+    await expect(menu).toBeVisible();
+
+    await app.page.keyboard.press('Escape');
+    await menu.waitFor({ state: 'hidden', timeout: 3000 });
+    await expect(app.page.locator(selectors.lightbox.overlay)).toHaveClass(/active/);
+  });
 });
 
 test.describe('Context Menu Keyboard Navigation', () => {

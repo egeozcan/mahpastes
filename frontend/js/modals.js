@@ -237,13 +237,15 @@ function renderLightboxFileActions(clip) {
     container.appendChild(btn);
 }
 
-function openLightboxFileMenu(trigger, clip) {
-    if (!clip) return;
+// `anchor` defaults to the trigger button; right-clicking the image passes a
+// pointer rect so the menu opens at the cursor instead of at the Actions button.
+function openLightboxFileMenu(trigger, clip, anchor = trigger) {
+    if (!clip || !anchor) return;
 
     // buildMenuItemList is shared with the card menu — the lightbox intentionally
     // shows the full set of actions (metadata, expiration, merge, etc.) for parity.
     const items = buildMenuItemList(clip);
-    ContextMenu.open(items, clip.id, trigger, (action, clipId, item) => {
+    ContextMenu.open(items, clip.id, anchor, (action, clipId, item) => {
         if (action === 'plugin') {
             handlePluginCardAction({
                 action: 'plugin',

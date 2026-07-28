@@ -432,6 +432,7 @@ test.describe('HTML Integrity', () => {
               '#settings-close',
               '#settings-save',
               '[data-testid="tooltips-toggle"]',
+              '[data-testid="lightbox-backdrop-close-toggle"]',
               '[data-testid="settings-shortcuts-section"]',
             ],
             requiredAttributes: ['role', 'aria-modal'],

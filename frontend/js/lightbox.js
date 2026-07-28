@@ -6,6 +6,7 @@
         const WHEEL_THRESHOLD = 56;
         const WHEEL_QUIET_MS = 180;
         const EPSILON = 0.0001;
+        const DRAG_SLOP = 3;
 
         const state = {
             phase: 'closed',
@@ -40,6 +41,7 @@
             wheelDirection: 0,
             wheelLocked: false,
             wheelQuietTimer: null,
+            suppressBackdropClick: false,
         };
 
         const backgroundInert = new Map();
@@ -431,6 +433,12 @@
         }
 
         function onPointerDown(event) {
+            if (event.pointerType !== 'touch') {
+                // Recorded here because pointerdown runs before the context menu's
+                // document-level dismiss handler: a click that only dismisses an
+                // open menu must not also close the lightbox.
+                state.suppressBackdropClick = event.button !== 0 || Boolean(deps.menusOpen?.());
+            }
             if (event.pointerType === 'touch' || event.button !== 0 || !isPannable()) return;
             if (event.target.closest('button')) return;
             state.pointerId = event.pointerId;
@@ -445,6 +453,12 @@
 
         function onPointerMove(event) {
             if (event.pointerId !== state.pointerId) return;
+            if (Math.abs(event.clientX - state.dragStartX) > DRAG_SLOP ||
+                Math.abs(event.clientY - state.dragStartY) > DRAG_SLOP) {
+                // Pointer capture retargets the trailing click to the viewport, so a
+                // pan that ends over the backdrop must not read as a backdrop click.
+                state.suppressBackdropClick = true;
+            }
             state.panX = state.dragStartPanX + event.clientX - state.dragStartX;
             state.panY = state.dragStartPanY + event.clientY - state.dragStartY;
             constrainPan();
@@ -470,6 +484,38 @@
             event.preventDefault();
         }
 
+        function onViewportClick(event) {
+            const suppressed = state.suppressBackdropClick;
+            state.suppressBackdropClick = false;
+            if (suppressed || state.phase === 'closed' || event.button !== 0) return;
+            // Only the bare backdrop closes — the image, the nav arrows and every
+            // overlay (loading, error) keep their own behaviour. The pan layer
+            // counts as backdrop: it is laid out at the image's natural size while
+            // the image itself is only scaled by a transform, so for anything
+            // larger than the viewport its box reaches far past the visible
+            // picture — often across the whole viewport.
+            const target = event.target;
+            if (target !== deps.elements.viewport && target !== deps.elements.panLayer) return;
+            if (deps.shouldCloseOnBackdrop && !deps.shouldCloseOnBackdrop()) return;
+            close();
+        }
+
+        function onContextMenu(event) {
+            // Always suppress the native menu inside the viewport, then open the
+            // clip actions menu at the pointer (same menu as the Actions button).
+            event.preventDefault();
+            const clip = currentClip();
+            if (!clip || state.phase === 'closed') return;
+            deps.openContextMenu?.(clip, {
+                top: event.clientY,
+                left: event.clientX,
+                right: event.clientX,
+                bottom: event.clientY,
+                width: 0,
+                height: 0,
+            });
+        }
+
         function touchGeometry(touches) {
             const first = touches[0];
             const second = touches[1];
@@ -483,6 +529,7 @@
         }
 
         function onTouchStart(event) {
+            state.suppressBackdropClick = event.touches.length > 1 || Boolean(deps.menusOpen?.());
             if (state.phase !== 'ready' || event.target.closest('button')) return;
             if (event.touches.length === 2) {
                 const geometry = touchGeometry(event.touches);
@@ -521,6 +568,10 @@
             }
             if (event.touches.length !== 1) return;
             const touch = event.touches[0];
+            if (Math.abs(touch.clientX - state.swipeStartX) > DRAG_SLOP ||
+                Math.abs(touch.clientY - state.swipeStartY) > DRAG_SLOP) {
+                state.suppressBackdropClick = true;
+            }
             if (state.touchMode === 'pan') {
                 state.panX += touch.clientX - state.lastTouchX;
                 state.panY += touch.clientY - state.lastTouchY;
@@ -569,7 +620,9 @@
         deps.elements.viewport.addEventListener('pointermove', onPointerMove);
         deps.elements.viewport.addEventListener('pointerup', endPointerPan);
         deps.elements.viewport.addEventListener('pointercancel', endPointerPan);
+        deps.elements.viewport.addEventListener('click', onViewportClick);
         deps.elements.viewport.addEventListener('dblclick', onDoubleClick);
+        deps.elements.viewport.addEventListener('contextmenu', onContextMenu);
         deps.elements.viewport.addEventListener('touchstart', onTouchStart, { passive: false });
         deps.elements.viewport.addEventListener('touchmove', onTouchMove, { passive: false });
         deps.elements.viewport.addEventListener('touchend', onTouchEnd);

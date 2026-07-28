@@ -124,6 +124,21 @@ const lightboxClose = document.getElementById('lightbox-close');
 const lightboxPrev = document.getElementById('lightbox-prev');
 const lightboxNext = document.getElementById('lightbox-next');
 
+// Lightbox backdrop-click-to-close preference. Enabled unless the user turns it
+// off in Settings; cached here so the click handler stays synchronous.
+let lightboxCloseOnBackdrop = true;
+
+window.getLightboxCloseOnBackdrop = () => lightboxCloseOnBackdrop;
+
+window.setLightboxCloseOnBackdrop = async (enabled) => {
+    lightboxCloseOnBackdrop = enabled;
+    try {
+        await window.go.main.App.SetSetting('lightbox_close_on_backdrop', enabled ? 'true' : 'false');
+    } catch (error) {
+        console.error('Failed to save lightbox backdrop setting:', error);
+    }
+};
+
 window.LightboxController = window.createLightboxController({
     elements: {
         root: lightbox,
@@ -156,11 +171,15 @@ window.LightboxController = window.createLightboxController({
     trapFocus,
     renderPluginActions: clip => renderLightboxPluginButtons(clip),
     renderFileActions: clip => renderLightboxFileActions(clip),
+    openContextMenu: (clip, anchor) => openLightboxFileMenu(
+        document.getElementById('lightbox-file-menu-trigger'), clip, anchor),
     editClip: clip => {
         window.LightboxController.close();
         openEditor(clip.id);
     },
     copyClip: clip => copyClipContents(clip.id),
+    shouldCloseOnBackdrop: () => lightboxCloseOnBackdrop,
+    menusOpen: () => Boolean(document.getElementById('lightbox-plugin-menu')) || ContextMenu.isOpen(),
     closeMenus: () => {
         closeLightboxPluginMenu(true);
         closeLightboxFileMenu(true);
@@ -1249,6 +1268,12 @@ window.addEventListener('load', async () => {
             if (['date', 'name', 'size', 'type'].includes(savedField)) currentSortField = savedField;
             if (['asc', 'desc'].includes(savedDir)) currentSortDir = savedDir;
         } catch (e) { /* use defaults */ }
+
+        // Lightbox backdrop click behaviour (default: close)
+        try {
+            const backdropSetting = await window.go.main.App.GetSetting('lightbox_close_on_backdrop');
+            lightboxCloseOnBackdrop = backdropSetting !== 'false';
+        } catch (e) { /* use default */ }
 
         // Folder mode toggle
         const folderModeBtn = document.getElementById('folder-mode-btn');

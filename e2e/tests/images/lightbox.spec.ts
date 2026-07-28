@@ -4,7 +4,16 @@ import {
   generateTestImage,
 } from '../../helpers/test-data';
 import { selectors } from '../../helpers/selectors';
+import type { Page } from '@playwright/test';
 import * as path from 'path';
+
+// Clicks the dark area near the viewport's bottom-left corner: clear of the
+// centred image, the close button (top-right) and the nav arrows (mid-height).
+async function clickLightboxBackdrop(page: Page): Promise<void> {
+  const box = await page.locator(selectors.lightbox.viewport).boundingBox();
+  if (!box) throw new Error('Lightbox viewport has no bounding box');
+  await page.mouse.click(box.x + 12, box.y + box.height - 12);
+}
 
 test.describe('Image Lightbox', () => {
   test.afterEach(async ({ app }) => {
@@ -48,6 +57,127 @@ test.describe('Image Lightbox', () => {
 
       const isOpen = await app.isLightboxOpen();
       expect(isOpen).toBe(false);
+    });
+
+    test('should close lightbox when clicking the backdrop', async ({ app }) => {
+      const imagePath = await createTempFile(generateTestImage(200, 200), 'png');
+      const filename = path.basename(imagePath);
+
+      await app.uploadFile(imagePath);
+      await app.openLightbox(filename);
+      await clickLightboxBackdrop(app.page);
+
+      await expect(app.page.locator(selectors.lightbox.overlay)).not.toHaveClass(/active/);
+      expect(await app.isLightboxOpen()).toBe(false);
+    });
+
+    test('closes when clicking just outside a downscaled image', async ({ app }) => {
+      // The pan layer is laid out at the image's natural size, so on any image
+      // bigger than the viewport it used to swallow clicks next to the picture.
+      const imagePath = await createTempFile(generateTestImage(2000, 1600), 'png');
+      await app.uploadFile(imagePath);
+      await app.openLightbox(path.basename(imagePath));
+
+      const imageBox = await app.page.locator(selectors.lightbox.image).boundingBox();
+      const viewportBox = await app.page.locator(selectors.lightbox.viewport).boundingBox();
+      if (!imageBox || !viewportBox) throw new Error('Lightbox has no bounding box');
+      // The image is letterboxed, so there is dark area to its right.
+      expect(imageBox.x + imageBox.width).toBeLessThan(viewportBox.x + viewportBox.width - 20);
+      await app.page.mouse.click(imageBox.x + imageBox.width + 10, imageBox.y + imageBox.height / 2);
+
+      await expect(app.page.locator(selectors.lightbox.overlay)).not.toHaveClass(/active/);
+      expect(await app.isLightboxOpen()).toBe(false);
+    });
+
+    test('keeps the lightbox open when clicking the image itself', async ({ app }) => {
+      const imagePath = await createTempFile(generateTestImage(400, 400), 'png');
+      const filename = path.basename(imagePath);
+
+      await app.uploadFile(imagePath);
+      await app.openLightbox(filename);
+      await app.page.locator(selectors.lightbox.image).click();
+
+      await expect(app.page.locator(selectors.lightbox.overlay)).toHaveClass(/active/);
+      expect(await app.isLightboxOpen()).toBe(true);
+    });
+
+    test('keeps the lightbox open when a pan drag ends on the backdrop', async ({ app }) => {
+      // Pointer capture retargets the trailing click to the viewport, so without
+      // drag suppression a pan would read as a backdrop click.
+      const imagePath = await createTempFile(generateTestImage(2000, 1600), 'png');
+      await app.uploadFile(imagePath);
+      await app.openLightbox(path.basename(imagePath));
+      await app.page.locator(selectors.lightbox.zoomActual).click();
+
+      const box = await app.page.locator(selectors.lightbox.viewport).boundingBox();
+      if (!box) throw new Error('Lightbox viewport has no bounding box');
+      await app.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await app.page.mouse.down();
+      await app.page.mouse.move(box.x + 12, box.y + box.height - 12, { steps: 5 });
+      await app.page.mouse.up();
+
+      await expect(app.page.locator(selectors.lightbox.overlay)).toHaveClass(/active/);
+      expect(await app.isLightboxOpen()).toBe(true);
+    });
+
+    test('backdrop click can be disabled in settings', async ({ app }) => {
+      const imagePath = await createTempFile(generateTestImage(200, 200), 'png');
+      const filename = path.basename(imagePath);
+      await app.uploadFile(imagePath);
+
+      await app.openSettingsModal();
+      const toggle = app.page.locator(selectors.settings.lightboxBackdropToggle);
+      await expect(toggle).toBeChecked();
+      // The checkbox is sr-only behind a visual switch, so click the label.
+      await app.page.locator(selectors.settings.lightboxBackdropLabel).click();
+      await expect(toggle).not.toBeChecked();
+      await app.closeSettingsModal();
+
+      try {
+        await app.openLightbox(filename);
+        await clickLightboxBackdrop(app.page);
+        await expect(app.page.locator(selectors.lightbox.overlay)).toHaveClass(/active/);
+        expect(await app.isLightboxOpen()).toBe(true);
+
+        // The close button still works with the preference off.
+        await app.closeLightbox();
+        expect(await app.isLightboxOpen()).toBe(false);
+      } finally {
+        // Restore the default for the rest of the worker's tests.
+        await app.openSettingsModal();
+        await app.page.locator(selectors.settings.lightboxBackdropLabel).click();
+        await expect(app.page.locator(selectors.settings.lightboxBackdropToggle)).toBeChecked();
+        await app.closeSettingsModal();
+      }
+    });
+
+    test('backdrop close preference persists across reload', async ({ app }) => {
+      const imagePath = await createTempFile(generateTestImage(200, 200), 'png');
+      const filename = path.basename(imagePath);
+      await app.uploadFile(imagePath);
+
+      await app.openSettingsModal();
+      await app.page.locator(selectors.settings.lightboxBackdropLabel).click();
+      await app.closeSettingsModal();
+
+      await app.page.reload();
+      await app.waitForReady();
+
+      try {
+        await app.openSettingsModal();
+        await expect(app.page.locator(selectors.settings.lightboxBackdropToggle)).not.toBeChecked();
+        await app.closeSettingsModal();
+
+        await app.openLightbox(filename);
+        await clickLightboxBackdrop(app.page);
+        expect(await app.isLightboxOpen()).toBe(true);
+        await app.closeLightbox();
+      } finally {
+        await app.openSettingsModal();
+        await app.page.locator(selectors.settings.lightboxBackdropLabel).click();
+        await expect(app.page.locator(selectors.settings.lightboxBackdropToggle)).toBeChecked();
+        await app.closeSettingsModal();
+      }
     });
 
     test('should display image in lightbox', async ({ app }) => {
