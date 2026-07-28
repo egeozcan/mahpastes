@@ -136,6 +136,21 @@ async function waitForServer(url: string, timeoutMs?: number): Promise<void> {
  */
 const FAST_BUILD_FLAGS = ['-s', '-skipbindings', '-skipembedcreate', '-m'];
 
+/**
+ * Applied to every test instance.
+ *
+ * `wails dev` watches the whole project directory, and Playwright writes
+ * test-results/ and playwright-report/ inside it. Worker 0 is the only
+ * instance without the skip flags above, so a watcher-triggered rebuild makes
+ * it regenerate bindings and re-run the Tailwind build — writing back into the
+ * very tree being watched, and taking its dev server down long enough that
+ * in-flight tests fail with ERR_CONNECTION_REFUSED. Observed twice across ~10
+ * full runs, always on worker 0's port.
+ *
+ * Tests never edit source, so a rebuild mid-run is only ever harmful.
+ */
+const NO_REBUILD_FLAGS = ['-nogorebuild', '-noreload'];
+
 export async function spawnWailsInstance(
   workerIndex: number,
   opts: { fastBuild?: boolean } = {},
@@ -176,6 +191,7 @@ export async function spawnWailsInstance(
     'dev',
     '-loglevel', 'warning',
     '-devserver', `localhost:${port}`,
+    ...NO_REBUILD_FLAGS,
     ...(opts.fastBuild ? FAST_BUILD_FLAGS : []),
   ], {
     cwd: PROJECT_ROOT,
@@ -382,6 +398,7 @@ export async function restartWailsInstance(workerIndex: number): Promise<WailsIn
     'dev',
     '-loglevel', 'warning',
     '-devserver', `localhost:${port}`,
+    ...NO_REBUILD_FLAGS,
     ...FAST_BUILD_FLAGS,
   ], {
     cwd: PROJECT_ROOT,
