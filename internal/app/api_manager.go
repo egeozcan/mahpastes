@@ -277,6 +277,7 @@ func (am *APIManager) Start(port int, bindAll bool) (APIStatus, error) {
 	if !am.routesRegistered {
 		mux := am.mux
 		mux.HandleFunc("GET /api/v1/clips", am.authMiddleware(am.requireRole("viewer", am.handleListClips)))
+		mux.HandleFunc("GET /api/v1/clips/hidden-info", am.authMiddleware(am.requireRole("viewer", am.handleHiddenClipInfo)))
 		mux.HandleFunc("GET /api/v1/clips/{id}", am.authMiddleware(am.requireRole("viewer", am.handleGetClip)))
 		mux.HandleFunc("GET /api/v1/clips/{id}/data", am.authMiddleware(am.requireRole("viewer", am.handleGetClipData)))
 		mux.HandleFunc("POST /api/v1/clips", am.authMiddleware(am.requireRole("editor", am.handleCreateClip)))
@@ -1148,6 +1149,61 @@ func (am *APIManager) handleListClips(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleHiddenClipInfo reports how many clips the given filters would match if
+// no tags were hidden, so a client can tell the user what it is withholding.
+func (am *APIManager) handleHiddenClipInfo(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+	q := r.URL.Query()
+	archived := q.Get("archived") == "true"
+
+	parseIDs := func(values []string) ([]int64, error) {
+		out := make([]int64, 0, len(values))
+		for _, v := range values {
+			if v == "" {
+				continue
+			}
+			id, err := parseIntParam(v)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, id)
+		}
+		return out, nil
+	}
+	tagIDs, err := parseIDs(q["tag"])
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid tag id")
+		return
+	}
+	hiddenIDs, err := parseIDs(q["hidden"])
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid hidden tag id")
+		return
+	}
+
+	// Mirror handleListClipsViaApp: a tag-scoped key may only ask about its own subtree.
+	empty := HiddenClipInfo{Tags: []string{}}
+	if keyCtx.ScopedTagID > 0 {
+		if len(tagIDs) == 0 {
+			tagIDs = []int64{keyCtx.ScopedTagID}
+		}
+		for _, id := range tagIDs {
+			var name string
+			if err := am.app.db.QueryRow("SELECT name FROM tags WHERE id = ?", id).Scan(&name); err != nil || !am.isTagInScope(name, keyCtx.ScopedTagID) {
+				am.jsonOK(w, empty)
+				return
+			}
+		}
+	}
+
+	info, err := am.app.GetHiddenClipInfo(archived, tagIDs, hiddenIDs)
+	if err != nil {
+		am.jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	am.jsonOK(w, info)
+}
+
 func (am *APIManager) handleListClipsViaApp(w http.ResponseWriter, r *http.Request, limit, offset int, keyCtx *apiKeyContext) {
 	q := r.URL.Query()
 	archived := q.Get("archived") == "true"
@@ -1222,7 +1278,7 @@ func (am *APIManager) handleListClipsViaApp(w http.ResponseWriter, r *http.Reque
 				return
 			}
 		}
-		previews, err = am.app.GetFolderClips(archived, folderID, hiddenIDs, sortField, sortDir)
+		previews, err = am.app.GetFolderClips(archived, folderID, sortField, sortDir)
 	} else {
 		previews, err = am.app.GetClips(archived, tagIDs, hiddenIDs, sortField, sortDir)
 	}

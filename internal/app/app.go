@@ -514,16 +514,20 @@ func (a *App) GetClipsDirect(archived bool, tagIDs []int64, hiddenTagIDs []int64
 // GetFolderClips returns clips tagged with the given tag but NOT tagged with any
 // descendant of that tag. Used by folder mode so clips appear only at their
 // deepest folder level.
-func (a *App) GetFolderClips(archived bool, tagID int64, hiddenTagIDs []int64, sortField string, sortDir string) ([]ClipPreview, error) {
+//
+// Hidden tags are deliberately NOT applied here: in folder mode, hiding affects
+// how folder cards are drawn (dimmed), not which clips a folder contains. A clip
+// tagged both `contacts` and `web/contacts` must still appear inside `contacts`
+// even when `web` is hidden — otherwise the folder looks empty while its card
+// still counts the clip.
+func (a *App) GetFolderClips(archived bool, tagID int64, sortField string, sortDir string) ([]ClipPreview, error) {
 	descendantIDs, err := a.getDescendantTagIDs(tagID)
 	if err != nil {
 		return nil, err
 	}
-	// Merge descendant IDs into hidden list so they act as exclusions
-	excludeIDs := make([]int64, 0, len(hiddenTagIDs)+len(descendantIDs))
-	excludeIDs = append(excludeIDs, hiddenTagIDs...)
-	excludeIDs = append(excludeIDs, descendantIDs...)
-	return a.getClipsInternal(archived, []int64{tagID}, excludeIDs, sortField, sortDir, false)
+	// Descendant IDs ride the hidden-tag channel purely as exclusions, so clips
+	// that live in a subfolder are not repeated at this level.
+	return a.getClipsInternal(archived, []int64{tagID}, descendantIDs, sortField, sortDir, false)
 }
 
 // GetUntaggedClips returns clips that have no tags at all.
@@ -531,26 +535,110 @@ func (a *App) GetUntaggedClips(archived bool, hiddenTagIDs []int64, sortField st
 	return a.getClipsInternal(archived, nil, hiddenTagIDs, sortField, sortDir, false, true)
 }
 
-func (a *App) getClipsInternal(archived bool, tagIDs []int64, hiddenTagIDs []int64, sortField string, sortDir string, expandFilters bool, untaggedOnly ...bool) ([]ClipPreview, error) {
+// HiddenClipInfo reports clips that match the active tag filters but are kept
+// out of the gallery because they also carry a hidden tag. Tags lists the hidden
+// tag names responsible, so the UI can explain what is being withheld.
+type HiddenClipInfo struct {
+	Count int      `json:"count"`
+	Tags  []string `json:"tags"`
+}
+
+// GetHiddenClipInfo counts the clips that GetClips would have returned for these
+// filters if no tags were hidden. Same filter expansion as GetClips, with the
+// hidden anti-join flipped into a requirement.
+func (a *App) GetHiddenClipInfo(archived bool, tagIDs []int64, hiddenTagIDs []int64) (HiddenClipInfo, error) {
+	info := HiddenClipInfo{Tags: []string{}}
+
+	scope := a.buildClipFilterScope(tagIDs, hiddenTagIDs, true)
+	if len(scope.effectiveHidden) == 0 {
+		return info, nil
+	}
+
 	archivedInt := 0
 	if archived {
 		archivedInt = 1
 	}
 
-	col := sortColumn(sortField)
-	dir := "DESC"
-	if sortDir == "asc" {
-		dir = "ASC"
-	}
-	orderClause := fmt.Sprintf("ORDER BY %s %s", col, dir)
-	if col != "c.created_at" {
-		orderClause += ", c.created_at DESC, c.id DESC"
-	} else if dir == "DESC" {
-		orderClause += ", c.id DESC"
-	} else {
-		orderClause += ", c.id ASC"
+	var conditions []string
+	var args []interface{}
+	for _, group := range scope.filterGroups {
+		placeholders := make([]string, len(group.ids))
+		for i, id := range group.ids {
+			placeholders[i] = "?"
+			args = append(args, id)
+		}
+		conditions = append(conditions,
+			fmt.Sprintf("EXISTS (SELECT 1 FROM clip_tags ct WHERE ct.clip_id = c.id AND ct.tag_id IN (%s))",
+				strings.Join(placeholders, ",")))
 	}
 
+	hiddenPlaceholders := make([]string, len(scope.effectiveHidden))
+	for i, id := range scope.effectiveHidden {
+		hiddenPlaceholders[i] = "?"
+		args = append(args, id)
+	}
+	hiddenIn := strings.Join(hiddenPlaceholders, ",")
+	conditions = append(conditions,
+		fmt.Sprintf("EXISTS (SELECT 1 FROM clip_tags ct WHERE ct.clip_id = c.id AND ct.tag_id IN (%s))", hiddenIn))
+	conditions = append(conditions, "c.is_archived = ?", "(c.expires_at IS NULL OR c.expires_at > CURRENT_TIMESTAMP)")
+	args = append(args, archivedInt)
+
+	where := strings.Join(conditions, "\n\t\t  AND ")
+
+	if err := a.db.QueryRow(
+		fmt.Sprintf("SELECT COUNT(DISTINCT c.id) FROM clips c WHERE %s", where), args...,
+	).Scan(&info.Count); err != nil {
+		return info, fmt.Errorf("failed to count hidden clips: %w", err)
+	}
+	if info.Count == 0 {
+		return info, nil
+	}
+
+	// Name the hidden tags actually responsible, not every hidden tag.
+	nameArgs := append([]interface{}{}, args...)
+	for _, id := range scope.effectiveHidden {
+		nameArgs = append(nameArgs, id)
+	}
+	rows, err := a.db.Query(fmt.Sprintf(`
+		SELECT DISTINCT t.name
+		FROM clips c
+		INNER JOIN clip_tags ct ON ct.clip_id = c.id
+		INNER JOIN tags t ON t.id = ct.tag_id
+		WHERE %s
+		  AND t.id IN (%s)
+		ORDER BY t.name`, where, hiddenIn), nameArgs...)
+	if err != nil {
+		return info, fmt.Errorf("failed to list hidden tags: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			continue
+		}
+		info.Tags = append(info.Tags, name)
+	}
+	return info, rows.Err()
+}
+
+// tagFilterGroup is one active tag filter, expanded to the tag IDs that satisfy
+// it. A clip must match every group (AND across groups, OR within a group).
+type tagFilterGroup struct {
+	ids []int64
+}
+
+// clipFilterScope is the resolved tag scope of a clip query: which tags satisfy
+// each active filter, and which hidden tags still apply once the filters have
+// revealed their own subtree and ancestors.
+type clipFilterScope struct {
+	filterGroups    []tagFilterGroup
+	effectiveHidden []int64
+}
+
+// buildClipFilterScope resolves active filters and hidden tags into the ID sets
+// the clip queries run on. Shared by the listing query and the hidden-clip
+// counter so the "N hidden" note can never disagree with the list it sits under.
+func (a *App) buildClipFilterScope(tagIDs []int64, hiddenTagIDs []int64, expandFilters bool) clipFilterScope {
 	// Expand hidden tags to include descendants (always, regardless of expandFilters)
 	expandedHidden := make([]int64, 0, len(hiddenTagIDs))
 	for _, tagID := range hiddenTagIDs {
@@ -562,9 +650,6 @@ func (a *App) getClipsInternal(archived bool, tagIDs []int64, hiddenTagIDs []int
 	}
 
 	// Build expanded filter groups (one per original tag filter)
-	type tagFilterGroup struct {
-		ids []int64
-	}
 	var filterGroups []tagFilterGroup
 	// Collect all filter IDs (expanded) for effective hidden computation
 	allFilterIDs := make(map[int64]bool)
@@ -605,6 +690,33 @@ func (a *App) getClipsInternal(archived bool, tagIDs []int64, hiddenTagIDs []int
 			effectiveHidden = append(effectiveHidden, id)
 		}
 	}
+
+	return clipFilterScope{filterGroups: filterGroups, effectiveHidden: effectiveHidden}
+}
+
+func (a *App) getClipsInternal(archived bool, tagIDs []int64, hiddenTagIDs []int64, sortField string, sortDir string, expandFilters bool, untaggedOnly ...bool) ([]ClipPreview, error) {
+	archivedInt := 0
+	if archived {
+		archivedInt = 1
+	}
+
+	col := sortColumn(sortField)
+	dir := "DESC"
+	if sortDir == "asc" {
+		dir = "ASC"
+	}
+	orderClause := fmt.Sprintf("ORDER BY %s %s", col, dir)
+	if col != "c.created_at" {
+		orderClause += ", c.created_at DESC, c.id DESC"
+	} else if dir == "DESC" {
+		orderClause += ", c.id DESC"
+	} else {
+		orderClause += ", c.id ASC"
+	}
+
+	scope := a.buildClipFilterScope(tagIDs, hiddenTagIDs, expandFilters)
+	filterGroups := scope.filterGroups
+	effectiveHidden := scope.effectiveHidden
 
 	var query string
 	var args []interface{}
@@ -2170,12 +2282,18 @@ func (a *App) getTopLevelTags() ([]Tag, error) {
 }
 
 // getDescendantClipCount returns the number of distinct clips tagged with the
-// given tag or any of its descendants.
-func (a *App) getDescendantClipCount(tagID int64) (int, error) {
+// given tag or any of its descendants, counting only clips that folder mode
+// would actually show: matching the archive view and not yet expired.
+func (a *App) getDescendantClipCount(tagID int64, archived bool) (int, error) {
 	var parentName string
 	err := a.db.QueryRow("SELECT name FROM tags WHERE id = ?", tagID).Scan(&parentName)
 	if err != nil {
 		return 0, fmt.Errorf("failed to find tag %d: %w", tagID, err)
+	}
+
+	archivedInt := 0
+	if archived {
+		archivedInt = 1
 	}
 
 	var count int
@@ -2183,8 +2301,11 @@ func (a *App) getDescendantClipCount(tagID int64) (int, error) {
 		SELECT COUNT(DISTINCT ct.clip_id)
 		FROM clip_tags ct
 		INNER JOIN tags t ON ct.tag_id = t.id
-		WHERE t.id = ? OR t.name LIKE ?
-	`, tagID, parentName+"/%").Scan(&count)
+		INNER JOIN clips c ON c.id = ct.clip_id
+		WHERE (t.id = ? OR t.name LIKE ?)
+		  AND c.is_archived = ?
+		  AND (c.expires_at IS NULL OR c.expires_at > CURRENT_TIMESTAMP)
+	`, tagID, parentName+"/%", archivedInt).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("failed to count descendant clips: %w", err)
 	}
@@ -2202,8 +2323,8 @@ func (a *App) GetTopLevelTags() ([]Tag, error) {
 }
 
 // GetDescendantClipCount returns total clip count for a tag and all descendants (exported for Wails binding).
-func (a *App) GetDescendantClipCount(tagID int64) (int, error) {
-	return a.getDescendantClipCount(tagID)
+func (a *App) GetDescendantClipCount(tagID int64, archived bool) (int, error) {
+	return a.getDescendantClipCount(tagID, archived)
 }
 
 // BulkAddTag adds a tag to multiple clips

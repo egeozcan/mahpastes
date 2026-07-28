@@ -33,7 +33,9 @@ async function loadClips({ focusFirst = false } = {}) {
             // Show clips tagged directly with this folder's tag, excluding clips
             // that also have a descendant tag (those belong in subfolders).
             const currentFolderTagId = activeTagFilters[activeTagFilters.length - 1];
-            clips = await window.go.main.App.GetFolderClips(isViewingArchive, currentFolderTagId, effectiveHidden, currentSortField, currentSortDir);
+            // Hidden tags are not passed: inside a folder, a clip is shown even if it
+            // also carries a hidden tag from another tree (hiding only dims folder cards).
+            clips = await window.go.main.App.GetFolderClips(isViewingArchive, currentFolderTagId, currentSortField, currentSortDir);
         } else if (isFolderMode()) {
             // Root level folder mode: only show untagged clips alongside folder cards
             clips = await window.go.main.App.GetUntaggedClips(isViewingArchive, effectiveHidden, currentSortField, currentSortDir);
@@ -78,6 +80,7 @@ async function loadClips({ focusFirst = false } = {}) {
             updateClipCount(gallery.querySelectorAll('[data-folder]').length);
         }
         if (typeof applySearchFilter === 'function') applySearchFilter();
+        updateHiddenClipsNote(effectiveHidden);
         window.LightboxController?.setClips(getVisibleImageClips());
 
         // Re-index roving tabindex after gallery re-render
@@ -101,6 +104,7 @@ async function loadClips({ focusFirst = false } = {}) {
     } catch (error) {
         console.error('Error loading clips:', error);
         gallery.innerHTML = '<p class="text-red-500 col-span-full text-center">Error loading clips.</p>';
+        clearHiddenClipsNote();
     } finally {
         // Render-completion signal. Several callers (folder-mode toggle, folder
         // navigation) fire loadClips() without awaiting it from a sync click
@@ -571,13 +575,64 @@ async function getTopLevelTags() {
     }
 }
 
-async function getDescendantClipCount(tagId) {
+async function getDescendantClipCount(tagId, archived) {
     try {
-        return await window.go.main.App.GetDescendantClipCount(tagId);
+        return await window.go.main.App.GetDescendantClipCount(tagId, !!archived);
     } catch (error) {
         console.error('Error getting descendant clip count:', error);
         return 0;
     }
+}
+
+// Note under the gallery for clips the tag filter matched but hidden tags withheld.
+// Bumped per render so a slow response from a superseded load cannot overwrite a newer note.
+let _hiddenNoteGen = 0;
+
+function clearHiddenClipsNote() {
+    _hiddenNoteGen++;
+    const note = document.getElementById('hidden-clips-note');
+    if (!note) return;
+    note.classList.add('hidden');
+    note.textContent = '';
+    note.removeAttribute('title');
+}
+
+async function updateHiddenClipsNote(hiddenTagIds) {
+    const note = document.getElementById('hidden-clips-note');
+    if (!note) return;
+
+    // Only meaningful while filtering: folder mode ignores hidden tags entirely,
+    // and with no filter active there is no "other tag" to explain.
+    if (isFolderMode() || activeTagFilters.length === 0) {
+        clearHiddenClipsNote();
+        return;
+    }
+
+    const myGen = ++_hiddenNoteGen;
+    let info;
+    try {
+        info = await window.go.main.App.GetHiddenClipInfo(isViewingArchive, activeTagFilters, hiddenTagIds || []);
+    } catch (error) {
+        console.error('Error getting hidden clip info:', error);
+        return;
+    }
+    if (myGen !== _hiddenNoteGen) return;
+
+    const count = info && info.count ? info.count : 0;
+    if (count === 0) {
+        note.classList.add('hidden');
+        note.textContent = '';
+        note.removeAttribute('title');
+        return;
+    }
+
+    const tags = (info.tags || []);
+    const shown = tags.slice(0, 3).join(', ');
+    const more = tags.length > 3 ? `, +${tags.length - 3} more` : '';
+    const because = tags.length > 0 ? ` (${shown}${more})` : '';
+    note.textContent = `${count} ${count === 1 ? 'clip' : 'clips'} hidden by other tags${because}`;
+    if (tags.length > 0) note.title = `Hidden by: ${tags.join(', ')}`;
+    note.classList.remove('hidden');
 }
 
 async function getClipsDirect(archived, tagIds, hiddenTagIds, sortField, sortDir) {

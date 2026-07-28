@@ -43,6 +43,61 @@ test.describe('Hidden Tags', () => {
     await app.expectClipCount(0);
   });
 
+  test('should explain how many filtered clips are withheld by other tags', async ({ app }) => {
+    const image1 = await createTempFile(generateTestImage(50, 50, [255, 0, 0]), 'png');
+    const image2 = await createTempFile(generateTestImage(50, 50, [0, 255, 0]), 'png');
+    const withheld = path.basename(image1);
+    const shown = path.basename(image2);
+
+    await app.uploadFile(image1);
+    await app.uploadFile(image2);
+    await app.createTag('contacts');
+    await app.createTag('web/contacts');
+    await app.addTagToClip(withheld, 'contacts');
+    await app.addTagToClip(withheld, 'web/contacts');
+    await app.addTagToClip(shown, 'contacts');
+
+    await app.setHiddenTags(['web']);
+    await app.filterByTag('contacts');
+
+    // The note sits under the list, alongside the clips that did come through.
+    await app.expectClipCount(1);
+    await app.expectClipVisible(shown);
+    const note = app.page.locator('[data-testid="hidden-clips-note"]');
+    await expect(note).toBeVisible();
+    await expect(note).toHaveText('1 clip hidden by other tags (web/contacts)');
+
+    // Unhiding removes both the suppression and the note.
+    await app.setHiddenTags([]);
+    await app.refreshClips();
+    await app.expectClipCount(2);
+    await expect(note).toBeHidden();
+  });
+
+  test('should show the withheld-clips note on an empty filtered gallery', async ({ app }) => {
+    const image1 = await createTempFile(generateTestImage(50, 50, [0, 0, 255]), 'png');
+    const filename = path.basename(image1);
+
+    await app.uploadFile(image1);
+    await app.createTag('contacts');
+    await app.createTag('web/contacts');
+    await app.addTagToClip(filename, 'contacts');
+    await app.addTagToClip(filename, 'web/contacts');
+
+    await app.setHiddenTags(['web']);
+    await app.filterByTag('contacts');
+
+    await app.expectClipCount(0);
+    const note = app.page.locator('[data-testid="hidden-clips-note"]');
+    await expect(note).toHaveText('1 clip hidden by other tags (web/contacts)');
+
+    // Clearing the filter drops the note — there is no "other tag" to explain.
+    await app.clearTagFilters();
+    await expect(note).toBeHidden();
+
+    await app.setHiddenTags([]);
+  });
+
   test('should show hidden clips when explicitly filtering by hidden tag', async ({ app }) => {
     const image1 = await createTempFile(generateTestImage(50, 50, [255, 0, 0]), 'png');
     const image2 = await createTempFile(generateTestImage(50, 50, [0, 255, 0]), 'png');

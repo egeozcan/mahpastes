@@ -389,6 +389,20 @@ export namespace app {
 	        this.created_at = source["created_at"];
 	    }
 	}
+	export class HiddenClipInfo {
+	    count: number;
+	    tags: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new HiddenClipInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.count = source["count"];
+	        this.tags = source["tags"];
+	    }
+	}
 	export class MarkdownCachedImageResult {
 	    hit: boolean;
 	    content_type?: string;

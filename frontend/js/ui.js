@@ -1389,7 +1389,7 @@ async function renderFolderCards() {
     const hidden = (typeof getHiddenTags === 'function') ? (getHiddenTags() || []) : [];
 
     for (const tag of folderTags) {
-        const count = await getDescendantClipCount(tag.id);
+        const count = await getDescendantClipCount(tag.id, isViewingArchive);
         if (myGen !== _folderRenderGen) return;
 
         const shortName = getShortTagName(tag.name);

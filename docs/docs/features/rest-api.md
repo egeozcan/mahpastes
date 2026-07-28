@@ -119,6 +119,7 @@ All paths below are relative to `/api/v1`.
 | Method | Path | Min Role | Description |
 |--------|------|----------|-------------|
 | `GET` | `/clips` | viewer | List clips (paginated, filterable) |
+| `GET` | `/clips/hidden-info` | viewer | Count clips a filter matched but hidden tags withheld |
 | `GET` | `/clips/{id}` | viewer | Get clip metadata |
 | `GET` | `/clips/{id}/data` | viewer | Download raw clip content |
 | `POST` | `/clips` | editor | Upload a new clip |
@@ -166,6 +167,23 @@ Response:
   "offset": 0
 }
 ```
+
+#### Hidden clip info
+
+```
+GET /api/v1/clips/hidden-info
+```
+
+Takes the same `tag`, `hidden`, and `archived` parameters as list clips, and reports the
+clips those filters matched that the hidden-tag anti-join removed from the listing — so a
+UI can say *why* a filtered gallery looks emptier than expected.
+
+```json
+{ "count": 2, "tags": ["web/contacts"] }
+```
+
+`tags` names only the hidden tags actually responsible. Tag-scoped keys are confined to
+their own subtree, as with list clips.
 
 #### Get clip metadata
 

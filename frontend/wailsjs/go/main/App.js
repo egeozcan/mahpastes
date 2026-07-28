@@ -146,20 +146,24 @@ export function GetDatabaseSize() {
   return window['go']['main']['App']['GetDatabaseSize']();
 }
 
-export function GetDescendantClipCount(arg1) {
-  return window['go']['main']['App']['GetDescendantClipCount'](arg1);
+export function GetDescendantClipCount(arg1, arg2) {
+  return window['go']['main']['App']['GetDescendantClipCount'](arg1, arg2);
 }
 
 export function GetDuplicateGroups() {
   return window['go']['main']['App']['GetDuplicateGroups']();
 }
 
-export function GetFolderClips(arg1, arg2, arg3, arg4, arg5) {
-  return window['go']['main']['App']['GetFolderClips'](arg1, arg2, arg3, arg4, arg5);
+export function GetFolderClips(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['GetFolderClips'](arg1, arg2, arg3, arg4);
 }
 
 export function GetGlobalWatchPaused() {
   return window['go']['main']['App']['GetGlobalWatchPaused']();
+}
+
+export function GetHiddenClipInfo(arg1, arg2, arg3) {
+  return window['go']['main']['App']['GetHiddenClipInfo'](arg1, arg2, arg3);
 }
 
 export function GetHiddenTags() {

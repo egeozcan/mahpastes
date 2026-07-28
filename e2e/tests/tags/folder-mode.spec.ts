@@ -115,6 +115,49 @@ test.describe('Folder Mode', () => {
     await app.expectClipNotVisible(subtagName);
   });
 
+  test('folder shows clips that also carry a hidden tag from another tree', async ({ app }) => {
+    await app.createTag('contacts');
+    await app.createTag('web/contacts');
+
+    const imagePath = await createTempFile(generateTestImage(100, 100, [128, 0, 128]), 'png');
+    const filename = path.basename(imagePath);
+    await app.uploadFile(imagePath);
+    await app.addTagToClip(filename, 'contacts');
+    await app.addTagToClip(filename, 'web/contacts');
+
+    await app.setHiddenTags(['web']);
+    await app.toggleFolderMode();
+
+    // The folder card count and the folder contents must agree.
+    await expect(app.page.locator(selectors.tags.folderCard('contacts'))).toContainText('1 clip');
+    await app.clickFolder('contacts');
+    await app.expectClipVisible(filename);
+
+    await app.setHiddenTags([]);
+  });
+
+  test('folder card count excludes archived clips', async ({ app }) => {
+    await app.createTag('receipts');
+
+    const activePath = await createTempFile(generateTestImage(100, 100, [0, 0, 255]), 'png');
+    const activeName = path.basename(activePath);
+    await app.uploadFile(activePath);
+    await app.addTagToClip(activeName, 'receipts');
+
+    const archivedPath = await createTempFile(generateTestImage(100, 100, [255, 0, 0]), 'png');
+    const archivedName = path.basename(archivedPath);
+    await app.uploadFile(archivedPath);
+    await app.addTagToClip(archivedName, 'receipts');
+    await app.archiveClip(archivedName);
+
+    await app.toggleFolderMode();
+    await expect(app.page.locator(selectors.tags.folderCard('receipts'))).toContainText('1 clip');
+
+    await app.clickFolder('receipts');
+    await app.expectClipVisible(activeName);
+    await app.expectClipNotVisible(archivedName);
+  });
+
   test('exiting folder mode preserves tag filters', async ({ app }) => {
     await app.createTag('work/client1');
     const imagePath = await createTempFile(generateTestImage(), 'png');

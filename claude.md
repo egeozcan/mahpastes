@@ -482,6 +482,10 @@ Tags form hierarchical trees using `/` as separator (e.g., `work/client1/project
 
 **Folder mode**: Shows clips only at their exact tag level. `GetFolderClips` excludes descendants; `GetUntaggedClips` shows only clips with zero tags at root. The folder mode toggle uses the same `bg-stone-800` active style as the archive toggle.
 
+**Hidden tags in folder mode**: Hiding only dims folder cards (`data-hidden="true"`); it never filters folder contents. `GetFolderClips` takes no hidden-tag list, so a clip tagged `contacts` and `web/contacts` still appears in the `contacts` folder while `web` is hidden. Normal (non-folder) mode keeps the blanket anti-join — any hidden tag hides the clip. `GetDescendantClipCount(tagID, archived)` powers the folder card count and applies the same archive/expiry filters as the listing, so a card's count always matches what opening it shows.
+
+**Hidden-clip note (normal mode)**: While tag filters are active, `#hidden-clips-note` under the gallery reads e.g. `2 clips hidden by other tags (web/contacts)`. It is fed by `GetHiddenClipInfo(archived, tagIDs, hiddenTagIDs)` (REST: `GET /api/v1/clips/hidden-info`), which runs the listing's filter expansion with the hidden anti-join flipped into a requirement. Both that counter and `getClipsInternal` resolve their tag scope through `buildClipFilterScope`, so the note cannot disagree with the list above it. The note is suppressed in folder mode and when no filter is active.
+
 **Auto-tagging on upload**: `UploadFiles(files, expirationMinutes, autoTagID)` accepts an optional tag ID. When in folder mode with an active folder, the frontend passes the current folder's tag ID so new clips are auto-tagged into the folder.
 
 **Tag filter in folder mode**: Checking a tag in the filter dropdown navigates to that tag's folder (via `navigateToFolder`) instead of appending. Unchecking navigates up to the parent. Entering folder mode with multiple unrelated filters normalizes to the last selected tag's path.

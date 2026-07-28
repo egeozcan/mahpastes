@@ -50,10 +50,11 @@ type desktopCore interface {
 	GetClips(archived bool, tagIDs []int64, hiddenTagIDs []int64, sortField string, sortDir string) ([]coreapp.ClipPreview, error)
 	GetClipsDirect(archived bool, tagIDs []int64, hiddenTagIDs []int64, sortField string, sortDir string) ([]coreapp.ClipPreview, error)
 	GetDatabaseSize() (int64, error)
-	GetDescendantClipCount(tagID int64) (int, error)
+	GetDescendantClipCount(tagID int64, archived bool) (int, error)
 	GetDuplicateGroups() ([]coreapp.DuplicateGroup, error)
-	GetFolderClips(archived bool, tagID int64, hiddenTagIDs []int64, sortField string, sortDir string) ([]coreapp.ClipPreview, error)
+	GetFolderClips(archived bool, tagID int64, sortField string, sortDir string) ([]coreapp.ClipPreview, error)
 	GetGlobalWatchPaused() bool
+	GetHiddenClipInfo(archived bool, tagIDs []int64, hiddenTagIDs []int64) (coreapp.HiddenClipInfo, error)
 	GetHiddenTags() ([]int64, error)
 	GetImageDiff(clipIdA, clipIdB int64, threshold int) (*coreapp.DiffResult, error)
 	GetOrphanDBRows() (coreapp.OrphanReport, error)

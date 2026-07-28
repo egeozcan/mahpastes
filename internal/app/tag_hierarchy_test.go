@@ -388,7 +388,7 @@ func TestGetDescendantClipCount(t *testing.T) {
 	// clip3 tagged with photos/work
 	tagClip(t, app.db, clip3, workID)
 
-	count, err := app.getDescendantClipCount(photosID)
+	count, err := app.getDescendantClipCount(photosID, false)
 	if err != nil {
 		t.Fatalf("getDescendantClipCount(photos): %v", err)
 	}
@@ -396,7 +396,7 @@ func TestGetDescendantClipCount(t *testing.T) {
 		t.Errorf("photos descendant clip count = %d, want 3", count)
 	}
 
-	count, err = app.getDescendantClipCount(vacationID)
+	count, err = app.getDescendantClipCount(vacationID, false)
 	if err != nil {
 		t.Fatalf("getDescendantClipCount(vacation): %v", err)
 	}
@@ -404,7 +404,7 @@ func TestGetDescendantClipCount(t *testing.T) {
 		t.Errorf("vacation descendant clip count = %d, want 2", count)
 	}
 
-	count, err = app.getDescendantClipCount(beachID)
+	count, err = app.getDescendantClipCount(beachID, false)
 	if err != nil {
 		t.Fatalf("getDescendantClipCount(beach): %v", err)
 	}
@@ -413,7 +413,7 @@ func TestGetDescendantClipCount(t *testing.T) {
 	}
 
 	// non-existent tag should error
-	_, err = app.getDescendantClipCount(9999)
+	_, err = app.getDescendantClipCount(9999, false)
 	if err == nil {
 		t.Error("expected error for non-existent tag")
 	}
@@ -886,6 +886,205 @@ func TestHiddenTagHidesDescendants(t *testing.T) {
 	}
 	if clips[0].ID != clipUntagged {
 		t.Errorf("GetClipsDirect returned clip ID %d, want %d (untagged)", clips[0].ID, clipUntagged)
+	}
+}
+
+// A clip can carry tags from several trees. Hiding one tree must not empty a
+// folder in another tree — the folder card counts such clips, so hiding them
+// there made the folder claim clips it refused to show.
+func TestGetFolderClipsIgnoresHiddenTagsFromOtherTrees(t *testing.T) {
+	app, cleanup := setupTestDBWithTags(t)
+	defer cleanup()
+
+	contactsID := createTestTag(t, app.db, "contacts", "#aaa")
+	webID := createTestTag(t, app.db, "web", "#bbb")
+	webContactsID := createTestTag(t, app.db, "web/contacts", "#ccc")
+
+	clipID, err := app.createTestClip("index.html", "text/html", []byte("<p>hi</p>"))
+	if err != nil {
+		t.Fatalf("createTestClip: %v", err)
+	}
+	tagClip(t, app.db, clipID, contactsID)
+	tagClip(t, app.db, clipID, webContactsID)
+
+	// Folder view of "contacts" shows the clip even though "web" is hidden.
+	clips, err := app.GetFolderClips(false, contactsID, "date", "desc")
+	if err != nil {
+		t.Fatalf("GetFolderClips(contacts): %v", err)
+	}
+	if len(clips) != 1 || clips[0].ID != clipID {
+		t.Fatalf("GetFolderClips(contacts): got %d clips, want the clip tagged in both trees", len(clips))
+	}
+
+	// The folder card count must agree with what the folder shows.
+	count, err := app.getDescendantClipCount(contactsID, false)
+	if err != nil {
+		t.Fatalf("getDescendantClipCount(contacts): %v", err)
+	}
+	if count != 1 {
+		t.Errorf("contacts folder count = %d, want 1", count)
+	}
+
+	// Normal (non-folder) mode still honours hidden tags.
+	visible, err := app.GetClips(false, nil, []int64{webID}, "date", "desc")
+	if err != nil {
+		t.Fatalf("GetClips: %v", err)
+	}
+	if len(visible) != 0 {
+		t.Errorf("GetClips with hidden web: got %d clips, want 0", len(visible))
+	}
+}
+
+func TestGetHiddenClipInfo(t *testing.T) {
+	app, cleanup := setupTestDBWithTags(t)
+	defer cleanup()
+
+	contactsID := createTestTag(t, app.db, "contacts", "#aaa")
+	webID := createTestTag(t, app.db, "web", "#bbb")
+	webContactsID := createTestTag(t, app.db, "web/contacts", "#ccc")
+
+	plain, err := app.createTestClip("plain.txt", "text/plain", []byte("a"))
+	if err != nil {
+		t.Fatalf("createTestClip: %v", err)
+	}
+	tagClip(t, app.db, plain, contactsID)
+
+	alsoWeb, err := app.createTestClip("also-web.html", "text/html", []byte("b"))
+	if err != nil {
+		t.Fatalf("createTestClip: %v", err)
+	}
+	tagClip(t, app.db, alsoWeb, contactsID)
+	tagClip(t, app.db, alsoWeb, webContactsID)
+
+	archivedWeb, err := app.createTestClip("archived.html", "text/html", []byte("c"))
+	if err != nil {
+		t.Fatalf("createTestClip: %v", err)
+	}
+	tagClip(t, app.db, archivedWeb, contactsID)
+	tagClip(t, app.db, archivedWeb, webContactsID)
+	if _, err := app.db.Exec("UPDATE clips SET is_archived = 1 WHERE id = ?", archivedWeb); err != nil {
+		t.Fatalf("archive clip: %v", err)
+	}
+
+	// The note must account for exactly the clips the gallery dropped.
+	clips, err := app.GetClips(false, []int64{contactsID}, []int64{webID}, "date", "desc")
+	if err != nil {
+		t.Fatalf("GetClips: %v", err)
+	}
+	if len(clips) != 1 || clips[0].ID != plain {
+		t.Fatalf("GetClips(contacts, hidden web): got %d clips, want only the plain clip", len(clips))
+	}
+
+	info, err := app.GetHiddenClipInfo(false, []int64{contactsID}, []int64{webID})
+	if err != nil {
+		t.Fatalf("GetHiddenClipInfo: %v", err)
+	}
+	if info.Count != 1 {
+		t.Errorf("hidden count = %d, want 1 (archived clip belongs to the archive view)", info.Count)
+	}
+	if len(info.Tags) != 1 || info.Tags[0] != "web/contacts" {
+		t.Errorf("hidden tags = %v, want [web/contacts]", info.Tags)
+	}
+
+	// Archive view reports its own hidden clip.
+	info, err = app.GetHiddenClipInfo(true, []int64{contactsID}, []int64{webID})
+	if err != nil {
+		t.Fatalf("GetHiddenClipInfo(archived): %v", err)
+	}
+	if info.Count != 1 {
+		t.Errorf("archived hidden count = %d, want 1", info.Count)
+	}
+
+	// Nothing hidden -> nothing to report.
+	info, err = app.GetHiddenClipInfo(false, []int64{contactsID}, nil)
+	if err != nil {
+		t.Fatalf("GetHiddenClipInfo(no hidden tags): %v", err)
+	}
+	if info.Count != 0 || len(info.Tags) != 0 {
+		t.Errorf("with no hidden tags got count=%d tags=%v, want 0/[]", info.Count, info.Tags)
+	}
+
+	// Filtering by the hidden tree reveals it, so nothing is being withheld.
+	info, err = app.GetHiddenClipInfo(false, []int64{webContactsID}, []int64{webID})
+	if err != nil {
+		t.Fatalf("GetHiddenClipInfo(filter inside hidden tree): %v", err)
+	}
+	if info.Count != 0 {
+		t.Errorf("filtering by the hidden subtag reported %d hidden clips, want 0", info.Count)
+	}
+}
+
+func TestGetFolderClipsExcludesDescendantTaggedClips(t *testing.T) {
+	app, cleanup := setupTestDBWithTags(t)
+	defer cleanup()
+
+	photosID := createTestTag(t, app.db, "photos", "#aaa")
+	beachID := createTestTag(t, app.db, "photos/beach", "#bbb")
+
+	atRoot, err := app.createTestClip("a.png", "image/png", []byte("a"))
+	if err != nil {
+		t.Fatalf("createTestClip: %v", err)
+	}
+	tagClip(t, app.db, atRoot, photosID)
+
+	inSubfolder, err := app.createTestClip("b.png", "image/png", []byte("b"))
+	if err != nil {
+		t.Fatalf("createTestClip: %v", err)
+	}
+	tagClip(t, app.db, inSubfolder, photosID)
+	tagClip(t, app.db, inSubfolder, beachID)
+
+	clips, err := app.GetFolderClips(false, photosID, "date", "desc")
+	if err != nil {
+		t.Fatalf("GetFolderClips(photos): %v", err)
+	}
+	if len(clips) != 1 || clips[0].ID != atRoot {
+		t.Fatalf("GetFolderClips(photos): got %d clips, want only the clip that has no subfolder tag", len(clips))
+	}
+}
+
+func TestGetDescendantClipCountMatchesArchiveViewAndExpiry(t *testing.T) {
+	app, cleanup := setupTestDBWithTags(t)
+	defer cleanup()
+
+	notesID := createTestTag(t, app.db, "notes", "#aaa")
+
+	active, err := app.createTestClip("active.txt", "text/plain", []byte("a"))
+	if err != nil {
+		t.Fatalf("createTestClip: %v", err)
+	}
+	archived, err := app.createTestClip("archived.txt", "text/plain", []byte("b"))
+	if err != nil {
+		t.Fatalf("createTestClip: %v", err)
+	}
+	expired, err := app.createTestClip("expired.txt", "text/plain", []byte("c"))
+	if err != nil {
+		t.Fatalf("createTestClip: %v", err)
+	}
+	for _, id := range []int64{active, archived, expired} {
+		tagClip(t, app.db, id, notesID)
+	}
+	if _, err := app.db.Exec("UPDATE clips SET is_archived = 1 WHERE id = ?", archived); err != nil {
+		t.Fatalf("archive clip: %v", err)
+	}
+	if _, err := app.db.Exec("UPDATE clips SET expires_at = datetime('now', '-1 hour') WHERE id = ?", expired); err != nil {
+		t.Fatalf("expire clip: %v", err)
+	}
+
+	count, err := app.getDescendantClipCount(notesID, false)
+	if err != nil {
+		t.Fatalf("getDescendantClipCount(active view): %v", err)
+	}
+	if count != 1 {
+		t.Errorf("active view count = %d, want 1 (archived and expired excluded)", count)
+	}
+
+	count, err = app.getDescendantClipCount(notesID, true)
+	if err != nil {
+		t.Fatalf("getDescendantClipCount(archive view): %v", err)
+	}
+	if count != 1 {
+		t.Errorf("archive view count = %d, want 1", count)
 	}
 }
 

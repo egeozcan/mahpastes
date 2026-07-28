@@ -85,8 +85,8 @@
     window.go = { main: {} };
     window.go.main.App = {
         GetClips: async (archived, tagIds, hiddenIds, sort, dir) => (await fetchJSON(`${api}/clips?${clipQuery(archived, tagIds, hiddenIds, sort, dir)}`)).clips || [],
-        GetFolderClips: async (archived, tagID, hiddenIds, sort, dir) => {
-            const q = `${clipQuery(archived, [], hiddenIds, sort, dir)}&folder_tag=${encodeURIComponent(tagID)}`;
+        GetFolderClips: async (archived, tagID, sort, dir) => {
+            const q = `${clipQuery(archived, [], [], sort, dir)}&folder_tag=${encodeURIComponent(tagID)}`;
             return (await fetchJSON(`${api}/clips?${q}`)).clips || [];
         },
         GetUntaggedClips: async (archived, hiddenIds, sort, dir) => {
@@ -145,6 +145,13 @@
         GetChildTags: (id) => fetchJSON(`${api}/tags/${id}/children`),
         GetTopLevelTags: () => fetchJSON(`${api}/tags`),
         GetDescendantClipCount: async () => 0,
+        GetHiddenClipInfo: async (archived, tagIds, hiddenIds) => {
+            const params = new URLSearchParams();
+            params.set('archived', archived ? 'true' : 'false');
+            (tagIds || []).forEach((id) => params.append('tag', String(id)));
+            (hiddenIds || []).forEach((id) => params.append('hidden', String(id)));
+            return await fetchJSON(`${api}/clips/hidden-info?${params.toString()}`);
+        },
         GetHiddenTags: async () => (await fetchJSON(`${api}/tags/hidden`)).ids || [],
         SetHiddenTags: (ids) => putJSON(`${api}/tags/hidden`, { ids }),
         GetClipMetadata: (id) => fetchJSON(`${api}/clips/${id}/metadata`),

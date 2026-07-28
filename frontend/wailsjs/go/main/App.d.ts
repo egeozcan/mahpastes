@@ -75,13 +75,15 @@ export function GetClipsDirect(arg1:boolean,arg2:Array<number>,arg3:Array<number
 
 export function GetDatabaseSize():Promise<number>;
 
-export function GetDescendantClipCount(arg1:number):Promise<number>;
+export function GetDescendantClipCount(arg1:number,arg2:boolean):Promise<number>;
 
 export function GetDuplicateGroups():Promise<Array<app.DuplicateGroup>>;
 
-export function GetFolderClips(arg1:boolean,arg2:number,arg3:Array<number>,arg4:string,arg5:string):Promise<Array<app.ClipPreview>>;
+export function GetFolderClips(arg1:boolean,arg2:number,arg3:string,arg4:string):Promise<Array<app.ClipPreview>>;
 
 export function GetGlobalWatchPaused():Promise<boolean>;
+
+export function GetHiddenClipInfo(arg1:boolean,arg2:Array<number>,arg3:Array<number>):Promise<app.HiddenClipInfo>;
 
 export function GetHiddenTags():Promise<Array<number>>;
 
