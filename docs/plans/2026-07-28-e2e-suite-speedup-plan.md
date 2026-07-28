@@ -284,55 +284,74 @@ Run the full suite after each. Per `CLAUDE.md`, pipe through `| tail -50`.
 
 ## Outcome
 
-`npm test` went from **~27 min to 6:15** (main suite 19.1m → 2.4m, share suite
-7.5m → 3.6m), with 974 passing and no reduction in coverage.
+`npm test` went from **~27 min to ~6:20** (main suite 19.1m → 2.3m, share suite
+7.5m → 3.7m), with 974 passing and no coverage removed.
 
-Measured at each step, on the same machine:
+Measured on the same machine at each step:
 
 | Step | Main suite |
 |---|---|
 | Baseline | 19.1 min |
-| Phase 1 (reset skips the backoff) | 4.3 min |
-| Fast spawn flags + 6 workers | 3.2 min |
-| Backend readiness flag | 2.4 min |
+| Reset skips the retry backoff | 4.3 min |
+| Reuse first instance's build | 3.4 min |
+| Backend readiness flag | 2.3 min |
+
+Stability after the final fix: **4 consecutive clean full runs** (974 passed,
+zero connection-refused), plus a fifth in the end-to-end `npm test`.
 
 ### Where the plan was wrong
 
 **Phase 3 (parallel instance spawn) was not viable.** `wails dev` has no
 output-path flag, so every instance builds to the same `build/bin/mahpastes`.
-Spawning in parallel would race on that binary — the sequential design was
-correct and the warm-up build in the plan would not have helped.
+Parallel spawns would race on that binary — the sequential design was correct,
+and the warm-up build the plan proposed would not have helped.
 
 What worked instead: `wails dev` redoes the Tailwind build, binding generation,
 embed-file creation and `go mod tidy` on *every* spawn. Passing
 `-s -skipbindings -skipembedcreate -m` to every instance after the first cuts a
-spawn from 22s to 11s, with no concurrency risk. This also applies to mid-suite
-restarts and secondary share instances, which is most of why the share suite
-more than halved without touching its worker count.
+spawn from 22s to 11s with no concurrency risk. It applies to mid-suite restarts
+and secondary share instances too, which is most of why the share suite more
+than halved without touching its worker count.
 
-**Phase 2 (drop the post-test reset) was dropped as not worth it.** Once the
-backoff was gone, a reset measured 13ms, so the whole post-test reset totals
-0.5 min of summed time — about 7s of wall clock at 6 workers. Not worth giving
-up the clean state it guarantees when a run is interrupted.
+**Phase 4 (raise workers to 6) was tried and reverted.** It saved only ~10s,
+because global-setup spawns sequentially: each added worker costs ~11s of setup
+while only dividing the now-small execution time. At 6 workers the machine
+starved badly enough that the `app` fixture blew its 60s setup timeout in
+unrelated specs. Back to 4.
 
-**Phase 5 (share suite at 2 workers) was declined.** The serialisation is
-documented as protection against OOM kills, mDNS flakes and Jetsam SIGKILLs.
-With the suite already at 3.6 min, reintroducing nondeterminism into the P2P
-tests to save ~1 min is a bad trade.
+**Phase 2 (drop the post-test reset) was dropped on measurement.** Once the
+backoff was gone a reset measured 13ms, so the whole post-test reset is ~0.5 min
+of summed time — a few seconds of wall clock. Not worth losing the clean state
+it guarantees when a run is interrupted.
 
-### The masked race, as predicted
+**Phase 5 (share suite at 2 workers) was declined.** The serialisation guards
+against OOM kills, mDNS flakes and Jetsam SIGKILLs. The suite already halved
+without touching it; reintroducing nondeterminism into P2P tests to save ~1 min
+is a bad trade.
 
-Phase 1.4 anticipated that removing ~3.7s/test of incidental settling time
-would expose races. Exactly one surfaced, and only at 6 workers:
-`tag-tree-exclusivity` → "folder view shows clip only at its exact tag level".
+### Masked races, as predicted
 
-It was a real defect in the fixture. `toggleFolderMode()` and `clickFolder()`
-waited on `__appReady === true`, but `toggleFolderMode()` in `app.js` fires
-`loadClips()` from a sync click handler without awaiting it and never touches
-`__appReady` — so the flag was already true and the wait returned immediately,
-leaving the assertion to run against the pre-click DOM. Fixed with a real
-completion signal (a render counter bumped in `loadClips()`'s `finally`), not
-by restoring a sleep.
+Phase 1.4 anticipated that removing ~3.7s/test of incidental settling time would
+expose races. It exposed a real class of defect in the fixtures, not flake.
+
+Eleven `AppHelper` methods fired `loadClips()` and then waited on
+`__appReady === true`. Nothing ever set that flag false, so the wait returned
+immediately and the assertion ran against the pre-action DOM. The
+`__testHelpers.loadClips` shim also dropped the promise, so there was nothing to
+await even if a caller wanted to. Fixed by returning the promise and awaiting it,
+plus a render counter bumped in `loadClips()`'s `finally` for the two click-driven
+paths (folder-mode toggle, folder navigation) that cannot await directly — never
+by reinstating a sleep.
+
+### A pre-existing instability, found and fixed
+
+Twice in ~10 full runs, a burst of `ERR_CONNECTION_REFUSED` (17 and 24 tests)
+hit worker 0 while the other workers were fine. Cause: `wails dev` watches the
+whole project directory and Playwright writes `test-results/` and
+`playwright-report/` inside it. Worker 0 was the only instance without the
+build-skip flags, so a watcher-triggered rebuild had it regenerate bindings and
+re-run Tailwind — writing back into the watched tree — and took its dev server
+down mid-test. Test instances now run with `-nogorebuild -noreload`.
 
 ### Product fix, not just a test fix
 
@@ -343,10 +362,19 @@ before setting `__appReady`. Any user with no plugins installed paid the full
 ~2.7s.
 
 The fix has the backend state readiness (`ready` on `UIActionsResponse`, set on
-both the success and failure paths of plugin init) rather than having the
-frontend infer it from a non-empty result. The backoff still applies during a
-genuine startup race, so `tests/plugins/ui-actions.spec.ts` — which stubs an
-empty first response and asserts a retry happens — is unaffected.
+both the success and failure paths of plugin init) instead of having the frontend
+infer it from a non-empty result. The backoff still applies during a genuine
+startup race, so `tests/plugins/ui-actions.spec.ts` — which stubs an empty first
+response and asserts a retry happens — is unaffected.
+
+### Known pre-existing flake (not addressed)
+
+The share suite intermittently fails one P2P test per run — usually
+`share-create.spec.ts:15` or `share-offline-catchup.spec.ts:31`, both timing out
+waiting on libp2p host startup or ring replication. **This is pre-existing**:
+running the share suite on unmodified `master` reproduces the identical
+`share-create` failure (27 passed / 1 failed). Worth a separate look; it is not
+a regression from this work.
 
 ### Commits
 
@@ -355,6 +383,8 @@ empty first response and asserts a retry happens — is unaffected.
 2ca2d32 fix(e2e): wait for the real gallery re-render, not a stale ready flag
 beda994 perf(e2e): reuse the first instance's build for later spawns
 64e076d perf(ui): report plugin readiness instead of guessing by retrying
+3be149c fix(e2e): await gallery reloads instead of a no-op ready check
+87a2756 fix(e2e): stop wails dev rebuilding mid-run
 ```
 
 ### Note for future runs
