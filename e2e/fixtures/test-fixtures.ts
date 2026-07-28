@@ -864,9 +864,11 @@ export class AppHelper {
       // @ts-ignore
       window.__appReady = false;
 
-      // Refresh plugin UI actions cache (so card menus/lightbox reflect deleted plugins)
+      // Refresh plugin UI actions cache (so card menus/lightbox reflect deleted plugins).
+      // Every plugin was just removed, so the empty result is final — skip the
+      // startup-race backoff, which would otherwise sleep ~1.85s per reset.
       // @ts-ignore - loadPluginUIActions is a global function from ui.js
-      if (typeof loadPluginUIActions === 'function') await loadPluginUIActions();
+      if (typeof loadPluginUIActions === 'function') await loadPluginUIActions({ retry: false });
 
       // @ts-ignore - loadClips is a global function from wails-api.js
       if (typeof loadClips === 'function') await loadClips();

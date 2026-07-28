@@ -53,9 +53,13 @@ function endGlobalDragPrepareCursor() {
 }
 
 // Load plugin UI actions from backend
-async function loadPluginUIActions() {
+async function loadPluginUIActions({ retry = true } = {}) {
     const generation = ++pluginUIActionsLoadGeneration;
-    const retryDelays = [0, 100, 250, 500, 1000];
+    // The backoff covers a cold start where the frontend fetches before the
+    // plugin manager has registered its actions. Callers that know an empty
+    // action set is the real answer (e.g. just after removing every plugin)
+    // pass retry:false, since retrying can only re-confirm the empty result.
+    const retryDelays = retry ? [0, 100, 250, 500, 1000] : [0];
 
     for (let attempt = 0; attempt < retryDelays.length; attempt++) {
         if (retryDelays[attempt] > 0) {
