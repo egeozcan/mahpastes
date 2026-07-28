@@ -76,6 +76,27 @@ test.describe('Image Lightbox', () => {
       await app.page.locator(selectors.lightbox.closeButton).click();
       await expect(app.page.locator(selectors.lightbox.overlay)).not.toHaveClass(/active/);
     });
+
+    test('blocks text selection everywhere while open, and restores it on close', async ({ app }) => {
+      const imagePath = await createTempFile(generateTestImage(200, 200), 'png');
+      const filename = path.basename(imagePath);
+
+      await app.uploadFile(imagePath);
+
+      const card = selectors.gallery.clipCardByName(filename);
+      const userSelect = (selector: string) => app.page.locator(selector).evaluate(
+        (element) => getComputedStyle(element).userSelect,
+      );
+
+      await app.openLightbox(filename);
+      // The lightbox image and the gallery card behind the backdrop both inherit
+      // the block, so panning cannot select Live Text from either.
+      expect(await userSelect(selectors.lightbox.image)).toBe('none');
+      expect(await userSelect(card)).toBe('none');
+
+      await app.closeLightbox();
+      expect(await userSelect(card)).not.toBe('none');
+    });
   });
 
   test.describe('Navigation', () => {

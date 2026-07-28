@@ -1,4 +1,25 @@
 /* Lightbox Styles */
+
+/* While the lightbox is open nothing on the page is selectable. The unprefixed
+   property alone does not stop WebKit from surfacing its Live Text overlay, so
+   the -webkit- form is required to keep OCR'd text in the lightbox image — and
+   in the gallery thumbnails behind the backdrop — from being selected while
+   dragging to pan. */
+html.lightbox-open,
+html.lightbox-open body {
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+/* Form fields stay selectable so modals layered over the lightbox (plugin
+   action options, rename, metadata) remain usable. */
+html.lightbox-open input,
+html.lightbox-open textarea,
+html.lightbox-open [contenteditable="true"] {
+    -webkit-user-select: auto;
+    user-select: auto;
+}
+
 .lightbox-backdrop {
     position: fixed;
     inset: 0;
@@ -41,6 +62,7 @@
     border-radius: 0.25rem;
     transform-origin: center;
     will-change: transform;
+    -webkit-user-select: none;
     user-select: none;
     -webkit-user-drag: none;
 }

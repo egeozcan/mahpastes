@@ -277,6 +277,7 @@
             state.phase = 'loading';
             deps.elements.root.removeAttribute('inert');
             deps.elements.root.classList.add('active');
+            document.documentElement.classList.add('lightbox-open');
             if (wasClosed) {
                 if (state.focusTrapCleanup) state.focusTrapCleanup();
                 state.focusTrapCleanup = deps.trapFocus(deps.elements.root);
@@ -369,6 +370,7 @@
             deps.closeMenus();
             deps.elements.root.classList.remove('active');
             deps.elements.root.setAttribute('inert', '');
+            document.documentElement.classList.remove('lightbox-open');
             deps.elements.viewport.setAttribute('aria-busy', 'false');
             deps.elements.loading.hidden = true;
             deps.elements.error.hidden = true;
