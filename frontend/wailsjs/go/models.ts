@@ -1067,6 +1067,7 @@ export namespace main {
 	    card_actions: PluginUIAction[];
 	    bulk_actions: PluginUIAction[];
 	    global_actions: PluginUIAction[];
+	    ready: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new UIActionsResponse(source);
@@ -1078,6 +1079,7 @@ export namespace main {
 	        this.card_actions = this.convertValues(source["card_actions"], PluginUIAction);
 	        this.bulk_actions = this.convertValues(source["bulk_actions"], PluginUIAction);
 	        this.global_actions = this.convertValues(source["global_actions"], PluginUIAction);
+	        this.ready = source["ready"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

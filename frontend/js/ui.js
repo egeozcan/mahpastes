@@ -72,9 +72,11 @@ async function loadPluginUIActions({ retry = true } = {}) {
         try {
             const actions = await window.go.main.PluginService.GetPluginUIActions();
             pluginUIActions = actions || {};
-            const actionCount = ['card_actions', 'lightbox_buttons', 'bulk_actions', 'global_actions']
-                .reduce((count, key) => count + (pluginUIActions[key]?.length || 0), 0);
-            if (actionCount > 0 || attempt === retryDelays.length - 1) break;
+            // The backend reports whether plugin loading has finished, so an
+            // empty action set is no longer ambiguous. Previously this waited
+            // for a non-empty result, which meant a user with no plugins
+            // installed paid the whole backoff on every load.
+            if (pluginUIActions.ready || attempt === retryDelays.length - 1) break;
         } catch (error) {
             if (attempt === retryDelays.length - 1) {
                 console.error('Failed to load plugin UI actions:', error);

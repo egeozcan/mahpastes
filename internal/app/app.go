@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -59,7 +60,18 @@ type App struct {
 	shareManager     *ShareManager
 	markdownCache    *markdownImageCache
 	markdownLoader   *markdownRemoteImageLoader
+
+	// pluginsReady reports that Bootstrap has finished attempting to load
+	// plugins. Until then an empty action set is ambiguous — it could mean
+	// "no plugins installed" or "not loaded yet" — and the frontend has no way
+	// to tell the two apart without polling. Set regardless of whether plugin
+	// init succeeded, since a failed init is also a final answer.
+	pluginsReady atomic.Bool
 }
+
+// PluginsReady reports whether plugin loading has finished (successfully or
+// not). An empty UI action set is only meaningful once this is true.
+func (a *App) PluginsReady() bool { return a.pluginsReady.Load() }
 
 // NewApp creates a new App instance
 func NewApp() *App {
@@ -306,6 +318,10 @@ func (a *App) Bootstrap(ctx context.Context, opts BootstrapOptions) error {
 			uc.Start(ParseUpdateInterval(interval))
 		}
 	}
+	// Set on both paths: if the plugin manager failed to initialise, an empty
+	// action set is still the final answer, and the frontend should stop
+	// waiting for plugins that are never going to arrive.
+	a.pluginsReady.Store(true)
 	return nil
 }
 
@@ -3071,6 +3087,7 @@ func (a *App) getPluginUIActions() (*UIActionsResponse, error) {
 			CardActions:     []PluginUIAction{},
 			BulkActions:     []PluginUIAction{},
 			GlobalActions:   []PluginUIAction{},
+			Ready:           a.PluginsReady(),
 		}, nil
 	}
 
@@ -3079,6 +3096,7 @@ func (a *App) getPluginUIActions() (*UIActionsResponse, error) {
 		CardActions:     []PluginUIAction{},
 		BulkActions:     []PluginUIAction{},
 		GlobalActions:   []PluginUIAction{},
+		Ready:           a.PluginsReady(),
 	}
 
 	plugins := a.pluginManager.GetPlugins()

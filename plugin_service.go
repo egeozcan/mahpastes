@@ -61,6 +61,9 @@ type UIActionsResponse struct {
 	CardActions     []PluginUIAction `json:"card_actions"`
 	BulkActions     []PluginUIAction `json:"bulk_actions"`
 	GlobalActions   []PluginUIAction `json:"global_actions"`
+	// Ready reports that plugin loading has finished. Without it an empty
+	// action set is ambiguous, and the frontend has to guess by retrying.
+	Ready bool `json:"ready"`
 }
 
 // ActionResult is an alias for plugin.ActionResult to avoid duplication
@@ -381,6 +384,7 @@ func (s *PluginService) GetPluginUIActions() (*UIActionsResponse, error) {
 			CardActions:     []PluginUIAction{},
 			BulkActions:     []PluginUIAction{},
 			GlobalActions:   []PluginUIAction{},
+			Ready:           s.app.PluginsReady(),
 		}, nil
 	}
 
@@ -389,6 +393,7 @@ func (s *PluginService) GetPluginUIActions() (*UIActionsResponse, error) {
 		CardActions:     []PluginUIAction{},
 		BulkActions:     []PluginUIAction{},
 		GlobalActions:   []PluginUIAction{},
+		Ready:           s.app.PluginsReady(),
 	}
 
 	plugins := s.app.PluginManager().GetPlugins()
