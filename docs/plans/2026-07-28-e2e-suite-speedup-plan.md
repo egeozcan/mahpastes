@@ -1,7 +1,7 @@
 # E2E Suite Speedup — Implementation Plan
 
 **Date:** 2026-07-28
-**Status:** Draft — awaiting review
+**Status:** Implemented — see "Outcome" at the end for what changed versus this plan.
 
 **Goal:** Cut `npm test` wall-clock time from ~27 min to ~8 min without reducing
 coverage, weakening assertions, or introducing flake.
@@ -279,3 +279,85 @@ Each phase is independently revertible, in descending value order:
 6. `perf(e2e): run share suite with 2 workers` (Phase 5, only if stable)
 
 Run the full suite after each. Per `CLAUDE.md`, pipe through `| tail -50`.
+
+---
+
+## Outcome
+
+`npm test` went from **~27 min to 6:15** (main suite 19.1m → 2.4m, share suite
+7.5m → 3.6m), with 974 passing and no reduction in coverage.
+
+Measured at each step, on the same machine:
+
+| Step | Main suite |
+|---|---|
+| Baseline | 19.1 min |
+| Phase 1 (reset skips the backoff) | 4.3 min |
+| Fast spawn flags + 6 workers | 3.2 min |
+| Backend readiness flag | 2.4 min |
+
+### Where the plan was wrong
+
+**Phase 3 (parallel instance spawn) was not viable.** `wails dev` has no
+output-path flag, so every instance builds to the same `build/bin/mahpastes`.
+Spawning in parallel would race on that binary — the sequential design was
+correct and the warm-up build in the plan would not have helped.
+
+What worked instead: `wails dev` redoes the Tailwind build, binding generation,
+embed-file creation and `go mod tidy` on *every* spawn. Passing
+`-s -skipbindings -skipembedcreate -m` to every instance after the first cuts a
+spawn from 22s to 11s, with no concurrency risk. This also applies to mid-suite
+restarts and secondary share instances, which is most of why the share suite
+more than halved without touching its worker count.
+
+**Phase 2 (drop the post-test reset) was dropped as not worth it.** Once the
+backoff was gone, a reset measured 13ms, so the whole post-test reset totals
+0.5 min of summed time — about 7s of wall clock at 6 workers. Not worth giving
+up the clean state it guarantees when a run is interrupted.
+
+**Phase 5 (share suite at 2 workers) was declined.** The serialisation is
+documented as protection against OOM kills, mDNS flakes and Jetsam SIGKILLs.
+With the suite already at 3.6 min, reintroducing nondeterminism into the P2P
+tests to save ~1 min is a bad trade.
+
+### The masked race, as predicted
+
+Phase 1.4 anticipated that removing ~3.7s/test of incidental settling time
+would expose races. Exactly one surfaced, and only at 6 workers:
+`tag-tree-exclusivity` → "folder view shows clip only at its exact tag level".
+
+It was a real defect in the fixture. `toggleFolderMode()` and `clickFolder()`
+waited on `__appReady === true`, but `toggleFolderMode()` in `app.js` fires
+`loadClips()` from a sync click handler without awaiting it and never touches
+`__appReady` — so the flag was already true and the wait returned immediately,
+leaving the assertion to run against the pre-click DOM. Fixed with a real
+completion signal (a render counter bumped in `loadClips()`'s `finally`), not
+by restoring a sleep.
+
+### Product fix, not just a test fix
+
+The root cause was never test-only. `loadPluginUIActions()` conflated "plugins
+have not loaded yet" with "no plugins are installed", and `app.js` awaits it
+before setting `__appReady`. Any user with no plugins installed paid the full
+1850ms on every app start. Cold start with no plugins is now ~0.8s instead of
+~2.7s.
+
+The fix has the backend state readiness (`ready` on `UIActionsResponse`, set on
+both the success and failure paths of plugin init) rather than having the
+frontend infer it from a non-empty result. The backoff still applies during a
+genuine startup race, so `tests/plugins/ui-actions.spec.ts` — which stubs an
+empty first response and asserts a retry happens — is unaffected.
+
+### Commits
+
+```
+8af7352 perf(e2e): skip plugin-action retry backoff during test reset
+2ca2d32 fix(e2e): wait for the real gallery re-render, not a stale ready flag
+beda994 perf(e2e): reuse the first instance's build for later spawns
+64e076d perf(ui): report plugin readiness instead of guessing by retrying
+```
+
+### Note for future runs
+
+The 15 `tests/server/` specs need `build/bin/mahpastesd`; run `make mahpastesd`
+first or they fail with a missing-binary error under the default config.
