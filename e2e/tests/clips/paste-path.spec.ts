@@ -3,6 +3,7 @@ import { createTempDir, createTempFile, generateTestImage, generateTestText } fr
 import { selectors } from '../../helpers/selectors';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { execFileSync } from 'child_process';
 
 /**
  * Pasting text that names a file on disk is ambiguous — the user may want the
@@ -136,6 +137,21 @@ test.describe('Pasted File Paths', () => {
     const dir = await createTempDir();
 
     await pasteText(app, dir);
+
+    await expect(dialog(app)).toHaveAttribute('inert', '');
+    await app.refreshClips();
+    await app.expectClipCount(1);
+    await expect(app.page.locator('#gallery > li[data-filename^="pasted_text_"]')).toHaveCount(1);
+  });
+
+  // Guards the IsRegular check in ProbeFilePaths: a FIFO passes "exists" and
+  // "not a directory", but reading one blocks forever, so it must never be
+  // offered for import.
+  test('does not prompt for a named pipe', async ({ app }) => {
+    const fifoPath = path.join(await createTempDir(), 'pipe');
+    execFileSync('mkfifo', [fifoPath]);
+
+    await pasteText(app, fifoPath);
 
     await expect(dialog(app)).toHaveAttribute('inert', '');
     await app.refreshClips();

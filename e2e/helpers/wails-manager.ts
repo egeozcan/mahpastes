@@ -78,22 +78,187 @@ const PROJECT_ROOT = path.resolve(__dirname, '../..');
 const BASE_PORT = 34115;
 const instances: Map<number, WailsInstance> = new Map();
 
-/**
- * Kill whatever is still serving on a test port — both the `wails dev` parent
- * (matched on its -devserver flag) and any listener still bound. Used before
- * spawning a primary or secondary instance so an orphan from an interrupted
- * run can never end up serving this run's tests.
- */
-async function reapPort(port: number): Promise<void> {
+// ---------------------------------------------------------------------------
+// Terminations that actually wait
+// ---------------------------------------------------------------------------
+// `wails dev` unlinks the app binary it built from its own exit handler — see
+// killProcessAndCleanupBinary in cmd/wails/internal/dev/dev.go. Every instance
+// builds to and execs the SAME path (build/bin/mahpastes.app/Contents/MacOS/
+// mahpastes), so a kill that returns before that unlink has landed leaves a
+// delayed `rm` of the shared binary floating around.
+//
+// If that rm fires inside another instance's build it lands on the self-sign
+// step, and codesign fails with "No such file or directory". `wails dev` then
+// swallows the build error (restartApp returns a nil error on build failure)
+// and drops into its watcher loop with no app process at all — and since we
+// spawn with -nogorebuild -noreload, nothing ever retriggers the build. The
+// result is a live `wails dev` with no child, nothing ever binding the port,
+// and a full 240 s waitForServer timeout.
+//
+// So every path that kills an instance waits for it to be genuinely gone,
+// which keeps the unlink inside the caller's own window rather than someone
+// else's build.
+
+const TERM_GRACE_MS = 15000;
+const KILL_GRACE_MS = 5000;
+
+function pidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err: any) {
+    // EPERM means the process exists but we don't own it — still alive.
+    return err.code === 'EPERM';
+  }
+}
+
+/** Poll until every pid is gone. Returns the pids still alive at timeout. */
+async function waitForPidsGone(pids: number[], timeoutMs: number): Promise<number[]> {
+  const deadline = Date.now() + timeoutMs;
+  let alive = pids.filter(pidAlive);
+  while (alive.length > 0 && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 100));
+    alive = alive.filter(pidAlive);
+  }
+  return alive;
+}
+
+async function runPidCommand(cmd: string): Promise<number[]> {
   try {
     const { execSync } = await import('child_process');
-    execSync(`pkill -f "devserver localhost:${port}" 2>/dev/null || true`);
-    // -sTCP:LISTEN only targets processes listening on the port, not clients
-    // with an active connection to it (the Playwright worker counts!).
-    execSync(`lsof -ti tcp:${port} -sTCP:LISTEN 2>/dev/null | xargs kill -9 2>/dev/null || true`);
-    // Brief pause to let the OS release the port.
-    await new Promise((r) => setTimeout(r, 500));
-  } catch { /* ignore — pkill/lsof may not be available */ }
+    return execSync(cmd, { encoding: 'utf-8' })
+      .split('\n')
+      .map((line) => parseInt(line.trim(), 10))
+      .filter((pid) => Number.isInteger(pid) && pid > 0 && pid !== process.pid);
+  } catch {
+    return []; // pgrep/lsof unavailable, or no matches
+  }
+}
+
+/** The `wails dev` parent for a port, matched on its -devserver flag. */
+async function devserverPids(port: number): Promise<number[]> {
+  return runPidCommand(`pgrep -f "devserver localhost:${port}" 2>/dev/null || true`);
+}
+
+/**
+ * The mahpastes binary bound to a port. `-sTCP:LISTEN` targets only processes
+ * LISTENING on it, never clients holding an active connection — that set
+ * includes the Playwright worker itself, and killing it crashes the run.
+ */
+async function listenerPids(port: number): Promise<number[]> {
+  return runPidCommand(`lsof -ti tcp:${port} -sTCP:LISTEN 2>/dev/null || true`);
+}
+
+async function pidsForPort(port: number): Promise<number[]> {
+  const [parents, listeners] = await Promise.all([devserverPids(port), listenerPids(port)]);
+  return Array.from(new Set([...parents, ...listeners]));
+}
+
+/**
+ * SIGTERM everything serving `port`, wait for it to actually exit, then SIGKILL
+ * the remainder. Returns only once nothing is alive.
+ *
+ * SIGTERM before SIGKILL is deliberate: a terminated `wails dev` runs its
+ * cleanup, and that cleanup is where the shared-binary unlink happens. We want
+ * it to happen here, synchronously, rather than at some arbitrary later moment.
+ */
+async function terminatePort(port: number): Promise<void> {
+  const targets = await pidsForPort(port);
+  if (targets.length === 0) return;
+
+  for (const pid of targets) {
+    try { process.kill(pid, 'SIGTERM'); } catch { /* already gone */ }
+  }
+  let alive = await waitForPidsGone(targets, TERM_GRACE_MS);
+
+  if (alive.length > 0) {
+    console.warn(`[wails-manager] port ${port}: SIGKILLing ${alive.join(', ')} after ${TERM_GRACE_MS}ms`);
+    for (const pid of alive) {
+      try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ }
+    }
+    await waitForPidsGone(alive, KILL_GRACE_MS);
+  }
+
+  // Killing `wails dev` can orphan the mahpastes child it managed — sweep again.
+  const stragglers = await pidsForPort(port);
+  if (stragglers.length > 0) {
+    for (const pid of stragglers) {
+      try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ }
+    }
+    await waitForPidsGone(stragglers, KILL_GRACE_MS);
+  }
+}
+
+/**
+ * Kill whatever is still serving on a test port. Used before spawning a primary
+ * or secondary instance so an orphan from an interrupted run can never end up
+ * serving this run's tests.
+ */
+async function reapPort(port: number): Promise<void> {
+  await terminatePort(port);
+  // Brief pause to let the OS release the port.
+  await new Promise((r) => setTimeout(r, 500));
+}
+
+/**
+ * Watch a freshly spawned `wails dev` for the failure mode where it stays alive
+ * but will never serve: its build failed, restartApp swallowed the error, and
+ * -nogorebuild -noreload mean nothing will ever retrigger it. Detecting it
+ * turns a silent 240 s timeout into an immediate, accurate error.
+ */
+function watchForFatalStartup(proc: ChildProcess, label: string): {
+  failure: Promise<never>;
+  dispose: () => void;
+} {
+  let reject!: (err: Error) => void;
+  let settled = false;
+  const failure = new Promise<never>((_, rej) => { reject = rej; });
+  // Nothing awaits `failure` once startup succeeds; keep Node from reporting an
+  // unhandled rejection in the window before dispose().
+  failure.catch(() => {});
+
+  const fail = (msg: string) => {
+    if (settled) return;
+    settled = true;
+    reject(new Error(msg));
+  };
+
+  // Output arrives in arbitrary chunks, so match against a rolling tail rather
+  // than individual chunks — the markers below straddle chunk boundaries.
+  let tail = '';
+  const onData = (isErr: boolean) => (data: Buffer) => {
+    const text = data.toString();
+    if (process.env.DEBUG_WAILS) {
+      (isErr ? console.error : console.log)(`[${label}] ${text}`);
+    }
+    tail = (tail + text.replace(/\x1b\[[0-9;]*m/g, '')).slice(-4000);
+    const buildErr = tail.match(/Build error - ([^\n]*)/);
+    if (buildErr) {
+      fail(`wails dev build failed for ${label}: ${buildErr[1].trim()}`);
+    } else if (tail.includes('No version running, build will be retriggered')) {
+      fail(
+        `wails dev for ${label} came up with no app process (its build failed). ` +
+        `It was spawned with -nogorebuild -noreload, so it will never retry.`,
+      );
+    }
+  };
+
+  const onExit = (code: number | null, signal: string | null) => {
+    fail(`wails dev for ${label} exited before serving (code=${code}, signal=${signal})`);
+  };
+
+  proc.stdout?.on('data', onData(false));
+  proc.stderr?.on('data', onData(true));
+  proc.on('exit', onExit);
+
+  // Leave the data listeners attached so DEBUG_WAILS keeps logging; `settled`
+  // makes them inert.
+  const dispose = () => {
+    settled = true;
+    proc.off('exit', onExit);
+  };
+
+  return { failure, dispose };
 }
 
 async function isPortAvailable(port: number): Promise<boolean> {
@@ -242,19 +407,6 @@ export async function spawnWailsInstance(
     baseURL: `http://localhost:${port}`,
   };
 
-  // Log output for debugging
-  proc.stdout?.on('data', (data) => {
-    if (process.env.DEBUG_WAILS) {
-      console.log(`[Worker ${workerIndex}] ${data}`);
-    }
-  });
-
-  proc.stderr?.on('data', (data) => {
-    if (process.env.DEBUG_WAILS) {
-      console.error(`[Worker ${workerIndex}] ${data}`);
-    }
-  });
-
   proc.on('error', (err) => {
     console.error(`[Worker ${workerIndex}] Process error:`, err);
   });
@@ -265,7 +417,22 @@ export async function spawnWailsInstance(
   // Use a longer timeout than the default: secondary instances spawn during
   // active tests when several primary+secondary instances may already be
   // running, increasing compilation time.
-  await waitForServer(instance.baseURL, 240000);
+  //
+  // Race it against the startup watchdog so a build failure surfaces its real
+  // error immediately instead of stalling for the whole timeout.
+  const { failure, dispose } = watchForFatalStartup(proc, `Worker ${workerIndex}`);
+  try {
+    await Promise.race([waitForServer(instance.baseURL, 240000), failure]);
+  } catch (err) {
+    instances.delete(workerIndex);
+    // Never leave a wedged `wails dev` behind: it holds a tailwind watcher open
+    // and will unlink the shared app binary whenever it finally exits.
+    await terminatePort(port).catch(() => {});
+    await fs.rm(dataDir, { recursive: true, force: true }).catch(() => {});
+    throw err;
+  } finally {
+    dispose();
+  }
 
   return instance;
 }
@@ -274,14 +441,29 @@ export async function killWailsInstance(workerIndex: number): Promise<void> {
   const instance = instances.get(workerIndex);
   if (!instance) return;
 
-  // Kill the process
-  if (instance.process && !instance.process.killed) {
-    instance.process.kill('SIGTERM');
-    // Give it a moment to terminate gracefully
-    await new Promise((r) => setTimeout(r, 500));
-    if (!instance.process.killed) {
-      instance.process.kill('SIGKILL');
+  // Terminating an instance runs `wails dev`'s cleanup, which unlinks the app
+  // binary every instance shares. Hold the same lock the spawn and restart
+  // paths take, so that unlink can never land inside another instance's build.
+  const releaseKillLock = await acquireRestartLock(300000);
+  try {
+    const pid = instance.process?.pid;
+    // NOTE: do NOT gate this on `instance.process.killed`. In Node that flag
+    // means "a signal was successfully SENT", not "the process has exited", so
+    // it is always true after the SIGTERM below — the old SIGKILL fallback it
+    // guarded could never run, and slow instances survived teardown as orphans.
+    if (pid && pidAlive(pid)) {
+      try { instance.process.kill('SIGTERM'); } catch { /* already gone */ }
+      const alive = await waitForPidsGone([pid], TERM_GRACE_MS);
+      if (alive.length > 0) {
+        console.warn(`[wails-manager] worker ${workerIndex}: SIGKILLing wails dev ${pid}`);
+        try { instance.process.kill('SIGKILL'); } catch { /* already gone */ }
+        await waitForPidsGone(alive, KILL_GRACE_MS);
+      }
     }
+    // `wails dev` can leave the mahpastes child it managed behind — sweep the port.
+    await terminatePort(instance.port);
+  } finally {
+    await releaseKillLock();
   }
 
   // Clean up data directory
@@ -342,19 +524,26 @@ export async function restartWailsInstance(workerIndex: number): Promise<WailsIn
     // listening on the port.  A plain `lsof -ti tcp:${port}` also returns
     // client PIDs with active connections to the port, which includes the
     // Playwright worker itself — killing it crashes the whole test run.
-    try {
-      const { execSync } = await import('child_process');
-      execSync(`lsof -ti tcp:${port} -sTCP:LISTEN 2>/dev/null | xargs kill -9 2>/dev/null || true`);
-    } catch { /* lsof not available; proceed optimistically */ }
-    if (inProcess.process && !inProcess.process.killed) {
-      inProcess.process.kill('SIGTERM');
-      await new Promise((r) => setTimeout(r, 1000));
-      if (!inProcess.process.killed) {
-        inProcess.process.kill('SIGKILL');
-        await new Promise((r) => setTimeout(r, 500));
+    const listeners = await listenerPids(port);
+    for (const lp of listeners) {
+      try { process.kill(lp, 'SIGKILL'); } catch { /* already gone */ }
+    }
+    await waitForPidsGone(listeners, KILL_GRACE_MS);
+
+    // Now terminate wails dev itself and WAIT for it: its exit handler unlinks
+    // the shared app binary, and that unlink must land here rather than inside
+    // the rebuild we are about to start. (`.killed` is not an exit signal — see
+    // the note in killWailsInstance.)
+    const pid = inProcess.process?.pid;
+    if (pid && pidAlive(pid)) {
+      try { inProcess.process.kill('SIGTERM'); } catch { /* already gone */ }
+      const alive = await waitForPidsGone([pid], TERM_GRACE_MS);
+      if (alive.length > 0) {
+        try { inProcess.process.kill('SIGKILL'); } catch { /* already gone */ }
+        await waitForPidsGone(alive, KILL_GRACE_MS);
       }
     }
-    await new Promise((r) => setTimeout(r, 500));
+    await terminatePort(port);
     instances.delete(workerIndex);
   } else {
     // Read state file to get dataDir.
@@ -366,25 +555,20 @@ export async function restartWailsInstance(workerIndex: number): Promise<WailsIn
       throw new Error(`Worker ${workerIndex} not found in .test-state.json`);
     }
     dataDir = entry.dataDir;
-    // Kill the wails dev process AND the mahpastes binary it manages.
-    // We use pkill -f to match by argument string (works even when the primary
-    // instance was spawned in a different process and we lack a ChildProcess handle).
-    try {
-      const { execSync } = await import('child_process');
-      // Step 1: SIGTERM to wails dev process matching this devserver port.
-      // This lets wails dev do a clean shutdown of its child (mahpastes binary).
-      execSync(`pkill -f "devserver localhost:${port}" 2>/dev/null || true`);
-      await new Promise((r) => setTimeout(r, 1500));
-      // Step 2: SIGKILL any survivors (wails dev or mahpastes binary on the port).
-      execSync(`pkill -9 -f "devserver localhost:${port}" 2>/dev/null || true`);
-      // Also kill the mahpastes binary LISTENING on the port in case pkill
-      // missed it. Use `-sTCP:LISTEN` so we don't accidentally kill clients
-      // (including the Playwright worker) that have active connections to it.
-      execSync(`lsof -ti tcp:${port} -sTCP:LISTEN 2>/dev/null | xargs kill -9 2>/dev/null || true`);
-      await new Promise((r) => setTimeout(r, 500));
-    } catch {
-      // pkill/lsof not available; proceed optimistically
+    // Kill the wails dev process AND the mahpastes binary it manages. We match
+    // by pid lookup rather than a ChildProcess handle, because the primary
+    // instance was spawned in a different process (global-setup).
+    //
+    // Same ordering as the branch above: SIGKILL the mahpastes binary first so
+    // it cannot run a clean shutdown (and its WAL checkpoint), then terminate
+    // wails dev and wait for it so its shared-binary unlink lands before the
+    // rebuild starts.
+    const listeners = await listenerPids(port);
+    for (const lp of listeners) {
+      try { process.kill(lp, 'SIGKILL'); } catch { /* already gone */ }
     }
+    await waitForPidsGone(listeners, KILL_GRACE_MS);
+    await terminatePort(port);
   }
 
   // Wait for the port to become free before re-binding.
@@ -440,24 +624,27 @@ export async function restartWailsInstance(workerIndex: number): Promise<WailsIn
     detached: false,
   });
 
-  proc.stdout?.on('data', (data) => {
-    if (process.env.DEBUG_WAILS) console.log(`[Worker ${workerIndex} restart] ${data}`);
-  });
-  proc.stderr?.on('data', (data) => {
-    if (process.env.DEBUG_WAILS) console.error(`[Worker ${workerIndex} restart] ${data}`);
-  });
   proc.on('error', (err) => console.error(`[Worker ${workerIndex} restart] Process error:`, err));
 
   const baseURL = `http://localhost:${port}`;
   const instance: WailsInstance = { process: proc, port, dataDir, baseURL };
   instances.set(workerIndex, instance);
 
+  const { failure, dispose } = watchForFatalStartup(proc, `Worker ${workerIndex} restart`);
   try {
     // Use a longer timeout for restarts (vs initial spawn) because the
     // lock serializes restarts, so a queued restart may wait up to 60 s
     // for compilation before the port even starts responding.
-    await waitForServer(baseURL, 240000);
+    //
+    // Raced against the startup watchdog so a failed build reports its real
+    // error instead of stalling for the whole timeout.
+    await Promise.race([waitForServer(baseURL, 240000), failure]);
+  } catch (err) {
+    instances.delete(workerIndex);
+    await terminatePort(port).catch(() => {});
+    throw err;
   } finally {
+    dispose();
     // Release lock once the server is up (or if waitForServer throws).
     // The compilation phase is done; other restarts can proceed.
     await releaseRestartLock();
@@ -499,17 +686,17 @@ export async function spawnSecondaryInstance(workerIndex: number): Promise<{
   cleanup: () => Promise<void>;
 }> {
   const secondaryIndex = SECONDARY_INDEX_OFFSET + workerIndex;
-  const secondaryPort = BASE_PORT + secondaryIndex;
-
-  // Kill any stale secondary process left over from a previous test run.
-  // (Global teardown can't reach secondary instances spawned inside worker
-  //  subprocesses, so we clean up defensively before spawning a new one.)
-  await reapPort(secondaryPort);
 
   // Serialize secondary spawns through the restart lock to avoid multiple
   // concurrent `wails dev` compilations corrupting the shared build/ directory.
   // The lock is released as soon as the server is responsive, so subsequent
   // spawns proceed one at a time rather than all competing for the compiler.
+  //
+  // Note there is no reap outside this lock: spawnWailsInstance reaps the
+  // secondary port itself (it derives the same port from secondaryIndex), and
+  // that reap must stay INSIDE the lock. Reaping terminates a stale
+  // `wails dev`, whose exit unlinks the shared app binary — do that unlocked
+  // and it can land in another worker's build and wedge it.
   const releaseSpawnLock = await acquireRestartLock(300000);
   let instance: WailsInstance;
   try {
