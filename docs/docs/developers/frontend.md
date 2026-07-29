@@ -169,6 +169,8 @@ LightboxController.close()
 
 The controller uses stable clip IDs, generation-guarded image loading, actual-scale Fit/1:1 zoom, focal-point transforms, focus restoration, and keyboard/mouse/touchpad/touch adapters. Callers must not mutate lightbox DOM or state directly.
 
+Backdrop clicks close the viewer when the `shouldCloseOnBackdrop` dependency allows it (backed by the `lightbox_close_on_backdrop` setting). Only the viewport and the pan layer count as backdrop — the pan layer is laid out at the image's natural size, so for a zoomed image its box can span the whole viewport. A `suppressBackdropClick` flag, set on `pointerdown`/`touchstart` and by drags past a slop threshold, keeps non-primary buttons, menu-dismissing clicks, and pans that end over the backdrop from closing it. `contextmenu` inside the viewport opens the clip actions menu at the pointer via the `openContextMenu` dependency.
+
 `modals.js` retains image comparison and other modal behavior.
 
 ### watch.js — Watch Folders
@@ -251,6 +253,8 @@ UI for starting and stopping per-tag HTTP servers. Lets users pick a port, toggl
 ### api-settings.js — REST API Settings
 
 Settings modal panel for the REST API server. Provides controls to start/stop the API, choose a port, and create or revoke API keys. Communicates with `APIService` Wails bindings.
+
+Revoking goes through the shared in-app `showConfirmDialog` rather than the native `confirm()`, which a Wails webview does not reliably render. Revoked keys stay in the list, greyed out, with the `revoked_at` stamp in the badge's `title` and a note that the row is removed 7 days after revoking.
 
 ### context-menu.js — Context Menus
 

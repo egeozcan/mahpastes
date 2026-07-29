@@ -107,6 +107,17 @@ Click any image clip's preview to open it in a full-screen lightbox.
 - **Actions** menu with Open, Open With, Copy (Path / File / Contents), Save, Edit, Tags, Metadata, Rename, Set Expiration / Cancel Expiration, Merge Duplicates (if duplicates exist), Archive, Delete
 - Plugin action menu (if plugins define lightbox actions)
 
+Right-clicking the image opens that same Actions menu at the pointer.
+
+**Closing:**
+- <span className="keyboard-key">Esc</span> closes the lightbox (any open menu closes first)
+- Clicking the dark area around the image closes it too
+
+Backdrop clicks only count when they are just that — clicking the image itself, releasing a
+pan drag over the backdrop, and a click that only dismisses an open menu all leave the viewer
+open. To disable backdrop closing entirely, turn off **Settings → Image Viewer → Click outside
+image to close**. The preference is remembered across restarts.
+
 **Keyboard shortcuts:**
 
 | Shortcut | Action |

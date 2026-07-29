@@ -1630,8 +1630,11 @@ type APIKeyInfo struct {
     IsRevoked     bool    `json:"is_revoked"`
     CreatedAt     string  `json:"created_at"`
     LastUsedAt    *string `json:"last_used_at"`
+    RevokedAt     *string `json:"revoked_at"`
 }
 ```
+
+`RevokedAt` is `nil` for active keys. For revoked ones it is when the retention clock started — the row is deleted 7 days later.
 
 ---
 
@@ -1647,6 +1650,8 @@ func (s *APIService) RevokeAPIKey(id int64) error
 | Name | Type | Description |
 |------|------|-------------|
 | `id` | int64 | API key ID (from `ListAPIKeys`) |
+
+Revocation takes effect immediately — authentication filters on `is_revoked` per request. The row is kept (with `revoked_at` stamped) so the revocation stays visible in the key list, and the background cleanup job hard-deletes it 7 days later. See [Retention](../features/rest-api.md#revoking-a-key).
 
 ---
 

@@ -37,7 +37,7 @@ make mp-install MP_INSTALL_DIR=/usr/local/bin
 
 ### Configure
 
-Set your API key as an environment variable. Create a key in the desktop app under **Settings** > **API**.
+Set your API key as an environment variable. Create a key in the desktop app under **Settings** > **API** — or, once you already hold an admin key, with [`mp api key create`](#api-keys).
 
 ```bash
 export MP_API_KEY=mp_your_key_here
@@ -428,6 +428,57 @@ Copy clip contents or a file reference to the system clipboard (requires the des
 mp clipboard copy 42
 mp clipboard copy-file 42
 ```
+
+## API Keys
+
+Manage the keys the CLI itself authenticates with. All three commands need an **admin** key in `MP_API_KEY`.
+
+Create a key:
+
+```bash
+mp api key create "CI pipeline"
+```
+
+The plaintext key is printed once, under `key`, and cannot be retrieved afterwards — only its hash is stored. The "save this key" reminder is written to stderr, so it never pollutes piped output; with `--json` the full result is emitted as JSON and can be read straight off:
+
+```bash
+export MP_API_KEY=$(mp api key create ci --role editor --json | jq -r .key)
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--role` | `viewer` | `viewer`, `editor`, or `admin` |
+| `--scoped-tag` | `0` (unscoped) | Tag **ID** to confine the key to (not a tag name) |
+
+```bash
+mp api key create deploy-bot --role editor --scoped-tag 3
+```
+
+:::warning
+An admin key can mint further keys of any role, scoped or not — key management is not confined by tag scope. Hand out `viewer` or `editor` keys for delegated access, and keep admin keys to yourself.
+:::
+
+List keys:
+
+```bash
+mp api key list
+```
+
+```
+ID  NAME         ROLE    PREFIX      SCOPE          STATUS
+7   CI pipeline  editor  mp_a1b2...  work/client1   active
+4   old-laptop   viewer  mp_9f8e...                 revoked 2026-07-24 08:15:02
+```
+
+Revoked keys stay listed for 7 days after revocation and are then deleted; `STATUS` shows when the clock started. Raw keys are never shown — `PREFIX` is the first 8 characters.
+
+Revoke a key by ID:
+
+```bash
+mp api key revoke 4
+```
+
+Revoking takes effect on the next request. A key that does not exist, or was already revoked, exits non-zero.
 
 ## Backups
 

@@ -311,7 +311,7 @@ export MP_API_URL=http://localhost:44557  # Optional, this is the default
 | `mp plugin` | Install/remove/enable/disable, storage, run actions, updates |
 | `mp serve` | Start/stop/list tag HTTP servers |
 | `mp link` | Create/list/revoke revocable public share links for a clip |
-| `mp api` | Check API connectivity |
+| `mp api` | Check API connectivity, create/list/revoke API keys (`mp api key ...`, admin only) |
 | `mp backup` | Create/restore backup ZIPs |
 | `mp clipboard` | Copy clip content or file reference to system clipboard |
 

@@ -50,7 +50,15 @@ Keys are prefixed with `mp_` (e.g. `mp_a1b2c3d4e5f6...`).
 
 ### Revoking a Key
 
-Click **Revoke** on any active key card. The key stops working immediately. Revoked keys remain visible in the list but are grayed out.
+Click **Revoke** on any active key card and confirm in the dialog. The key stops working immediately — every request is re-checked against the database, so there is no cache to wait out.
+
+Revoking is a soft delete: the key row is kept and shown grayed out with a **Revoked** badge, so you can still see that the key existed and when it was retired (hover the badge for the date). Seven days after revoking, the row is deleted for good by the same background cleanup job that removes expired clips, so the list doesn't accumulate dead keys forever.
+
+Deleting a tag that a key was scoped to revokes that key automatically, on the same seven-day retention clock.
+
+From the CLI, `mp api key list` shows `revoked <date>` in the status column for keys still inside the retention window.
+
+Keys can also be created, listed, and revoked over the API itself — see [API Keys](#api-key-endpoints) in the endpoint reference.
 
 ## Roles
 
@@ -959,6 +967,108 @@ Content-Type: application/json
 ```
 
 Places a file reference on the system clipboard (macOS: NSPasteboard file URL, Windows: PowerShell SetFileDropList). You can then paste the clip as a file into Finder, Explorer, or other apps. Returns `204 No Content`.
+
+---
+
+### API Keys {#api-key-endpoints}
+
+| Method | Path | Min Role | Description |
+|--------|------|----------|-------------|
+| `POST` | `/keys` | admin | Create a key, returning the plaintext once |
+| `GET` | `/keys` | admin | List all keys (active and revoked) |
+| `DELETE` | `/keys/{id}` | admin | Revoke a key |
+| `GET` | `/status` | none | Server liveness (no authentication) |
+
+:::warning
+Key management is gated on role only — it is **not** confined by tag scope. A tag-scoped admin key can mint further keys, including unscoped ones. Treat any admin key as full access to the instance, and prefer `viewer` or `editor` for scoped, delegated access.
+:::
+
+#### Create a key
+
+```
+POST /api/v1/keys
+Content-Type: application/json
+```
+
+```json
+{ "name": "CI pipeline", "role": "editor", "scoped_tag_id": 3 }
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `name` | Yes | Human-readable label; must not be blank |
+| `role` | No | `viewer` (default), `editor`, or `admin` |
+| `scoped_tag_id` | No | Restrict the key to this tag and its subtree; omit or `0` for unscoped |
+
+Returns `201 Created`:
+
+```json
+{
+  "key": "mp_a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+  "info": {
+    "id": 7,
+    "name": "CI pipeline",
+    "key_prefix": "mp_a1b2...",
+    "role": "editor",
+    "scoped_tag_id": 3,
+    "scoped_tag_name": "work/client1",
+    "is_revoked": false
+  }
+}
+```
+
+`key` is the only time the plaintext is returned — only its SHA-256 hash is stored. An unknown `scoped_tag_id`, a blank name, or a role outside the three valid values returns `400 Bad Request`.
+
+#### List keys
+
+```
+GET /api/v1/keys
+```
+
+Returns every key, newest first, active and revoked alike. Raw keys are never included — `key_prefix` holds the first 8 characters for identification.
+
+```json
+[
+  {
+    "id": 7,
+    "name": "CI pipeline",
+    "key_prefix": "mp_a1b2...",
+    "role": "editor",
+    "scoped_tag_id": 3,
+    "scoped_tag_name": "work/client1",
+    "is_revoked": false,
+    "created_at": "2026-07-29 09:12:44",
+    "last_used_at": "2026-07-29 11:03:07",
+    "revoked_at": null
+  }
+]
+```
+
+`last_used_at` is `null` until the key authenticates a request, and is stamped on every subsequent one. `revoked_at` is `null` for active keys; for revoked keys it is when the retention clock started (see [Revoking a Key](#revoking-a-key)).
+
+#### Revoke a key
+
+```
+DELETE /api/v1/keys/{id}
+```
+
+Returns `204 No Content`. A key that does not exist, or that was already revoked, returns `404 Not Found` — revoking is not idempotent.
+
+Revocation takes effect on the next request: authentication re-checks `is_revoked` in SQL every time, with no cached key state. The row itself survives for 7 days so the revocation stays visible in listings.
+
+#### Server status
+
+```
+GET /api/v1/status
+```
+
+The one unauthenticated endpoint, for liveness checks:
+
+```json
+{ "running": true, "port": 44557, "bind_all": false, "url": "http://127.0.0.1:44557", "request_count": 128 }
+```
+
+It exposes no clip, tag, or key data. Note that `mp api status` does not use this route — it makes an authenticated `GET /clips?limit=1` so that it also validates the key.
 
 ## Error Responses
 

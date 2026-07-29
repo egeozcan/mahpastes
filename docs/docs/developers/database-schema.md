@@ -279,8 +279,23 @@ CREATE TABLE IF NOT EXISTS api_keys (
     is_revoked INTEGER DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     last_used_at DATETIME,
-    FOREIGN KEY (scoped_tag_id) REFERENCES tags(id) ON DELETE CASCADE
+    revoked_at DATETIME,
+    FOREIGN KEY (scoped_tag_id) REFERENCES tags(id) ON DELETE SET NULL
 );
+```
+
+A trigger revokes any key whose tag scope disappears, so a scoped key never silently widens into an unscoped one:
+
+```sql
+CREATE TRIGGER api_keys_revoke_on_scope_null
+AFTER UPDATE OF scoped_tag_id ON api_keys
+WHEN NEW.scoped_tag_id IS NULL AND OLD.scoped_tag_id IS NOT NULL
+BEGIN
+    UPDATE api_keys
+    SET is_revoked = 1,
+        revoked_at = COALESCE(revoked_at, CURRENT_TIMESTAMP)
+    WHERE id = NEW.id;
+END;
 ```
 
 | Column | Type | Description |
@@ -294,11 +309,14 @@ CREATE TABLE IF NOT EXISTS api_keys (
 | `is_revoked` | INTEGER | 0 = active, 1 = revoked |
 | `created_at` | DATETIME | When the key was created |
 | `last_used_at` | DATETIME | Last time the key was used for authentication (nullable) |
+| `revoked_at` | DATETIME | When the key was revoked, i.e. when its retention clock started (nullable — NULL for active keys) |
 
 **Constraints:**
 - `key_hash` must be unique
-- Foreign key on `scoped_tag_id` with cascading delete when tag is removed
+- Foreign key on `scoped_tag_id` NULLs the column when the scoped tag is removed; the `api_keys_revoke_on_scope_null` trigger then revokes and stamps the key
 - Raw keys are never stored — only the SHA-256 hash is persisted. The raw key is returned once at creation time and cannot be retrieved afterward.
+
+**Retention:** revoking is a soft delete (`is_revoked = 1` plus a `revoked_at` stamp) so the revocation stays visible in the key list. Authentication rejects the key immediately — every lookup filters `is_revoked = 0`. The row itself is hard-deleted by `purgeRevokedAPIKeys` in `StartCleanupJob` once `revoked_at` is more than `revokedKeyRetentionDays` (7) old. Rows with a NULL `revoked_at` are never purged; `initDB` backfills the stamp on upgrade so pre-existing revoked keys get a full retention window rather than vanishing at once.
 
 ## Schema Migrations
 
