@@ -130,7 +130,7 @@ function renderAPIKeyCard(key) {
     const revokedClass = key.is_revoked ? 'opacity-50' : '';
     const revokeBtn = key.is_revoked
         ? '<span class="text-[10px] text-red-400 font-medium">Revoked</span>'
-        : `<button onclick="revokeAPIKey(${key.id})" class="text-[10px] text-stone-400 hover:text-red-500 transition-colors" data-testid="revoke-key-${key.id}">Revoke</button>`;
+        : `<button data-revoke-key="${key.id}" data-revoke-name="${escapeHtml(key.name)}" class="text-[10px] text-stone-400 hover:text-red-500 transition-colors" data-testid="revoke-key-${key.id}">Revoke</button>`;
 
     return `
         <div class="p-2.5 border border-stone-200 rounded-md ${revokedClass}" data-testid="api-key-card-${key.id}">
@@ -150,10 +150,12 @@ function renderAPIKeyCard(key) {
     `;
 }
 
+// Escapes quotes too, so the result is safe inside a double-quoted attribute
+// value — innerHTML serialisation alone leaves `"` intact.
 function escapeHtml(str) {
     const div = document.createElement('div');
     div.textContent = str;
-    return div.innerHTML;
+    return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 function showCreateKeyForm() {
@@ -195,8 +197,23 @@ async function createAPIKey() {
     }
 }
 
+// Native confirm() is a silent no-op inside the Wails webview on macOS, so this
+// goes through the in-app confirm dialog like every other destructive action.
+apiKeysList.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-revoke-key]');
+    if (!btn) return;
+    const id = parseInt(btn.dataset.revokeKey, 10);
+    const name = btn.dataset.revokeName || 'this key';
+    showConfirmDialog(
+        'Revoke API Key',
+        `Revoke <strong>${escapeHtml(name)}</strong>? It will immediately stop working, and this cannot be undone.`,
+        () => revokeAPIKey(id),
+        null,
+        { confirmLabel: 'Revoke' }
+    );
+});
+
 async function revokeAPIKey(id) {
-    if (!confirm('Revoke this API key? It will immediately stop working.')) return;
     try {
         await window.go.main.APIService.RevokeAPIKey(id);
         showToast('Key revoked');
