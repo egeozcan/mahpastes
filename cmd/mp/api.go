@@ -11,13 +11,14 @@ import (
 )
 
 type APIKeyInfo struct {
-	ID            int64  `json:"id"`
-	Name          string `json:"name"`
-	KeyPrefix     string `json:"key_prefix"`
-	Role          string `json:"role"`
-	ScopedTagID   *int64 `json:"scoped_tag_id"`
-	ScopedTagName string `json:"scoped_tag_name"`
-	IsRevoked     bool   `json:"is_revoked"`
+	ID            int64   `json:"id"`
+	Name          string  `json:"name"`
+	KeyPrefix     string  `json:"key_prefix"`
+	Role          string  `json:"role"`
+	ScopedTagID   *int64  `json:"scoped_tag_id"`
+	ScopedTagName string  `json:"scoped_tag_name"`
+	IsRevoked     bool    `json:"is_revoked"`
+	RevokedAt     *string `json:"revoked_at"`
 }
 
 type APIKeyCreateResult struct {
@@ -145,6 +146,9 @@ var apiKeyListCmd = &cobra.Command{
 			status := "active"
 			if k.IsRevoked {
 				status = "revoked"
+				if k.RevokedAt != nil {
+					status = "revoked " + *k.RevokedAt
+				}
 			}
 			scope := ""
 			if k.ScopedTagID != nil {

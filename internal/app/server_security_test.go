@@ -114,6 +114,7 @@ func newServerTestDB(t *testing.T) *sql.DB {
 			is_revoked INTEGER DEFAULT 0,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			last_used_at DATETIME,
+			revoked_at DATETIME,
 			FOREIGN KEY (scoped_tag_id) REFERENCES tags(id) ON DELETE CASCADE
 		)`,
 	} {

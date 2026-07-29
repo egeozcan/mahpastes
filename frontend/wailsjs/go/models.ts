@@ -10,6 +10,7 @@ export namespace app {
 	    is_revoked: boolean;
 	    created_at: string;
 	    last_used_at?: string;
+	    revoked_at?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new APIKeyInfo(source);
@@ -26,6 +27,7 @@ export namespace app {
 	        this.is_revoked = source["is_revoked"];
 	        this.created_at = source["created_at"];
 	        this.last_used_at = source["last_used_at"];
+	        this.revoked_at = source["revoked_at"];
 	    }
 	}
 	export class APIKeyCreateResult {

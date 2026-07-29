@@ -128,8 +128,13 @@ function renderAPIKeyCard(key) {
     const scopeLabel = key.scoped_tag_name ? `<span class="text-[10px] text-stone-400">scope: ${escapeHtml(key.scoped_tag_name)}</span>` : '';
     const lastUsed = key.last_used_at ? `Last used: ${key.last_used_at}` : 'Never used';
     const revokedClass = key.is_revoked ? 'opacity-50' : '';
+    // Revoked keys are removed from the DB a week later, so say so rather than
+    // letting the card vanish from this list unexplained.
+    const revokedTitle = key.revoked_at
+        ? ` title="Revoked ${escapeHtml(key.revoked_at)} — removed from this list 7 days after revoking"`
+        : '';
     const revokeBtn = key.is_revoked
-        ? '<span class="text-[10px] text-red-400 font-medium">Revoked</span>'
+        ? `<span class="text-[10px] text-red-400 font-medium"${revokedTitle}>Revoked</span>`
         : `<button data-revoke-key="${key.id}" data-revoke-name="${escapeHtml(key.name)}" class="text-[10px] text-stone-400 hover:text-red-500 transition-colors" data-testid="revoke-key-${key.id}">Revoke</button>`;
 
     return `

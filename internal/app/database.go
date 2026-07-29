@@ -220,9 +220,28 @@ func initDB() (*sql.DB, error) {
 		is_revoked INTEGER DEFAULT 0,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		last_used_at DATETIME,
+		revoked_at DATETIME,
 		FOREIGN KEY (scoped_tag_id) REFERENCES tags(id) ON DELETE SET NULL
 	)`); err != nil {
 		log.Printf("Warning: Failed to create api_keys table: %v", err)
+	}
+
+	// Migrate: add revoked_at to pre-existing tables. Must run BEFORE the FK
+	// rebuild below, which copies the column across.
+	if !hasColumn(db, "api_keys", "revoked_at") {
+		if _, err := db.Exec(`ALTER TABLE api_keys ADD COLUMN revoked_at DATETIME`); err != nil {
+			log.Printf("Warning: failed to add api_keys.revoked_at: %v", err)
+		}
+	}
+
+	// Backfill: keys revoked before revoked_at existed have no timestamp, so the
+	// retention sweep can't age them out. Stamp them now — they get the full
+	// retention window measured from this upgrade rather than being purged
+	// immediately or lingering forever. Matches zero rows on every later start.
+	if _, err := db.Exec(
+		`UPDATE api_keys SET revoked_at = CURRENT_TIMESTAMP WHERE is_revoked = 1 AND revoked_at IS NULL`,
+	); err != nil {
+		log.Printf("Warning: failed to backfill api_keys.revoked_at: %v", err)
 	}
 
 	// Migrate: api_keys.scoped_tag_id was originally ON DELETE CASCADE, which
@@ -237,13 +256,25 @@ func initDB() (*sql.DB, error) {
 
 	// Trigger: auto-revoke any key whose scope gets NULLed out (migration or
 	// future tag deletes). Preserves the row for audit; denies access because
-	// is_revoked = 1 is checked in the auth middleware.
+	// is_revoked = 1 is checked in the auth middleware. The revoked_at stamp
+	// starts this key's retention clock — COALESCE so re-NULLing an
+	// already-revoked key can't extend a window that is already running.
+	//
+	// Dropped and recreated rather than CREATE TRIGGER IF NOT EXISTS: DBs from
+	// before revoked_at existed already hold the old body, and IF NOT EXISTS
+	// would leave it in place, stranding trigger-revoked keys with a NULL stamp.
+	if _, err := db.Exec(`DROP TRIGGER IF EXISTS api_keys_revoke_on_scope_null`); err != nil {
+		log.Printf("Warning: failed to drop api_keys_revoke_on_scope_null trigger: %v", err)
+	}
 	if _, err := db.Exec(`
-		CREATE TRIGGER IF NOT EXISTS api_keys_revoke_on_scope_null
+		CREATE TRIGGER api_keys_revoke_on_scope_null
 		AFTER UPDATE OF scoped_tag_id ON api_keys
 		WHEN NEW.scoped_tag_id IS NULL AND OLD.scoped_tag_id IS NOT NULL
 		BEGIN
-			UPDATE api_keys SET is_revoked = 1 WHERE id = NEW.id;
+			UPDATE api_keys
+			SET is_revoked = 1,
+			    revoked_at = COALESCE(revoked_at, CURRENT_TIMESTAMP)
+			WHERE id = NEW.id;
 		END;
 	`); err != nil {
 		log.Printf("Warning: failed to create api_keys_revoke_on_scope_null trigger: %v", err)
@@ -469,6 +500,30 @@ func backfillContentHashes(db *sql.DB) {
 // leaves this nil.
 var migrateFailHook func() error
 
+// hasColumn reports whether table has the named column. A failed PRAGMA (or a
+// missing table) reports false, which makes callers attempt the ADD COLUMN and
+// log there rather than silently skipping a migration.
+func hasColumn(db *sql.DB, table, column string) bool {
+	rows, err := db.Query(fmt.Sprintf("PRAGMA table_info(%s)", table))
+	if err != nil {
+		return false
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, colType string
+		var notNull, pk int
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &colType, &notNull, &dflt, &pk); err != nil {
+			return false
+		}
+		if name == column {
+			return true
+		}
+	}
+	return false
+}
+
 // needsAPIKeysScopedTagMigration returns true iff the api_keys table's SQL
 // still contains "ON DELETE CASCADE" on scoped_tag_id.
 func needsAPIKeysScopedTagMigration(db *sql.DB) bool {
@@ -528,13 +583,14 @@ func migrateAPIKeysScopedTagSetNull(db *sql.DB) error {
 			is_revoked INTEGER DEFAULT 0,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			last_used_at DATETIME,
+			revoked_at DATETIME,
 			FOREIGN KEY (scoped_tag_id) REFERENCES tags(id) ON DELETE SET NULL
 		)`); err != nil {
 		return fmt.Errorf("create new: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO api_keys_new (id, name, key_hash, key_prefix, role, scoped_tag_id, is_revoked, created_at, last_used_at)
-		SELECT id, name, key_hash, key_prefix, role, scoped_tag_id, is_revoked, created_at, last_used_at FROM api_keys`); err != nil {
+		INSERT INTO api_keys_new (id, name, key_hash, key_prefix, role, scoped_tag_id, is_revoked, created_at, last_used_at, revoked_at)
+		SELECT id, name, key_hash, key_prefix, role, scoped_tag_id, is_revoked, created_at, last_used_at, revoked_at FROM api_keys`); err != nil {
 		return fmt.Errorf("copy: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `DROP TABLE api_keys`); err != nil {
@@ -549,6 +605,33 @@ func migrateAPIKeysScopedTagSetNull(db *sql.DB) error {
 	}
 	// Deferred PRAGMA foreign_keys=ON runs next, then conn.Close().
 	return nil
+}
+
+// revokedKeyRetentionDays is how long a revoked API key row is kept before the
+// cleanup sweep deletes it. The row is dead for auth the instant it is revoked
+// (every lookup filters is_revoked = 0); the retention window exists only so the
+// revocation stays visible in the key list for a while afterwards.
+const revokedKeyRetentionDays = 7
+
+// purgeRevokedAPIKeys deletes API keys revoked more than revokedKeyRetentionDays
+// ago and returns how many rows went away. Rows with a NULL revoked_at are left
+// alone — initDB backfills those on upgrade, so a NULL here means the row's
+// clock never started and guessing a deletion date would be wrong.
+func purgeRevokedAPIKeys(db *sql.DB) (int64, error) {
+	// datetime() normalizes the stored timestamp so the comparison is
+	// timezone-safe, matching the expired-share-link sweep below.
+	result, err := db.Exec(fmt.Sprintf(
+		`DELETE FROM api_keys
+		 WHERE is_revoked = 1
+		   AND revoked_at IS NOT NULL
+		   AND datetime(revoked_at) <= datetime('now', '-%d days')`,
+		revokedKeyRetentionDays,
+	))
+	if err != nil {
+		return 0, err
+	}
+	rows, _ := result.RowsAffected()
+	return rows, nil
 }
 
 // StartCleanupJob deletes expired clips every minute until ctx is cancelled.
@@ -586,6 +669,12 @@ func StartCleanupJob(ctx context.Context, db *sql.DB) {
 				// normalizes the stored timestamp so the comparison is timezone-safe.
 				if _, err := db.Exec("DELETE FROM share_links WHERE expires_at IS NOT NULL AND datetime(expires_at) <= datetime('now')"); err != nil {
 					log.Printf("Failed to delete expired share links: %v\n", err)
+				}
+				// Garbage-collect long-revoked API keys.
+				if rows, err := purgeRevokedAPIKeys(db); err != nil {
+					log.Printf("Failed to delete revoked API keys: %v\n", err)
+				} else if rows > 0 {
+					log.Printf("Cleaned up %d API key(s) revoked over %d days ago\n", rows, revokedKeyRetentionDays)
 				}
 			}
 		}

@@ -52,6 +52,9 @@ type APIKeyInfo struct {
 	IsRevoked     bool    `json:"is_revoked"`
 	CreatedAt     string  `json:"created_at"`
 	LastUsedAt    *string `json:"last_used_at"`
+	// RevokedAt is nil for active keys. For revoked ones it is when the
+	// retention clock started — the row is deleted revokedKeyRetentionDays later.
+	RevokedAt *string `json:"revoked_at"`
 }
 
 // APIKeyCreateResult is returned when a new key is created, with the plaintext key shown once.
@@ -594,7 +597,7 @@ func (am *APIManager) CreateKey(name, role string, scopedTagID int64) (*APIKeyCr
 func (am *APIManager) ListKeys() ([]APIKeyInfo, error) {
 	rows, err := am.app.db.Query(`
 		SELECT ak.id, ak.name, ak.key_prefix, ak.role, ak.scoped_tag_id, t.name,
-		       ak.is_revoked, ak.created_at, ak.last_used_at
+		       ak.is_revoked, ak.created_at, ak.last_used_at, ak.revoked_at
 		FROM api_keys ak
 		LEFT JOIN tags t ON ak.scoped_tag_id = t.id
 		ORDER BY ak.created_at DESC
@@ -611,9 +614,10 @@ func (am *APIManager) ListKeys() ([]APIKeyInfo, error) {
 		var scopedTagName sql.NullString
 		var isRevoked int
 		var lastUsedAt sql.NullString
+		var revokedAt sql.NullString
 
 		if err := rows.Scan(&k.ID, &k.Name, &k.KeyPrefix, &k.Role, &scopedTagID, &scopedTagName,
-			&isRevoked, &k.CreatedAt, &lastUsedAt); err != nil {
+			&isRevoked, &k.CreatedAt, &lastUsedAt, &revokedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan key: %w", err)
 		}
 
@@ -628,6 +632,9 @@ func (am *APIManager) ListKeys() ([]APIKeyInfo, error) {
 		if lastUsedAt.Valid {
 			k.LastUsedAt = &lastUsedAt.String
 		}
+		if revokedAt.Valid {
+			k.RevokedAt = &revokedAt.String
+		}
 		keys = append(keys, k)
 	}
 	if keys == nil {
@@ -636,9 +643,12 @@ func (am *APIManager) ListKeys() ([]APIKeyInfo, error) {
 	return keys, rows.Err()
 }
 
-// RevokeKey soft-deletes an API key.
+// RevokeKey soft-deletes an API key. The revoked_at stamp starts the retention
+// clock: the cleanup sweep hard-deletes the row revokedKeyRetentionDays later.
+// Access is denied immediately either way — auth lookups filter is_revoked = 0.
 func (am *APIManager) RevokeKey(id int64) error {
-	result, err := am.app.db.Exec("UPDATE api_keys SET is_revoked = 1 WHERE id = ? AND is_revoked = 0", id)
+	result, err := am.app.db.Exec(
+		"UPDATE api_keys SET is_revoked = 1, revoked_at = CURRENT_TIMESTAMP WHERE id = ? AND is_revoked = 0", id)
 	if err != nil {
 		return fmt.Errorf("failed to revoke key: %w", err)
 	}

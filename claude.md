@@ -358,6 +358,8 @@ The app exposes a REST API via `api_manager.go` that the `mp` CLI and external t
 
 API keys with roles (`viewer`, `editor`, `admin`). Auth via `Authorization: Bearer <key>` header or `MP_API_KEY` env var in the CLI.
 
+Revoking a key is a soft delete: `is_revoked = 1` plus a `revoked_at` stamp. Auth denial is instant (every lookup filters `is_revoked = 0`); the row itself is hard-deleted by the `StartCleanupJob` sweep `revokedKeyRetentionDays` (7) after revocation, so the key list doesn't accumulate dead entries forever. Deleting a scoped tag NULLs `scoped_tag_id`, and the `api_keys_revoke_on_scope_null` trigger revokes and stamps the key so it ages out on the same schedule.
+
 ### Endpoints
 
 Routes cover all major features: clips, tags, watch folders, plugins, backup, dedup, clipboard, metadata, and serve management. All under `/api/v1/`.

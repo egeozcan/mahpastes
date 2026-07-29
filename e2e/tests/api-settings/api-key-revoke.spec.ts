@@ -58,6 +58,24 @@ test.describe('API Settings - key revocation', () => {
     await expect(app.page.locator(`[data-testid="revoke-key-${id}"]`)).toHaveCount(0);
   });
 
+  test('revoked badge records when the retention clock started', async ({ app }) => {
+    await openApiModal(app);
+    const id = await createKey(app, 'stamped');
+
+    await app.page.locator(`[data-testid="revoke-key-${id}"]`).click();
+    await expect(app.page.locator(selectors.confirm.dialog)).toHaveClass(/opacity-100/);
+    await app.page.locator(selectors.confirm.confirmButton).click();
+
+    // revoked_at is what the cleanup sweep ages out against — a revoked key
+    // without it would sit in this list forever, so assert it round-trips.
+    const badge = app.page.locator(`[data-testid="api-key-card-${id}"] span[title]`);
+    await expect(badge).toHaveText('Revoked');
+    await expect(badge).toHaveAttribute(
+      'title',
+      /^Revoked \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|[+-]\d{2}:\d{2}) — removed from this list 7 days after revoking$/
+    );
+  });
+
   test('leaves the key alone when the dialog is cancelled', async ({ app }) => {
     await openApiModal(app);
     const id = await createKey(app, 'keep-me');
