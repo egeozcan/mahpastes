@@ -1,5 +1,6 @@
 import { FullConfig } from '@playwright/test';
 import { spawnWailsInstance, killAllInstances } from './helpers/wails-manager.js';
+import { ensureServerBinary } from './helpers/server-binary.js';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
@@ -35,6 +36,11 @@ async function globalSetup(config: FullConfig): Promise<void> {
 
   // Clean up any leftover instances from previous runs
   await killAllInstances();
+
+  // The server specs run under this config too and spawn the headless binary,
+  // so build it here rather than making the suite depend on a prior `make`.
+  await ensureServerBinary();
+  console.log('  ✅ mahpastesd built\n');
 
   // Determine number of workers from config
   const workerCount = config.workers || 4;

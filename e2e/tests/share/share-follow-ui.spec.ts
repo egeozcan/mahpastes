@@ -47,14 +47,34 @@ async function pasteShareLink(app: any, link: string) {
 
 test.describe('Share - Follow UI (mocked backend)', () => {
 
-  // Tests stub window.go.main.ShareService methods in-page. Close the modal
-  // after each case so subsequent tests don't hit "modal intercepts pointer
-  // events" when opening the drawer. Also clear stubs to avoid bleed-over.
+  // Tests stub window.go.main.ShareService methods in-page. The page is
+  // worker-scoped and outlives this file, so a stub left behind is read by
+  // every later spec in the same worker — share-offline-catchup polls the
+  // publisher's real GetShareStatus and would silently get `shares: []`
+  // forever. Snapshot the genuine bindings before each test and put them
+  // back after, so nothing escapes this file.
+  test.beforeEach(async ({ app }) => {
+    await app.page.evaluate(() => {
+      const w = window as any;
+      const svc = w.go?.main?.ShareService;
+      if (!svc) return;
+      if (!w.__realShareService) w.__realShareService = { ...svc };
+      Object.assign(svc, w.__realShareService);
+    }).catch(() => {});
+  });
+
+  // Close the modal after each case so subsequent tests don't hit "modal
+  // intercepts pointer events" when opening the drawer, and restore the real
+  // bindings (see above).
   test.afterEach(async ({ app }) => {
     await app.page.evaluate(() => {
       const modal = document.getElementById('follow-share-modal');
       if (modal && !modal.classList.contains('hidden')) {
         modal.classList.add('hidden');
+      }
+      const w = window as any;
+      if (w.__realShareService && w.go?.main?.ShareService) {
+        Object.assign(w.go.main.ShareService, w.__realShareService);
       }
     }).catch(() => {});
   });

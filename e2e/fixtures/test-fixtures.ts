@@ -2510,6 +2510,7 @@ export class AppHelper {
   async fillPluginOptionsForm(values: Record<string, any>): Promise<void> {
     for (const [name, value] of Object.entries(values)) {
       const field = this.page.locator(`#plugin-options-form [name="${name}"]`);
+      const tagName = await field.evaluate((el) => el.tagName);
       const fieldType = await field.getAttribute('type');
 
       if (fieldType === 'checkbox') {
@@ -2518,6 +2519,8 @@ export class AppHelper {
         } else {
           await field.uncheck();
         }
+      } else if (tagName === 'SELECT') {
+        await field.selectOption(String(value));
       } else {
         await field.fill(String(value));
       }

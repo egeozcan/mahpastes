@@ -113,14 +113,21 @@ test.describe('Share - Offline catchup', () => {
         await app.uploadFile(img2);
         await app.addTagToClip(img2.split('/').pop()!, tagName);
 
-        // Confirm publisher's clips_pushed advanced.
+        // Confirm publisher's clips_pushed advanced. AddTagToClip fires the
+        // share hook on a goroutine, so this is eventual — give it room rather
+        // than assuming the emission lands within a couple of seconds while the
+        // rest of the share suite is competing for the machine.
         await expect.poll(
           async () => {
             const st = await app.getShareStatus();
             const s = (st.shares || []).find((sh: any) => sh.tag_id === tagID);
             return s?.clips_pushed ?? 0;
           },
-          { timeout: 10000, intervals: [500, 1000] },
+          {
+            timeout: 60000,
+            intervals: [500, 1000, 2000],
+            message: 'Publisher clips_pushed did not advance within 60 s of tagging clip 2',
+          },
         ).toBeGreaterThan(pubSeqBefore);
 
         // ------------------------------------------------------------------

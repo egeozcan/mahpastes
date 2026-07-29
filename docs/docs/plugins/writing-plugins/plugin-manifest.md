@@ -365,6 +365,8 @@ Options support these types: `text`, `password`, `checkbox`, `select`, `range`.
 | `choices` | For `select` | Array of `{value, label}` objects |
 | `min`, `max`, `step` | For `range` | Numeric range constraints |
 
+The dialog remembers the last submitted `select`, `checkbox`, and `range` values per action and reopens with them instead of `default`. `text` and `password` fields always start at `default`, so prompts and secrets are never replayed. A remembered value that no longer exists (e.g. a `select` choice removed by a plugin update) falls back to `default`.
+
 ### Handler
 
 ```lua

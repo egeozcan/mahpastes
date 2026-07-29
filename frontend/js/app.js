@@ -1269,6 +1269,11 @@ window.addEventListener('load', async () => {
             if (['asc', 'desc'].includes(savedDir)) currentSortDir = savedDir;
         } catch (e) { /* use defaults */ }
 
+        // Last-used plugin action options (dialogs reopen with them prefilled)
+        if (typeof loadPluginOptionMemory === 'function') {
+            await loadPluginOptionMemory();
+        }
+
         // Lightbox backdrop click behaviour (default: close)
         try {
             const backdropSetting = await window.go.main.App.GetSetting('lightbox_close_on_backdrop');

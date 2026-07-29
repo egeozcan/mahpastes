@@ -16,6 +16,28 @@ import { test, expect } from '../../fixtures/test-fixtures.js';
 
 test.describe('Share - UI smoke tests', () => {
 
+  // One case below stubs a ShareService binding in-page. The page is
+  // worker-scoped and outlives this file, so hand the real bindings back
+  // afterwards rather than leaking a stub into whatever runs next.
+  test.beforeEach(async ({ app }) => {
+    await app.page.evaluate(() => {
+      const w = window as any;
+      const svc = w.go?.main?.ShareService;
+      if (!svc) return;
+      if (!w.__realShareService) w.__realShareService = { ...svc };
+      Object.assign(svc, w.__realShareService);
+    }).catch(() => {});
+  });
+
+  test.afterEach(async ({ app }) => {
+    await app.page.evaluate(() => {
+      const w = window as any;
+      if (w.__realShareService && w.go?.main?.ShareService) {
+        Object.assign(w.go.main.ShareService, w.__realShareService);
+      }
+    }).catch(() => {});
+  });
+
   test('sidebar 2×2 grid has all four tabs', async ({ app }) => {
     await app.openDrawer();
     await expect(app.page.locator('#view-tab-clips')).toBeVisible();

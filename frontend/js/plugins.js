@@ -765,6 +765,70 @@ async function executePluginAction(pluginId, actionId, clipIds, options, isAsync
 let currentPluginAction = null;
 let currentActionClipIds = [];
 
+// --- Remembered option values ---
+// The options dialog is shared by every plugin action, so the last submitted
+// values are stored per plugin + action and restored the next time that dialog
+// opens. Free-text and password fields are deliberately not remembered: prompts
+// are meant to be rewritten each run and secrets should not be replayed.
+const PLUGIN_OPTION_MEMORY_KEY = 'plugin_action_options';
+const REMEMBERED_OPTION_TYPES = new Set(['select', 'checkbox', 'range']);
+let pluginOptionMemory = {};
+
+// Keyed by plugin name rather than row id so choices survive a reinstall, and
+// so an action offered from several places (fal.ai's "Upscale" sits on both the
+// lightbox and the card menu) shares one remembered set.
+function pluginOptionMemoryKey(action) {
+    return `${action.plugin_name || action.plugin_id}::${action.id}`;
+}
+
+async function loadPluginOptionMemory() {
+    try {
+        const raw = await window.go.main.App.GetSetting(PLUGIN_OPTION_MEMORY_KEY);
+        const parsed = raw ? JSON.parse(raw) : null;
+        pluginOptionMemory = (parsed && typeof parsed === 'object') ? parsed : {};
+    } catch (error) {
+        pluginOptionMemory = {};
+    }
+}
+
+// The value a field should start at: whatever was chosen last time, falling
+// back to the manifest default.
+function rememberedOptionValue(action, field) {
+    if (!REMEMBERED_OPTION_TYPES.has(field.type)) return field.default;
+    const saved = pluginOptionMemory[pluginOptionMemoryKey(action)];
+    if (!saved || !(field.id in saved)) return field.default;
+    const value = saved[field.id];
+
+    // A plugin update can rename or drop what was remembered, so stale values
+    // fall back to the default rather than leaving the control unset.
+    switch (field.type) {
+        case 'select':
+            return (field.choices || []).some(c => String(c.value) === String(value))
+                ? value : field.default;
+        case 'checkbox':
+            return value === true;
+        default: // range
+            return Number.isFinite(Number(value)) ? Number(value) : field.default;
+    }
+}
+
+async function savePluginOptionMemory(action, options) {
+    const remembered = {};
+    (action.options || []).forEach(field => {
+        if (REMEMBERED_OPTION_TYPES.has(field.type) && field.id in options) {
+            remembered[field.id] = options[field.id];
+        }
+    });
+    if (Object.keys(remembered).length === 0) return;
+
+    pluginOptionMemory[pluginOptionMemoryKey(action)] = remembered;
+    try {
+        await window.go.main.App.SetSetting(PLUGIN_OPTION_MEMORY_KEY, JSON.stringify(pluginOptionMemory));
+    } catch (error) {
+        console.error('Failed to save plugin option values:', error);
+    }
+}
+
 // This function is called when a plugin action has options that need user input
 // action: the full action object with plugin_id, id, label, options, etc.
 // clipIds: array of clip IDs to apply the action to
@@ -798,13 +862,15 @@ function openPluginOptionsDialog(action, clipIds) {
         }
         label.setAttribute('for', `plugin-opt-${field.id}`);
 
+        const initial = rememberedOptionValue(action, field);
+
         let input;
         switch (field.type) {
             case 'checkbox':
                 input = document.createElement('input');
                 input.type = 'checkbox';
                 input.className = 'form-checkbox';
-                input.checked = field.default === true;
+                input.checked = initial === true;
                 break;
 
             case 'select':
@@ -814,7 +880,7 @@ function openPluginOptionsDialog(action, clipIds) {
                     const opt = document.createElement('option');
                     opt.value = choice.value;
                     opt.textContent = choice.label;
-                    if (choice.value === field.default) opt.selected = true;
+                    if (String(choice.value) === String(initial)) opt.selected = true;
                     input.appendChild(opt);
                 });
                 break;
@@ -826,12 +892,12 @@ function openPluginOptionsDialog(action, clipIds) {
                 const hasMin = field.min !== undefined && field.min !== null;
                 const hasMax = field.max !== undefined && field.max !== null;
                 const hasStep = field.step !== undefined && field.step !== null;
-                const hasDefault = field.default !== undefined && field.default !== null;
+                const hasInitial = initial !== undefined && initial !== null;
 
                 input.min = hasMin ? String(field.min) : '0';
                 input.max = hasMax ? String(field.max) : '1';
                 input.step = hasStep ? String(field.step) : '0.1';
-                input.value = hasDefault ? String(field.default) : (hasMin ? String(field.min) : '0');
+                input.value = hasInitial ? String(initial) : (hasMin ? String(field.min) : '0');
 
                 const valueDisplay = document.createElement('span');
                 valueDisplay.className = 'form-range-value';
@@ -918,6 +984,7 @@ document.getElementById('plugin-options-form')?.addEventListener('submit', async
     const action = currentPluginAction;
     const clipIds = currentActionClipIds;
     closePluginOptionsDialog();
+    await savePluginOptionMemory(action, options);
     await executePluginAction(action.plugin_id, action.id, clipIds, options, action.async);
 });
 

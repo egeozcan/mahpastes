@@ -34,6 +34,13 @@ Plugin = {
       {id = "test_global_options", label = "Test Global Options", icon = "pencil",
         options = {
           {id = "name", type = "text", label = "Name", required = true, default = "test"},
+          {id = "flavor", type = "select", label = "Flavor", default = "plain",
+            choices = {
+              {value = "plain", label = "Plain"},
+              {value = "fancy", label = "Fancy"},
+            }
+          },
+          {id = "loud", type = "checkbox", label = "Loud", default = false},
         }
       },
       {id = "test_global_async", label = "Test Global Async", icon = "refresh", async = true},

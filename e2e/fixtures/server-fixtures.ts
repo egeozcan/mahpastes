@@ -1,9 +1,10 @@
 import { ChildProcess, execFile, spawn } from 'child_process';
 import type { APIRequest } from '@playwright/test';
-import { access, mkdtemp, readFile, rm } from 'fs/promises';
+import { mkdtemp, readFile, rm } from 'fs/promises';
 import { tmpdir } from 'os';
 import { dirname, join, resolve } from 'path';
 import { fileURLToPath } from 'url';
+import { ensureServerBinary } from '../helpers/server-binary.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -28,13 +29,15 @@ type Waiter = {
 
 export async function spawnServer(opts: { port?: number } = {}): Promise<ServerHandle> {
   const dataDir = await mkdtemp(join(tmpdir(), 'mahpastesd-e2e-'));
-  const bin = process.env.MAHPASTESD_BIN ?? join(repoRoot, 'build', 'bin', process.platform === 'win32' ? 'mahpastesd.exe' : 'mahpastesd');
 
+  // Global setup normally builds this once up front; the call here is the
+  // safety net for a config or invocation that skipped it.
+  let bin: string;
   try {
-    await access(bin);
-  } catch {
+    bin = await ensureServerBinary();
+  } catch (err) {
     await rm(dataDir, { recursive: true, force: true });
-    throw new Error(`mahpastesd binary not found at ${bin}. Run "make mahpastesd" first or set MAHPASTESD_BIN.`);
+    throw err;
   }
 
   let logs = '';

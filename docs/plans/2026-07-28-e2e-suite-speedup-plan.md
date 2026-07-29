@@ -389,5 +389,6 @@ beda994 perf(e2e): reuse the first instance's build for later spawns
 
 ### Note for future runs
 
-The 15 `tests/server/` specs need `build/bin/mahpastesd`; run `make mahpastesd`
-first or they fail with a missing-binary error under the default config.
+The `tests/server/` specs need `build/bin/mahpastesd`. Both global setups now
+build it via `helpers/server-binary.ts`, so no `make mahpastesd` is required
+first; set `MAHPASTESD_BIN` to test a binary built elsewhere.
