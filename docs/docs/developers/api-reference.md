@@ -522,6 +522,38 @@ func (a *App) ReadFileFromPath(path string) (*FileData, error)
 
 ---
 
+### ProbeFilePaths
+
+Resolve pasted path-like strings against the local filesystem, so the frontend can tell whether a
+pasted line names a real file before offering to import it. Normalizes quoted, shell-escaped, `~`-relative
+and `file://` forms; relative paths are rejected. Unresolvable candidates come back with `exists: false`
+rather than an error. Max 32 paths per call.
+
+```go
+func (a *App) ProbeFilePaths(paths []string) ([]PathProbe, error)
+
+type PathProbe struct {
+	Input     string `json:"input"`      // candidate exactly as pasted
+	Path      string `json:"path"`       // normalized absolute path ("" when unresolvable)
+	Exists    bool   `json:"exists"`
+	IsDir     bool   `json:"is_dir"`
+	IsRegular bool   `json:"is_regular"` // a FIFO or device is never importable
+	IsTemp    bool   `json:"is_temp"`    // lives in the app's own clip_temp_files dir
+	Name      string `json:"name"`
+	Size      int64  `json:"size"`
+}
+```
+
+Import should be gated on `exists && is_regular && !is_temp`:
+
+- `is_regular` rather than merely `!is_dir` — reading a FIFO blocks forever and reading a character
+  device such as `/dev/zero` never ends.
+- `!is_temp` — the path was handed out by this app (`CreateTempFile`, drag-out), so importing it would
+  duplicate an existing clip under a throwaway lease filename. Symlinked temp roots (`/var` vs
+  `/private/var`) are resolved before the comparison.
+
+---
+
 ### IsDirectory
 
 Check if a path is a directory.

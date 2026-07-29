@@ -432,6 +432,7 @@ Object.assign(window.__testHelpers, {
   },
   handleFolderDrop: (folderFiles, looseFiles, dirPaths) => handleFolderDrop(folderFiles, looseFiles, dirPaths),
   handlePastedFiles: (files) => handlePastedFiles(files),
+  handleText: (text) => handleText(text),
   pastedImageName: (fileData) => pastedImageName(fileData),
   confirmFolderDrop: (fileCount, maxDepth) => confirmFolderDrop(fileCount, maxDepth),
   parseGitignore: (content) => parseGitignore(content),
@@ -765,10 +766,15 @@ async function pastedImageName(fileData) {
 // which lets content-addressed naming collapse it into an identical-content skip.
 let pasteQueue = Promise.resolve();
 
-function handlePastedFiles(files) {
-    const run = pasteQueue.then(() => processPastedFiles(files));
+// Runs task after every paste already queued has committed.
+function enqueuePaste(task) {
+    const run = pasteQueue.then(task);
     pasteQueue = run.catch(() => {}); // keep the queue chainable even if a paste fails
     return run;
+}
+
+function handlePastedFiles(files) {
+    return enqueuePaste(() => processPastedFiles(files));
 }
 
 async function processPastedFiles(files) {
@@ -1221,6 +1227,26 @@ async function handleText(text) {
         return;
     }
 
+    // A pasted path is ambiguous — the text itself, or the file it names. Ask
+    // (or apply the standing preference from Settings), but only when the path
+    // actually resolves to a file on this machine. Waits out startup so a paste
+    // in the first moments still honours the stored preference.
+    let behavior = 'ask';
+    if (window.whenPastePathBehaviorReady) {
+        behavior = await window.whenPastePathBehaviorReady();
+    }
+    if (behavior !== 'text') {
+        const probes = await resolvePastedFilePaths(text);
+        if (probes) {
+            const choice = behavior === 'file' ? 'file' : await showPathPasteDialog(probes);
+            if (choice === null) return; // cancelled — nothing is added
+            if (choice === 'file') {
+                await uploadFilesFromPaths(probes.map(p => p.path));
+                return;
+            }
+        }
+    }
+
     // Convert text to base64
     const base64 = btoa(unescape(encodeURIComponent(text)));
     const ts = Date.now();
@@ -1231,6 +1257,28 @@ async function handleText(text) {
     };
 
     upload([fileData]);
+}
+
+// Reads each path off disk and uploads it as a clip, the same way a dropped
+// file would be — including duplicate detection and folder auto-tagging.
+//
+// Queued behind any in-flight paste: two fast Cmd+V of the same path would
+// otherwise both pass the duplicate check before either clip was committed, and
+// land as duplicates.
+function uploadFilesFromPaths(paths) {
+    return enqueuePaste(async () => {
+        const fileDataArray = [];
+        for (const path of paths) {
+            try {
+                fileDataArray.push(await window.go.main.App.ReadFileFromPath(path));
+            } catch (error) {
+                console.error('Error reading pasted path:', path, error);
+                showToast(`Could not read ${path.split(/[/\\]/).pop()}.`, 'error');
+                return;
+            }
+        }
+        await upload(fileDataArray);
+    });
 }
 
 async function loadHiddenTags() {

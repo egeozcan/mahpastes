@@ -17,6 +17,7 @@ function openSettings() {
     renderShortcutsSettings();
     loadTooltipToggle();
     loadLightboxBackdropToggle();
+    loadPastePathBehaviorSelect();
     settingsModal.removeAttribute('inert');
     settingsModal.classList.remove('opacity-0', 'pointer-events-none');
     settingsModal.classList.add('opacity-100');
@@ -551,5 +552,25 @@ if (lightboxBackdropToggle) {
         if (typeof window.setLightboxCloseOnBackdrop === 'function') {
             window.setLightboxCloseOnBackdrop(lightboxBackdropToggle.checked);
         }
+    });
+}
+
+// --- Pasted File Path Behaviour ---
+const pastePathBehaviorSelect = document.getElementById('paste-path-behavior-select');
+
+// Same reasoning as the lightbox toggle: read the value app.js cached at
+// startup rather than re-fetching it while the modal is already interactive.
+function loadPastePathBehaviorSelect() {
+    if (!pastePathBehaviorSelect) return;
+    pastePathBehaviorSelect.value = typeof window.getPastePathBehavior === 'function'
+        ? window.getPastePathBehavior()
+        : 'ask';
+}
+
+if (pastePathBehaviorSelect) {
+    pastePathBehaviorSelect.addEventListener('change', async () => {
+        if (typeof window.setPastePathBehavior !== 'function') return;
+        await window.setPastePathBehavior(pastePathBehaviorSelect.value);
+        showToast('Pasted path behavior saved.');
     });
 }

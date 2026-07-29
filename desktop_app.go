@@ -70,6 +70,7 @@ type desktopCore interface {
 	MergeDuplicates(clipID int64) error
 	MergeTag(sourceID, destID int64) error
 	PreviewMergeTag(sourceID, destID int64) (coreapp.MergeTagPreview, error)
+	ProbeFilePaths(paths []string) ([]coreapp.PathProbe, error)
 	ProcessExistingFilesInFolder(folderID int64) error
 	ReadFileFromPath(path string) (*coreapp.FileData, error)
 	RefreshWatches() error

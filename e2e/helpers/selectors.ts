@@ -316,6 +316,17 @@ export const selectors = {
     skipButton: '#conflict-skip-btn',
   },
 
+  // Pasted path dialog (text vs. referenced file)
+  pathPaste: {
+    dialog: '#path-paste-dialog',
+    title: '#path-paste-title',
+    message: '#path-paste-message',
+    fileList: '#path-paste-file-list',
+    fileButton: '#path-paste-file-btn',
+    textButton: '#path-paste-text-btn',
+    cancelButton: '#path-paste-cancel-btn',
+  },
+
   // Prompt dialog
   prompt: {
     dialog: '#prompt-dialog',
@@ -463,6 +474,8 @@ export const selectors = {
     hiddenTagToggle: (name: string) => `[data-testid="hidden-tag-toggle-${name}"]`,
     lightboxBackdropToggle: '[data-testid="lightbox-backdrop-close-toggle"]',
     lightboxBackdropLabel: '[data-testid="lightbox-backdrop-close-label"]',
+    pastePathSection: '[data-testid="settings-paste-path-section"]',
+    pastePathSelect: '[data-testid="paste-path-behavior-select"]',
   },
 
   // Settings - update interval

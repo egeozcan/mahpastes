@@ -31,6 +31,32 @@ The main way to add content:
 
 mahpastes detects the content type and stores it.
 
+### Pasting a File Path
+
+Copying a file as a pathname (Finder's **Copy as Pathname**, Explorer's **Copy as path**, or dragging a
+file into a terminal) puts plain text on the clipboard, which is ambiguous: you may want the path itself,
+or the file it points to.
+
+When pasted text names a file that exists on this computer, mahpastes asks which one you meant. You can
+paste several paths at once — one per line — as long as every line resolves to a file. Paths that don't
+exist, and paths naming a folder or anything that isn't an ordinary file, are pasted as text without a
+prompt.
+
+Paths mahpastes handed out itself — from **Copy Path**, or from dragging a clip out of the window — are
+also pasted as text. Re-importing one would just duplicate the clip you copied it from.
+
+Recognized forms: absolute paths (`/Users/me/photo.png`, `C:\Users\me\photo.png`), `~/`-relative paths,
+`file://` URLs, and paths that are quoted or shell-escaped. Relative paths are not resolved.
+
+To skip the prompt, set **Settings → Pasted File Paths → On paste** (desktop only — a browser session
+served over the network can't see your filesystem, so pasted paths always stay text there):
+
+| Option | Behavior |
+|--------|----------|
+| Ask which one I meant | Prompt each time (default) |
+| Keep the path as text | Always store the path as a text clip; never read the file |
+| Add the file it points to | Always import the file, prompting only when the path isn't a real file |
+
 ### Drag and Drop
 
 Drop files directly into the app:

@@ -593,6 +593,32 @@ export namespace app {
 	        this.stale_hidden_tag_ids = source["stale_hidden_tag_ids"];
 	    }
 	}
+	export class PathProbe {
+	    input: string;
+	    path: string;
+	    exists: boolean;
+	    is_dir: boolean;
+	    is_regular: boolean;
+	    is_temp: boolean;
+	    name: string;
+	    size: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new PathProbe(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.input = source["input"];
+	        this.path = source["path"];
+	        this.exists = source["exists"];
+	        this.is_dir = source["is_dir"];
+	        this.is_regular = source["is_regular"];
+	        this.is_temp = source["is_temp"];
+	        this.name = source["name"];
+	        this.size = source["size"];
+	    }
+	}
 	export class PrepareTransferRequest {
 	    clip_id: number;
 	    channel: string;

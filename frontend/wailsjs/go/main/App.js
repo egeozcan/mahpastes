@@ -238,6 +238,10 @@ export function PreviewMergeTag(arg1, arg2) {
   return window['go']['main']['App']['PreviewMergeTag'](arg1, arg2);
 }
 
+export function ProbeFilePaths(arg1) {
+  return window['go']['main']['App']['ProbeFilePaths'](arg1);
+}
+
 export function ProcessExistingFilesInFolder(arg1) {
   return window['go']['main']['App']['ProcessExistingFilesInFolder'](arg1);
 }

@@ -489,6 +489,13 @@ const ShortcutManager = (() => {
             return true;
         }
 
+        // Pasted-path dialog (text clip vs. the file the path names)
+        const pathPasteDialog = document.getElementById('path-paste-dialog');
+        if (pathPasteDialog && !pathPasteDialog.classList.contains('opacity-0')) {
+            if (typeof closePathPasteDialog === 'function') closePathPasteDialog(null);
+            return true;
+        }
+
         // Plugin result modal takes highest priority
         const resultModal = document.getElementById('plugin-result-modal');
         if (resultModal && !resultModal.classList.contains('opacity-0')) {

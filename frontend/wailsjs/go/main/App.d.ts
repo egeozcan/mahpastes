@@ -121,6 +121,8 @@ export function OpenClipWithDefaultApp(arg1:number):Promise<void>;
 
 export function PreviewMergeTag(arg1:number,arg2:number):Promise<app.MergeTagPreview>;
 
+export function ProbeFilePaths(arg1:Array<string>):Promise<Array<app.PathProbe>>;
+
 export function ProcessExistingFilesInFolder(arg1:number):Promise<void>;
 
 export function ReadFileFromPath(arg1:string):Promise<app.FileData>;

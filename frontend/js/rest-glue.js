@@ -185,6 +185,9 @@
         DeleteAllTempFiles: () => del(`${api}/temp`),
         SelectFolder: async () => { throw new Error('folder picker is desktop-only in server mode'); },
         IsDirectory: async () => false,
+        // Pasted paths name files on the viewer's machine, which the server
+        // cannot see — an empty result keeps every paste a text clip.
+        ProbeFilePaths: async () => [],
         SaveClipToFile: async (id) => {
             const clip = await fetchJSON(`${api}/clips/${id}`);
             await downloadBlob(`${api}/clips/${id}/data`, clip.filename || `clip_${id}`);

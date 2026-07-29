@@ -653,6 +653,15 @@ export class AppHelper {
         }
       } catch {}
 
+      // Reset pasted-path behaviour. The page caches it, so go through the
+      // app's own setter to reset both the cache and the stored value.
+      try {
+        const setPastePathBehavior = (window as any).setPastePathBehavior;
+        if (typeof setPastePathBehavior === 'function') {
+          await setPastePathBehavior('ask');
+        }
+      } catch {}
+
       // --- 2. Close all modals via DOM ---
 
       // Use the real editor teardown so worker-scoped pages do not retain
@@ -666,11 +675,16 @@ export class AppHelper {
         editorModal.setAttribute('inert', '');
       }
 
+      // The pasted-path dialog holds a pending paste promise — close it through
+      // its own handler so a leftover paste resolves instead of hanging.
+      const closePathPaste = (window as any).closePathPasteDialog;
+      if (typeof closePathPaste === 'function') closePathPaste(null);
+
       // All modals use opacity-0/pointer-events-none when closed
       const modalIds = [
         'confirm-dialog', 'restore-confirm-dialog', 'folder-modal',
         'settings-modal', 'maintenance-modal', 'plugin-options-modal',
-        'plugin-result-modal', 'plugin-review-modal',
+        'plugin-result-modal', 'plugin-review-modal', 'path-paste-dialog',
       ];
       for (const id of modalIds) {
         const el = document.getElementById(id);
