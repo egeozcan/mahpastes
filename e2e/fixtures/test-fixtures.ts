@@ -445,9 +445,10 @@ export class AppHelper {
     // Context menu (card menu / lightbox file menu)
     try {
       await this.page.evaluate(() => {
-        // @ts-ignore - ContextMenu is global
-        if (typeof ContextMenu !== 'undefined' && ContextMenu.isOpen()) {
-          ContextMenu.close();
+        // ContextMenu is a classic-script global, not a module export.
+        const menu = (window as any).ContextMenu;
+        if (menu && menu.isOpen()) {
+          menu.close();
         }
       });
     } catch {
@@ -1579,12 +1580,10 @@ export class AppHelper {
       if (typeof navigateToFolder === 'function') {
         // @ts-ignore
         navigateToFolder(tag.id);
-      } else if (window.__testHelpers?.setFolderMode) {
+      } else if ((window as any).__testHelpers?.setFolderMode) {
         // Fallback: set active tag filter
-        // @ts-ignore
-        window.__testHelpers.setActiveTagFilters([tag.id]);
-        // @ts-ignore
-        await window.__testHelpers.loadClips();
+        (window as any).__testHelpers.setActiveTagFilters([tag.id]);
+        await (window as any).__testHelpers.loadClips();
       }
     }, tagName);
   }
@@ -2040,10 +2039,6 @@ export class AppHelper {
     const result = await this.page.evaluate(async ({ source, fname }) => {
       // Create a Blob and trigger import via workaround
       // We need to use the backend API directly
-
-      // First, get the data dir path
-      // @ts-ignore
-      const dataDir = await window.go.main.App.GetDataDir?.() || '';
 
       // For testing, we'll insert directly into the database and copy the file
       // This simulates what ImportPlugin does but without the file dialog
@@ -2966,12 +2961,39 @@ export class AppHelper {
       { timeout: 10000 },
     );
     await this.page.selectOption('#create-share-tag-select', { label: tagName });
-    await this.page.click('#create-share-confirm-btn');
-    // Wait for the result section to appear (StartShare RPC completes).
-    await this.page.waitForFunction(
-      () => !(document.getElementById('create-share-result-section')?.classList.contains('hidden') ?? true),
-      { timeout: 15000 },
-    );
+
+    // share.js reports a refused StartShare through a toast and a console
+    // error, then leaves the picker up. Collect both so a failure here names
+    // the actual reason instead of a bare waitForFunction timeout.
+    const consoleErrors: string[] = [];
+    const onConsole = (msg: any) => {
+      if (msg.type() === 'error') consoleErrors.push(msg.text());
+    };
+    this.page.on('console', onConsole);
+    try {
+      await this.page.click('#create-share-confirm-btn');
+      // Wait for the result section to appear (StartShare RPC completes).
+      await this.page.waitForFunction(
+        () => !(document.getElementById('create-share-result-section')?.classList.contains('hidden') ?? true),
+        { timeout: 15000 },
+      );
+    } catch (err) {
+      const state = await this.page.evaluate(() => {
+        const sel = document.getElementById('create-share-tag-select') as HTMLSelectElement | null;
+        return {
+          selectedValue: sel?.value ?? null,
+          optionCount: sel?.options.length ?? 0,
+          modalHidden: document.getElementById('create-share-modal')?.classList.contains('hidden') ?? null,
+          toast: (document.getElementById('toast')?.textContent || '').trim(),
+        };
+      }).catch(() => null);
+      throw new Error(
+        `startShare("${tagName}"): result section never appeared. ` +
+        `state=${JSON.stringify(state)} consoleErrors=${JSON.stringify(consoleErrors)}`,
+      );
+    } finally {
+      this.page.off('console', onConsole);
+    }
     const shareString = (await this.page.textContent('#create-share-string-box') || '').trim();
     await this.page.click('.create-share-close');
     const tagID = await this.page.evaluate((n) =>

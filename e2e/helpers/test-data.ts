@@ -21,11 +21,32 @@ export function generateTestText(prefix = 'test'): string {
 
 // Generate a simple PNG image as a Buffer
 // Creates a solid color image with optional text marker
+/**
+ * Colour names accepted by generateTestImage. Callers across the suite pass
+ * names ('red', 'blue') rather than tuples; before these were mapped, a string
+ * fell through Buffer.from() as 0,0,0 and every "differently coloured" image
+ * came out identical black.
+ */
+const NAMED_COLORS: Record<string, [number, number, number]> = {
+  red: [255, 0, 0],
+  green: [0, 255, 0],
+  blue: [0, 0, 255],
+  yellow: [255, 255, 0],
+  purple: [128, 0, 128],
+  orange: [255, 165, 0],
+  cyan: [0, 255, 255],
+  black: [0, 0, 0],
+  white: [255, 255, 255],
+};
+
 export function generateTestImage(
   width = 100,
   height = 100,
-  color: [number, number, number] = [255, 0, 0]
+  colorInput: [number, number, number] | keyof typeof NAMED_COLORS = [255, 0, 0]
 ): Buffer {
+  const color: [number, number, number] = typeof colorInput === 'string'
+    ? (NAMED_COLORS[colorInput] ?? [255, 0, 0])
+    : colorInput;
   // Minimal valid PNG with specified dimensions and color
   // This creates a simple solid-color PNG without external dependencies
 

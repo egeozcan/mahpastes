@@ -78,6 +78,24 @@ const PROJECT_ROOT = path.resolve(__dirname, '../..');
 const BASE_PORT = 34115;
 const instances: Map<number, WailsInstance> = new Map();
 
+/**
+ * Kill whatever is still serving on a test port — both the `wails dev` parent
+ * (matched on its -devserver flag) and any listener still bound. Used before
+ * spawning a primary or secondary instance so an orphan from an interrupted
+ * run can never end up serving this run's tests.
+ */
+async function reapPort(port: number): Promise<void> {
+  try {
+    const { execSync } = await import('child_process');
+    execSync(`pkill -f "devserver localhost:${port}" 2>/dev/null || true`);
+    // -sTCP:LISTEN only targets processes listening on the port, not clients
+    // with an active connection to it (the Playwright worker counts!).
+    execSync(`lsof -ti tcp:${port} -sTCP:LISTEN 2>/dev/null | xargs kill -9 2>/dev/null || true`);
+    // Brief pause to let the OS release the port.
+    await new Promise((r) => setTimeout(r, 500));
+  } catch { /* ignore — pkill/lsof may not be available */ }
+}
+
 async function isPortAvailable(port: number): Promise<boolean> {
   return new Promise((resolve) => {
     const server = net.createServer();
@@ -157,6 +175,15 @@ export async function spawnWailsInstance(
 ): Promise<WailsInstance> {
   const port = BASE_PORT + workerIndex;
   const dataDir = path.join(os.tmpdir(), `mahpastes-test-${workerIndex}-${Date.now()}`);
+
+  // Reap anything still holding this port. A run that was interrupted (Ctrl-C,
+  // a killed CI job) leaves its `wails dev` alive, and killAllInstances only
+  // knows about processes THIS process spawned. Worse than a busy port: a
+  // stale instance mid-rebuild frees the port just long enough for the check
+  // below to pass, then both processes race to bind it and the tests may end
+  // up driving the old app — with its old data dir, where fixed-name tags like
+  // `create-test-tag` are already shared, so the next StartShare is refused.
+  await reapPort(port);
 
   // Check if port is available
   const available = await isPortAvailable(port);
@@ -317,7 +344,7 @@ export async function restartWailsInstance(workerIndex: number): Promise<WailsIn
     // Playwright worker itself — killing it crashes the whole test run.
     try {
       const { execSync } = await import('child_process');
-      execSync(`lsof -ti tcp:${port} -sTCP:LISTEN 2>/dev/null | xargs kill -9 2>/dev/null || true`, { shell: true });
+      execSync(`lsof -ti tcp:${port} -sTCP:LISTEN 2>/dev/null | xargs kill -9 2>/dev/null || true`);
     } catch { /* lsof not available; proceed optimistically */ }
     if (inProcess.process && !inProcess.process.killed) {
       inProcess.process.kill('SIGTERM');
@@ -346,14 +373,14 @@ export async function restartWailsInstance(workerIndex: number): Promise<WailsIn
       const { execSync } = await import('child_process');
       // Step 1: SIGTERM to wails dev process matching this devserver port.
       // This lets wails dev do a clean shutdown of its child (mahpastes binary).
-      execSync(`pkill -f "devserver localhost:${port}" 2>/dev/null || true`, { shell: true });
+      execSync(`pkill -f "devserver localhost:${port}" 2>/dev/null || true`);
       await new Promise((r) => setTimeout(r, 1500));
       // Step 2: SIGKILL any survivors (wails dev or mahpastes binary on the port).
-      execSync(`pkill -9 -f "devserver localhost:${port}" 2>/dev/null || true`, { shell: true });
+      execSync(`pkill -9 -f "devserver localhost:${port}" 2>/dev/null || true`);
       // Also kill the mahpastes binary LISTENING on the port in case pkill
       // missed it. Use `-sTCP:LISTEN` so we don't accidentally kill clients
       // (including the Playwright worker) that have active connections to it.
-      execSync(`lsof -ti tcp:${port} -sTCP:LISTEN 2>/dev/null | xargs kill -9 2>/dev/null || true`, { shell: true });
+      execSync(`lsof -ti tcp:${port} -sTCP:LISTEN 2>/dev/null | xargs kill -9 2>/dev/null || true`);
       await new Promise((r) => setTimeout(r, 500));
     } catch {
       // pkill/lsof not available; proceed optimistically
@@ -477,15 +504,7 @@ export async function spawnSecondaryInstance(workerIndex: number): Promise<{
   // Kill any stale secondary process left over from a previous test run.
   // (Global teardown can't reach secondary instances spawned inside worker
   //  subprocesses, so we clean up defensively before spawning a new one.)
-  try {
-    const { execSync } = await import('child_process');
-    execSync(`pkill -f "devserver localhost:${secondaryPort}" 2>/dev/null || true`, { shell: true });
-    // Use -sTCP:LISTEN to only target processes LISTENING on the port, not
-    // clients with active connections to it (the Playwright worker counts!).
-    execSync(`lsof -ti tcp:${secondaryPort} -sTCP:LISTEN 2>/dev/null | xargs kill -9 2>/dev/null || true`, { shell: true });
-    // Brief pause to let OS release the port.
-    await new Promise((r) => setTimeout(r, 500));
-  } catch { /* ignore — pkill/lsof may not be available */ }
+  await reapPort(secondaryPort);
 
   // Serialize secondary spawns through the restart lock to avoid multiple
   // concurrent `wails dev` compilations corrupting the shared build/ directory.
