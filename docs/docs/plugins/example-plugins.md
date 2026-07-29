@@ -442,7 +442,15 @@ mahpastes ships with several ready-to-use plugins in the `plugins/` directory. T
 
 ### FAL.AI Image Processing
 
-AI-powered image processing via the fal.ai API. Provides lightbox and card actions for colorizing, upscaling (2x/4x), restoring, AI editing, and vectorizing images. Demonstrates async UI actions, task progress tracking, settings (API key), and `clips.create_from_url`.
+AI-powered image processing via the fal.ai API. Provides lightbox and card actions for colorizing, upscaling (2x/4x), restoring, AI editing, and vectorizing images, plus a global text-to-image action.
+
+Text-to-image covers Nano Banana 2 and Pro, FLUX.2 (max/pro/turbo), Seedream 5.0 Pro and 4.5, GPT Image 2, Ideogram V4, Recraft V4, and Z-Image Turbo; AI Edit covers the editing endpoints of the same families. Aspect ratio and resolution are translated per model, since each states its accepted dimensions differently.
+
+Results are not left on fal's servers. Where the endpoint supports `sync_mode`, the image comes back inline as a data URI and is never uploaded to fal's CDN at all. The rest are capped by the `X-Fal-Object-Lifecycle-Preference` header (5 minutes by default, configurable in plugin settings), and `X-Fal-Store-IO: 0` keeps prompts and input images out of fal's 30-day request history unless the user opts in.
+
+**Content Filter** (Off / Relaxed / Moderate / Strict) appears on the Generate Image and AI Edit forms, alongside a plugin-wide default in settings that those dropdowns fall back to. Models grade content on incompatible scales — Gemini takes a 1-6 tolerance, FLUX [pro]/[max] a 1-5 tolerance, and the rest a plain on/off checker, all of them inverted relative to the label — so the plugin translates one level onto each. Upscale has no dropdown, so Clarity follows the setting; GPT Image 2 and the other upscalers expose no filter parameter and are unaffected.
+
+Demonstrates async UI actions, bulk actions, task progress tracking, settings (password, select, checkbox), `image.info`, `clips.create`, and `clips.create_from_url`.
 
 ### mahresources Upload
 
