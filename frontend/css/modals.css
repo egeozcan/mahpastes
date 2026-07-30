@@ -662,7 +662,10 @@ input[type="range"].comparison-range::-webkit-slider-thumb {
 .editor-backdrop {
     position: fixed;
     inset: 0;
-    background: rgba(28, 25, 23, 0.95);
+    /* Deeper than the shared rgba(28, 25, 23, ...) scrim on purpose: the text
+       editor's own surface is stone-900 (#1c1917), so the usual scrim would
+       leave the panel indistinguishable from what surrounds it. */
+    background: rgba(12, 10, 9, 0.96);
     z-index: 200;
     display: flex;
     align-items: center;
@@ -683,6 +686,10 @@ input[type="range"].comparison-range::-webkit-slider-thumb {
     max-width: 1400px;
     background: #fafaf9;
     border-radius: 6px;
+    /* Edge treatment, not decoration: in text mode every surface inside the
+       container is dark, so the border is what separates panel from scrim. */
+    border: 1px solid #78716c;
+    box-shadow: 0 24px 60px -12px rgba(0, 0, 0, 0.8);
     display: grid;
     grid-template-rows: auto 1fr;
     overflow: hidden;
