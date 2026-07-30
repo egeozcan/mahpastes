@@ -50,10 +50,17 @@ jobs:
         include:
           - platform: macos-latest
             label: macOS (WKWebView)
+            wails_args: ''
           - platform: windows-latest
             label: Windows (WebView2)
+            wails_args: ''
+          # Ubuntu 24.04 ships only libwebkit2gtk-4.1; Wails v2 still pkg-configs
+          # webkit2gtk-4.0 unless this tag says otherwise. Set on every entry, not
+          # just this one — an absent matrix key interpolates to nothing and that is
+          # exactly how the -platform breakage got in.
           - platform: ubuntu-latest
             label: Linux (WebKitGTK)
+            wails_args: '-tags webkit2_41'
 
     steps:
       - uses: actions/checkout@v4
@@ -87,19 +94,25 @@ jobs:
       # No -platform: each runner builds for itself, which is the whole point —
       # the test needs a binary running that runner's own native webview.
       - name: Build
-        run: wails build
+        run: wails build ${{ matrix.wails_args }}
         env:
           CGO_ENABLED: 1
 
+      # The result JSON goes to stdout, so it must be printed before the step is
+      # allowed to fail — otherwise a failing platform reports only "exit code 1"
+      # and the diagnosis lives solely in an artifact. The binary's own exit code
+      # already encodes `ok`, so the shells re-raise it rather than re-parsing.
       - name: Run worker self-test (macOS)
         if: matrix.platform == 'macos-latest'
         env:
           MAHPASTES_SELFTEST_WORKER: '1'
           MAHPASTES_DATA_DIR: ${{ runner.temp }}/mp-selftest
         run: |
+          set +e
           ./build/bin/mahpastes.app/Contents/MacOS/mahpastes > result.json
+          code=$?
           cat result.json
-          test "$(python3 -c 'import json;print(json.load(open("result.json"))["ok"])')" = "True"
+          exit $code
 
       - name: Run worker self-test (Windows)
         if: matrix.platform == 'windows-latest'
@@ -108,10 +121,12 @@ jobs:
           MAHPASTES_SELFTEST_WORKER: '1'
           MAHPASTES_DATA_DIR: ${{ runner.temp }}/mp-selftest
         run: |
+          $ErrorActionPreference = 'Continue'
+          $PSNativeCommandUseErrorActionPreference = $false
           ./build/bin/mahpastes.exe > result.json
+          $code = $LASTEXITCODE
           Get-Content result.json
-          $r = Get-Content result.json -Raw | ConvertFrom-Json
-          if (-not $r.ok) { exit 1 }
+          exit $code
 
       # No display on the runner, so the webview needs a virtual one.
       - name: Run worker self-test (Linux)
@@ -120,9 +135,11 @@ jobs:
           MAHPASTES_SELFTEST_WORKER: '1'
           MAHPASTES_DATA_DIR: ${{ runner.temp }}/mp-selftest
         run: |
+          set +e
           xvfb-run -a ./build/bin/mahpastes > result.json
+          code=$?
           cat result.json
-          test "$(python3 -c 'import json;print(json.load(open("result.json"))["ok"])')" = "True"
+          exit $code
 
       - name: Upload result
         if: always()
