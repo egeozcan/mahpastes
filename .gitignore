@@ -48,3 +48,6 @@ test-results/
 /docs/reviews/
 /mp
 .superpowers/
+
+# pi (external review CLI) subagent artifacts
+.pi-subagents/
