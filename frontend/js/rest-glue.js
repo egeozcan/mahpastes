@@ -113,7 +113,37 @@
                 reader.onerror = () => reject(reader.error || new Error('failed to read clip data'));
                 reader.readAsDataURL(blob);
             });
-            return { id, content_type: blob.type || 'application/octet-stream', data, filename: '' };
+            // No valid_utf8 here on purpose: this path never looks at the bytes,
+            // and inventing a value would be a lie in one direction or the other.
+            // Text callers use GetClipText below, which computes it server-side.
+            return { id, content_type: blob.type || 'application/octet-stream', data, filename: '', data_encoding: 'base64' };
+        },
+        // Single-query text retrieval for the editor. This is NOT GetClipData with
+        // a filename bolted on:
+        //
+        //   - Atomicity. Composing metadata from GET /clips/{id} with bytes from
+        //     the data route lets a concurrent update pair one clip's metadata
+        //     with another revision's bytes — config.json metadata over PNG bytes.
+        //     The /text endpoint reads all three columns in one row scan, which is
+        //     what desktop GetClipData already does.
+        //   - Correctness. GetClipData above returns raw base64 in `data` and a
+        //     hardcoded empty filename, so server-mode text editing showed base64
+        //     and could never detect Markdown. This is the fix for that bug.
+        GetClipText: async (id) => {
+            const res = await fetch(`${api}/clips/${id}/text`, { credentials: 'same-origin' });
+            if (res.status === 401) {
+                window.location = '/login.html';
+                throw new Error('Unauthorized');
+            }
+            if (!res.ok) {
+                let message = `${res.status} ${res.statusText}`;
+                try {
+                    const body = await res.json();
+                    if (body.error) message = body.error;
+                } catch {}
+                throw new Error(message);
+            }
+            return await res.json();
         },
         UploadFiles: async (files, minutes, autoTagID) => Promise.all((files || []).map((f) => uploadOne(f, autoTagID))),
         UploadFileAndGetID: async (file) => {

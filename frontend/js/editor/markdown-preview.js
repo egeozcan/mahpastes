@@ -436,7 +436,7 @@ const MarkdownPreview = (() => {
 
     if (window.runtime?.EventsOn) {
         window.runtime.EventsOn('markdown:image-cache-cleared', () => {
-            if (typeof TextClipEditor !== 'undefined') TextClipEditor.refreshMarkdownPreview();
+            if (typeof TextClipEditor !== 'undefined') TextClipEditor.refreshPreview();
         });
         window.runtime.EventsOn('markdown:image-progress', progress => {
             const active = activeDownloads.get(progress.request_id);

@@ -15,14 +15,23 @@ let editorFocusTrapCleanup = null;
 
 // --- Utility Functions ---
 
-function isEditableType(contentType) {
-    return contentType.startsWith('text/') ||
-        contentType === 'application/json' ||
-        contentType.startsWith('image/');
+// Text eligibility comes from the one classification registry, so callers never
+// repeat an extension or MIME check. Note what this does NOT do: it does not
+// return true for images. The helper it replaced did, and two call sites depended
+// on that, so a caller gating the editor *as a whole* must use isEditableClip.
+function isTextCandidate(filename, contentType) {
+    return MahpastesTextEditor.TextFileTypes.isTextCandidate({ filename, contentType });
 }
 
 function isImageType(contentType) {
     return contentType.startsWith('image/');
+}
+
+// For call sites that gate the editor as a whole rather than the text path
+// specifically — the card context menu's Edit item, for one, which must keep
+// offering Edit for image clips.
+function isEditableClip(filename, contentType) {
+    return isTextCandidate(filename, contentType) || isImageType(contentType);
 }
 
 function getNewFilename(original) {
@@ -36,14 +45,21 @@ function getNewFilename(original) {
     return name + '_edited' + ext;
 }
 
-function encodeTextToBase64(text) {
-    const bytes = new TextEncoder().encode(text);
-    let binary = '';
-    const chunkSize = 0x8000;
-    for (let offset = 0; offset < bytes.length; offset += chunkSize) {
-        binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+// Text save bytes come from TextCodec, which re-encodes using the fidelity
+// profile recorded when the clip was opened — the BOM's presence, the document's
+// newline style — so an ordinary save writes back the bytes it read. The old
+// helper here encoded the raw editor string, which silently converted a CRLF
+// document to LF and dropped its BOM.
+//
+// A refusal is a refusal, not a fallback: the one case that cannot be preserved
+// is an unpaired surrogate, which TextEncoder would write as EF BF BD.
+function reportTextEncodingRefusal(result) {
+    if (result.reason === 'unpaired-surrogate') {
+        const at = result.position ? ` at line ${result.position.line}, column ${result.position.column}` : '';
+        showToast(`Cannot save: unpaired ${result.codeUnit}${at}. Remove it and try again.`);
+        return;
     }
-    return btoa(binary);
+    showToast('Cannot save: the text could not be encoded.');
 }
 
 function setSaveAsMode(enabled) {
@@ -99,12 +115,23 @@ function updateEditorSaveState() {
 
 // --- Open / Close ---
 
-async function openEditor(clipId) {
+/**
+ * Opens the editor for a clip.
+ *
+ * `options.initialMode` is `'preview'`, `'edit'`, or `'default'`. Callers express
+ * the mode here and never simulate a tab click after opening: `default` (or an
+ * omitted option) lets the descriptor decide, while the explicit Edit entry points
+ * pass `'edit'` so Markdown and CSV land in the editor rather than in Preview.
+ */
+async function openEditor(clipId, options = {}) {
     const editorModal = document.getElementById('editor-modal');
     if (!editorModal.classList.contains('active')) lastFocusedBeforeEditor = document.activeElement;
     try {
-        // Fetch the clip data via Wails binding
-        const clipData = await getClipData(clipId);
+        // One atomic read for both branches: filename, content type, bytes, and
+        // UTF-8 validity. Composing metadata and bytes from two requests would
+        // let a concurrent update pair one clip's metadata with another revision's
+        // bytes — config.json metadata over PNG bytes.
+        const clipData = await getClipText(clipId);
         if (!clipData) throw new Error('Failed to load clip');
 
         const contentType = clipData.content_type || '';
@@ -170,18 +197,55 @@ async function openEditor(clipId) {
                 downscaleWarning.classList.remove('hidden');
             }
         } else {
-            // Text editor
+            // Text editor. The views are swapped only after the decode result is
+            // known, because the 16 MiB cap declines to open the modal at all.
+            //
+            // The payload may be a plain string (valid text content types) or
+            // base64 (invalid UTF-8, and extension-classified application types
+            // even when valid), so the encoding is read from the payload rather
+            // than inferred from the content type.
+            //
+            // decodeClipPayload is the policy-bearing entry point: it refuses
+            // invalid UTF-8 and oversized documents outright rather than handing
+            // back replacement-decoded text a save could write back. The visible
+            // `value` excludes the BOM and uses LF; `profile` is what puts the
+            // bytes back the way they were found.
+            const decoded = MahpastesTextEditor.TextCodec.decodeClipPayload({
+                data: clipData.data,
+                dataEncoding: clipData.data_encoding,
+                validUTF8: clipData.valid_utf8,
+            });
+
+            // The 16 MiB cap is a decline to open at all, not a read-only state:
+            // the editor path would otherwise materialize one document as a
+            // Blob, a base64 string, a decoded string, a CodeMirror document, and
+            // possibly a preview simultaneously.
+            if (!decoded.ok && decoded.reason === 'too-large') {
+                const megabytes = Math.round(decoded.byteLength / (1024 * 1024));
+                showToast(`Text clip is too large to edit (${megabytes} MB) — download it instead.`);
+                editorClipId = null;
+                editorContentType = '';
+                editorFilename = '';
+                isTextEditor = false;
+                return;
+            }
+
             isTextEditor = true;
             imageEditorView.classList.add('hidden');
             textEditorView.classList.remove('hidden');
 
-            // For text, data is already a string.
             TextClipEditor.open({
                 clipID: clipId,
                 filename: editorFilename,
                 contentType,
-                text: clipData.data,
-                validUTF8: clipData.valid_utf8 !== false,
+                text: decoded.ok ? decoded.value : '',
+                // Non-null puts up the format-neutral byte-safety screen and keeps
+                // Save and Save As unavailable. This deliberately replaces today's
+                // lossy editing of Latin-1 and other invalid text/* clips.
+                unavailable: decoded.ok ? null : decoded.reason,
+                byteLength: decoded.byteLength,
+                textProfile: decoded.ok ? decoded.profile : null,
+                initialMode: options.initialMode || 'default',
             });
         }
 
@@ -220,7 +284,12 @@ async function openMarkdownReferenceCandidate(candidate, fragment) {
             });
             return;
         }
-        if (isEditableType(contentType) || /\.(?:md|markdown)$/i.test(filename)) {
+        // Images were handled above, so the text check alone is right here. The
+        // Markdown filename fallback the old check carried is now redundant:
+        // classification recognizes .md/.markdown itself.
+        if (isTextCandidate(filename, contentType)) {
+            // A linked text reference is a generic open, so it uses the
+            // descriptor's default mode.
             await openEditor(candidate.clip_id);
             if (fragment) {
                 requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -401,13 +470,44 @@ function selectTool(tool) {
 
 // --- Save ---
 
-async function performSaveEditorInPlace() {
+async function performSaveEditorInPlace(snapshot) {
     setEditorSaving(true);
+    // Captured once. `isTextEditor` is mutable module state describing whatever the
+    // editor holds *now*; reading it after the awaited write would let a late text
+    // save run the text completion path against a freshly opened image editor and
+    // close it, discarding that editor's work.
+    const isTextSave = isTextEditor;
+    // Held across persistence, not just validation: formatting must not run at any
+    // point during a save, and prepareSave's own lock ends when validation resolves.
+    if (isTextSave) TextClipEditor.beginSave(snapshot);
     try {
         let base64Data;
         let contentType = editorContentType;
-        if (isTextEditor) {
-            base64Data = encodeTextToBase64(TextClipEditor.getValue());
+        // The write target comes from the snapshot for text, not from the mutable
+        // module globals. Those describe whatever clip the editor is on *now*, which
+        // after a pending validation need not be the clip the snapshot came from.
+        let targetClipID = editorClipId;
+        let targetFilename = editorFilename;
+        if (isTextSave) {
+            // Last line of defence: prepareSave already re-checked, but the encode
+            // and this call are another await boundary away from the click.
+            if (!TextClipEditor.snapshotStillTargets(snapshot)) {
+                showToast('Save cancelled: the editor moved to a different clip.');
+                setEditorSaving(false);
+                return;
+            }
+            // From the snapshot, never from live editor state: typing during a
+            // pending save must not change the bytes being written.
+            const encoded = TextClipEditor.encodeSnapshot(snapshot);
+            if (!encoded.ok) {
+                reportTextEncodingRefusal(encoded);
+                setEditorSaving(false);
+                return;
+            }
+            base64Data = encoded.base64;
+            targetClipID = snapshot.clipID;
+            targetFilename = snapshot.filename;
+            contentType = snapshot.contentType;
         } else {
             const exported = await EditorExport.exportCanvas({
                 canvas: EditorCore.canvas,
@@ -417,9 +517,32 @@ async function performSaveEditorInPlace() {
             base64Data = exported.data;
             contentType = exported.contentType;
             editorFilename = exported.filename;
+            targetFilename = exported.filename;
         }
-        await window.go.main.App.UpdateClipData(editorClipId, contentType, base64Data, editorFilename);
-        if (isTextEditor) TextClipEditor.clearDraft();
+        await window.go.main.App.UpdateClipData(targetClipID, contentType, base64Data, targetFilename);
+        if (isTextSave) {
+            // The write is awaited, so the editor may have been closed and pointed at
+            // another clip while it was in flight. Clearing a draft or closing the
+            // modal here would act on a clip this save has nothing to do with — and
+            // that clip may not even be a text clip.
+            if (!TextClipEditor.snapshotStillTargets(snapshot)) {
+                showToast('Saved.');
+                loadClips();
+                return;
+            }
+            // A successful save resets the open-time error baseline to what is now
+            // on disk. If the user typed while the save was in flight, those edits
+            // were deliberately not part of the snapshot, so closing here would
+            // discard bytes they can still see: stay open and dirty instead.
+            if (TextClipEditor.commitSavedBaseline(snapshot)) {
+                showToast('Saved! Edits made while saving are still unsaved.');
+                setEditorSaving(false);
+                updateEditorSaveState();
+                loadClips();
+                return;
+            }
+            TextClipEditor.clearDraft();
+        }
         showToast('Saved!');
         closeEditor({ force: true });
         loadClips();
@@ -427,17 +550,40 @@ async function performSaveEditorInPlace() {
         console.error('Error saving in place:', error);
         showToast('Failed to save.');
         setEditorSaving(false);
+    } finally {
+        if (isTextSave) TextClipEditor.endSave(snapshot);
     }
 }
 
-function saveEditorInPlace() {
+// The byte-safety screen leaves Save and Save As unavailable, and a disabled
+// button does not achieve that by itself: `mod+s` is bound to saveEditorContent,
+// which would otherwise reveal the Save As field and then write an empty clip
+// from an editor that was deliberately never given a value.
+function textSaveUnavailable() {
+    if (!isTextEditor || !TextClipEditor.isUnavailable()) return false;
+    showToast('Saving is unavailable: this clip is not valid UTF-8 text.');
+    return true;
+}
+
+async function saveEditorInPlace() {
     if (!editorClipId || editorSaving) {
         if (!editorClipId) showToast('No clip to overwrite.');
         return;
     }
+    if (textSaveUnavailable()) return;
 
     if (isTextEditor) {
-        TextClipEditor.confirmSave(performSaveEditorInPlace);
+        // The disabled `Saving…` state is entered as soon as the user activates
+        // Save, before validation resolves, so waiting on the worker never reads as
+        // an unresponsive button.
+        setEditorSaving(true);
+        const snapshot = await TextClipEditor.prepareSave({ targetFilename: editorFilename });
+        if (!snapshot) {
+            setEditorSaving(false);
+            updateEditorSaveState();
+            return;
+        }
+        await performSaveEditorInPlace(snapshot);
     } else {
         EditorCore.prepareForAction('save');
         if (!EditorCore.isDirty()) {
@@ -449,9 +595,12 @@ function saveEditorInPlace() {
     }
 }
 
-async function performSaveEditorContent() {
+async function performSaveEditorContent(snapshot) {
     const filenameInput = document.getElementById('editor-filename');
-    const filename = filenameInput.value.trim();
+    // The snapshot resolved the target filename when the user activated the
+    // action; reading the field again here would let an edit made during
+    // validation redirect the write.
+    const filename = snapshot ? snapshot.filename : filenameInput.value.trim();
     if (!filename) {
         showToast('Please enter a filename.');
         filenameInput.focus();
@@ -459,12 +608,27 @@ async function performSaveEditorContent() {
     }
 
     setEditorSaving(true);
+    // Same reasoning as save-in-place: pin the branch before any await.
+    const isTextSave = isTextEditor;
+    if (isTextSave) TextClipEditor.beginSave(snapshot);
     try {
         let base64Data;
         let contentType = editorContentType;
         let outputFilename = filename;
-        if (isTextEditor) {
-            base64Data = encodeTextToBase64(TextClipEditor.getValue());
+        if (isTextSave) {
+            if (!TextClipEditor.snapshotStillTargets(snapshot)) {
+                showToast('Save cancelled: the editor moved to a different clip.');
+                setEditorSaving(false);
+                return;
+            }
+            const encoded = TextClipEditor.encodeSnapshot(snapshot);
+            if (!encoded.ok) {
+                reportTextEncodingRefusal(encoded);
+                setEditorSaving(false);
+                return;
+            }
+            base64Data = encoded.base64;
+            contentType = snapshot.contentType;
         } else {
             EditorCore.prepareForAction('save');
             const exported = await EditorExport.exportCanvas({
@@ -479,7 +643,27 @@ async function performSaveEditorContent() {
         }
 
         await upload([{ name: outputFilename, content_type: contentType, data: base64Data }]);
-        if (isTextEditor) TextClipEditor.clearDraft();
+        if (isTextSave) {
+            // As above: the upload is awaited, so ownership is re-checked before
+            // touching the editor or its draft.
+            if (!TextClipEditor.snapshotStillTargets(snapshot)) {
+                showToast('Saved as new clip!');
+                loadClips();
+                return;
+            }
+            // Save As writes a *copy*, so the open clip keeps whatever the user has
+            // in front of them. If they typed while the upload was in flight, those
+            // edits were deliberately not in the snapshot; closing here would discard
+            // bytes they can still see. Same rule as save-in-place.
+            if (TextClipEditor.snapshotMovedOn(snapshot)) {
+                showToast('Saved as new clip! Edits made while saving are still unsaved.');
+                setEditorSaving(false);
+                updateEditorSaveState();
+                loadClips();
+                return;
+            }
+            TextClipEditor.clearDraft();
+        }
         showToast('Saved as new clip!');
         closeEditor({ force: true });
         loadClips();
@@ -487,18 +671,37 @@ async function performSaveEditorContent() {
         console.error('Error saving:', error);
         showToast('Failed to save.');
         setEditorSaving(false);
+    } finally {
+        if (isTextSave) TextClipEditor.endSave(snapshot);
     }
 }
 
-function saveEditorContent() {
+async function saveEditorContent() {
     if (editorSaving) return;
+    if (textSaveUnavailable()) return;
     if (!saveAsMode) {
         setSaveAsMode(true);
         return;
     }
 
     if (isTextEditor) {
-        TextClipEditor.confirmSave(performSaveEditorContent);
+        const proposed = document.getElementById('editor-filename').value.trim();
+        if (!proposed) {
+            showToast('Please enter a filename.');
+            document.getElementById('editor-filename').focus();
+            return;
+        }
+        // Disabled `Saving…` first, then validation: Save As reclassifies against
+        // the proposed target filename, so a copy named .json is validated as
+        // strict JSON before upload even when the open clip is a .txt.
+        setEditorSaving(true);
+        const snapshot = await TextClipEditor.prepareSave({ targetFilename: proposed });
+        if (!snapshot) {
+            setEditorSaving(false);
+            updateEditorSaveState();
+            return;
+        }
+        await performSaveEditorContent(snapshot);
     } else {
         performSaveEditorContent();
     }

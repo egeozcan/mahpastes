@@ -1,0 +1,6 @@
+# The committed text-editor artifacts are byte-compared against a fresh esbuild
+# run by `npm --prefix frontend run check:text-editor-bundle`. esbuild output is
+# deterministic for a pinned version and fixed options, but git is not: a Windows
+# checkout with core.autocrlf=true would rewrite line endings and fail the
+# comparison for reasons unrelated to the build.
+frontend/dist/*.js -text

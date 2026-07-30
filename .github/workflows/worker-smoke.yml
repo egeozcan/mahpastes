@@ -1,0 +1,131 @@
+name: Worker Smoke (native webviews)
+
+# Answers the one question the e2e suites cannot: does the committed static
+# validator worker load, round-trip, time out, terminate and restart in each
+# platform's *real* webview?
+#
+# Playwright drives Chromium over an http://localhost origin. Production runs
+# WKWebView (macOS), WebView2 (Windows) and WebKitGTK (Linux) from a custom scheme,
+# and worker construction is engine- and origin-dependent — so green Playwright
+# output is not evidence for any of them.
+#
+# The app grows one opt-in env var for this, MAHPASTES_SELFTEST_WORKER=1, which
+# starts hidden, runs the probe, prints JSON and exits with a status code. An env var
+# rather than a CLI flag because Wails v2 parses os.Args itself and an unrecognized
+# flag drops it into dev-mode argument handling. A failure here is not
+# necessarily a broken build: the capability probe falls back to the bounded
+# time-sliced executor by design. It does mean that platform pays the fallback's
+# lower 64 KiB ceiling, which is worth knowing rather than discovering later.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'frontend/dist/text-validator.worker.js'
+      - 'frontend/src/text-editor/**'
+      - 'frontend/js/worker-selftest.js'
+      - 'main.go'
+      - 'selftest_worker.go'
+      - 'frontend/index.html'
+      - 'internal/wailsbridge/**'
+      - '.github/workflows/worker-smoke.yml'
+  pull_request:
+    paths:
+      - 'frontend/dist/text-validator.worker.js'
+      - 'frontend/src/text-editor/**'
+      - 'frontend/js/worker-selftest.js'
+      - '.github/workflows/worker-smoke.yml'
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.platform }}
+    # Reported per platform rather than failing the whole matrix on the first
+    # surface that cannot load a worker — the point is to learn which ones can.
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            label: macOS (WKWebView)
+          - platform: windows-latest
+            label: Windows (WebView2)
+          - platform: ubuntu-latest
+            label: Linux (WebKitGTK)
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # WebKitGTK and its build deps are not on the Ubuntu runner by default.
+      - name: Install Linux webview dependencies
+        if: matrix.platform == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev xvfb
+
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
+
+      # The committed bundles are what ship, so the smoke test must exercise those
+      # exact bytes. This also fails the job if they were committed stale.
+      - name: Verify committed bundles are current
+        run: |
+          npm --prefix frontend ci
+          npm --prefix frontend run check:text-editor-bundle
+
+      - name: Build
+        run: wails build -platform ${{ matrix.build_target || '' }}
+        env:
+          CGO_ENABLED: 1
+
+      - name: Run worker self-test (macOS)
+        if: matrix.platform == 'macos-latest'
+        env:
+          MAHPASTES_SELFTEST_WORKER: '1'
+          MAHPASTES_DATA_DIR: ${{ runner.temp }}/mp-selftest
+        run: |
+          ./build/bin/mahpastes.app/Contents/MacOS/mahpastes > result.json
+          cat result.json
+          test "$(python3 -c 'import json;print(json.load(open("result.json"))["ok"])')" = "True"
+
+      - name: Run worker self-test (Windows)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        env:
+          MAHPASTES_SELFTEST_WORKER: '1'
+          MAHPASTES_DATA_DIR: ${{ runner.temp }}/mp-selftest
+        run: |
+          ./build/bin/mahpastes.exe > result.json
+          Get-Content result.json
+          $r = Get-Content result.json -Raw | ConvertFrom-Json
+          if (-not $r.ok) { exit 1 }
+
+      # No display on the runner, so the webview needs a virtual one.
+      - name: Run worker self-test (Linux)
+        if: matrix.platform == 'ubuntu-latest'
+        env:
+          MAHPASTES_SELFTEST_WORKER: '1'
+          MAHPASTES_DATA_DIR: ${{ runner.temp }}/mp-selftest
+        run: |
+          xvfb-run -a ./build/bin/mahpastes > result.json
+          cat result.json
+          test "$(python3 -c 'import json;print(json.load(open("result.json"))["ok"])')" = "True"
+
+      - name: Upload result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: worker-smoke-${{ matrix.platform }}
+          path: result.json
+          if-no-files-found: warn

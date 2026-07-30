@@ -7,7 +7,12 @@ test('REST uploads emit an SSE event for the server web UI', async ({ page }) =>
     await page.goto(`${server.url}/login.html`);
     await page.locator('#api-key').fill(server.bootstrapKey);
     await page.getByRole('button', { name: /sign in/i }).click();
-    await page.waitForURL(`${server.url}/`, { timeout: 10000 });
+    // The login POST navigates to the app shell, which loads the whole frontend
+    // including the committed text-editor bundle. This step measures ~9s
+    // uncontended, so a 10s budget tipped over whenever the main config ran
+    // these specs alongside four `wails dev` workers. 30s matches the config's
+    // navigationTimeout.
+    await page.waitForURL(`${server.url}/`, { timeout: 30000 });
 
     await page.evaluate(() => new Promise<void>((resolve, reject) => {
       const source = new EventSource('/api/v1/events');

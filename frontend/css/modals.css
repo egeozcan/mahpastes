@@ -731,38 +731,86 @@ input[type="range"].comparison-range::-webkit-slider-thumb {
     background: #1c1917;
 }
 
-#text-editor-textarea {
+#text-editor-mount {
     position: absolute;
     inset: 0;
     z-index: 1;
     min-height: 0;
-    overflow: auto;
+    overflow: hidden;
 }
 
-#text-editor-highlight-layer {
-    position: absolute;
-    inset: 0 auto auto 0;
-    z-index: 2;
-    box-sizing: border-box;
-    overflow: hidden;
-    pointer-events: none;
-    padding: 1rem;
-    color: transparent;
+#text-editor-mount.hidden {
+    display: none;
+}
+
+/* CodeMirror in the stone palette. The editor owns its own scroller, so the
+   mount point must give it a definite height rather than letting it grow. */
+#text-editor-mount .cm-editor {
+    height: 100%;
+    background: #1c1917;
+    color: #e7e5e4;
     font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
     font-size: 0.75rem;
+}
+
+#text-editor-mount .cm-editor.cm-focused {
+    /* CodeMirror's default focus ring is a browser outline on the wrapper; the
+       app's focus treatment is a stone ring. */
+    outline: 2px solid rgba(168, 162, 158, 0.6);
+    outline-offset: -2px;
+}
+
+#text-editor-mount .cm-scroller {
+    overflow: auto;
     line-height: 1.625;
-    white-space: pre-wrap;
-    overflow-wrap: break-word;
-    tab-size: 8;
+    font-family: inherit;
 }
 
-#text-editor-textarea.text-editor-nowrap,
-#text-editor-highlight-layer.text-editor-nowrap {
-    white-space: pre;
-    overflow-wrap: normal;
+#text-editor-mount .cm-content {
+    padding: 1rem 0;
+    caret-color: #e7e5e4;
 }
 
-#markdown-preview-panel {
+#text-editor-mount .cm-gutters {
+    background: #1c1917;
+    color: #78716c;
+    border-right: 1px solid #292524;
+    padding-right: 0.25rem;
+}
+
+#text-editor-mount .cm-activeLineGutter {
+    background: transparent;
+    color: #a8a29e;
+}
+
+#text-editor-mount .cm-cursor,
+#text-editor-mount .cm-dropCursor {
+    border-left-color: #e7e5e4;
+}
+
+/* drawSelection paints from its own layer, which is why a search match stays
+   visible while keyboard focus sits in the find input. */
+#text-editor-mount .cm-selectionBackground,
+#text-editor-mount .cm-editor.cm-focused .cm-selectionBackground,
+#text-editor-mount .cm-content ::selection {
+    background: rgba(120, 113, 108, 0.55);
+}
+
+#text-editor-mount .cm-matchingBracket,
+#text-editor-mount .cm-editor.cm-focused .cm-matchingBracket {
+    background: rgba(168, 162, 158, 0.25);
+    outline: 1px solid rgba(168, 162, 158, 0.5);
+}
+
+/* Other occurrences of the current selection (highlightSelectionMatches).
+   Deliberately fainter than a search match so the two never compete. */
+#text-editor-mount .cm-selectionMatch {
+    background: rgba(120, 113, 108, 0.3);
+}
+
+/* One Preview tabpanel for every format. data-preview switches the presentation:
+   a rendered document reads as a light page, inert source reads as code. */
+#editor-preview-panel {
     position: absolute;
     inset: 0;
     overflow: auto;
@@ -771,13 +819,238 @@ input[type="range"].comparison-range::-webkit-slider-thumb {
     padding: 2rem;
 }
 
-#markdown-preview-panel.hidden {
+#editor-preview-panel[data-preview="source"] {
+    background: #1c1917;
+    color: #e7e5e4;
+    padding: 0;
+}
+
+/* A data table reads as a light page rather than as code, so it keeps the panel's
+   default light treatment and only drops the outer padding. */
+#editor-preview-panel[data-preview="table"] {
+    padding: 0;
+}
+
+#editor-preview-panel.hidden,
+#markdown-preview-content.hidden,
+#source-preview-content.hidden,
+#table-preview-content.hidden {
     display: none;
 }
 
 #markdown-preview-content {
     width: min(100%, 48rem);
     margin: 0 auto;
+}
+
+/* --- Source Preview -------------------------------------------------------- */
+/* Read-only inert source: text nodes and app-owned token spans only. Line
+   numbers are CSS counters rather than text, so a selection that crosses lines
+   copies the source and not the gutter. */
+.source-preview {
+    font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.75rem;
+    line-height: 1.625;
+    padding: 1rem 0;
+}
+
+.source-preview-lines {
+    counter-reset: source-preview-line;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.source-preview-line {
+    counter-increment: source-preview-line;
+    display: block;
+    padding-left: 4rem;
+    position: relative;
+    white-space: pre;
+    /* An empty line still needs to occupy a row. */
+    min-height: 1.625em;
+}
+
+.source-preview[data-wrap="on"] .source-preview-line {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.source-preview-line::before {
+    content: counter(source-preview-line);
+    position: absolute;
+    left: 0;
+    width: 3rem;
+    text-align: right;
+    color: #78716c;
+    /* Generated content is not selectable, so it never joins a copy. */
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.source-preview-plain {
+    margin: 0;
+    padding: 0 1rem;
+    white-space: pre;
+    overflow-x: auto;
+    font-family: inherit;
+    font-size: inherit;
+    line-height: inherit;
+}
+
+.source-preview-plain[data-wrap="on"] {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    overflow-x: visible;
+}
+
+.source-preview-note {
+    margin: 0 1rem 0.75rem;
+    color: #a8a29e;
+    font-size: 0.6875rem;
+}
+
+/* Neutral token colors, shared with the editor gutter treatment. */
+.source-token-comment { color: #78716c; font-style: italic; }
+.source-token-string { color: #d6d3d1; }
+.source-token-number,
+.source-token-boolean,
+.source-token-null { color: #e7e5e4; }
+.source-token-keyword,
+.source-token-tag,
+.source-token-type { color: #fafaf9; font-weight: 600; }
+.source-token-property,
+.source-token-attribute { color: #d6d3d1; font-weight: 500; }
+.source-token-operator,
+.source-token-punctuation,
+.source-token-meta,
+.source-token-variable { color: #a8a29e; }
+
+/* --- CSV/TSV table Preview ------------------------------------------------- */
+/* Neutral stone throughout. Table warnings deliberately do not introduce a
+   warning color: no CSV or TSV finding is authoritative, and painting them amber
+   would claim an urgency the format cannot support. */
+.table-preview {
+    font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.75rem;
+    line-height: 1.5;
+    padding: 1rem;
+}
+
+.table-preview-note {
+    margin: 0 0 0.75rem;
+    color: #78716c;
+    font-size: 0.6875rem;
+    line-height: 1.5;
+}
+
+/* A wide table scrolls inside its own container; the panel never scrolls
+   sideways as a whole. */
+.table-preview-scroll {
+    overflow-x: auto;
+    border: 1px solid #e7e5e4;
+    border-radius: 0.375rem;
+    background: #ffffff;
+}
+
+.table-preview-table {
+    border-collapse: collapse;
+    /* max-content so columns size to their content, min-width so a narrow table
+       still fills the panel instead of hugging the left edge. */
+    width: max-content;
+    min-width: 100%;
+}
+
+.table-preview-table th,
+.table-preview-table td {
+    border-right: 1px solid #f5f5f4;
+    border-bottom: 1px solid #f5f5f4;
+    padding: 0.25rem 0.5rem;
+    text-align: left;
+    vertical-align: top;
+    white-space: pre;
+    font-weight: 400;
+}
+
+.table-preview[data-wrap="on"] .table-preview-table th,
+.table-preview[data-wrap="on"] .table-preview-table td {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    max-width: 24rem;
+}
+
+.table-preview-table thead th {
+    background: #f5f5f4;
+    color: #44403c;
+    font-weight: 600;
+    border-bottom: 1px solid #e7e5e4;
+}
+
+/* Column numbers stand in for a header strip when the first record is data. */
+.table-preview-table thead th.table-preview-column-number {
+    color: #a8a29e;
+    font-weight: 400;
+}
+
+/* The row-number gutter, the table equivalent of the source preview's line
+   numbers. Not selectable, so it never joins a copy of the cells. */
+.table-preview-table .table-preview-row-number {
+    background: #fafaf9;
+    color: #a8a29e;
+    text-align: right;
+    font-weight: 400;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+/* A padded display cell. The source is untouched; ragged records are frequently
+   intentional, and this only marks where the grid was squared off. */
+.table-preview-table td[data-padded="true"] {
+    background: #fafaf9;
+}
+
+/* --- Byte-safety screen ---------------------------------------------------- */
+#editor-unavailable-panel {
+    position: absolute;
+    inset: 0;
+    overflow: auto;
+    background: #fafaf9;
+    color: #44403c;
+    padding: 2rem;
+}
+
+#editor-unavailable-panel.hidden {
+    display: none;
+}
+
+.editor-unavailable-card {
+    width: min(100%, 36rem);
+    margin: 0 auto;
+    border: 1px solid #e7e5e4;
+    border-radius: 0.375rem;
+    background: white;
+    padding: 1.25rem;
+}
+
+#editor-unavailable-heading {
+    font-size: 0.875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.025em;
+    color: #292524;
+    margin: 0 0 0.75rem;
+}
+
+#editor-unavailable-reason,
+.editor-unavailable-note {
+    font-size: 0.75rem;
+    color: #57534e;
+    margin: 0 0 0.75rem;
+}
+
+.editor-unavailable-note {
+    margin-bottom: 0;
+    color: #78716c;
 }
 
 .markdown-preview-message {
@@ -850,15 +1123,163 @@ input[type="range"].comparison-range::-webkit-slider-thumb {
     background: #fafaf9;
 }
 
-#text-editor-highlight-layer [data-search-match] {
-    color: transparent;
+/* Search matches are CodeMirror mark decorations owned by the adapter, not a
+   mirrored copy of the document. @codemirror/search's own .cm-searchMatch
+   decorations are gated on its stock panel being open, which this design never
+   mounts. */
+#text-editor-mount [data-search-match] {
     background: rgba(245, 158, 11, 0.28);
     border-radius: 2px;
 }
 
-#text-editor-highlight-layer [data-search-active="true"] {
+#text-editor-mount [data-search-active="true"] {
     background: rgba(245, 158, 11, 0.58);
     box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.8);
+}
+
+/* --- Inline diagnostic markers --------------------------------------------- */
+/* Errors use the existing red exception palette; possible issues stay neutral
+   stone rather than introducing a new warning color. A finding with no character
+   to underline — a missing brace at end of line — falls back to a line mark. */
+#text-editor-mount [data-diagnostic-severity="error"] {
+    text-decoration: underline wavy #ef4444;
+    text-decoration-skip-ink: none;
+    text-underline-offset: 0.2em;
+}
+
+#text-editor-mount [data-diagnostic-severity="possible-issue"] {
+    text-decoration: underline wavy #a8a29e;
+    text-decoration-skip-ink: none;
+    text-underline-offset: 0.2em;
+}
+
+#text-editor-mount [data-diagnostic-line="error"] {
+    background: rgba(239, 68, 68, 0.14);
+}
+
+#text-editor-mount [data-diagnostic-line="possible-issue"] {
+    background: rgba(168, 162, 158, 0.14);
+}
+
+/* --- Diagnostics drawer ---------------------------------------------------- */
+/* Collapsed to a narrow status strip by default, sharing the editor chrome's
+   dark stone treatment with the toolbar and the status bar above and below it. */
+.editor-diagnostics {
+    flex: 0 0 auto;
+    background: #292524;
+    border-top: 1px solid #44403c;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.editor-diagnostics.hidden {
+    display: none;
+}
+
+.editor-diagnostics-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    width: 100%;
+    padding: 0.375rem 0.75rem;
+    font-size: 0.625rem;
+    font-weight: 500;
+    color: #d6d3d1;
+    text-align: left;
+    transition: background-color 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.editor-diagnostics-toggle:hover {
+    background: #44403c;
+}
+
+.editor-diagnostics-toggle:focus-visible {
+    outline: 2px solid #a8a29e;
+    outline-offset: -2px;
+}
+
+.editor-diagnostics-toggle[data-severity="error"] {
+    color: #fca5a5;
+}
+
+.editor-diagnostics-chevron {
+    width: 0.75rem;
+    height: 0.75rem;
+    flex: 0 0 auto;
+    opacity: 0.6;
+    transition: transform 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.editor-diagnostics[data-expanded="true"] .editor-diagnostics-chevron {
+    transform: rotate(90deg);
+}
+
+.editor-diagnostics-body {
+    /* Bounded: 100 rows must not push the editor off the modal. */
+    max-height: 11rem;
+    overflow-y: auto;
+    border-top: 1px solid #44403c;
+}
+
+.editor-diagnostics-body.hidden {
+    display: none;
+}
+
+.editor-diagnostics-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.editor-diagnostic-row {
+    display: flex;
+    align-items: baseline;
+    gap: 0.625rem;
+    width: 100%;
+    padding: 0.25rem 0.75rem;
+    font-size: 0.625rem;
+    color: #d6d3d1;
+    text-align: left;
+    transition: background-color 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.editor-diagnostic-row:hover {
+    background: #44403c;
+}
+
+.editor-diagnostic-row:focus-visible {
+    outline: 2px solid #a8a29e;
+    outline-offset: -2px;
+}
+
+.editor-diagnostic-location {
+    flex: 0 0 auto;
+    width: 7rem;
+    color: #a8a29e;
+    font-variant-numeric: tabular-nums;
+}
+
+.editor-diagnostic-row[data-severity="error"] .editor-diagnostic-location {
+    color: #fca5a5;
+}
+
+.editor-diagnostic-message {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.editor-diagnostics-notice,
+.editor-diagnostics-empty {
+    margin: 0;
+    padding: 0.375rem 0.75rem;
+    font-size: 0.625rem;
+    color: #a8a29e;
+}
+
+.editor-diagnostics-notice.hidden,
+.editor-diagnostics-empty.hidden {
+    display: none;
 }
 
 .editor-toolbar-wrapper {

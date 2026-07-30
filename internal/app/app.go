@@ -917,15 +917,22 @@ func (a *App) GetClipData(id int64) (*ClipData, error) {
 		DataEncoding: "base64",
 	}
 
-	// For text content, return as-is; for binary, base64 encode. Invalid UTF-8
-	// Markdown remains base64 so crossing the JSON bridge cannot replace bytes.
-	if strings.HasPrefix(contentType, "text/") || contentType == "application/json" {
-		if cliptype.IsMarkdownFilename(filename.String) && !clip.ValidUTF8 {
-			clip.Data = base64.StdEncoding.EncodeToString(data)
-		} else {
-			clip.Data = string(data)
-			clip.DataEncoding = "utf8"
-		}
+	// Invalid UTF-8 always crosses the bridge as base64, whatever the content
+	// type. string(data) replacement-decodes, and once that has happened no
+	// amount of frontend work can recover the original bytes — the frontend can
+	// only forward what it was given. The guard used to be Markdown-specific,
+	// which meant a text/plain clip containing byte FF arrived already destroyed.
+	//
+	// Valid text-ish content still crosses as a plain string, and everything
+	// else as base64. An extension-classified application type therefore arrives
+	// as base64 even when it is perfectly good UTF-8, which is why the frontend
+	// text decoder handles both encodings after classification rather than
+	// inferring text from the content type.
+	if !clip.ValidUTF8 {
+		clip.Data = base64.StdEncoding.EncodeToString(data)
+	} else if strings.HasPrefix(contentType, "text/") || contentType == "application/json" {
+		clip.Data = string(data)
+		clip.DataEncoding = "utf8"
 	} else {
 		clip.Data = base64.StdEncoding.EncodeToString(data)
 	}
@@ -1082,12 +1089,24 @@ func (a *App) UpdateClipData(id int64, contentType string, base64Data string, fi
 
 	contentType = cliptype.PromoteMarkdown(filename, contentType)
 	contentHash := computeContentHash(data)
-	_, err = a.db.Exec(
+	result, err := a.db.Exec(
 		"UPDATE clips SET data = ?, content_type = ?, filename = ?, content_hash = ? WHERE id = ?",
 		data, contentType, filename, contentHash, id,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to update clip: %w", err)
+	}
+
+	// A zero-row UPDATE is not success. If the clip expired or was deleted through
+	// the API, the CLI, or another window while the editor had it open, this call
+	// would otherwise return nil — and the editor takes that as "saved", clears the
+	// draft, and closes, destroying the only copy of the user's edit.
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to confirm clip update: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("clip not found")
 	}
 
 	return nil

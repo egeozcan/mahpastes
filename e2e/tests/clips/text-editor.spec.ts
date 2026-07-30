@@ -38,11 +38,11 @@ test.describe('Text Editor', () => {
     await app.expectClipCount(2);
 
     await app.openTextEditor(filename);
-    await expect(app.page.locator(selectors.textEditor.textarea)).toHaveValue(originalContent);
+    await app.expectTextEditorContent(originalContent);
     await app.cancelTextEditor();
 
     await app.openTextEditor(copyFilename);
-    await expect(app.page.locator(selectors.textEditor.textarea)).toHaveValue('edited copy');
+    await app.expectTextEditorContent('edited copy');
     await app.cancelTextEditor();
   });
 
@@ -57,7 +57,7 @@ test.describe('Text Editor', () => {
     await expect(app.page.locator(selectors.textEditor.validationStatus)).toContainText('Valid JSON');
 
     await app.page.locator(selectors.textEditor.formatJSONButton).click();
-    await expect(app.page.locator(selectors.textEditor.textarea)).toHaveValue(
+    await app.expectTextEditorContent(
       '{\n  "name": "mahpastes",\n  "items": [\n    1,\n    2\n  ]\n}',
     );
 
@@ -72,7 +72,7 @@ test.describe('Text Editor', () => {
     await app.page.waitForSelector(`${selectors.textEditor.modal}:not(.active)`);
 
     await app.openTextEditor(filename);
-    await expect(app.page.locator(selectors.textEditor.textarea)).toHaveValue('{"broken": }');
+    await app.expectTextEditorContent('{"broken": }');
     await app.cancelTextEditor();
   });
 
@@ -88,32 +88,36 @@ test.describe('Text Editor', () => {
     const findInput = app.page.locator(selectors.textEditor.findInput);
     await findInput.pressSequentially('alpha');
     await expect(findInput).toBeFocused();
+    // The count comes from the status line, not from counting DOM nodes: this
+    // document is 82 lines and CodeMirror only renders the lines in view, so the
+    // second match has no element until it is scrolled to. The retired mirrored
+    // layer rendered the whole document, which is what made a DOM count possible
+    // there and impossible here. Full DOM parity is asserted on a short document
+    // in structured-text-editor.spec.ts.
     await expect(app.page.locator(selectors.textEditor.searchStatus)).toContainText('1 of 2');
-    await expect(app.page.locator(selectors.textEditor.searchMatches)).toHaveCount(2);
     const activeMatch = app.page.locator(selectors.textEditor.activeSearchMatch);
     await expect(activeMatch).toHaveText('alpha');
+    await expect(activeMatch).toBeVisible();
     await expect(activeMatch).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
 
     await findInput.press('Enter');
     await expect(findInput).toBeFocused();
     await expect(app.page.locator(selectors.textEditor.searchStatus)).toContainText('2 of 2');
     await expect(app.page.locator(selectors.textEditor.activeSearchMatch)).toHaveText('alpha');
-    await expect.poll(() => app.page.locator(selectors.textEditor.textarea).evaluate(
-      (element: HTMLTextAreaElement) => element.scrollTop,
+    await expect.poll(() => app.page.locator(selectors.textEditor.scroller).evaluate(
+      (element: HTMLElement) => element.scrollTop,
     )).toBeGreaterThan(0);
 
     await app.page.locator(selectors.textEditor.replaceInput).fill('gamma');
     await app.page.locator(selectors.textEditor.replaceAllButton).click();
 
-    await expect(app.page.locator(selectors.textEditor.textarea)).toHaveValue(
-      originalContent.replaceAll('alpha', 'gamma'),
-    );
+    await app.expectTextEditorContent(originalContent.replaceAll('alpha', 'gamma'));
     await expect(app.page.locator(selectors.textEditor.searchStatus)).toContainText('No matches');
 
     await findInput.focus();
     await findInput.press('Escape');
     await expect(app.page.locator(selectors.textEditor.findPanel)).toBeHidden();
-    await expect(app.page.locator(selectors.textEditor.textarea)).toBeFocused();
+    await expect(app.page.locator(selectors.textEditor.editor)).toBeFocused();
     await app.cancelTextEditor();
   });
 
@@ -125,17 +129,15 @@ test.describe('Text Editor', () => {
     await app.openTextEditor(filename);
 
     const wrapToggle = app.page.locator(selectors.textEditor.wrapToggle);
-    const textarea = app.page.locator(selectors.textEditor.textarea);
     await expect(wrapToggle).toHaveAttribute('aria-pressed', 'true');
+    // data-wrap replaces the textarea's `wrap` attribute as the observable hook.
+    await expect(app.page.locator(selectors.textEditor.mount)).toHaveAttribute('data-wrap', 'on');
     await wrapToggle.click();
     await expect(wrapToggle).toHaveAttribute('aria-pressed', 'false');
-    await expect(textarea).toHaveAttribute('wrap', 'off');
+    await expect(app.page.locator(selectors.textEditor.mount)).toHaveAttribute('data-wrap', 'off');
 
-    await textarea.evaluate((element: HTMLTextAreaElement) => {
-      element.focus();
-      element.setSelectionRange(5, 5);
-      element.dispatchEvent(new Event('select', { bubbles: true }));
-    });
+    // 'one\ntwo' offset 5 is the second character of line 2.
+    await app.textEditorCursorOffset(5);
 
     await expect(app.page.locator(selectors.textEditor.cursorStatus)).toHaveText('Ln 2, Col 2');
     await expect(app.page.locator(selectors.textEditor.characterStatus)).toHaveText('7 characters');
@@ -156,7 +158,7 @@ test.describe('Text Editor', () => {
     await app.expectClipVisible(filename);
     await app.openTextEditor(filename);
 
-    await expect(app.page.locator(selectors.textEditor.textarea)).toHaveValue('recovered unsaved content');
+    await app.expectTextEditorContent('recovered unsaved content');
     await expect(app.page.locator(selectors.textEditor.draftStatus)).toHaveText('Recovered draft');
     await app.cancelTextEditor();
   });

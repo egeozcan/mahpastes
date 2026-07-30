@@ -28,15 +28,15 @@ test.describe('Markdown clips', () => {
     const card = app.page.locator(selectors.gallery.clipCardByName(filename));
     await card.locator(selectors.clipActions.view).click();
     await app.page.locator(selectors.textEditor.editTab).click();
-    await expect(app.page.locator(selectors.textEditor.textarea)).toBeFocused();
-    await app.page.locator(selectors.textEditor.textarea).fill('## Unsaved Preview');
+    await expect(app.page.locator(selectors.textEditor.editor)).toBeFocused();
+    await app.setTextEditorContent('## Unsaved Preview');
 
     await app.page.locator(selectors.textEditor.previewTab).click();
     await expect(app.page.locator(`${selectors.textEditor.previewContent} h2`)).toHaveText('Unsaved Preview');
 
     await app.page.keyboard.press('ControlOrMeta+Shift+P');
     await expect(app.page.locator(selectors.textEditor.editTab)).toHaveAttribute('aria-selected', 'true');
-    await expect(app.page.locator(selectors.textEditor.textarea)).toHaveValue('## Unsaved Preview');
+    await app.expectTextEditorContent('## Unsaved Preview');
     await app.cancelTextEditor();
   });
 
@@ -84,14 +84,24 @@ test.describe('Markdown clips', () => {
 
     await app.page.getByRole('link', { name: 'Safe' }).click();
     await expect.poll(() => app.page.evaluate(() => (window as any).__openedMarkdownURL)).toBe('https://example.com/docs');
-    await expect(app.page.getByText('Unsafe', { exact: true })).not.toHaveAttribute('href');
-    await expect(app.page.getByText('File', { exact: true })).not.toHaveAttribute('href');
+    // Scoped to the rendered Preview, which is what these assertions are about. The
+    // editor is mounted behind it and its Markdown highlighting gives a link's label
+    // its own token span, so a page-wide getByText would match the source too.
+    const preview = app.page.locator(selectors.textEditor.previewContent);
+    await expect(preview.getByText('Unsafe', { exact: true })).not.toHaveAttribute('href');
+    await expect(preview.getByText('File', { exact: true })).not.toHaveAttribute('href');
   });
 
-  test('enables and disables Markdown behavior when a clip is renamed', async ({ app }) => {
+  test('changes frontend mode when a clip is renamed', async ({ app }) => {
     const textPath = await createTempFile('# Rename Heading', 'txt');
     const originalName = path.basename(textPath);
     await app.uploadFile(textPath);
+
+    // text/plain + a generic .txt name: generic text, so it opens in Edit.
+    await app.page.locator(selectors.gallery.clipCardByName(originalName))
+      .locator(selectors.clipActions.view).click();
+    await expect(app.page.locator(selectors.textEditor.editTab)).toHaveAttribute('aria-selected', 'true');
+    await app.cancelTextEditor();
 
     await app.openCardMenu(originalName);
     await app.page.locator(selectors.cardMenu.rename).click();
@@ -99,9 +109,15 @@ test.describe('Markdown clips', () => {
     await app.page.locator(selectors.prompt.saveButton).click();
     const markdownCard = app.page.locator(selectors.gallery.clipCardByName('renamed.md'));
     await markdownCard.locator(selectors.clipActions.view).click();
+    await expect(app.page.locator(selectors.textEditor.previewTab)).toHaveAttribute('aria-selected', 'true');
     await expect(app.page.locator(`${selectors.textEditor.previewContent} h1`)).toHaveText('Rename Heading');
     await app.page.locator(selectors.textEditor.cancelButton).click();
 
+    // Renaming to .md promoted the stored content type to text/markdown, and
+    // RenameClip never demotes it. Renaming to a *generic* .txt therefore keeps
+    // Markdown behavior: a specific recognized MIME outranks .txt/.text/.log by
+    // design, the same rule that keeps a backend-sniffed pasted_text_*.txt JSON
+    // clip behaving as JSON.
     await app.openCardMenu('renamed.md');
     await app.page.locator(selectors.cardMenu.rename).click();
     await app.page.locator(selectors.prompt.input).fill('renamed.txt');
@@ -109,8 +125,22 @@ test.describe('Markdown clips', () => {
     const textCard = app.page.locator(selectors.gallery.clipCardByName('renamed.txt'));
     await expect(textCard).toContainText('TXT');
     await textCard.locator(selectors.clipActions.view).click();
-    await expect(app.page.locator(selectors.textEditor.previewTab)).toBeHidden();
-    await expect(app.page.locator(selectors.textEditor.textarea)).toBeVisible();
+    await expect(app.page.locator(selectors.textEditor.previewTab)).toHaveAttribute('aria-selected', 'true');
+    await app.page.locator(selectors.textEditor.cancelButton).click();
+
+    // A *specific* recognized filename does win over that promoted MIME, which is
+    // what actually changes the mode: .json classifies as JSON, opens in Edit, and
+    // gets JSON assistance.
+    await app.openCardMenu('renamed.txt');
+    await app.page.locator(selectors.cardMenu.rename).click();
+    await app.page.locator(selectors.prompt.input).fill('renamed.json');
+    await app.page.locator(selectors.prompt.saveButton).click();
+    await app.page.locator(selectors.gallery.clipCardByName('renamed.json'))
+      .locator(selectors.clipActions.view).click();
+    await expect(app.page.locator(selectors.textEditor.editTab)).toHaveAttribute('aria-selected', 'true');
+    await expect(app.page.locator(selectors.textEditor.mount)).toBeVisible();
+    await expect(app.page.locator(selectors.textEditor.formatJSONButton)).toBeVisible();
+    await app.cancelTextEditor();
   });
 
   test('keeps invalid UTF-8 Markdown unavailable for preview and editing', async ({ app }) => {
@@ -121,11 +151,13 @@ test.describe('Markdown clips', () => {
     const card = app.page.locator(selectors.gallery.clipCardByName(filename));
     await card.locator(selectors.clipActions.view).click();
 
-    await expect(app.page.locator(selectors.textEditor.previewContent)).toContainText(
-      'Markdown preview unavailable—file is not valid UTF-8.',
-    );
+    // The message is now format-neutral: the bytes, not the Markdown renderer,
+    // are why the clip is unavailable.
+    await expect(app.page.locator(selectors.textEditor.unavailablePanel)).toBeVisible();
+    await expect(app.page.locator(selectors.textEditor.unavailableReason)).toContainText('not valid UTF-8');
     await expect(app.page.locator(selectors.textEditor.previewTab)).toBeHidden();
-    await expect(app.page.locator(selectors.textEditor.textarea)).toBeHidden();
+    await expect(app.page.locator(selectors.textEditor.mount)).toBeHidden();
+    await expect(app.page.locator(selectors.textEditor.previewPanel)).toBeHidden();
   });
 
   test('resolves relative links through shared tag paths', async ({ app }) => {
@@ -223,7 +255,7 @@ test.describe('Markdown clips', () => {
     const card = app.page.locator(selectors.gallery.clipCardByName(filename));
     await card.locator(selectors.clipActions.view).click();
     await app.page.locator(selectors.textEditor.editTab).click();
-    await app.page.locator(selectors.textEditor.textarea).fill('# Recovered');
+    await app.setTextEditorContent('# Recovered');
     await expect(app.page.locator(selectors.textEditor.draftStatus)).toHaveText('Draft saved');
 
     await app.page.reload();
@@ -232,7 +264,7 @@ test.describe('Markdown clips', () => {
     await reloadedCard.locator(selectors.clipActions.view).click();
 
     await expect(app.page.locator(selectors.textEditor.editTab)).toHaveAttribute('aria-selected', 'true');
-    await expect(app.page.locator(selectors.textEditor.textarea)).toHaveValue('# Recovered');
+    await app.expectTextEditorContent('# Recovered');
     await expect(app.page.locator(selectors.textEditor.draftStatus)).toHaveText('Recovered draft');
     await app.cancelTextEditor();
   });

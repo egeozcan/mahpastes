@@ -306,7 +306,8 @@ async function handleLightboxFileAction(action, clip) {
             break;
         case 'edit':
             window.LightboxController.close();
-            openEditor(clip.id);
+            // Explicit Edit entry point: never lands in Preview.
+            openEditor(clip.id, { initialMode: 'edit' });
             break;
         case 'tags': {
             const trigger = document.getElementById('lightbox-file-menu-trigger');

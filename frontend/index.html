@@ -973,22 +973,31 @@
             <!-- Text Editor View -->
             <div id="text-editor-view" class="editor-content hidden">
                 <div id="text-editor-toolbar" class="flex flex-wrap items-center gap-2 px-3 py-2 bg-stone-800 border-b border-stone-700 text-stone-300" role="toolbar" aria-label="Text editing tools">
-                    <div id="markdown-mode-tabs" class="hidden items-center rounded-md border border-stone-600 p-0.5" role="tablist" aria-label="Markdown view mode">
-                        <button id="markdown-preview-tab" type="button" role="tab" aria-selected="false" aria-controls="markdown-preview-panel" tabindex="-1"
+                    <!-- Format-neutral Preview/Edit tabs. Every registered text
+                         clip has both modes; the descriptor decides which one it
+                         opens in. -->
+                    <div id="editor-mode-tabs" class="hidden items-center rounded-md border border-stone-600 p-0.5" role="tablist" aria-label="View mode">
+                        <button id="editor-preview-tab" type="button" role="tab" aria-selected="false" aria-controls="editor-preview-panel" tabindex="-1"
                             class="px-2.5 py-1 text-[10px] font-medium rounded transition-colors">Preview</button>
-                        <button id="markdown-edit-tab" type="button" role="tab" aria-selected="true" aria-controls="text-editor-textarea" tabindex="0"
+                        <button id="editor-edit-tab" type="button" role="tab" aria-selected="true" aria-controls="text-editor-mount" tabindex="0"
                             class="px-2.5 py-1 text-[10px] font-medium rounded transition-colors">Edit</button>
                     </div>
-                    <button id="text-editor-find-toggle" data-markdown-edit-only
+                    <button id="text-editor-find-toggle" data-editor-edit-only
                         class="border border-stone-600 hover:border-stone-500 hover:bg-stone-700 text-[10px] font-medium py-1.5 px-2.5 rounded-md transition-colors"
                         aria-expanded="false" aria-controls="text-editor-find-panel">Find / Replace</button>
-                    <button id="text-editor-wrap-toggle" data-markdown-edit-only
+                    <button id="text-editor-wrap-toggle"
                         class="border border-stone-600 hover:border-stone-500 hover:bg-stone-700 text-[10px] font-medium py-1.5 px-2.5 rounded-md transition-colors"
                         aria-pressed="true">Wrap</button>
-                    <button id="text-editor-format-json" data-markdown-edit-only
+                    <button id="text-editor-format-json" data-editor-edit-only
                         class="hidden border border-stone-600 hover:border-stone-500 hover:bg-stone-700 text-[10px] font-medium py-1.5 px-2.5 rounded-md transition-colors">Format JSON</button>
                     <span id="text-editor-validation-status" class="ml-auto text-[10px]" role="status" aria-live="polite"></span>
                 </div>
+                <!-- Above the 2 MiB enhanced-assistance threshold. Plain preview
+                     and editing stay available; everything that needs parsing
+                     does not. -->
+                <p id="text-editor-degraded-notice" class="hidden px-3 py-1.5 bg-stone-100 border-b border-stone-200 text-[10px] text-stone-600" role="status" aria-live="polite">
+                    This document is over 2&nbsp;MB. Syntax highlighting, validation, diagnostics, formatting, and table preview are disabled; plain preview and editing remain available.
+                </p>
                 <div id="text-editor-find-panel" class="hidden flex-wrap items-center gap-2 px-3 py-2 bg-stone-100 border-b border-stone-200">
                     <label for="text-editor-find" class="sr-only">Find text</label>
                     <input id="text-editor-find" type="text" autocomplete="off" placeholder="Find"
@@ -996,6 +1005,8 @@
                     <label for="text-editor-replace" class="sr-only">Replacement text</label>
                     <input id="text-editor-replace" type="text" autocomplete="off" placeholder="Replace with"
                         class="w-44 border border-stone-200 rounded-md text-xs bg-white px-2.5 py-1.5 placeholder-stone-400 focus:outline-none focus:border-stone-400 focus:ring-1 focus:ring-stone-400/20">
+                    <button id="text-editor-match-case" class="border border-stone-200 hover:border-stone-300 hover:bg-stone-200 text-stone-600 text-[10px] font-medium py-1.5 px-2 rounded-md transition-colors" aria-pressed="false" aria-label="Match case">Aa</button>
+                    <button id="text-editor-whole-word" class="border border-stone-200 hover:border-stone-300 hover:bg-stone-200 text-stone-600 text-[10px] font-medium py-1.5 px-2 rounded-md transition-colors" aria-pressed="false" aria-label="Whole word">Word</button>
                     <button id="text-editor-find-previous" class="border border-stone-200 hover:border-stone-300 hover:bg-stone-200 text-stone-600 text-[10px] font-medium py-1.5 px-2 rounded-md transition-colors" aria-label="Find previous match">Previous</button>
                     <button id="text-editor-find-next" class="border border-stone-200 hover:border-stone-300 hover:bg-stone-200 text-stone-600 text-[10px] font-medium py-1.5 px-2 rounded-md transition-colors" aria-label="Find next match">Next</button>
                     <button id="text-editor-replace-current" class="border border-stone-200 hover:border-stone-300 hover:bg-stone-200 text-stone-600 text-[10px] font-medium py-1.5 px-2 rounded-md transition-colors">Replace</button>
@@ -1005,15 +1016,78 @@
                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12"></path></svg>
                     </button>
                 </div>
+                <!-- Temporary CSV/TSV interpretation controls. They affect
+                     presentation only, change nothing in the source, and do not
+                     persist after close. Both selects are real form controls, so
+                     the modal focus trap picks them up without special casing. -->
+                <div id="editor-table-controls" class="hidden flex-wrap items-center gap-2 px-3 py-2 bg-stone-100 border-b border-stone-200">
+                    <label for="editor-table-delimiter" class="text-[10px] font-medium text-stone-600">Delimiter</label>
+                    <select id="editor-table-delimiter"
+                        class="border border-stone-200 rounded-md text-xs bg-white px-2 py-1 focus:outline-none focus:border-stone-400 focus:ring-1 focus:ring-stone-400/20 transition-colors">
+                        <option value="">Detected</option>
+                        <option value="comma">Comma</option>
+                        <option value="tab">Tab</option>
+                        <option value="semicolon">Semicolon</option>
+                        <option value="pipe">Pipe</option>
+                    </select>
+                    <label for="editor-table-header" class="text-[10px] font-medium text-stone-600">Header</label>
+                    <select id="editor-table-header"
+                        class="border border-stone-200 rounded-md text-xs bg-white px-2 py-1 focus:outline-none focus:border-stone-400 focus:ring-1 focus:ring-stone-400/20 transition-colors">
+                        <option value="auto">Detected</option>
+                        <option value="on">First row is a header</option>
+                        <option value="off">No header</option>
+                    </select>
+                    <span id="editor-table-summary" class="text-[10px] text-stone-500" role="status" aria-live="polite"></span>
+                </div>
                 <div id="text-editor-body">
-                    <textarea id="text-editor-textarea"
-                        class="w-full h-full bg-stone-900 text-stone-200 font-mono text-xs p-4 resize-none focus:outline-none leading-relaxed"
-                        aria-label="Clip content" role="tabpanel" aria-labelledby="markdown-edit-tab" wrap="soft" spellcheck="false"></textarea>
-                    <div id="text-editor-highlight-layer" class="hidden" aria-hidden="true"></div>
-                    <section id="markdown-preview-panel" class="hidden" role="tabpanel" aria-labelledby="markdown-preview-tab" tabindex="0">
-                        <div id="markdown-preview-content" class="markdown-content"></div>
+                    <!-- CodeMirror mounts here (see CodeEditorAdapter). data-wrap is
+                         the stable hook for CSS and tests now that there is no
+                         textarea `wrap` attribute. -->
+                    <div id="text-editor-mount" role="tabpanel" aria-labelledby="editor-edit-tab" data-wrap="on"></div>
+                    <!-- One Preview tabpanel for every format. TextPreview picks
+                         the renderer from the descriptor and sets data-preview,
+                         which is what switches the panel's presentation between a
+                         rendered document and inert source. -->
+                    <section id="editor-preview-panel" class="hidden" role="tabpanel" aria-labelledby="editor-preview-tab" tabindex="0" data-preview="source">
+                        <div id="markdown-preview-content" class="markdown-content hidden"></div>
+                        <div id="source-preview-content" class="hidden"></div>
+                        <!-- Bounded CSV/TSV table. Cell values are text nodes and
+                             nothing else; a field containing markup is a cell that
+                             reads as markup. -->
+                        <div id="table-preview-content" class="hidden"></div>
+                    </section>
+                    <!-- Byte-safety screen. Format-neutral: the bytes, not any
+                         renderer, are why the clip is unavailable. -->
+                    <section id="editor-unavailable-panel" class="hidden" tabindex="0" role="status" aria-live="polite" aria-labelledby="editor-unavailable-heading">
+                        <div class="editor-unavailable-card">
+                            <h2 id="editor-unavailable-heading">Editing unavailable</h2>
+                            <p id="editor-unavailable-reason"></p>
+                            <p class="editor-unavailable-note">Saving is disabled so the original bytes cannot be replaced by a lossy re-encoding. A future release will add a user-initiated, one-way <strong>Reinterpret as Windows-1252 and convert to UTF-8</strong> action that shows the decoded result before writing anything.</p>
+                        </div>
                     </section>
                 </div>
+                <!-- Collapsible bottom diagnostics drawer, below the active panel.
+                     It starts collapsed; a recovered draft whose source has
+                     authoritative errors is the one exception. New errors never
+                     expand it while the user types — only activating the count,
+                     activating an inline marker, or a save that triggers
+                     confirmation does. -->
+                <section id="editor-diagnostics" class="editor-diagnostics hidden" data-expanded="false" aria-label="Diagnostics">
+                    <button id="editor-diagnostics-toggle" type="button" class="editor-diagnostics-toggle"
+                        aria-expanded="false" aria-controls="editor-diagnostics-body" data-severity="none">
+                        <svg class="editor-diagnostics-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5l7 7-7 7"></path>
+                        </svg>
+                        <span id="editor-diagnostics-summary" role="status" aria-live="polite">No issues</span>
+                    </button>
+                    <div id="editor-diagnostics-body" class="editor-diagnostics-body hidden">
+                        <p id="editor-diagnostics-notice" class="editor-diagnostics-notice hidden"></p>
+                        <!-- Rows are buttons: keyboard-operable, with severity,
+                             location and message in the accessible name. -->
+                        <ul id="editor-diagnostics-list" class="editor-diagnostics-list"></ul>
+                        <p id="editor-diagnostics-empty" class="editor-diagnostics-empty">No issues found.</p>
+                    </div>
+                </section>
                 <div class="flex items-center gap-3 px-3 py-1.5 bg-stone-800 border-t border-stone-700 text-[10px] text-stone-400">
                     <span id="text-editor-cursor-status">Ln 1, Col 1</span>
                     <span id="text-editor-character-status">0 characters</span>
@@ -2185,6 +2259,11 @@
         </div>
     </div>
 
+    <!-- Generated text-editor bundle (frontend/src/text-editor/, built by
+         `npm run build:text-editor`). Publishes the single global
+         MahpastesTextEditor for the ordered classic scripts below. -->
+    <script src="dist/text-editor.bundle.js"></script>
+
     <!-- Vendor libraries for plugin result rendering -->
     <script src="vendor/marked.min.js"></script>
     <script src="vendor/purify.min.js"></script>
@@ -2222,6 +2301,16 @@
     <script src="js/editor/tool-select.js"></script>
     <script src="js/editor/tool-anonymize.js"></script>
     <script src="js/editor/markdown-preview.js"></script>
+    <!-- Preview dispatch sits between markdown-preview.js (which it calls) and
+         text-clip-editor.js (which calls it). -->
+    <!-- Opt-in native worker smoke check. Self-activates only when the app was
+         started with --selftest-worker, which is the one case where the
+         SelfTestService binding exists. -->
+    <script src="js/worker-selftest.js"></script>
+    <script src="js/editor/text-preview.js"></script>
+    <!-- Diagnostics state and drawer. Loaded before the shell that drives it, and
+         after the bundle whose executor it dispatches validation through. -->
+    <script src="js/editor/text-diagnostics.js"></script>
     <script src="js/editor/text-clip-editor.js"></script>
     <script src="js/editor/editor-export.js"></script>
     <script src="js/editor.js"></script>

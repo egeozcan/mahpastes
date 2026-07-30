@@ -423,7 +423,10 @@ function buildMenuItemList(clip) {
 
     items.push({ id: 'save-file', label: 'Save', iconHtml: getMenuIcon('save'), tooltip: cardMenuTooltips['save-file'] });
 
-    if (isEditableType(ct)) {
+    // The combined check, not the text-only one: this item gates the editor as a
+    // whole, and narrowing it would silently remove image editing from the card
+    // menu.
+    if (isEditableClip(clip.filename || '', ct)) {
         items.push({ id: 'edit', label: 'Edit', iconHtml: getMenuIcon('edit'), tooltip: cardMenuTooltips['edit'] });
     }
 
@@ -576,7 +579,9 @@ async function handleCardAction(action, clipId, triggerButton) {
             saveClipToFile(id);
             break;
         case 'edit':
-            openEditor(id);
+            // An explicit Edit action always starts in Edit, including for
+            // Markdown and CSV/TSV.
+            openEditor(id, { initialMode: 'edit' });
             break;
         case 'tags':
             // Get the card to find a reference element for the popover
@@ -1172,9 +1177,11 @@ async function createClipCard(clip, options = {}) {
         // Load image asynchronously
         loadImageForCard(clip.id, card);
     } else {
-        // For non-images, clicking opens the editor or shows content
+        // For non-images, clicking opens the editor or shows content. This sits
+        // inside the non-image branch, so the text-only check is the right one —
+        // and this is a generic open, so the descriptor picks the mode.
         card.querySelector('[data-action="open-lightbox"]').addEventListener('click', () => {
-            if (isEditableType(clip.content_type)) {
+            if (isTextCandidate(clip.filename || '', clip.content_type || '')) {
                 openEditor(clip.id);
             }
         });

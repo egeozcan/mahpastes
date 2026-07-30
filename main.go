@@ -35,6 +35,14 @@ func main() {
 		defer instanceLock.Release()
 	}
 
+	// Opt-in headless mode for the native worker smoke check. Nothing below is
+	// bound or started unless the flag is present, so a normal run is unaffected.
+	selfTestWorker := wantsWorkerSelfTest()
+	var selfTest *SelfTestService
+	if selfTestWorker {
+		selfTest = NewSelfTestService()
+	}
+
 	desktopApp := NewApp()
 	core := desktopApp.core
 
@@ -51,13 +59,29 @@ func main() {
 	transferHandler := coreapp.NewTransferFileHandler(core)
 	core.SetTransferHandler(transferHandler)
 
+	binds := []interface{}{
+		desktopApp,
+		pluginService,
+		clipboardService,
+		transferService,
+		serveService,
+		apiService,
+		shareService,
+		linkService,
+		markdownService,
+	}
+	if selfTest != nil {
+		// Presence of this binding is how the frontend detects self-test mode.
+		binds = append(binds, selfTest)
+	}
+
 	err = wails.Run(&options.App{
 		Title:       "mahpastes",
 		Width:       1280,
 		Height:      800,
 		MinWidth:    800,
 		MinHeight:   600,
-		StartHidden: os.Getenv("MAHPASTES_START_HIDDEN") == "1",
+		StartHidden: os.Getenv("MAHPASTES_START_HIDDEN") == "1" || selfTestWorker,
 		AssetServer: &assetserver.Options{
 			Assets:  webui.Assets,
 			Handler: transferHandler,
@@ -67,6 +91,10 @@ func main() {
 			bridge := wailsbridge.New(ctx)
 			desktopApp.setBridge(bridge)
 			pluginService.setBridge(bridge)
+			if selfTest != nil {
+				selfTest.setBridge(bridge)
+				selfTest.startWatchdog()
+			}
 
 			// Map the mouse back/forward side buttons to in-app navigation.
 			// On macOS this installs a native NSEvent monitor (WKWebView's DOM
@@ -106,17 +134,7 @@ func main() {
 			EnableFileDrop:     true,
 			DisableWebViewDrop: false,
 		},
-		Bind: []interface{}{
-			desktopApp,
-			pluginService,
-			clipboardService,
-			transferService,
-			serveService,
-			apiService,
-			shareService,
-			linkService,
-			markdownService,
-		},
+		Bind: binds,
 		Mac: &mac.Options{
 			TitleBar: &mac.TitleBar{
 				TitlebarAppearsTransparent: true,
@@ -134,5 +152,11 @@ func main() {
 
 	if err != nil {
 		log.Fatalf("wails: %v", err)
+	}
+
+	// Printed after the webview is gone, so its result is the last thing on stdout
+	// and the exit code is what CI reads.
+	if selfTest != nil {
+		os.Exit(selfTest.finish())
 	}
 }

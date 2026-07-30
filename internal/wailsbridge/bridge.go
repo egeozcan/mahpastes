@@ -41,6 +41,18 @@ func (b *Bridge) active() bool {
 	return b != nil && b.ctx != nil
 }
 
+// Quit asks Wails to shut the application down. No-op if the bridge isn't active.
+//
+// Used by the headless worker self-test, which needs to end the process as soon as
+// the frontend has reported its result rather than waiting for a user to close a
+// window that CI never sees.
+func (b *Bridge) Quit() {
+	if !b.active() {
+		return
+	}
+	rt.Quit(b.ctx)
+}
+
 // SetTestEventSink installs a handler that captures Emit calls in tests.
 // Only used by test code; production code never calls this.
 func (b *Bridge) SetTestEventSink(sink func(name string, data ...interface{})) {

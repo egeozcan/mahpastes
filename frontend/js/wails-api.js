@@ -445,6 +445,27 @@ async function getClipData(id) {
     }
 }
 
+// Get a clip for the text editor: filename, content type, bytes, and UTF-8
+// validity, all from one read.
+//
+// Desktop GetClipData already reads all three columns in a single row scan and
+// reports valid_utf8/data_encoding, so it satisfies the contract as-is. Server
+// mode needs the dedicated /text endpoint: GetClipData there returns raw base64
+// with an empty filename, and composing metadata and bytes from two requests
+// would let a concurrent update pair one clip's metadata with another revision's
+// bytes.
+async function getClipText(id) {
+    try {
+        if (typeof window.go?.main?.App?.GetClipText === 'function') {
+            return await window.go.main.App.GetClipText(id);
+        }
+        return await window.go.main.App.GetClipData(id);
+    } catch (error) {
+        console.error('Error getting clip text:', error);
+        throw error;
+    }
+}
+
 // Save clip to file using native dialog
 async function saveClipToFile(id) {
     try {

@@ -345,7 +345,14 @@ export const selectors = {
   // Text editor
   textEditor: {
     modal: '#editor-modal',
-    textarea: '#text-editor-textarea',
+    // CodeMirror replaced the textarea. `mount` is the container (carries
+    // data-wrap); `editor` is the focusable, typeable content element.
+    mount: '#text-editor-mount',
+    editor: '#text-editor-mount .cm-content',
+    scroller: '#text-editor-mount .cm-scroller',
+    lineNumbers: '#text-editor-mount .cm-gutters .cm-lineNumbers',
+    // The stock @codemirror/search panel must never be mounted.
+    stockSearchPanel: '#text-editor-mount .cm-panels',
     currentFilename: '#editor-current-filename',
     saveButton: '#editor-save-in-place',
     saveAsButton: '#editor-save',
@@ -356,13 +363,16 @@ export const selectors = {
     findToggle: '#text-editor-find-toggle',
     findPanel: '#text-editor-find-panel',
     findInput: '#text-editor-find',
+    findNextButton: '#text-editor-find-next',
+    findPreviousButton: '#text-editor-find-previous',
     replaceInput: '#text-editor-replace',
     replaceButton: '#text-editor-replace-current',
     replaceAllButton: '#text-editor-replace-all',
     searchStatus: '#text-editor-search-status',
-    highlightLayer: '#text-editor-highlight-layer',
-    searchMatches: '#text-editor-highlight-layer [data-search-match]',
-    activeSearchMatch: '#text-editor-highlight-layer [data-search-active="true"]',
+    matchCaseToggle: '#text-editor-match-case',
+    wholeWordToggle: '#text-editor-whole-word',
+    searchMatches: '#text-editor-mount [data-search-match]',
+    activeSearchMatch: '#text-editor-mount [data-search-active="true"]',
     wrapToggle: '#text-editor-wrap-toggle',
     formatJSONButton: '#text-editor-format-json',
     validationStatus: '#text-editor-validation-status',
@@ -370,10 +380,54 @@ export const selectors = {
     characterStatus: '#text-editor-character-status',
     draftStatus: '#text-editor-draft-status',
     modeLabel: '#editor-mode-label',
-    previewTab: '#markdown-preview-tab',
-    editTab: '#markdown-edit-tab',
-    previewPanel: '#markdown-preview-panel',
+    // Format-neutral Preview/Edit tabs and panel. Every registered text clip has
+    // both modes; the descriptor decides which one it opens in.
+    modeTabs: '#editor-mode-tabs',
+    previewTab: '#editor-preview-tab',
+    editTab: '#editor-edit-tab',
+    previewPanel: '#editor-preview-panel',
     previewContent: '#markdown-preview-content',
+    sourcePreview: '#source-preview-content .source-preview',
+    // Syntax-highlighted token spans. Deliberately the same class in both panels:
+    // Edit's highlighting reuses the Source Preview classes verbatim, so the two
+    // read as one system. NOTE: CodeMirror virtualizes off-screen lines, so only
+    // count these on short documents — assert absence, or use a small document.
+    editorToken: '#text-editor-mount .source-token',
+    sourcePreviewToken: '#source-preview-content .source-token',
+    sourcePreviewLines: '#source-preview-content .source-preview-line',
+    sourcePreviewPlain: '#source-preview-content .source-preview-plain',
+    sourcePreviewNote: '#source-preview-content .source-preview-note',
+    // Bounded CSV/TSV table preview and its temporary interpretation controls.
+    tablePreview: '#table-preview-content .table-preview',
+    tablePreviewTable: '#table-preview-content .table-preview-table',
+    tablePreviewNote: '#table-preview-content .table-preview-note',
+    tablePreviewHeaderCell: '#table-preview-content .table-preview-table thead th:not(.table-preview-row-number)',
+    tablePreviewRow: '#table-preview-content .table-preview-table tbody tr',
+    tablePreviewCell: '#table-preview-content .table-preview-table tbody td',
+    tablePreviewPaddedCell: '#table-preview-content .table-preview-table tbody td[data-padded="true"]',
+    tableControls: '#editor-table-controls',
+    tableDelimiterSelect: '#editor-table-delimiter',
+    tableHeaderSelect: '#editor-table-header',
+    tableSummary: '#editor-table-summary',
+    // Byte-safety screen: shown instead of both modes for invalid UTF-8.
+    unavailablePanel: '#editor-unavailable-panel',
+    unavailableReason: '#editor-unavailable-reason',
+    degradedNotice: '#text-editor-degraded-notice',
+    // Collapsible bottom diagnostics drawer.
+    diagnostics: '#editor-diagnostics',
+    diagnosticsToggle: '#editor-diagnostics-toggle',
+    diagnosticsSummary: '#editor-diagnostics-summary',
+    diagnosticsBody: '#editor-diagnostics-body',
+    diagnosticsList: '#editor-diagnostics-list',
+    diagnosticsRow: '#editor-diagnostics-list .editor-diagnostic-row',
+    diagnosticsRowLocation: '#editor-diagnostics-list .editor-diagnostic-location',
+    diagnosticsNotice: '#editor-diagnostics-notice',
+    diagnosticsEmpty: '#editor-diagnostics-empty',
+    // Inline markers inside CodeMirror. NOTE: CodeMirror virtualizes off-screen
+    // lines, so a DOM count of these is only meaningful on a short document.
+    errorMarker: '#text-editor-mount [data-diagnostic-severity="error"]',
+    possibleMarker: '#text-editor-mount [data-diagnostic-severity="possible-issue"]',
+    errorMarkerLine: '#text-editor-mount [data-diagnostic-line="error"]',
   },
 
   // Tags

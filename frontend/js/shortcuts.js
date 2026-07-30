@@ -556,11 +556,40 @@ const ShortcutManager = (() => {
         return false;
     }
 
+    // --- Override migration ---
+
+    // Renamed actions must not silently lose a user's custom binding. Copies the
+    // stored override from a retired action ID to its replacement (only when the
+    // replacement has none of its own, so a deliberate rebinding always wins),
+    // then drops the retired entry so the list does not accumulate dead IDs.
+    // Returns true when anything changed.
+    const RENAMED_ACTIONS = [
+        // Markdown-only preview toggle generalized to every previewable text clip.
+        { from: 'editor.markdown_preview', to: 'editor.preview_toggle' },
+    ];
+
+    function migrateRenamedOverrides() {
+        let changed = false;
+        for (const { from, to } of RENAMED_ACTIONS) {
+            if (!(from in userOverrides)) continue;
+            if (!(to in userOverrides)) {
+                userOverrides[to] = userOverrides[from];
+            }
+            delete userOverrides[from];
+            changed = true;
+        }
+        return changed;
+    }
+
     // --- Init ---
 
     async function init() {
         document.addEventListener('keydown', handleKeydown, true);
         await loadUserOverrides();
+        if (migrateRenamedOverrides()) {
+            rebuildBindings();
+            await saveUserOverrides();
+        }
         initialized = true;
     }
 
@@ -580,6 +609,7 @@ const ShortcutManager = (() => {
         resetAllToDefaults,
         loadUserOverrides,
         saveUserOverrides,
+        migrateRenamedOverrides,
         clearFocus,
         getFocusedClip,
         getFocusedClipId,

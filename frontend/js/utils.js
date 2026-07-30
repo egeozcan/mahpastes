@@ -182,8 +182,12 @@ function trapFocus(container) {
     function handler(e) {
         if (e.key !== 'Tab') return;
 
+        // [contenteditable="true"] is what puts CodeMirror in the cycle. It is
+        // focusable without a tabindex, so the previous selector — which relied on
+        // `textarea` matching the old text editor — would have dropped the editor
+        // out of the trap entirely.
         const focusable = Array.from(container.querySelectorAll(
-            'button:not([disabled]):not([tabindex="-1"]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+            'button:not([disabled]):not([tabindex="-1"]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [contenteditable="true"]:not([tabindex="-1"]), [tabindex]:not([tabindex="-1"])'
         )).filter(el => el.offsetParent !== null || el.offsetWidth > 0);
         if (focusable.length === 0) return;
 

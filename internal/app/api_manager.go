@@ -26,6 +26,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"go-clipboard/internal/bridgeiface"
 	"go-clipboard/internal/cliptype"
@@ -244,6 +245,11 @@ const spaCSP = "default-src 'self'; " +
 	"font-src 'self' https://fonts.gstatic.com; " +
 	"img-src 'self' data: blob:; " +
 	"connect-src 'self'; " +
+	// The text-editor validator worker is a static same-origin script. This
+	// directive is documentation, not a new allowance: worker-src already
+	// inherited 'self' from default-src, and no blob: allowance is wanted —
+	// the worker is never constructed from blob: or data:.
+	"worker-src 'self'; " +
 	"object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
 
 func (h *spaHandler) writeIndex(w http.ResponseWriter, r *http.Request) {
@@ -283,6 +289,7 @@ func (am *APIManager) Start(port int, bindAll bool) (APIStatus, error) {
 		mux.HandleFunc("GET /api/v1/clips/hidden-info", am.authMiddleware(am.requireRole("viewer", am.handleHiddenClipInfo)))
 		mux.HandleFunc("GET /api/v1/clips/{id}", am.authMiddleware(am.requireRole("viewer", am.handleGetClip)))
 		mux.HandleFunc("GET /api/v1/clips/{id}/data", am.authMiddleware(am.requireRole("viewer", am.handleGetClipData)))
+		mux.HandleFunc("GET /api/v1/clips/{id}/text", am.authMiddleware(am.requireRole("viewer", am.handleGetClipText)))
 		mux.HandleFunc("POST /api/v1/clips", am.authMiddleware(am.requireRole("editor", am.handleCreateClip)))
 		mux.HandleFunc("DELETE /api/v1/clips/{id}", am.authMiddleware(am.requireRole("editor", am.handleDeleteClip)))
 		mux.HandleFunc("PUT /api/v1/clips/{id}/archive", am.authMiddleware(am.requireRole("editor", am.handleArchiveClip)))
@@ -1381,6 +1388,80 @@ func (am *APIManager) handleGetClipData(w http.ResponseWriter, r *http.Request) 
 	if !am.writeClipBytes(w, id) {
 		am.jsonError(w, http.StatusNotFound, "clip not found")
 	}
+}
+
+// apiClipTextResponse is deliberately the exact shape TextCodec already consumes
+// from the desktop GetClipData binding, so one frontend decoder serves both
+// surfaces. `data` is always base64: the frontend decides text-ness after
+// classification and must never infer it from the transport.
+type apiClipTextResponse struct {
+	ID          int64  `json:"id"`
+	Filename    string `json:"filename"`
+	ContentType string `json:"content_type"`
+	Data        string `json:"data"`
+	ValidUTF8   bool   `json:"valid_utf8"`
+	// Always "base64" — present so the payload is self-describing and matches
+	// ClipData field-for-field.
+	DataEncoding string `json:"data_encoding"`
+	Size         int    `json:"size"`
+}
+
+// maxInlineTextBytes is an out-of-memory guard, NOT the editable cap. It matches
+// the 64 MiB inline ceiling server mode already applied in rest-glue.js, so this
+// endpoint is never more restrictive than the path it replaces.
+//
+// The real editable cap — 16 MiB — deliberately lives in one place, TextCodec, so
+// desktop and served mode enforce it identically. Putting it here as well would
+// make the server stricter than the desktop binding and split one rule across two
+// languages.
+const maxInlineTextBytes = 64 * 1024 * 1024
+
+// handleGetClipText returns filename, content type, bytes, and UTF-8 validity in
+// ONE query.
+//
+// The two-request composition it replaces — metadata from GET /clips/{id} plus
+// bytes from GET /clips/{id}/data — is not merely slower: a concurrent update can
+// pair one clip's metadata with another revision's bytes, e.g. config.json
+// metadata over PNG bytes. Desktop reads all three columns in a single row scan;
+// this is how server mode gets the same guarantee rather than papering over it.
+func (am *APIManager) handleGetClipText(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+
+	id, err := parseIntParam(r.PathValue("id"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid clip id")
+		return
+	}
+
+	if err := am.enforceTagScope(keyCtx, id); err != nil {
+		am.jsonError(w, http.StatusForbidden, err.Error())
+		return
+	}
+
+	var data []byte
+	var contentType string
+	var filename sql.NullString
+	if err := am.app.db.QueryRow("SELECT data, content_type, filename FROM clips WHERE id = ?", id).
+		Scan(&data, &contentType, &filename); err != nil {
+		am.jsonError(w, http.StatusNotFound, "clip not found")
+		return
+	}
+
+	if len(data) > maxInlineTextBytes {
+		am.jsonError(w, http.StatusRequestEntityTooLarge,
+			fmt.Sprintf("clip is too large to load inline (%d bytes, limit %d) — download it instead", len(data), maxInlineTextBytes))
+		return
+	}
+
+	am.jsonOK(w, apiClipTextResponse{
+		ID:           id,
+		Filename:     filename.String,
+		ContentType:  contentType,
+		Data:         base64.StdEncoding.EncodeToString(data),
+		ValidUTF8:    utf8.Valid(data),
+		DataEncoding: "base64",
+		Size:         len(data),
+	})
 }
 
 // writeClipBytes streams a clip's raw bytes to w with the full set of

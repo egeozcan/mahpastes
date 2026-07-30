@@ -175,7 +175,8 @@ window.LightboxController = window.createLightboxController({
         document.getElementById('lightbox-file-menu-trigger'), clip, anchor),
     editClip: clip => {
         window.LightboxController.close();
-        openEditor(clip.id);
+        // Explicit Edit entry point: never lands in Preview.
+        openEditor(clip.id, { initialMode: 'edit' });
     },
     copyClip: clip => copyClipContents(clip.id),
     shouldCloseOnBackdrop: () => lightboxCloseOnBackdrop,
@@ -1730,7 +1731,10 @@ window.addEventListener('load', async () => {
         ShortcutManager.register({ id: 'editor.zoom_100',  label: 'Zoom to 100%',      category: 'editor', context: 'image-editor', defaultKey: 'mod+1', callback: () => ZoomTool.zoomTo100() });
         ShortcutManager.register({ id: 'editor.zoom_in',   label: 'Zoom in',           category: 'editor', context: 'image-editor', defaultKey: 'mod+=', callback: () => ZoomTool.zoomIn() });
         ShortcutManager.register({ id: 'editor.zoom_out',  label: 'Zoom out',          category: 'editor', context: 'image-editor', defaultKey: 'mod+-', callback: () => ZoomTool.zoomOut() });
-        ShortcutManager.register({ id: 'editor.markdown_preview', label: 'Toggle Markdown Preview', category: 'editor', context: 'text-editor', defaultKey: 'mod+shift+p', callback: () => TextClipEditor.toggleMarkdownMode() });
+        // Generalized from the Markdown-only 'editor.markdown_preview'. A stored
+        // override for the old ID is migrated once by ShortcutManager; the default
+        // binding is unchanged.
+        ShortcutManager.register({ id: 'editor.preview_toggle', label: 'Toggle Preview/Edit', category: 'editor', context: 'text-editor', defaultKey: 'mod+shift+p', callback: () => TextClipEditor.togglePreviewMode() });
         ShortcutManager.register({ id: 'editor.close',     label: 'Close editor',      category: 'editor', context: 'editor', defaultKey: 'Escape', callback: () => {
             if (typeof TextTool !== 'undefined' && TextTool.isActive) {
                 TextTool.cancelTextInput();

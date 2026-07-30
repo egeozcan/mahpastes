@@ -1436,12 +1436,33 @@ export class AppHelper {
     await this.page.waitForSelector('#text-editor-view:not(.hidden)');
   }
 
+  // CodeMirror virtualizes long documents, so .cm-content only ever holds the
+  // lines currently in view — reading its text would silently truncate. The
+  // editor's own value is the document, and is the direct analogue of the
+  // textarea's `value` these helpers used to read.
   async getTextEditorContent(): Promise<string> {
-    return this.page.locator(selectors.textEditor.textarea).inputValue();
+    return this.page.evaluate('TextClipEditor.getValue()') as Promise<string>;
   }
 
+  async expectTextEditorContent(expected: string): Promise<void> {
+    await expect.poll(() => this.getTextEditorContent()).toBe(expected);
+  }
+
+  // Driven through the keyboard rather than by assigning a value: CodeMirror
+  // builds its document from input events, and this is the path a user takes.
   async setTextEditorContent(content: string): Promise<void> {
-    await this.page.locator(selectors.textEditor.textarea).fill(content);
+    const editor = this.page.locator(selectors.textEditor.editor);
+    await editor.click();
+    await this.page.keyboard.press('ControlOrMeta+a');
+    await this.page.keyboard.press('Delete');
+    if (content) await editor.pressSequentially(content);
+    await this.expectTextEditorContent(content);
+  }
+
+  async textEditorCursorOffset(offset: number): Promise<void> {
+    await this.page.locator(selectors.textEditor.editor).click();
+    await this.page.keyboard.press('ControlOrMeta+Home');
+    for (let i = 0; i < offset; i++) await this.page.keyboard.press('ArrowRight');
   }
 
   async saveTextEditor(): Promise<void> {

@@ -268,7 +268,7 @@ test.describe('Image Editor', () => {
       await expect(app.page.locator(selectors.confirm.dialog)).not.toHaveClass(/opacity-100/);
 
       await app.openTextEditor(filename);
-      await expect(app.page.locator(selectors.textEditor.textarea)).toHaveValue('saved text content');
+      await app.expectTextEditorContent('saved text content');
       await app.cancelTextEditor();
     });
 
