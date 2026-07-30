@@ -84,8 +84,10 @@ jobs:
           npm --prefix frontend ci
           npm --prefix frontend run check:text-editor-bundle
 
+      # No -platform: each runner builds for itself, which is the whole point —
+      # the test needs a binary running that runner's own native webview.
       - name: Build
-        run: wails build -platform ${{ matrix.build_target || '' }}
+        run: wails build
         env:
           CGO_ENABLED: 1
 
