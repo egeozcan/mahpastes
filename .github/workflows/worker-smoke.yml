@@ -98,10 +98,13 @@ jobs:
         env:
           CGO_ENABLED: 1
 
-      # The result JSON goes to stdout, so it must be printed before the step is
-      # allowed to fail — otherwise a failing platform reports only "exit code 1"
-      # and the diagnosis lives solely in an artifact. The binary's own exit code
-      # already encodes `ok`, so the shells re-raise it rather than re-parsing.
+      # Each of these prints the result JSON before it is allowed to fail — the
+      # JSON goes to stdout via redirect, so aborting first (bash -e, pwsh error
+      # handling) would leave "exit code 1" and no diagnosis in the log.
+      #
+      # They assert on the JSON itself and not merely on the exit code. An empty
+      # result.json with status 0 is a real failure mode, not a hypothetical: it
+      # is how the Windows job first reported green without having tested anything.
       - name: Run worker self-test (macOS)
         if: matrix.platform == 'macos-latest'
         env:
@@ -112,8 +115,17 @@ jobs:
           ./build/bin/mahpastes.app/Contents/MacOS/mahpastes > result.json
           code=$?
           cat result.json
+          if [ ! -s result.json ]; then echo "::error::no self-test result was written"; exit 1; fi
+          python3 -c 'import json,sys; sys.exit(0 if json.load(open("result.json")).get("ok") is True else 1)' || exit 1
           exit $code
 
+      # Wails builds Windows production binaries for the GUI subsystem
+      # (-H windowsgui), and PowerShell does not wait for those: a plain
+      # `app.exe > result.json` returns instantly with status 0 and an empty file
+      # while the app is still starting. Start-Process -Wait does wait, and the
+      # explicit redirects give the detached process valid stdout/stderr handles.
+      # Testing the real shipped binary rather than adding -windowsconsole, since
+      # the subsystem is not what this measures.
       - name: Run worker self-test (Windows)
         if: matrix.platform == 'windows-latest'
         shell: pwsh
@@ -122,11 +134,18 @@ jobs:
           MAHPASTES_DATA_DIR: ${{ runner.temp }}/mp-selftest
         run: |
           $ErrorActionPreference = 'Continue'
-          $PSNativeCommandUseErrorActionPreference = $false
-          ./build/bin/mahpastes.exe > result.json
-          $code = $LASTEXITCODE
-          Get-Content result.json
-          exit $code
+          $exe = (Resolve-Path ./build/bin/mahpastes.exe).Path
+          $proc = Start-Process -FilePath $exe -NoNewWindow -Wait -PassThru `
+            -RedirectStandardOutput result.json -RedirectStandardError selftest-stderr.txt
+          Get-Content selftest-stderr.txt -ErrorAction SilentlyContinue
+          Get-Content result.json -ErrorAction SilentlyContinue
+          if (-not (Test-Path result.json) -or (Get-Item result.json).Length -eq 0) {
+            Write-Host '::error::no self-test result was written'
+            exit 1
+          }
+          $r = Get-Content result.json -Raw | ConvertFrom-Json
+          if (-not $r.ok) { exit 1 }
+          exit $proc.ExitCode
 
       # No display on the runner, so the webview needs a virtual one.
       - name: Run worker self-test (Linux)
@@ -139,6 +158,8 @@ jobs:
           xvfb-run -a ./build/bin/mahpastes > result.json
           code=$?
           cat result.json
+          if [ ! -s result.json ]; then echo "::error::no self-test result was written"; exit 1; fi
+          python3 -c 'import json,sys; sys.exit(0 if json.load(open("result.json")).get("ok") is True else 1)' || exit 1
           exit $code
 
       - name: Upload result
