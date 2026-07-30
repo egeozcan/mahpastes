@@ -148,6 +148,12 @@ jobs:
           exit $proc.ExitCode
 
       # No display on the runner, so the webview needs a virtual one.
+      #
+      # The app's stderr is redirected *inside* the wrapper on purpose. Debian's
+      # xvfb-run invokes its command as `"$@" 2>&1`, which points the app's stderr
+      # at whatever xvfb-run's stdout is — so a plain `xvfb-run app > result.json`
+      # lands GTK warnings and Go log lines in the middle of the JSON. Doing it in
+      # an inner shell keeps result.json to stdout alone whoever merges what.
       - name: Run worker self-test (Linux)
         if: matrix.platform == 'ubuntu-latest'
         env:
@@ -155,8 +161,9 @@ jobs:
           MAHPASTES_DATA_DIR: ${{ runner.temp }}/mp-selftest
         run: |
           set +e
-          xvfb-run -a ./build/bin/mahpastes > result.json
+          xvfb-run -a bash -c './build/bin/mahpastes 2>selftest-stderr.txt' > result.json
           code=$?
+          cat selftest-stderr.txt
           cat result.json
           if [ ! -s result.json ]; then echo "::error::no self-test result was written"; exit 1; fi
           python3 -c 'import json,sys; sys.exit(0 if json.load(open("result.json")).get("ok") is True else 1)' || exit 1

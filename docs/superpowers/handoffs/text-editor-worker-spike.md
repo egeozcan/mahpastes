@@ -79,8 +79,26 @@ Record one row per platform. Unfilled rows are unverified, not passing.
 | Platform | OS version | Engine | Probe result | Round-trip | Timeout/terminate/restart | Date | Notes |
 |---|---|---|---|---|---|---|---|
 | macOS | 15.6.1 | WKWebView | `worker` | pass | pass | 2026-07-30 | Production `wails build`, origin `wails://wails`. All five steps pass. |
-| Windows | | WebView2 | | | | | Runs in CI — see below. |
-| Linux | | WebKitGTK | | | | | Runs in CI — see below. |
+| macOS | `macos-latest` runner | WKWebView | `worker` | pass | pass | 2026-07-30 | CI. `wails://wails`, `AppleWebKit/605.1.15`. |
+| Windows | `windows-latest` runner | WebView2 | `worker` | pass | pass | 2026-07-30 | CI. Origin is `http://wails.localhost`, not a custom scheme — `Chrome/150.0.0.0 Edg/150.0.0.0`. |
+| Linux | `ubuntu-24.04` runner | WebKitGTK | `worker` | pass | pass | 2026-07-30 | CI under `xvfb`, built `-tags webkit2_41`. `wails://wails`, `Version/60.5 Safari/605.1.15`. |
+
+So the static worker loads and round-trips on **all three** production engines, and
+the bounded main-thread fallback is a safety net rather than a platform's normal
+path. The 64 KiB fallback ceiling does not apply to any shipped surface today.
+
+Two traps this workflow hit, both worth knowing before touching it:
+
+- Windows binaries are built for the GUI subsystem (`-H windowsgui`), and
+  PowerShell does not wait for those. `app.exe > result.json` returns instantly
+  with status 0 and an empty file, which reads as a pass. `Start-Process -Wait`
+  is required.
+- `xvfb-run` invokes its command as `"$@" 2>&1`, so GTK warnings and Go log lines
+  land inside a stdout redirect. The app's stderr has to be redirected in an inner
+  shell or `result.json` is not JSON.
+
+Both produced a green job that had verified nothing, which is why every step now
+asserts on the result JSON's `ok` field and not on the exit status alone.
 
 ### How this is now run
 
@@ -108,9 +126,12 @@ broken build — the capability probe falls back to the bounded time-sliced exec
 design — but it does mean that platform pays the fallback's lower 64 KiB validation
 ceiling, which is worth knowing rather than discovering from a user report.
 
-The macOS row above was filled from a local production build, so it is direct
-evidence rather than a CI inference. Windows and Linux stay unfilled until that
-workflow has actually run on a push; copy the values from the uploaded artifacts.
+`continue-on-error` has one cost worth remembering: the *run* reports success even
+when every job in the matrix fails, so read the per-job conclusions
+(`gh run view <id> --json jobs`) rather than the run's own status.
+
+The first macOS row was filled from a local production build; the rest come from the
+first real runs of this workflow on `master`.
 
 The verified macOS payload, for comparison:
 
