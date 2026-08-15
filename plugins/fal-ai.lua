@@ -3,7 +3,7 @@
 
 Plugin = {
     name = "FAL.AI Image Processing",
-    version = "2.0.0",
+    version = "2.1.0",
     description = "AI-powered image processing using fal.ai - text-to-image generation, colorization, upscaling, restoration, and AI editing. Results are pulled inline where the model supports it, so nothing lingers on fal's CDN.",
     author = "mahpastes",
 
@@ -294,12 +294,14 @@ local DEFAULT_SAFETY_LEVEL = "off"
 
 -- Resolve the filter for one invocation. The dropdown on the action form wins;
 -- "default" (and anything unrecognised) falls through to the plugin setting.
+-- Returns the per-family values plus the level's own name, which is what gets
+-- recorded on the result.
 local function safety(choice)
     if choice and choice ~= "" and choice ~= "default" and SAFETY_LEVELS[choice] then
-        return SAFETY_LEVELS[choice]
+        return SAFETY_LEVELS[choice], choice
     end
     local level = SAFETY_SETTING_LEVELS[storage.get("safety_filter")] or DEFAULT_SAFETY_LEVEL
-    return SAFETY_LEVELS[level]
+    return SAFETY_LEVELS[level], level
 end
 
 -- ---------------------------------------------------------------------------
@@ -662,10 +664,11 @@ local function build_edit_payload(model, data_uris, prompt, resolution, source_c
     return nil
 end
 
--- Single-image transforms driven from the lightbox and card menus.
+-- Single-image transforms driven from the lightbox and card menus. Returns the
+-- endpoint, the payload, and the parameters worth recording on the result.
 local function build_request(action_id, data_uri, options)
     if action_id == "colorize" then
-        return COLORIZE_ENDPOINT, {image_url = data_uri}
+        return COLORIZE_ENDPOINT, {image_url = data_uri}, {operation = "colorize"}
 
     elseif action_id == "upscale" then
         local model = options.model or "clarity"
@@ -678,7 +681,7 @@ local function build_request(action_id, data_uri, options)
                 scale = scale,
                 model = "RealESRGAN_x4plus",
                 output_format = "jpeg",
-            }
+            }, {operation = "upscale", upscale_factor = scale}
         elseif model == "topaz" then
             return endpoint, {
                 image_url = data_uri,
@@ -686,7 +689,7 @@ local function build_request(action_id, data_uri, options)
                 upscale_factor = scale,
                 face_enhancement = true,
                 output_format = "jpeg",
-            }
+            }, {operation = "upscale", upscale_factor = scale}
         elseif model == "seedvr" then
             return endpoint, {
                 image_url = data_uri,
@@ -694,18 +697,20 @@ local function build_request(action_id, data_uri, options)
                 upscale_factor = scale,
                 output_format = "jpg",
                 sync_mode = true,
-            }
+            }, {operation = "upscale", upscale_factor = scale}
         elseif model == "creative" then
-            return endpoint, {image_url = data_uri}
+            -- The creative upscaler takes no scale; it picks its own.
+            return endpoint, {image_url = data_uri}, {operation = "upscale"}
         else
             -- Clarity is the only upscaler with a filter parameter.
+            local filter, filter_level = safety(nil)
             return endpoint, {
                 image_url = data_uri,
                 prompt = "masterpiece, best quality, highres",
                 negative_prompt = "(worst quality, low quality, normal quality:2)",
                 upscale_factor = scale,
-                enable_safety_checker = safety(nil).checker,
-            }
+                enable_safety_checker = filter.checker,
+            }, {operation = "upscale", upscale_factor = scale, safety_filter = filter_level}
         end
 
     elseif action_id == "restore" then
@@ -718,13 +723,17 @@ local function build_request(action_id, data_uri, options)
             enhance_resolution = true,
             fix_colors = fix_colors,
             remove_scratches = remove_scratches,
+        }, {
+            operation = "restore",
+            fix_colors = fix_colors,
+            remove_scratches = remove_scratches,
         }
 
     elseif action_id == "vectorize" then
-        return VECTORIZE_ENDPOINT, {image_url = data_uri}
+        return VECTORIZE_ENDPOINT, {image_url = data_uri}, {operation = "vectorize"}
 
     else
-        return nil, nil
+        return nil, nil, nil
     end
 end
 
@@ -878,6 +887,119 @@ local function clip_data_uri(clip_id)
 end
 
 -- ---------------------------------------------------------------------------
+-- Generation metadata
+--
+-- Every clip this plugin creates carries the parameters that produced it, so a
+-- result can be traced back to its request long after the task toast is gone.
+-- Only what was actually sent is recorded: models that ignore a parameter (the
+-- Creative upscaler's scale, GPT Image 2's absent filter) leave its key off
+-- rather than claiming a value that had no effect.
+--
+-- Writing is best-effort. metadata.set reports problems by return value instead
+-- of raising, and a rejected key must never fail a generation the user has
+-- already paid for.
+-- ---------------------------------------------------------------------------
+
+-- The keys this plugin writes. Listing them explicitly keeps a stray field from
+-- leaking into a clip's metadata and fixes the write order; the metadata panel
+-- sorts alphabetically regardless.
+local METADATA_KEYS = {
+    "generator",
+    "operation",
+    "model",
+    "prompt",
+    "resolution",
+    "aspect_ratio",
+    "image_size",
+    "safety_filter",
+    "upscale_factor",
+    "fix_colors",
+    "remove_scratches",
+    "source_clips",
+}
+
+-- Matches the backend's per-value cap, which counts characters rather than
+-- bytes.
+local MAX_METADATA_VALUE = 4096
+
+-- Trim to at most `limit` characters. Counting bytes instead would cut a CJK or
+-- emoji prompt to a third of the length the backend actually accepts, and could
+-- leave a codepoint split down the middle.
+local function trim_to_chars(text, limit)
+    -- Byte length is an upper bound on character count.
+    if #text <= limit then return text end
+
+    local count = 0
+    for pos = 1, #text do
+        local byte = text:byte(pos)
+        -- Every byte except a UTF-8 continuation (0x80-0xBF) starts a character.
+        if byte < 128 or byte > 191 then
+            count = count + 1
+            if count > limit then return text:sub(1, pos - 1) end
+        end
+    end
+    return text
+end
+
+local function metadata_value(value)
+    if value == nil then return nil end
+    if type(value) == "boolean" then return value and "true" or "false" end
+    if type(value) == "number" then
+        if value == math.floor(value) then return string.format("%d", value) end
+        return tostring(value)
+    end
+
+    local text = tostring(value)
+    if text == "" then return nil end
+    return trim_to_chars(text, MAX_METADATA_VALUE)
+end
+
+local function record_generation(clip_id, fields)
+    if not clip_id or clip_id == 0 or not fields then return end
+    fields.generator = "fal.ai"
+
+    -- Guarded as a whole, not just per key: an older host exposes no metadata
+    -- API at all, and one that raises instead of returning an error would
+    -- otherwise abort an action whose image is already generated and saved.
+    local ok, err = pcall(function()
+        for _, key in ipairs(METADATA_KEYS) do
+            local value = metadata_value(fields[key])
+            if value then
+                local set, set_err = metadata.set(clip_id, key, value)
+                if not set then
+                    log("Failed to record " .. key .. " on clip " .. clip_id .. ": " ..
+                        tostring(set_err or "unknown error"))
+                end
+            end
+        end
+    end)
+
+    if not ok then
+        log("Failed to record generation metadata on clip " .. clip_id .. ": " .. tostring(err))
+    end
+end
+
+-- image_size is a {width, height} table for models that take explicit
+-- dimensions and a named preset ("square_hd", "auto") for the rest.
+local function describe_size(size)
+    if type(size) == "table" and size.width and size.height then
+        return math.floor(size.width) .. "x" .. math.floor(size.height)
+    elseif type(size) == "string" then
+        return size
+    end
+    return nil
+end
+
+-- Report the resolved filter level only for payloads that actually carry a
+-- filter parameter.
+local function describe_safety(payload, level)
+    if payload.safety_tolerance ~= nil or payload.enable_safety_checker ~= nil then
+        return level
+    end
+    return nil
+end
+
+-- ---------------------------------------------------------------------------
 -- Actions
 -- ---------------------------------------------------------------------------
 
@@ -902,8 +1024,10 @@ local function run_generate(options, context, api_key)
     local new_clip_id = nil
 
     local ok, err = pcall(function()
+        local aspect = options.aspect_ratio or "1:1"
+        local filter, filter_level = safety(options.safety)
         local payload = build_generate_payload(
-            model, prompt, options.resolution, options.aspect_ratio or "1:1", safety(options.safety))
+            model, prompt, options.resolution, aspect, filter)
         if not payload then
             error("Unsupported model: " .. tostring(options.model))
         end
@@ -923,6 +1047,15 @@ local function run_generate(options, context, api_key)
         end
 
         new_clip_id = ensure_jpeg(new_clip.id)
+        record_generation(new_clip_id, {
+            operation = "generate",
+            model = model.endpoint,
+            prompt = prompt,
+            resolution = payload.resolution,
+            aspect_ratio = aspect,
+            image_size = describe_size(payload.image_size),
+            safety_filter = describe_safety(payload, filter_level),
+        })
         add_to_folder(new_clip_id, context)
     end)
 
@@ -955,8 +1088,9 @@ local function run_multi_edit(clip_ids, options, context, api_key)
             table.insert(data_uris, clip_data_uri(clip_id))
         end
 
+        local filter, filter_level = safety(options.safety)
         local payload = build_edit_payload(
-            model, data_uris, prompt, options.resolution, clip_ids[1], safety(options.safety))
+            model, data_uris, prompt, options.resolution, clip_ids[1], filter)
         if not payload then
             error("Unsupported model: " .. tostring(options.model))
         end
@@ -976,6 +1110,15 @@ local function run_multi_edit(clip_ids, options, context, api_key)
         end
 
         result_clip_id = ensure_jpeg(new_clip.id)
+        record_generation(result_clip_id, {
+            operation = "edit",
+            model = model.endpoint,
+            prompt = prompt,
+            resolution = payload.resolution,
+            image_size = describe_size(payload.image_size),
+            safety_filter = describe_safety(payload, filter_level),
+            source_clips = table.concat(clip_ids, ", "),
+        })
         add_to_folder(result_clip_id, context)
     end)
 
@@ -1022,7 +1165,7 @@ function on_ui_action(action_id, clip_ids, options, context)
         local ok, err = pcall(function()
             local data_uri = clip_data_uri(clip_id)
 
-            local endpoint, payload
+            local endpoint, payload, fields
             if action_id == "edit" then
                 local prompt = options.prompt or ""
                 if prompt == "" then
@@ -1030,13 +1173,21 @@ function on_ui_action(action_id, clip_ids, options, context)
                 end
                 local model = EDIT_MODELS[options.model or "nanobanana2"] or EDIT_MODELS.nanobanana2
                 endpoint = model.endpoint
+                local filter, filter_level = safety(options.safety)
                 payload = build_edit_payload(
-                    model, {data_uri}, prompt, options.resolution, clip_id, safety(options.safety))
+                    model, {data_uri}, prompt, options.resolution, clip_id, filter)
                 if not payload then
                     error("Unsupported model: " .. tostring(options.model))
                 end
+                fields = {
+                    operation = "edit",
+                    prompt = prompt,
+                    resolution = payload.resolution,
+                    image_size = describe_size(payload.image_size),
+                    safety_filter = describe_safety(payload, filter_level),
+                }
             else
-                endpoint, payload = build_request(action_id, data_uri, options)
+                endpoint, payload, fields = build_request(action_id, data_uri, options)
                 if not endpoint then
                     error("Unknown action: " .. action_id)
                 end
@@ -1060,6 +1211,9 @@ function on_ui_action(action_id, clip_ids, options, context)
             -- Convert to JPEG to reduce file size (some endpoints return large PNGs).
             -- ensure_jpeg handles filename renaming to .jpg
             last_clip_id = ensure_jpeg(new_clip.id)
+            fields.model = endpoint
+            fields.source_clips = tostring(clip_id)
+            record_generation(last_clip_id, fields)
             add_to_folder(last_clip_id, context)
         end)
 

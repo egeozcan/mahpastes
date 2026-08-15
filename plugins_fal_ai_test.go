@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"go-clipboard/plugin"
 
@@ -39,6 +40,26 @@ type falHarness struct {
 	L       *lua.LState
 	request *falRequest
 	clip    *falClip
+	// meta is what the plugin recorded, keyed by the clip it recorded it on, so
+	// a test can tell metadata written to a clip that was later replaced from
+	// metadata written to the one that survived.
+	meta map[int64]map[string]string
+	// metaErr makes metadata.set raise instead of returning a value.
+	metaErr bool
+	// resultType is the content type clips.get reports for clips the plugin
+	// created, which decides whether ensure_jpeg converts them. Set it before
+	// running an action; empty means JPEG, so conversion is skipped.
+	resultType string
+	createdIDs map[int64]bool
+	nextClipID int64
+}
+
+// newClipID hands out a distinct id per created clip so a test can tell the
+// converted clip apart from the one it replaced.
+func (h *falHarness) newClipID() int64 {
+	h.nextClipID++
+	h.createdIDs[h.nextClipID] = true
+	return h.nextClipID
 }
 
 // newFalHarness loads the plugin with every API it uses stubbed out. sourceSize
@@ -55,7 +76,14 @@ func newFalHarness(t *testing.T, response string, settings map[string]string) *f
 	t.Cleanup(L.Close)
 	plugin.NewUtilsAPI("fal-test", false).Register(L)
 
-	h := &falHarness{L: L, request: &falRequest{headers: map[string]string{}}, clip: &falClip{}}
+	h := &falHarness{
+		L:          L,
+		request:    &falRequest{headers: map[string]string{}},
+		clip:       &falClip{},
+		meta:       map[int64]map[string]string{},
+		createdIDs: map[int64]bool{},
+		nextClipID: 41,
+	}
 
 	httpMod := L.NewTable()
 	httpMod.RawSetString("post", L.NewFunction(func(L *lua.LState) int {
@@ -82,11 +110,17 @@ func newFalHarness(t *testing.T, response string, settings map[string]string) *f
 		return 2
 	}))
 	clipsMod.RawSetString("get", L.NewFunction(func(L *lua.LState) int {
+		id := L.CheckInt64(1)
+		contentType := "image/jpeg"
+		if h.createdIDs[id] && h.resultType != "" {
+			contentType = h.resultType
+		}
 		clip := L.NewTable()
-		clip.RawSetString("id", lua.LNumber(L.CheckInt64(1)))
+		clip.RawSetString("id", lua.LNumber(id))
 		clip.RawSetString("filename", lua.LString("photo.png"))
-		// Already JPEG, so ensure_jpeg leaves the saved clip alone.
-		clip.RawSetString("content_type", lua.LString("image/jpeg"))
+		// JPEG unless a test says otherwise, so ensure_jpeg leaves the saved
+		// clip alone.
+		clip.RawSetString("content_type", lua.LString(contentType))
 		L.Push(clip)
 		return 1
 	}))
@@ -96,7 +130,7 @@ func newFalHarness(t *testing.T, response string, settings map[string]string) *f
 		h.clip.filename = opts.RawGetString("filename").String()
 		h.clip.contentType = opts.RawGetString("content_type").String()
 		created := L.NewTable()
-		created.RawSetString("id", lua.LNumber(42))
+		created.RawSetString("id", lua.LNumber(h.newClipID()))
 		L.Push(created)
 		return 1
 	}))
@@ -105,7 +139,7 @@ func newFalHarness(t *testing.T, response string, settings map[string]string) *f
 		h.clip.sourceURL = L.CheckString(1)
 		h.clip.filename = L.CheckTable(2).RawGetString("name").String()
 		created := L.NewTable()
-		created.RawSetString("id", lua.LNumber(43))
+		created.RawSetString("id", lua.LNumber(h.newClipID()))
 		L.Push(created)
 		return 1
 	}))
@@ -127,6 +161,21 @@ func newFalHarness(t *testing.T, response string, settings map[string]string) *f
 		return 1
 	}))
 	L.SetGlobal("image", imageMod)
+
+	metadataMod := L.NewTable()
+	metadataMod.RawSetString("set", L.NewFunction(func(L *lua.LState) int {
+		if h.metaErr {
+			L.RaiseError("metadata store unavailable")
+		}
+		clipID := L.CheckInt64(1)
+		if h.meta[clipID] == nil {
+			h.meta[clipID] = map[string]string{}
+		}
+		h.meta[clipID][L.CheckString(2)] = L.CheckString(3)
+		L.Push(lua.LTrue)
+		return 1
+	}))
+	L.SetGlobal("metadata", metadataMod)
 
 	storageMod := L.NewTable()
 	storageMod.RawSetString("get", L.NewFunction(func(L *lua.LState) int {
@@ -185,6 +234,32 @@ func (h *falHarness) run(t *testing.T, action string, clipIDs []int, options map
 	}
 	if result.RawGetString("success") != lua.LTrue {
 		t.Fatalf("on_ui_action(%q) failed: %v", action, result.RawGetString("error"))
+	}
+}
+
+// resultMeta returns the metadata of the single clip the action recorded on,
+// failing if the writes were spread across clips — a run that leaves half its
+// metadata on a clip it went on to delete is a bug, not a partial pass.
+func (h *falHarness) resultMeta(t *testing.T) (int64, map[string]string) {
+	t.Helper()
+	if len(h.meta) != 1 {
+		t.Fatalf("expected metadata on exactly one clip, got %d: %v", len(h.meta), h.meta)
+	}
+	for id, meta := range h.meta {
+		return id, meta
+	}
+	return 0, nil
+}
+
+// wantMeta asserts the given keys were recorded on the result. Keys not listed
+// are ignored, so a case only states what it cares about.
+func wantMeta(t *testing.T, h *falHarness, want map[string]string) {
+	t.Helper()
+	_, meta := h.resultMeta(t)
+	for key, value := range want {
+		if got := meta[key]; got != value {
+			t.Errorf("metadata %q: got %q, want %q", key, got, value)
+		}
 	}
 }
 
@@ -631,6 +706,246 @@ func TestFalPromptFormsExposeSafetyDropdown(t *testing.T) {
 	}
 	if found != 3 {
 		t.Errorf("expected the filter on 3 action forms, found %d", found)
+	}
+}
+
+// Results carry the parameters that produced them, so a clip can be traced back
+// to its request once the task toast is gone.
+func TestFalRecordsGenerationMetadata(t *testing.T) {
+	t.Run("generate", func(t *testing.T) {
+		h := newFalHarness(t, falSyncResponse, map[string]string{"api_key": "k", "safety_filter": "Strict"})
+		h.run(t, "generate", nil, map[string]string{
+			"prompt": "a cat", "model": "flux2turbo", "aspect_ratio": "16:9", "resolution": "2K"})
+
+		wantMeta(t, h, map[string]string{
+			"generator":     "fal.ai",
+			"operation":     "generate",
+			"model":         "fal-ai/flux-2/turbo",
+			"prompt":        "a cat",
+			"aspect_ratio":  "16:9",
+			"image_size":    "2048x1152",
+			"safety_filter": "strict",
+		})
+		// Nothing was derived from an existing clip.
+		_, meta := h.resultMeta(t)
+		if got, ok := meta["source_clips"]; ok {
+			t.Errorf("generate should record no source clips, got %q", got)
+		}
+	})
+
+	// Gemini models take a named resolution instead of explicit dimensions.
+	t.Run("generate with a named resolution", func(t *testing.T) {
+		h := newFalHarness(t, falSyncResponse, map[string]string{"api_key": "k"})
+		h.run(t, "generate", nil, map[string]string{
+			"prompt": "a cat", "model": "nanobananapro", "resolution": "4K"})
+
+		wantMeta(t, h, map[string]string{
+			"model":         "fal-ai/nano-banana-pro",
+			"resolution":    "4K",
+			"safety_filter": "off",
+		})
+		_, meta := h.resultMeta(t)
+		if got, ok := meta["image_size"]; ok {
+			t.Errorf("no explicit dimensions were sent, got image_size %q", got)
+		}
+	})
+
+	t.Run("edit names its source", func(t *testing.T) {
+		h := newFalHarness(t, falSyncResponse, map[string]string{"api_key": "k"})
+		h.run(t, "edit", []int{7}, map[string]string{
+			"prompt": "make it blue", "model": "nanobanana2", "safety": "moderate"})
+
+		wantMeta(t, h, map[string]string{
+			"operation":     "edit",
+			"model":         "fal-ai/nano-banana-2/edit",
+			"prompt":        "make it blue",
+			"safety_filter": "moderate",
+			"source_clips":  "7",
+		})
+	})
+
+	t.Run("bulk edit names every source", func(t *testing.T) {
+		h := newFalHarness(t, falSyncResponse, map[string]string{"api_key": "k"})
+		h.run(t, "edit", []int{1, 2, 3}, map[string]string{"prompt": "merge", "model": "nanobanana2"})
+
+		wantMeta(t, h, map[string]string{
+			"operation":    "edit",
+			"prompt":       "merge",
+			"source_clips": "1, 2, 3",
+		})
+	})
+
+	t.Run("upscale", func(t *testing.T) {
+		h := newFalHarness(t, falCDNResponse, map[string]string{"api_key": "k"})
+		h.run(t, "upscale", []int{7}, map[string]string{"model": "topaz", "scale": "4"})
+
+		wantMeta(t, h, map[string]string{
+			"operation":      "upscale",
+			"model":          "fal-ai/topaz/upscale/image",
+			"upscale_factor": "4",
+			"source_clips":   "7",
+		})
+	})
+
+	t.Run("restore", func(t *testing.T) {
+		h := newFalHarness(t, falCDNResponse, map[string]string{"api_key": "k"})
+		h.run(t, "restore", []int{7}, nil)
+
+		wantMeta(t, h, map[string]string{
+			"operation":        "restore",
+			"model":            "fal-ai/image-apps-v2/photo-restoration",
+			"fix_colors":       "true",
+			"remove_scratches": "true",
+		})
+	})
+
+	t.Run("colorize", func(t *testing.T) {
+		h := newFalHarness(t, falCDNResponse, map[string]string{"api_key": "k"})
+		h.run(t, "colorize", []int{7}, nil)
+
+		wantMeta(t, h, map[string]string{
+			"generator": "fal.ai",
+			"operation": "colorize",
+			"model":     "fal-ai/ddcolor",
+		})
+		// Clarity-style canned prompts aside, no action without a user prompt
+		// should claim one.
+		_, meta := h.resultMeta(t)
+		if got, ok := meta["prompt"]; ok {
+			t.Errorf("colorize takes no prompt, got %q", got)
+		}
+	})
+
+	t.Run("vectorize", func(t *testing.T) {
+		h := newFalHarness(t, falCDNResponse, map[string]string{"api_key": "k"})
+		h.run(t, "vectorize", []int{7}, nil)
+
+		wantMeta(t, h, map[string]string{
+			"operation":    "vectorize",
+			"model":        "fal-ai/recraft/vectorize",
+			"source_clips": "7",
+		})
+	})
+
+	// A multi-clip transform produces one result per input, and each has to name
+	// the clip it actually came from.
+	t.Run("each result names its own source", func(t *testing.T) {
+		h := newFalHarness(t, falCDNResponse, map[string]string{"api_key": "k"})
+		h.run(t, "colorize", []int{7, 8}, nil)
+
+		if len(h.meta) != 2 {
+			t.Fatalf("expected metadata on two result clips, got %d: %v", len(h.meta), h.meta)
+		}
+		sources := map[string]bool{}
+		for _, meta := range h.meta {
+			sources[meta["source_clips"]] = true
+			if meta["operation"] != "colorize" {
+				t.Errorf("operation: got %q, want %q", meta["operation"], "colorize")
+			}
+		}
+		for _, want := range []string{"7", "8"} {
+			if !sources[want] {
+				t.Errorf("no result names clip %s as its source, got %v", want, sources)
+			}
+		}
+	})
+}
+
+// The image is generated and saved before any metadata is written, so a
+// metadata store that fails outright must not turn a paid result into a failed
+// action.
+func TestFalMetadataFailureDoesNotFailTheAction(t *testing.T) {
+	h := newFalHarness(t, falSyncResponse, map[string]string{"api_key": "k"})
+	h.metaErr = true
+
+	// h.run fails the test if the action reports anything but success.
+	h.run(t, "generate", nil, map[string]string{"prompt": "a cat"})
+
+	if h.clip.via != "create" {
+		t.Errorf("the result should still have been saved, got %q", h.clip.via)
+	}
+}
+
+// A parameter the model never received must not be recorded as if it applied.
+func TestFalMetadataRecordsOnlyWhatWasSent(t *testing.T) {
+	t.Run("no filter parameter", func(t *testing.T) {
+		// GPT Image 2 has no filter knob, so the setting never reached it.
+		h := newFalHarness(t, falSyncResponse, map[string]string{"api_key": "k", "safety_filter": "Strict"})
+		h.run(t, "generate", nil, map[string]string{"prompt": "x", "model": "gptimage2"})
+
+		_, meta := h.resultMeta(t)
+		if got, ok := meta["safety_filter"]; ok {
+			t.Errorf("gpt-image-2 applied no filter, got safety_filter %q", got)
+		}
+	})
+
+	t.Run("no scale parameter", func(t *testing.T) {
+		// The creative upscaler picks its own factor and ignores the form's.
+		h := newFalHarness(t, falCDNResponse, map[string]string{"api_key": "k"})
+		h.run(t, "upscale", []int{7}, map[string]string{"model": "creative", "scale": "4"})
+
+		_, meta := h.resultMeta(t)
+		if got, ok := meta["upscale_factor"]; ok {
+			t.Errorf("creative upscaler ignores the scale, got upscale_factor %q", got)
+		}
+		if meta["operation"] != "upscale" {
+			t.Errorf("operation: got %q, want %q", meta["operation"], "upscale")
+		}
+	})
+}
+
+// ensure_jpeg replaces the saved clip with a converted one, so the metadata has
+// to land on the survivor rather than the clip that was just deleted.
+func TestFalMetadataFollowsTheConvertedClip(t *testing.T) {
+	h := newFalHarness(t, falCDNResponse, map[string]string{"api_key": "k"})
+	h.resultType = "image/png"
+	h.run(t, "colorize", []int{7}, nil)
+
+	if h.nextClipID < 43 {
+		t.Fatalf("expected the result to be converted into a second clip, ids stopped at %d", h.nextClipID)
+	}
+	// resultMeta also fails if any key went to the clip that was replaced.
+	id, _ := h.resultMeta(t)
+	if id != h.nextClipID {
+		t.Errorf("metadata went to clip %d, want the converted clip %d", id, h.nextClipID)
+	}
+}
+
+// A prompt longer than the backend's per-value cap is trimmed here rather than
+// being silently rejected on write. The cap counts characters, so a non-ASCII
+// prompt must not be cut to a fraction of it.
+func TestFalMetadataTrimsLongPrompts(t *testing.T) {
+	cases := []struct {
+		name string
+		char string
+	}{
+		{"ascii", "a"},
+		{"multi-byte", "猫"},
+		{"four-byte", "🐈"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			prompt := strings.Repeat(tc.char, 5000)
+			h := newFalHarness(t, falSyncResponse, map[string]string{"api_key": "k"})
+			h.run(t, "generate", nil, map[string]string{"prompt": prompt, "model": "nanobanana2"})
+
+			_, meta := h.resultMeta(t)
+			got := meta["prompt"]
+			// The backend's own limit, counted the way the backend counts it.
+			if n := utf8.RuneCountInString(got); n != 4096 {
+				t.Errorf("recorded prompt: got %d characters, want 4096", n)
+			}
+			if !utf8.ValidString(got) {
+				t.Error("trim split a character in half")
+			}
+			if !strings.HasPrefix(prompt, got) {
+				t.Error("trim should keep the start of the prompt verbatim")
+			}
+			if h.request.payload["prompt"] != prompt {
+				t.Error("the full prompt should still be sent to the model")
+			}
+		})
 	}
 }
 
