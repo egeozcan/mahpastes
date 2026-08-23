@@ -65,6 +65,7 @@
 
   function followStatusPill(f) {
     if (f.paused) return '<span class="inline-block w-1.5 h-1.5 rounded-full bg-amber-500 mr-1.5"></span>Paused';
+    if (f.status === 'connecting') return '<span class="inline-block w-1.5 h-1.5 rounded-full bg-stone-400 mr-1.5"></span>Connecting…';
     if (f.status === 'connected') return '<span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5"></span>Connected';
     if (f.status === 'connected_relayed') return '<span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5"></span>Connected (relayed)';
     return '<span class="inline-block w-1.5 h-1.5 rounded-full bg-stone-400 mr-1.5"></span>Offline · will resume';

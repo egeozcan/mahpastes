@@ -2,6 +2,7 @@ package app
 
 import (
 	"archive/zip"
+	"context"
 	"database/sql"
 	"io"
 	"os"
@@ -19,12 +20,27 @@ import (
 // connections and the in-memory state (or temp-file locking) becomes unreliable.
 func newBackupTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	dbPath := filepath.Join(t.TempDir(), "test.db")
-	db, err := sql.Open("sqlite", dbPath)
+	db := openBackupTestDB(t, filepath.Join(t.TempDir(), "test.db"))
+	db.SetMaxOpenConns(1)
+	return db
+}
+
+// openBackupTestDB opens dsn and creates the backup-relevant schema. Callers
+// that need concurrency (a writer running against a reader's open snapshot)
+// use this directly so they can supply WAL pragmas and leave the pool alone.
+func openBackupTestDB(t *testing.T, dsn string) *sql.DB {
+	t.Helper()
+	return openBackupTestDBWithDriver(t, "sqlite", dsn)
+}
+
+// openBackupTestDBWithDriver is openBackupTestDB over a named driver, for the
+// tests that need commits to run through an instrumented one.
+func openBackupTestDBWithDriver(t *testing.T, driverName, dsn string) *sql.DB {
+	t.Helper()
+	db, err := sql.Open(driverName, dsn)
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	db.SetMaxOpenConns(1)
 	t.Cleanup(func() { _ = db.Close() })
 
 	stmts := []string{
@@ -39,6 +55,9 @@ func newBackupTestDB(t *testing.T) *sql.DB {
 		`CREATE TABLE shares (id INTEGER PRIMARY KEY, tag_id INTEGER, symkey BLOB, share_id BLOB UNIQUE, last_seq INTEGER, clips_sent INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'active', created_at INTEGER)`,
 		`CREATE TABLE follows (id INTEGER PRIMARY KEY, remote_peer_id TEXT, symkey BLOB, local_tag_id INTEGER, last_seq INTEGER DEFAULT 0, clips_received INTEGER NOT NULL DEFAULT 0, last_seen_at INTEGER, created_at INTEGER)`,
 		`CREATE TABLE share_ring (id INTEGER PRIMARY KEY, publication_id INTEGER, seq INTEGER, kind TEXT, envelope_bytes BLOB, ts INTEGER, FOREIGN KEY(publication_id) REFERENCES shares(id) ON DELETE CASCADE)`,
+		// Mirrors production: without this index a test asserting "no UNIQUE
+		// conflict on the next seq" would pass even with the fix reverted.
+		`CREATE UNIQUE INDEX idx_share_ring_pub_seq ON share_ring(publication_id, seq)`,
 	}
 	for _, s := range stmts {
 		if _, err := db.Exec(s); err != nil {
@@ -370,5 +389,219 @@ func TestRestoreBackupUnknownPolicyErrors(t *testing.T) {
 	}
 	if count != 1 {
 		t.Errorf("sentinel clip missing after rejected restore (count=%d)", count)
+	}
+}
+
+// seedSkewedShare inserts a tag, one active share with last_seq=lastSeq, and
+// share_ring rows for seqs ringSeqs. Passing ring seqs above lastSeq reproduces
+// the cross-table skew a non-snapshot export used to bake into a backup.
+func seedSkewedShare(t *testing.T, db *sql.DB, tagName string, lastSeq int64, ringSeqs ...int64) int64 {
+	t.Helper()
+	res, err := db.Exec(`INSERT INTO tags (name, color) VALUES (?, '#445566')`, tagName)
+	if err != nil {
+		t.Fatalf("insert tag: %v", err)
+	}
+	tagID, _ := res.LastInsertId()
+
+	res, err = db.Exec(
+		`INSERT INTO shares (tag_id, symkey, share_id, last_seq, clips_sent, status, created_at) VALUES (?,?,?,?,0,'active',3000000)`,
+		tagID, []byte("skewkey32bytesXXXXXXXXXXXXXXXXXX"), []byte("skewshare16X"+tagName), lastSeq,
+	)
+	if err != nil {
+		t.Fatalf("insert share: %v", err)
+	}
+	pubID, _ := res.LastInsertId()
+
+	for _, seq := range ringSeqs {
+		if _, err := db.Exec(
+			`INSERT INTO share_ring (publication_id, seq, kind, envelope_bytes, ts) VALUES (?,?,'clip_chunk',?,3000001)`,
+			pubID, seq, []byte("env"),
+		); err != nil {
+			t.Fatalf("insert share_ring seq %d: %v", seq, err)
+		}
+	}
+	return pubID
+}
+
+// TestNormalizeShareSeqsLiftsLastSeqAboveRing covers the repair itself: a
+// publication whose ring outran its recorded last_seq must come out with
+// last_seq at the ring's maximum, so the next emission's seq is free.
+func TestNormalizeShareSeqsLiftsLastSeqAboveRing(t *testing.T) {
+	db := newBackupTestDB(t)
+	pubID := seedSkewedShare(t, db, "skewed-tag", 50, 51, 52, 53)
+
+	// Sanity: the index that makes seq reuse fatal is actually present, so the
+	// "seq 54 inserts cleanly" assertion below is not vacuous.
+	if _, err := db.Exec(
+		`INSERT INTO share_ring (publication_id, seq, kind, envelope_bytes, ts) VALUES (?,53,'clip_chunk',?,3000002)`,
+		pubID, []byte("dup"),
+	); err == nil {
+		t.Fatal("expected UNIQUE(publication_id, seq) conflict re-inserting seq 53, got none")
+	}
+
+	if err := normalizeShareSeqs(db); err != nil {
+		t.Fatalf("normalizeShareSeqs: %v", err)
+	}
+
+	var lastSeq int64
+	if err := db.QueryRow(`SELECT last_seq FROM shares WHERE id = ?`, pubID).Scan(&lastSeq); err != nil {
+		t.Fatalf("read last_seq: %v", err)
+	}
+	if lastSeq != 53 {
+		t.Fatalf("last_seq after normalize = %d, want 53", lastSeq)
+	}
+
+	// The next emission allocates last_seq+1; it must not collide with the ring.
+	if _, err := db.Exec(
+		`INSERT INTO share_ring (publication_id, seq, kind, envelope_bytes, ts) VALUES (?,?,'clip_start',?,3000003)`,
+		pubID, lastSeq+1, []byte("next"),
+	); err != nil {
+		t.Fatalf("insert at seq %d after normalize: %v", lastSeq+1, err)
+	}
+}
+
+// TestNormalizeShareSeqsLeavesConsistentRowsAlone verifies the repair never
+// lowers last_seq: a publication ahead of its ring (the normal state after ring
+// eviction) must be untouched, and one with an empty ring must keep its value.
+func TestNormalizeShareSeqsLeavesConsistentRowsAlone(t *testing.T) {
+	db := newBackupTestDB(t)
+	aheadID := seedSkewedShare(t, db, "evicted-tag", 90, 88, 89)
+	emptyID := seedSkewedShare(t, db, "empty-ring-tag", 7)
+
+	if err := normalizeShareSeqs(db); err != nil {
+		t.Fatalf("normalizeShareSeqs: %v", err)
+	}
+
+	for _, tc := range []struct {
+		name string
+		id   int64
+		want int64
+	}{
+		{"ring behind last_seq", aheadID, 90},
+		{"empty ring", emptyID, 7},
+	} {
+		var got int64
+		if err := db.QueryRow(`SELECT last_seq FROM shares WHERE id = ?`, tc.id).Scan(&got); err != nil {
+			t.Fatalf("%s: read last_seq: %v", tc.name, err)
+		}
+		if got != tc.want {
+			t.Errorf("%s: last_seq = %d, want %d", tc.name, got, tc.want)
+		}
+	}
+}
+
+// TestExportTableToSQLUsesTxSnapshot proves the export's snapshot guarantee
+// without goroutines: it interleaves a committed write between two table reads
+// on the same transaction and asserts the second read does not see it.
+//
+// The DSN mirrors initDB's pragmas — WAL is what lets the writer commit while
+// the reader's snapshot is open — and the pool is left at its default so the
+// writer gets its own connection.
+func TestExportTableToSQLUsesTxSnapshot(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "snapshot.db")
+	dsn := dbPath + "?_pragma=busy_timeout%3D5000&_pragma=journal_mode%3Dwal&_pragma=foreign_keys%3Don"
+	db := openBackupTestDB(t, dsn)
+
+	pubID := seedSkewedShare(t, db, "snap-tag", 50, 50)
+
+	tx, err := db.BeginTx(context.Background(), &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		t.Fatalf("begin read tx: %v", err)
+	}
+	defer tx.Rollback()
+
+	// First read pins the snapshot (BEGIN alone does not).
+	var sharesOut strings.Builder
+	if _, err := exportTableToSQL(tx, "shares", &sharesOut, nil); err != nil {
+		t.Fatalf("export shares: %v", err)
+	}
+	if !strings.Contains(sharesOut.String(), "INSERT INTO shares") {
+		t.Fatalf("shares export produced no rows:\n%s", sharesOut.String())
+	}
+
+	// Mimic an emission committing mid-export: a ring row plus the matching
+	// last_seq bump, on a different connection.
+	wtx, err := db.Begin()
+	if err != nil {
+		t.Fatalf("begin write tx: %v", err)
+	}
+	if _, err := wtx.Exec(
+		`INSERT INTO share_ring (publication_id, seq, kind, envelope_bytes, ts) VALUES (?,51,'clip_start',?,3000004)`,
+		pubID, []byte("mid-export"),
+	); err != nil {
+		t.Fatalf("insert ring row mid-export: %v", err)
+	}
+	if _, err := wtx.Exec(`UPDATE shares SET last_seq = 51 WHERE id = ?`, pubID); err != nil {
+		t.Fatalf("bump last_seq mid-export: %v", err)
+	}
+	if err := wtx.Commit(); err != nil {
+		t.Fatalf("commit write tx: %v", err)
+	}
+
+	// The write is durable outside the snapshot...
+	var live int64
+	if err := db.QueryRow(`SELECT last_seq FROM shares WHERE id = ?`, pubID).Scan(&live); err != nil {
+		t.Fatalf("read live last_seq: %v", err)
+	}
+	if live != 51 {
+		t.Fatalf("live last_seq = %d, want 51 (write did not commit)", live)
+	}
+
+	// ...and invisible inside it, so the exported ring cannot outrun the
+	// exported shares row.
+	var ringOut strings.Builder
+	count, err := exportTableToSQL(tx, "share_ring", &ringOut, nil)
+	if err != nil {
+		t.Fatalf("export share_ring: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("share_ring export row count = %d, want 1 (snapshot leaked the concurrent write)\n%s", count, ringOut.String())
+	}
+	if strings.Contains(ringOut.String(), "mid-export") {
+		t.Errorf("share_ring export contains the concurrently-inserted row:\n%s", ringOut.String())
+	}
+}
+
+// TestRestoreNormalizesSkewedShareSeqs is the end-to-end guard: a backup taken
+// from an already-skewed database (which is what old, non-snapshot exports
+// produced) must restore into a database where the invariant holds.
+func TestRestoreNormalizesSkewedShareSeqs(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("MAHPASTES_DATA_DIR", dataDir)
+
+	if err := os.MkdirAll(filepath.Join(dataDir, "plugins"), 0755); err != nil {
+		t.Fatalf("mkdir plugins: %v", err)
+	}
+
+	srcDB := newBackupTestDB(t)
+	seedSkewedShare(t, srcDB, "skewed-pub", 50, 51, 52, 53)
+
+	srcApp := &App{db: srcDB}
+	backupZip := filepath.Join(t.TempDir(), "skewed.zip")
+	if err := srcApp.CreateBackup(backupZip); err != nil {
+		t.Fatalf("CreateBackup: %v", err)
+	}
+
+	dstDB := newBackupTestDB(t)
+	dstApp := &App{db: dstDB}
+	if err := dstApp.RestoreBackup(backupZip, "takeover"); err != nil {
+		t.Fatalf("RestoreBackup(takeover): %v", err)
+	}
+
+	var lastSeq, maxRing int64
+	if err := dstDB.QueryRow(`SELECT last_seq FROM shares LIMIT 1`).Scan(&lastSeq); err != nil {
+		t.Fatalf("read restored last_seq: %v", err)
+	}
+	if err := dstDB.QueryRow(`SELECT COALESCE(MAX(seq), 0) FROM share_ring`).Scan(&maxRing); err != nil {
+		t.Fatalf("read restored max ring seq: %v", err)
+	}
+	if maxRing != 53 {
+		t.Fatalf("restored max ring seq = %d, want 53 (ring rows were not restored)", maxRing)
+	}
+	if lastSeq < maxRing {
+		t.Fatalf("restored last_seq = %d, below max ring seq %d: invariant still violated", lastSeq, maxRing)
+	}
+	if lastSeq != 53 {
+		t.Errorf("restored last_seq = %d, want 53", lastSeq)
 	}
 }

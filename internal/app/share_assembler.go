@@ -4,15 +4,31 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash"
 	"io"
 	"os"
-	"path/filepath"
 
 	"go-clipboard/internal/cliptype"
 )
+
+// errClipPoisoned marks a clip whose bytes are terminally wrong: the assembled
+// SHA-256 does not match the one the publisher sealed into clip_end. Replaying
+// it would fail identically every time, so the caller steps its resume point
+// past the clip instead of asking for it again forever.
+var errClipPoisoned = errors.New("clip failed integrity check")
+
+// followCursor names the follows row whose durable resume point must move in
+// the same transaction as the clip insert. clip_end is a clip boundary, and
+// committing "clip stored" together with "resume point past that clip" is what
+// keeps a crash between the two from duplicating an already-delivered clip.
+type followCursor struct {
+	followID int64
+	seq      uint64
+}
 
 // clipAssembler buffers one in-flight clip (across clip_start / clip_chunk /
 // clip_end) to a staging file, then atomically inserts the finished clip
@@ -21,6 +37,7 @@ import (
 // never leaks bytes.
 type clipAssembler struct {
 	stagingDir string
+	followID   int64
 
 	active    bool
 	clipID    uint64
@@ -36,9 +53,13 @@ type clipAssembler struct {
 	hasher       hash.Hash
 }
 
-func newClipAssembler(stagingDir string) *clipAssembler {
+// newClipAssembler binds an assembler to one follow. followID is part of every
+// staging filename because the staging directory is shared by every follow, and
+// the clip IDs written into those names come from the remote publisher — two
+// follows almost certainly both see a clip 1.
+func newClipAssembler(stagingDir string, followID int64) *clipAssembler {
 	_ = os.MkdirAll(stagingDir, 0o755)
-	return &clipAssembler{stagingDir: stagingDir}
+	return &clipAssembler{stagingDir: stagingDir, followID: followID}
 }
 
 func (a *clipAssembler) onStart(p ClipStartPayload) {
@@ -52,12 +73,18 @@ func (a *clipAssembler) onStart(p ClipStartPayload) {
 	a.totalSize = p.TotalSize
 	a.chunks = p.ChunkCount
 
-	a.filePath = filepath.Join(a.stagingDir, fmt.Sprintf("%d.bin", p.ClipID))
-	f, err := os.Create(a.filePath)
+	// Staging names must be unique per in-flight clip, not per remote clip ID:
+	// share-staging/ is flat and shared by all follows, so two follows staging
+	// their own clip 1 under one name would truncate, interleave and unlink
+	// each other's bytes — silently, since the integrity check hashes the wire
+	// data rather than the file. The follow ID scopes the name and CreateTemp's
+	// random suffix keeps even repeat visits to the same clip disjoint.
+	f, err := os.CreateTemp(a.stagingDir, fmt.Sprintf("f%d-c%d-*.bin", a.followID, p.ClipID))
 	if err != nil {
 		a.active = false
 		return
 	}
+	a.filePath = f.Name()
 	a.file = f
 	a.hasher = sha256.New()
 	a.writtenBytes = 0
@@ -79,7 +106,14 @@ func (a *clipAssembler) onChunk(p ClipChunkPayload) {
 // writes the assembled bytes to the clips table, and tags the new clip
 // with localTagID. Returns the new clip's ID on success so the caller
 // can fetch a preview and notify the frontend.
-func (a *clipAssembler) onEnd(p ClipEndPayload, db *sql.DB, localTagID int64) (int64, error) {
+//
+// When cur is non-nil the same transaction also advances that follow's
+// durable resume point past the clip and counts the delivery, so the clip
+// and the cursor that says "already received" can never disagree. A
+// SHA-256 mismatch returns an error wrapping errClipPoisoned; every other
+// error is a local I/O or database failure, where the clip is still worth
+// retrying.
+func (a *clipAssembler) onEnd(p ClipEndPayload, db *sql.DB, localTagID int64, cur *followCursor) (int64, error) {
 	defer a.cleanup()
 	if !a.active || p.ClipID != a.clipID || a.file == nil {
 		return 0, fmt.Errorf("clip_end without active clip_start")
@@ -92,7 +126,7 @@ func (a *clipAssembler) onEnd(p ClipEndPayload, db *sql.DB, localTagID int64) (i
 	}
 	got := a.hasher.Sum(nil)
 	if !bytes.Equal(got, p.SHA256) {
-		return 0, fmt.Errorf("sha256 mismatch: got %x want %x", got, p.SHA256)
+		return 0, fmt.Errorf("%w: sha256 got %x want %x", errClipPoisoned, got, p.SHA256)
 	}
 	body, err := io.ReadAll(a.file)
 	if err != nil {
@@ -106,9 +140,14 @@ func (a *clipAssembler) onEnd(p ClipEndPayload, db *sql.DB, localTagID int64) (i
 	}
 	defer tx.Rollback()
 	contentType := cliptype.PromoteMarkdown(a.filename, a.cType)
+	// Same value computeContentHash would produce for these bytes (lowercase
+	// hex of the SHA-256), so received clips participate in dedup exactly like
+	// uploaded ones. The verified running hash is already that digest — the
+	// envelope check above hashes the same body bytes — so no second pass.
+	contentHash := hex.EncodeToString(got)
 	res, err := tx.Exec(
-		`INSERT INTO clips (content_type, data, filename, metadata) VALUES (?, ?, ?, ?)`,
-		contentType, body, a.filename, string(metaJSON),
+		`INSERT INTO clips (content_type, data, filename, metadata, content_hash) VALUES (?, ?, ?, ?, ?)`,
+		contentType, body, a.filename, string(metaJSON), contentHash,
 	)
 	if err != nil {
 		return 0, err
@@ -116,6 +155,14 @@ func (a *clipAssembler) onEnd(p ClipEndPayload, db *sql.DB, localTagID int64) (i
 	newClipID, _ := res.LastInsertId()
 	if _, err := tx.Exec(`INSERT INTO clip_tags (clip_id, tag_id) VALUES (?, ?)`, newClipID, localTagID); err != nil {
 		return 0, err
+	}
+	if cur != nil {
+		if _, err := tx.Exec(
+			`UPDATE follows SET last_seq = ?, clips_received = clips_received + 1 WHERE id = ?`,
+			int64(cur.seq), cur.followID,
+		); err != nil {
+			return 0, err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return 0, err

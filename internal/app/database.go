@@ -383,6 +383,20 @@ type sqlExecer interface {
 	Exec(query string, args ...interface{}) (sql.Result, error)
 }
 
+// sqlHandle is the read/write subset shared by *sql.DB and *sql.Tx, so helpers
+// can run either standalone or inside a caller's transaction.
+type sqlHandle interface {
+	sqlExecer
+	QueryRow(query string, args ...interface{}) *sql.Row
+}
+
+// sqlQueryer is the multi-row read subset shared by *sql.DB and *sql.Tx, so a
+// helper can be pointed at a caller's transaction to read from that
+// transaction's snapshot instead of whatever the pool hands it.
+type sqlQueryer interface {
+	Query(query string, args ...interface{}) (*sql.Rows, error)
+}
+
 func promoteMarkdownClipTypes(db sqlExecer) error {
 	_, err := db.Exec(`
 		UPDATE clips

@@ -41,7 +41,7 @@ func newTestDB(t *testing.T) *sql.DB {
 	// handler, emitter, consumer all hitting the same DB).
 	db.SetMaxOpenConns(1)
 	schema := `CREATE TABLE tags (id INTEGER PRIMARY KEY, name TEXT UNIQUE, color TEXT DEFAULT '#888');
-CREATE TABLE clips (id INTEGER PRIMARY KEY, content_type TEXT, data BLOB, filename TEXT, metadata TEXT DEFAULT '{}');
+CREATE TABLE clips (id INTEGER PRIMARY KEY, content_type TEXT, data BLOB, filename TEXT, metadata TEXT DEFAULT '{}', content_hash TEXT DEFAULT '');
 CREATE TABLE clip_tags (clip_id INTEGER, tag_id INTEGER, PRIMARY KEY(clip_id,tag_id));
 CREATE TABLE shares (id INTEGER PRIMARY KEY, tag_id INTEGER NOT NULL, symkey BLOB NOT NULL, share_id BLOB NOT NULL UNIQUE, last_seq INTEGER NOT NULL DEFAULT 0, clips_sent INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'active', created_at INTEGER NOT NULL);
 CREATE UNIQUE INDEX idx_shares_tag_id ON shares(tag_id);
@@ -132,20 +132,32 @@ func TestPublisherStreamReplaysRing(t *testing.T) {
 
 	symkey := bytes.Repeat([]byte{0xAA}, 32)
 	shareID := DeriveShareID(symkey)
-	res, _ := db.Exec(`INSERT INTO shares (tag_id, symkey, share_id, last_seq, status, created_at) VALUES (1, ?, ?, 0, 'active', ?)`, symkey, shareID, time.Now().Unix())
+	res, _ := db.Exec(`INSERT INTO shares (tag_id, symkey, share_id, last_seq, status, created_at) VALUES (1, ?, ?, 3, 'active', ?)`, symkey, shareID, time.Now().Unix())
 	pubID, _ := res.LastInsertId()
 
 	m.registerPublication(pubID, 1, shareID, symkey, "active")
 
-	plain1, _ := MarshalPayload(ClipChunkPayload{Seq: 1, Kind: KindClipChunk, ClipID: 1, Index: 0, Data: []byte("hi")})
-	env1, _ := EncryptEnvelope(symkey, shareID, 1, plain1)
-	if err := RingInsert(db, pubID, 1, KindClipChunk, env1, time.Now().Unix()); err != nil {
+	// A clip_start must head the ring: catch-up drops leading orphan rows
+	// whose header was evicted, so a headless ring replays nothing.
+	plain0, _ := MarshalPayload(ClipStartPayload{
+		Seq: 1, TS: time.Now().UnixMilli(), Kind: KindClipStart, ClipID: 1,
+		Filename: "a.txt", ContentType: "text/plain", Metadata: map[string]string{},
+		TotalSize: 7, ChunkCount: 2,
+	})
+	env0, _ := EncryptEnvelope(symkey, shareID, 1, plain0)
+	if err := RingInsert(db, pubID, 1, KindClipStart, env0, time.Now().Unix()); err != nil {
 		t.Fatal(err)
 	}
 
-	plain2, _ := MarshalPayload(ClipChunkPayload{Seq: 2, Kind: KindClipChunk, ClipID: 1, Index: 1, Data: []byte("there")})
-	env2, _ := EncryptEnvelope(symkey, shareID, 2, plain2)
-	if err := RingInsert(db, pubID, 2, KindClipChunk, env2, time.Now().Unix()); err != nil {
+	plain1, _ := MarshalPayload(ClipChunkPayload{Seq: 2, Kind: KindClipChunk, ClipID: 1, Index: 0, Data: []byte("hi")})
+	env1, _ := EncryptEnvelope(symkey, shareID, 2, plain1)
+	if err := RingInsert(db, pubID, 2, KindClipChunk, env1, time.Now().Unix()); err != nil {
+		t.Fatal(err)
+	}
+
+	plain2, _ := MarshalPayload(ClipChunkPayload{Seq: 3, Kind: KindClipChunk, ClipID: 1, Index: 1, Data: []byte("there")})
+	env2, _ := EncryptEnvelope(symkey, shareID, 3, plain2)
+	if err := RingInsert(db, pubID, 3, KindClipChunk, env2, time.Now().Unix()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -159,12 +171,25 @@ func TestPublisherStreamReplaysRing(t *testing.T) {
 	s := openFollowerStream(t, follower, pubInfo, symkey, shareID, 0)
 	defer s.Close()
 
+	// since_seq=0 and the first row sits at seq 1 — contiguous, so no gap
+	// envelope is synthesized and the ring replays verbatim.
 	s.SetReadDeadline(time.Now().Add(3 * time.Second))
+	f0, err := ReadFrame(s)
+	if err != nil {
+		t.Fatalf("read0: %v", err)
+	}
+	pt0, err := DecryptEnvelope(symkey, shareID, 1, f0)
+	if err != nil {
+		t.Fatalf("decrypt0: %v", err)
+	}
+	if kind, _, _ := PeekPayloadKind(pt0); kind != KindClipStart {
+		t.Fatalf("frame 0 kind %q want %q", kind, KindClipStart)
+	}
 	f1, err := ReadFrame(s)
 	if err != nil {
 		t.Fatalf("read1: %v", err)
 	}
-	pt1, err := DecryptEnvelope(symkey, shareID, 1, f1)
+	pt1, err := DecryptEnvelope(symkey, shareID, 2, f1)
 	if err != nil || !bytes.Contains(pt1, []byte("hi")) {
 		t.Fatalf("decrypt1: %v %q", err, pt1)
 	}
@@ -172,7 +197,7 @@ func TestPublisherStreamReplaysRing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read2: %v", err)
 	}
-	pt2, err := DecryptEnvelope(symkey, shareID, 2, f2)
+	pt2, err := DecryptEnvelope(symkey, shareID, 3, f2)
 	if err != nil || !bytes.Contains(pt2, []byte("there")) {
 		t.Fatalf("decrypt2: %v %q", err, pt2)
 	}
@@ -621,7 +646,7 @@ func TestReconnectFollowCyclesThroughOffline(t *testing.T) {
 	// Capture every share:follow-updated status transition before Follow()
 	// starts the loop, so we catch the initial "connected" too.
 	statusCh := make(chan string, 32)
-	fM.eventFn = func(name string, data ...any) {
+	fM.SetEventFn(func(name string, data ...any) {
 		if name != "share:follow-updated" || len(data) == 0 {
 			return
 		}
@@ -641,7 +666,7 @@ func TestReconnectFollowCyclesThroughOffline(t *testing.T) {
 		case statusCh <- status:
 		default:
 		}
-	}
+	})
 
 	followInfo, err := fM.Follow(info.ShareString, "inbox")
 	if err != nil {
@@ -965,7 +990,7 @@ func TestResumeAllReplaysTables(t *testing.T) {
 	// Only one should be 'active' with a handler (the other is 'invalid')
 	actives := 0
 	for _, p := range m.publications {
-		if p.status == "active" {
+		if p.currentStatus() == "active" {
 			actives++
 		}
 	}
@@ -1067,8 +1092,11 @@ func TestUpdateFollowTagSwapsLocalTagID(t *testing.T) {
 	}
 	// In-memory follow updated.
 	fM.mu.RLock()
-	memTag := fM.follows[fi.ID].localTagID
+	memFollow := fM.follows[fi.ID]
 	fM.mu.RUnlock()
+	memFollow.mu.Lock()
+	memTag := memFollow.localTagID
+	memFollow.mu.Unlock()
 	if memTag != newID {
 		t.Fatalf("in-memory localTagID %d want %d", memTag, newID)
 	}
@@ -1130,11 +1158,11 @@ func TestStopShare_NoEventWhenNothingActive(t *testing.T) {
 	defer m.Stop()
 
 	var fired bool
-	m.eventFn = func(name string, data ...any) {
+	m.SetEventFn(func(name string, data ...any) {
 		if name == "share:publication-removed" {
 			fired = true
 		}
-	}
+	})
 
 	if err := m.StopShare(999); err != nil {
 		t.Fatalf("StopShare: %v", err)

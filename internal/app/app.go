@@ -67,6 +67,75 @@ type App struct {
 	// to tell the two apart without polling. Set regardless of whether plugin
 	// init succeeded, since a failed init is also a final answer.
 	pluginsReady atomic.Bool
+
+	// shareHookWG tracks the async share-publication goroutines spawned by
+	// the tagging paths so callers (tests, shutdown) can wait for a tag
+	// operation's fan-out to finish. shareHookMu guards shareHookClosed and
+	// serializes the counter's Add against Shutdown's gate close, so a hook
+	// can never be registered after the shutdown wait has started observing
+	// zero — which is both a lost publication and invalid WaitGroup use.
+	//
+	// Invariant: every production Add goes through tryAddShareHook or
+	// adoptShareHookAdmission. The second form skips the suspend check and is
+	// only legal while the caller already holds an admission of its own — see
+	// its comment for why that precondition makes the Add safe. A bare Add is
+	// only legal where no concurrent from-zero Wait can exist, i.e. the
+	// sequential tests that stage a hook before calling the waiter.
+	//
+	// The gate has two independent states. shareHookClosed is Shutdown's
+	// one-way close: once set, no hook is ever admitted again. shareHookSuspends
+	// is the reopenable form RestoreBackup uses; it counts nested suspensions
+	// and never touches shareHookClosed, so resuming after a restore cannot
+	// revive hooks on an app that is quitting.
+	shareHookWG       sync.WaitGroup
+	shareHookMu       sync.Mutex
+	shareHookClosed   bool
+	shareHookSuspends int
+
+	// backupRestoreMu is the restore-exclusion lock. RestoreBackup is the only
+	// writer; CreateBackup and the share-relevant tag mutations are readers, so
+	// they run freely alongside each other and only ever stall for a restore.
+	//
+	// The write side serializes RestoreBackup against itself. A restore is a
+	// sequence of global swaps — stop the share manager, null the pointer,
+	// replace every row, install an identity file, rebuild — and two of them
+	// interleaved corrupt each other: B walks past the teardown while A holds
+	// shareManager nil, A's deferred rebuild installs manager A, then B replaces
+	// the database and the identity underneath it and installs manager B without
+	// ever stopping A. Manager A is then live against B's database with A's keys.
+	//
+	// CreateBackup reads two stores that have to agree — the database, and
+	// share_identity.key beside it — and a restore landing between those reads
+	// pairs database A's active publications with identity B. Nothing about that
+	// ZIP looks wrong; it only fails much later, when a takeover restore installs
+	// identity B under share strings that name A's peer id and every existing
+	// share for that publication goes dead with no way back. Excluding restores
+	// is all it needs, so it reads: two concurrent backups export into separate
+	// temp dirs and cannot disturb each other, and making them writers would
+	// mean every tag mutation below stalls for the length of a full SQL export.
+	//
+	// AddTagToClip and BulkAddTag read for the whole of their operation — from
+	// tx.Begin through the decision to spawn the publication hook — so a tag
+	// mutation either finishes entirely before a restore starts or begins
+	// entirely after it ends. Without that, the REST API stays open across a
+	// restore and a tag mutation can serialize at the SQLite level yet commit
+	// just after the restore's own commit, writing clip_tags rows for a clip id
+	// that now names an unrelated restored clip. Worse, if it lands in the
+	// window where hooks are still suspended, its publication is suppressed and
+	// nothing re-scans tag associations, so followers never see that clip at
+	// all. Held across the commit and the hook decision, not just the tx,
+	// because that whole span has to see one coherent database.
+	//
+	// The read side is deliberately released before the plugin event: Lua
+	// handlers run synchronously and tags.add_to_clip re-enters AddTagToClip,
+	// which under Go's RWMutex is a recursive RLock — a deadlock the instant a
+	// restore's Lock() is queued between the two acquisitions.
+	//
+	// The desktop dialogs and the REST endpoints can both reach these
+	// operations, so concurrent calls are reachable in production, not just in
+	// tests. No reader calls the writer and the writer calls no reader, so the
+	// lock cannot self-deadlock; see the audit in RestoreBackup.
+	backupRestoreMu sync.RWMutex
 }
 
 // PluginsReady reports whether plugin loading has finished (successfully or
@@ -351,6 +420,21 @@ func (a *App) Shutdown(ctx context.Context) {
 		a.watcherManager.Stop()
 	}
 
+	// Share-publication hooks fired by AddTagToClip/BulkAddTag run in their
+	// own goroutines. Give them a bounded window to finish before the share
+	// manager and the DB go away: nothing re-scans tag associations on the
+	// next startup, so an emission skipped here never happens at all.
+	//
+	// The gate has to close before the wait. Waiting without it is a race in
+	// both directions: a tag operation that commits while Wait sees zero would
+	// run its hook against a stopping manager and a closing DB, and its
+	// registration would be a from-zero Add concurrent with a Wait, which
+	// WaitGroup does not allow.
+	a.closeShareHooks()
+	if !a.waitForShareHooks(shareHookShutdownTimeout) {
+		log.Printf("share: timed out after %s waiting for in-flight publication hooks; some newly tagged clips may not have reached followers", shareHookShutdownTimeout)
+	}
+
 	// Stop share manager
 	if a.shareManager != nil {
 		a.shareManager.Stop()
@@ -361,6 +445,195 @@ func (a *App) Shutdown(ctx context.Context) {
 	}
 	// Clean up temp files
 	a.DeleteAllTempFiles()
+}
+
+// shareHookShutdownTimeout bounds how long Shutdown blocks on in-flight
+// share-publication hooks. Long enough for a normal emission to land, short
+// enough that a stuck one still lets the app quit.
+const shareHookShutdownTimeout = 5 * time.Second
+
+// tryAddShareHook registers one about-to-be-spawned share-publication
+// goroutine and reports whether the caller may spawn it. It returns false once
+// shutdown has closed the gate or while a restore has it suspended; the caller
+// then completes normally without publishing. The matching Done belongs to the
+// goroutine that gets spawned.
+func (a *App) tryAddShareHook() bool {
+	a.shareHookMu.Lock()
+	defer a.shareHookMu.Unlock()
+	if a.shareHookClosed || a.shareHookSuspends > 0 {
+		return false
+	}
+	a.shareHookWG.Add(1)
+	return true
+}
+
+// adoptShareHookAdmission registers one more in-flight share-publication
+// goroutine on the strength of an admission the caller already holds, and
+// reports whether the caller may spawn it. Unlike tryAddShareHook it does not
+// consult the suspend counter.
+//
+// Only legal while the caller already holds an admission. Two things follow
+// from that precondition. The WaitGroup counter is provably non-zero, so this
+// can never be the from-zero Add that races a concurrent Wait. And any drain
+// running right now is already pinned by the caller's admission, so it has not
+// yet reached the point where the state these children publish against goes
+// away: they observe pre-restore rows and publish through the pre-restore
+// manager, which is still alive precisely because the restore has not passed
+// its drain. The drain simply waits for the children too.
+//
+// A suspension must not refuse here, and that is the whole reason this exists.
+// A restore suspends the gate and then blocks in its drain on the very
+// admission the caller holds; if the caller's children re-entered the gate,
+// every one of them would be refused while their rows were already committed.
+// Nothing re-scans tag associations, so a restore that then failed and rolled
+// back would leave those tags on disk with their publications never sent and
+// no later pass to notice.
+//
+// Shutdown's close is respected, so children are suppressed at shutdown exactly
+// as they are today. The transfer is what restore correctness needs; a quit is
+// best-effort by construction — waitForShareHooks gives up after
+// shareHookShutdownTimeout and the process exits regardless — so admitting more
+// work there would only risk overrunning that bound to no end.
+func (a *App) adoptShareHookAdmission() bool {
+	a.shareHookMu.Lock()
+	defer a.shareHookMu.Unlock()
+	if a.shareHookClosed {
+		return false
+	}
+	a.shareHookWG.Add(1)
+	return true
+}
+
+// closeShareHooks permanently stops new hook registrations. Hooks already past
+// the gate keep running and are drained by waitForShareHooks; publications
+// refused after this point are lost the same way a hard quit loses them.
+func (a *App) closeShareHooks() {
+	a.shareHookMu.Lock()
+	a.shareHookClosed = true
+	a.shareHookMu.Unlock()
+}
+
+// suspendShareHooks refuses new hook registrations until the matching
+// resumeShareHooks call. Suspensions nest, and none of them clears
+// shareHookClosed, so a suspend/resume pair around a restore can never reopen a
+// gate that Shutdown has closed for good.
+func (a *App) suspendShareHooks() {
+	a.shareHookMu.Lock()
+	a.shareHookSuspends++
+	a.shareHookMu.Unlock()
+}
+
+// resumeShareHooks releases one suspension. Hooks are admitted again once the
+// last suspension is released, and only if shutdown has not closed the gate in
+// the meantime.
+func (a *App) resumeShareHooks() {
+	a.shareHookMu.Lock()
+	if a.shareHookSuspends > 0 {
+		a.shareHookSuspends--
+	}
+	a.shareHookMu.Unlock()
+}
+
+// quiesceShareHooksForRestore suspends new share-publication hooks, drains the
+// ones already in flight, and returns the resume the caller must defer. It is
+// the restore-time counterpart of Shutdown's close: RestoreBackup replaces
+// every row in the database and swaps the share manager, and a hook that spans
+// that swap publishes pre-restore state — envelopes sealed with the old symkey
+// — into the restored ring, corrupting catch-up for the restored followers.
+//
+// The drain reuses Shutdown's bound: the work being waited on is the same
+// single emission, so the same "long enough to land, short enough not to hang"
+// tradeoff applies.
+//
+// Timeout carries Shutdown's caveat: a straggler that outlives the drain keeps
+// running against the stopped manager, and the resume readmits hooks while that
+// straggler is still counted. Bounded and logged rather than waited on forever,
+// because a stuck hook must not make restore unfinishable.
+func (a *App) quiesceShareHooksForRestore() func() {
+	a.suspendShareHooks()
+	if !a.waitForShareHooks(shareHookShutdownTimeout) {
+		log.Printf("share: timed out after %s draining in-flight publication hooks before restore; a straggler may still publish pre-restore state", shareHookShutdownTimeout)
+	}
+	return a.resumeShareHooks
+}
+
+// waitForShareHooks blocks until every in-flight share-publication goroutine
+// has finished, or until timeout elapses. Reports whether they all finished.
+// On the timeout path the waiter goroutine outlives this call; it holds only
+// the WaitGroup and exits once the hooks drain.
+func (a *App) waitForShareHooks(timeout time.Duration) bool {
+	done := make(chan struct{})
+	go func() {
+		a.shareHookWG.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return true
+	case <-time.After(timeout):
+		return false
+	}
+}
+
+// shareHookAdmittedHook runs inside spawnAdmittedShareHook before the share
+// manager pointer is captured — that is, with the admission already held. It is
+// nil in production; tests set it to hold a call inside that exact window and
+// prove that the admission — not the capture — is what a restore's drain waits
+// on. Stored atomically so setting it can never race a concurrent tagging call.
+var shareHookAdmittedHook atomic.Pointer[func()]
+
+// spawnAdmittedShareHook publishes one newly tagged clip to followers on its
+// own goroutine, consuming an admission the caller already holds. It is the
+// half of the publication path that runs after the gate has said yes.
+//
+// The order here is the whole point: the admission is held before a.shareManager
+// is read, and is released only when the publication is done. Reading the
+// manager without holding an admission left a window where a caller could
+// capture the pre-restore manager, stall, and be counted only after
+// RestoreBackup had drained a WaitGroup this call had not yet joined, stopped
+// that manager, replaced the database and rebuilt — at which point the hook
+// sealed envelopes with the old symkey into the restored ring.
+//
+// Callers take the admission before the transaction that decides there is
+// something to publish commits, so the window this closes now starts at the
+// commit rather than here; see AddTagToClip.
+//
+// The admission is consumed on every path. A nil manager releases it here
+// rather than leaving it in the WaitGroup, where it would stall every later
+// drain.
+func (a *App) spawnAdmittedShareHook(clipID, tagID int64, source string) {
+	if fn := shareHookAdmittedHook.Load(); fn != nil {
+		(*fn)()
+	}
+	sm := a.shareManager
+	if sm == nil {
+		a.shareHookWG.Done()
+		return
+	}
+	go func() {
+		defer a.shareHookWG.Done()
+		if err := sm.OnClipCreated(clipID, []int64{tagID}); err != nil {
+			log.Printf("share: OnClipCreated(%d) from %s: %v", clipID, source, err)
+		}
+	}()
+}
+
+// spawnShareHook takes an admission and publishes one newly tagged clip,
+// reporting whether the gate admitted it. A false means shutdown closed the
+// gate or a restore has it suspended, and the caller skips the publication.
+//
+// This is the convenience form for a caller whose publication decision is not
+// tied to a transaction commit. Both tagging paths pin the drain across their
+// own commit instead, so they take the admission themselves — with
+// tryAddShareHook for the operation, adoptShareHookAdmission for each
+// publication under it — and hand each one to spawnAdmittedShareHook. There
+// must never be two admissions for one publication.
+func (a *App) spawnShareHook(clipID, tagID int64, source string) bool {
+	if !a.tryAddShareHook() {
+		return false
+	}
+	a.spawnAdmittedShareHook(clipID, tagID, source)
+	return true
 }
 
 // shutdown is kept for the Wails lifecycle until the desktop entry moves to
@@ -2023,25 +2296,6 @@ func (a *App) RemoveEmptyTags() (int, error) {
 	return total, fmt.Errorf("remove empty tags exceeded %d passes", removeEmptyTagsMaxPasses)
 }
 
-// getTagIDsForClip returns all tag IDs currently associated with a clip.
-// Used by the share hook to determine which publications should receive
-// the new clip.
-func (a *App) getTagIDsForClip(clipID int64) ([]int64, error) {
-	rows, err := a.db.Query(`SELECT tag_id FROM clip_tags WHERE clip_id = ?`, clipID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []int64
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err == nil {
-			out = append(out, id)
-		}
-	}
-	return out, nil
-}
-
 // GetTags retrieves all tags with usage counts
 func (a *App) GetTags() ([]Tag, error) {
 	rows, err := a.db.Query(`
@@ -2074,16 +2328,108 @@ func (a *App) GetTags() ([]Tag, error) {
 
 // AddTagToClip adds a tag to a clip
 func (a *App) AddTagToClip(clipID, tagID int64) error {
+	// Exclude restores for the whole span from tx.Begin through the hook
+	// decision (see backupRestoreMu's doc): the mutation either completes
+	// entirely before a restore starts or begins entirely after it ends, so it
+	// can neither tag a restored row under a stale id nor commit into the
+	// window where hooks are suspended and its publication would be silently
+	// lost. Released before the plugin event — Lua tags.add_to_clip re-enters
+	// this function, and a recursive RLock deadlocks the moment a restore's
+	// Lock() queues between the two acquisitions.
+	a.backupRestoreMu.RLock()
+	restoreLockHeld := true
+	releaseRestoreLock := func() {
+		if restoreLockHeld {
+			restoreLockHeld = false
+			a.backupRestoreMu.RUnlock()
+		}
+	}
+	defer releaseRestoreLock()
+
+	// The exclusivity delete and the insert that replaces it are one unit: a
+	// failure between them would leave the clip stripped of its old tag and
+	// without the new one, or (when the delete failed and was ignored) holding
+	// two tags from the same tree.
+	tx, err := a.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
 	// Enforce tree exclusivity: a clip can only have one tag per root tree.
 	// Adding a/b/d removes any existing tags under the same root (a, a/b, a/b/c, etc.)
-	if err := a.removeSameTreeTags(clipID, tagID); err != nil {
-		log.Printf("Failed to enforce tree exclusivity for clip %d tag %d: %v", clipID, tagID, err)
+	if err := removeSameTreeTags(tx, clipID, tagID); err != nil {
+		return fmt.Errorf("failed to enforce tree exclusivity for clip %d tag %d: %w", clipID, tagID, err)
 	}
 
-	_, err := a.db.Exec("INSERT OR IGNORE INTO clip_tags (clip_id, tag_id) VALUES (?, ?)", clipID, tagID)
+	res, err := tx.Exec("INSERT OR IGNORE INTO clip_tags (clip_id, tag_id) VALUES (?, ?)", clipID, tagID)
 	if err != nil {
 		return fmt.Errorf("failed to add tag to clip: %w", err)
 	}
+	// OR IGNORE makes a re-add of an already-present tag a no-op, so
+	// RowsAffected distinguishes a genuine new association from a repeat.
+	// removeSameTreeTags above never deletes tagID itself, so a repeat stays
+	// a repeat here.
+	newlyTagged := false
+	if n, rerr := res.RowsAffected(); rerr == nil && n > 0 {
+		newlyTagged = true
+	}
+
+	// Take the publication admission BEFORE the commit, not after it. The
+	// admission is what a restore's drain waits on, so anything outside it is a
+	// window in which a restore can run to completion: committing first left
+	// this call free to stall between the commit and the admission, watch a
+	// full RestoreBackup drain a WaitGroup it had not joined, and then publish
+	// clipID/tagID against the rebuilt manager — where those ids name restored
+	// rows, i.e. entirely unrelated content fanned out into a restored share.
+	// Admitting first pins any restore that starts after the commit until this
+	// call's publication decision is finished.
+	//
+	// newlyTagged is already known here (RowsAffected ran inside the tx), so the
+	// admission is taken only when there is something to publish; the no-op
+	// re-add path never touches the WaitGroup at all.
+	//
+	// A refusal means shutdown closed the gate or a restore has it suspended.
+	// The tag operation still commits — user data must never fail because
+	// sharing is quiescing — and only the publication is skipped.
+	admitted := newlyTagged && a.tryAddShareHook()
+
+	// Everything below observes committed state: the plugin event announces a
+	// durable association, and the share hook re-reads the clip from the DB.
+	if err := tx.Commit(); err != nil {
+		if admitted {
+			a.shareHookWG.Done()
+		}
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	// Share hook — if the tag JUST added matches an active publication, fan the
+	// clip out to connected followers. This handles the case where a clip is
+	// tagged into a shared folder after initial upload.
+	//
+	// Only the newly-added tag is passed, never the clip's whole tag set:
+	// otherwise adding an unrelated tag to a clip that already carries a shared
+	// tag would re-match that publication and re-publish the entire clip, which
+	// followers ingest as a brand-new clip they cannot dedup.
+	//
+	// This runs before the plugin event, and the ordering is load-bearing now
+	// that the admission spans the commit: EmitEvent runs Lua handlers
+	// synchronously and can take arbitrarily long, and an admission held across
+	// one could outlast a restore's bounded drain — which is exactly the
+	// corruption above, re-entered through the timeout path. The publication
+	// goroutine already ran concurrently with the handlers, so nothing that
+	// observed the old order can tell the difference.
+	//
+	// spawnAdmittedShareHook consumes the admission on every path it takes.
+	if admitted {
+		a.spawnAdmittedShareHook(clipID, tagID, "AddTagToClip")
+	} else if newlyTagged {
+		log.Printf("share: publication hooks closed or suspended (shutdown/restore); suppressed hook for clip %d under tag %d (AddTagToClip)", clipID, tagID)
+	}
+
+	// The coherent span ends here: the tx committed and the hook decision is
+	// made. Release before the plugin event (re-entrancy — see the RLock above).
+	releaseRestoreLock()
 
 	// Emit plugin event
 	if a.pluginManager != nil {
@@ -2091,18 +2437,6 @@ func (a *App) AddTagToClip(clipID, tagID int64) error {
 			"tag_id":  tagID,
 			"clip_id": clipID,
 		})
-	}
-
-	// Share hook — if this tag matches an active publication, fan the clip out
-	// to connected followers. This handles the case where a clip is tagged into
-	// a shared folder after initial upload.
-	if a.shareManager != nil {
-		go func(cid int64) {
-			tagIDs, _ := a.getTagIDsForClip(cid)
-			if err := a.shareManager.OnClipCreated(cid, tagIDs); err != nil {
-				log.Printf("share: OnClipCreated(%d) from AddTagToClip: %v", cid, err)
-			}
-		}(clipID)
 	}
 
 	return nil
@@ -2130,44 +2464,33 @@ func (a *App) RemoveTagFromClip(clipID, tagID int64) error {
 
 // removeSameTreeTags removes any existing tags from the same root tree for a clip.
 // This enforces the constraint that a clip can only occupy one position in a tag tree.
-func (a *App) removeSameTreeTags(clipID, newTagID int64) error {
+//
+// It takes a handle rather than reading a.db directly so callers can run it in
+// the same transaction as the insert that replaces the removed tags — otherwise
+// a failure between the two strips a clip of its old tag without giving it the
+// new one. A single DELETE also keeps it to one statement, which is what a
+// *sql.Tx (one connection) can safely execute at a time.
+func removeSameTreeTags(h sqlHandle, clipID, newTagID int64) error {
 	// Look up the new tag's name to find its root
 	var newTagName string
-	if err := a.db.QueryRow("SELECT name FROM tags WHERE id = ?", newTagID).Scan(&newTagName); err != nil {
+	if err := h.QueryRow("SELECT name FROM tags WHERE id = ?", newTagID).Scan(&newTagName); err != nil {
 		return err
 	}
 	root := getRootTagName(newTagName)
 
-	// Find all tags on this clip that share the same root tree.
+	// Drop every tag on this clip under the same root tree, except the tag
+	// being added — leaving that one alone is what keeps a repeat add a no-op.
 	// Escape SQL LIKE wildcards in the root name so _ and % are treated literally.
 	escapedRoot := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(root)
-	rows, err := a.db.Query(`
-		SELECT t.id FROM clip_tags ct
-		INNER JOIN tags t ON ct.tag_id = t.id
-		WHERE ct.clip_id = ? AND (t.name = ? OR t.name LIKE ? ESCAPE '\')`,
-		clipID, root, escapedRoot+"/%")
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-
-	var toRemove []int64
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			continue
-		}
-		if id != newTagID {
-			toRemove = append(toRemove, id)
-		}
-	}
-
-	for _, oldTagID := range toRemove {
-		if _, err := a.db.Exec("DELETE FROM clip_tags WHERE clip_id = ? AND tag_id = ?", clipID, oldTagID); err != nil {
-			log.Printf("Failed to remove old tree tag %d from clip %d: %v", oldTagID, clipID, err)
-		}
-	}
-	return nil
+	_, err := h.Exec(`
+		DELETE FROM clip_tags
+		WHERE clip_id = ?
+		  AND tag_id != ?
+		  AND tag_id IN (
+		    SELECT id FROM tags WHERE name = ? OR name LIKE ? ESCAPE '\'
+		  )`,
+		clipID, newTagID, root, escapedRoot+"/%")
+	return err
 }
 
 // deleteTagIfOrphaned deletes a tag if it has no associated clips.
@@ -2352,6 +2675,19 @@ func (a *App) BulkAddTag(clipIDs []int64, tagID int64) error {
 		return nil
 	}
 
+	// Exclude restores for the whole span from tx.Begin through the per-clip
+	// hook decisions, exactly as AddTagToClip does (see backupRestoreMu's doc).
+	// Released before the plugin events for the same re-entrancy reason.
+	a.backupRestoreMu.RLock()
+	restoreLockHeld := true
+	releaseRestoreLock := func() {
+		if restoreLockHeld {
+			restoreLockHeld = false
+			a.backupRestoreMu.RUnlock()
+		}
+	}
+	defer releaseRestoreLock()
+
 	tx, err := a.db.Begin()
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
@@ -2364,22 +2700,98 @@ func (a *App) BulkAddTag(clipIDs []int64, tagID int64) error {
 	}
 	defer stmt.Close()
 
-	// Enforce tree exclusivity before bulk insert
+	// Enforce tree exclusivity before bulk insert. These run in tx with the
+	// inserts so a later failure rolls the removals back too — otherwise an
+	// aborted bulk tag leaves the earlier clips stripped of their old tags.
 	for _, clipID := range clipIDs {
-		if err := a.removeSameTreeTags(clipID, tagID); err != nil {
-			log.Printf("Failed to enforce tree exclusivity for clip %d tag %d: %v", clipID, tagID, err)
+		if err := removeSameTreeTags(tx, clipID, tagID); err != nil {
+			return fmt.Errorf("failed to enforce tree exclusivity for clip %d tag %d: %w", clipID, tagID, err)
 		}
 	}
 
+	// Track which clips genuinely gained the tag. OR IGNORE turns a re-add
+	// into a no-op, so RowsAffected == 0 means the clip already had it and
+	// must not be re-published to followers.
+	var newlyTagged []int64
 	for _, clipID := range clipIDs {
-		if _, err := stmt.Exec(clipID, tagID); err != nil {
+		res, err := stmt.Exec(clipID, tagID)
+		if err != nil {
 			return fmt.Errorf("failed to add tag to clip %d: %w", clipID, err)
 		}
+		if n, rerr := res.RowsAffected(); rerr == nil && n > 0 {
+			newlyTagged = append(newlyTagged, clipID)
+		}
 	}
 
+	// One operation-level admission taken before the commit, for the same
+	// reason AddTagToClip takes its own there: it is what pins a restore that
+	// starts after this commit until the per-clip hooks below are registered.
+	// Without it the whole batch could commit, stall, and be published against
+	// a rebuilt manager under ids that now name restored rows.
+	//
+	// The per-clip spawns still take their own admissions — this one only
+	// covers the gap between the commit and those registrations, and is
+	// released once the loop has handed every clip over. Taken only when the
+	// batch actually has something to publish.
+	//
+	// A refusal means the gate is closed or suspended, which the per-clip
+	// spawns would hit too, so the whole batch's publication is skipped. The
+	// tag operation itself still commits.
+	opAdmitted := len(newlyTagged) > 0 && a.tryAddShareHook()
+
 	if err := tx.Commit(); err != nil {
+		if opAdmitted {
+			a.shareHookWG.Done()
+		}
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
+
+	// Share hook — mirror AddTagToClip so bulk-tag and folder-drag paths
+	// (which both route through here) fan the clips out to any connected
+	// followers whose publication tag matches. Only clips that actually
+	// gained the tag publish, and only under that one tag, so re-tagging a
+	// clip that already sits in the shared folder is not a re-publish.
+	//
+	// Each clip takes its own admission before spawnAdmittedShareHook captures
+	// a.shareManager — the ordering RestoreBackup's drain relies on. The
+	// manager is read per clip rather than once before the loop, so a restore
+	// that swaps it mid-batch cannot leave later clips pointed at a stopped
+	// manager.
+	//
+	// Those per-clip admissions are ADOPTED from the operation admission rather
+	// than taken through the gate again. Re-entering it here was a deadlock's
+	// worth of lost publications: a restore that suspended the gate after the
+	// commit above is, by then, blocked in its drain waiting on this very
+	// operation admission, so the gate it is waiting behind would refuse every
+	// clip in the batch. The rows are already committed and nothing re-scans
+	// tag associations, so if that restore went on to fail and roll back, the
+	// tags would survive with their publications never sent. See
+	// adoptShareHookAdmission for why transferring is safe.
+	//
+	// Runs before the plugin events for the reason AddTagToClip documents: the
+	// operation admission must not be held across synchronous Lua handlers.
+	suppressed := len(newlyTagged)
+	if opAdmitted {
+		suppressed = 0
+		for _, clipID := range newlyTagged {
+			if !a.adoptShareHookAdmission() {
+				// Only Shutdown's close refuses an adoption, and it never
+				// reopens, so every remaining clip in the batch is refused
+				// too; count them and log once.
+				suppressed++
+				continue
+			}
+			a.spawnAdmittedShareHook(clipID, tagID, "BulkAddTag")
+		}
+		a.shareHookWG.Done()
+	}
+	if suppressed > 0 {
+		log.Printf("share: publication hooks closed or suspended (shutdown/restore); suppressed %d hook(s) under tag %d (BulkAddTag)", suppressed, tagID)
+	}
+
+	// The coherent span ends here: the tx committed and every per-clip hook is
+	// registered. Release before the plugin events (re-entrancy — see above).
+	releaseRestoreLock()
 
 	// Emit plugin events for each clip
 	if a.pluginManager != nil {
@@ -2388,20 +2800,6 @@ func (a *App) BulkAddTag(clipIDs []int64, tagID int64) error {
 				"tag_id":  tagID,
 				"clip_id": clipID,
 			})
-		}
-	}
-
-	// Share hook — mirror AddTagToClip so bulk-tag and folder-drag paths
-	// (which both route through here) fan the clips out to any connected
-	// followers whose publication tag matches.
-	if a.shareManager != nil {
-		for _, clipID := range clipIDs {
-			go func(cid int64) {
-				tagIDs, _ := a.getTagIDsForClip(cid)
-				if err := a.shareManager.OnClipCreated(cid, tagIDs); err != nil {
-					log.Printf("share: OnClipCreated(%d) from BulkAddTag: %v", cid, err)
-				}
-			}(clipID)
 		}
 	}
 

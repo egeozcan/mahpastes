@@ -12,6 +12,14 @@ type RingRow struct {
 	EnvelopeBytes []byte
 }
 
+// RingRowMeta is one ring row minus its envelope blob — everything the
+// catch-up planner reads, and nothing it does not.
+type RingRowMeta struct {
+	Seq     uint64
+	Kind    string
+	ByteLen int64
+}
+
 // RingInsert appends an envelope to the ring for publicationID.
 func RingInsert(db *sql.DB, publicationID int64, seq uint64, kind string, envelopeBytes []byte, tsUnix int64) error {
 	_, err := db.Exec(
@@ -24,20 +32,90 @@ func RingInsert(db *sql.DB, publicationID int64, seq uint64, kind string, envelo
 	return nil
 }
 
-// RingRetransmit returns rows with seq > sinceSeq that are within the 1h TTL
-// relative to nowUnix, ordered by seq. Used on handshake catch-up.
-func RingRetransmit(db *sql.DB, publicationID int64, sinceSeq uint64, nowUnix int64) ([]RingRow, error) {
+// RingRetransmitMeta returns the metadata of every row with seq > sinceSeq
+// still within the 1h TTL relative to nowUnix, ordered by seq. This is the
+// first half of handshake catch-up: plan the batch from metadata, then fetch
+// only the chosen batch's blobs with RingFetchRange.
+//
+// Splitting it this way is what bounds catch-up memory. The ring holds up to
+// RingBytesCapPerPub (256 MiB) per publication, so loading every surviving
+// envelope — as a single SELECT of envelope_bytes did — cost up to 256 MiB per
+// in-flight handshake. pub.fmu serialises handshakes within one publication
+// but not across them, so N publications reconnecting at once could allocate
+// N × 256 MiB from authorized traffic alone.
+//
+// The new peak is one metadata slice plus one batch of blobs per concurrent
+// handshake: metadata is ~40 B per row (a full ring of chunked clips is a few
+// hundred rows; one of tiny clips a few thousand), and the batch is bounded by
+// CatchupHardBytesCap (~32 MiB) and CatchupHardEnvelopesCap. So N concurrent
+// handshakes now peak at roughly N × 32 MiB rather than N × 256 MiB.
+//
+// LENGTH() on a bare BLOB column is answered from the record header, so this
+// query does not read the blobs it measures.
+// rowCap bounds how many metadata rows one call may materialize: the 256 MiB
+// ring cap bounds envelope BYTES, not row count, so a ring of minimal clips
+// can hold millions of rows and even 40-byte metadata structs would add up to
+// hundreds of MiB per handshake. The query fetches rowCap+1 so the caller
+// learns (via the truncated return) that more survivors exist beyond the
+// window; the planner then marks the batch truncated and the follower pages
+// through the backlog across drain-close/reconnect cycles, exactly as it
+// already does for byte-truncated batches.
+func RingRetransmitMeta(db *sql.DB, publicationID int64, sinceSeq uint64, nowUnix int64, rowCap int) ([]RingRowMeta, bool, error) {
+	cutoff := nowUnix - RingTTLSeconds
+	rows, err := db.Query(
+		`SELECT seq, kind, LENGTH(envelope_bytes) FROM share_ring
+          WHERE publication_id = ?
+            AND seq > ?
+            AND ts >= ?
+          ORDER BY seq
+          LIMIT ?`,
+		publicationID, int64(sinceSeq), cutoff, rowCap+1,
+	)
+	if err != nil {
+		return nil, false, fmt.Errorf("ring retransmit meta query: %w", err)
+	}
+	defer rows.Close()
+	var out []RingRowMeta
+	for rows.Next() {
+		var r RingRowMeta
+		var seqI int64
+		if err := rows.Scan(&seqI, &r.Kind, &r.ByteLen); err != nil {
+			return nil, false, err
+		}
+		r.Seq = uint64(seqI)
+		out = append(out, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, false, err
+	}
+	truncated := len(out) > rowCap
+	if truncated {
+		out = out[:rowCap]
+	}
+	return out, truncated, nil
+}
+
+// RingFetchRange returns the full rows for the inclusive seq span
+// startSeq..endSeq that are still within the 1h TTL relative to nowUnix,
+// ordered by seq. The caller passes the same nowUnix it gave
+// RingRetransmitMeta, so both halves of a catch-up see one TTL cutoff and a
+// row cannot age out between them.
+//
+// The span is the planned batch, so what this loads is bounded by the
+// catch-up caps rather than by the ring.
+func RingFetchRange(db *sql.DB, publicationID int64, startSeq, endSeq uint64, nowUnix int64) ([]RingRow, error) {
 	cutoff := nowUnix - RingTTLSeconds
 	rows, err := db.Query(
 		`SELECT seq, kind, envelope_bytes FROM share_ring
           WHERE publication_id = ?
-            AND seq > ?
+            AND seq >= ?
+            AND seq <= ?
             AND ts >= ?
           ORDER BY seq`,
-		publicationID, int64(sinceSeq), cutoff,
+		publicationID, int64(startSeq), int64(endSeq), cutoff,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("ring retransmit query: %w", err)
+		return nil, fmt.Errorf("ring fetch range query: %w", err)
 	}
 	defer rows.Close()
 	var out []RingRow
