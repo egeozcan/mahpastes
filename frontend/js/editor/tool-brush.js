@@ -4,43 +4,114 @@
 const BrushTool = (() => {
     /**
      * Create a brush tool (draws with current color).
+     *
+     * A stroke is accumulated at full opacity on an offscreen buffer and
+     * composited onto the canvas once, on mouse up. Stroking each segment
+     * straight onto the canvas with globalAlpha would let a slow stroke paint
+     * over itself and darken wherever consecutive segments overlap, so a
+     * 40%-opacity stroke came out mottled rather than evenly translucent.
+     * While the gesture is live the buffer is previewed on the overlay canvas
+     * at the target opacity, so what the user sees is what gets committed.
      */
     function createBrush() {
+        let strokeCanvas = null;
+        let strokeCtx = null;
+        let strokeActive = false;
+
+        function beginStrokeBuffer() {
+            const canvas = EditorCore.canvas;
+            if (!canvas) return null;
+
+            if (!strokeCanvas) {
+                strokeCanvas = document.createElement('canvas');
+                strokeCtx = strokeCanvas.getContext('2d');
+            }
+            if (strokeCanvas.width !== canvas.width || strokeCanvas.height !== canvas.height) {
+                // Assigning either dimension also clears the buffer.
+                strokeCanvas.width = canvas.width;
+                strokeCanvas.height = canvas.height;
+            } else {
+                strokeCtx.clearRect(0, 0, strokeCanvas.width, strokeCanvas.height);
+            }
+            return strokeCtx;
+        }
+
+        function clearOverlay() {
+            const overlayCtx = EditorCore.overlayCtx;
+            const overlayCanvas = EditorCore.overlayCanvas;
+            if (overlayCtx && overlayCanvas) {
+                overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+            }
+        }
+
+        function previewStroke() {
+            const overlayCtx = EditorCore.overlayCtx;
+            const overlayCanvas = EditorCore.overlayCanvas;
+            if (!overlayCtx || !overlayCanvas || !strokeCanvas) return;
+            overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+            overlayCtx.save();
+            overlayCtx.globalAlpha = EditorCore.currentOpacity;
+            overlayCtx.drawImage(strokeCanvas, 0, 0);
+            overlayCtx.restore();
+        }
+
+        function discardStroke() {
+            strokeActive = false;
+            if (strokeCtx && strokeCanvas) {
+                strokeCtx.clearRect(0, 0, strokeCanvas.width, strokeCanvas.height);
+            }
+            clearOverlay();
+        }
+
         return {
             activate() {},
             deactivate() {
+                discardStroke();
+                strokeCanvas = null;
+                strokeCtx = null;
                 const ctx = EditorCore.ctx;
                 if (ctx) ctx.globalCompositeOperation = 'source-over';
             },
 
             onMouseDown(coords, e) {
-                const ctx = EditorCore.ctx;
-                if (!ctx) return;
-                ctx.globalCompositeOperation = 'source-over';
-                ctx.beginPath();
-                ctx.moveTo(coords.x, coords.y);
+                const buffer = beginStrokeBuffer();
+                if (!buffer) return;
+                strokeActive = true;
+                buffer.globalCompositeOperation = 'source-over';
+                buffer.beginPath();
+                buffer.moveTo(coords.x, coords.y);
             },
 
             onMouseMove(coords, e) {
-                const ctx = EditorCore.ctx;
-                if (!ctx) return;
-                ctx.save();
-                ctx.globalAlpha = EditorCore.currentOpacity;
-                ctx.strokeStyle = EditorCore.currentColor;
-                ctx.lineWidth = EditorCore.brushSize;
-                ctx.lineCap = 'round';
-                ctx.lineJoin = 'round';
-                ctx.lineTo(coords.x, coords.y);
-                ctx.stroke();
-                ctx.beginPath();
-                ctx.moveTo(coords.x, coords.y);
-                ctx.restore();
+                if (!strokeActive || !strokeCtx) return;
+                strokeCtx.save();
+                strokeCtx.strokeStyle = EditorCore.currentColor;
+                strokeCtx.lineWidth = EditorCore.brushSize;
+                strokeCtx.lineCap = 'round';
+                strokeCtx.lineJoin = 'round';
+                strokeCtx.lineTo(coords.x, coords.y);
+                strokeCtx.stroke();
+                strokeCtx.beginPath();
+                strokeCtx.moveTo(coords.x, coords.y);
+                strokeCtx.restore();
+                previewStroke();
             },
 
             onMouseUp(coords, e) {
                 const ctx = EditorCore.ctx;
-                if (ctx) ctx.globalAlpha = 1;
+                if (strokeActive && ctx && strokeCanvas) {
+                    ctx.save();
+                    ctx.globalAlpha = EditorCore.currentOpacity;
+                    ctx.globalCompositeOperation = 'source-over';
+                    ctx.drawImage(strokeCanvas, 0, 0);
+                    ctx.restore();
+                }
+                discardStroke();
                 EditorCore.saveUndoState();
+            },
+
+            cancel() {
+                discardStroke();
             },
 
             getCursor() { return 'crosshair'; }
@@ -53,36 +124,25 @@ const BrushTool = (() => {
      */
     function createEraser() {
         let lastPoint = null;
+        let erased = false;
 
         function restoreAt(coords) {
-            const ctx = EditorCore.ctx;
-            const canvas = EditorCore.canvas;
-            if (!ctx || !canvas) return;
-
             const size = EditorCore.brushSize;
             const half = size / 2;
-            const x = Math.round(coords.x - half);
-            const y = Math.round(coords.y - half);
-            const sx = Math.max(0, x);
-            const sy = Math.max(0, y);
-            const ex = Math.min(canvas.width, x + size);
-            const ey = Math.min(canvas.height, y + size);
-            const width = ex - sx;
-            const height = ey - sy;
-            if (width <= 0 || height <= 0) return;
-
-            const baseline = EditorCore.getBaselineRegion(sx, sy, width, height);
-            if (baseline) ctx.putImageData(baseline, sx, sy);
+            if (EditorCore.restoreBaselineRegion(coords.x - half, coords.y - half, size, size)) {
+                erased = true;
+            }
         }
 
         return {
-            activate() { lastPoint = null; },
+            activate() { lastPoint = null; erased = false; },
             deactivate() { lastPoint = null; },
 
             onMouseDown(coords) {
                 // Preserve click-only gestures as no-ops, but retain the point
                 // so the first delivered move can interpolate from it.
                 lastPoint = { x: coords.x, y: coords.y };
+                erased = false;
             },
 
             onMouseMove(coords) {
@@ -103,7 +163,17 @@ const BrushTool = (() => {
 
             onMouseUp() {
                 lastPoint = null;
+                erased = false;
                 EditorCore.saveUndoState();
+            },
+
+            // Erased pixels are already gone from the canvas, so an aborted
+            // gesture commits what it removed rather than losing it from the
+            // undo history.
+            cancel() {
+                lastPoint = null;
+                if (erased) EditorCore.saveUndoState();
+                erased = false;
             },
 
             getCursor() { return 'crosshair'; }

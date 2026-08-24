@@ -9,6 +9,40 @@ const TextTool = (() => {
     let textInputY = 0;
 
     /**
+     * Line spacing used for both the input and the committed annotation, so
+     * wrapping a second line does not shift the text when it is drawn.
+     */
+    const LINE_HEIGHT = 1.2;
+
+    function getInput() {
+        return document.getElementById('canvas-text-input');
+    }
+
+    /**
+     * Grow the input to fit its content. The element lives in canvas space, so
+     * its box is measured in canvas pixels and the wrapper transform handles
+     * the on-screen scaling.
+     */
+    function autoSizeInput(input) {
+        const lines = input.value.split('\n');
+        const fontSize = EditorCore.fontSize;
+        const ctx = EditorCore.ctx;
+
+        let widest = 0;
+        if (ctx) {
+            ctx.save();
+            ctx.font = `${fontSize}px Arial, sans-serif`;
+            for (const line of lines) widest = Math.max(widest, ctx.measureText(line).width);
+            ctx.restore();
+        }
+
+        // A trailing caret needs room of its own, or typing at the end of the
+        // longest line scrolls the text out of view inside the input.
+        input.style.width = Math.max(60, Math.ceil(widest) + fontSize) + 'px';
+        input.style.height = Math.ceil(lines.length * fontSize * LINE_HEIGHT) + 'px';
+    }
+
+    /**
      * Show the floating text input at the given canvas coordinates.
      */
     function showTextInput(x, y) {
@@ -16,31 +50,26 @@ const TextTool = (() => {
         textInputX = x;
         textInputY = y;
 
-        const input = document.getElementById('canvas-text-input');
+        const input = getInput();
         const canvas = EditorCore.canvas;
         if (!input || !canvas) return;
 
-        const rect = canvas.getBoundingClientRect();
-        const scaleX = rect.width / canvas.width;
-        const scaleY = rect.height / canvas.height;
-
         const fontSize = EditorCore.fontSize;
-        // Adjust font size for the screen based on canvas scaling
-        const screenFontSize = fontSize * scaleX;
 
-        input.style.left = (rect.left + x * scaleX - 2) + 'px';
-        input.style.top = (rect.top + y * scaleY - 2) + 'px';
+        // Offset by the 1px border so the input's first glyph sits where
+        // fillText will put it.
+        input.style.left = (x - 1) + 'px';
+        input.style.top = (y - 1) + 'px';
 
         // Match styles
-        input.style.fontSize = `${screenFontSize}px`;
+        input.style.fontSize = `${fontSize}px`;
         input.style.color = EditorCore.currentColor;
         input.style.fontFamily = 'Arial, sans-serif';
-        input.style.lineHeight = '1';
-        input.style.padding = '0';
-        input.style.margin = '0';
+        input.style.lineHeight = String(LINE_HEIGHT);
         input.style.display = 'block';
 
         input.value = '';
+        autoSizeInput(input);
         input.focus();
     }
 
@@ -48,20 +77,25 @@ const TextTool = (() => {
      * Commit the current text input content to the canvas.
      */
     function commitTextInput() {
-        const input = document.getElementById('canvas-text-input');
+        const input = getInput();
         if (!input) return;
 
-        const text = input.value.trim();
+        // Trailing whitespace and blank lines would only add empty rows;
+        // leading whitespace is the user's, so it is left alone.
+        const text = input.value.replace(/\s+$/, '');
 
-        if (text) {
+        if (text.trim()) {
             const ctx = EditorCore.ctx;
             if (ctx) {
+                const fontSize = EditorCore.fontSize;
                 ctx.save();
                 ctx.globalAlpha = EditorCore.currentOpacity;
                 ctx.fillStyle = EditorCore.currentColor;
-                ctx.font = `${EditorCore.fontSize}px Arial, sans-serif`;
+                ctx.font = `${fontSize}px Arial, sans-serif`;
                 ctx.textBaseline = 'top';
-                ctx.fillText(text, textInputX, textInputY);
+                text.split('\n').forEach((line, index) => {
+                    ctx.fillText(line, textInputX, textInputY + index * fontSize * LINE_HEIGHT);
+                });
                 ctx.restore();
                 EditorCore.saveUndoState();
             }
@@ -73,7 +107,7 @@ const TextTool = (() => {
     }
 
     function cancelTextInput() {
-        const input = document.getElementById('canvas-text-input');
+        const input = getInput();
         if (input) {
             input.style.display = 'none';
             input.value = '';
@@ -137,6 +171,7 @@ const TextTool = (() => {
         create,
         commitTextInput,
         cancelTextInput,
+        autoSizeInput,
         get isActive() {
             return textInputActive;
         }

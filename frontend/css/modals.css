@@ -1377,9 +1377,21 @@ input[type="range"].comparison-range::-webkit-slider-thumb {
 }
 
 #canvas-text-input {
-    position: fixed;
+    /* Absolute inside .editor-canvas-pair: left/top are canvas pixels, and the
+       wrapper's zoom/pan transform scales and moves the input exactly as it
+       does the canvas, so the caret stays over the pixels being written. */
+    position: absolute;
     z-index: 250;
-    font-size: 14px;
+    transform-origin: top left;
+    /* left/top and the measured width/height address the text box itself, so
+       the 1px border must sit outside them rather than eat into the line. */
+    box-sizing: content-box;
+    padding: 0;
+    margin: 0;
+    resize: none;
+    overflow: hidden;
+    white-space: pre;
+    background: transparent;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -1736,6 +1736,8 @@ window.addEventListener('load', async () => {
         // binding is unchanged.
         ShortcutManager.register({ id: 'editor.preview_toggle', label: 'Toggle Preview/Edit', category: 'editor', context: 'text-editor', defaultKey: 'mod+shift+p', callback: () => TextClipEditor.togglePreviewMode() });
         ShortcutManager.register({ id: 'editor.close',     label: 'Close editor',      category: 'editor', context: 'editor', defaultKey: 'Escape', callback: () => {
+            // A drag in progress is the innermost thing Escape can back out of.
+            if (EditorCore.cancelGesture()) return;
             if (typeof TextTool !== 'undefined' && TextTool.isActive) {
                 TextTool.cancelTextInput();
                 return;

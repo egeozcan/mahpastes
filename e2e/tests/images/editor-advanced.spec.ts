@@ -1261,14 +1261,14 @@ test.describe('Advanced Editor Tools', () => {
       await app.page.locator(selectors.editor.anonPixelate).click();
       await app.setBrushSize(8);
 
-      // The dab spans cx +/- 16, so at cx = 2 it starts 14px off the left edge.
-      // Clamping only the origin would slide the whole 32px-wide region inward
-      // and reach x = 31; trimming stops it at x = 17.
+      // The dab is as wide as the size slider, so at cx = 2 it starts 2px off
+      // the left edge. Clamping only the origin would slide the whole 8px-wide
+      // region inward and reach x = 7; trimming stops it at x = 6.
       await app.page.locator(selectors.editor.canvas).click({ position: { x: 2, y: 100 } });
 
       const extent = await app.getChangedPixelExtent('#ffffff');
       expect(extent).not.toBeNull();
-      expect(extent!.maxX).toBeLessThanOrEqual(18);
+      expect(extent!.maxX).toBeLessThanOrEqual(8);
     });
   });
 
@@ -1332,6 +1332,345 @@ test.describe('Advanced Editor Tools', () => {
       expect(bounds!.x).toBeLessThanOrEqual(42);
       expect(bounds!.y).toBeGreaterThanOrEqual(37);
       expect(bounds!.y).toBeLessThanOrEqual(42);
+    });
+  });
+});
+
+test.describe('Editor Tool Fidelity', () => {
+  // ==================== Brush Opacity ====================
+
+  test.describe('Brush Opacity', () => {
+    test('should keep a slow stroke at the requested opacity instead of self-darkening', async ({ app }) => {
+      const imagePath = await createTempFile(generateTestImage(200, 200, 'white'), 'png');
+      const filename = path.basename(imagePath);
+      await app.uploadFile(imagePath);
+      await app.openImageEditor(filename);
+
+      await app.setZoom('100');
+      await app.selectTool('brush');
+      await app.setEditorColor('#000000');
+      await app.setBrushSize(12);
+      await app.page.locator(selectors.editor.opacity).fill('40');
+
+      const box = await app.page.locator(selectors.editor.canvas).boundingBox();
+      if (!box) throw new Error('Canvas not visible');
+
+      // Many small moves along one line: every segment's round cap overlaps its
+      // neighbours, so stroking each one onto the canvas separately compounded
+      // the alpha until a 40% stroke came out nearly opaque.
+      await app.page.mouse.move(box.x + 40, box.y + 100);
+      await app.page.mouse.down();
+      await app.page.mouse.move(box.x + 160, box.y + 100, { steps: 40 });
+      await app.page.mouse.up();
+
+      const samples = await app.page.locator(selectors.editor.canvas).evaluate((canvas) => {
+        const context = (canvas as HTMLCanvasElement).getContext('2d');
+        if (!context) throw new Error('Canvas context unavailable');
+        return [60, 100, 140].map((x) => context.getImageData(x, 100, 1, 1).data[0]);
+      });
+
+      // Black at 40% over white lands on 153. Compounded alpha would be far darker.
+      for (const value of samples) {
+        expect(value).toBeGreaterThan(140);
+        expect(value).toBeLessThan(170);
+      }
+      // ...and evenly, so the stroke has no darker patches along its length.
+      expect(Math.max(...samples) - Math.min(...samples)).toBeLessThanOrEqual(6);
+    });
+
+    test('should discard an in-progress stroke on Escape', async ({ app }) => {
+      const imagePath = await createTempFile(generateTestImage(200, 200, 'white'), 'png');
+      const filename = path.basename(imagePath);
+      await app.uploadFile(imagePath);
+      await app.openImageEditor(filename);
+
+      await app.setZoom('100');
+      await app.selectTool('brush');
+      await app.setEditorColor('#0000ff');
+      await app.setBrushSize(10);
+
+      const box = await app.page.locator(selectors.editor.canvas).boundingBox();
+      if (!box) throw new Error('Canvas not visible');
+      await app.page.mouse.move(box.x + 40, box.y + 40);
+      await app.page.mouse.down();
+      await app.page.mouse.move(box.x + 150, box.y + 150, { steps: 10 });
+      await app.page.keyboard.press('Escape');
+      await app.page.mouse.up();
+
+      // The editor stays open and the canvas is untouched.
+      await expect(app.page.locator(selectors.editor.modal)).toHaveClass(/active/);
+      expect(await app.getPaintedBounds('#0000ff')).toBeNull();
+      expect(await app.isUndoEnabled()).toBe(false);
+    });
+  });
+
+  // ==================== Anonymize Brush Geometry ====================
+
+  test.describe('Anonymize Brush Geometry', () => {
+    test('should cover exactly the brush size, in a round dab', async ({ app }) => {
+      const imagePath = await createTempFile(generateTestImage(200, 200, 'white'), 'png');
+      const filename = path.basename(imagePath);
+      await app.uploadFile(imagePath);
+      await app.openImageEditor(filename);
+
+      await app.setZoom('100');
+      await app.selectTool('anonymize');
+      await app.page.locator(selectors.editor.anonBrush).click();
+      await app.page.locator(selectors.editor.anonPixelate).click();
+      await app.setBrushSize(20);
+
+      await app.page.locator(selectors.editor.canvas).click({ position: { x: 100, y: 100 } });
+
+      const extent = await app.getChangedPixelExtent('#ffffff');
+      expect(extent).not.toBeNull();
+      // A 20px dab, not the 80px square the tool used to paint.
+      expect(extent!.maxX - extent!.minX).toBeLessThanOrEqual(21);
+      expect(extent!.maxX - extent!.minX).toBeGreaterThanOrEqual(14);
+      expect(extent!.maxY - extent!.minY).toBeLessThanOrEqual(21);
+      // Centred on the cursor.
+      expect(Math.abs((extent!.minX + extent!.maxX) / 2 - 100)).toBeLessThanOrEqual(2);
+      expect(Math.abs((extent!.minY + extent!.maxY) / 2 - 100)).toBeLessThanOrEqual(2);
+
+      // Round, not square: the corners of the bounding box stay untouched.
+      const corner = await app.page.locator(selectors.editor.canvas).evaluate((canvas) => {
+        const context = (canvas as HTMLCanvasElement).getContext('2d');
+        if (!context) throw new Error('Canvas context unavailable');
+        return Array.from(context.getImageData(91, 91, 1, 1).data);
+      });
+      expect(corner.slice(0, 3)).toEqual([255, 255, 255]);
+    });
+
+    test('should preview the affected area under the cursor', async ({ app }) => {
+      const imagePath = await createTempFile(generateTestImage(200, 200, 'white'), 'png');
+      const filename = path.basename(imagePath);
+      await app.uploadFile(imagePath);
+      await app.openImageEditor(filename);
+
+      await app.setZoom('100');
+      await app.selectTool('anonymize');
+      await app.page.locator(selectors.editor.anonBrush).click();
+      await app.setBrushSize(24);
+
+      const box = await app.page.locator(selectors.editor.canvas).boundingBox();
+      if (!box) throw new Error('Canvas not visible');
+      // Hover only -- no button pressed, so nothing should be painted.
+      await app.page.mouse.move(box.x + 100, box.y + 100);
+
+      const ring = await app.page.locator(selectors.editor.overlayCanvas).evaluate((canvas) => {
+        const context = (canvas as HTMLCanvasElement).getContext('2d');
+        if (!context) throw new Error('Canvas context unavailable');
+        const element = canvas as HTMLCanvasElement;
+        const { data } = context.getImageData(0, 0, element.width, element.height);
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (let i = 0; i < data.length; i += 4) {
+          if (data[i + 3] === 0) continue;
+          const pixel = i / 4;
+          const x = pixel % element.width;
+          const y = Math.floor(pixel / element.width);
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+        }
+        return Number.isFinite(minX) ? { minX, minY, maxX, maxY } : null;
+      });
+
+      expect(ring).not.toBeNull();
+      // A 24px ring (plus its own 2px stroke) centred on the pointer.
+      expect(ring!.maxX - ring!.minX).toBeGreaterThanOrEqual(22);
+      expect(ring!.maxX - ring!.minX).toBeLessThanOrEqual(30);
+      expect(Math.abs((ring!.minX + ring!.maxX) / 2 - 100)).toBeLessThanOrEqual(2);
+      // A hover previews; it does not anonymize.
+      expect(await app.getChangedPixelExtent('#ffffff')).toBeNull();
+      expect(await app.isUndoEnabled()).toBe(false);
+    });
+  });
+
+  // ==================== Multi-line Text ====================
+
+  test.describe('Multi-line Text Annotations', () => {
+    test('should commit a second line entered with Shift+Enter', async ({ app }) => {
+      const imagePath = await createTempFile(generateTestImage(200, 200, 'white'), 'png');
+      const filename = path.basename(imagePath);
+      await app.uploadFile(imagePath);
+      await app.openImageEditor(filename);
+
+      await app.setZoom('100');
+      await app.selectTool('text');
+      await app.setEditorColor('#000000');
+      await app.setFontSize(24);
+      await app.page.locator(selectors.editor.canvas).click({ position: { x: 20, y: 20 } });
+
+      const annotationInput = app.page.locator('#canvas-text-input');
+      await expect(annotationInput).toBeVisible();
+      await app.page.keyboard.type('AB');
+      await app.page.keyboard.press('Shift+Enter');
+      await app.page.keyboard.type('CD');
+      await expect(annotationInput).toHaveValue('AB\nCD');
+      await app.page.keyboard.press('Enter');
+      await expect(annotationInput).toBeHidden();
+
+      const bounds = await app.getPaintedBounds('#000000');
+      expect(bounds).not.toBeNull();
+      // Two 24px lines at 1.2 line-height occupy roughly 46px of height; one
+      // line could not exceed ~24.
+      expect(bounds!.height).toBeGreaterThan(30);
+      expect(await app.isUndoEnabled()).toBe(true);
+    });
+
+    test('should keep the open text input pinned to its canvas position while zooming and panning', async ({ app }) => {
+      const imagePath = await createTempFile(generateTestImage(200, 200, 'white'), 'png');
+      const filename = path.basename(imagePath);
+      await app.uploadFile(imagePath);
+      await app.openImageEditor(filename);
+
+      await app.setZoom('100');
+      await app.selectTool('text');
+      await app.page.locator(selectors.editor.canvas).click({ position: { x: 60, y: 70 } });
+      await expect(app.page.locator('#canvas-text-input')).toBeVisible();
+
+      // Offset of the input from the canvas point it writes into, on screen.
+      const drift = async () => app.page.evaluate(() => {
+        const canvas = document.getElementById('editor-canvas') as HTMLCanvasElement;
+        const input = document.getElementById('canvas-text-input') as HTMLTextAreaElement;
+        const canvasRect = canvas.getBoundingClientRect();
+        const inputRect = input.getBoundingClientRect();
+        const scale = canvasRect.width / canvas.width;
+        return {
+          x: inputRect.left - (canvasRect.left + 60 * scale),
+          y: inputRect.top - (canvasRect.top + 70 * scale),
+          scale,
+        };
+      });
+
+      const before = await drift();
+      expect(Math.abs(before.x)).toBeLessThanOrEqual(3);
+      expect(Math.abs(before.y)).toBeLessThanOrEqual(3);
+
+      // Zoom and pan without touching the DOM focus, which would commit the text.
+      await app.page.evaluate(() => {
+        // @ts-ignore - EditorCore is a global
+        EditorCore.setZoom(2);
+        // @ts-ignore - EditorCore is a global
+        EditorCore.panX = EditorCore.panX + 40;
+        // @ts-ignore - EditorCore is a global
+        EditorCore.applyTransform();
+      });
+
+      const after = await drift();
+      expect(after.scale).toBeGreaterThan(before.scale * 1.5);
+      // The input rides the transform, so it still sits over the same pixel.
+      expect(Math.abs(after.x)).toBeLessThanOrEqual(4);
+      expect(Math.abs(after.y)).toBeLessThanOrEqual(4);
+    });
+  });
+
+  // ==================== Escape Cancels a Drag ====================
+
+  test.describe('Cancelling a Drag', () => {
+    test('should discard a shape mid-drag without closing the editor', async ({ app }) => {
+      const imagePath = await createTempFile(generateTestImage(200, 200, 'white'), 'png');
+      const filename = path.basename(imagePath);
+      await app.uploadFile(imagePath);
+      await app.openImageEditor(filename);
+
+      await app.setZoom('100');
+      await app.selectTool('rectangle');
+      await app.setEditorColor('#0000ff');
+      await app.setBrushSize(3);
+
+      const box = await app.page.locator(selectors.editor.canvas).boundingBox();
+      if (!box) throw new Error('Canvas not visible');
+      await app.page.mouse.move(box.x + 40, box.y + 40);
+      await app.page.mouse.down();
+      await app.page.mouse.move(box.x + 150, box.y + 120, { steps: 5 });
+      await app.page.keyboard.press('Escape');
+      await app.page.mouse.up();
+
+      await expect(app.page.locator(selectors.editor.modal)).toHaveClass(/active/);
+      expect(await app.getPaintedBounds('#0000ff')).toBeNull();
+      expect(await app.isUndoEnabled()).toBe(false);
+
+      // The next Escape, with no drag pending, still closes the editor.
+      await app.page.keyboard.press('Escape');
+      await expect(app.page.locator(selectors.editor.modal)).not.toHaveClass(/active/);
+    });
+
+    test('should keep the arrow preview off the canvas after cancelling', async ({ app }) => {
+      const imagePath = await createTempFile(generateTestImage(200, 200, 'white'), 'png');
+      const filename = path.basename(imagePath);
+      await app.uploadFile(imagePath);
+      await app.openImageEditor(filename);
+
+      await app.setZoom('100');
+      await app.selectTool('arrow');
+      await app.setEditorColor('#ff00ff');
+
+      const box = await app.page.locator(selectors.editor.canvas).boundingBox();
+      if (!box) throw new Error('Canvas not visible');
+      await app.page.mouse.move(box.x + 30, box.y + 30);
+      await app.page.mouse.down();
+      await app.page.mouse.move(box.x + 160, box.y + 160, { steps: 5 });
+      await app.page.keyboard.press('Escape');
+      await app.page.mouse.up();
+
+      expect(await app.getPaintedBounds('#ff00ff')).toBeNull();
+      const overlayEmpty = await app.page.locator(selectors.editor.overlayCanvas).evaluate((canvas) => {
+        const element = canvas as HTMLCanvasElement;
+        const context = element.getContext('2d');
+        if (!context) throw new Error('Canvas context unavailable');
+        const { data } = context.getImageData(0, 0, element.width, element.height);
+        for (let i = 3; i < data.length; i += 4) {
+          if (data[i] !== 0) return false;
+        }
+        return true;
+      });
+      expect(overlayEmpty).toBe(true);
+    });
+  });
+
+  // ==================== Pinch to Zoom ====================
+
+  test.describe('Pinch to Zoom', () => {
+    test('should zoom with a two-finger spread', async ({ app }) => {
+      const imagePath = await createTempFile(generateTestImage(200, 200, 'white'), 'png');
+      const filename = path.basename(imagePath);
+      await app.uploadFile(imagePath);
+      await app.openImageEditor(filename);
+
+      await app.setZoom('100');
+      await app.selectTool('brush');
+      await app.setEditorColor('#0000ff');
+
+      await app.page.evaluate(() => {
+        const canvas = document.getElementById('editor-canvas') as HTMLCanvasElement;
+        const rect = canvas.getBoundingClientRect();
+        const centerX = rect.left + rect.width / 2;
+        const centerY = rect.top + rect.height / 2;
+        const finger = (identifier: number, clientX: number, clientY: number) =>
+          new Touch({ identifier, target: canvas, clientX, clientY });
+        const fire = (type: string, touches: Touch[]) => canvas.dispatchEvent(
+          new TouchEvent(type, {
+            bubbles: true,
+            cancelable: true,
+            touches,
+            targetTouches: touches,
+            changedTouches: touches,
+          })
+        );
+
+        // One finger down first, exactly as a real pinch starts.
+        fire('touchstart', [finger(1, centerX - 40, centerY)]);
+        fire('touchstart', [finger(1, centerX - 40, centerY), finger(2, centerX + 40, centerY)]);
+        fire('touchmove', [finger(1, centerX - 80, centerY), finger(2, centerX + 80, centerY)]);
+        fire('touchend', []);
+      });
+
+      // The span doubled, so the zoom doubled.
+      await expect(app.page.locator(selectors.editor.zoomDisplay)).toHaveText('200%');
+      // The finger that opened the pinch did not leave a stroke behind.
+      expect(await app.getPaintedBounds('#0000ff')).toBeNull();
+      expect(await app.isUndoEnabled()).toBe(false);
     });
   });
 });

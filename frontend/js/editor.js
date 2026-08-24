@@ -777,7 +777,9 @@ function setupEditorListeners() {
     // Text input commit on Enter or blur
     const textInput = document.getElementById('canvas-text-input');
     textInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
+        // Enter places the annotation; Shift+Enter (or Alt+Enter) falls through
+        // to the textarea so a caption can run to a second line.
+        if (e.key === 'Enter' && !e.shiftKey && !e.altKey) {
             e.preventDefault();
             TextTool.commitTextInput();
         } else if (e.key === 'Escape') {
@@ -787,6 +789,7 @@ function setupEditorListeners() {
             document.querySelector('.editor-tool-btn[data-tool="text"]')?.focus();
         }
     });
+    textInput.addEventListener('input', () => TextTool.autoSizeInput(textInput));
     textInput.addEventListener('blur', () => {
         if (TextTool.isActive) {
             TextTool.commitTextInput();

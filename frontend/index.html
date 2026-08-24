@@ -1335,12 +1335,17 @@
                     <div class="editor-canvas-pair">
                         <canvas id="editor-canvas" aria-label="Image editing canvas">Image editing canvas</canvas>
                         <canvas id="editor-overlay-canvas" aria-hidden="true"></canvas>
+                        <!-- Inside the canvas wrapper so the editor's zoom/pan
+                             transform carries the input along with the pixels
+                             it is about to be drawn into. -->
+                        <textarea id="canvas-text-input" aria-label="Text annotation" rows="1" wrap="off"
+                            autocomplete="off" spellcheck="false"
+                            title="Enter to place the text, Shift+Enter for a new line, Esc to discard"
+                            class="bg-transparent border border-stone-400 text-stone-700 focus:outline-none"
+                            style="display: none;"></textarea>
                     </div>
                 </div>
             </div>
-            <input type="text" id="canvas-text-input" aria-label="Text annotation" autocomplete="off"
-                class="fixed bg-transparent border border-stone-400 text-stone-700 font-sans text-sm px-1 focus:outline-none z-[250]"
-                style="display: none; min-width: 100px;">
         </div>
     </div>
 

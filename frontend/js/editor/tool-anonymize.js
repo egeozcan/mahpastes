@@ -163,23 +163,107 @@ const AnonymizeTool = (() => {
 
     // --- Apply effect at a region ---
 
-    function applyEffect(ctx, x, y, w, h) {
-        const size = EditorCore.brushSize;
+    /**
+     * @param {number} strength - Pixelate block size or blur radius. Rectangle
+     *   drags take it from the size slider; a brush dab derives it from the dab
+     *   itself, since the dab is only as wide as the slider says.
+     */
+    function applyEffect(ctx, x, y, w, h, strength = EditorCore.brushSize) {
         if (effect === 'pixelate') {
-            pixelateRegion(ctx, x, y, w, h, Math.max(2, size));
+            pixelateRegion(ctx, x, y, w, h, Math.max(2, Math.round(strength)));
         } else {
-            blurRegion(ctx, x, y, w, h, Math.max(1, size));
+            blurRegion(ctx, x, y, w, h, Math.max(1, Math.round(strength)));
         }
     }
 
     // --- Apply effect at brush position ---
 
+    /**
+     * Scratch canvas the dab is composed on. Reused across dabs: a stroke emits
+     * one dab per brush-width of travel, and allocating a canvas for each would
+     * dominate the cost of the effect itself.
+     */
+    let scratchCanvas = null;
+    let scratchCtx = null;
+
+    function getScratchCtx(w, h) {
+        if (!scratchCanvas) {
+            scratchCanvas = document.createElement('canvas');
+            scratchCtx = scratchCanvas.getContext('2d');
+        }
+        if (scratchCanvas.width < w || scratchCanvas.height < h) {
+            scratchCanvas.width = Math.max(scratchCanvas.width, w);
+            scratchCanvas.height = Math.max(scratchCanvas.height, h);
+        }
+        scratchCtx.setTransform(1, 0, 0, 1, 0, 0);
+        scratchCtx.globalAlpha = 1;
+        scratchCtx.globalCompositeOperation = 'source-over';
+        scratchCtx.clearRect(0, 0, scratchCanvas.width, scratchCanvas.height);
+        return scratchCtx;
+    }
+
+    /**
+     * Anonymize a round dab centred on the cursor, exactly as wide as the size
+     * slider. The dab used to span four times the slider value in a hard-edged
+     * square, so the affected area bore no relation to the number in the
+     * toolbar or to the cursor preview.
+     */
     function applyAtCursor(ctx, cx, cy) {
-        const size = EditorCore.brushSize;
-        const halfSize = size * 2; // Brush area is larger than block size for visible effect
-        const x = cx - halfSize;
-        const y = cy - halfSize;
-        applyEffect(ctx, x, y, halfSize * 2, halfSize * 2);
+        const diameter = Math.max(2, EditorCore.brushSize);
+        const radius = diameter / 2;
+        const region = clipRegion(ctx, cx - radius, cy - radius, diameter, diameter);
+        if (region.w <= 0 || region.h <= 0) return;
+
+        const scratch = getScratchCtx(region.w, region.h);
+        scratch.drawImage(ctx.canvas, region.x, region.y, region.w, region.h, 0, 0, region.w, region.h);
+        // A dab this small needs a proportionally finer block/radius, or a
+        // single block would swallow it whole and read as a flat smear.
+        const strength = effect === 'pixelate' ? diameter / 3 : diameter / 4;
+        applyEffect(scratch, 0, 0, region.w, region.h, strength);
+
+        // Mask the result to a circle. Only the outermost pixel is feathered --
+        // enough to antialias the rim without leaving a ring of half-original
+        // pixels around everything the tool is supposed to obscure.
+        scratch.globalCompositeOperation = 'destination-in';
+        const gradient = scratch.createRadialGradient(
+            cx - region.x, cy - region.y, 0,
+            cx - region.x, cy - region.y, radius
+        );
+        gradient.addColorStop(0, 'rgba(0, 0, 0, 1)');
+        gradient.addColorStop(Math.max(0, (radius - 1) / radius), 'rgba(0, 0, 0, 1)');
+        gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        scratch.fillStyle = gradient;
+        scratch.fillRect(0, 0, region.w, region.h);
+        scratch.globalCompositeOperation = 'source-over';
+
+        ctx.drawImage(scratch.canvas, 0, 0, region.w, region.h, region.x, region.y, region.w, region.h);
+    }
+
+    /**
+     * Outline the area the next dab will cover, on the overlay canvas.
+     */
+    function drawCursorPreview(coords) {
+        const oc = EditorCore.overlayCtx;
+        const overlayCanvas = EditorCore.overlayCanvas;
+        if (!oc || !overlayCanvas) return;
+
+        oc.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+        if (mode !== 'brush' || !coords) return;
+
+        const radius = Math.max(2, EditorCore.brushSize) / 2;
+        oc.save();
+        // Two passes so the ring stays visible over both light and dark pixels.
+        oc.lineWidth = 2;
+        oc.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+        oc.beginPath();
+        oc.arc(coords.x, coords.y, radius, 0, Math.PI * 2);
+        oc.stroke();
+        oc.lineWidth = 1;
+        oc.strokeStyle = 'rgba(41, 37, 36, 0.9)';
+        oc.beginPath();
+        oc.arc(coords.x, coords.y, radius, 0, Math.PI * 2);
+        oc.stroke();
+        oc.restore();
     }
 
     // --- Tool factory ---
@@ -207,6 +291,7 @@ const AnonymizeTool = (() => {
                 if (mode === 'brush') {
                     applyAtCursor(ctx, coords.x, coords.y);
                     lastBrushPoint = { x: coords.x, y: coords.y };
+                    drawCursorPreview(coords);
                 }
                 // For rect mode, start point is already recorded by EditorCore
             },
@@ -220,12 +305,15 @@ const AnonymizeTool = (() => {
                     const dx = coords.x - previous.x;
                     const dy = coords.y - previous.y;
                     const distance = Math.hypot(dx, dy);
-                    const spacing = Math.max(2, EditorCore.brushSize);
+                    // Dabs are round, so they must overlap to leave a solid
+                    // stroke rather than a string of beads.
+                    const spacing = Math.max(1, EditorCore.brushSize / 3);
                     const steps = Math.max(1, Math.ceil(distance / spacing));
                     for (let step = 1; step <= steps; step++) {
                         applyAtCursor(ctx, previous.x + dx * step / steps, previous.y + dy * step / steps);
                     }
                     lastBrushPoint = { x: coords.x, y: coords.y };
+                    drawCursorPreview(coords);
                 } else {
                     // Rectangle mode: draw preview on overlay
                     const oc = EditorCore.overlayCtx;
@@ -249,6 +337,19 @@ const AnonymizeTool = (() => {
                     oc.stroke();
                     oc.setLineDash([]);
                 }
+            },
+
+            onHover(coords) {
+                drawCursorPreview(coords);
+            },
+
+            // Rectangle drags have nothing on the canvas yet, so an abort just
+            // drops the preview. Brush dabs are already painted, so the partial
+            // stroke is committed to history instead of being stranded there
+            // with no undo entry.
+            cancel() {
+                if (mode === 'brush' && lastBrushPoint) EditorCore.saveUndoState();
+                lastBrushPoint = null;
             },
 
             onMouseUp(coords, e) {

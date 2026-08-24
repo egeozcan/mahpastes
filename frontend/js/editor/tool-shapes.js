@@ -186,6 +186,10 @@ const ShapeTools = (() => {
                 drawPreview(shapeType, coords.x, coords.y, e.shiftKey);
             },
 
+            // Nothing is committed until mouse up, so an aborted drag only
+            // has to drop the overlay preview -- EditorCore clears it.
+            cancel() {},
+
             onMouseUp(coords, e) {
                 // Clear overlay preview
                 const oc = EditorCore.overlayCtx;

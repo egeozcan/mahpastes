@@ -16,6 +16,8 @@ const EditorCore = (() => {
     let originalHeight = 0;
     let wasDownscaled = false;
     let baselineVersion = null;
+    let baselineCanvas = null;
+    let baselineCanvasVersion = null;
 
     // --- Drawing properties ---
     let currentColor = '#44403c';
@@ -40,6 +42,7 @@ const EditorCore = (() => {
     let panStartY = 0;
     let panStartPanX = 0;
     let panStartPanY = 0;
+    let pinchState = null;
 
     // --- Tool registry ---
     const tools = new Map();
@@ -224,6 +227,54 @@ const EditorCore = (() => {
 
     function setBaselineFromCanvas(sourceCanvas) {
         baselineVersion = captureBaselineFromCanvas(sourceCanvas);
+    }
+
+    /**
+     * Canvas-backed copy of the current baseline, built lazily and keyed to the
+     * baseline object's identity so it is rebuilt only when the baseline itself
+     * changes (crop, rotate, flip, undo across a geometry change).
+     */
+    function getBaselineCanvas() {
+        if (!baselineVersion) return null;
+        if (baselineCanvas && baselineCanvasVersion === baselineVersion) return baselineCanvas;
+        const cached = document.createElement('canvas');
+        cached.width = baselineVersion.width;
+        cached.height = baselineVersion.height;
+        cached.getContext('2d').putImageData(baselineVersion.imageData, 0, 0);
+        baselineCanvas = cached;
+        baselineCanvasVersion = baselineVersion;
+        return cached;
+    }
+
+    /**
+     * Repaint a canvas region from the baseline image. This is the eraser's
+     * inner loop -- several stamps per pointer move -- so it copies through
+     * drawImage rather than reading and writing pixels from JS. The region is
+     * cleared first: source-over alone would leave drawn pixels showing
+     * wherever the baseline is transparent.
+     * @returns {boolean} Whether any pixels were restored.
+     */
+    function restoreBaselineRegion(x, y, width, height) {
+        if (!ctx || width <= 0 || height <= 0) return false;
+        const source = getBaselineCanvas();
+        if (!source) return false;
+
+        const left = Math.max(0, Math.round(x));
+        const top = Math.max(0, Math.round(y));
+        const right = Math.min(source.width, Math.round(x) + Math.round(width));
+        const bottom = Math.min(source.height, Math.round(y) + Math.round(height));
+        const w = right - left;
+        const h = bottom - top;
+        if (w <= 0 || h <= 0) return false;
+
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.globalAlpha = 1;
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.clearRect(left, top, w, h);
+        ctx.drawImage(source, left, top, w, h, left, top, w, h);
+        ctx.restore();
+        return true;
     }
 
     function getBaselineRegion(x, y, width, height) {
@@ -554,6 +605,10 @@ const EditorCore = (() => {
         const coords = screenToCanvas(e.clientX, e.clientY);
 
         if (!isDrawing) {
+            const hovered = getActiveTool();
+            if (hovered && typeof hovered.onHover === 'function') {
+                hovered.onHover(coords, e);
+            }
             updateCursor(coords);
             return;
         }
@@ -591,14 +646,77 @@ const EditorCore = (() => {
         if (typeof updateEditorSaveState === 'function') updateEditorSaveState();
     }
 
+    /**
+     * Abort the drag in progress, if any, without committing it.
+     *
+     * Tools that can discard an uncommitted gesture implement cancel(); this
+     * returns true only when one did, so an Escape handler can fall through to
+     * its next target (crop, selection, closing the editor) for tools that
+     * cannot. Pass force to end the gesture regardless -- used when a second
+     * finger turns a one-finger drag into a pinch.
+     */
+    function cancelGesture(options = {}) {
+        if (!isDrawing) return false;
+
+        const tool = getActiveTool();
+        const cancellable = !!(tool && typeof tool.cancel === 'function');
+        if (!cancellable && !options.force) return false;
+
+        if (cancellable) tool.cancel();
+        isDrawing = false;
+        if (overlayCtx && overlayCanvas) {
+            overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+        }
+        updateCursor();
+        if (typeof updateEditorSaveState === 'function') updateEditorSaveState();
+        return cancellable;
+    }
+
     function handleMouseLeave(e) {
         // No-op: mousemove and mouseup are on document, so drawing
         // continues even when the cursor leaves the canvas and resumes
         // when it re-enters.
     }
 
+    function touchSpan(touches) {
+        return Math.max(1, Math.hypot(
+            touches[1].clientX - touches[0].clientX,
+            touches[1].clientY - touches[0].clientY
+        ));
+    }
+
+    function touchMidpoint(touches) {
+        return {
+            x: (touches[0].clientX + touches[1].clientX) / 2,
+            y: (touches[0].clientY + touches[1].clientY) / 2,
+        };
+    }
+
+    /**
+     * Start (or re-baseline, after a finger is added or lifted) a pinch. The
+     * one-finger gesture underneath is thrown away rather than committed --
+     * the first finger of a pinch is not an annotation.
+     */
+    function beginPinch(touches) {
+        cancelGesture({ force: true });
+        isPanning = false;
+        pinchState = {
+            startSpan: touchSpan(touches),
+            startZoom: zoomLevel,
+            lastMidpoint: touchMidpoint(touches),
+        };
+        updateCursor();
+    }
+
     function handleTouchStart(e) {
         e.preventDefault();
+        if (e.touches.length >= 2) {
+            beginPinch(e.touches);
+            return;
+        }
+        // A finger left over from a pinch must not start drawing.
+        if (pinchState) return;
+
         const touch = e.touches[0];
         const mouseEvent = new MouseEvent('mousedown', {
             clientX: touch.clientX,
@@ -609,6 +727,19 @@ const EditorCore = (() => {
 
     function handleTouchMove(e) {
         e.preventDefault();
+        if (pinchState) {
+            if (e.touches.length < 2) return;
+            const midpoint = touchMidpoint(e.touches);
+            // Two-finger drag pans; the spread zooms about the midpoint.
+            panX += midpoint.x - pinchState.lastMidpoint.x;
+            panY += midpoint.y - pinchState.lastMidpoint.y;
+            pinchState.lastMidpoint = midpoint;
+            applyTransform();
+            setZoom(pinchState.startZoom * touchSpan(e.touches) / pinchState.startSpan, midpoint.x, midpoint.y);
+            if (typeof ZoomTool !== 'undefined') ZoomTool.updateZoomDisplay();
+            return;
+        }
+
         const touch = e.touches[0];
         const mouseEvent = new MouseEvent('mousemove', {
             clientX: touch.clientX,
@@ -619,6 +750,13 @@ const EditorCore = (() => {
     }
 
     function handleTouchEnd(e) {
+        if (pinchState) {
+            if (e.touches.length >= 2) beginPinch(e.touches);
+            else if (e.touches.length === 0) pinchState = null;
+            // Exactly one finger left: hold the pinch open so it cannot draw.
+            return;
+        }
+
         const touch = e.changedTouches[0];
         const mouseEvent = new MouseEvent('mouseup', {
             clientX: touch.clientX,
@@ -777,6 +915,8 @@ const EditorCore = (() => {
         originalHeight = 0;
         wasDownscaled = false;
         baselineVersion = null;
+        baselineCanvas = null;
+        baselineCanvasVersion = null;
 
         // Reset drawing properties
         currentColor = '#44403c';
@@ -801,6 +941,7 @@ const EditorCore = (() => {
         panStartY = 0;
         panStartPanX = 0;
         panStartPanY = 0;
+        pinchState = null;
 
         // Clear undo/redo stacks
         undoStack = [];
@@ -871,6 +1012,7 @@ const EditorCore = (() => {
         syncOverlay,
         setBaselineFromCanvas,
         getBaselineRegion,
+        restoreBaselineRegion,
 
         // Tool registry
         registerTool,
@@ -891,6 +1033,9 @@ const EditorCore = (() => {
         prepareForAction,
         getHistoryStats,
         getCurrentSnapshot,
+
+        // Gesture control
+        cancelGesture,
 
         // Listener lifecycle
         attachListeners,
