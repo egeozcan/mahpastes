@@ -16,13 +16,30 @@ const AnonymizeTool = (() => {
         return v < 0 ? 0 : v > 255 ? 255 : v;
     }
 
+    /**
+     * Clip a requested region to the canvas. Clamping the origin alone would
+     * slide the region inward instead of trimming it, so a brush dab near the
+     * left or top edge would reach further right/down than the cursor.
+     */
+    function clipRegion(ctx, x, y, w, h) {
+        const left = Math.round(x);
+        const top = Math.round(y);
+        const right = Math.min(ctx.canvas.width, left + Math.round(w));
+        const bottom = Math.min(ctx.canvas.height, top + Math.round(h));
+        const clippedX = Math.max(0, left);
+        const clippedY = Math.max(0, top);
+        return {
+            x: clippedX,
+            y: clippedY,
+            w: right - clippedX,
+            h: bottom - clippedY,
+        };
+    }
+
     // --- Pixelate function ---
 
     function pixelateRegion(ctx, x, y, w, h, blockSize) {
-        x = Math.max(0, Math.round(x));
-        y = Math.max(0, Math.round(y));
-        w = Math.min(ctx.canvas.width - x, Math.round(w));
-        h = Math.min(ctx.canvas.height - y, Math.round(h));
+        ({ x, y, w, h } = clipRegion(ctx, x, y, w, h));
         if (w <= 0 || h <= 0) return;
 
         const imageData = ctx.getImageData(x, y, w, h);
@@ -55,10 +72,7 @@ const AnonymizeTool = (() => {
     // --- Blur function ---
 
     function blurRegion(ctx, x, y, w, h, radius) {
-        x = Math.max(0, Math.round(x));
-        y = Math.max(0, Math.round(y));
-        w = Math.min(ctx.canvas.width - x, Math.round(w));
-        h = Math.min(ctx.canvas.height - y, Math.round(h));
+        ({ x, y, w, h } = clipRegion(ctx, x, y, w, h));
         if (w <= 0 || h <= 0) return;
 
         const imageData = ctx.getImageData(x, y, w, h);

@@ -1114,7 +1114,8 @@ test.describe('Advanced Editor Tools', () => {
         await expect(app.page.locator(selectors.editor.modal)).toHaveCSS('transition-duration', '0s');
         await app.setZoom('100');
         await app.page.keyboard.press('ControlOrMeta+=');
-        await expect(app.page.locator(selectors.editor.zoomDisplay)).toHaveText('110%');
+        // Zoom steps are proportional, so one step up from 100% is 125%.
+        await expect(app.page.locator(selectors.editor.zoomDisplay)).toHaveText('125%');
         await app.page.keyboard.press('ControlOrMeta+-');
         await expect(app.page.locator(selectors.editor.zoomDisplay)).toHaveText('100%');
         await app.page.keyboard.press('ControlOrMeta+0');
@@ -1193,6 +1194,144 @@ test.describe('Advanced Editor Tools', () => {
 
       const newSize = await app.page.locator(selectors.editor.brushSize).inputValue();
       expect(parseInt(newSize, 10)).toBeLessThan(parseInt(increasedSize, 10));
+    });
+  });
+
+  // ==================== Proportional Zoom Stepping ====================
+
+  test.describe('Zoom Stepping', () => {
+    test('should step zoom multiplicatively rather than by a fixed amount', async ({ app }) => {
+      const imagePath = await createTempFile(generateTestImage(200, 200), 'png');
+      const filename = path.basename(imagePath);
+      await app.uploadFile(imagePath);
+      await app.openImageEditor(filename);
+
+      await app.setZoom('100');
+      expect(await app.getZoomLevel()).toBe('100%');
+
+      await app.setZoom('in');
+      expect(await app.getZoomLevel()).toBe('125%');
+
+      await app.setZoom('out');
+      expect(await app.getZoomLevel()).toBe('100%');
+
+      await app.setZoom('out');
+      expect(await app.getZoomLevel()).toBe('80%');
+    });
+
+    test('should shrink zoom by a constant ratio on every step', async ({ app }) => {
+      const imagePath = await createTempFile(generateTestImage(200, 200), 'png');
+      const filename = path.basename(imagePath);
+      await app.uploadFile(imagePath);
+      await app.openImageEditor(filename);
+
+      await app.setZoom('100');
+
+      const levels: number[] = [];
+      for (let i = 0; i < 4; i++) {
+        await app.setZoom('out');
+        levels.push(await app.getInternalZoomLevel());
+      }
+
+      // Proportional stepping divides by the same factor every time. Subtracting
+      // a fixed 0.1 gives a ratio that drifts (0.900, 0.889, 0.875, 0.857) and
+      // eventually dies on the 0.1 clamp floor, so pinning the ratio is what
+      // separates the two -- a "still decreasing" check does not, because the
+      // additive walk lands on 0.10000000000000014 rather than exactly 0.1.
+      let previous = 1;
+      for (const level of levels) {
+        expect(level / previous).toBeCloseTo(0.8, 2);
+        previous = level;
+      }
+    });
+  });
+
+  // ==================== Anonymize Region Clipping ====================
+
+  test.describe('Anonymize Region Clipping', () => {
+    test('should trim an edge dab to the canvas instead of sliding it inward', async ({ app }) => {
+      const imagePath = await createTempFile(generateTestImage(200, 200, 'white'), 'png');
+      const filename = path.basename(imagePath);
+      await app.uploadFile(imagePath);
+      await app.openImageEditor(filename);
+
+      await app.setZoom('100');
+      await app.selectTool('anonymize');
+      await app.page.locator(selectors.editor.anonBrush).click();
+      await app.page.locator(selectors.editor.anonPixelate).click();
+      await app.setBrushSize(8);
+
+      // The dab spans cx +/- 16, so at cx = 2 it starts 14px off the left edge.
+      // Clamping only the origin would slide the whole 32px-wide region inward
+      // and reach x = 31; trimming stops it at x = 17.
+      await app.page.locator(selectors.editor.canvas).click({ position: { x: 2, y: 100 } });
+
+      const extent = await app.getChangedPixelExtent('#ffffff');
+      expect(extent).not.toBeNull();
+      expect(extent!.maxX).toBeLessThanOrEqual(18);
+    });
+  });
+
+  // ==================== Shape Constraints ====================
+
+  test.describe('Shape Constraints', () => {
+    test('should draw a free rectangle when shift is not held', async ({ app }) => {
+      const imagePath = await createTempFile(generateTestImage(200, 200, 'white'), 'png');
+      const filename = path.basename(imagePath);
+      await app.uploadFile(imagePath);
+      await app.openImageEditor(filename);
+
+      // 1:1 with no pan, so the drag distances below are canvas pixels.
+      await app.setZoom('100');
+      await app.selectTool('rectangle');
+      await app.setEditorColor('#0000ff');
+      await app.setBrushSize(2);
+      await app.drawOnCanvas({ x: 40, y: 40 }, { x: 160, y: 90 });
+
+      const bounds = await app.getPaintedBounds('#0000ff');
+      expect(bounds).not.toBeNull();
+      // The drag is 120x50, so the painted box must stay clearly oblong.
+      expect(bounds!.width).toBeGreaterThan(bounds!.height * 1.5);
+    });
+
+    test('should constrain the rectangle to a square while shift is held', async ({ app }) => {
+      const imagePath = await createTempFile(generateTestImage(200, 200, 'white'), 'png');
+      const filename = path.basename(imagePath);
+      await app.uploadFile(imagePath);
+      await app.openImageEditor(filename);
+
+      // 1:1 with no pan, so the drag distances below are canvas pixels.
+      await app.setZoom('100');
+      await app.selectTool('rectangle');
+      await app.setEditorColor('#0000ff');
+      await app.setBrushSize(2);
+
+      const box = await app.page.locator(selectors.editor.canvas).boundingBox();
+      if (!box) throw new Error('Canvas not visible');
+      await app.page.keyboard.down('Shift');
+      try {
+        await app.page.mouse.move(box.x + 40, box.y + 40);
+        await app.page.mouse.down();
+        await app.page.mouse.move(box.x + 160, box.y + 90);
+        await app.page.mouse.up();
+      } finally {
+        await app.page.keyboard.up('Shift');
+      }
+
+      const bounds = await app.getPaintedBounds('#0000ff');
+      expect(bounds).not.toBeNull();
+      // Same 120x50 drag, squared off to the longer axis and still anchored at
+      // the press point -- asserting only "width == height" would accept a
+      // square of any size drawn anywhere.
+      expect(Math.abs(bounds!.width - bounds!.height)).toBeLessThanOrEqual(4);
+      expect(bounds!.width).toBeGreaterThanOrEqual(118);
+      expect(bounds!.width).toBeLessThanOrEqual(128);
+      expect(bounds!.height).toBeGreaterThanOrEqual(118);
+      expect(bounds!.height).toBeLessThanOrEqual(128);
+      expect(bounds!.x).toBeGreaterThanOrEqual(37);
+      expect(bounds!.x).toBeLessThanOrEqual(42);
+      expect(bounds!.y).toBeGreaterThanOrEqual(37);
+      expect(bounds!.y).toBeLessThanOrEqual(42);
     });
   });
 });

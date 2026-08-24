@@ -157,7 +157,7 @@ const EditorCore = (() => {
     }
 
     /**
-     * Set zoom level, clamped to [0.1, 10].
+     * Set zoom level, clamped to [0.1, 8].
      */
     function setZoom(level, clientX, clientY) {
         const newZoom = Math.max(0.1, Math.min(8, level));
@@ -361,8 +361,11 @@ const EditorCore = (() => {
 
     function imageDataEquals(a, b) {
         if (!a || !b || a.width !== b.width || a.height !== b.height || a.data.length !== b.data.length) return false;
-        const left = a.data;
-        const right = b.data;
+        // Compared through 32-bit views: one RGBA pixel per iteration instead of
+        // one channel, which matters because every stroke commit runs this over
+        // the whole canvas (up to 4000x4000 = 64M channels).
+        const left = new Uint32Array(a.data.buffer, a.data.byteOffset, a.data.length / 4);
+        const right = new Uint32Array(b.data.buffer, b.data.byteOffset, b.data.length / 4);
         for (let i = 0; i < left.length; i++) {
             if (left[i] !== right[i]) return false;
         }

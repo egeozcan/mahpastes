@@ -1,13 +1,16 @@
 const ZoomTool = (() => {
-    const ZOOM_STEP = 0.1;
+    // Multiplicative, like the wheel handler: a fixed additive step is a 100%
+    // jump when zoomed out to 0.1 and a 1% nudge at 8x, and stepping down from
+    // a small fit-zoom would hit the clamp floor after one or two clicks.
+    const ZOOM_FACTOR = 1.25;
 
     function zoomIn() {
-        EditorCore.setZoom(EditorCore.zoomLevel + ZOOM_STEP);
+        EditorCore.setZoom(EditorCore.zoomLevel * ZOOM_FACTOR);
         updateZoomDisplay();
     }
 
     function zoomOut() {
-        EditorCore.setZoom(EditorCore.zoomLevel - ZOOM_STEP);
+        EditorCore.setZoom(EditorCore.zoomLevel / ZOOM_FACTOR);
         updateZoomDisplay();
     }
 

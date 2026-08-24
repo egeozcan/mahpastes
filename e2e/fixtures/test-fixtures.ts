@@ -1123,6 +1123,102 @@ export class AppHelper {
     return await this.page.locator(selectors.editor.zoomDisplay).textContent() || '';
   }
 
+  /** Unrounded zoom factor, for assertions the 0%-precision display cannot make. */
+  async getInternalZoomLevel(): Promise<number> {
+    return this.page.evaluate(() => {
+      // @ts-ignore - EditorCore is a global
+      return EditorCore.zoomLevel as number;
+    });
+  }
+
+  /**
+   * Extent, in canvas pixels, of everything on the canvas that is *not*
+   * `hexColor`. Lets a test bound where an effect reached on a flat-colour
+   * image. Returns null when nothing differs.
+   */
+  async getChangedPixelExtent(
+    hexColor: string
+  ): Promise<{ minX: number; maxX: number; minY: number; maxY: number } | null> {
+    return this.page.evaluate(
+      ({ sel, hex }) => {
+        const canvas = document.querySelector(sel) as HTMLCanvasElement | null;
+        if (!canvas) return null;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return null;
+        const base = [
+          parseInt(hex.slice(1, 3), 16),
+          parseInt(hex.slice(3, 5), 16),
+          parseInt(hex.slice(5, 7), 16),
+        ];
+        const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (let i = 0; i < data.length; i += 4) {
+          if (
+            data[i] !== base[0] ||
+            data[i + 1] !== base[1] ||
+            data[i + 2] !== base[2]
+          ) {
+            const pixel = i / 4;
+            const x = pixel % canvas.width;
+            const y = Math.floor(pixel / canvas.width);
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
+          }
+        }
+        if (minX === Infinity) return null;
+        return { minX, maxX, minY, maxY };
+      },
+      { sel: selectors.editor.canvas, hex: hexColor }
+    );
+  }
+
+  /**
+   * Bounding box, in canvas pixels, of everything drawn in `hexColor`.
+   * Returns null when the colour is absent. Channels are matched with a
+   * tolerance because the canvas composites annotations onto the image.
+   */
+  async getPaintedBounds(
+    hexColor: string,
+    tolerance = 40
+  ): Promise<{ x: number; y: number; width: number; height: number } | null> {
+    return this.page.evaluate(
+      ({ sel, hex, tol }) => {
+        const canvas = document.querySelector(sel) as HTMLCanvasElement | null;
+        if (!canvas) return null;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return null;
+        const target = [
+          parseInt(hex.slice(1, 3), 16),
+          parseInt(hex.slice(3, 5), 16),
+          parseInt(hex.slice(5, 7), 16),
+        ];
+        const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (let i = 0; i < data.length; i += 4) {
+          if (
+            Math.abs(data[i] - target[0]) <= tol &&
+            Math.abs(data[i + 1] - target[1]) <= tol &&
+            Math.abs(data[i + 2] - target[2]) <= tol &&
+            data[i + 3] > 0
+          ) {
+            const pixel = i / 4;
+            const x = pixel % canvas.width;
+            const y = Math.floor(pixel / canvas.width);
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
+          }
+        }
+        if (minX === Infinity) return null;
+        return { x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1 };
+      },
+      { sel: selectors.editor.canvas, hex: hexColor, tol: tolerance }
+    );
+  }
+
   async cropImage(from: Point, to: Point): Promise<void> {
     await this.selectTool('crop');
     await this.drawOnCanvas(from, to);

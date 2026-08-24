@@ -27,11 +27,43 @@ const ShapeTools = (() => {
     }
 
     /**
+     * Resolve the rectangle for a drag, optionally constrained to a square.
+     * Shared by the preview and the committed shape so identical inputs always
+     * produce identical geometry. It does not make the two agree outright:
+     * each caller samples `shiftKey` from its own event, so toggling Shift
+     * between the last move and mouse-up still commits a shape the preview
+     * never showed -- the same pre-existing gap the line tool's 45-degree
+     * snapping has.
+     * @param {number} sx - Start X
+     * @param {number} sy - Start Y
+     * @param {number} endX - Current X
+     * @param {number} endY - Current Y
+     * @param {boolean} square - Whether shift is held (constrain to a square)
+     * @returns {{x: number, y: number, width: number, height: number}}
+     */
+    function rectFrom(sx, sy, endX, endY, square) {
+        let dx = endX - sx;
+        let dy = endY - sy;
+        if (square) {
+            const side = Math.max(Math.abs(dx), Math.abs(dy));
+            dx = (dx < 0 ? -side : side);
+            dy = (dy < 0 ? -side : side);
+        }
+        return {
+            x: Math.min(sx, sx + dx),
+            y: Math.min(sy, sy + dy),
+            width: Math.abs(dx),
+            height: Math.abs(dy),
+        };
+    }
+
+    /**
      * Draw a dashed preview shape on the overlay canvas.
      * @param {string} shapeType - 'line', 'rectangle', or 'circle'
      * @param {number} endX - Current mouse X in canvas space
      * @param {number} endY - Current mouse Y in canvas space
-     * @param {boolean} snap - Whether shift is held (snap line to 45 degrees)
+     * @param {boolean} snap - Whether shift is held (snaps a line to 45 degrees,
+     *                          constrains a rectangle to a square)
      */
     function drawPreview(shapeType, endX, endY, snap) {
         const oc = EditorCore.overlayCtx;
@@ -42,6 +74,7 @@ const ShapeTools = (() => {
         const sy = EditorCore.startY;
 
         oc.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+        oc.save();
         oc.globalAlpha = EditorCore.currentOpacity * 0.5;
         oc.strokeStyle = EditorCore.currentColor;
         oc.lineWidth = EditorCore.brushSize;
@@ -54,16 +87,17 @@ const ShapeTools = (() => {
                 finalX = snapped.x;
                 finalY = snapped.y;
             }
+            // Matches drawFinal, so a thick line does not grow blunt ends the
+            // moment it is committed.
+            oc.lineCap = 'round';
             oc.beginPath();
             oc.moveTo(sx, sy);
             oc.lineTo(finalX, finalY);
             oc.stroke();
         } else if (shapeType === 'rectangle') {
+            const rect = rectFrom(sx, sy, endX, endY, snap);
             oc.beginPath();
-            oc.rect(
-                Math.min(sx, endX), Math.min(sy, endY),
-                Math.abs(endX - sx), Math.abs(endY - sy)
-            );
+            oc.rect(rect.x, rect.y, rect.width, rect.height);
             oc.stroke();
         } else if (shapeType === 'circle') {
             const radius = Math.sqrt(
@@ -74,8 +108,7 @@ const ShapeTools = (() => {
             oc.stroke();
         }
 
-        oc.setLineDash([]);
-        oc.globalAlpha = 1;
+        oc.restore();
     }
 
     /**
@@ -83,7 +116,7 @@ const ShapeTools = (() => {
      * @param {string} shapeType - 'line', 'rectangle', or 'circle'
      * @param {number} endX - End X in canvas space
      * @param {number} endY - End Y in canvas space
-     * @param {boolean} snap - Whether shift is held
+     * @param {boolean} snap - Whether shift is held (see drawPreview)
      */
     function drawFinal(shapeType, endX, endY, snap) {
         const ctx = EditorCore.ctx;
@@ -110,11 +143,9 @@ const ShapeTools = (() => {
             ctx.lineTo(finalX, finalY);
             ctx.stroke();
         } else if (shapeType === 'rectangle') {
+            const rect = rectFrom(sx, sy, endX, endY, snap);
             ctx.beginPath();
-            ctx.rect(
-                Math.min(sx, endX), Math.min(sy, endY),
-                Math.abs(endX - sx), Math.abs(endY - sy)
-            );
+            ctx.rect(rect.x, rect.y, rect.width, rect.height);
             ctx.stroke();
         } else if (shapeType === 'circle') {
             const radius = Math.sqrt(
