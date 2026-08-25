@@ -73,6 +73,12 @@ const TagAutocomplete = (() => {
         // Default true to preserve existing behavior at every current callsite.
         // Merge-tag modal passes false because merge requires an existing tag.
         const allowCreate = opts.allowCreate !== false;
+        // 'down' (default) keeps every existing callsite exactly as it was —
+        // they all live in short modals with nothing below to collide with.
+        // 'auto' flips the dropdown above the input when there is not enough
+        // room beneath it, which a tall scrolling modal needs.
+        const placement = (opts.placement === 'auto' || opts.placement === 'up')
+            ? opts.placement : 'down';
 
         // Dropdown element, injected as sibling of the input so we can position it
         // absolutely. Its parent is expected to be `position: relative`.
@@ -174,8 +180,31 @@ const TagAutocomplete = (() => {
             }
             activeIndex = items.length > 0 ? 0 : -1;
             renderDropdown();
+            applyPlacement();
             dropdown.classList.remove('hidden');
             open = true;
+        }
+
+        // Decide which side of the input to open on. Measured at open time
+        // rather than once at attach, because the input moves: the wizard's
+        // review pane scrolls and the modal is sized against the viewport.
+        function applyPlacement() {
+            if (placement === 'down') return;
+
+            let openUp = placement === 'up';
+            if (placement === 'auto') {
+                // max-h-56 is 14rem; assume the worst case so a long list does
+                // not open downward and then overflow.
+                const maxHeight = 224;
+                const rect = input.getBoundingClientRect();
+                const spaceBelow = window.innerHeight - rect.bottom;
+                const spaceAbove = rect.top;
+                openUp = spaceBelow < maxHeight + 16 && spaceAbove > spaceBelow;
+            }
+
+            dropdown.classList.toggle('mt-1', !openUp);
+            dropdown.classList.toggle('bottom-full', openUp);
+            dropdown.classList.toggle('mb-1', openUp);
         }
 
         function closeDropdown() {

@@ -1969,9 +1969,13 @@
                 </div>
             </div>
 
-            <!-- Pane 2: review -->
-            <div id="import-review-pane" class="hidden flex-1 overflow-y-auto p-5 space-y-4">
-                <div>
+            <!-- Pane 2: review.
+                 Only the preview/details block scrolls. The decision controls
+                 are pinned below it: they were inside the scroll area, which
+                 clipped the tag dropdown against the pane's bottom edge and
+                 made opening it scroll the file details out of view. -->
+            <div id="import-review-pane" class="hidden flex-1 min-h-0 flex flex-col">
+                <div class="p-5 pb-3 shrink-0">
                     <div class="flex justify-between items-baseline mb-1.5">
                         <span id="import-position" data-testid="import-position"
                             class="text-[10px] font-medium text-stone-400 uppercase tracking-wide"></span>
@@ -1982,18 +1986,31 @@
                     </div>
                 </div>
 
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div id="import-preview" data-testid="import-preview"
-                        class="bg-stone-50 border border-stone-200 rounded-md min-h-[10rem] flex items-center justify-center overflow-hidden p-2"></div>
-                    <div class="space-y-3 min-w-0">
-                        <div id="import-file-details" data-testid="import-file-details" class="space-y-1 min-w-0"></div>
-                        <div id="import-exif" data-testid="import-exif" class="hidden"></div>
-                        <div id="import-duplicates" data-testid="import-duplicates" class="hidden"></div>
-                        <div id="import-file-error" data-testid="import-file-error" class="hidden"></div>
+                <div class="flex-1 min-h-0 overflow-y-auto px-5 pb-4">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div id="import-preview" data-testid="import-preview"
+                            class="bg-stone-50 border border-stone-200 rounded-md min-h-[10rem] flex items-center justify-center overflow-hidden p-2"></div>
+                        <div class="space-y-3 min-w-0">
+                            <div id="import-file-details" data-testid="import-file-details" class="space-y-1 min-w-0"></div>
+                            <div id="import-exif" data-testid="import-exif" class="hidden"></div>
+                            <div id="import-duplicates" data-testid="import-duplicates" class="hidden"></div>
+                            <div id="import-file-error" data-testid="import-file-error" class="hidden"></div>
+                        </div>
                     </div>
                 </div>
 
-                <div class="border-t border-stone-100 pt-4 space-y-3">
+                <!-- Tag sits ABOVE the actions on purpose. Its dropdown opens
+                     upward, over the scrollable details; the other way round it
+                     covered the very buttons the user reaches for next. The
+                     reading order matches the flow too: name the tag, then say
+                     what to do with the file. -->
+                <div class="shrink-0 border-t border-stone-100 p-5 pt-4 space-y-3">
+                    <div class="relative">
+                        <label for="import-tag-input" class="block text-[10px] font-medium text-stone-400 uppercase tracking-wide mb-1">Tag</label>
+                        <input type="text" id="import-tag-input" data-testid="import-tag-input" autocomplete="off"
+                            placeholder="Untagged"
+                            class="block w-full border border-stone-200 rounded-md text-sm bg-white placeholder-stone-400 focus:outline-none focus:border-stone-400 focus:ring-1 focus:ring-stone-400/20 transition-colors px-3 py-2">
+                    </div>
                     <div class="grid grid-cols-2 sm:grid-cols-4 gap-2" role="group" aria-label="Action for this file">
                         <button data-import-action="import" data-testid="import-action-import"
                             class="import-action-btn border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-xs font-medium py-2 px-3 rounded-md transition-colors">Import</button>
@@ -2003,12 +2020,6 @@
                             class="import-action-btn border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-xs font-medium py-2 px-3 rounded-md transition-colors">Import + Delete</button>
                         <button data-import-action="skip" data-testid="import-action-skip"
                             class="import-action-btn border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-xs font-medium py-2 px-3 rounded-md transition-colors">Skip</button>
-                    </div>
-                    <div class="relative">
-                        <label for="import-tag-input" class="block text-[10px] font-medium text-stone-400 uppercase tracking-wide mb-1">Tag</label>
-                        <input type="text" id="import-tag-input" data-testid="import-tag-input" autocomplete="off"
-                            placeholder="Untagged"
-                            class="block w-full border border-stone-200 rounded-md text-sm bg-white placeholder-stone-400 focus:outline-none focus:border-stone-400 focus:ring-1 focus:ring-stone-400/20 transition-colors px-3 py-2">
                     </div>
                 </div>
             </div>

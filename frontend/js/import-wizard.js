@@ -1034,6 +1034,11 @@ const ImportWizard = (() => {
     function attachAutocomplete() {
         if (tagAutocomplete || !tagInput || typeof TagAutocomplete === 'undefined') return;
         tagAutocomplete = TagAutocomplete.attach(tagInput, {
+            // Always upward: the input is pinned near the bottom of a tall
+            // modal, and opening downward would cover the action buttons
+            // directly beneath it. Upward lands over the scrollable details,
+            // which nothing is clicking.
+            placement: 'up',
             onSelect: (value) => {
                 tagInput.value = value;
                 const entry = currentEntry();
