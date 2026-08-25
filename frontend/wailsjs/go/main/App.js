@@ -14,6 +14,10 @@ export function BackupInspect(arg1) {
   return window['go']['main']['App']['BackupInspect'](arg1);
 }
 
+export function BeginImportSession(arg1) {
+  return window['go']['main']['App']['BeginImportSession'](arg1);
+}
+
 export function BulkAddTag(arg1, arg2) {
   return window['go']['main']['App']['BulkAddTag'](arg1, arg2);
 }
@@ -104,6 +108,10 @@ export function DeleteClipMetadata(arg1, arg2) {
 
 export function DeleteTag(arg1) {
   return window['go']['main']['App']['DeleteTag'](arg1);
+}
+
+export function EndImportSession() {
+  return window['go']['main']['App']['EndImportSession']();
 }
 
 export function FindClipsByFilenameAndTag(arg1, arg2) {
@@ -214,6 +222,14 @@ export function GetWatchedFolders() {
   return window['go']['main']['App']['GetWatchedFolders']();
 }
 
+export function ImportApply(arg1) {
+  return window['go']['main']['App']['ImportApply'](arg1);
+}
+
+export function ImportInspect(arg1) {
+  return window['go']['main']['App']['ImportInspect'](arg1);
+}
+
 export function IsDirectory(arg1) {
   return window['go']['main']['App']['IsDirectory'](arg1);
 }
@@ -316,6 +332,10 @@ export function ShowCreateBackupDialog() {
 
 export function ShowRestoreBackupDialog() {
   return window['go']['main']['App']['ShowRestoreBackupDialog']();
+}
+
+export function StartImportSession(arg1, arg2) {
+  return window['go']['main']['App']['StartImportSession'](arg1, arg2);
 }
 
 export function ToggleArchive(arg1) {

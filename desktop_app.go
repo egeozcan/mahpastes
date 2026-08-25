@@ -42,6 +42,7 @@ type desktopCore interface {
 	DeleteClip(id int64) error
 	DeleteClipMetadata(clipID int64, key string) error
 	DeleteTag(id int64) error
+	EndImportSession() error
 	FindClipsByFilenameAndTag(filenames []string, tagID int64) ([]coreapp.ClipMatch, error)
 	GetChildTags(tagID int64) ([]coreapp.Tag, error)
 	GetClipData(id int64) (*coreapp.ClipData, error)
@@ -67,6 +68,8 @@ type desktopCore interface {
 	GetWatchStatus() coreapp.WatchStatus
 	GetWatchedFolderByID(id int64) (*coreapp.WatchedFolder, error)
 	GetWatchedFolders() ([]coreapp.WatchedFolder, error)
+	ImportApply(decisions []coreapp.ImportDecision) (*coreapp.ImportApplySummary, error)
+	ImportInspect(relPath string) (*coreapp.ImportInspection, error)
 	MergeDuplicates(clipID int64) error
 	MergeTag(sourceID, destID int64) error
 	PreviewMergeTag(sourceID, destID int64) (coreapp.MergeTagPreview, error)
@@ -86,6 +89,7 @@ type desktopCore interface {
 	SetGlobalWatchPaused(paused bool) error
 	SetHiddenTags(ids []int64) error
 	SetSetting(key string, value string) error
+	StartImportSession(root string, recursive bool) (*coreapp.ImportScanResult, error)
 	ToggleArchive(id int64) error
 	UpdateClipData(id int64, contentType string, base64Data string, filename string) error
 	UpdateTag(id int64, name, color string) error
@@ -323,6 +327,30 @@ func (d *App) SelectFolder() (string, error) {
 		return "", fmt.Errorf("failed to open folder dialog: %w", err)
 	}
 	return path, nil
+}
+
+// BeginImportSession opens the folder picker and scans the chosen folder.
+// Returns (nil, nil) when the user cancels.
+//
+// The picker result never round-trips through JS, so the normal path never
+// accepts a caller-supplied root. StartImportSession stays bound separately
+// because Playwright cannot dismiss a native folder dialog and the e2e suite
+// has to drive the wizard against a temp directory.
+func (d *App) BeginImportSession(recursive bool) (*coreapp.ImportScanResult, error) {
+	path, err := d.bridge.OpenDirectory(wailsbridge.FileDialogOptions{
+		Title: "Select Folder to Import",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to open folder dialog: %w", err)
+	}
+	if path == "" {
+		return nil, nil
+	}
+	// Approve through the concrete core, not the embedded interface: this
+	// method is not bound to JS, so the approval cannot be forged from the
+	// frontend. StartImportSession then accepts this root (and only this root).
+	d.core.ApproveImportRoot(path)
+	return d.core.StartImportSession(path, recursive)
 }
 
 func (d *App) IsDirectory(path string) bool {

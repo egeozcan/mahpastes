@@ -405,6 +405,282 @@ export namespace app {
 	        this.tags = source["tags"];
 	    }
 	}
+	export class ImportApplyResult {
+	    rel_path: string;
+	    action: string;
+	    clip_id: number;
+	    tag_id: number;
+	    imported: boolean;
+	    trashed: boolean;
+	    status: string;
+	    error: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ImportApplyResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.rel_path = source["rel_path"];
+	        this.action = source["action"];
+	        this.clip_id = source["clip_id"];
+	        this.tag_id = source["tag_id"];
+	        this.imported = source["imported"];
+	        this.trashed = source["trashed"];
+	        this.status = source["status"];
+	        this.error = source["error"];
+	    }
+	}
+	export class ImportApplySummary {
+	    results: ImportApplyResult[];
+	    imported: number;
+	    trashed: number;
+	    skipped: number;
+	    failed: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ImportApplySummary(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.results = this.convertValues(source["results"], ImportApplyResult);
+	        this.imported = source["imported"];
+	        this.trashed = source["trashed"];
+	        this.skipped = source["skipped"];
+	        this.failed = source["failed"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ImportDecision {
+	    rel_path: string;
+	    action: string;
+	    tag_name: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ImportDecision(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.rel_path = source["rel_path"];
+	        this.action = source["action"];
+	        this.tag_name = source["tag_name"];
+	    }
+	}
+	export class ImportDuplicate {
+	    clip_id: number;
+	    filename: string;
+	    // Go type: time
+	    created_at: any;
+	    is_archived: boolean;
+	    tags: Tag[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ImportDuplicate(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.clip_id = source["clip_id"];
+	        this.filename = source["filename"];
+	        this.created_at = this.convertValues(source["created_at"], null);
+	        this.is_archived = source["is_archived"];
+	        this.tags = this.convertValues(source["tags"], Tag);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ImportInspection {
+	    rel_path: string;
+	    name: string;
+	    dir: string;
+	    size: number;
+	    // Go type: time
+	    mod_time: any;
+	    content_type: string;
+	    content_hash: string;
+	    preview_data: string;
+	    preview_omitted: string;
+	    exif?: imagemeta.EXIF;
+	    duplicates: ImportDuplicate[];
+	    suggested_tag: string;
+	    error: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ImportInspection(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.rel_path = source["rel_path"];
+	        this.name = source["name"];
+	        this.dir = source["dir"];
+	        this.size = source["size"];
+	        this.mod_time = this.convertValues(source["mod_time"], null);
+	        this.content_type = source["content_type"];
+	        this.content_hash = source["content_hash"];
+	        this.preview_data = source["preview_data"];
+	        this.preview_omitted = source["preview_omitted"];
+	        this.exif = this.convertValues(source["exif"], imagemeta.EXIF);
+	        this.duplicates = this.convertValues(source["duplicates"], ImportDuplicate);
+	        this.suggested_tag = source["suggested_tag"];
+	        this.error = source["error"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ImportScanEntry {
+	    rel_path: string;
+	    name: string;
+	    dir: string;
+	    size: number;
+	    // Go type: time
+	    mod_time: any;
+	    content_type: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ImportScanEntry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.rel_path = source["rel_path"];
+	        this.name = source["name"];
+	        this.dir = source["dir"];
+	        this.size = source["size"];
+	        this.mod_time = this.convertValues(source["mod_time"], null);
+	        this.content_type = source["content_type"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ImportScanSkipped {
+	    dotted: number;
+	    symlinks: number;
+	    non_regular: number;
+	    app_temp: number;
+	    unreadable: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ImportScanSkipped(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.dotted = source["dotted"];
+	        this.symlinks = source["symlinks"];
+	        this.non_regular = source["non_regular"];
+	        this.app_temp = source["app_temp"];
+	        this.unreadable = source["unreadable"];
+	    }
+	}
+	export class ImportScanResult {
+	    root: string;
+	    recursive: boolean;
+	    entries: ImportScanEntry[];
+	    truncated: boolean;
+	    skipped: ImportScanSkipped;
+	    trash_recoverable: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ImportScanResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.root = source["root"];
+	        this.recursive = source["recursive"];
+	        this.entries = this.convertValues(source["entries"], ImportScanEntry);
+	        this.truncated = source["truncated"];
+	        this.skipped = this.convertValues(source["skipped"], ImportScanSkipped);
+	        this.trash_recoverable = source["trash_recoverable"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
 	export class MarkdownCachedImageResult {
 	    hit: boolean;
 	    content_type?: string;
@@ -974,6 +1250,71 @@ export namespace app {
 	        this.auto_archive = source["auto_archive"];
 	        this.auto_tag_id = source["auto_tag_id"];
 	    }
+	}
+
+}
+
+export namespace imagemeta {
+	
+	export class GPS {
+	    latitude: number;
+	    longitude: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new GPS(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.latitude = source["latitude"];
+	        this.longitude = source["longitude"];
+	    }
+	}
+	export class EXIF {
+	    camera_make?: string;
+	    camera_model?: string;
+	    lens?: string;
+	    iso?: number;
+	    aperture?: number;
+	    shutter_speed?: number;
+	    focal_length?: number;
+	    date?: string;
+	    gps?: GPS;
+	
+	    static createFrom(source: any = {}) {
+	        return new EXIF(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.camera_make = source["camera_make"];
+	        this.camera_model = source["camera_model"];
+	        this.lens = source["lens"];
+	        this.iso = source["iso"];
+	        this.aperture = source["aperture"];
+	        this.shutter_speed = source["shutter_speed"];
+	        this.focal_length = source["focal_length"];
+	        this.date = source["date"];
+	        this.gps = this.convertValues(source["gps"], GPS);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 
 }

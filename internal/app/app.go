@@ -14,6 +14,7 @@ import (
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
+	"io"
 	"log"
 	"mime"
 	"os"
@@ -60,6 +61,19 @@ type App struct {
 	shareManager     *ShareManager
 	markdownCache    *markdownImageCache
 	markdownLoader   *markdownRemoteImageLoader
+
+	// importSession scopes the folder-import wizard's path-taking methods to
+	// one user-picked folder. Guarded by importMu rather than mu because
+	// ImportApply holds it across a long run of file I/O and must not block
+	// unrelated clip operations. See import_wizard.go.
+	importMu      sync.Mutex
+	importSession *importSession
+	// importApprovedRoot is the folder the user last chose in the native
+	// picker. See ApproveImportRoot in import_wizard.go.
+	importApprovedRoot string
+	// importGeneration is bumped whenever a session is torn down, so a scan
+	// that finishes afterwards can tell it is stale.
+	importGeneration uint64
 
 	// pluginsReady reports that Bootstrap has finished attempting to load
 	// plugins. Until then an empty action set is ambiguous — it could mean
@@ -199,6 +213,18 @@ func (a *App) InitTempStore(dataDir string) error {
 func computeContentHash(data []byte) string {
 	hash := sha256.Sum256(data)
 	return hex.EncodeToString(hash[:])
+}
+
+// computeContentHashReader is computeContentHash over a stream, for callers
+// that must not hold the whole file in memory. It produces byte-identical
+// output, so hashes from the two are directly comparable against the
+// clips.content_hash column.
+func computeContentHashReader(r io.Reader) (string, error) {
+	h := sha256.New()
+	if _, err := io.Copy(h, r); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // isSQLiteNoSuchTable returns true when err is the SQLite "no such table"

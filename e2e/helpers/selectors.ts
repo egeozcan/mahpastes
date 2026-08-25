@@ -575,6 +575,53 @@ export const selectors = {
     clearMarkdownCacheButton: '#maintenance-clear-markdown-cache-btn',
   },
 
+  // Import Folder wizard
+  importWizard: {
+    drawerButton: '[data-testid="open-import-btn"]',
+    modal: '[data-testid="import-wizard-modal"]',
+    closeButton: '[data-testid="import-close"]',
+    stepLabel: '[data-testid="import-step-label"]',
+
+    // Setup pane
+    setupPane: '#import-setup-pane',
+    rootPath: '[data-testid="import-root-path"]',
+    recursiveToggle: '[data-testid="import-recursive"]',
+    scanSummary: '[data-testid="import-scan-summary"]',
+    truncatedNote: '[data-testid="import-truncated-note"]',
+    trashWarning: '[data-testid="import-trash-warning"]',
+    startButton: '[data-testid="import-start"]',
+
+    // Review pane
+    reviewPane: '#import-review-pane',
+    position: '[data-testid="import-position"]',
+    preview: '[data-testid="import-preview"]',
+    fileDetails: '[data-testid="import-file-details"]',
+    exif: '[data-testid="import-exif"]',
+    duplicates: '[data-testid="import-duplicates"]',
+    duplicateRow: '[data-testid="import-duplicate-row"]',
+    fileError: '[data-testid="import-file-error"]',
+    tagInput: '[data-testid="import-tag-input"]',
+    // action is one of: import | delete | both | skip
+    action: (action: string) => `[data-testid="import-action-${action}"]`,
+    prevButton: '[data-testid="import-prev"]',
+    nextButton: '[data-testid="import-next"]',
+    repeatButton: '[data-testid="import-repeat"]',
+    summaryButton: '[data-testid="import-goto-summary"]',
+
+    // Summary pane
+    summaryPane: '#import-summary-pane',
+    summaryCounts: '[data-testid="import-summary-counts"]',
+    summaryList: '[data-testid="import-summary-list"]',
+    summaryRow: '[data-testid="import-summary-row"]',
+    summaryRowByPath: (relPath: string) =>
+      `[data-testid="import-summary-row"][data-rel-path="${relPath}"]`,
+    rowAction: '[data-testid="import-row-action"]',
+    rowStatus: '[data-testid="import-row-status"]',
+    backButton: '[data-testid="import-back"]',
+    applyButton: '[data-testid="import-apply"]',
+    doneButton: '[data-testid="import-done"]',
+  },
+
   // Tooltips
   tooltips: {
     anyTooltip: '[data-tooltip]',

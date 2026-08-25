@@ -16,7 +16,8 @@ import (
 	"math/rand"
 	"strings"
 
-	"github.com/rwcarlsen/goexif/exif"
+	"go-clipboard/internal/imagemeta"
+
 	lua "github.com/yuin/gopher-lua"
 	xdraw "golang.org/x/image/draw"
 	"golang.org/x/image/font"
@@ -250,12 +251,11 @@ func (img *ImageAPI) info(L *lua.LState) int {
 		}
 	}
 
-	// Check for EXIF data
-	hasExif := false
-	_, exifErr := exif.Decode(bytes.NewReader(rawData))
-	if exifErr == nil {
-		hasExif = true
-	}
+	// Check for EXIF data. imagemeta returns a nil struct (and no error) when
+	// there is no decodable EXIF block, which is the same presence test the
+	// direct exif.Decode call used to make.
+	exifMeta, _ := imagemeta.ExtractEXIFBytes(rawData)
+	hasExif := exifMeta != nil
 
 	result := L.NewTable()
 	result.RawSetString("width", lua.LNumber(cfg.Width))
@@ -858,7 +858,15 @@ func (img *ImageAPI) grayscalePixels(L *lua.LState) int {
 	return 1
 }
 
-// metadata extracts EXIF metadata from an image
+// metadata extracts EXIF metadata from an image.
+//
+// The decode itself lives in internal/imagemeta so the folder-import wizard can
+// run it against a file that is not a clip yet. This function is only the Lua
+// marshalling half, and its contract is frozen: missing tags are OMITTED keys
+// (never nil values or zeros), the date format is imagemeta.DateLayout, an
+// image with no EXIF returns an empty table with ONE return value, and a
+// failure to load the clip returns (nil, errmsg) with TWO. Plugins depend on
+// every one of those.
 func (img *ImageAPI) metadata(L *lua.LState) int {
 	clipID := L.CheckInt64(1)
 
@@ -869,8 +877,8 @@ func (img *ImageAPI) metadata(L *lua.LState) int {
 		return 2
 	}
 
-	x, err := exif.Decode(bytes.NewReader(rawData))
-	if err != nil {
+	meta, err := imagemeta.ExtractEXIFBytes(rawData)
+	if err != nil || meta == nil {
 		// No EXIF data (common for PNGs) - return empty table instead of error
 		L.Push(L.NewTable())
 		return 1
@@ -878,68 +886,37 @@ func (img *ImageAPI) metadata(L *lua.LState) int {
 
 	result := L.NewTable()
 
-	// Helper to get string tag
-	getString := func(field exif.FieldName) string {
-		tag, err := x.Get(field)
-		if err != nil {
-			return ""
-		}
-		s, err := tag.StringVal()
-		if err != nil {
-			return tag.String()
-		}
-		return s
+	if meta.CameraMake != "" {
+		result.RawSetString("camera_make", lua.LString(meta.CameraMake))
+	}
+	if meta.CameraModel != "" {
+		result.RawSetString("camera_model", lua.LString(meta.CameraModel))
+	}
+	if meta.Lens != "" {
+		result.RawSetString("lens", lua.LString(meta.Lens))
 	}
 
-	// Helper to get rational tag as float
-	getRational := func(field exif.FieldName) (float64, bool) {
-		tag, err := x.Get(field)
-		if err != nil {
-			return 0, false
-		}
-		num, den, err := tag.Rat2(0)
-		if err != nil {
-			return 0, false
-		}
-		if den == 0 {
-			return 0, false
-		}
-		return float64(num) / float64(den), true
+	if meta.ISO != nil {
+		result.RawSetString("iso", lua.LNumber(*meta.ISO))
+	}
+	if meta.Aperture != nil {
+		result.RawSetString("aperture", lua.LNumber(*meta.Aperture))
+	}
+	if meta.ShutterSpeed != nil {
+		result.RawSetString("shutter_speed", lua.LNumber(*meta.ShutterSpeed))
+	}
+	if meta.FocalLength != nil {
+		result.RawSetString("focal_length", lua.LNumber(*meta.FocalLength))
 	}
 
-	if v := getString(exif.Make); v != "" {
-		result.RawSetString("camera_make", lua.LString(v))
-	}
-	if v := getString(exif.Model); v != "" {
-		result.RawSetString("camera_model", lua.LString(v))
-	}
-	if v := getString(exif.LensModel); v != "" {
-		result.RawSetString("lens", lua.LString(v))
+	if meta.Date != "" {
+		result.RawSetString("date", lua.LString(meta.Date))
 	}
 
-	if v, ok := getRational(exif.ISOSpeedRatings); ok {
-		result.RawSetString("iso", lua.LNumber(v))
-	}
-	if v, ok := getRational(exif.FNumber); ok {
-		result.RawSetString("aperture", lua.LNumber(v))
-	}
-	if v, ok := getRational(exif.ExposureTime); ok {
-		result.RawSetString("shutter_speed", lua.LNumber(v))
-	}
-	if v, ok := getRational(exif.FocalLength); ok {
-		result.RawSetString("focal_length", lua.LNumber(v))
-	}
-
-	if tm, err := x.DateTime(); err == nil {
-		result.RawSetString("date", lua.LString(tm.Format("2006-01-02T15:04:05")))
-	}
-
-	// GPS
-	lat, lon, err := x.LatLong()
-	if err == nil {
+	if meta.GPS != nil {
 		gps := L.NewTable()
-		gps.RawSetString("latitude", lua.LNumber(lat))
-		gps.RawSetString("longitude", lua.LNumber(lon))
+		gps.RawSetString("latitude", lua.LNumber(meta.GPS.Latitude))
+		gps.RawSetString("longitude", lua.LNumber(meta.GPS.Longitude))
 		result.RawSetString("gps", gps)
 	}
 

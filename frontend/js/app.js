@@ -1396,6 +1396,37 @@ window.addEventListener('load', async () => {
             defaultKey: 's', context: 'gallery',
             callback: () => { if (typeof switchView === 'function') switchView(currentView === 'serve' ? 'clips' : 'serve'); }
         });
+        // Folder import. Desktop-only: in server mode the bindings throw and
+        // the drawer entry is hidden, so the shortcut is a no-op there too.
+        ShortcutManager.register({
+            id: 'open-import', label: 'Import Folder', category: 'navigation',
+            defaultKey: 'i', context: 'gallery',
+            callback: () => {
+                if (window.mahpastesMode === 'server') return;
+                if (typeof ImportWizard !== 'undefined') ImportWizard.openFromPicker();
+            }
+        });
+
+        // In-wizard keys. These live in the exclusive 'import-wizard' context,
+        // so they do not collide with gallery's 's' or clip's 'd'. Note that
+        // ShortcutManager drops single-letter keys while focus is in an input,
+        // which is what keeps typing "d" into the tag field from marking the
+        // file for deletion.
+        const wizardKey = (id, label, key, fn) => ShortcutManager.register({
+            id, label, category: 'import', defaultKey: key, context: 'import-wizard',
+            callback: () => { if (typeof ImportWizard !== 'undefined') fn(ImportWizard); }
+        });
+        wizardKey('import.import', 'Import this file', 'i', w => w.chooseAction('import'));
+        wizardKey('import.delete', 'Delete this file', 'd', w => w.chooseAction('delete'));
+        wizardKey('import.both', 'Import and delete', 'b', w => w.chooseAction('import_delete'));
+        wizardKey('import.skip', 'Skip this file', 's', w => w.chooseAction('skip'));
+        wizardKey('import.repeat', 'Repeat last action', 'r', w => w.repeatLast());
+        wizardKey('import.next', 'Next file', 'ArrowRight', w => w.goNext());
+        wizardKey('import.prev', 'Previous file', 'ArrowLeft', w => w.goPrev());
+        wizardKey('import.summary', 'Review all', 'g', w => w.showSummary());
+        // Apply is deliberately unbound: it is the one irreversible step and
+        // should cost a deliberate click.
+
         ShortcutManager.register({
             id: 'open-settings', label: 'Open Settings', category: 'navigation',
             defaultKey: ',', context: 'global',

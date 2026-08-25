@@ -215,6 +215,15 @@
         DeleteAllTempFiles: () => del(`${api}/temp`),
         SelectFolder: async () => { throw new Error('folder picker is desktop-only in server mode'); },
         IsDirectory: async () => false,
+        // Folder import walks the machine's own filesystem, so it has no
+        // meaning for a remote browser. The drawer entry is hidden via
+        // .desktop-only; these stubs are the second layer for anything that
+        // reaches the bindings another way.
+        BeginImportSession: async () => { throw new Error('folder import is desktop-only in server mode'); },
+        StartImportSession: async () => { throw new Error('folder import is desktop-only in server mode'); },
+        ImportInspect: async () => { throw new Error('folder import is desktop-only in server mode'); },
+        ImportApply: async () => { throw new Error('folder import is desktop-only in server mode'); },
+        EndImportSession: async () => {},
         // Pasted paths name files on the viewer's machine, which the server
         // cannot see — an empty result keeps every paste a text clip.
         ProbeFilePaths: async () => [],

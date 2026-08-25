@@ -340,6 +340,19 @@ export class AppHelper {
   }
 
   private async closeAllModalsSafe(): Promise<void> {
+    // Import wizard first: it is a full-screen overlay, so leaving it open
+    // makes every subsequent click in this worker land on its backdrop instead
+    // of the app. close() rather than requestClose() — a reset must not stop to
+    // ask about discarding a plan.
+    try {
+      await this.page.evaluate(() => {
+        // @ts-ignore - app global
+        if (window.ImportWizard?.isOpen()) window.ImportWizard.close();
+      });
+    } catch {
+      // Ignore - wizard may not be loaded (server mode) or already closed
+    }
+
     // Check and close each modal type
     // Lightbox uses .active class
     try {
@@ -680,11 +693,22 @@ export class AppHelper {
       const closePathPaste = (window as any).closePathPasteDialog;
       if (typeof closePathPaste === 'function') closePathPaste(null);
 
+      // The import wizard is a full-screen overlay: left open, it swallows
+      // every click in this worker's page for the rest of the run. Close it
+      // through its own teardown so the focus trap is released and the backend
+      // import session is dropped — and use close(), not requestClose(), since
+      // a reset must not stop to ask about discarding a plan.
+      try {
+        const wizard = (window as any).ImportWizard;
+        if (wizard?.isOpen?.()) wizard.close();
+      } catch {}
+
       // All modals use opacity-0/pointer-events-none when closed
       const modalIds = [
         'confirm-dialog', 'restore-confirm-dialog', 'folder-modal',
         'settings-modal', 'maintenance-modal', 'plugin-options-modal',
         'plugin-result-modal', 'plugin-review-modal', 'path-paste-dialog',
+        'import-wizard-modal',
       ];
       for (const id of modalIds) {
         const el = document.getElementById(id);
@@ -2496,6 +2520,159 @@ export class AppHelper {
     await this.openDrawer();
     await this.page.locator(selectors.maintenance.openButton).click();
     await this.page.waitForSelector(`${selectors.maintenance.modal}.opacity-100`, { timeout: 5000 });
+  }
+
+  // ==================== Import Folder Wizard ====================
+
+  /**
+   * Open the wizard against an explicit folder.
+   *
+   * Deliberately bypasses the drawer button: that opens a native NSOpenPanel,
+   * which Playwright cannot dismiss. The app splits the picker
+   * (BeginImportSession) from the scan (StartImportSession) precisely so tests
+   * can drive the wizard against a temp directory — same bypass as
+   * addWatchFolder above.
+   */
+  async openImportWizard(folderPath: string, opts: { recursive?: boolean } = {}): Promise<void> {
+    await this.page.evaluate(async ({ path, recursive }) => {
+      // @ts-ignore - app global
+      await window.__testHelpers.openImportWizard(path, { recursive });
+    }, { path: folderPath, recursive: !!opts.recursive });
+    await this.page.waitForSelector(`${selectors.importWizard.modal}.opacity-100`, { timeout: 5000 });
+  }
+
+  async startImportWalk(): Promise<void> {
+    await this.page.locator(selectors.importWizard.startButton).click();
+    await this.page.locator(selectors.importWizard.reviewPane).waitFor({ state: 'visible', timeout: 5000 });
+  }
+
+  async getImportScanSummary(): Promise<string> {
+    return (await this.page.locator(selectors.importWizard.scanSummary).textContent()) || '';
+  }
+
+  async getImportPosition(): Promise<string> {
+    return (await this.page.locator(selectors.importWizard.position).textContent()) || '';
+  }
+
+  async getImportFilename(): Promise<string> {
+    return (await this.page.locator(selectors.importWizard.fileDetails).textContent()) || '';
+  }
+
+  /** action: 'import' | 'delete' | 'both' | 'skip'. Advances to the next file. */
+  async setImportAction(action: 'import' | 'delete' | 'both' | 'skip'): Promise<void> {
+    await this.page.locator(selectors.importWizard.action(action)).click();
+  }
+
+  async setImportTag(name: string): Promise<void> {
+    const input = this.page.locator(selectors.importWizard.tagInput);
+    await input.fill(name);
+    // `change` is what commits the value; fill() alone does not blur.
+    await input.dispatchEvent('change');
+  }
+
+  async getImportTagValue(): Promise<string> {
+    return await this.page.locator(selectors.importWizard.tagInput).inputValue();
+  }
+
+  async repeatImportAction(): Promise<void> {
+    await this.page.locator(selectors.importWizard.repeatButton).click();
+  }
+
+  async nextImportFile(): Promise<void> {
+    await this.page.locator(selectors.importWizard.nextButton).click();
+  }
+
+  async openImportSummary(): Promise<void> {
+    await this.waitForImportDecisions();
+    await this.page.locator(selectors.importWizard.summaryButton).click();
+    await this.page.locator(selectors.importWizard.summaryPane).waitFor({ state: 'visible', timeout: 5000 });
+  }
+
+  /**
+   * Wait for every queued decision to finish.
+   *
+   * Choosing an action waits on the file being read, so a burst of keystrokes
+   * settles asynchronously. Reading the decision map without this returns the
+   * seeded 'skip' defaults for anything still in flight, which looks exactly
+   * like dropped input.
+   */
+  async waitForImportDecisions(): Promise<void> {
+    await this.page.evaluate(async () => {
+      // @ts-ignore - app global
+      await window.ImportWizard?.settled?.();
+    });
+  }
+
+  /** relPath -> action, read straight from the wizard's decision map. */
+  async getImportDecisions(): Promise<Record<string, string>> {
+    await this.waitForImportDecisions();
+    return await this.page.evaluate(() => {
+      // @ts-ignore - app global
+      return window.__testHelpers.getImportDecisions();
+    });
+  }
+
+  /** relPath -> tag name, read straight from the wizard's decision map. */
+  async getImportTags(): Promise<Record<string, string>> {
+    await this.waitForImportDecisions();
+    return await this.page.evaluate(() => {
+      // @ts-ignore - app global
+      return window.__testHelpers.getImportTags();
+    });
+  }
+
+  async getImportDuplicateCount(): Promise<number> {
+    return await this.page.locator(selectors.importWizard.duplicateRow).count();
+  }
+
+  async clickImportSummaryRow(relPath: string): Promise<void> {
+    await this.page.locator(selectors.importWizard.summaryRowByPath(relPath)).click();
+    await this.page.locator(selectors.importWizard.reviewPane).waitFor({ state: 'visible', timeout: 5000 });
+  }
+
+  /** Row status badge text ('done', 'import failed', ...) after an apply. */
+  async getImportRowStatus(relPath: string): Promise<string> {
+    const row = this.page.locator(selectors.importWizard.summaryRowByPath(relPath));
+    const badge = row.locator(selectors.importWizard.rowStatus);
+    if (await badge.count() === 0) return '';
+    return (await badge.first().textContent())?.trim() || '';
+  }
+
+  /** Click Apply, confirm the dialog, and wait for the run to finish. */
+  async applyImport(): Promise<void> {
+    await this.waitForImportDecisions();
+    await this.page.locator(selectors.importWizard.applyButton).click();
+    await this.confirmDialog();
+    await this.page.locator(selectors.importWizard.doneButton).waitFor({ state: 'visible', timeout: 15000 });
+  }
+
+  /**
+   * Close the wizard. After an apply the footer offers Done and there is
+   * nothing to discard; before one, a pending plan raises a confirm prompt.
+   *
+   * `discard` only decides how to answer that prompt. Note the visibility check
+   * tests for `.opacity-100`, not isVisible(): #confirm-dialog is always in the
+   * layout and merely opacity-0 when closed, so isVisible() is true either way.
+   */
+  async closeImportWizard(discard = true): Promise<void> {
+    const done = this.page.locator(selectors.importWizard.doneButton);
+    if (await done.count() > 0) {
+      await done.click();
+      await this.page.waitForSelector(`${selectors.importWizard.modal}.opacity-0`, { timeout: 5000 });
+      return;
+    }
+
+    await this.page.locator(selectors.importWizard.closeButton).click();
+    const activeConfirm = this.page.locator(`${selectors.confirm.dialog}.opacity-100`);
+    if (await activeConfirm.count() > 0) {
+      if (discard) await this.confirmDialog();
+      else { await this.cancelDialog(); return; }
+    }
+    await this.page.waitForSelector(`${selectors.importWizard.modal}.opacity-0`, { timeout: 5000 });
+  }
+
+  async isImportWizardOpen(): Promise<boolean> {
+    return await this.page.locator(`${selectors.importWizard.modal}.opacity-100`).count() > 0;
   }
 
   async closeMaintenanceModal(): Promise<void> {

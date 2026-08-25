@@ -9,6 +9,8 @@ export function AddWatchedFolder(arg1:app.WatchedFolderConfig):Promise<app.Watch
 
 export function BackupInspect(arg1:string):Promise<app.BackupInspection>;
 
+export function BeginImportSession(arg1:boolean):Promise<app.ImportScanResult>;
+
 export function BulkAddTag(arg1:Array<number>,arg2:number):Promise<void>;
 
 export function BulkArchive(arg1:Array<number>):Promise<void>;
@@ -54,6 +56,8 @@ export function DeleteClip(arg1:number):Promise<void>;
 export function DeleteClipMetadata(arg1:number,arg2:string):Promise<void>;
 
 export function DeleteTag(arg1:number):Promise<void>;
+
+export function EndImportSession():Promise<void>;
 
 export function FindClipsByFilenameAndTag(arg1:Array<string>,arg2:number):Promise<Array<app.ClipMatch>>;
 
@@ -109,6 +113,10 @@ export function GetWatchedFolderByID(arg1:number):Promise<app.WatchedFolder>;
 
 export function GetWatchedFolders():Promise<Array<app.WatchedFolder>>;
 
+export function ImportApply(arg1:Array<app.ImportDecision>):Promise<app.ImportApplySummary>;
+
+export function ImportInspect(arg1:string):Promise<app.ImportInspection>;
+
 export function IsDirectory(arg1:string):Promise<boolean>;
 
 export function MergeDuplicates(arg1:number):Promise<void>;
@@ -160,6 +168,8 @@ export function SetSetting(arg1:string,arg2:string):Promise<void>;
 export function ShowCreateBackupDialog():Promise<string>;
 
 export function ShowRestoreBackupDialog():Promise<app.BackupManifest>;
+
+export function StartImportSession(arg1:string,arg2:boolean):Promise<app.ImportScanResult>;
 
 export function ToggleArchive(arg1:number):Promise<void>;
 

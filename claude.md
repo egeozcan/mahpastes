@@ -552,6 +552,83 @@ Plugins can define UI actions that appear in the lightbox and card context menu.
 
 **Modal system**: One-modal-at-a-time guard via `TryAcquireModalGuard`. `modal.show()` takes `title`, `content`, `format` (`markdown`/`image`/`text`), plus optional `copy_data`, `paste_data`, `paste_name`, `paste_content_type`.
 
+## Import Folder Wizard
+
+A desktop-only triage flow reached from the nav drawer (`#open-import-btn`). It scans a
+user-picked folder, walks the files one at a time showing preview + details + EXIF +
+duplicate clips, records an action per file, then executes the reviewed plan.
+
+**The invariant**: nothing touches disk or the library until Apply. This is structural, not
+a UI convention — there is no bound method that imports or deletes a single file.
+`ImportApply` takes the entire plan in one call, so a half-executed plan is not
+representable, and the import-before-trash ordering cannot be broken by a JS exception or a
+closed modal.
+
+### Session containment
+
+`internal/app/import_wizard.go` holds one `importSession` per run (root + the set of
+relPaths the scan emitted). `resolveSessionPath` gates every path-taking method: membership
+in that set first, then `isInsideDir` (reused from `paste_paths.go`), then an `os.Lstat`
+regular-file check and a post-scan `EvalSymlinks` containment re-check (closes the TOCTOU
+window where a scanned file is swapped for a symlink before Apply).
+
+**These methods are deliberately not exposed over REST.** A route would hand every API-key
+holder a remote directory listing, arbitrary-file read, and move-to-trash primitive.
+`TestNoRESTRoutesForImportWizard` fails the build if `api_manager.go` ever references them.
+Server mode gets throwing stubs in `rest-glue.js` plus the `.desktop-only` class on the
+drawer entry.
+
+### Key files
+
+- `internal/app/import_wizard.go` — session, scan, inspect, apply
+- `internal/app/trash_{darwin,windows,other}.go` — `moveToTrash`; macOS uses
+  `NSFileManager trashItemAtURL:` (no main-queue dispatch needed, unlike `startNativeFileDrag`).
+  Non-darwin falls back to `os.Remove` and reports `trashIsRecoverable() == false`, which
+  drives a UI warning. `MAHPASTES_TRASH_MODE=remove` forces permanent delete; the e2e
+  launcher sets it so runs don't fill `~/.Trash`.
+- `internal/imagemeta/` — EXIF extraction from bytes, shared by the wizard and the Lua
+  `image.metadata` binding (which previously read only from clip IDs).
+- `frontend/js/import-wizard.js` — three panes (setup / review / summary), decision map keyed
+  by relPath, `import-wizard` shortcut context.
+
+### What guards what
+
+Deletion is the destructive half, so several checks exist purely to make sure the
+file deleted is the file reviewed:
+
+- **Picker approval** — `StartImportSession` refuses any root not passed to
+  `ApproveImportRoot`, which is called only by `BeginImportSession` through the
+  unexported `core` field (so it is not JS-reachable). Approval is revoked by
+  `EndImportSession`. `MAHPASTES_ALLOW_UNPICKED_IMPORT=1` opts out; the e2e launcher
+  sets it because Playwright cannot drive a native dialog.
+- **`importGeneration`** — captured with the approval under one lock, re-checked before
+  the scan installs itself, so a scan finishing after the wizard closed is discarded.
+- **`openImportFile`** — `O_NOFOLLOW` on unix; every read goes through the handle, never
+  by re-opening the path. `readImportFile` re-stats the handle after reading to catch a
+  write that landed mid-read.
+- **`importSession.reviewed`** — the `os.FileInfo` *and* content hash shown to the user.
+  `ImportApply` refuses (status `changed`) anything that no longer matches. Files never
+  inspected have no baseline and are not checked.
+- **`trashVerified`** — re-opens, fstats and re-hashes before unlinking. Stat data alone
+  misses a same-length in-place rewrite with a preserved mtime, which is exactly what
+  timestamp-preserving sync tools produce.
+
+Two races are documented as deliberately accepted in the file header: an
+intermediate-directory symlink swap (needs `openat` per component, no Windows
+equivalent), and the microsecond gap inside `trashVerified` between the final check and
+the unlink (no portable API unlinks an inode).
+
+### Gotchas
+
+- `UploadFileAndGetID` does **not** emit `clip:created`; `ImportApply` emits it itself
+  (after tagging, matching `UploadFiles`) or plugins never fire for wizard imports.
+- Repeat-last copies the action always but the tag only when the user typed one — otherwise
+  walking from `2024/` into `2025/` silently tags everything `2024`.
+- Wizard imports are permanent: `UploadFileAndGetID` never sets `expires_at`, so the bottom
+  bar's expiry select is intentionally not replicated here.
+- E2E cannot dismiss a native folder picker. `BeginImportSession` (picker) is split from
+  `StartImportSession` (scan) so tests drive `window.__testHelpers.openImportWizard(path)`.
+
 ## Transfer/Drag-Out System
 
 The transfer system handles copying clips as files to the system clipboard and dragging clips out of the app window into other applications.

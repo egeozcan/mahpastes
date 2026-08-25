@@ -15,7 +15,7 @@ const ShortcutManager = (() => {
     let initialized = false;
 
     // Shared category ordering and labels (used by cheat sheet and settings)
-    const CATEGORY_ORDER = ['navigation', 'gallery', 'clip', 'lightbox', 'editor', 'comparison', 'bulk', 'system'];
+    const CATEGORY_ORDER = ['navigation', 'gallery', 'clip', 'lightbox', 'editor', 'comparison', 'bulk', 'import', 'system'];
     const CATEGORY_LABELS = {
         navigation: 'Navigation',
         gallery: 'Gallery',
@@ -24,6 +24,7 @@ const ShortcutManager = (() => {
         editor: 'Image Editor',
         comparison: 'Comparison',
         bulk: 'Bulk Actions',
+        import: 'Import Folder',
         system: 'System',
     };
 
@@ -64,6 +65,14 @@ const ShortcutManager = (() => {
         }
         if (comparisonModal && comparisonModal.classList.contains('active')) {
             contexts.push('comparison');
+            return contexts;
+        }
+        // Import wizard: a full-screen modal with its own single-letter keys.
+        // This must sit ABOVE the generic openModals sweep below, which returns
+        // [] for anything modal-shaped and would make every wizard key dead.
+        const importWizardModal = document.getElementById('import-wizard-modal');
+        if (importWizardModal && !importWizardModal.classList.contains('opacity-0')) {
+            contexts.push('import-wizard');
             return contexts;
         }
         if (settingsModal && !settingsModal.classList.contains('opacity-0')) return [];
@@ -255,8 +264,8 @@ const ShortcutManager = (() => {
         if (activeContexts.length === 0) return;
 
         // Check contexts in priority order (most specific first)
-        // clip > bulk > lightbox > watch > gallery > global
-        const priority = ['clip', 'bulk', 'lightbox', 'image-editor', 'text-editor', 'editor', 'comparison', 'watch', 'gallery', 'global'];
+        // import-wizard > clip > bulk > lightbox > watch > gallery > global
+        const priority = ['import-wizard', 'clip', 'bulk', 'lightbox', 'image-editor', 'text-editor', 'editor', 'comparison', 'watch', 'gallery', 'global'];
 
         for (const ctx of priority) {
             if (!activeContexts.includes(ctx)) continue;
@@ -482,6 +491,19 @@ const ShortcutManager = (() => {
     // --- Modal Overlay Escape ---
 
     function closeTopModalOverlay() {
+        // Import wizard. Checked early because it is a full-screen modal, but
+        // it yields to a stacked confirm: handleKeydown calls this BEFORE
+        // getActiveContexts(), so the "confirm dialog blocks everything" guard
+        // there does not protect this path. Without the bail-out, Escape on the
+        // discard prompt would close the wizard underneath it.
+        const importWizardModal = document.getElementById('import-wizard-modal');
+        if (importWizardModal && !importWizardModal.classList.contains('opacity-0')) {
+            const stackedConfirm = document.getElementById('confirm-dialog');
+            if (stackedConfirm && stackedConfirm.classList.contains('opacity-100')) return false;
+            if (typeof ImportWizard !== 'undefined') ImportWizard.requestClose();
+            return true;
+        }
+
         // Upload conflict dialog
         const conflictDialog = document.getElementById('conflict-dialog');
         if (conflictDialog && !conflictDialog.classList.contains('opacity-0')) {

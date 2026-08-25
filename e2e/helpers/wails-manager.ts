@@ -394,6 +394,14 @@ export async function spawnWailsInstance(
       // discovery and hitting public IPFS nodes is unreliable in CI.
       MAHPASTES_SHARE_DISABLE_WAN_BOOTSTRAP: '1',
       MAHPASTES_START_HIDDEN: '1',
+      // Folder-import "delete" moves files to the Trash. Tests create and
+      // delete fixtures constantly, so force a permanent remove — otherwise
+      // every run silts up the developer's ~/.Trash with temp files.
+      MAHPASTES_TRASH_MODE: 'remove',
+      // StartImportSession normally only accepts a folder the user chose in the
+      // native picker, which Playwright cannot drive. This opts that check out
+      // so tests can scan a temp directory directly.
+      MAHPASTES_ALLOW_UNPICKED_IMPORT: '1',
       PATH: `${process.env.PATH}:${path.join(os.homedir(), 'go', 'bin')}`,
     },
     stdio: ['pipe', 'pipe', 'pipe'],
@@ -618,6 +626,14 @@ export async function restartWailsInstance(workerIndex: number): Promise<WailsIn
       MAHPASTES_DATA_DIR: dataDir,
       MAHPASTES_SHARE_DISABLE_WAN_BOOTSTRAP: '1',
       MAHPASTES_START_HIDDEN: '1',
+      // Folder-import "delete" moves files to the Trash. Tests create and
+      // delete fixtures constantly, so force a permanent remove — otherwise
+      // every run silts up the developer's ~/.Trash with temp files.
+      MAHPASTES_TRASH_MODE: 'remove',
+      // StartImportSession normally only accepts a folder the user chose in the
+      // native picker, which Playwright cannot drive. This opts that check out
+      // so tests can scan a temp directory directly.
+      MAHPASTES_ALLOW_UNPICKED_IMPORT: '1',
       PATH: `${process.env.PATH}:${path.join(os.homedir(), 'go', 'bin')}`,
     },
     stdio: ['pipe', 'pipe', 'pipe'],

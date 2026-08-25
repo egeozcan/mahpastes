@@ -239,6 +239,16 @@
                 </svg>
                 Plugins
             </button>
+            <button id="open-import-btn" data-testid="open-import-btn"
+                class="desktop-only border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-500 text-xs font-medium py-2.5 px-3 rounded-md transition-colors flex items-center w-full"
+                data-tooltip="Review and import files from a folder">
+                <svg class="w-4 h-4 mr-2 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                        d="M3 7a2 2 0 012-2h3.586a1 1 0 01.707.293l1.414 1.414a1 1 0 00.707.293H19a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 10v5m0 0l-2-2m2 2l2-2" />
+                </svg>
+                Import Folder
+            </button>
             <div id="drawer-plugin-actions" class="hidden">
                 <div class="my-1 border-t border-stone-100"></div>
             </div>
@@ -1909,6 +1919,112 @@
         </div>
     </div>
 
+    <!-- Import Folder Wizard -->
+    <div id="import-wizard-modal" role="dialog" aria-modal="true" aria-labelledby="import-wizard-title"
+        data-testid="import-wizard-modal" tabindex="-1" inert
+        class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm transition-opacity duration-200 opacity-0 pointer-events-none">
+        <div class="bg-white rounded-lg shadow-xl max-w-3xl w-full max-h-[85vh] flex flex-col overflow-hidden transform transition-transform duration-200 scale-95">
+
+            <div class="p-4 border-b border-stone-100 flex justify-between items-center">
+                <div class="flex items-baseline gap-3 min-w-0">
+                    <h2 id="import-wizard-title" class="text-sm font-semibold text-stone-800">Import Folder</h2>
+                    <span id="import-step-label" data-testid="import-step-label"
+                        class="text-[10px] font-medium text-stone-400 uppercase tracking-wide truncate"></span>
+                </div>
+                <button id="import-close" data-testid="import-close"
+                    class="p-1 hover:bg-stone-100 rounded-md transition-colors" aria-label="Close import wizard" data-tooltip="Close">
+                    <svg class="w-5 h-5 text-stone-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+
+            <!-- Pane 1: setup -->
+            <div id="import-setup-pane" class="flex-1 overflow-y-auto p-5 space-y-4">
+                <div>
+                    <span class="block text-[10px] font-medium text-stone-400 uppercase tracking-wide mb-1">Folder</span>
+                    <p id="import-root-path" data-testid="import-root-path"
+                        class="text-xs font-medium text-stone-700 break-all">No folder selected</p>
+                </div>
+
+                <label class="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" id="import-recursive" data-testid="import-recursive"
+                        class="rounded border-stone-300 text-stone-800 focus:ring-stone-400/20">
+                    <span class="text-xs font-medium text-stone-600">Include subfolders</span>
+                </label>
+                <p class="text-[11px] text-stone-400 -mt-2 ml-6">
+                    Subfolder names are suggested as tags for the files inside them.
+                </p>
+
+                <div id="import-scan-summary" data-testid="import-scan-summary"
+                    class="text-xs font-medium text-stone-600"></div>
+
+                <div id="import-truncated-note" data-testid="import-truncated-note"
+                    class="hidden text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-md p-3"></div>
+
+                <div id="import-trash-warning" data-testid="import-trash-warning"
+                    class="hidden text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-md p-3">
+                    Files marked for deletion are removed permanently on this platform &mdash; there is no Trash to
+                    restore them from.
+                </div>
+            </div>
+
+            <!-- Pane 2: review -->
+            <div id="import-review-pane" class="hidden flex-1 overflow-y-auto p-5 space-y-4">
+                <div>
+                    <div class="flex justify-between items-baseline mb-1.5">
+                        <span id="import-position" data-testid="import-position"
+                            class="text-[10px] font-medium text-stone-400 uppercase tracking-wide"></span>
+                        <span id="import-decided-count" class="text-[10px] font-medium text-stone-400"></span>
+                    </div>
+                    <div class="h-1 bg-stone-100 rounded-full overflow-hidden">
+                        <div id="import-progress-bar" class="h-full bg-stone-800 transition-all duration-200" style="width:0%"></div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div id="import-preview" data-testid="import-preview"
+                        class="bg-stone-50 border border-stone-200 rounded-md min-h-[10rem] flex items-center justify-center overflow-hidden p-2"></div>
+                    <div class="space-y-3 min-w-0">
+                        <div id="import-file-details" data-testid="import-file-details" class="space-y-1 min-w-0"></div>
+                        <div id="import-exif" data-testid="import-exif" class="hidden"></div>
+                        <div id="import-duplicates" data-testid="import-duplicates" class="hidden"></div>
+                        <div id="import-file-error" data-testid="import-file-error" class="hidden"></div>
+                    </div>
+                </div>
+
+                <div class="border-t border-stone-100 pt-4 space-y-3">
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2" role="group" aria-label="Action for this file">
+                        <button data-import-action="import" data-testid="import-action-import"
+                            class="import-action-btn border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-xs font-medium py-2 px-3 rounded-md transition-colors">Import</button>
+                        <button data-import-action="delete" data-testid="import-action-delete"
+                            class="import-action-btn border border-stone-200 hover:border-red-300 hover:bg-red-50 text-stone-600 hover:text-red-600 text-xs font-medium py-2 px-3 rounded-md transition-colors">Delete</button>
+                        <button data-import-action="import_delete" data-testid="import-action-both"
+                            class="import-action-btn border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-xs font-medium py-2 px-3 rounded-md transition-colors">Import + Delete</button>
+                        <button data-import-action="skip" data-testid="import-action-skip"
+                            class="import-action-btn border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-xs font-medium py-2 px-3 rounded-md transition-colors">Skip</button>
+                    </div>
+                    <div class="relative">
+                        <label for="import-tag-input" class="block text-[10px] font-medium text-stone-400 uppercase tracking-wide mb-1">Tag</label>
+                        <input type="text" id="import-tag-input" data-testid="import-tag-input" autocomplete="off"
+                            placeholder="Untagged"
+                            class="block w-full border border-stone-200 rounded-md text-sm bg-white placeholder-stone-400 focus:outline-none focus:border-stone-400 focus:ring-1 focus:ring-stone-400/20 transition-colors px-3 py-2">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Pane 3: summary -->
+            <div id="import-summary-pane" class="hidden flex-1 overflow-y-auto">
+                <div class="p-5 pb-3 sticky top-0 bg-white border-b border-stone-100">
+                    <p id="import-summary-counts" data-testid="import-summary-counts" class="text-xs font-medium text-stone-600"></p>
+                </div>
+                <ul id="import-summary-list" data-testid="import-summary-list" class="divide-y divide-stone-100"></ul>
+            </div>
+
+            <div id="import-footer" class="p-4 border-t border-stone-100 flex justify-between items-center gap-2"></div>
+        </div>
+    </div>
+
     <!-- Plugin Options Dialog -->
     <div id="plugin-options-modal" class="modal-backdrop opacity-0 pointer-events-none" role="dialog" aria-modal="true" inert>
         <div class="modal-content max-w-md">
@@ -2326,6 +2442,7 @@
     <script src="js/share.js"></script>
     <script src="js/settings.js"></script>
     <script src="js/maintenance.js"></script>
+    <script src="js/import-wizard.js"></script>
     <script src="js/plugins.js"></script>
     <script src="js/plugin-review.js"></script>
     <script src="js/modal-renderer.js"></script>
