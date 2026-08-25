@@ -21,6 +21,8 @@ const ImportWizard = (() => {
     const scanSummaryEl = document.getElementById('import-scan-summary');
     const truncatedNote = document.getElementById('import-truncated-note');
     const trashWarning = document.getElementById('import-trash-warning');
+    const baseTagInput = document.getElementById('import-base-tag');
+    const baseTagHint = document.getElementById('import-base-tag-hint');
 
     const reviewPane = document.getElementById('import-review-pane');
     const positionEl = document.getElementById('import-position');
@@ -64,12 +66,14 @@ const ImportWizard = (() => {
     let sessionEpoch = 0;
     let importFocusTrapCleanup = null;
     let tagAutocomplete = null;
+    let baseTagAutocomplete = null;
 
     const state = freshState();
 
     function freshState() {
         return {
             root: '',
+            baseTag: '',
             recursive: false,
             trashRecoverable: true,
             truncated: false,
@@ -129,6 +133,10 @@ const ImportWizard = (() => {
         if (tagAutocomplete) {
             tagAutocomplete.destroy();
             tagAutocomplete = null;
+        }
+        if (baseTagAutocomplete) {
+            baseTagAutocomplete.destroy();
+            baseTagAutocomplete = null;
         }
         modal.classList.add('opacity-0', 'pointer-events-none');
         modal.classList.remove('opacity-100');
@@ -212,6 +220,7 @@ const ImportWizard = (() => {
         state.pane = 'setup';
         show();
         attachAutocomplete();
+        attachBaseTagAutocomplete();
         render();
     }
 
@@ -237,8 +246,35 @@ const ImportWizard = (() => {
         // even if the user jumps straight to it without walking a single file.
         state.decisions = new Map();
         for (const e of state.entries) {
-            state.decisions.set(e.rel_path, { action: 'skip', tagName: e.dir || '', tagEdited: false });
+            state.decisions.set(e.rel_path, { action: 'skip', tagName: suggestedTagFor(e), tagEdited: false });
         }
+    }
+
+    // Re-seed the tag of every file the user has NOT personally tagged. Editing
+    // the base tag has to reach decisions that were already seeded — otherwise
+    // setting it after a scan would silently do nothing — but it must never
+    // overwrite a tag someone typed by hand.
+    function setBaseTag(value) {
+        state.baseTag = (value || '').trim();
+        for (const entry of state.entries) {
+            const d = state.decisions.get(entry.rel_path);
+            if (!d || d.tagEdited) continue;
+            state.decisions.set(entry.rel_path, { ...d, tagName: suggestedTagFor(entry) });
+        }
+        renderBaseTagHint();
+    }
+
+    function renderBaseTagHint() {
+        if (!baseTagHint) return;
+        const sample = state.entries.find(e => e.dir) || state.entries[0];
+        if (!state.baseTag) {
+            baseTagHint.textContent = 'Pre-fills the tag for every file. Leave empty to tag nothing by default.';
+            return;
+        }
+        const example = sample ? suggestedTagFor(sample) : state.baseTag;
+        baseTagHint.textContent = sample && sample.dir
+            ? `Files are tagged ${example} — the base tag joined with each subfolder.`
+            : `Files are tagged ${example}.`;
     }
 
     async function rescan() {
@@ -253,6 +289,16 @@ const ImportWizard = (() => {
     }
 
     // --- decisions --------------------------------------------------------
+
+    // The suggested tag for a file: the base tag the user chose, the file's own
+    // subfolder path, or both joined. This is the single definition — seeding,
+    // the base-tag field and Repeat all go through it, so they cannot drift.
+    function suggestedTagFor(entry) {
+        const base = (state.baseTag || '').replace(/^\/+|\/+$/g, '');
+        const dir = (entry && entry.dir) || '';
+        if (base && dir) return `${base}/${dir}`;
+        return base || dir;
+    }
 
     function currentEntry() {
         return state.entries[state.index] || null;
@@ -390,7 +436,7 @@ const ImportWizard = (() => {
         }
         setDecision(entry.rel_path, {
             action: state.last.action,
-            tagName: state.last.tagEdited ? state.last.tagName : (entry.dir || ''),
+            tagName: state.last.tagEdited ? state.last.tagName : suggestedTagFor(entry),
             tagEdited: state.last.tagEdited,
         });
         if (state.index === startIndex) goNext(); else render();
@@ -403,7 +449,7 @@ const ImportWizard = (() => {
         if (state.last.action === 'skip' || state.last.action === 'delete') {
             return `Repeat: ${label}`;
         }
-        const tag = state.last.tagEdited ? state.last.tagName : (entry?.dir || '');
+        const tag = state.last.tagEdited ? state.last.tagName : suggestedTagFor(entry);
         return tag ? `Repeat: ${label} → ${tag}` : `Repeat: ${label}`;
     }
 
@@ -478,6 +524,11 @@ const ImportWizard = (() => {
                 `This folder holds more files than the wizard walks at once — showing the first ${state.entries.length}.`;
         }
         trashWarning.classList.toggle('hidden', state.trashRecoverable);
+
+        if (baseTagInput && document.activeElement !== baseTagInput) {
+            baseTagInput.value = state.baseTag || '';
+        }
+        renderBaseTagHint();
     }
 
     function renderReview() {
@@ -998,6 +1049,9 @@ const ImportWizard = (() => {
             chooseAction(btn.dataset.importAction);
         });
 
+        baseTagInput?.addEventListener('input', () => setBaseTag(baseTagInput.value));
+        baseTagInput?.addEventListener('change', () => setBaseTag(baseTagInput.value));
+
         recursiveToggle?.addEventListener('change', () => {
             if (!state.root) return;
             if (hasPendingWork()) {
@@ -1031,6 +1085,19 @@ const ImportWizard = (() => {
         tagInput?.addEventListener('blur', commitTag);
     }
 
+    function attachBaseTagAutocomplete() {
+        if (baseTagAutocomplete || !baseTagInput || typeof TagAutocomplete === 'undefined') return;
+        baseTagAutocomplete = TagAutocomplete.attach(baseTagInput, {
+            // Same reasoning as the review pane's tag field: pinned low in a
+            // tall modal, so the list opens over the blurb above it.
+            placement: 'up',
+            onSelect: (value) => {
+                baseTagInput.value = value;
+                setBaseTag(value);
+            },
+        });
+    }
+
     function attachAutocomplete() {
         if (tagAutocomplete || !tagInput || typeof TagAutocomplete === 'undefined') return;
         tagAutocomplete = TagAutocomplete.attach(tagInput, {
@@ -1060,6 +1127,7 @@ const ImportWizard = (() => {
         goNext,
         goPrev,
         showSummary,
+        setBaseTag,
         // Decisions are queued and each may wait on a file read, so a caller
         // that acts immediately after a keystroke can observe the queue
         // mid-drain. Awaiting this settles it. Used by the e2e helpers, which
@@ -1081,6 +1149,7 @@ window.__testHelpers.getImportDecisions = () => {
     for (const [rel, d] of ImportWizard._state.decisions) out[rel] = d.action;
     return out;
 };
+window.__testHelpers.setImportBaseTag = (value) => ImportWizard.setBaseTag(value);
 window.__testHelpers.getImportTags = () => {
     const out = {};
     for (const [rel, d] of ImportWizard._state.decisions) out[rel] = d.tagName || '';

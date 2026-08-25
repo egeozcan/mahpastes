@@ -90,6 +90,87 @@ test.describe('Import Folder Wizard', () => {
     });
   });
 
+  test.describe('Base tag', () => {
+    test('pre-fills every file, and joins with the subfolder when recursive', async ({ app, tempDir }) => {
+      await fs.mkdir(path.join(tempDir, '2024'), { recursive: true });
+      await fs.writeFile(path.join(tempDir, 'top.txt'), 'top');
+      await fs.writeFile(path.join(tempDir, '2024', 'rome.txt'), 'rome');
+
+      await app.openImportWizard(tempDir, { recursive: true });
+      await app.setImportBaseTag('trips');
+
+      const tags = await app.getImportTags();
+      expect(tags['top.txt']).toBe('trips');
+      expect(tags['2024/rome.txt']).toBe('trips/2024');
+    });
+
+    test('applies to files already seeded, but never overwrites a typed tag', async ({ app, tempDir }) => {
+      await fs.writeFile(path.join(tempDir, 'a.txt'), 'a');
+      await fs.writeFile(path.join(tempDir, 'b.txt'), 'b');
+
+      await app.openImportWizard(tempDir, { recursive: false });
+      await app.startImportWalk();
+
+      // Hand-tag the first file, leave the second alone.
+      await app.setImportTag('manual');
+      await app.setImportAction('import');
+
+      await app.page.locator(selectors.importWizard.summaryButton).click();
+      await app.page.locator(selectors.importWizard.summaryPane).waitFor({ state: 'visible' });
+      await app.page.locator(selectors.importWizard.backButton).click();
+
+      await app.page.evaluate(() => {
+        // @ts-ignore - app global
+        window.__testHelpers.setImportBaseTag('photos');
+      });
+
+      const tags = await app.getImportTags();
+      expect(tags['a.txt']).toBe('manual');   // typed by hand — untouched
+      expect(tags['b.txt']).toBe('photos');   // still on its default — re-seeded
+    });
+
+    test('the hint shows what files will actually be tagged', async ({ app, tempDir }) => {
+      await fs.mkdir(path.join(tempDir, '2024'), { recursive: true });
+      await fs.writeFile(path.join(tempDir, '2024', 'rome.txt'), 'rome');
+
+      await app.openImportWizard(tempDir, { recursive: true });
+      expect(await app.getImportBaseTagHint()).toContain('Leave empty');
+
+      await app.setImportBaseTag('trips');
+      expect(await app.getImportBaseTagHint()).toContain('trips/2024');
+    });
+
+    test('the base tag survives toggling subfolders', async ({ app, tempDir }) => {
+      await fs.mkdir(path.join(tempDir, 'sub'), { recursive: true });
+      await fs.writeFile(path.join(tempDir, 'top.txt'), 'top');
+      await fs.writeFile(path.join(tempDir, 'sub', 'deep.txt'), 'deep');
+
+      await app.openImportWizard(tempDir, { recursive: false });
+      await app.setImportBaseTag('trips');
+      await app.page.locator(selectors.importWizard.recursiveToggle).click();
+      await expect(app.page.locator(selectors.importWizard.scanSummary)).toContainText('2 files');
+
+      const tags = await app.getImportTags();
+      expect(tags['top.txt']).toBe('trips');
+      expect(tags['sub/deep.txt']).toBe('trips/sub');
+    });
+
+    test('Apply creates the nested tag and attaches it', async ({ app, tempDir }) => {
+      await fs.mkdir(path.join(tempDir, '2024'), { recursive: true });
+      await fs.writeFile(path.join(tempDir, '2024', 'rome.txt'), 'rome bytes');
+
+      await app.openImportWizard(tempDir, { recursive: true });
+      await app.setImportBaseTag('trips');
+      await app.startImportWalk();
+      await app.setImportAction('import');
+      await app.applyImport();
+      await app.closeImportWizard(false);
+
+      const tags = await app.getAllTags();
+      expect(tags.map(t => t.name)).toContain('trips/2024');
+    });
+  });
+
   test.describe('Deferred execution', () => {
     /**
      * ★ THE core requirement. Assigning actions must change nothing on disk and

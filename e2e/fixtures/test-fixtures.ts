@@ -2541,6 +2541,17 @@ export class AppHelper {
     await this.page.waitForSelector(`${selectors.importWizard.modal}.opacity-100`, { timeout: 5000 });
   }
 
+  /** Set the base tag on the setup pane, the way typing into it does. */
+  async setImportBaseTag(value: string): Promise<void> {
+    const input = this.page.locator(selectors.importWizard.baseTagInput);
+    await input.fill(value);
+    await input.dispatchEvent('input');
+  }
+
+  async getImportBaseTagHint(): Promise<string> {
+    return (await this.page.locator(selectors.importWizard.baseTagHint).textContent()) || '';
+  }
+
   async startImportWalk(): Promise<void> {
     await this.page.locator(selectors.importWizard.startButton).click();
     await this.page.locator(selectors.importWizard.reviewPane).waitFor({ state: 'visible', timeout: 5000 });

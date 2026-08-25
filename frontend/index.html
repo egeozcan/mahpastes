@@ -1940,7 +1940,8 @@
             </div>
 
             <!-- Pane 1: setup -->
-            <div id="import-setup-pane" class="flex-1 overflow-y-auto p-5 space-y-4">
+            <div id="import-setup-pane" class="flex-1 min-h-0 flex flex-col">
+                <div class="flex-1 min-h-0 overflow-y-auto p-5 space-y-4">
                 <div>
                     <span class="block text-[10px] font-medium text-stone-400 uppercase tracking-wide mb-1">Folder</span>
                     <p id="import-root-path" data-testid="import-root-path"
@@ -1966,6 +1967,22 @@
                     class="hidden text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-md p-3">
                     Files marked for deletion are removed permanently on this platform &mdash; there is no Trash to
                     restore them from.
+                </div>
+                </div>
+
+                <!-- Pinned for the same reason as the review pane's tag field:
+                     its dropdown opens upward, over the scrollable blurb above,
+                     instead of being clipped by that scroll container. -->
+                <div class="shrink-0 border-t border-stone-100 p-5 pt-4">
+                    <div class="relative">
+                        <label for="import-base-tag" class="block text-[10px] font-medium text-stone-400 uppercase tracking-wide mb-1">Base tag</label>
+                        <input type="text" id="import-base-tag" data-testid="import-base-tag" autocomplete="off"
+                            placeholder="None"
+                            class="block w-full border border-stone-200 rounded-md text-sm bg-white placeholder-stone-400 focus:outline-none focus:border-stone-400 focus:ring-1 focus:ring-stone-400/20 transition-colors px-3 py-2">
+                    </div>
+                    <p id="import-base-tag-hint" data-testid="import-base-tag-hint" class="text-[11px] text-stone-400 mt-1.5">
+                        Pre-fills the tag for every file. Leave empty to tag nothing by default.
+                    </p>
                 </div>
             </div>
 

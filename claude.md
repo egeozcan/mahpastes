@@ -624,6 +624,10 @@ the unlink (no portable API unlinks an inode).
   (after tagging, matching `UploadFiles`) or plugins never fire for wizard imports.
 - Repeat-last copies the action always but the tag only when the user typed one — otherwise
   walking from `2024/` into `2025/` silently tags everything `2024`.
+- Suggested tags come from one function, `suggestedTagFor(entry)`: the setup pane's base tag
+  joined with the file's own subfolder (`trips` + `2024/rome.jpg` → `trips/2024`). Seeding,
+  the base-tag field and Repeat all route through it so they cannot drift. Editing the base
+  tag re-seeds every decision whose `tagEdited` flag is false and leaves hand-typed tags alone.
 - Wizard imports are permanent: `UploadFileAndGetID` never sets `expires_at`, so the bottom
   bar's expiry select is intentionally not replicated here.
 - E2E cannot dismiss a native folder picker. `BeginImportSession` (picker) is split from

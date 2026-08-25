@@ -589,6 +589,8 @@ export const selectors = {
     scanSummary: '[data-testid="import-scan-summary"]',
     truncatedNote: '[data-testid="import-truncated-note"]',
     trashWarning: '[data-testid="import-trash-warning"]',
+    baseTagInput: '[data-testid="import-base-tag"]',
+    baseTagHint: '[data-testid="import-base-tag-hint"]',
     startButton: '[data-testid="import-start"]',
 
     // Review pane
