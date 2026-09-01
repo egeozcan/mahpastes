@@ -261,6 +261,7 @@ mahpastes/
 │   │   ├── plugin-review.js # Plugin permission review UI
 │   │   ├── plugins.js    # Plugin management UI
 │   │   ├── roving-tabindex.js # Accessible roving tabindex pattern
+│   │   ├── search-options.js # Search option toggles (contents, hidden clips)
 │   │   ├── serve.js      # Tag serve UI
 │   │   ├── settings.js   # Settings modal
 │   │   ├── shortcuts.js  # ShortcutManager for keyboard shortcut registration and context handling
@@ -551,6 +552,149 @@ Plugins can define UI actions that appear in the lightbox and card context menu.
 **Async actions**: When `async = true`, action returns immediately, runs in a goroutine, and shows modal or toast on completion.
 
 **Modal system**: One-modal-at-a-time guard via `TryAcquireModalGuard`. `modal.show()` takes `title`, `content`, `format` (`markdown`/`image`/`text`), plus optional `copy_data`, `paste_data`, `paste_name`, `paste_content_type`.
+
+## Search
+
+The search box has two modes, and which one runs is decided by the two options
+behind the sliders button inside the field (`#search-options-btn`).
+
+**Plain search (default)** is what it has always been: an instant, local filter
+over the cards already rendered, matching `data-filename` and `data-type`
+(`applySearchFilter` in `ui.js`). It never touches the backend, so it can only
+see the current page of clips — `defaultClipLimit` (50) — and only their names
+and types.
+
+**Deep search** runs when a query is present *and* at least one option is on:
+
+- **Search file contents** — matches the stored bytes of text-like clips
+  (`text/*`, `application/json`). Cards carry only a 500-byte preview, so this
+  cannot be answered client-side. Persisted via `SetSetting('search_in_content')`.
+- **Show hidden clips** — includes clips carrying a hidden tag. Expressed by
+  passing an empty `hiddenTagIDs` to the query, not by a separate flag.
+  **Session-only on purpose**: a sticky global reveal would undo the point of
+  hiding tags, so it is off at every launch.
+
+Deep search calls `App.SearchClips` (`internal/app/app.go`), which layers a
+`clipSearchSpec` onto the same `getClipsInternal` machinery as `GetClips` — one
+filter/hidden/archive/expiry code path, so results cannot drift from the listing.
+`loadClips` sets `setGalleryShowsSearchResults(true)` for that render and
+`applySearchFilter` then leaves the cards alone: the database already applied the
+query, including content matches the DOM has no way to express. Keystrokes are
+debounced 250 ms; leaving deep search (query cleared, or options off) triggers one
+final reload back to the plain listing.
+
+Clips that reached the gallery only because hiding was waived get
+`data-hidden="true"` and are dimmed, mirroring hidden folder cards.
+
+**Folder mode disables both options** (the popover says so): a folder lists one
+exact tag level, and a search that widens past it would silently walk out of the
+folder the user is standing in.
+
+**Server mode** goes through the same code: `GET /api/v1/clips?search=…&search_content=…`
+routes to `handleListClipsViaApp` → `SearchClips`. The *presence* of
+`search_content` picks that path, so `search` on its own keeps the older
+preview-only post-filter the `mp` CLI relies on. "Show hidden" needs no param —
+it is the absence of `hidden` ones.
+
+**Known cap**: every gallery query returns at most 50 clips. Plain search filters
+the current 50 cards; deep search widens the database scope first, then returns
+the first 50 matching clips in the selected sort order. The UI does not yet
+report when more matches exist.
+
+**Key files**: `internal/app/app.go` (`SearchClips`, `clipSearchSpec`,
+`buildClipSearchClause`), `frontend/js/search-options.js` (state, popover,
+persistence), `frontend/js/ui.js` (`applySearchFilter`, debounce),
+`frontend/js/wails-api.js` (`loadClips` deep-search branch),
+`internal/app/api_manager.go` + `frontend/js/rest-glue.js` (server mode).
+
+## Video Gallery and Lightbox
+
+Videos are first-class gallery media alongside images. `getVisibleMediaClips()`
+builds the lightbox sequence from visible image and video cards, video cards seek
+just past the first frame for a thumbnail, and the lightbox swaps its image pan
+layer for a native `<video controls>` element. Image-only zoom, pan, wheel and
+edit commands are disabled while a video is current.
+
+Video bytes must not travel through `GetClipData` or `imageCache`: that path is a
+base64 whole-file transport intended for images and would multiply memory use.
+`getVideoMediaUrl()` instead gives the browser a range-capable URL.
+
+**Playback is backed by a leased temp file, not by the clip row.** SQLite cannot
+seek into a blob: every `SUBSTR(data, …)` walks the overflow-page chain from byte
+zero, costing ~0.17 ms per MB of clip however few bytes are requested. Streaming
+a clip that way is quadratic in its size (measured: 100 MB took 1.7 s to read
+through at a 1 MB chunk, 500 MB would take ~42 s) and every seek repays it. So
+`PrepareClipMediaItem` materializes the clip once through `TempClipStore` — one
+O(n) read — registers a `/media/{token}/{name}` capability against that path, and
+`TransferFileHandler.serveMedia` hands it to `http.ServeContent`, which seeks the
+file. It reuses a file still under lease, and the frontend caches the URL for the
+lease window, so a clip is copied at most once per session.
+
+It is the *same* leased store the drag-out channel uses — same directory, same
+60-minute TTL, same 10-minute prune, and `tempFilenameForClip` gives one
+deterministic name per clip, so a file materialized for a drag is reused for
+playback and vice versa (`prepareClipTransferItem` ignores the channel). One
+difference matters: a drag is over in a moment, while playback is long-lived, so
+`serveMedia` slides both the file's mtime lease and the `/media/` capability
+whenever a range is read past the halfway mark. Without that, watching a clip for
+longer than the lease would let the pruner delete the file mid-stream.
+
+Two client-side rules follow from the same cost: the lightbox video uses
+`preload="metadata"` (`preload="auto"` downloads the whole clip on open, however
+little the user watches), and a card thumbnail freezes its decoded frame into the
+element's `poster` and then releases `src` — a gallery page can hold up to
+`defaultClipLimit` cards, and leaving each attached to a source keeps that many
+decoders and range fetches alive for what is only ever a still.
+
+**The captured frame is carried by an `<img>`, never by the video's `poster`.**
+WebKit — the WebView this app ships in — paints a `<video>` whose `src` has been
+removed as an empty black box and ignores its poster; Chromium honours it. Since
+Playwright drives Chromium, the e2e suite renders such a card perfectly and
+cannot see the bug at all. So a card carries both an `img.video-thumb` and a
+`<video>`: the video loads, seeks and is drawn to a canvas, the frame goes into
+the `<img>`, and the video element is then released and removed. If the
+read-back fails, the live `<video>` is revealed instead — correct everywhere,
+just costing a decoder.
+
+This class of difference is not testable from the e2e suite. It was found by
+snapshotting a real `WKWebView` (a small Swift harness loading a page that
+renders live-video, poster-released and `<img>` side by side, then
+`takeSnapshot`). Reach for that when a rendering bug reproduces in the app but
+not under Playwright.
+
+`thumbnailSeekTime` samples 10% of the way in, capped at 2s, rather than the
+opening frame: real footage often fades in from black, and a frame from the
+first moments is a black square that tells the user nothing.
+
+`serveStoredClip` reads inside one read-only transaction, so a clip edited
+mid-download cannot be delivered as a splice of two revisions, and it takes an
+`allowRanges` flag. Public share links pass `false` (`writeWholeClipBytes`):
+`handleShareView` claims a download slot *before* the body is written, so
+honouring `Range` would let `bytes=0-0`, or a browser's ordinary resume probe,
+spend a `max_downloads=1` link on one byte. A share link is a whole-file
+download; the authenticated API endpoint keeps ranges.
+
+`UpdateClipData` drops the clip's leased temp file. Its name is derived from the
+clip ID and playback reuses a leased file rather than recopying, so without that
+the previous revision stays playable for the rest of the lease. The `/media/`
+token also carries the clip's stored content type rather than guessing from the
+temp filename — `tempFilenameForClip` keeps the clip's own name, so a `video/mp4`
+clip called `recording.txt` would be served as `text/plain` and, under `nosniff`,
+refuse to play.
+
+`serveStoredClip` (`internal/app/clip_stream.go`) is the remaining
+database-backed range streamer, used by server mode's authenticated
+`GET /api/v1/clips/{id}/data` and by share links. It carries the quadratic cost
+described above; raising `clipStreamChunkSize` divides the constant (8 MB
+measured 7× faster than 1 MB) but does not remove it.
+
+Playback depends on codecs supported by the platform WebView/browser. The media
+contract lives in `frontend/js/ui.js` (`getVisibleMediaClips`, card thumbnails,
+`getVideoMediaUrl`), `frontend/js/lightbox.js` (mixed-media state and playback),
+`frontend/js/app.js` (media loader), `internal/app/app.go`
+(`PrepareClipMediaItem`), `internal/app/transfer_handler.go` (`serveMedia`),
+`internal/app/clip_stream.go` (DB range streaming), and
+`internal/app/api_manager.go` (server ranges).
 
 ## Import Folder Wizard
 

@@ -67,12 +67,35 @@ html.lightbox-open [contenteditable="true"] {
     -webkit-user-drag: none;
 }
 
+.lightbox-video {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    display: block;
+    width: auto;
+    height: auto;
+    max-width: calc(100% - 7rem);
+    max-height: calc(100% - 2rem);
+    transform: translate(-50%, -50%);
+    border-radius: 0.25rem;
+    background: #0c0a09;
+}
+
+.lightbox-video[hidden],
+.lightbox-zoom-control[hidden] {
+    display: none;
+}
+
 .lightbox-viewport[data-pannable="true"] {
     cursor: grab;
 }
 
 .lightbox-viewport.is-panning {
     cursor: grabbing;
+}
+
+.lightbox-viewport[data-media-type="video"] {
+    touch-action: auto;
 }
 
 .lightbox-state {
@@ -500,6 +523,7 @@ input[type="range"].lightbox-range::-moz-range-thumb {
 @media (prefers-reduced-motion: reduce) {
     .lightbox-backdrop,
     .lightbox-image,
+    .lightbox-video,
     .lightbox-pan-layer,
     .lightbox-plugin-menu,
     .lightbox-spinner,

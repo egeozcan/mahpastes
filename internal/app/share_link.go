@@ -347,7 +347,7 @@ func (am *APIManager) handleShareView(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !am.writeClipBytes(w, clipID) {
+	if !am.writeWholeClipBytes(w, r, clipID) {
 		// Clip was deleted between the gate check and the read. Refund the slot so
 		// a one-time link is not permanently bricked by a non-delivery.
 		am.app.db.Exec("UPDATE share_links SET download_count = download_count - 1 WHERE id = ?", linkID)

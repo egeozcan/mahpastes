@@ -13,6 +13,7 @@ mahpastes handles these content types:
 | Type | Examples | How It's Displayed |
 |------|----------|-------------------|
 | **Images** | PNG, JPG, GIF, WebP, BMP, TIFF, SVG | Thumbnail preview |
+| **Videos** | MP4, WebM, and other browser-supported codecs | Frame thumbnail and lightbox playback |
 | **Text** | Plain text, notes | Text preview (first 500 characters) |
 | **Code** | Any programming language | Monospace text preview |
 | **JSON** | API responses, configs | Formatted JSON preview |
@@ -87,14 +88,19 @@ Clips display in a grid:
 
 ### Lightbox
 
-Click any image clip's preview to open it in a full-screen lightbox.
+Click any image or video clip's preview to open it in a full-screen lightbox.
+Videos use the native playback controls and load on demand; available codecs
+depend on your browser or platform WebView.
 
 **Navigation:**
-- Arrow keys or arrow buttons to move between images
+- Arrow keys or arrow buttons to move between images and videos
 - Swipe left/right on trackpad or touchscreen
 - Trackpad horizontal scroll with momentum detection
 
 **Zoom and pan:**
+
+These controls apply to images; videos keep their native playback controls.
+
 - Slider in the bottom bar (1x to 4x)
 - Trackpad pinch to zoom
 - Touch pinch to zoom
@@ -102,8 +108,8 @@ Click any image clip's preview to open it in a full-screen lightbox.
 - Click and drag to pan when zoomed in
 
 **Bottom bar:**
-- Position counter (e.g. "1/5"), filename, and image resolution
-- Zoom slider with percentage display
+- Position counter (e.g. "1/5"), filename, and media details
+- Zoom slider with percentage display for images
 - **Actions** menu with Open, Open With, Copy (Path / File / Contents), Save, Edit, Tags, Metadata, Rename, Set Expiration / Cancel Expiration, Merge Duplicates (if duplicates exist), Archive, Delete
 - Plugin action menu (if plugins define lightbox actions)
 
@@ -132,6 +138,7 @@ image to close**. The preference is remembered across restarts.
 ### Opening Content
 
 - **Images**: Click the preview to open in the lightbox
+- **Videos**: Click the frame preview to play in the lightbox
 - **Text/Code/JSON/HTML**: Click the preview to open in the text editor
 
 ### Content Detection
@@ -143,6 +150,7 @@ text/plain     → Plain text editor
 text/html      → HTML source view
 application/json → Formatted JSON view
 image/*        → Image viewer/editor
+video/*        → Video player
 ```
 
 ## Retrieving Clips
@@ -190,6 +198,23 @@ Filter clips by filename and content type:
 - Works in both the main gallery and archive views (whichever is active)
 
 ![Search filtering](/img/screenshots/search.png)
+
+#### Search options
+
+The sliders button inside the search box opens two options that widen a search
+beyond the cards on screen:
+
+- **Search file contents** — looks inside text and JSON clips, not just their
+  names. This option is remembered between sessions.
+- **Show hidden clips** — includes clips carrying a [hidden tag](./tags.md).
+  Results that only appear because of this are dimmed. The option resets to off
+  each time mahpastes starts, so hidden stays hidden by default.
+
+With either option on, the database searches the whole library rather than only
+the clips currently loaded in the gallery, then returns the first 50 matches in
+the selected sort order. The interface does not currently indicate when more
+matches exist. Both options are unavailable in folder view, where a folder lists
+one exact tag level.
 
 ### Archive
 
@@ -263,7 +288,7 @@ Click the active sort field to toggle between ascending and descending. Click a 
 
 ## Limits and Performance
 
-- **Clip limit**: 50 clips displayed in gallery (database has no limit)
+- **Clip limit**: Gallery and deep-search queries return at most 50 clips
 - **File size**: No hard limit, but very large files may slow performance
 - **Preview size**: Text previews limited to 500 characters
 

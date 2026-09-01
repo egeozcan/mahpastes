@@ -82,6 +82,7 @@ type desktopCore interface {
 	RemoveWatchedFolder(id int64) error
 	RenameClip(id int64, newFilename string) error
 	RestoreBackup(backupPath, identityPolicy string) error
+	SearchClips(archived bool, tagIDs []int64, hiddenTagIDs []int64, query string, searchContent bool, sortField string, sortDir string) ([]coreapp.ClipPreview, error)
 	SetClipMetadata(clipID int64, key string, value string) error
 	SetClipMetadataBulk(clipID int64, metadata map[string]string) error
 	SetExpiration(id int64, minutes int) error

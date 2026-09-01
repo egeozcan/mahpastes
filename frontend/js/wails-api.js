@@ -3,8 +3,16 @@
 
 let _pendingFocusAfterLoad = false;
 
+// Generation counter, same idiom as renderFolderCards. Deep search made
+// loadClips keystroke-driven, so two runs can now be in flight at once: a slow
+// content scan started first can return after a later, narrower one and repaint
+// the gallery with stale results. Each run captures its generation and bails as
+// soon as a newer one has started.
+let _clipLoadGen = 0;
+
 async function loadClips({ focusFirst = false } = {}) {
     _pendingFocusAfterLoad = focusFirst;
+    const myGen = ++_clipLoadGen;
     try {
         // Clear gallery focus, but not if user is interacting with the tag filter dropdown
         const tagDropdown = document.getElementById('tag-filter-dropdown');
@@ -28,8 +36,19 @@ async function loadClips({ focusFirst = false } = {}) {
         }
         const effectiveHidden = getHiddenTags().filter(id => !revealedIds.has(id));
 
+        // A deep search (contents and/or hidden clips) is answered by the
+        // database: neither option can be resolved from the cards on screen.
+        const deepSearch = typeof isDeepSearchActive === 'function' && isDeepSearchActive();
+        const searchOptions = typeof getSearchOptions === 'function' ? getSearchOptions() : { inContent: false, includeHidden: false };
+        if (typeof setGalleryShowsSearchResults === 'function') setGalleryShowsSearchResults(deepSearch);
+
         let clips;
-        if (isFolderMode() && activeTagFilters.length > 0) {
+        if (deepSearch) {
+            // "Show hidden clips" is expressed by asking for no hidden tags at all.
+            const hiddenForSearch = searchOptions.includeHidden ? [] : effectiveHidden;
+            clips = await window.go.main.App.SearchClips(isViewingArchive, activeTagFilters, hiddenForSearch,
+                getSearchQuery(), searchOptions.inContent, currentSortField, currentSortDir);
+        } else if (isFolderMode() && activeTagFilters.length > 0) {
             // Show clips tagged directly with this folder's tag, excluding clips
             // that also have a descendant tag (those belong in subfolders).
             const currentFolderTagId = activeTagFilters[activeTagFilters.length - 1];
@@ -42,6 +61,8 @@ async function loadClips({ focusFirst = false } = {}) {
         } else {
             clips = await window.go.main.App.GetClips(isViewingArchive, activeTagFilters, effectiveHidden, currentSortField, currentSortDir);
         }
+
+        if (myGen !== _clipLoadGen) return;
 
         if (typeof clearPreparedDragState === 'function') {
             clearPreparedDragState();
@@ -60,14 +81,21 @@ async function loadClips({ focusFirst = false } = {}) {
 
         if (clips && clips.length > 0) {
             for (const clip of clips) {
-                await createClipCard(clip);
+                if (myGen !== _clipLoadGen) return;
+                const card = await createClipCard(clip);
+                if (myGen !== _clipLoadGen) {
+                    card?.remove();
+                    return;
+                }
             }
             // Update count to include folder cards
             const folderCount = gallery.querySelectorAll('[data-folder]').length;
             updateClipCount(clips.length + folderCount);
         } else if (!isFolderMode() || gallery.children.length === 0) {
             let emptyMsg;
-            if (activeTagFilters.length > 0) {
+            if (deepSearch) {
+                emptyMsg = 'No clips match your search.';
+            } else if (activeTagFilters.length > 0) {
                 emptyMsg = 'No clips match the selected tags.';
             } else if (isViewingArchive) {
                 emptyMsg = 'No archived clips.';
@@ -80,8 +108,9 @@ async function loadClips({ focusFirst = false } = {}) {
             updateClipCount(gallery.querySelectorAll('[data-folder]').length);
         }
         if (typeof applySearchFilter === 'function') applySearchFilter();
-        updateHiddenClipsNote(effectiveHidden);
-        window.LightboxController?.setClips(getVisibleImageClips());
+        // Nothing is being withheld when the search was told to include hidden clips.
+        updateHiddenClipsNote(deepSearch && searchOptions.includeHidden ? [] : effectiveHidden);
+        window.LightboxController?.setClips(getVisibleMediaClips());
 
         // Re-index roving tabindex after gallery re-render
         if (window.__galleryRover) window.__galleryRover.update();
@@ -103,14 +132,22 @@ async function loadClips({ focusFirst = false } = {}) {
         }
     } catch (error) {
         console.error('Error loading clips:', error);
-        gallery.innerHTML = '<p class="text-red-500 col-span-full text-center">Error loading clips.</p>';
-        clearHiddenClipsNote();
+        // Same rule as the success path: a run that has been superseded must not
+        // touch the gallery. Without this a slow search that fails late replaces
+        // the results of the newer search that already rendered.
+        if (myGen === _clipLoadGen) {
+            gallery.innerHTML = '<p class="text-red-500 col-span-full text-center">Error loading clips.</p>';
+            clearHiddenClipsNote();
+        }
     } finally {
         // Render-completion signal. Several callers (folder-mode toggle, folder
         // navigation) fire loadClips() without awaiting it from a sync click
         // handler, so there is otherwise no way to tell that the gallery has
-        // finished re-rendering. Tests wait for this to advance.
-        window.__galleryRenderSeq = (window.__galleryRenderSeq || 0) + 1;
+        // finished re-rendering. Tests wait for this to advance. A superseded
+        // run never touched the gallery, so it must not claim a render.
+        if (myGen === _clipLoadGen) {
+            window.__galleryRenderSeq = (window.__galleryRenderSeq || 0) + 1;
+        }
     }
 }
 

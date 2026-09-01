@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func newTestHandler(t *testing.T) (*TransferFileHandler, string) {
@@ -182,6 +183,90 @@ func TestTransferHandler_NonTransferPath(t *testing.T) {
 	}
 }
 
+func TestTransferHandler_ServesMediaRangeFromLeasedTempFile(t *testing.T) {
+	db := newServerTestDB(t)
+	if _, err := db.Exec(`INSERT INTO clips (id, content_type, data, filename) VALUES (7, 'video/mp4', '0123456789', 'movie.mp4')`); err != nil {
+		t.Fatal(err)
+	}
+	tempDir := t.TempDir()
+	app := &App{db: db, tempDir: tempDir}
+	app.tempStore = NewTempClipStore(db, tempDir, 0, 0)
+	handler := NewTransferFileHandler(app)
+	app.transferHandler = handler
+
+	prepared, err := app.PrepareClipMediaItem(7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Playback is backed by a real file so the browser can seek it: SQLite
+	// cannot seek into a blob, and re-reading it per range is quadratic.
+	if prepared.AbsPath == "" {
+		t.Fatal("media preview did not materialize a temp file")
+	}
+	if _, err := os.Stat(prepared.AbsPath); err != nil {
+		t.Fatalf("temp file missing: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, prepared.TransferURL, nil)
+	req.Header.Set("Range", "bytes=3-6")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusPartialContent {
+		t.Fatalf("expected 206, got %d", rec.Code)
+	}
+	if got := rec.Body.String(); got != "3456" {
+		t.Fatalf("unexpected body %q", got)
+	}
+	if got := rec.Header().Get("Accept-Ranges"); got != "bytes" {
+		t.Fatalf("Accept-Ranges = %q", got)
+	}
+	if got := rec.Header().Get("Content-Disposition"); !strings.HasPrefix(got, "inline") {
+		t.Fatalf("Content-Disposition = %q, want inline", got)
+	}
+}
+
+func TestTransferHandler_ReusesLeasedMediaFile(t *testing.T) {
+	db := newServerTestDB(t)
+	if _, err := db.Exec(`INSERT INTO clips (id, content_type, data, filename) VALUES (8, 'video/mp4', '0123456789', 'movie.mp4')`); err != nil {
+		t.Fatal(err)
+	}
+	tempDir := t.TempDir()
+	app := &App{db: db, tempDir: tempDir}
+	app.tempStore = NewTempClipStore(db, tempDir, 0, 0)
+	handler := NewTransferFileHandler(app)
+	app.transferHandler = handler
+
+	first, err := app.PrepareClipMediaItem(8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := app.PrepareClipMediaItem(8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A second open must not recopy the clip: for a large video that copy is
+	// the whole cost of playback.
+	if first.AbsPath != second.AbsPath {
+		t.Fatalf("recopied clip: %q then %q", first.AbsPath, second.AbsPath)
+	}
+}
+
+func TestTransferHandler_RejectsNonVideoMediaPreview(t *testing.T) {
+	db := newServerTestDB(t)
+	if _, err := db.Exec(`INSERT INTO clips (id, content_type, data, filename) VALUES (9, 'image/png', 'x', 'a.png')`); err != nil {
+		t.Fatal(err)
+	}
+	tempDir := t.TempDir()
+	app := &App{db: db, tempDir: tempDir}
+	app.tempStore = NewTempClipStore(db, tempDir, 0, 0)
+	app.transferHandler = NewTransferFileHandler(app)
+
+	if _, err := app.PrepareClipMediaItem(9); err == nil {
+		t.Fatal("expected non-video clip to be rejected")
+	}
+}
+
 func TestGenerateTransferToken(t *testing.T) {
 	token1, err := generateTransferToken()
 	if err != nil {
@@ -196,5 +281,83 @@ func TestGenerateTransferToken(t *testing.T) {
 	}
 	if token1 == token2 {
 		t.Fatal("expected unique tokens")
+	}
+}
+
+func TestTransferHandler_PlaybackSlidesMediaLease(t *testing.T) {
+	db := newServerTestDB(t)
+	if _, err := db.Exec(`INSERT INTO clips (id, content_type, data, filename) VALUES (11, 'video/mp4', '0123456789', 'movie.mp4')`); err != nil {
+		t.Fatal(err)
+	}
+	tempDir := t.TempDir()
+	app := &App{db: db, tempDir: tempDir}
+	app.tempStore = NewTempClipStore(db, tempDir, 0, 0)
+	handler := NewTransferFileHandler(app)
+	app.transferHandler = handler
+
+	prepared, err := app.PrepareClipMediaItem(11)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Age the file and the capability past halfway, as a long playback would.
+	stale := time.Now().Add(-defaultTempLeaseTTL + time.Minute)
+	if err := os.Chtimes(prepared.AbsPath, stale, stale); err != nil {
+		t.Fatal(err)
+	}
+	handler.mu.Lock()
+	var token string
+	for tok, item := range handler.mediaTokens {
+		token = tok
+		item.expiresAt = time.Now().Add(time.Minute)
+		handler.mediaTokens[tok] = item
+	}
+	handler.mu.Unlock()
+
+	req := httptest.NewRequest(http.MethodGet, prepared.TransferURL, nil)
+	req.Header.Set("Range", "bytes=0-1")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusPartialContent {
+		t.Fatalf("expected 206, got %d", rec.Code)
+	}
+
+	handler.mu.RLock()
+	renewed := handler.mediaTokens[token]
+	handler.mu.RUnlock()
+	if time.Until(renewed.expiresAt) < defaultTempLeaseTTL/2 {
+		t.Fatalf("capability was not extended: expires in %v", time.Until(renewed.expiresAt))
+	}
+	info, err := os.Stat(prepared.AbsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if time.Since(info.ModTime()) > time.Minute {
+		t.Fatalf("file lease was not refreshed: mtime %v", info.ModTime())
+	}
+}
+
+func TestTransferHandler_MediaUsesStoredContentType(t *testing.T) {
+	db := newServerTestDB(t)
+	// A video whose filename claims it is text. tempFilenameForClip keeps that
+	// name, so guessing the type from the extension would serve text/plain and,
+	// with nosniff, stop it playing.
+	if _, err := db.Exec(`INSERT INTO clips (id, content_type, data, filename) VALUES (12, 'video/mp4', '0123456789', 'recording.txt')`); err != nil {
+		t.Fatal(err)
+	}
+	tempDir := t.TempDir()
+	app := &App{db: db, tempDir: tempDir}
+	app.tempStore = NewTempClipStore(db, tempDir, 0, 0)
+	handler := NewTransferFileHandler(app)
+	app.transferHandler = handler
+
+	prepared, err := app.PrepareClipMediaItem(12)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, prepared.TransferURL, nil))
+	if got := rec.Header().Get("Content-Type"); got != "video/mp4" {
+		t.Fatalf("Content-Type = %q, want video/mp4", got)
 	}
 }

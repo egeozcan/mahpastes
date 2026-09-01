@@ -27,7 +27,7 @@ async function mountController(page: Page) {
     document.body.appendChild(host);
 
     const pending = new Map<number, { resolve: (value: string) => void; reject: (error: Error) => void }>();
-    const loadImage = (clip: { id: number }) => new Promise<string>((resolve, reject) => {
+    const loadMedia = (clip: { id: number }) => new Promise<string>((resolve, reject) => {
       pending.set(clip.id, { resolve, reject });
     });
     const query = <T extends Element>(selector: string) => host.querySelector(selector) as T;
@@ -55,7 +55,7 @@ async function mountController(page: Page) {
         zoomInfo: query<HTMLElement>('[data-zoom-info]'),
       },
       backgroundRoots: [],
-      loadImage,
+      loadMedia,
       trapFocus: () => () => {},
       renderPluginActions: () => {},
       renderFileActions: () => {},

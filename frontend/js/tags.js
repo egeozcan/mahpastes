@@ -351,8 +351,9 @@ function clearAllTagFilters() {
 let tagFilterFocusTrapCleanup = null;
 
 function openTagFilterDropdown() {
-    // Don't let the tag filter dropdown and sort popover coexist.
+    // Don't let the tag filter dropdown coexist with the other header menus.
     if (typeof closeSortPopover === 'function') closeSortPopover();
+    if (typeof closeSearchOptionsPopover === 'function') closeSearchOptionsPopover();
     tagFilterDropdown.classList.remove('hidden');
     // Re-index rover now that items are visible, and focus first item
     if (tagFilterRover) {

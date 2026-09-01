@@ -294,6 +294,10 @@ export function SaveClipToFile(arg1) {
   return window['go']['main']['App']['SaveClipToFile'](arg1);
 }
 
+export function SearchClips(arg1, arg2, arg3, arg4, arg5, arg6, arg7) {
+  return window['go']['main']['App']['SearchClips'](arg1, arg2, arg3, arg4, arg5, arg6, arg7);
+}
+
 export function SelectFolder() {
   return window['go']['main']['App']['SelectFolder']();
 }

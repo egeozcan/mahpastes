@@ -17,6 +17,7 @@ import (
 	"io"
 	"log"
 	"mime"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -190,6 +191,61 @@ func (a *App) TempDir() string                 { return a.tempDir }
 
 func (a *App) PrepareClipTransferItem(id int64, source string) (*PreparedTransferItem, error) {
 	return a.prepareClipTransferItem(id, source)
+}
+
+// PrepareClipMediaItem returns a short-lived, range-capable URL for playing a
+// video clip in the gallery and lightbox.
+//
+// It is backed by a leased temp file rather than by the clip row. Serving
+// ranges straight out of SQLite looks cheaper — no copy on disk — but SQLite
+// cannot seek into a blob: every SUBSTR(data, ...) walks the whole overflow
+// page chain from byte zero, costing ~0.17ms per MB of clip no matter how few
+// bytes are asked for. Streaming a file that way is quadratic in its size (a
+// 100MB clip took 1.7s to read through, a 500MB clip ~42s), and every seek pays
+// it again. One materialization is O(n); after that http.ServeContent seeks the
+// file for free. The frontend caches the URL for the lease window, so a clip is
+// copied at most once per session.
+func (a *App) PrepareClipMediaItem(id int64) (*PreparedTransferItem, error) {
+	if id <= 0 {
+		return nil, fmt.Errorf("invalid clip ID: %d", id)
+	}
+	if a.db == nil || a.transferHandler == nil {
+		return nil, fmt.Errorf("media streaming is not initialized")
+	}
+	metadata, err := loadClipStreamMetadata(a.db, id)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrClipNotFound
+		}
+		return nil, fmt.Errorf("load clip %d: %w", id, err)
+	}
+	if !strings.HasPrefix(metadata.contentType, "video/") {
+		return nil, fmt.Errorf("clip %d is not a video", id)
+	}
+
+	// Reuse a temp file that is still under lease instead of recopying the clip.
+	prepared, err := a.lookupPreparedClipTransferItem(id, mediaPreviewChannel)
+	if err != nil || prepared == nil {
+		prepared, err = a.prepareClipTransferItem(id, mediaPreviewChannel)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	token, err := generateTransferToken()
+	if err != nil {
+		return nil, fmt.Errorf("generate media token: %w", err)
+	}
+	name := filepath.Base(prepared.AbsPath)
+	a.transferHandler.RegisterMediaToken(token, prepared.AbsPath, name, metadata.contentType, prepared.LeaseExpiresAt)
+	return &PreparedTransferItem{
+		ClipID:         id,
+		AbsPath:        prepared.AbsPath,
+		TransferURL:    "/media/" + token + "/" + url.PathEscape(name),
+		Filename:       metadata.filename.String,
+		ContentType:    metadata.contentType,
+		LeaseExpiresAt: prepared.LeaseExpiresAt,
+	}, nil
 }
 
 func (a *App) LookupPreparedClipTransferItem(id int64, source string) (*PreparedTransferItem, error) {
@@ -803,11 +859,65 @@ func sortColumn(field string) string {
 
 // GetClips retrieves a list of clips for the gallery, optionally filtered by tags
 func (a *App) GetClips(archived bool, tagIDs []int64, hiddenTagIDs []int64, sortField string, sortDir string) ([]ClipPreview, error) {
-	return a.getClipsInternal(archived, tagIDs, hiddenTagIDs, sortField, sortDir, true)
+	return a.getClipsInternal(archived, tagIDs, hiddenTagIDs, sortField, sortDir, true, nil)
 }
 
 func (a *App) GetClipsDirect(archived bool, tagIDs []int64, hiddenTagIDs []int64, sortField string, sortDir string) ([]ClipPreview, error) {
-	return a.getClipsInternal(archived, tagIDs, hiddenTagIDs, sortField, sortDir, false)
+	return a.getClipsInternal(archived, tagIDs, hiddenTagIDs, sortField, sortDir, false, nil)
+}
+
+// clipSearchSpec is a free-text search layered on top of the tag, archive and
+// expiry filters of a clip listing. Query matches the filename and the content
+// type, mirroring the gallery's client-side filter so both paths agree on what
+// a plain search means; InContent widens it to the stored bytes of text-like
+// clips, which the gallery cannot see (cards only carry a 500-byte preview).
+type clipSearchSpec struct {
+	Query     string
+	InContent bool
+}
+
+// textClipCondition is the SQL form of the "text-based clip" test used when
+// building previews: only these types are worth scanning for a content match,
+// and scanning image or archive bytes would produce nonsense hits.
+const textClipCondition = "(c.content_type LIKE 'text/%' OR c.content_type = 'application/json')"
+
+// buildClipSearchClause renders a search spec into a WHERE fragment plus its
+// arguments. Returns ("", nil) when there is nothing to search for.
+//
+// SQLite LIKE is case-insensitive for ASCII only. Keep the query's non-ASCII
+// code points intact: applying Go's Unicode-aware lowercase to only the
+// parameter makes otherwise literal matches such as ÄPFEL → Äpfel impossible.
+func buildClipSearchClause(search *clipSearchSpec) (string, []interface{}) {
+	if search == nil {
+		return "", nil
+	}
+	query := strings.TrimSpace(search.Query)
+	if query == "" {
+		return "", nil
+	}
+	// Wildcards typed by the user are literals, not patterns.
+	escaped := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(query)
+	pattern := "%" + escaped + "%"
+
+	terms := []string{
+		`COALESCE(c.filename, '') LIKE ? ESCAPE '\'`,
+		`c.content_type LIKE ? ESCAPE '\'`,
+	}
+	args := []interface{}{pattern, pattern}
+	if search.InContent {
+		terms = append(terms, `(`+textClipCondition+` AND CAST(c.data AS TEXT) LIKE ? ESCAPE '\')`)
+		args = append(args, pattern)
+	}
+	return "\n\t\t  AND (" + strings.Join(terms, " OR ") + ")", args
+}
+
+// SearchClips returns the clips matching a free-text query, under the same tag,
+// archive and expiry rules as GetClips. Pass an empty hiddenTagIDs slice to let
+// clips carrying a hidden tag surface in the results — hiding is a browsing
+// convenience, and search is where a user goes when they know what they want.
+func (a *App) SearchClips(archived bool, tagIDs []int64, hiddenTagIDs []int64, query string, searchContent bool, sortField string, sortDir string) ([]ClipPreview, error) {
+	return a.getClipsInternal(archived, tagIDs, hiddenTagIDs, sortField, sortDir, true,
+		&clipSearchSpec{Query: query, InContent: searchContent})
 }
 
 // GetFolderClips returns clips tagged with the given tag but NOT tagged with any
@@ -826,12 +936,12 @@ func (a *App) GetFolderClips(archived bool, tagID int64, sortField string, sortD
 	}
 	// Descendant IDs ride the hidden-tag channel purely as exclusions, so clips
 	// that live in a subfolder are not repeated at this level.
-	return a.getClipsInternal(archived, []int64{tagID}, descendantIDs, sortField, sortDir, false)
+	return a.getClipsInternal(archived, []int64{tagID}, descendantIDs, sortField, sortDir, false, nil)
 }
 
 // GetUntaggedClips returns clips that have no tags at all.
 func (a *App) GetUntaggedClips(archived bool, hiddenTagIDs []int64, sortField string, sortDir string) ([]ClipPreview, error) {
-	return a.getClipsInternal(archived, nil, hiddenTagIDs, sortField, sortDir, false, true)
+	return a.getClipsInternal(archived, nil, hiddenTagIDs, sortField, sortDir, false, nil, true)
 }
 
 // HiddenClipInfo reports clips that match the active tag filters but are kept
@@ -993,7 +1103,7 @@ func (a *App) buildClipFilterScope(tagIDs []int64, hiddenTagIDs []int64, expandF
 	return clipFilterScope{filterGroups: filterGroups, effectiveHidden: effectiveHidden}
 }
 
-func (a *App) getClipsInternal(archived bool, tagIDs []int64, hiddenTagIDs []int64, sortField string, sortDir string, expandFilters bool, untaggedOnly ...bool) ([]ClipPreview, error) {
+func (a *App) getClipsInternal(archived bool, tagIDs []int64, hiddenTagIDs []int64, sortField string, sortDir string, expandFilters bool, search *clipSearchSpec, untaggedOnly ...bool) ([]ClipPreview, error) {
 	archivedInt := 0
 	if archived {
 		archivedInt = 1
@@ -1026,6 +1136,8 @@ func (a *App) getClipsInternal(archived bool, tagIDs []int64, hiddenTagIDs []int
 		untaggedClause = "\n\t\t  AND NOT EXISTS (SELECT 1 FROM clip_tags ct2 WHERE ct2.clip_id = c.id)"
 	}
 
+	searchClause, searchArgs := buildClipSearchClause(search)
+
 	selectCols := `c.id, c.content_type, c.filename, c.created_at, c.expires_at, SUBSTR(c.data, 1, 500), c.is_archived, LENGTH(c.data),
 		       (SELECT COUNT(*) FROM clips c2 WHERE c2.content_hash = c.content_hash AND c2.content_hash != '' AND c2.id != c.id)`
 
@@ -1057,16 +1169,17 @@ func (a *App) getClipsInternal(archived bool, tagIDs []int64, hiddenTagIDs []int
 				strings.Join(hiddenPlaceholders, ","))
 		}
 
+		args = append(args, searchArgs...)
 		args = append(args, archivedInt)
 
 		query = fmt.Sprintf(`
 		SELECT %s
 		FROM clips c
-		WHERE %s%s%s
+		WHERE %s%s%s%s
 		  AND c.is_archived = ?
 		  AND (c.expires_at IS NULL OR c.expires_at > CURRENT_TIMESTAMP)
 		%s
-		LIMIT %d`, selectCols, strings.Join(existsClauses, "\n\t\t  AND "), hiddenClause, untaggedClause, orderClause, defaultClipLimit)
+		LIMIT %d`, selectCols, strings.Join(existsClauses, "\n\t\t  AND "), hiddenClause, untaggedClause, searchClause, orderClause, defaultClipLimit)
 	} else if len(effectiveHidden) > 0 {
 		// No tag filters but has hidden tags - use NOT EXISTS anti-join
 		hiddenPlaceholders := make([]string, len(effectiveHidden))
@@ -1074,25 +1187,27 @@ func (a *App) getClipsInternal(archived bool, tagIDs []int64, hiddenTagIDs []int
 			hiddenPlaceholders[i] = "?"
 			args = append(args, id)
 		}
+		args = append(args, searchArgs...)
 		args = append(args, archivedInt)
 
 		query = fmt.Sprintf(`
 		SELECT %s
 		FROM clips c
-		WHERE NOT EXISTS (SELECT 1 FROM clip_tags ct WHERE ct.clip_id = c.id AND ct.tag_id IN (%s))%s
+		WHERE NOT EXISTS (SELECT 1 FROM clip_tags ct WHERE ct.clip_id = c.id AND ct.tag_id IN (%s))%s%s
 		  AND c.is_archived = ?
 		  AND (c.expires_at IS NULL OR c.expires_at > CURRENT_TIMESTAMP)
 		%s
-		LIMIT %d`, selectCols, strings.Join(hiddenPlaceholders, ","), untaggedClause, orderClause, defaultClipLimit)
+		LIMIT %d`, selectCols, strings.Join(hiddenPlaceholders, ","), untaggedClause, searchClause, orderClause, defaultClipLimit)
 	} else {
 		// No filters, no hidden tags - original simple query
 		args = append(args, archivedInt)
+		args = append(args, searchArgs...)
 		query = fmt.Sprintf(`
 		SELECT %s
 		FROM clips c
-		WHERE c.is_archived = ?%s AND (c.expires_at IS NULL OR c.expires_at > CURRENT_TIMESTAMP)
+		WHERE c.is_archived = ?%s%s AND (c.expires_at IS NULL OR c.expires_at > CURRENT_TIMESTAMP)
 		%s
-		LIMIT %d`, selectCols, untaggedClause, orderClause, defaultClipLimit)
+		LIMIT %d`, selectCols, untaggedClause, searchClause, orderClause, defaultClipLimit)
 	}
 
 	rows, err := a.db.Query(query, args...)
@@ -1406,6 +1521,14 @@ func (a *App) UpdateClipData(id int64, contentType string, base64Data string, fi
 	}
 	if rows == 0 {
 		return fmt.Errorf("clip not found")
+	}
+
+	// The temp file for this clip now holds the previous revision. Its name is
+	// derived from the clip ID, so anything that reuses a leased file — media
+	// playback looks one up before materializing — would serve the old bytes
+	// for the rest of the lease. Drop it and let the next request rebuild it.
+	if err := a.deleteTempFilesForClipIDs([]int64{id}); err != nil {
+		log.Printf("Warning: failed to drop temp file for updated clip %d: %v", id, err)
 	}
 
 	return nil

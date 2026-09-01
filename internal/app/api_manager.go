@@ -1011,7 +1011,7 @@ func (am *APIManager) handleListClips(w http.ResponseWriter, r *http.Request) {
 	}
 
 	q := r.URL.Query()
-	if q.Has("sort") || q.Has("dir") || len(q["tag"]) > 1 || len(q["hidden"]) > 0 || q.Has("folder_tag") || q.Has("untagged") {
+	if q.Has("sort") || q.Has("dir") || len(q["tag"]) > 1 || len(q["hidden"]) > 0 || q.Has("folder_tag") || q.Has("untagged") || q.Has("search_content") {
 		am.handleListClipsViaApp(w, r, limit, offset, keyCtx)
 		return
 	}
@@ -1273,6 +1273,7 @@ func (am *APIManager) handleListClipsViaApp(w http.ResponseWriter, r *http.Reque
 	}
 
 	var previews []ClipPreview
+	usedDBSearch := false
 	if q.Get("untagged") == "true" {
 		if keyCtx.ScopedTagID > 0 {
 			am.jsonOK(w, apiClipListResponse{Clips: []apiClipResponse{}, Total: 0, Limit: limit, Offset: offset})
@@ -1296,6 +1297,12 @@ func (am *APIManager) handleListClipsViaApp(w http.ResponseWriter, r *http.Reque
 			}
 		}
 		previews, err = am.app.GetFolderClips(archived, folderID, sortField, sortDir)
+	} else if q.Has("search_content") {
+		// The presence of search_content — not its value — is what asks for a
+		// database-side search. `search` on its own keeps the older preview-only
+		// post-filter below, which the mp CLI relies on.
+		usedDBSearch = true
+		previews, err = am.app.SearchClips(archived, tagIDs, hiddenIDs, q.Get("search"), q.Get("search_content") == "true", sortField, sortDir)
 	} else {
 		previews, err = am.app.GetClips(archived, tagIDs, hiddenIDs, sortField, sortDir)
 	}
@@ -1306,6 +1313,11 @@ func (am *APIManager) handleListClipsViaApp(w http.ResponseWriter, r *http.Reque
 
 	contentType := q.Get("content_type")
 	search := strings.ToLower(q.Get("search"))
+	if usedDBSearch {
+		// Already applied in SQL, over the whole clip — re-running it against the
+		// 500-byte preview here would throw away the deep matches.
+		search = ""
+	}
 	clips := make([]apiClipResponse, 0, len(previews))
 	for _, p := range previews {
 		if contentType != "" && p.ContentType != contentType {
@@ -1385,7 +1397,7 @@ func (am *APIManager) handleGetClipData(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if !am.writeClipBytes(w, id) {
+	if !am.writeClipBytes(w, r, id) {
 		am.jsonError(w, http.StatusNotFound, "clip not found")
 	}
 }
@@ -1481,25 +1493,17 @@ func (am *APIManager) handleGetClipText(w http.ResponseWriter, r *http.Request) 
 //     previews/editor are unaffected.
 //   - CSP sandbox: even if a browser were coerced into rendering this
 //     response, it runs in an opaque origin with scripts disabled.
-func (am *APIManager) writeClipBytes(w http.ResponseWriter, clipID int64) bool {
-	var data []byte
-	var contentType string
-	var filename sql.NullString
+func (am *APIManager) writeClipBytes(w http.ResponseWriter, r *http.Request, clipID int64) bool {
+	return serveStoredClip(w, r, am.app.db, clipID, "attachment", true)
+}
 
-	if err := am.app.db.QueryRow("SELECT data, content_type, filename FROM clips WHERE id = ?", clipID).
-		Scan(&data, &contentType, &filename); err != nil {
-		return false
-	}
-
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
-	if contentType != "" {
-		w.Header().Set("Content-Type", contentType)
-	}
-	w.Header().Set("Content-Disposition", attachmentDisposition(sanitizeDownloadName(filename.String, clipID)))
-	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(data)))
-	w.Write(data)
-	return true
+// writeWholeClipBytes streams a clip with range support switched off. Public
+// share links use it: a link's download counter is claimed before the body is
+// written, so honouring Range would let "bytes=0-0", or a browser's ordinary
+// resume probe, spend a max_downloads=1 link on a single byte. A share link is
+// a whole-file download, so the simplest correct answer is not to offer ranges.
+func (am *APIManager) writeWholeClipBytes(w http.ResponseWriter, r *http.Request, clipID int64) bool {
+	return serveStoredClip(w, r, am.app.db, clipID, "attachment", false)
 }
 
 // sanitizeDownloadName returns a safe, separator-free filename for use in a

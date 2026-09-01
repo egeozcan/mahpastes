@@ -45,6 +45,7 @@
         };
 
         const backgroundInert = new Map();
+        const loadMedia = deps.loadMedia;
 
         function idsEqual(first, second) {
             return String(first) === String(second);
@@ -58,6 +59,10 @@
             return state.clips.findIndex(clip => idsEqual(clip.id, state.currentId));
         }
 
+        function isVideoClip(clip) {
+            return Boolean(clip?.content_type?.startsWith('video/'));
+        }
+
         function renderBoundaryState() {
             const index = currentIndex();
             const hasPrevious = index > 0;
@@ -68,20 +73,32 @@
             deps.elements.next.disabled = !hasNext;
         }
 
-        function renderImageInfo(clip, image = deps.elements.image) {
+        function renderMediaInfo(clip, media = isVideoClip(clip) ? deps.elements.video : deps.elements.image) {
             if (!deps.elements.imageInfo) return;
             if (!clip) {
                 deps.elements.imageInfo.textContent = '';
                 return;
             }
-            const filename = clip.filename || 'Pasted Image';
+            const filename = clip.filename || (isVideoClip(clip) ? 'Pasted Video' : 'Pasted Image');
             const position = `${currentIndex() + 1}/${state.clips.length}`;
-            const resolution = image?.naturalWidth && image?.naturalHeight
-                ? `${image.naturalWidth}×${image.naturalHeight}`
+            const width = media?.naturalWidth || media?.videoWidth || 0;
+            const height = media?.naturalHeight || media?.videoHeight || 0;
+            const resolution = width && height
+                ? `${width}×${height}`
                 : '';
             deps.elements.imageInfo.textContent = resolution
                 ? `${position} · ${filename} · ${resolution}`
                 : `${position} · ${filename}`;
+        }
+
+        function resetMediaElements() {
+            deps.elements.image.hidden = true;
+            if (deps.elements.video) {
+                deps.elements.video.pause();
+                deps.elements.video.hidden = true;
+                deps.elements.video.removeAttribute('src');
+                deps.elements.video.load();
+            }
         }
 
         function setBackgroundInert(enabled) {
@@ -209,7 +226,12 @@
             deps.elements.loading.hidden = true;
             deps.elements.error.hidden = false;
             deps.elements.image.hidden = true;
-            deps.elements.status.textContent = `Failed to load ${clip.filename || 'image'}`;
+            if (deps.elements.video) deps.elements.video.hidden = true;
+            const mediaName = isVideoClip(clip) ? 'video' : 'image';
+            if (deps.elements.errorMessage) {
+                deps.elements.errorMessage.textContent = `Could not load this ${mediaName}.`;
+            }
+            deps.elements.status.textContent = `Failed to load ${clip.filename || mediaName}`;
             deps.reportError(error, clip);
         }
 
@@ -220,20 +242,28 @@
             const generation = ++state.requestGeneration;
             state.phase = 'loading';
             deps.closeMenus();
+            resetMediaElements();
             resetViewport();
+            const videoClip = isVideoClip(clip);
+            const mediaName = videoClip ? 'video' : 'image';
             deps.elements.viewport.setAttribute('aria-busy', 'true');
+            deps.elements.viewport.dataset.mediaType = mediaName;
             deps.elements.loading.hidden = false;
+            if (deps.elements.loadingLabel) deps.elements.loadingLabel.textContent = `Loading ${mediaName}…`;
             deps.elements.error.hidden = true;
-            deps.elements.image.hidden = true;
-            deps.elements.caption.textContent = clip.filename || 'Pasted Image';
+            if (deps.elements.zoomControl) deps.elements.zoomControl.hidden = videoClip;
+            deps.elements.caption.textContent = clip.filename || (videoClip ? 'Pasted Video' : 'Pasted Image');
             deps.elements.image.alt = clip.filename || 'Image preview';
+            if (deps.elements.video) {
+                deps.elements.video.setAttribute('aria-label', clip.filename || 'Video preview');
+            }
             renderBoundaryState();
-            renderImageInfo(clip, null);
+            renderMediaInfo(clip, null);
             deps.renderPluginActions(clip);
             deps.renderFileActions(clip);
 
             try {
-                const dataURL = await deps.loadImage(clip);
+                const dataURL = await loadMedia(clip);
                 if (generation !== state.requestGeneration || state.phase === 'closed' || !idsEqual(state.currentId, clip.id)) return;
 
                 let committed = false;
@@ -244,18 +274,35 @@
                     deps.elements.viewport.setAttribute('aria-busy', 'false');
                     deps.elements.loading.hidden = true;
                     deps.elements.error.hidden = true;
-                    deps.elements.image.hidden = false;
-                    initializeViewport(deps.elements.image);
-                    renderImageInfo(clip);
-                    deps.elements.status.textContent = `${clip.filename || 'Image'}, ${currentIndex() + 1} of ${state.clips.length}, ${Math.round(state.scale * 100)}%`;
+                    if (videoClip) {
+                        deps.elements.video.hidden = false;
+                        renderMediaInfo(clip, deps.elements.video);
+                        deps.elements.status.textContent = `${clip.filename || 'Video'}, ${currentIndex() + 1} of ${state.clips.length}`;
+                    } else {
+                        deps.elements.image.hidden = false;
+                        initializeViewport(deps.elements.image);
+                        renderMediaInfo(clip, deps.elements.image);
+                        deps.elements.status.textContent = `${clip.filename || 'Image'}, ${currentIndex() + 1} of ${state.clips.length}, ${Math.round(state.scale * 100)}%`;
+                    }
                 };
-                const commitError = () => showLoadError(new Error('Image decode failed'), clip, generation);
+                const commitError = () => showLoadError(new Error(`${videoClip ? 'Video' : 'Image'} decode failed`), clip, generation);
 
-                deps.elements.image.addEventListener('load', commitReady, { once: true });
-                deps.elements.image.addEventListener('error', commitError, { once: true });
-                deps.elements.image.src = dataURL;
-                if (deps.elements.image.complete && deps.elements.image.naturalWidth > 0) {
-                    queueMicrotask(commitReady);
+                if (videoClip) {
+                    if (!deps.elements.video) throw new Error('Video element is unavailable');
+                    deps.elements.video.addEventListener('loadeddata', commitReady, { once: true });
+                    deps.elements.video.addEventListener('error', commitError, { once: true });
+                    deps.elements.video.src = dataURL;
+                    deps.elements.video.load();
+                    if (deps.elements.video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+                        queueMicrotask(commitReady);
+                    }
+                } else {
+                    deps.elements.image.addEventListener('load', commitReady, { once: true });
+                    deps.elements.image.addEventListener('error', commitError, { once: true });
+                    deps.elements.image.src = dataURL;
+                    if (deps.elements.image.complete && deps.elements.image.naturalWidth > 0) {
+                        queueMicrotask(commitReady);
+                    }
                 }
             } catch (error) {
                 showLoadError(error, clip, generation);
@@ -306,7 +353,7 @@
                 void renderCurrent();
             } else {
                 renderBoundaryState();
-                renderImageInfo(currentClip());
+                renderMediaInfo(currentClip());
             }
         }
 
@@ -338,7 +385,7 @@
 
             const clip = currentClip();
             if (name === 'edit') {
-                if (clip) deps.editClip(clip);
+                if (clip && !isVideoClip(clip)) deps.editClip(clip);
                 return;
             }
             if (name === 'copy') {
@@ -346,6 +393,7 @@
                 return;
             }
             if (state.phase !== 'ready') return;
+            if (isVideoClip(clip)) return;
 
             const centerX = state.viewportWidth / 2;
             const centerY = state.viewportHeight / 2;
@@ -376,6 +424,8 @@
             deps.elements.viewport.setAttribute('aria-busy', 'false');
             deps.elements.loading.hidden = true;
             deps.elements.error.hidden = true;
+            resetMediaElements();
+            if (deps.elements.zoomControl) deps.elements.zoomControl.hidden = false;
             resetViewport();
             setBackgroundInert(false);
 
@@ -407,6 +457,7 @@
         }
 
         function onWheel(event) {
+            if (isVideoClip(currentClip())) return;
             if (state.phase !== 'ready') {
                 if (state.wheelLocked && !event.ctrlKey && !event.metaKey) {
                     event.preventDefault();
@@ -475,7 +526,7 @@
         }
 
         function onDoubleClick(event) {
-            if (state.phase !== 'ready' || event.target.closest('button')) return;
+            if (state.phase !== 'ready' || isVideoClip(currentClip()) || event.target.closest('button')) return;
             const rect = deps.elements.viewport.getBoundingClientRect();
             const focalX = event.clientX - rect.left;
             const focalY = event.clientY - rect.top;
@@ -530,7 +581,7 @@
 
         function onTouchStart(event) {
             state.suppressBackdropClick = event.touches.length > 1 || Boolean(deps.menusOpen?.());
-            if (state.phase !== 'ready' || event.target.closest('button')) return;
+            if (state.phase !== 'ready' || isVideoClip(currentClip()) || event.target.closest('button')) return;
             if (event.touches.length === 2) {
                 const geometry = touchGeometry(event.touches);
                 state.touchMode = 'pinch';

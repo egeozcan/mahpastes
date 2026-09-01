@@ -145,15 +145,19 @@ window.LightboxController = window.createLightboxController({
         viewport: document.getElementById('lightbox-viewport'),
         panLayer: document.getElementById('lightbox-pan-layer'),
         image: document.getElementById('lightbox-img'),
+        video: document.getElementById('lightbox-video'),
         caption: lightboxCaption,
         status: document.getElementById('lightbox-status'),
         loading: document.getElementById('lightbox-loading'),
+        loadingLabel: document.getElementById('lightbox-loading-label'),
         error: document.getElementById('lightbox-error'),
+        errorMessage: document.getElementById('lightbox-error-message'),
         retry: document.getElementById('lightbox-retry'),
         close: lightboxClose,
         previous: lightboxPrev,
         next: lightboxNext,
         imageInfo: document.getElementById('lightbox-image-info'),
+        zoomControl: document.getElementById('lightbox-zoom-control'),
         slider: document.getElementById('lightbox-zoom-slider'),
         zoomOut: document.getElementById('lightbox-zoom-out'),
         zoomIn: document.getElementById('lightbox-zoom-in'),
@@ -167,7 +171,9 @@ window.LightboxController = window.createLightboxController({
         document.querySelector('footer'),
         document.getElementById('nav-drawer'),
     ].filter(Boolean),
-    loadImage: clip => getImageDataUrl(clip.id),
+    loadMedia: clip => clip.content_type.startsWith('video/')
+        ? getVideoMediaUrl(clip.id)
+        : getImageDataUrl(clip.id),
     trapFocus,
     renderPluginActions: clip => renderLightboxPluginButtons(clip),
     renderFileActions: clip => renderLightboxFileActions(clip),
@@ -199,7 +205,7 @@ window.LightboxController = window.createLightboxController({
         if (fallback) fallback.focus();
         else gallery.focus();
     },
-    reportError: (error, clip) => console.error(`Failed to load ${clip.filename || 'image'}:`, error),
+    reportError: (error, clip) => console.error(`Failed to load ${clip.filename || 'media'}:`, error),
 });
 
 // Comparison Modal Elements
@@ -347,6 +353,9 @@ window.folderStatusPoller = folderStatusPoller;
 function isFolderMode() { return folderMode; }
 function toggleFolderMode() {
     folderMode = !folderMode;
+    // The search options do not apply in folder view, so the button that owns
+    // them has to stop advertising itself as active the moment we switch.
+    if (typeof updateSearchOptionsButton === 'function') updateSearchOptionsButton();
     const btn = document.getElementById('folder-mode-btn');
     if (btn) {
         btn.setAttribute('aria-pressed', folderMode);
@@ -1318,6 +1327,11 @@ window.addEventListener('load', async () => {
             if (['asc', 'desc'].includes(savedDir)) currentSortDir = savedDir;
         } catch (e) { /* use defaults */ }
 
+        // Search options (content search persists; "show hidden" is session-only)
+        if (typeof initSearchOptions === 'function') {
+            await initSearchOptions();
+        }
+
         // Last-used plugin action options (dialogs reopen with them prefilled)
         if (typeof loadPluginOptionMemory === 'function') {
             await loadPluginOptionMemory();
@@ -1656,8 +1670,8 @@ window.addEventListener('load', async () => {
                 window.LightboxController.close();
             }
         });
-        ShortcutManager.register({ id: 'lightbox-next', label: 'Next Image', category: 'lightbox', defaultKey: 'ArrowRight', context: 'lightbox', callback: () => window.LightboxController.command('next') });
-        ShortcutManager.register({ id: 'lightbox-prev', label: 'Previous Image', category: 'lightbox', defaultKey: 'ArrowLeft', context: 'lightbox', callback: () => window.LightboxController.command('previous') });
+        ShortcutManager.register({ id: 'lightbox-next', label: 'Next Media', category: 'lightbox', defaultKey: 'ArrowRight', context: 'lightbox', callback: () => window.LightboxController.command('next') });
+        ShortcutManager.register({ id: 'lightbox-prev', label: 'Previous Media', category: 'lightbox', defaultKey: 'ArrowLeft', context: 'lightbox', callback: () => window.LightboxController.command('previous') });
         ShortcutManager.register({ id: 'lightbox-zoom-in', label: 'Zoom In', category: 'lightbox', defaultKey: '+', context: 'lightbox', callback: () => window.LightboxController.command('zoom-in') });
         ShortcutManager.register({ id: 'lightbox-zoom-out', label: 'Zoom Out', category: 'lightbox', defaultKey: '-', context: 'lightbox', callback: () => window.LightboxController.command('zoom-out') });
         ShortcutManager.register({ id: 'lightbox-fit', label: 'Fit Image', category: 'lightbox', defaultKey: '0', context: 'lightbox', callback: () => window.LightboxController.command('fit') });

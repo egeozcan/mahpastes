@@ -469,6 +469,16 @@ li[data-folder][data-hidden="true"] {
     filter: grayscale(0.4);
 }
 
+/* A clip card carrying a hidden tag, surfaced by a search that opted into them.
+   Lighter than the folder treatment: the card is a result the user asked for,
+   it just should not read as an ordinary listing entry. */
+#gallery > li[data-hidden="true"]:not([data-folder]) {
+    opacity: 0.7;
+}
+#gallery > li[data-hidden="true"]:not([data-folder]):hover {
+    opacity: 1;
+}
+
 .server-mode .desktop-only {
     display: none !important;
 }

@@ -101,6 +101,30 @@ func TestGetClipDataHardenedHeaders(t *testing.T) {
 	}
 }
 
+func TestGetClipDataSupportsByteRanges(t *testing.T) {
+	db := newServerTestDB(t)
+	manager := NewAPIManager(&App{db: db})
+	if _, err := db.Exec(`INSERT INTO clips (id, content_type, data, filename) VALUES (1, 'video/mp4', '0123456789', 'clip.mp4')`); err != nil {
+		t.Fatalf("seed clip: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/api/v1/clips/1/data", nil)
+	req.Header.Set("Range", "bytes=2-5")
+	req.SetPathValue("id", "1")
+	rec := httptest.NewRecorder()
+	manager.handleGetClipData(rec, withKey(req, &apiKeyContext{KeyID: 1, Role: "viewer"}))
+
+	if rec.Code != http.StatusPartialContent {
+		t.Fatalf("code = %d, want 206", rec.Code)
+	}
+	if got := rec.Body.String(); got != "2345" {
+		t.Fatalf("body = %q, want %q", got, "2345")
+	}
+	if got := rec.Header().Get("Accept-Ranges"); got != "bytes" {
+		t.Fatalf("Accept-Ranges = %q, want bytes", got)
+	}
+}
+
 // --- L13: settings reads are scope/role-restricted ---
 
 func TestGetSettingDeniesScopedAndUnprivilegedKeys(t *testing.T) {

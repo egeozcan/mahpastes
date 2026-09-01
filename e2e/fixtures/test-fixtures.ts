@@ -658,12 +658,32 @@ export class AppHelper {
         }
       } catch {}
 
-      // Reset sort preferences to defaults
+      // Reset sort preferences to defaults.
       try {
         if (App?.SetSetting) {
           await App.SetSetting('sort_field', 'date');
           await App.SetSetting('sort_dir', 'desc');
         }
+      } catch {}
+
+      // The worker page is reused, so reset search through the public setter:
+      // writing only the DB setting leaves both module-level flags stale.
+      try {
+        const setSearchOption = (window as any).__testHelpers?.setSearchOption;
+        if (typeof setSearchOption === 'function') {
+          await setSearchOption('content', false);
+          await setSearchOption('hidden', false);
+        } else if (App?.SetSetting) {
+          await App.SetSetting('search_in_content', 'false');
+        }
+      } catch {}
+
+      // Header popovers are outside the modal teardown below and otherwise
+      // survive into the next test on the worker-scoped page.
+      try {
+        const closeSearchOptions = (window as any).closeSearchOptionsPopover;
+        if (typeof closeSearchOptions === 'function') closeSearchOptions();
+        else document.querySelector('.search-options-popover')?.remove();
       } catch {}
 
       // Reset pasted-path behaviour. The page caches it, so go through the
@@ -1033,13 +1053,21 @@ export class AppHelper {
   // ==================== Lightbox ====================
 
   async openLightbox(filename: string): Promise<void> {
+    const clip = await this.getClipByFilename(filename);
+    const contentType = await clip.getAttribute('data-type');
     await this.viewClip(filename);
     await this.page.locator(`${selectors.lightbox.overlay}.active`).waitFor({ state: 'visible' });
     await expect(this.page.locator(selectors.lightbox.caption)).toContainText(filename);
-    await expect.poll(async () => {
-      const image = this.page.locator(selectors.lightbox.image);
-      return image.evaluate((element: HTMLImageElement) => element.complete && element.naturalWidth > 0);
-    }).toBe(true);
+    if (contentType?.startsWith('video/')) {
+      await expect.poll(() => this.page.locator(selectors.lightbox.video).evaluate(
+        (element: HTMLVideoElement) => element.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && element.videoWidth > 0,
+      )).toBe(true);
+    } else {
+      await expect.poll(async () => {
+        const image = this.page.locator(selectors.lightbox.image);
+        return image.evaluate((element: HTMLImageElement) => element.complete && element.naturalWidth > 0);
+      }).toBe(true);
+    }
   }
 
   async closeLightbox(): Promise<void> {
@@ -1487,6 +1515,47 @@ export class AppHelper {
     await this.page.locator(selectors.header.searchInput).fill(query);
     // Wait for gallery to re-render after search filter
     await this.page.waitForFunction(() => (window as any).__appReady === true, { timeout: 5000 });
+  }
+
+  /**
+   * Type a query and wait for the gallery to finish re-rendering.
+   *
+   * `search()` above only waits on __appReady, which is set once at startup, so
+   * it is useless for a search that goes to the backend (contents / hidden
+   * clips): those are debounced and land a render later. __galleryRenderSeq
+   * advances once loadClips has rebuilt the gallery.
+   */
+  async searchAndWaitForResults(query: string): Promise<void> {
+    const input = this.page.locator(selectors.header.searchInput);
+    // Re-filling the same text fires nothing, so there would be no render to
+    // wait for; whatever changed the state already waited for its own.
+    if ((await input.inputValue()) === query) return;
+
+    const before = await this.page.evaluate(() => (window as any).__galleryRenderSeq || 0);
+    await input.fill(query);
+    // A plain search filters the cards in place and never re-renders. Only a
+    // deep search — or leaving one — goes back to the backend.
+    const rerenders = await this.page.evaluate(() => {
+      const helpers = (window as any).__testHelpers;
+      return !!(helpers?.isDeepSearchActive?.() || helpers?.galleryIsSearchResults?.());
+    });
+    if (!rerenders) return;
+    await this.page.waitForFunction(
+      (prev) => ((window as any).__galleryRenderSeq || 0) > prev,
+      before,
+      { timeout: 10000 }
+    );
+  }
+
+  /** Flip a search option ("content" or "hidden") and wait out the reload it triggers. */
+  async setSearchOption(key: 'content' | 'hidden', value: boolean): Promise<void> {
+    await this.page.evaluate(
+      async ({ optionKey, optionValue }) => {
+        // @ts-ignore
+        await window.__testHelpers.setSearchOption(optionKey, optionValue);
+      },
+      { optionKey: key, optionValue: value }
+    );
   }
 
   async clearSearch(): Promise<void> {

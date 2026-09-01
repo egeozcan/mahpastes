@@ -1,6 +1,20 @@
-// Image cache for base64 data
+// Images are small enough to keep as data URLs. Videos must never enter this
+// cache: they use range-capable HTTP URLs so the browser can fetch only the
+// bytes needed for a thumbnail or playback.
 const imageCache = new Map();
+// Longest edge of a captured video-card thumbnail, in CSS pixels.
+const THUMBNAIL_MAX_EDGE = 640;
+// Furthest into a clip the thumbnail sampler will seek.
+const THUMBNAIL_SEEK_MAX_SECONDS = 2;
+const videoMediaURLCache = new Map();
+const pendingVideoMediaURLs = new Map();
 const renderedClipsById = new Map();
+
+function clearMediaCaches() {
+    imageCache.clear();
+    videoMediaURLCache.clear();
+    pendingVideoMediaURLs.clear();
+}
 
 function rememberRenderedClip(clip) {
     renderedClipsById.set(Number(clip.id), clip);
@@ -10,11 +24,13 @@ function clearRenderedClips() {
     renderedClipsById.clear();
 }
 
-function getVisibleImageClips() {
+function getVisibleMediaClips() {
     return Array.from(gallery.querySelectorAll(':scope > li[data-id]'))
         .filter(card => card.style.display !== 'none' && card.getClientRects().length > 0)
         .map(card => renderedClipsById.get(Number(card.dataset.id)))
-        .filter(clip => clip && clip.content_type.startsWith('image/'));
+        .filter(clip => clip && (
+            clip.content_type.startsWith('image/') || clip.content_type.startsWith('video/')
+        ));
 }
 
 // Track last checked checkbox for shift-click range selection
@@ -1028,6 +1044,22 @@ async function createClipCard(clip, options = {}) {
                 </svg>
             </div>
         </div>`;
+    } else if (clip.content_type.startsWith('video/')) {
+        previewHTML = `<div class="preview-container overflow-hidden aspect-square w-full bg-stone-900 flex items-center justify-center relative">
+            <img data-clip-id="${clip.id}" alt="${escapeHTML(clip.filename) || 'Uploaded video'}" draggable="false" class="video-thumb h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.02] hidden">
+            <video data-clip-id="${clip.id}" aria-label="${escapeHTML(clip.filename) || 'Uploaded video'}" muted playsinline preload="metadata" draggable="false" class="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.02] hidden"></video>
+            <div class="video-play-badge absolute inset-0 hidden items-center justify-center pointer-events-none" aria-hidden="true">
+                <span class="w-10 h-10 rounded-full bg-stone-900/70 border border-white/40 text-white flex items-center justify-center backdrop-blur-sm">
+                    <svg class="w-4 h-4 ml-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"></path></svg>
+                </span>
+            </div>
+            <div class="loading-spinner absolute inset-0 flex items-center justify-center text-stone-400">
+                <svg class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+            </div>
+        </div>`;
     } else if (clip.content_type === 'text/html') {
         // For HTML, show text preview (no iframe in Wails)
         const htmlPreview = escapeHTML(clip.preview || '').substring(0, 200);
@@ -1117,6 +1149,16 @@ async function createClipCard(clip, options = {}) {
         renderCardTags(card, clip.tags);
     }
 
+    // A clip only reaches the gallery with a hidden tag when a search was asked
+    // to include it. Dim it the same way a hidden folder card is dimmed, so the
+    // result never looks like an ordinary listing that leaked something.
+    if (typeof getHiddenTags === 'function' && Array.isArray(clip.tags)) {
+        const hidden = getHiddenTags() || [];
+        if (clip.tags.some(tag => hidden.includes(tag.id))) {
+            card.dataset.hidden = 'true';
+        }
+    }
+
     // Checkbox logic
     const checkbox = card.querySelector('.clip-checkbox');
     checkbox.addEventListener('change', (e) => {
@@ -1164,21 +1206,21 @@ async function createClipCard(clip, options = {}) {
     });
 
     // Lightbox trigger logic
-    if (clip.content_type.startsWith('image/')) {
+    if (clip.content_type.startsWith('image/') || clip.content_type.startsWith('video/')) {
         const lightboxTrigger = card.querySelector('[data-action="open-lightbox"]');
         lightboxTrigger.addEventListener('click', () => {
             window.LightboxController.open({
-                clips: getVisibleImageClips(),
+                clips: getVisibleMediaClips(),
                 currentId: clip.id,
                 opener: card,
             });
         });
 
-        // Load image asynchronously
-        loadImageForCard(clip.id, card);
+        // Load the image or a representative video frame asynchronously.
+        loadMediaForCard(clip.id, card);
     } else {
-        // For non-images, clicking opens the editor or shows content. This sits
-        // inside the non-image branch, so the text-only check is the right one —
+        // For non-media clips, clicking opens the editor or shows content. This
+        // sits inside the non-media branch, so the text-only check is right —
         // and this is a generic open, so the descriptor picks the mode.
         card.querySelector('[data-action="open-lightbox"]').addEventListener('click', () => {
             if (isTextCandidate(clip.filename || '', clip.content_type || '')) {
@@ -1189,39 +1231,185 @@ async function createClipCard(clip, options = {}) {
 
     if (options.prepend) {
         gallery.prepend(card);
-        window.LightboxController?.setClips(getVisibleImageClips());
+        window.LightboxController?.setClips(getVisibleMediaClips());
     } else {
         gallery.appendChild(card);
     }
 
     if (window.__galleryRover) window.__galleryRover.update();
+    return card;
 }
 
-// Load image data for a card
-async function loadImageForCard(clipId, card) {
+// Load image/video data for a card. Video elements seek just past the start so
+// clips whose first frame is empty still get a useful thumbnail.
+async function loadMediaForCard(clipId, card) {
     try {
-        const clipData = await getClipData(clipId);
-        const dataUrl = `data:${clipData.content_type};base64,${clipData.data}`;
-
-        // Cache the data URL
-        imageCache.set(clipId, dataUrl);
-
-        const img = card.querySelector(`img[data-clip-id="${clipId}"]`);
+        const img = card.querySelector(`img[data-clip-id="${clipId}"]:not(.video-thumb)`);
+        const video = card.querySelector(`video[data-clip-id="${clipId}"]`);
         const spinner = card.querySelector('.loading-spinner');
 
         if (img) {
+            const dataUrl = await getImageDataUrl(clipId);
             img.src = dataUrl;
             img.classList.remove('hidden');
+            spinner?.remove();
         }
-        if (spinner) {
-            spinner.remove();
+        if (video) {
+            const thumb = card.querySelector(`img.video-thumb[data-clip-id="${clipId}"]`);
+            const mediaURL = await getVideoMediaUrl(clipId);
+            // Preparing the URL is a round-trip, and the gallery may have been
+            // rebuilt underneath us in the meantime (a search keystroke is
+            // enough). Loading a detached element would open a range fetch and
+            // a decoder that nothing will ever release.
+            if (!card.isConnected) return;
+            let thumbnailSeekPending = false;
+            let settled = false;
+
+            const showBadge = () => {
+                const badge = card.querySelector('.video-play-badge');
+                badge?.classList.remove('hidden');
+                badge?.classList.add('flex');
+                spinner?.remove();
+            };
+
+            // Fall back to the live element. It renders correctly everywhere;
+            // it just costs a decoder and keeps a range fetch open.
+            const keepLiveVideo = () => {
+                if (settled) return;
+                settled = true;
+                video.classList.remove('hidden');
+                showBadge();
+            };
+
+            // Hand the frame to an <img> and drop the video element entirely.
+            //
+            // The frame cannot be carried by the video's own `poster`: WebKit —
+            // the WebView this app ships in — paints a video whose `src` has
+            // been removed as an empty black box and ignores the poster, while
+            // Chromium honours it, so the e2e suite cannot see the difference.
+            // An <img> renders the same frame correctly in both. Verified by
+            // snapshotting a real WKWebView; see docs in CLAUDE.md.
+            const freezeToImage = () => {
+                if (settled || !thumb) return keepLiveVideo();
+                try {
+                    const width = video.videoWidth;
+                    const height = video.videoHeight;
+                    if (!width || !height) return keepLiveVideo();
+                    const scale = Math.min(1, THUMBNAIL_MAX_EDGE / Math.max(width, height));
+                    const canvas = document.createElement('canvas');
+                    canvas.width = Math.max(1, Math.round(width * scale));
+                    canvas.height = Math.max(1, Math.round(height * scale));
+                    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+                    thumb.src = canvas.toDataURL('image/jpeg', 0.85);
+                } catch (error) {
+                    console.warn(`Could not capture thumbnail for clip ${clipId}:`, error);
+                    return keepLiveVideo();
+                }
+                settled = true;
+                thumb.classList.remove('hidden');
+                // Releasing the source frees the decoder and ends the range
+                // fetch. A gallery page holds up to defaultClipLimit cards, and
+                // a still frame has no business keeping a video pipeline alive.
+                video.removeAttribute('src');
+                video.load();
+                video.remove();
+                showBadge();
+            };
+
+            // `seeked` says the seek finished, not that a frame was presented.
+            const freezeWhenPainted = () => {
+                if (settled) return;
+                if (typeof video.requestVideoFrameCallback === 'function') {
+                    let fired = false;
+                    video.requestVideoFrameCallback(() => { fired = true; freezeToImage(); });
+                    setTimeout(() => { if (!fired) freezeToImage(); }, 1000);
+                    return;
+                }
+                requestAnimationFrame(() => requestAnimationFrame(freezeToImage));
+            };
+
+            video.addEventListener('loadedmetadata', () => {
+                if (Number.isFinite(video.duration) && video.duration > 0.1) {
+                    thumbnailSeekPending = true;
+                    video.currentTime = thumbnailSeekTime(video.duration);
+                }
+            }, { once: true });
+            video.addEventListener('loadeddata', () => {
+                if (!thumbnailSeekPending) freezeWhenPainted();
+            }, { once: true });
+            video.addEventListener('seeked', () => {
+                thumbnailSeekPending = false;
+                freezeWhenPainted();
+            }, { once: true });
+            video.addEventListener('error', () => {
+                if (settled) return;
+                settled = true;
+                // Release the source on failure too, or the element sits in the
+                // gallery holding a dead fetch for the life of the render.
+                video.removeAttribute('src');
+                video.load();
+                video.remove();
+                if (spinner) spinner.innerHTML = '<span class="text-red-400 text-xs">Failed to load</span>';
+            });
+            video.src = mediaURL;
+            video.load();
         }
     } catch (error) {
-        console.error(`Failed to load image for clip ${clipId}:`, error);
+        console.error(`Failed to load media for clip ${clipId}:`, error);
         const spinner = card.querySelector('.loading-spinner');
         if (spinner) {
             spinner.innerHTML = '<span class="text-red-400 text-xs">Failed to load</span>';
         }
+    }
+}
+
+// Where to sample a video for its card thumbnail. Not the opening frame: real
+// footage very often fades in from black, so a frame from the first moments is
+// a black square that tells the user nothing. A short way in is past the fade
+// on typical clips while staying cheap to reach over a range request.
+function thumbnailSeekTime(duration) {
+    return Math.min(THUMBNAIL_SEEK_MAX_SECONDS, Math.max(0.1, duration * 0.1));
+}
+
+// Return a URL the browser can request with byte ranges. Desktop mode leases a
+// temp file behind the transfer handler, so seeking is a file seek; server mode
+// streams the clip from the authenticated same-origin REST endpoint. The URL is
+// cached for the lease window so a clip is materialized at most once.
+async function getVideoMediaUrl(clipId) {
+    const id = Number(clipId);
+    if (!Number.isFinite(id) || id <= 0) throw new Error(`Invalid clip ID: ${clipId}`);
+
+    const cached = videoMediaURLCache.get(id);
+    if (cached && cached.expiresAt > Date.now() + 5000) return cached.url;
+    if (pendingVideoMediaURLs.has(id)) return pendingVideoMediaURLs.get(id);
+
+    const pending = (async () => {
+        if (window.mahpastesMode === 'server') {
+            const url = `/api/v1/clips/${id}/data`;
+            videoMediaURLCache.set(id, { url, expiresAt: Number.POSITIVE_INFINITY });
+            return url;
+        }
+
+        const service = window.go?.main?.TransferService;
+        if (!service || typeof service.PrepareClipForTransfer !== 'function') {
+            throw new Error('Transfer service binding is unavailable');
+        }
+        const prepared = await service.PrepareClipForTransfer({
+            clip_id: id,
+            channel: 'media_preview',
+        });
+        if (!prepared?.transfer_url) throw new Error('Video media URL is unavailable');
+
+        const parsedExpiry = Date.parse(prepared.lease_expires_at);
+        const expiresAt = Number.isFinite(parsedExpiry) ? parsedExpiry : Date.now() + 55 * 60 * 1000;
+        videoMediaURLCache.set(id, { url: prepared.transfer_url, expiresAt });
+        return prepared.transfer_url;
+    })();
+    pendingVideoMediaURLs.set(id, pending);
+    try {
+        return await pending;
+    } finally {
+        pendingVideoMediaURLs.delete(id);
     }
 }
 
@@ -1353,19 +1541,27 @@ function toggleViewMode() {
     // Ensure main view is visible
     gallery.parentElement.classList.remove('hidden');
 
-    // Clear image cache when switching views
-    imageCache.clear();
+    // Release references to media cached for the previous view.
+    clearMediaCaches();
     loadClips();
 }
 
 // Search Logic
 const searchInput = document.getElementById('search-input');
 
+// True when the cards on screen came from App.SearchClips rather than the plain
+// listing. The database already applied the query — including matches inside
+// file contents, which no card attribute can express — so the local filter must
+// not second-guess what it returned.
+let galleryShowsSearchResults = false;
+function setGalleryShowsSearchResults(value) { galleryShowsSearchResults = value; }
+function galleryIsSearchResults() { return galleryShowsSearchResults; }
+
 function applySearchFilter() {
     const query = searchInput.value.toLowerCase();
     const cards = gallery.querySelectorAll('li');
     cards.forEach(card => {
-        if (!query) {
+        if (!query || galleryShowsSearchResults) {
             card.style.display = '';
         } else {
             const filename = card.dataset.filename || '';
@@ -1373,11 +1569,26 @@ function applySearchFilter() {
             card.style.display = (filename.includes(query) || type.includes(query)) ? '' : 'none';
         }
     });
-    window.LightboxController?.setClips(getVisibleImageClips());
+    window.LightboxController?.setClips(getVisibleMediaClips());
+}
+
+// A deep search is a database round-trip, so it cannot ride every keystroke the
+// way the local filter does. Debounce it, and fire it on the way out too — when
+// the query is cleared or the options are turned off, the gallery has to come
+// back from search results to the plain listing.
+let searchReloadTimer = null;
+const SEARCH_RELOAD_DELAY_MS = 250;
+
+function scheduleSearchReload() {
+    const wanted = typeof isDeepSearchActive === 'function' && isDeepSearchActive();
+    if (!wanted && !galleryShowsSearchResults) return;
+    clearTimeout(searchReloadTimer);
+    searchReloadTimer = setTimeout(() => { loadClips(); }, SEARCH_RELOAD_DELAY_MS);
 }
 
 searchInput.addEventListener('input', () => {
     applySearchFilter();
+    scheduleSearchReload();
 });
 
 searchInput.addEventListener('keydown', (e) => {

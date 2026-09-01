@@ -94,6 +94,14 @@
             return (await fetchJSON(`${api}/clips?${q}`)).clips || [];
         },
         GetClipsDirect: async (archived, tagIds, hiddenIds, sort, dir) => (await fetchJSON(`${api}/clips?${clipQuery(archived, tagIds, hiddenIds, sort, dir)}`)).clips || [],
+        SearchClips: async (archived, tagIds, hiddenIds, query, searchContent, sort, dir) => {
+            // An empty hiddenIds list is how the caller asks for hidden clips to
+            // be included — same contract as the desktop binding.
+            const q = `${clipQuery(archived, tagIds, hiddenIds, sort, dir)}`
+                + `&search=${encodeURIComponent(query || '')}`
+                + `&search_content=${searchContent ? 'true' : 'false'}`;
+            return (await fetchJSON(`${api}/clips?${q}`)).clips || [];
+        },
         GetClipData: async (id) => {
             const res = await fetch(`${api}/clips/${id}/data`, { credentials: 'same-origin' });
             if (res.status === 401) window.location = '/login.html';

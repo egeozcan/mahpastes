@@ -72,6 +72,9 @@ func (s *TransferService) PrepareClipForTransfer(req PrepareTransferRequest) (*P
 	if strings.TrimSpace(req.Channel) == "" {
 		req.Channel = "drag_out"
 	}
+	if req.Channel == coreapp.MediaPreviewChannel {
+		return s.app.PrepareClipMediaItem(req.ClipID)
+	}
 	return s.app.PrepareClipTransferItem(req.ClipID, req.Channel)
 }
 

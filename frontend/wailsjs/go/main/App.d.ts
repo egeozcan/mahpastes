@@ -149,6 +149,8 @@ export function RestoreBackup(arg1:string,arg2:string):Promise<void>;
 
 export function SaveClipToFile(arg1:number):Promise<void>;
 
+export function SearchClips(arg1:boolean,arg2:Array<number>,arg3:Array<number>,arg4:string,arg5:boolean,arg6:string,arg7:string):Promise<Array<app.ClipPreview>>;
+
 export function SelectFolder():Promise<string>;
 
 export function SetClipMetadata(arg1:number,arg2:string,arg3:string):Promise<void>;

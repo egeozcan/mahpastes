@@ -2,6 +2,14 @@ package app
 
 import "time"
 
+// MediaPreviewChannel is the transfer channel used for in-app video playback.
+// It shares the leased temp-file store with drag-out but is served over the
+// /media/ route with an inline disposition.
+const MediaPreviewChannel = "media_preview"
+
+// mediaPreviewChannel is the package-internal spelling of MediaPreviewChannel.
+const mediaPreviewChannel = MediaPreviewChannel
+
 // TransferCapabilities describes which transfer channels are currently supported.
 type TransferCapabilities struct {
 	DragOut       DragCapability `json:"drag_out"`

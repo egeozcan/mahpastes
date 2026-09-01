@@ -86,7 +86,7 @@ function switchView(view) {
     switch (view) {
         case 'clips':
             gallery.parentElement.classList.remove('hidden');
-            imageCache.clear();
+            clearMediaCaches();
             // Restore active tags bar if filters are still active
             if (typeof updateActiveTagsDisplay === 'function') updateActiveTagsDisplay();
             loadClips();
