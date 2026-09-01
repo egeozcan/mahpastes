@@ -426,6 +426,18 @@ func TestFalInlineResultsSkipTheCDN(t *testing.T) {
 	}
 }
 
+// Real inline results routinely exceed gopher-lua's pattern recursion limit.
+// Their size must not affect whether the completed fal result can be stored.
+func TestFalLargeInlineEditResultIsStored(t *testing.T) {
+	response := `{"images":[{"url":"data:image/jpeg;base64,` + strings.Repeat("A", 1_100_000) + `"}]}`
+	h := newFalHarness(t, response, map[string]string{"api_key": "k"})
+	h.run(t, "edit", []int{7}, map[string]string{"prompt": "make it blue", "model": "nanobanana2"})
+
+	if h.clip.via != "create" {
+		t.Errorf("large inline result should be stored directly, got %q", h.clip.via)
+	}
+}
+
 // The retention headers are the only thing standing between fal's default
 // (keep generated media forever) and the results we already downloaded.
 func TestFalRetentionHeaders(t *testing.T) {

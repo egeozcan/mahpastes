@@ -793,13 +793,21 @@ end
 -- Persist a result. Inline data URIs are decoded straight into a clip, so the
 -- image never exists on fal's CDN at all.
 local function save_result(result_url, filename)
-    local mime, encoded = result_url:match("^data:([^;]+);base64,(.+)$")
-    if encoded then
-        return clips.create({
-            data = encoded,
-            content_type = mime,
-            filename = filename,
-        })
+    -- Use a plain delimiter search: gopher-lua's pattern matcher recurses once
+    -- per base64 byte and rejects normal image-sized inline results.
+    if result_url:sub(1, 5) == "data:" then
+        local marker_start, marker_end = result_url:find(";base64,", 6, true)
+        if marker_start then
+            local mime = result_url:sub(6, marker_start - 1)
+            local encoded = result_url:sub(marker_end + 1)
+            if mime ~= "" and encoded ~= "" then
+                return clips.create({
+                    data = encoded,
+                    content_type = mime,
+                    filename = filename,
+                })
+            end
+        end
     end
     return clips.create_from_url(result_url, {name = filename})
 end
