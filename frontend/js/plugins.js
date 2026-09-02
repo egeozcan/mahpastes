@@ -319,6 +319,45 @@ function renderSettingField(field, currentValue, pluginId) {
                 </div>
             `;
 
+        case 'search': {
+            // The visible input shows the label; the value lives in a hidden
+            // input. Display the remembered label only while its value still
+            // equals what plugin storage holds — otherwise fall back to the
+            // raw id (or nothing).
+            const searchValue = currentValue !== undefined && currentValue !== null ? String(currentValue) : '';
+            const remembered = settingLabels[pluginSettingLabelKey(pluginName, field.key)];
+            let displayLabel = searchValue;
+            if (searchValue && remembered && String(remembered.value) === searchValue) {
+                displayLabel = String(remembered.label || searchValue);
+            }
+            return `
+                <div class="setting-field" data-key="${escapeHTML(field.key)}">
+                    <label class="block text-[11px] font-medium text-stone-600 mb-1">${escapeHTML(field.label)}</label>
+                    <div class="relative">
+                        <input type="text"
+                               class="block w-full border border-stone-200 rounded-md text-xs bg-white px-2 py-1.5 pr-7 placeholder-stone-400 focus:outline-none focus:border-stone-400 focus:ring-1 focus:ring-stone-400/20 transition-colors"
+                               value="${escapeHTML(displayLabel)}"
+                               placeholder="Search…"
+                               data-plugin-id="${pluginId}"
+                               data-setting-key="${escapeHTML(field.key)}"
+                               data-setting-type="search"
+                               data-setting-source="${escapeHTML(field.source || '')}"
+                               data-setting-plugin-name="${escapeHTML(pluginName)}">
+                        <input type="hidden" data-setting-type="search-value" value="${escapeHTML(searchValue)}">
+                        <button type="button"
+                                class="absolute right-2 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600 ${searchValue ? '' : 'hidden'}"
+                                data-action="clear-search-setting"
+                                aria-label="Clear ${escapeHTML(field.label)}">
+                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    </div>
+                    ${description}
+                </div>
+            `;
+        }
+
         case 'select':
             const options = (field.options || []).map(opt => {
                 const selected = currentValue === opt || (currentValue === '' && field.default === opt);
@@ -443,6 +482,42 @@ async function loadPluginSettings(pluginId, cardElement) {
 // --- Setup Setting Event Listeners ---
 let settingDebounceTimers = {};
 
+// The visible picker input shows a human label; the stored value is the id.
+// The label is UI-only state and must not go into plugin storage — a <key>__label
+// twin would collide with the plugin's own freely-writable keyspace and could
+// drift out of sync with the value. It lives in an app setting keyed
+// <plugin_name>::<key> instead, and is only displayed while its value still
+// equals what plugin storage holds (plugin storage is independently writable
+// from Lua, so a remembered label alone could read "Trips" over an id the
+// plugin has since rewritten).
+const PLUGIN_SETTING_LABELS_KEY = 'plugin_setting_labels';
+let pluginSettingLabels = null; // { "<plugin_name>::<key>": {value, label} }
+
+async function loadPluginSettingLabels() {
+    if (pluginSettingLabels) return pluginSettingLabels;
+    try {
+        const raw = await window.go.main.App.GetSetting(PLUGIN_SETTING_LABELS_KEY);
+        const parsed = raw ? JSON.parse(raw) : null;
+        pluginSettingLabels = (parsed && typeof parsed === 'object') ? parsed : {};
+    } catch (error) {
+        console.error('Failed to load plugin setting labels:', error);
+        pluginSettingLabels = {};
+    }
+    return pluginSettingLabels;
+}
+
+async function persistPluginSettingLabels() {
+    try {
+        await window.go.main.App.SetSetting(PLUGIN_SETTING_LABELS_KEY, JSON.stringify(pluginSettingLabels));
+    } catch (error) {
+        console.error('Failed to save plugin setting labels:', error);
+    }
+}
+
+function pluginSettingLabelKey(pluginName, key) {
+    return `${pluginName}::${key}`;
+}
+
 function setupSettingListeners(cardElement, pluginId) {
     // Text and password inputs
     cardElement.querySelectorAll('input[data-setting-type="text"], input[data-setting-type="password"]').forEach(input => {
@@ -468,6 +543,41 @@ function setupSettingListeners(cardElement, pluginId) {
             const key = e.target.dataset.settingKey;
             const value = e.target.value;
             saveSetting(pluginId, key, value);
+        });
+    });
+
+    // Search fields (async combobox over the plugin's on_search hook)
+    cardElement.querySelectorAll('input[data-setting-type="search"]').forEach(input => {
+        const fieldDiv = input.closest('.setting-field');
+        const hiddenInput = fieldDiv?.querySelector('input[data-setting-type="search-value"]');
+        const key = input.dataset.settingKey;
+        const pluginName = input.dataset.settingPluginName || '';
+        if (!hiddenInput) return;
+        PluginSearchField.attach({
+            input,
+            hiddenInput,
+            pluginId,
+            source: input.dataset.settingSource || '',
+            onSelect: async (value, label) => {
+                await saveSetting(pluginId, key, value);
+                pluginSettingLabels = pluginSettingLabels || {};
+                pluginSettingLabels[pluginSettingLabelKey(pluginName, key)] = { value, label };
+                persistPluginSettingLabels();
+            },
+        });
+    });
+
+    // Explicit clear for search fields. Clearing must persist: resetting only
+    // the hidden input would leave auto-upload still using the stored owner.
+    cardElement.querySelectorAll('[data-action="clear-search-setting"]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const fieldDiv = btn.closest('.setting-field');
+            const input = fieldDiv?.querySelector('input[data-setting-type="search"]');
+            const hiddenInput = fieldDiv?.querySelector('input[data-setting-type="search-value"]');
+            if (!input || !hiddenInput) return;
+            await saveSetting(pluginId, input.dataset.settingKey, '');
+            input.value = '';
+            hiddenInput.value = '';
         });
     });
 
@@ -764,6 +874,7 @@ async function executePluginAction(pluginId, actionId, clipIds, options, isAsync
 // Dialog state
 let currentPluginAction = null;
 let currentActionClipIds = [];
+let currentDialogSearchFields = []; // PluginSearchField handles to destroy on close
 
 // --- Remembered option values ---
 // The options dialog is shared by every plugin action, so the last submitted
@@ -771,7 +882,7 @@ let currentActionClipIds = [];
 // opens. Free-text and password fields are deliberately not remembered: prompts
 // are meant to be rewritten each run and secrets should not be replayed.
 const PLUGIN_OPTION_MEMORY_KEY = 'plugin_action_options';
-const REMEMBERED_OPTION_TYPES = new Set(['select', 'checkbox', 'range']);
+const REMEMBERED_OPTION_TYPES = new Set(['select', 'checkbox', 'range', 'search']);
 let pluginOptionMemory = {};
 
 // Keyed by plugin name rather than row id so choices survive a reinstall, and
@@ -807,15 +918,28 @@ function rememberedOptionValue(action, field) {
                 ? value : field.default;
         case 'checkbox':
             return value === true;
+        case 'search':
+            // A search field has no manifest choices to validate against, so
+            // the stored {value, label} pair (captured together at selection
+            // time) is what stands in for that check.
+            return (value && typeof value === 'object' && 'value' in value) ? value : field.default;
         default: // range
             return Number.isFinite(Number(value)) ? Number(value) : field.default;
     }
 }
 
-async function savePluginOptionMemory(action, options) {
+async function savePluginOptionMemory(action, options, searchLabels) {
     const remembered = {};
     (action.options || []).forEach(field => {
-        if (REMEMBERED_OPTION_TYPES.has(field.type) && field.id in options) {
+        if (!REMEMBERED_OPTION_TYPES.has(field.type) || !(field.id in options)) return;
+        if (field.type === 'search') {
+            // Persist the {value, label} pair so the dialog can reopen showing
+            // the group name, not just the raw id.
+            remembered[field.id] = {
+                value: options[field.id],
+                label: (searchLabels && searchLabels[field.id]) || options[field.id],
+            };
+        } else {
             remembered[field.id] = options[field.id];
         }
     });
@@ -833,6 +957,8 @@ async function savePluginOptionMemory(action, options) {
 // action: the full action object with plugin_id, id, label, options, etc.
 // clipIds: array of clip IDs to apply the action to
 function openPluginOptionsDialog(action, clipIds) {
+    currentDialogSearchFields.forEach(field => field.destroy());
+    currentDialogSearchFields = [];
     currentPluginAction = action;
     currentActionClipIds = clipIds;
 
@@ -915,6 +1041,39 @@ function openPluginOptionsDialog(action, clipIds) {
                 form.appendChild(wrapper);
                 return;
 
+            case 'search': {
+                // Visible input carries the label; a hidden input named for
+                // the field carries the value the form actually submits.
+                const searchContainer = document.createElement('div');
+                searchContainer.className = 'relative';
+
+                input = document.createElement('input');
+                input.type = 'text';
+                input.className = 'form-input pr-7';
+                input.placeholder = 'Search…';
+                input.value = initial && typeof initial === 'object' ? String(initial.label || '') : '';
+
+                const hidden = document.createElement('input');
+                hidden.type = 'hidden';
+                hidden.name = field.id;
+                hidden.value = initial && typeof initial === 'object' ? String(initial.value ?? '') : '';
+
+                searchContainer.appendChild(input);
+                searchContainer.appendChild(hidden);
+                wrapper.appendChild(label);
+                wrapper.appendChild(searchContainer);
+                input.id = `plugin-opt-${field.id}`;
+                const searchField = PluginSearchField.attach({
+                    input,
+                    hiddenInput: hidden,
+                    pluginId: action.plugin_id,
+                    source: field.source || '',
+                });
+                currentDialogSearchFields.push(searchField);
+                form.appendChild(wrapper);
+                return;
+            }
+
             default: // text, password
                 input = document.createElement('input');
                 input.type = field.type === 'password' ? 'password' : 'text';
@@ -946,6 +1105,10 @@ function openPluginOptionsDialog(action, clipIds) {
 }
 
 function closePluginOptionsDialog() {
+    // Tear down comboboxes so their document-level listeners don't leak
+    // across dialog opens.
+    currentDialogSearchFields.forEach(field => field.destroy());
+    currentDialogSearchFields = [];
     const modal = document.getElementById('plugin-options-modal');
     modal.classList.remove('opacity-100');
     modal.classList.add('opacity-0', 'pointer-events-none');
@@ -966,6 +1129,7 @@ document.getElementById('plugin-options-form')?.addEventListener('submit', async
     // Gather form values
     const formData = new FormData(e.target);
     const options = {};
+    const searchLabels = {}; // search fields: visible label, captured before close
 
     currentPluginAction.options.forEach(field => {
         const value = formData.get(field.id);
@@ -976,6 +1140,15 @@ document.getElementById('plugin-options-form')?.addEventListener('submit', async
             case 'range':
                 options[field.id] = parseFloat(value);
                 break;
+            case 'search':
+                // The hidden input named for the field carries the value; it is
+                // cleared on any keystroke, so only an actual selection lands.
+                options[field.id] = value || '';
+                {
+                    const visible = document.getElementById(`plugin-opt-${field.id}`);
+                    searchLabels[field.id] = visible ? visible.value : '';
+                }
+                break;
             default:
                 options[field.id] = value;
         }
@@ -984,7 +1157,7 @@ document.getElementById('plugin-options-form')?.addEventListener('submit', async
     const action = currentPluginAction;
     const clipIds = currentActionClipIds;
     closePluginOptionsDialog();
-    await savePluginOptionMemory(action, options);
+    await savePluginOptionMemory(action, options, searchLabels);
     await executePluginAction(action.plugin_id, action.id, clipIds, options, action.async);
 });
 

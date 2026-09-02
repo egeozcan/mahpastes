@@ -297,6 +297,7 @@
         IsPluginURLAllowed: async (id, url, method) => (await postJSON(`${api}/plugins/${id}/url-check`, { url, method })).allowed,
         GetAllPluginStorage: (id) => fetchJSON(`${api}/plugins/${id}/storage`),
         SetPluginStorage: (id, key, value) => putJSON(`${api}/plugins/${id}/storage/${encodeURIComponent(key)}`, { value }),
+        SearchPluginOptions: async (id, source, query) => (await postJSON(`${api}/plugins/${id}/search`, { source, query })).choices || [],
         TryAcquireModalGuard: async () => true,
         ImportPlugin: () => new Promise((resolve, reject) => {
             // Headless equivalent of the desktop file dialog: let the browser pick a
