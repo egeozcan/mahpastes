@@ -157,6 +157,7 @@
       resultSec.classList.add('hidden');
       qrBox.classList.add('hidden');
       qrBox.innerHTML = '';
+      createModal.removeAttribute('inert');
       createModal.classList.remove('hidden');
     } catch (e) {
       console.error(e);
@@ -173,6 +174,7 @@
 
   document.querySelectorAll('.create-share-close').forEach(b => b.addEventListener('click', () => {
     createModal.classList.add('hidden');
+    createModal.setAttribute('inert', '');
   }));
 
   confirmBtn.addEventListener('click', async () => {
@@ -422,6 +424,7 @@
 
   addFollowBtn.addEventListener('click', () => {
     resetFollowModal();
+    followModal.removeAttribute('inert');
     followModal.classList.remove('hidden');
     // Attach autocomplete once per open — it destroys on close.
     if (window.TagAutocomplete && !autocompleteHandle) {
@@ -437,6 +440,7 @@
 
   document.querySelectorAll('.follow-share-close').forEach(b => b.addEventListener('click', () => {
     followModal.classList.add('hidden');
+    followModal.setAttribute('inert', '');
     resetFollowModal();
   }));
 
@@ -487,6 +491,7 @@
         await window.go.main.ShareService.Follow(s, tagName);
       }
       followModal.classList.add('hidden');
+      followModal.setAttribute('inert', '');
       resetFollowModal();
       await refresh();
     } catch (e) {
@@ -611,6 +616,7 @@
     editFollowErr.textContent = '';
     editFollowSaveBtn.textContent = 'Save';
     updateEditSaveEnabled();
+    editFollowModal.removeAttribute('inert');
     editFollowModal.classList.remove('hidden');
     if (window.TagAutocomplete && !editFollowAutocomplete) {
       editFollowAutocomplete = window.TagAutocomplete.attach(editFollowInput, {
@@ -626,6 +632,7 @@
 
   function closeEditFollowModal() {
     editFollowModal.classList.add('hidden');
+    editFollowModal.setAttribute('inert', '');
     if (editFollowAutocomplete) { editFollowAutocomplete.destroy(); editFollowAutocomplete = null; }
     editFollowID = null;
     editFollowOriginalTag = '';
@@ -716,12 +723,14 @@
     shareLogsSubtitle.textContent = (followID || publicationID)
       ? 'Filtered log entries, newest first. In-memory only — cleared on app restart.'
       : 'Recent share-system events, newest first. In-memory only — cleared on app restart.';
+    shareLogsModal.removeAttribute('inert');
     shareLogsModal.classList.remove('hidden');
     loadShareLogs();
   }
 
   function closeShareLogsModal() {
     shareLogsModal.classList.add('hidden');
+    shareLogsModal.setAttribute('inert', '');
     shareLogsList.innerHTML = '';
   }
 

@@ -1,6 +1,110 @@
 // Initialize test helpers early so all scripts can register their helpers
 window.__testHelpers = {};
 
+// Keep the document stationary while a modal is open without removing its
+// scrollbar. CSS overflow locking replaces the real, custom-styled scrollbar
+// with a system-painted gutter in WebKit, which changes both its width and its
+// appearance. This interaction lock leaves the scrollbar mounted, allows
+// scrolling inside modal content, and restores attempted document movement.
+(() => {
+    const openModalSelector = '[aria-modal="true"]:not([inert])';
+    const scrollableOverflow = new Set(['auto', 'scroll', 'overlay']);
+    let documentScrollLocked = false;
+    let lockedScrollX = 0;
+    let lockedScrollY = 0;
+    let lastTouchX = null;
+    let lastTouchY = null;
+
+    function syncDocumentScrollLock() {
+        const shouldLock = document.querySelector(openModalSelector) !== null;
+        if (shouldLock === documentScrollLocked) return;
+
+        documentScrollLocked = shouldLock;
+        if (shouldLock) {
+            lockedScrollX = window.scrollX;
+            lockedScrollY = window.scrollY;
+        }
+    }
+
+    function canConsumeScroll(element, deltaX, deltaY) {
+        if (!(element instanceof HTMLElement)) return false;
+
+        const { overflowX, overflowY } = getComputedStyle(element);
+        if (deltaY && scrollableOverflow.has(overflowY) && element.scrollHeight > element.clientHeight) {
+            if (deltaY < 0 && element.scrollTop > 0) return true;
+            if (deltaY > 0 && element.scrollTop + element.clientHeight < element.scrollHeight - 1) {
+                return true;
+            }
+        }
+
+        if (deltaX && scrollableOverflow.has(overflowX) && element.scrollWidth > element.clientWidth) {
+            if (deltaX < 0 && element.scrollLeft > 0) return true;
+            if (deltaX > 0 && element.scrollLeft + element.clientWidth < element.scrollWidth - 1) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    function modalCanConsumeScroll(target, deltaX, deltaY) {
+        if (!(target instanceof Element)) return false;
+        const modal = target.closest(openModalSelector);
+        if (!modal) return false;
+
+        for (let element = target; element; element = element.parentElement) {
+            if (canConsumeScroll(element, deltaX, deltaY)) return true;
+            if (element === modal) break;
+        }
+        return false;
+    }
+
+    window.addEventListener('scroll', () => {
+        if (!documentScrollLocked) return;
+        if (window.scrollX === lockedScrollX && window.scrollY === lockedScrollY) return;
+        window.scrollTo(lockedScrollX, lockedScrollY);
+    }, { passive: true });
+
+    document.addEventListener('wheel', (event) => {
+        if (!documentScrollLocked || modalCanConsumeScroll(event.target, event.deltaX, event.deltaY)) return;
+        event.preventDefault();
+    }, { capture: true, passive: false });
+
+    document.addEventListener('touchstart', (event) => {
+        const touch = documentScrollLocked && event.touches.length === 1 ? event.touches[0] : null;
+        lastTouchX = touch?.clientX ?? null;
+        lastTouchY = touch?.clientY ?? null;
+    }, { capture: true, passive: true });
+
+    document.addEventListener('touchmove', (event) => {
+        if (!documentScrollLocked || lastTouchX === null || lastTouchY === null || event.touches.length !== 1) {
+            return;
+        }
+
+        const currentTouchX = event.touches[0].clientX;
+        const currentTouchY = event.touches[0].clientY;
+        const deltaX = lastTouchX - currentTouchX;
+        const deltaY = lastTouchY - currentTouchY;
+        lastTouchX = currentTouchX;
+        lastTouchY = currentTouchY;
+        if (!modalCanConsumeScroll(event.target, deltaX, deltaY)) event.preventDefault();
+    }, { capture: true, passive: false });
+
+    const clearTouch = () => {
+        lastTouchX = null;
+        lastTouchY = null;
+    };
+    document.addEventListener('touchend', clearTouch, { capture: true, passive: true });
+    document.addEventListener('touchcancel', clearTouch, { capture: true, passive: true });
+
+    new MutationObserver(syncDocumentScrollLock).observe(document.body, {
+        subtree: true,
+        childList: true,
+        attributes: true,
+        attributeFilter: ['inert'],
+    });
+    syncDocumentScrollLock();
+})();
+
 let confirmCallback = null;
 let confirmCancelCallback = null;
 let confirmFocusTrapCleanup = null;

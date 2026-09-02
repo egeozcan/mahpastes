@@ -16,6 +16,10 @@ const FolderMoveModal = (() => {
         if (rootEl) return;
         rootEl = document.createElement('div');
         rootEl.setAttribute('data-testid', 'folder-move-modal');
+        rootEl.setAttribute('role', 'dialog');
+        rootEl.setAttribute('aria-modal', 'true');
+        rootEl.setAttribute('aria-label', 'Move folder');
+        rootEl.setAttribute('inert', '');
         rootEl.className = 'fixed inset-0 z-50 hidden items-center justify-center bg-black/40';
         rootEl.innerHTML = `
             <div class="bg-white rounded-md shadow-lg w-[480px] max-w-[90vw] max-h-[80vh] flex flex-col">
@@ -159,6 +163,7 @@ const FolderMoveModal = (() => {
     }
 
     function openModal() {
+        rootEl.removeAttribute('inert');
         rootEl.classList.remove('hidden');
         rootEl.classList.add('flex');
         rootEl.querySelector('[data-testid="folder-move-cancel"]').focus();
@@ -167,6 +172,7 @@ const FolderMoveModal = (() => {
     function closeModal() {
         rootEl?.classList.add('hidden');
         rootEl?.classList.remove('flex');
+        rootEl?.setAttribute('inert', '');
         currentTag = null;
         selectedDest = null;
     }
