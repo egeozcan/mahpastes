@@ -169,13 +169,13 @@ function on_clip_created(clip)
     end
 
     -- Get settings
-    local webhook_url = storage.get("setting:webhook_url")
+    local webhook_url = storage.get("webhook_url")
     if not webhook_url or webhook_url == "" then
         log("Webhook URL not configured - skipping notification")
         return
     end
 
-    local include_preview = storage.get("setting:include_preview") ~= "false"
+    local include_preview = storage.get("include_preview") ~= "false"
 
     -- Build the payload
     local payload = {
@@ -308,7 +308,7 @@ local SECONDS_PER_DAY = 86400
 
 -- Helper: get setting with default
 local function get_setting(key, default)
-    local value = storage.get("setting:" .. key)
+    local value = storage.get(key)
     return value or default
 end
 
@@ -518,7 +518,7 @@ settings = {
 }
 
 function my_task()
-    local dry_run = storage.get("setting:dry_run") == "true"
+    local dry_run = storage.get("dry_run") == "true"
 
     if dry_run then
         log("[DRY RUN] Would perform action...")
