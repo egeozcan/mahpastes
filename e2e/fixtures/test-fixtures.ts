@@ -2324,6 +2324,13 @@ export class AppHelper {
     }, { id: pluginId, k: key });
   }
 
+  async setPluginStorage(pluginId: number, key: string, value: string): Promise<void> {
+    await this.page.evaluate(async ({ id, k, v }) => {
+      // @ts-ignore - Wails runtime
+      await window.go.main.PluginService.SetPluginStorage(id, k, v);
+    }, { id: pluginId, k: key, v: value });
+  }
+
   async waitForPluginStorage(pluginId: number, key: string, expectedValue: string, timeout = 5000): Promise<boolean> {
     try {
       await expect.poll(

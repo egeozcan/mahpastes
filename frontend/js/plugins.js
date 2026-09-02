@@ -66,6 +66,10 @@ async function loadPlugins() {
 
 // --- Render Plugins List ---
 function renderPluginsList() {
+    // Cards (and any search comboboxes inside them) are rebuilt from scratch
+    // here; destroy the old comboboxes so their document-level listeners don't
+    // leak.
+    destroyActiveSearchFields();
     if (pluginsCache.length === 0) {
         pluginsList.innerHTML = '';
         pluginsEmptyState.classList.remove('hidden');
@@ -229,7 +233,7 @@ function createPluginCard(plugin) {
 }
 
 // --- Render Settings Section ---
-function renderSettingsSection(settings, pluginId, storageValues) {
+function renderSettingsSection(settings, pluginId, storageValues, pluginName, settingLabels) {
     if (!settings || settings.length === 0) {
         return '';
     }
@@ -240,7 +244,7 @@ function renderSettingsSection(settings, pluginId, storageValues) {
         const hasCurrentValue = currentValue !== undefined && currentValue !== null;
         const displayValue = hasCurrentValue ? currentValue : (hasDefault ? field.default : '');
 
-        return renderSettingField(field, displayValue, pluginId);
+        return renderSettingField(field, displayValue, pluginId, pluginName || '', settingLabels || {});
     }).join('');
 
     return `
@@ -253,7 +257,7 @@ function renderSettingsSection(settings, pluginId, storageValues) {
     `;
 }
 
-function renderSettingField(field, currentValue, pluginId) {
+function renderSettingField(field, currentValue, pluginId, pluginName, settingLabels) {
     const description = field.description
         ? `<p class="text-[10px] text-stone-400 mt-1">${escapeHTML(field.description)}</p>`
         : '';
@@ -338,6 +342,7 @@ function renderSettingField(field, currentValue, pluginId) {
                                class="block w-full border border-stone-200 rounded-md text-xs bg-white px-2 py-1.5 pr-7 placeholder-stone-400 focus:outline-none focus:border-stone-400 focus:ring-1 focus:ring-stone-400/20 transition-colors"
                                value="${escapeHTML(displayLabel)}"
                                placeholder="Search…"
+                               aria-label="${escapeHTML(field.label)}"
                                data-plugin-id="${pluginId}"
                                data-setting-key="${escapeHTML(field.key)}"
                                data-setting-type="search"
@@ -468,8 +473,11 @@ async function loadPluginSettings(pluginId, cardElement) {
         // Load current storage values
         const storageValues = await window.go.main.PluginService.GetAllPluginStorage(pluginId);
 
+        // Load remembered labels for search fields (UI-only state)
+        const labels = await loadPluginSettingLabels();
+
         // Render settings section
-        placeholder.innerHTML = renderSettingsSection(plugin.settings, pluginId, storageValues || {});
+        placeholder.innerHTML = renderSettingsSection(plugin.settings, pluginId, storageValues || {}, plugin.name || '', labels || {});
 
         // Add event listeners for setting changes
         setupSettingListeners(cardElement, pluginId);
@@ -518,6 +526,16 @@ function pluginSettingLabelKey(pluginName, key) {
     return `${pluginName}::${key}`;
 }
 
+// Handles for comboboxes rendered inside the plugins list. The list re-renders
+// whole cards, which would orphan the comboboxes' document-level listeners, so
+// they are tracked and destroyed on re-render.
+let activeSearchFields = [];
+
+function destroyActiveSearchFields() {
+    activeSearchFields.forEach(field => field.destroy());
+    activeSearchFields = [];
+}
+
 function setupSettingListeners(cardElement, pluginId) {
     // Text and password inputs
     cardElement.querySelectorAll('input[data-setting-type="text"], input[data-setting-type="password"]').forEach(input => {
@@ -553,7 +571,7 @@ function setupSettingListeners(cardElement, pluginId) {
         const key = input.dataset.settingKey;
         const pluginName = input.dataset.settingPluginName || '';
         if (!hiddenInput) return;
-        PluginSearchField.attach({
+        activeSearchFields.push(PluginSearchField.attach({
             input,
             hiddenInput,
             pluginId,
@@ -563,8 +581,11 @@ function setupSettingListeners(cardElement, pluginId) {
                 pluginSettingLabels = pluginSettingLabels || {};
                 pluginSettingLabels[pluginSettingLabelKey(pluginName, key)] = { value, label };
                 persistPluginSettingLabels();
+                // The clear button renders hidden when the stored value was
+                // empty; reveal it once a value exists.
+                fieldDiv.querySelector('[data-action="clear-search-setting"]')?.classList.remove('hidden');
             },
-        });
+        }));
     });
 
     // Explicit clear for search fields. Clearing must persist: resetting only
@@ -578,6 +599,7 @@ function setupSettingListeners(cardElement, pluginId) {
             await saveSetting(pluginId, input.dataset.settingKey, '');
             input.value = '';
             hiddenInput.value = '';
+            btn.classList.add('hidden');
         });
     });
 
@@ -934,10 +956,13 @@ async function savePluginOptionMemory(action, options, searchLabels) {
         if (!REMEMBERED_OPTION_TYPES.has(field.type) || !(field.id in options)) return;
         if (field.type === 'search') {
             // Persist the {value, label} pair so the dialog can reopen showing
-            // the group name, not just the raw id.
+            // the group name, not just the raw id. A cleared/typed-but-not-
+            // selected value (empty value) must not reopen looking like a
+            // remembered choice, so its label is dropped too.
+            const value = options[field.id];
             remembered[field.id] = {
-                value: options[field.id],
-                label: (searchLabels && searchLabels[field.id]) || options[field.id],
+                value,
+                label: value === '' || value == null ? '' : ((searchLabels && searchLabels[field.id]) || value),
             };
         } else {
             remembered[field.id] = options[field.id];
@@ -1125,6 +1150,18 @@ document.getElementById('plugin-options-form')?.addEventListener('submit', async
     e.preventDefault();
 
     if (!currentPluginAction) return;
+
+    // Required search fields cannot rely on HTML validation — hidden inputs
+    // are skipped by constraint validation — so check them here and keep the
+    // dialog open when a required pick is missing.
+    const missingRequiredSearch = (currentPluginAction.options || []).filter(field =>
+        field.type === 'search' && field.required &&
+        !(document.querySelector(`#plugin-options-form [name="${field.id}"]`)?.value)
+    );
+    if (missingRequiredSearch.length > 0) {
+        showToast(`Please choose a value for "${missingRequiredSearch[0].label}"`, 'error');
+        return;
+    }
 
     // Gather form values
     const formData = new FormData(e.target);

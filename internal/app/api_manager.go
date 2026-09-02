@@ -3446,7 +3446,10 @@ func (am *APIManager) handlePluginSearch(w http.ResponseWriter, r *http.Request)
 		Source string `json:"source"`
 		Query  string `json:"query"`
 	}
-	json.NewDecoder(r.Body).Decode(&body)
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
 	if body.Source == "" {
 		am.jsonError(w, http.StatusBadRequest, "source is required")
 		return

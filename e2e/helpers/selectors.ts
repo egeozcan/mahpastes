@@ -519,6 +519,15 @@ export const selectors = {
     passwordToggle: '[data-action="toggle-password"]',
   },
 
+  // Plugin search fields (async combobox over on_search)
+  pluginSearch: {
+    settingInput: (key: string) => `[data-setting-type="search"][data-setting-key="${key}"]`,
+    settingHidden: '[data-setting-type="search-value"]',
+    clearButton: '[data-action="clear-search-setting"]',
+    dropdown: '[role="listbox"]',
+    option: '[role="option"]',
+  },
+
   // Plugin options dialog (for action parameters)
   pluginOptions: {
     modal: '#plugin-options-modal',

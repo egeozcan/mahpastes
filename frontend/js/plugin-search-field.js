@@ -144,6 +144,9 @@ const PluginSearchField = (() => {
                 try {
                     choices = await window.go.main.PluginService.SearchPluginOptions(pluginId, source, query);
                 } catch (e) {
+                    // A superseded request that rejects must not overwrite a
+                    // newer search's results with stale busy/error state.
+                    if (my !== openToken) return;
                     busy = isBusyError(e && e.message ? e.message : e);
                     if (busy) {
                         // The plugin is running something else; the next
