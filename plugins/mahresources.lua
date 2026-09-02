@@ -21,7 +21,7 @@ Plugin = {
          description = "Full base URL including scheme, e.g. http://localhost:8181",
          default = "http://localhost:8181"},
         {key = "api_token", type = "password", label = "API Token",
-         description = "Bearer token from Account -> API tokens; leave empty for an instance with auth disabled"},
+         description = "Bearer token from Account -> API tokens; leave empty for an instance with auth disabled. Never sent over plain HTTP to a non-loopback host."},
         {key = "owner_id", type = "search", source = "groups", label = "Parent group",
          description = "Type to search groups; the group a resource's owner points at"},
         {key = "auto_upload", type = "checkbox", label = "Auto-upload new clips", default = false},
@@ -83,10 +83,21 @@ local function parse_base_url(url)
     return scheme:lower(), host
 end
 
+-- True when host is a complete IPv4 literal inside 127.0.0.0/8. A bare
+-- "^127%." prefix match would also accept DNS names like "127.attacker.example".
+local function is_loopback_ipv4(host)
+    local a, b, c, d = host:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
+    if not a then return false end
+    for _, octet in ipairs({ a, b, c, d }) do
+        if tonumber(octet) > 255 then return false end
+    end
+    return tonumber(a) == 127
+end
+
 -- Treat exactly localhost, 127.0.0.0/8 and ::1 as loopback.
 local function is_loopback(host)
     return host == "localhost"
-        or host:match("^127%.") ~= nil
+        or is_loopback_ipv4(host)
         or host == "::1"
 end
 

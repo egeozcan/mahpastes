@@ -188,7 +188,7 @@ local DEFAULTS = {
 }
 
 function get_setting(key)
-    local value = storage.get("setting:" .. key)
+    local value = storage.get("" .. key)
     return value or DEFAULTS[key]
 end
 
@@ -398,7 +398,7 @@ end
 function on_clip_created(clip)
     debug_log("Received clip: " .. json.encode(clip))
 
-    local api_key = storage.get("setting:api_key")
+    local api_key = storage.get("api_key")
     debug_log("API key configured: " .. tostring(api_key ~= nil))
 
     -- Production logic here
@@ -424,7 +424,7 @@ Plugin = {
 }
 
 function is_debug()
-    return storage.get("setting:debug_mode") == "true"
+    return storage.get("debug_mode") == "true"
 end
 
 function debug_log(message)
@@ -442,7 +442,7 @@ Organize storage with consistent key prefixes:
 
 ```lua
 -- Settings (managed by UI)
-storage.get("setting:api_key")
+storage.get("api_key")
 
 -- Plugin state
 storage.set("state:initialized", "true")

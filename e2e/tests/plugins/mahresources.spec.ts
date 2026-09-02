@@ -34,6 +34,14 @@ let baseURL = '';
 test.describe('mahresources Plugin', () => {
   let pluginId: number | null = null;
 
+  // Extract the value of the multipart ownerId field precisely, instead of
+  // searching the whole body where boundary, filename, or binary content could
+  // produce false matches.
+  const ownerIdValue = (body: string): string | null => {
+    const m = body.match(/name="ownerId"\r\n\r\n([^\r\n]*)\r\n--/);
+    return m ? m[1] : null;
+  };
+
   test.beforeAll(async () => {
     uploadStatus = 201;
     uploadResponseBody = [{ id: 1 }];
@@ -250,7 +258,7 @@ test.describe('mahresources Plugin', () => {
     expect(upload.headers['content-type']).toContain('multipart/form-data');
     expect(upload.body).toContain('name="resource"');
     expect(upload.body).toContain('name="ownerId"');
-    expect(upload.body).toContain('11');
+    expect(ownerIdValue(upload.body)).toBe('11');
   });
 
   test('owner precedence: dialog option beats setting, setting beats omitted', async ({ app }) => {
@@ -270,8 +278,7 @@ test.describe('mahresources Plugin', () => {
     expect(viaOption.success).toBe(true);
     await expect.poll(() => recorded.filter(r => r.url.startsWith('/v1/resource')).length, { timeout: 5000 }).toBe(1);
     let upload = recorded.find(r => r.url.startsWith('/v1/resource'))!;
-    expect(upload.body).toContain('12');
-    expect(upload.body).not.toContain('11');
+    expect(ownerIdValue(upload.body)).toBe('12');
 
     // Omitted option falls back to the setting.
     recorded = [];
@@ -279,8 +286,7 @@ test.describe('mahresources Plugin', () => {
     expect(viaSetting.success).toBe(true);
     await expect.poll(() => recorded.filter(r => r.url.startsWith('/v1/resource')).length, { timeout: 5000 }).toBe(1);
     upload = recorded.find(r => r.url.startsWith('/v1/resource'))!;
-    expect(upload.body).toContain('name="ownerId"');
-    expect(upload.body).toContain('11');
+    expect(ownerIdValue(upload.body)).toBe('11');
   });
 
   test('upload without any owner omits the ownerId field', async ({ app }) => {
@@ -299,7 +305,7 @@ test.describe('mahresources Plugin', () => {
     expect(result.success).toBe(true);
     await expect.poll(() => recorded.filter(r => r.url.startsWith('/v1/resource')).length, { timeout: 5000 }).toBe(1);
     const upload = recorded.find(r => r.url.startsWith('/v1/resource'))!;
-    expect(upload.body).not.toContain('name="ownerId"');
+    expect(ownerIdValue(upload.body)).toBeNull();
   });
 
   test('401 and 403 produce different messages', async ({ app }) => {
@@ -332,5 +338,56 @@ test.describe('mahresources Plugin', () => {
     const forbiddenMessage = await toastText();
     expect(forbiddenMessage).toContain('group');
     expect(forbiddenMessage).not.toBe(unauthMessage);
+  });
+
+  test('refuses to send the token over plain HTTP to a non-loopback host', async ({ app }) => {
+    await installPlugin(app, { server_url: 'http://plain.example:8181', api_token: 'secret' });
+
+    const imagePath = await createTempFile(generateTestImage(20, 20), 'png');
+    await app.uploadFile(imagePath);
+    await app.expectClipCount(1);
+    const clipId = await app.page.evaluate(async () => {
+      // @ts-ignore - Wails runtime
+      const list = await window.go.main.App.GetClips(false, [], [], '', '');
+      return list[0].id;
+    });
+
+    // The mapped refusal reaches the UI through the async action's error toast.
+    const toastText = () => app.page.locator('#toast').textContent();
+    await app.executePluginActionViaAPI(pluginId!, 'upload', [clipId], {});
+    await expect.poll(toastText, { timeout: 20000 }).toContain('refusing to send your API token over plain HTTP');
+
+    // The guard fires before any request: nothing left the machine.
+    expect(recorded.filter(r => r.url.startsWith('/v1/resource')).length).toBe(0);
+  });
+
+  test('sanitizes hostile multipart filenames', async ({ app }) => {
+    await installPlugin(app, { server_url: baseURL });
+
+    const imagePath = await createTempFile(generateTestImage(20, 20), 'png');
+    await app.uploadFile(imagePath);
+    await app.expectClipCount(1);
+    const clipId = await app.page.evaluate(async () => {
+      // @ts-ignore - Wails runtime
+      const list = await window.go.main.App.GetClips(false, [], [], '', '');
+      return list[0].id;
+    });
+
+    // A quote would escape the Content-Disposition quoting and CR/LF would
+    // inject headers; the plugin strips control characters and escapes quotes.
+    await app.page.evaluate(async ({ id }) => {
+      // @ts-ignore - Wails runtime
+      await window.go.main.App.RenameClip(id, 'we"ird\r\nname.png');
+    }, { id: clipId });
+
+    const result = await app.executePluginActionViaAPI(pluginId!, 'upload', [clipId], {});
+    expect(result.success).toBe(true);
+    await expect.poll(() => recorded.filter(r => r.url.startsWith('/v1/resource')).length, { timeout: 5000 }).toBe(1);
+    const upload = recorded.find(r => r.url.startsWith('/v1/resource'))!;
+
+    expect(upload.body).toContain('filename="we\\"irdname.png"');
+    // Exactly one part — the resource; no injected header parts (no owner is
+    // configured here, so the ownerId field is omitted).
+    expect((upload.body.match(/Content-Disposition/g) || []).length).toBe(1);
   });
 });

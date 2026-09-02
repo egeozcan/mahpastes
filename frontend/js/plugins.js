@@ -1069,19 +1069,24 @@ function openPluginOptionsDialog(action, clipIds) {
             case 'search': {
                 // Visible input carries the label; a hidden input named for
                 // the field carries the value the form actually submits.
+                // A remembered selection provides {value, label}; a scalar
+                // manifest default has no known label, so it shows raw.
                 const searchContainer = document.createElement('div');
                 searchContainer.className = 'relative';
+
+                const initialPair = initial && typeof initial === 'object' ? initial : null;
+                const initialScalar = initial != null && initial !== '' && !initialPair ? String(initial) : '';
 
                 input = document.createElement('input');
                 input.type = 'text';
                 input.className = 'form-input pr-7';
                 input.placeholder = 'Search…';
-                input.value = initial && typeof initial === 'object' ? String(initial.label || '') : '';
+                input.value = initialPair ? String(initialPair.label || '') : initialScalar;
 
                 const hidden = document.createElement('input');
                 hidden.type = 'hidden';
                 hidden.name = field.id;
-                hidden.value = initial && typeof initial === 'object' ? String(initial.value ?? '') : '';
+                hidden.value = initialPair ? String(initialPair.value ?? '') : initialScalar;
 
                 searchContainer.appendChild(input);
                 searchContainer.appendChild(hidden);

@@ -576,7 +576,7 @@ Plugin = {
 
 -- Handler implementations
 function on_startup()
-    local api_key = storage.get("setting:api_key")
+    local api_key = storage.get("api_key")
     if api_key then
         log("Cloud Sync initialized")
     else
@@ -585,7 +585,7 @@ function on_startup()
 end
 
 function on_clip_created(clip)
-    local auto_sync = storage.get("setting:auto_sync")
+    local auto_sync = storage.get("auto_sync")
     if auto_sync then
         sync_clip(clip)
     end
@@ -597,9 +597,9 @@ function sync_check()
 end
 
 function sync_clip(clip)
-    local api_key = storage.get("setting:api_key")
-    local quality = storage.get("setting:sync_quality") or "high"
-    local folder = storage.get("setting:folder_path") or "/mahpastes"
+    local api_key = storage.get("api_key")
+    local quality = storage.get("sync_quality") or "high"
+    local folder = storage.get("folder_path") or "/mahpastes"
 
     -- Upload implementation
     log("Syncing clip: " .. clip.filename)
