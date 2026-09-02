@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -21,10 +22,63 @@ const (
 	HTTPMaxResponseSize = 50 * 1024 * 1024
 )
 
+// HTTPBudget is a small shared holder between a Sandbox and its HTTPAPI.
+// Sandbox.CallSearch sets a deadline for the duration of one on_search call
+// and clears it afterwards; every other sandbox entry point leaves it unset.
+// When set, plugin HTTP requests are built with a context on that budget, so a
+// search against a black-holed server gives up at MaxSearchTime instead of
+// holding the sandbox for the five-minute client timeout.
+//
+// This is deliberately scoped to the search path. Wiring the Lua deadline into
+// every request would newly abort long-running auto-uploads: event handlers
+// run under MaxExecutionTime (30s) and a gopher-lua deadline only fires at VM
+// instruction boundaries, so blocking HTTP currently survives past it.
+type HTTPBudget struct {
+	mu       sync.Mutex
+	deadline time.Time
+	active   bool
+}
+
+// NewHTTPBudget creates an inactive budget holder.
+func NewHTTPBudget() *HTTPBudget {
+	return &HTTPBudget{}
+}
+
+// Set activates the budget for the given duration.
+func (b *HTTPBudget) Set(d time.Duration) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.deadline = time.Now().Add(d)
+	b.active = true
+}
+
+// Clear deactivates the budget.
+func (b *HTTPBudget) Clear() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.active = false
+}
+
+// Remaining returns the time left on the budget, if one is active. An expired
+// budget reports a zero duration with ok=true so the request fails fast.
+func (b *HTTPBudget) Remaining() (time.Duration, bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if !b.active {
+		return 0, false
+	}
+	d := time.Until(b.deadline)
+	if d < 0 {
+		d = 0
+	}
+	return d, true
+}
+
 // HTTPAPI provides restricted HTTP access to plugins
 type HTTPAPI struct {
 	allowedDomains map[string][]string // domain -> allowed methods
 	client         *http.Client
+	budget         *HTTPBudget
 
 	// Rate limiting
 	mu           sync.Mutex
@@ -59,8 +113,15 @@ func NewHTTPAPI(allowedDomains map[string][]string) *HTTPAPI {
 			return nil
 		},
 	}
+	api.budget = NewHTTPBudget()
 
 	return api
+}
+
+// Budget returns the shared HTTP deadline holder this API reacts to. Hand it
+// to the plugin's sandbox so CallSearch can scope a deadline to one call.
+func (h *HTTPAPI) Budget() *HTTPBudget {
+	return h.budget
 }
 
 // Register adds the http module to the Lua state
@@ -197,13 +258,23 @@ func (h *HTTPAPI) makeRequest(method string) lua.LGFunction {
 			}
 		}
 
-		// Create request
+		// Create request. When a search budget is active the request carries a
+		// context on that budget so an unresponsive server cannot hold the
+		// sandbox past MaxSearchTime; otherwise behavior is unchanged.
 		var reqBody io.Reader
 		if body != "" {
 			reqBody = strings.NewReader(body)
 		}
 
-		req, err := http.NewRequest(method, urlStr, reqBody)
+		var req *http.Request
+		var err error
+		if budget, ok := h.budget.Remaining(); ok {
+			ctx, cancel := context.WithTimeout(context.Background(), budget)
+			defer cancel()
+			req, err = http.NewRequestWithContext(ctx, method, urlStr, reqBody)
+		} else {
+			req, err = http.NewRequest(method, urlStr, reqBody)
+		}
 		if err != nil {
 			L.Push(lua.LNil)
 			L.Push(lua.LString(err.Error()))

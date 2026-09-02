@@ -1625,6 +1625,7 @@ export namespace plugin {
 	    required?: boolean;
 	    default?: any;
 	    choices?: Choice[];
+	    source?: string;
 	    min?: number;
 	    max?: number;
 	    step?: number;
@@ -1641,6 +1642,7 @@ export namespace plugin {
 	        this.required = source["required"];
 	        this.default = source["default"];
 	        this.choices = this.convertValues(source["choices"], Choice);
+	        this.source = source["source"];
 	        this.min = source["min"];
 	        this.max = source["max"];
 	        this.step = source["step"];
@@ -1736,6 +1738,7 @@ export namespace plugin {
 	    description?: string;
 	    default?: any;
 	    options?: string[];
+	    source?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new SettingField(source);
@@ -1749,6 +1752,7 @@ export namespace plugin {
 	        this.description = source["description"];
 	        this.default = source["default"];
 	        this.options = source["options"];
+	        this.source = source["source"];
 	    }
 	}
 

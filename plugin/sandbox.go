@@ -2,7 +2,9 @@ package plugin
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
@@ -13,15 +15,23 @@ const (
 	MaxExecutionTime = 30 * time.Second
 	MaxUIActionTime  = 5 * time.Minute // for long-running UI actions (e.g. AI processing)
 	MaxMemoryMB      = 50
+	MaxSearchTime    = 15 * time.Second // for on_search: the hook makes an HTTP call, not an AI run
+	MaxSearchResults = 50               // matches mahresources' fixed page size; keeps dropdown payloads bounded
 )
+
+// ErrPluginBusy is returned by CallSearch when the plugin's sandbox is already
+// running another entry point. The picker shows it as a transient "busy" row
+// instead of queueing behind, say, a five-minute async upload.
+var ErrPluginBusy = errors.New("plugin is busy")
 
 // Sandbox wraps a Lua state with resource limits
 type Sandbox struct {
-	L        *lua.LState
-	manifest *Manifest
-	pluginID int64
-	mu       sync.Mutex
-	cancel   context.CancelFunc
+	L          *lua.LState
+	manifest   *Manifest
+	pluginID   int64
+	mu         sync.Mutex
+	cancel     context.CancelFunc
+	httpBudget *HTTPBudget
 }
 
 // NewSandbox creates a new sandboxed Lua environment
@@ -210,6 +220,16 @@ func (s *Sandbox) GetPluginID() int64 {
 	return s.pluginID
 }
 
+// SetHTTPBudget gives the sandbox the shared HTTP deadline holder its http
+// module was built with. CallSearch sets it around the on_search call so the
+// in-flight request respects the search deadline; every other entry point
+// leaves it unset and plugin HTTP behavior is unchanged.
+func (s *Sandbox) SetHTTPBudget(b *HTTPBudget) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.httpBudget = b
+}
+
 // scalarMapToLuaTable converts a Go map of scalar values into a Lua table.
 // Non-scalar values are skipped. nil maps yield an empty table.
 func scalarMapToLuaTable(L *lua.LState, m map[string]interface{}) *lua.LTable {
@@ -229,6 +249,103 @@ func scalarMapToLuaTable(L *lua.LState, m map[string]interface{}) *lua.LTable {
 		}
 	}
 	return t
+}
+
+// CallSearch calls the on_search(source, query) handler and converts the
+// returned rows to choices. Unlike CallUIAction it acquires the sandbox lock
+// with TryLock and returns ErrPluginBusy when occupied: a blocking search
+// would otherwise wait far outside its own timeout, because an async action
+// takes the lock before creating its deadline and may hold it for
+// MaxUIActionTime. The picker must never queue behind an upload.
+func (s *Sandbox) CallSearch(source, query string, timeout time.Duration) ([]Choice, error) {
+	if !s.mu.TryLock() {
+		return nil, ErrPluginBusy
+	}
+	defer s.mu.Unlock()
+
+	fn := s.L.GetGlobal("on_search")
+	if fn == lua.LNil {
+		return nil, fmt.Errorf("plugin does not implement on_search")
+	}
+	if _, ok := fn.(*lua.LFunction); !ok {
+		return nil, fmt.Errorf("on_search is not a function")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer func() {
+		cancel()
+		s.cancel = nil
+	}()
+	s.cancel = cancel
+
+	s.L.SetContext(ctx)
+
+	if s.httpBudget != nil {
+		s.httpBudget.Set(timeout)
+		defer s.httpBudget.Clear()
+	}
+
+	s.L.Push(fn)
+	s.L.Push(lua.LString(source))
+	s.L.Push(lua.LString(query))
+
+	err := s.L.PCall(2, 1, nil)
+	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return nil, fmt.Errorf("on_search timed out after %v", timeout)
+		}
+		return nil, fmt.Errorf("on_search failed: %w", err)
+	}
+
+	ret := s.L.Get(-1)
+	s.L.Pop(1)
+
+	tbl, ok := ret.(*lua.LTable)
+	if !ok {
+		return nil, fmt.Errorf("on_search must return a table of rows")
+	}
+
+	rows := tbl.Len()
+	if rows > MaxSearchResults {
+		rows = MaxSearchResults
+	}
+	choices := make([]Choice, 0, rows)
+	for i := 1; i <= rows; i++ {
+		row, ok := tbl.RawGetInt(i).(*lua.LTable)
+		if !ok {
+			continue // malformed row: skip rather than panic
+		}
+		value := luaValueToChoiceString(row.RawGetString("value"))
+		if value == "" {
+			continue
+		}
+		label := luaValueToChoiceString(row.RawGetString("label"))
+		if label == "" {
+			label = value
+		}
+		choices = append(choices, Choice{Value: value, Label: label})
+	}
+	return choices, nil
+}
+
+// luaValueToChoiceString coerces a Lua scalar to a display/submit string.
+// Numbers are formatted without a trailing decimal (12 -> "12", not "12.0").
+func luaValueToChoiceString(v lua.LValue) string {
+	switch v := v.(type) {
+	case *lua.LNilType:
+		return ""
+	case lua.LString:
+		return string(v)
+	case lua.LNumber:
+		return strconv.FormatFloat(float64(v), 'f', -1, 64)
+	case lua.LBool:
+		if v {
+			return "true"
+		}
+		return "false"
+	default:
+		return v.String()
+	}
 }
 
 // CallUIAction calls the on_ui_action handler with proper context and returns the result.

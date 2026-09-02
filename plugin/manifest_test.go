@@ -491,3 +491,115 @@ func TestValidEvents_IncludesTagMerged(t *testing.T) {
 		t.Fatalf("ValidEvents() must include \"tag:merged\", got %v", events)
 	}
 }
+
+func TestParseManifestWithSettings_SearchField(t *testing.T) {
+	source := `
+Plugin = {
+  name = "Picker Plugin",
+  version = "1.0.0",
+  settings = {
+    {key = "owner_id", type = "search", source = "groups", label = "Parent group"},
+    {key = "no_source", type = "search", label = "Broken"},
+    {key = "plain", type = "text", label = "Plain", data_source = "decoy"}
+  }
+}
+`
+	manifest, err := ParseManifest(source)
+	if err != nil {
+		t.Fatalf("ParseManifest failed: %v", err)
+	}
+
+	if len(manifest.Settings) != 2 {
+		t.Fatalf("Expected 2 settings (search without source is dropped), got %d", len(manifest.Settings))
+	}
+
+	first := manifest.Settings[0]
+	if first.Key != "owner_id" {
+		t.Errorf("Expected key 'owner_id', got '%s'", first.Key)
+	}
+	if first.Type != "search" {
+		t.Errorf("Expected type 'search', got '%s'", first.Type)
+	}
+	if first.Source != "groups" {
+		t.Errorf("Expected source 'groups', got '%s'", first.Source)
+	}
+
+	// The surviving non-search field is the plain one, and its unrelated
+	// data_source key must not have leaked into Source.
+	second := manifest.Settings[1]
+	if second.Key != "plain" {
+		t.Errorf("Expected second setting 'plain', got '%s'", second.Key)
+	}
+	if second.Source != "" {
+		t.Errorf("data_source must not be read as source, got '%s'", second.Source)
+	}
+}
+
+func TestParseManifestWithUIActions_SearchOptionField(t *testing.T) {
+	source := `
+Plugin = {
+  name = "Picker Plugin",
+  version = "1.0.0",
+  ui = {
+    card_actions = {
+      {
+        id = "upload",
+        label = "Upload",
+        options = {
+          {id = "owner_id", type = "search", source = "groups", label = "Parent group"},
+          {id = "broken", type = "search", label = "No source"},
+          {id = "note", type = "text", label = "Note", resource = "decoy"}
+        }
+      }
+    }
+  }
+}
+`
+	manifest, err := ParseManifest(source)
+	if err != nil {
+		t.Fatalf("ParseManifest failed: %v", err)
+	}
+
+	actions := manifest.UI.CardActions
+	if len(actions) != 1 {
+		t.Fatalf("Expected 1 card action, got %d", len(actions))
+	}
+	options := actions[0].Options
+	if len(options) != 2 {
+		t.Fatalf("Expected 2 options (search without source is dropped), got %d", len(options))
+	}
+
+	if options[0].ID != "owner_id" || options[0].Type != "search" || options[0].Source != "groups" {
+		t.Errorf("Expected search option with source 'groups', got id=%s type=%s source=%s",
+			options[0].ID, options[0].Type, options[0].Source)
+	}
+	if options[1].ID != "note" {
+		t.Errorf("Expected second option 'note', got '%s'", options[1].ID)
+	}
+	if options[1].Source != "" {
+		t.Errorf("resource must not be read as source, got '%s'", options[1].Source)
+	}
+}
+
+// TestExtractStringField_IdentifierBoundary pins the anchoring fix: asking for
+// one field name must not match a longer identifier that merely ends with it.
+func TestExtractStringField_IdentifierBoundary(t *testing.T) {
+	block := `entry = { data_source = "decoy", my_type = "decoy", sourced = "decoy" }`
+
+	if got := extractStringField(block, "source"); got != "" {
+		t.Errorf("extractStringField matched inside data_source: %q", got)
+	}
+	if got := extractStringField(block, "type"); got != "" {
+		t.Errorf("extractStringField matched inside my_type: %q", got)
+	}
+
+	// Asking for the longer name still finds it.
+	if got := extractStringField(block, "data_source"); got != "decoy" {
+		t.Errorf("Expected 'decoy' for data_source, got %q", got)
+	}
+
+	okBlock := `{ source = "real", type = "text" }`
+	if got := extractStringField(okBlock, "source"); got != "real" {
+		t.Errorf("Expected 'real', got %q", got)
+	}
+}

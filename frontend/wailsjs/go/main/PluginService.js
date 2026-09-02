@@ -78,6 +78,10 @@ export function RevokePluginPermission(arg1, arg2, arg3) {
   return window['go']['main']['PluginService']['RevokePluginPermission'](arg1, arg2, arg3);
 }
 
+export function SearchPluginOptions(arg1, arg2, arg3) {
+  return window['go']['main']['PluginService']['SearchPluginOptions'](arg1, arg2, arg3);
+}
+
 export function SetPluginStorage(arg1, arg2, arg3) {
   return window['go']['main']['PluginService']['SetPluginStorage'](arg1, arg2, arg3);
 }

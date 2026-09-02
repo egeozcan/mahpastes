@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -363,6 +364,7 @@ func (am *APIManager) Start(port int, bindAll bool) (APIStatus, error) {
 		mux.HandleFunc("GET /api/v1/plugins/{id}/storage/{key}", am.authMiddleware(am.requireRole("admin", am.handleGetPluginStorage)))
 		mux.HandleFunc("PUT /api/v1/plugins/{id}/storage/{key}", am.authMiddleware(am.requireRole("admin", am.handleSetPluginStorage)))
 		mux.HandleFunc("POST /api/v1/plugins/{id}/actions/{actionId}", am.authMiddleware(am.requireRole("editor", am.handleExecutePluginAction)))
+		mux.HandleFunc("POST /api/v1/plugins/{id}/search", am.authMiddleware(am.requireRole("editor", am.handlePluginSearch)))
 		mux.HandleFunc("POST /api/v1/plugins/{id}/update", am.authMiddleware(am.requireRole("admin", am.handleUpdatePlugin)))
 		mux.HandleFunc("GET /api/v1/plugins/{id}/permissions", am.authMiddleware(am.requireRole("admin", am.handleGetPluginPermissions)))
 		mux.HandleFunc("POST /api/v1/plugins/{id}/permissions/revoke", am.authMiddleware(am.requireRole("admin", am.handleRevokePluginPermission)))
@@ -3429,6 +3431,48 @@ func (am *APIManager) handleExecutePluginAction(w http.ResponseWriter, r *http.R
 	}
 
 	am.jsonOK(w, result)
+}
+
+// handlePluginSearch invokes a plugin's on_search hook for a picker field.
+// Server-mode counterpart of the desktop SearchPluginOptions binding.
+func (am *APIManager) handlePluginSearch(w http.ResponseWriter, r *http.Request) {
+	pluginID, err := parseIntParam(r.PathValue("id"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid plugin id")
+		return
+	}
+
+	var body struct {
+		Source string `json:"source"`
+		Query  string `json:"query"`
+	}
+	json.NewDecoder(r.Body).Decode(&body)
+	if body.Source == "" {
+		am.jsonError(w, http.StatusBadRequest, "source is required")
+		return
+	}
+
+	if am.app.pluginManager == nil {
+		am.jsonError(w, http.StatusServiceUnavailable, "plugin manager not initialized")
+		return
+	}
+
+	choices, err := am.app.pluginManager.SearchOptions(pluginID, body.Source, body.Query)
+	if err != nil {
+		switch {
+		case errors.Is(err, plugin.ErrPluginBusy):
+			am.jsonError(w, http.StatusConflict, err.Error())
+		case errors.Is(err, plugin.ErrUnknownSearchSource):
+			am.jsonError(w, http.StatusBadRequest, err.Error())
+		default:
+			am.jsonError(w, http.StatusInternalServerError, err.Error())
+		}
+		return
+	}
+	if choices == nil {
+		choices = []plugin.Choice{}
+	}
+	am.jsonOK(w, map[string]interface{}{"choices": choices})
 }
 
 func (am *APIManager) handleCheckPluginUpdates(w http.ResponseWriter, r *http.Request) {

@@ -302,6 +302,15 @@ func (s *PluginService) IsPluginURLAllowed(pluginID int64, rawURL string, method
 	return s.app.PluginManager().IsPluginURLAllowed(pluginID, rawURL, method)
 }
 
+// SearchPluginOptions invokes a plugin's on_search hook for a picker field.
+// Returns plugin.ErrPluginBusy when the sandbox is occupied.
+func (s *PluginService) SearchPluginOptions(pluginID int64, source, query string) ([]plugin.Choice, error) {
+	if s.app.PluginManager() == nil {
+		return nil, fmt.Errorf("plugin manager not initialized")
+	}
+	return s.app.PluginManager().SearchOptions(pluginID, source, query)
+}
+
 // GetPluginStorage retrieves a value from a plugin's storage
 func (s *PluginService) GetPluginStorage(pluginID int64, key string) (string, error) {
 	if s.app.DB() == nil {

@@ -62,6 +62,7 @@ type SettingField struct {
 	Description string   `json:"description,omitempty"`
 	Default     any      `json:"default,omitempty"`
 	Options     []string `json:"options,omitempty"`
+	Source      string   `json:"source,omitempty"` // for search: name passed to on_search
 }
 
 // UIManifest represents plugin UI declarations
@@ -86,11 +87,12 @@ type UIAction struct {
 // FormField represents a form field in an options dialog
 type FormField struct {
 	ID       string   `json:"id"`
-	Type     string   `json:"type"` // text, password, checkbox, select, range
+	Type     string   `json:"type"` // text, password, checkbox, select, range, search
 	Label    string   `json:"label"`
 	Required bool     `json:"required,omitempty"`
 	Default  any      `json:"default,omitempty"`
 	Choices  []Choice `json:"choices,omitempty"` // for select
+	Source   string   `json:"source,omitempty"`  // for search: name passed to on_search
 	Min      float64  `json:"min,omitempty"`     // for range
 	Max      float64  `json:"max,omitempty"`     // for range
 	Step     float64  `json:"step,omitempty"`    // for range
@@ -242,11 +244,13 @@ func extractPluginTable(source string) (string, error) {
 }
 
 // extractStringField extracts a simple string field like: name = "value"
+// The field name is anchored on an identifier boundary, so asking for
+// "source" does not match a field named "data_source" (or vice versa).
 func extractStringField(block, field string) string {
 	// Match: field = "value" or field = 'value'
 	patterns := []string{
-		fmt.Sprintf(`%s\s*=\s*"([^"]*)"`, regexp.QuoteMeta(field)),
-		fmt.Sprintf(`%s\s*=\s*'([^']*)'`, regexp.QuoteMeta(field)),
+		fmt.Sprintf(`(?:^|[^A-Za-z0-9_])%s\s*=\s*"([^"]*)"`, regexp.QuoteMeta(field)),
+		fmt.Sprintf(`(?:^|[^A-Za-z0-9_])%s\s*=\s*'([^']*)'`, regexp.QuoteMeta(field)),
 	}
 
 	for _, pattern := range patterns {
@@ -457,11 +461,17 @@ func extractSettings(block string) []SettingField {
 					// Validate type
 					validTypes := map[string]bool{
 						"text": true, "password": true, "checkbox": true, "select": true,
+						"search": true,
 					}
 					if validTypes[setting.Type] {
 						// Validate select has options
 						if setting.Type == "select" && len(setting.Options) == 0 {
 							// Skip invalid select without options
+							entryStart = -1
+							continue
+						}
+						// A search field without a source can never resolve rows
+						if setting.Type == "search" && setting.Source == "" {
 							entryStart = -1
 							continue
 						}
@@ -497,6 +507,9 @@ func parseSettingEntry(entry string) SettingField {
 
 	// Extract options for select type
 	setting.Options = extractStringArray(entry, "options")
+
+	// Extract source for search type
+	setting.Source = extractStringField(entry, "source")
 
 	return setting
 }
@@ -628,6 +641,7 @@ func extractFormFields(block string) []FormField {
 	// Valid form field types
 	validFormFieldTypes := map[string]bool{
 		"text": true, "password": true, "checkbox": true, "select": true, "range": true,
+		"search": true,
 	}
 
 	// Find each field entry
@@ -649,6 +663,11 @@ func extractFormFields(block string) []FormField {
 				if field.ID != "" && field.Type != "" && field.Label != "" && validFormFieldTypes[field.Type] {
 					// Validate select has choices
 					if field.Type == "select" && len(field.Choices) == 0 {
+						entryStart = -1
+						continue
+					}
+					// A search field without a source can never resolve rows
+					if field.Type == "search" && field.Source == "" {
 						entryStart = -1
 						continue
 					}
@@ -680,6 +699,9 @@ func parseFormField(entry string) FormField {
 
 	// Parse choices for select type
 	field.Choices = extractChoices(entry)
+
+	// Parse source for search type
+	field.Source = extractStringField(entry, "source")
 
 	// Parse range options
 	field.Min = extractFloatField(entry, "min")

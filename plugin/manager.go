@@ -3,6 +3,7 @@ package plugin
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"net/url"
@@ -16,7 +17,14 @@ import (
 
 const (
 	MaxConsecutiveErrors = 3
+	// MaxSearchQueryLength caps the query handed to on_search so both the
+	// desktop combobox and the REST endpoint inherit one bound.
+	MaxSearchQueryLength = 256
 )
+
+// ErrUnknownSearchSource is returned when a search source was not declared by
+// the plugin's manifest (settings or UI action options).
+var ErrUnknownSearchSource = errors.New("unknown search source")
 
 // ModalData represents data for a plugin result modal
 type ModalData struct {
@@ -252,6 +260,9 @@ func (m *Manager) loadPlugin(p *Plugin) error {
 
 	httpAPI := NewHTTPAPI(manifest.Network)
 	httpAPI.Register(sandbox.GetState())
+	// The sandbox learns the HTTP budget so CallSearch can scope a deadline to
+	// one on_search call; other entry points leave it unset.
+	sandbox.SetHTTPBudget(httpAPI.Budget())
 
 	fsAPI := NewFilesystemAPI(m.db, p.ID, manifest.Name, manifest.Filesystem, m.permCallback, m.fsConfinement)
 	fsAPI.Register(sandbox.GetState())
@@ -904,6 +915,82 @@ func (m *Manager) ExecuteUIAction(pluginID int64, actionID string, clipIDs []int
 		result.Modal.PluginID = p.ID
 	}
 	return result, nil
+}
+
+// declaredSearchSources collects the source names a manifest declares for
+// search fields, in settings and in every UI action's options. Anything else
+// is rejected before Lua runs, so a REST caller cannot invoke on_search with
+// an attacker-chosen source reaching branches the UI never offers.
+func declaredSearchSources(manifest *Manifest) map[string]bool {
+	sources := make(map[string]bool)
+	if manifest == nil {
+		return sources
+	}
+	for _, s := range manifest.Settings {
+		if s.Type == "search" && s.Source != "" {
+			sources[s.Source] = true
+		}
+	}
+	if manifest.UI != nil {
+		groups := [][]UIAction{
+			manifest.UI.LightboxButtons,
+			manifest.UI.CardActions,
+			manifest.UI.BulkActions,
+			manifest.UI.GlobalActions,
+		}
+		for _, group := range groups {
+			for _, action := range group {
+				for _, field := range action.Options {
+					if field.Type == "search" && field.Source != "" {
+						sources[field.Source] = true
+					}
+				}
+			}
+		}
+	}
+	return sources
+}
+
+// SearchOptions invokes a plugin's on_search hook for a picker field. The
+// source must be declared by the plugin's manifest and the query is capped at
+// MaxSearchQueryLength. Returns plugin.ErrPluginBusy when the sandbox is
+// already running another entry point; the picker surfaces that as a transient
+// row rather than queueing.
+func (m *Manager) SearchOptions(pluginID int64, source, query string) ([]Choice, error) {
+	m.mu.RLock()
+	p, ok := m.plugins[pluginID]
+	m.mu.RUnlock()
+
+	if !ok {
+		return nil, fmt.Errorf("plugin not found: %d", pluginID)
+	}
+	if !p.Enabled {
+		return nil, fmt.Errorf("plugin is disabled: %s", p.Name)
+	}
+	if p.Sandbox == nil {
+		return nil, fmt.Errorf("plugin sandbox not initialized: %s", p.Name)
+	}
+
+	if !declaredSearchSources(p.Manifest)[source] {
+		return nil, fmt.Errorf("%w: %s", ErrUnknownSearchSource, source)
+	}
+
+	if len(query) > MaxSearchQueryLength {
+		runes := []rune(query)
+		if len(runes) > MaxSearchQueryLength {
+			runes = runes[:MaxSearchQueryLength]
+		}
+		query = string(runes)
+	}
+
+	choices, err := p.Sandbox.CallSearch(source, query, MaxSearchTime)
+	if err != nil {
+		if errors.Is(err, ErrPluginBusy) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("plugin search failed: %w", err)
+	}
+	return choices, nil
 }
 
 // luaResultToActionResult converts a Lua return table to an ActionResult

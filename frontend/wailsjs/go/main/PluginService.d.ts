@@ -41,6 +41,8 @@ export function RemovePlugin(arg1:number):Promise<void>;
 
 export function RevokePluginPermission(arg1:number,arg2:string,arg3:string):Promise<void>;
 
+export function SearchPluginOptions(arg1:number,arg2:string,arg3:string):Promise<Array<plugin.Choice>>;
+
 export function SetPluginStorage(arg1:number,arg2:string,arg3:string):Promise<void>;
 
 export function SetUpdateCheckInterval(arg1:string):Promise<void>;
