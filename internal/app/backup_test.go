@@ -605,3 +605,79 @@ func TestRestoreNormalizesSkewedShareSeqs(t *testing.T) {
 		t.Errorf("restored last_seq = %d, want 53", lastSeq)
 	}
 }
+
+// TestBackupExcludesPasswordPluginSettings verifies the generic plugin_storage
+// filter: a storage key declared type = "password" in the plugin's manifest
+// must not appear in the exported SQL and must be named in the excluded list.
+// The plugin is present in the DB but NOT loaded in the manager, exercising the
+// parse-manifest-from-disk fallback.
+func TestBackupExcludesPasswordPluginSettings(t *testing.T) {
+	app, cleanup := setupTestApp(t)
+	defer cleanup()
+
+	pm, pluginsDir := newTestPluginManager(t, app)
+	defer pm.Shutdown()
+
+	// Manifest on disk declaring a password setting.
+	manifestSrc := `Plugin = { name = "Secret Plugin", version = "1.0.0",
+  settings = {
+    {key = "api_token", type = "password", label = "Token"},
+    {key = "server_url", type = "text", label = "Server URL"}
+  } }`
+	manifestPath := filepath.Join(pluginsDir, "secret-plugin.lua")
+	if err := os.WriteFile(manifestPath, []byte(manifestSrc), 0o644); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+
+	// Register the plugin row without loading it into the manager.
+	res, err := app.db.Exec(
+		`INSERT INTO plugins (filename, name, version, enabled, status) VALUES ('secret-plugin.lua', 'Secret Plugin', '1.0.0', 0, 'enabled')`,
+	)
+	if err != nil {
+		t.Fatalf("insert plugin: %v", err)
+	}
+	pluginID, _ := res.LastInsertId()
+
+	for key, value := range map[string]string{
+		"api_token":  "super-secret-token-value",
+		"server_url": "http://localhost:8181",
+	} {
+		if _, err := app.db.Exec(
+			`INSERT INTO plugin_storage (plugin_id, key, value) VALUES (?, ?, ?)`,
+			pluginID, key, value,
+		); err != nil {
+			t.Fatalf("insert plugin_storage %s: %v", key, err)
+		}
+	}
+
+	sqlPath := filepath.Join(t.TempDir(), "export.sql")
+	_, excluded, err := app.exportDatabaseToSQL(sqlPath)
+	if err != nil {
+		t.Fatalf("exportDatabaseToSQL: %v", err)
+	}
+
+	sqlBytes, err := os.ReadFile(sqlPath)
+	if err != nil {
+		t.Fatalf("read export: %v", err)
+	}
+	exported := string(sqlBytes)
+
+	if strings.Contains(exported, "super-secret-token-value") {
+		t.Error("password-typed plugin setting leaked into the backup SQL")
+	}
+	if !strings.Contains(exported, "http://localhost:8181") {
+		t.Error("non-password plugin setting must still be exported")
+	}
+
+	want := "Secret Plugin:api_token"
+	found := false
+	for _, e := range excluded {
+		if e == want {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("excluded list should name %q, got %v", want, excluded)
+	}
+}

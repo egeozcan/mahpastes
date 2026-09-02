@@ -139,33 +139,34 @@ Plugin = {
 | Field | Required | Description |
 |-------|----------|-------------|
 | `key` | Yes | Unique identifier (used with `storage.get`) |
-| `type` | Yes | Input type: `text`, `password`, `checkbox`, `select` |
+| `type` | Yes | Input type: `text`, `password`, `checkbox`, `select`, `search` |
 | `label` | Yes | Display label shown to users |
 | `description` | No | Help text displayed below the input |
 | `default` | No | Default value if not configured |
 | `options` | For `select` | Array of choices |
+| `source` | For `search` | Name passed to the `on_search` hook |
 
 ### Reading Settings
 
-Settings are stored with a `setting:` prefix. Read them with `storage.get()`:
+Settings are stored under their raw key. Read them with `storage.get()`:
 
 ```lua
 function on_startup()
     -- Read a text/password setting
-    local api_key = storage.get("setting:api_key")
+    local api_key = storage.get("api_key")
     if not api_key or api_key == "" then
         log("Warning: API key not configured")
         return
     end
 
     -- Read a checkbox (returns "true" or "false" as string)
-    local auto_sync = storage.get("setting:auto_sync")
+    local auto_sync = storage.get("auto_sync")
     if auto_sync == "true" then
         log("Auto-sync is enabled")
     end
 
     -- Read a select with default fallback
-    local quality = storage.get("setting:quality") or "medium"
+    local quality = storage.get("quality") or "medium"
     log("Quality: " .. quality)
 end
 ```

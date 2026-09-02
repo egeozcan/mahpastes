@@ -224,9 +224,10 @@ settings = {
 | `description` | No | Help text shown below the input |
 | `default` | No | Default value if not set |
 | `options` | For `select` | Array of choices |
+| `source` | For `search` | Name passed to the [`on_search`](#searchable-fields-on_search) hook |
 
 :::note
-Settings support types `text`, `password`, `checkbox`, and `select`. The `range` type is only available for [option form fields](#option-form-fields) in UI actions, not for settings.
+Settings support types `text`, `password`, `checkbox`, `select`, and `search`. The `range` type is only available for [option form fields](#option-form-fields) in UI actions, not for settings.
 :::
 
 ### Setting Types
@@ -284,14 +285,33 @@ Dropdown with predefined options.
 },
 ```
 
+#### search
+
+Searchable picker whose rows come from the plugin at runtime, via the
+[`on_search`](#searchable-fields-on_search) hook. The field declares a
+`source` name; the picker sends the user's query to `on_search` and lists the
+returned rows. Selecting a row writes the row's `value` (a string) into
+plugin storage under the field's `key`.
+
+```lua
+{
+    key = "owner_id",
+    type = "search",
+    source = "groups",
+    label = "Parent group",
+},
+```
+
+A `search` field without a `source` is dropped at parse time.
+
 ### Reading Settings
 
-Settings are stored with a `setting:` prefix. Use `storage.get()` to read them:
+Settings are stored under their raw key. Use `storage.get()` to read them:
 
 ```lua
 function on_startup()
-    local api_key = storage.get("setting:api_key")
-    local auto_sync = storage.get("setting:auto_sync")
+    local api_key = storage.get("api_key")
+    local auto_sync = storage.get("auto_sync")
 
     if not api_key then
         log("Warning: API key not configured")
@@ -303,6 +323,43 @@ function on_startup()
     end
 end
 ```
+
+### Searchable fields: `on_search`
+
+Implement one `on_search(source, query)` hook for every `search` field your
+plugin declares (in settings and in option form fields). It receives the
+declared `source` name and the user's query, and returns an array of rows:
+
+```lua
+function on_search(source, query)
+    if source ~= "groups" then return {} end
+
+    local resp = http.get("https://api.example.com/v1/groups?Name=" .. utils.url_encode(query))
+    if not resp or resp.status < 200 or resp.status >= 300 then return {} end
+
+    local ok, groups = pcall(json.decode, resp.body or "[]")
+    if not ok or type(groups) ~= "table" then return {} end
+
+    local rows = {}
+    for _, g in ipairs(groups) do
+        rows[#rows + 1] = { value = tostring(g.ID), label = g.Name }
+    end
+    return rows
+end
+```
+
+Rules:
+
+- Each row is a table with `value` (stored when selected) and `label`
+  (displayed); a missing `label` falls back to `value`, numbers are coerced
+  to strings, and rows are capped at 50.
+- An unknown `source` returns an empty list. Sources not declared by a
+  `search` field in the manifest are rejected before `on_search` runs.
+- A query is best-effort: while the plugin's sandbox is busy running an
+  action, the picker shows a "busy" hint instead of queueing; the next
+  keystroke retries.
+- `on_search` runs under a 15-second budget, and HTTP requests made during
+  it respect that budget rather than the usual 5-minute timeout.
 
 ## UI Actions
 
@@ -353,7 +410,7 @@ For `bulk_actions`, `file_types` and `max_size` must match every selected clip. 
 
 ### Option Form Fields
 
-Options support these types: `text`, `password`, `checkbox`, `select`, `range`.
+Options support these types: `text`, `password`, `checkbox`, `select`, `range`, `search`.
 
 | Field | Required | Description |
 |-------|----------|-------------|
@@ -363,9 +420,12 @@ Options support these types: `text`, `password`, `checkbox`, `select`, `range`.
 | `required` | No | Whether field is required |
 | `default` | No | Default value |
 | `choices` | For `select` | Array of `{value, label}` objects |
+| `source` | For `search` | Name passed to the [`on_search`](#searchable-fields-on_search) hook |
 | `min`, `max`, `step` | For `range` | Numeric range constraints |
 
-The dialog remembers the last submitted `select`, `checkbox`, and `range` values per action and reopens with them instead of `default`. `text` and `password` fields always start at `default`, so prompts and secrets are never replayed. A remembered value that no longer exists (e.g. a `select` choice removed by a plugin update) falls back to `default`.
+A `search` option field renders the same searchable picker as the settings panel (see [searchable fields](#searchable-fields-on_search)); selecting a row passes the row's `value` to `on_ui_action` in the options table under the field's `id`. A `search` field without a `source` is dropped at parse time.
+
+The dialog remembers the last submitted `select`, `checkbox`, `range`, and `search` values per action and reopens with them instead of `default`. `text` and `password` fields always start at `default`, so prompts and secrets are never replayed. A remembered value that no longer exists (e.g. a `select` choice removed by a plugin update) falls back to `default`.
 
 ### Handler
 

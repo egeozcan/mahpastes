@@ -13,6 +13,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"go-clipboard/plugin"
 )
 
 const (
@@ -317,6 +319,72 @@ func (a *App) CreateBackup(destPath string) error {
 	return nil
 }
 
+// pluginStoragePasswordKeys collects, per plugin id, the storage keys declared
+// type = "password" in that plugin's manifest, plus an id -> name map for the
+// excluded report. Loaded plugins contribute their parsed manifest; a plugin
+// present in the DB but not currently loaded is parsed from its manifest file
+// in the plugins directory, so an enabled-but-unloaded plugin's secrets are
+// excluded too. A plugin whose manifest cannot be read contributes nothing —
+// filtering too little is fail-safe for correctness of the backup, while
+// filtering by guesswork could silently drop non-secret settings.
+func (a *App) pluginStoragePasswordKeys(tx sqlQueryer) (map[int64]map[string]bool, map[int64]string) {
+	passwordKeys := make(map[int64]map[string]bool)
+	names := make(map[int64]string)
+
+	type pluginRow struct {
+		id       int64
+		filename string
+		name     string
+	}
+	var rows []pluginRow
+	rrows, err := tx.Query("SELECT id, filename, name FROM plugins")
+	if err == nil {
+		defer rrows.Close()
+		for rrows.Next() {
+			var r pluginRow
+			if rrows.Scan(&r.id, &r.filename, &r.name) == nil {
+				rows = append(rows, r)
+			}
+		}
+	}
+
+	loaded := make(map[int64]*plugin.Manifest)
+	if a.pluginManager != nil {
+		for _, p := range a.pluginManager.GetPlugins() {
+			if p.Manifest != nil {
+				loaded[p.ID] = p.Manifest
+			}
+		}
+	}
+
+	var pluginsDir string
+	if a.pluginManager != nil {
+		pluginsDir = a.pluginManager.PluginsDir()
+	}
+
+	for _, r := range rows {
+		names[r.id] = r.name
+		manifest := loaded[r.id]
+		if manifest == nil && pluginsDir != "" && r.filename != "" {
+			if source, readErr := os.ReadFile(filepath.Join(pluginsDir, r.filename)); readErr == nil {
+				manifest, _ = plugin.ParseManifest(string(source))
+			}
+		}
+		if manifest == nil {
+			continue
+		}
+		for _, s := range manifest.Settings {
+			if s.Type == "password" {
+				if passwordKeys[r.id] == nil {
+					passwordKeys[r.id] = make(map[string]bool)
+				}
+				passwordKeys[r.id][s.Key] = true
+			}
+		}
+	}
+	return passwordKeys, names
+}
+
 // exportDatabaseToSQL exports all database tables to a SQL file
 func (a *App) exportDatabaseToSQL(destPath string) (BackupSummary, []string, error) {
 	f, err := os.Create(destPath)
@@ -415,9 +483,23 @@ func (a *App) exportDatabaseToSQL(destPath string) (BackupSummary, []string, err
 	summary.Plugins = count
 	f.WriteString("\n")
 
-	// Export plugin_storage
+	// Export plugin_storage (skipping values whose key is declared
+	// type = "password" in that plugin's manifest — e.g. mahresources'
+	// api_token — so secrets do not land in plaintext backup ZIPs).
+	passwordKeysByPlugin, pluginNames := a.pluginStoragePasswordKeys(tx)
 	f.WriteString("-- Table: plugin_storage\n")
-	_, err = exportTableToSQL(tx, "plugin_storage", f, nil)
+	_, err = exportTableToSQL(tx, "plugin_storage", f, func(row map[string]interface{}) bool {
+		pluginID, _ := row["plugin_id"].(int64)
+		key, _ := row["key"].(string)
+		if key == "" || pluginID == 0 {
+			return false
+		}
+		if passwordKeys := passwordKeysByPlugin[pluginID]; passwordKeys != nil && passwordKeys[key] {
+			excluded = append(excluded, fmt.Sprintf("%s:%s", pluginNames[pluginID], key))
+			return true
+		}
+		return false
+	})
 	if err != nil {
 		return summary, excluded, fmt.Errorf("failed to export plugin_storage: %w", err)
 	}
