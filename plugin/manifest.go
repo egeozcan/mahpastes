@@ -56,13 +56,14 @@ type Schedule struct {
 
 // SettingField represents a plugin setting declaration
 type SettingField struct {
-	Key         string   `json:"key"`
-	Type        string   `json:"type"`
-	Label       string   `json:"label"`
-	Description string   `json:"description,omitempty"`
-	Default     any      `json:"default,omitempty"`
-	Options     []string `json:"options,omitempty"`
-	Source      string   `json:"source,omitempty"` // for search: name passed to on_search
+	Key           string   `json:"key"`
+	Type          string   `json:"type"`
+	Label         string   `json:"label"`
+	Description   string   `json:"description,omitempty"`
+	Default       any      `json:"default,omitempty"`
+	Options       []string `json:"options,omitempty"`
+	Source        string   `json:"source,omitempty"`         // for search: name passed to on_search
+	GrantsNetwork []string `json:"grants_network,omitempty"` // for url: methods a saved host is granted
 }
 
 // UIManifest represents plugin UI declarations
@@ -290,7 +291,10 @@ func extractBoolField(block, parent, field string) bool {
 // extractStringArray extracts a string array like: events = {"a", "b", "c"}
 func extractStringArray(block, field string) []string {
 	// Match: field = { ... }
-	pattern := fmt.Sprintf(`%s\s*=\s*\{([^}]*)\}`, regexp.QuoteMeta(field))
+	// The field name is anchored on an identifier boundary (as in
+	// extractStringField), so asking for "grants_network" does not match a
+	// neighbouring key named "data_grants_network".
+	pattern := fmt.Sprintf(`(?:^|[^A-Za-z0-9_])%s\s*=\s*\{([^}]*)\}`, regexp.QuoteMeta(field))
 	re := regexp.MustCompile(pattern)
 	matches := re.FindStringSubmatch(block)
 	if len(matches) < 2 {
@@ -461,7 +465,7 @@ func extractSettings(block string) []SettingField {
 					// Validate type
 					validTypes := map[string]bool{
 						"text": true, "password": true, "checkbox": true, "select": true,
-						"search": true,
+						"search": true, "url": true,
 					}
 					if validTypes[setting.Type] {
 						// Validate select has options
@@ -472,6 +476,12 @@ func extractSettings(block string) []SettingField {
 						}
 						// A search field without a source can never resolve rows
 						if setting.Type == "search" && setting.Source == "" {
+							entryStart = -1
+							continue
+						}
+						// A url setting without a method list can never grant
+						// anything; drop it like a sourceless search.
+						if setting.Type == "url" && len(setting.GrantsNetwork) == 0 {
 							entryStart = -1
 							continue
 						}
@@ -510,6 +520,9 @@ func parseSettingEntry(entry string) SettingField {
 
 	// Extract source for search type
 	setting.Source = extractStringField(entry, "source")
+
+	// Extract network methods a saved url host is granted (url type only)
+	setting.GrantsNetwork = toUpperStrings(extractStringArray(entry, "grants_network"))
 
 	return setting
 }

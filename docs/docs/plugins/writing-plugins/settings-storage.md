@@ -139,12 +139,13 @@ Plugin = {
 | Field | Required | Description |
 |-------|----------|-------------|
 | `key` | Yes | Unique identifier (used with `storage.get`) |
-| `type` | Yes | Input type: `text`, `password`, `checkbox`, `select`, `search` |
+| `type` | Yes | Input type: `text`, `password`, `checkbox`, `select`, `search`, `url` |
 | `label` | Yes | Display label shown to users |
 | `description` | No | Help text displayed below the input |
 | `default` | No | Default value if not configured |
 | `options` | For `select` | Array of choices |
 | `source` | For `search` | Name passed to the `on_search` hook |
+| `grants_network` | For `url` | HTTP methods granted to the saved host, e.g. `{"GET", "POST"}` |
 
 ### Reading Settings
 

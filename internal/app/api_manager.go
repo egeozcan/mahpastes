@@ -3527,7 +3527,7 @@ func (am *APIManager) handleGetPluginPermissions(w http.ResponseWriter, r *http.
 		am.jsonError(w, http.StatusBadRequest, "invalid plugin id")
 		return
 	}
-	rows, err := am.app.db.Query(`SELECT permission_type, path, granted_at FROM plugin_permissions WHERE plugin_id = ?`, id)
+	rows, err := am.app.db.Query(`SELECT permission_type, path, granted_at, COALESCE(pending_reconfirm, 0) FROM plugin_permissions WHERE plugin_id = ?`, id)
 	if err != nil {
 		am.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -3536,10 +3536,11 @@ func (am *APIManager) handleGetPluginPermissions(w http.ResponseWriter, r *http.
 	perms := []map[string]string{}
 	for rows.Next() {
 		var typ, p, granted string
-		if err := rows.Scan(&typ, &p, &granted); err != nil {
+		var pending int
+		if err := rows.Scan(&typ, &p, &granted, &pending); err != nil {
 			continue
 		}
-		perms = append(perms, map[string]string{"type": typ, "path": p, "granted_at": granted})
+		perms = append(perms, map[string]string{"type": typ, "path": p, "granted_at": granted, "pending": strconv.Itoa(pending)})
 	}
 	am.jsonOK(w, perms)
 }
@@ -3561,6 +3562,12 @@ func (am *APIManager) handleRevokePluginPermission(w http.ResponseWriter, r *htt
 	if _, err := am.app.db.Exec(`DELETE FROM plugin_permissions WHERE plugin_id = ? AND permission_type = ? AND path = ?`, id, body.Type, body.Path); err != nil {
 		am.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	// Keep the live network policy in sync, mirroring the desktop
+	// PluginService.RevokePluginPermission: without this a cached grant would
+	// keep authorizing requests after the UI reports the revocation.
+	if body.Type == "network" && am.app.pluginManager != nil {
+		am.app.pluginManager.InvalidateNetworkPolicy(id)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

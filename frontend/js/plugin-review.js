@@ -14,6 +14,8 @@ const reviewAuthor = document.getElementById('plugin-review-author');
 const reviewDescription = document.getElementById('plugin-review-description');
 const reviewNetworkSection = document.getElementById('plugin-review-network-section');
 const reviewNetwork = document.getElementById('plugin-review-network');
+const reviewURLSettingsSection = document.getElementById('plugin-review-urlsettings-section');
+const reviewURLSettings = document.getElementById('plugin-review-urlsettings');
 const reviewFSSection = document.getElementById('plugin-review-fs-section');
 const reviewFS = document.getElementById('plugin-review-fs');
 const reviewClipboardSection = document.getElementById('plugin-review-clipboard-section');
@@ -67,6 +69,22 @@ function showPluginReview(preview, mode, currentVersion) {
             }).join('');
         } else {
             reviewNetworkSection.classList.add('hidden');
+        }
+
+        // Settings-based network access: url settings grant their methods to
+        // whatever host the user types, so the review must disclose them.
+        const urlSettings = preview.url_settings || [];
+        if (urlSettings.length > 0) {
+            reviewURLSettingsSection.classList.remove('hidden');
+            reviewURLSettings.innerHTML = urlSettings.map(s => {
+                const methods = (s.methods || []).join(', ');
+                return `<div class="p-2 bg-white rounded border border-stone-200">
+                    <span class="text-[11px] text-stone-600">${escapeHTML(s.label || s.key)}</span>
+                    <span class="text-[10px] text-stone-400"> — network access to a server you specify (${escapeHTML(methods)})</span>
+                </div>`;
+            }).join('');
+        } else {
+            reviewURLSettingsSection.classList.add('hidden');
         }
 
         // Filesystem

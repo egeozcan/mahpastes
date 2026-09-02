@@ -172,7 +172,7 @@ func (s *PluginService) GetPluginPermissions(id int64) ([]map[string]string, err
 	}
 
 	rows, err := s.app.DB().Query(`
-		SELECT permission_type, path, granted_at
+		SELECT permission_type, path, granted_at, COALESCE(pending_reconfirm, 0)
 		FROM plugin_permissions WHERE plugin_id = ?
 	`, id)
 	if err != nil {
@@ -184,7 +184,8 @@ func (s *PluginService) GetPluginPermissions(id int64) ([]map[string]string, err
 	for rows.Next() {
 		var permType, path string
 		var grantedAt string
-		if err := rows.Scan(&permType, &path, &grantedAt); err != nil {
+		var pending int
+		if err := rows.Scan(&permType, &path, &grantedAt, &pending); err != nil {
 			log.Printf("GetPluginPermissions: failed to scan row: %v", err)
 			continue
 		}
@@ -192,6 +193,7 @@ func (s *PluginService) GetPluginPermissions(id int64) ([]map[string]string, err
 			"type":       permType,
 			"path":       path,
 			"granted_at": grantedAt,
+			"pending":    fmt.Sprintf("%d", pending),
 		})
 	}
 
@@ -201,7 +203,7 @@ func (s *PluginService) GetPluginPermissions(id int64) ([]map[string]string, err
 	return perms, nil
 }
 
-// RevokePluginPermission revokes a filesystem permission
+// RevokePluginPermission revokes a filesystem or network permission
 func (s *PluginService) RevokePluginPermission(pluginID int64, permType, path string) error {
 	if s.app.DB() == nil {
 		return fmt.Errorf("database not initialized")
@@ -211,6 +213,10 @@ func (s *PluginService) RevokePluginPermission(pluginID int64, permType, path st
 		DELETE FROM plugin_permissions
 		WHERE plugin_id = ? AND permission_type = ? AND path = ?
 	`, pluginID, permType, path)
+	if err == nil && permType == "network" && s.app.PluginManager() != nil {
+		// Drop the policy's cached grant set so the denial is immediate.
+		s.app.PluginManager().InvalidateNetworkPolicy(pluginID)
+	}
 	return err
 }
 
@@ -344,10 +350,19 @@ func (s *PluginService) ImportPluginFromPath(path string) (*PluginInfo, error) {
 	return pluginToInfo(p), nil
 }
 
-// SetPluginStorage sets a value in a plugin's storage (for testing)
+// SetPluginStorage sets a value in a plugin's storage. When the key is a
+// url-typed setting, the plugin manager reconciles the plugin's network
+// grants with the hosts its url settings point at (see
+// Manager.SetStorageWithGrant). The grant lives here — the single user-facing
+// write path — and not in the frontend, so desktop and REST share one
+// implementation, and Lua can never reach it (storage.set refuses url keys).
 func (s *PluginService) SetPluginStorage(pluginID int64, key, value string) error {
 	if s.app.DB() == nil {
 		return fmt.Errorf("database not initialized")
+	}
+
+	if s.app.PluginManager() != nil {
+		return s.app.PluginManager().SetStorageWithGrant(pluginID, key, value)
 	}
 
 	_, err := s.app.DB().Exec(`
@@ -603,17 +618,9 @@ func (s *PluginService) UpdatePlugin(pluginID int64) (*UpdateResult, error) {
 	hasChanges := plugin.ManifestsHavePermissionChanges(currentManifest, remoteManifest)
 
 	if hasChanges {
-		preview := &PluginPreview{
-			Name:        remoteManifest.Name,
-			Version:     remoteManifest.Version,
-			Description: remoteManifest.Description,
-			Author:      remoteManifest.Author,
-			Network:     remoteManifest.Network,
-			Filesystem:  remoteManifest.Filesystem,
-			Clipboard:   remoteManifest.Clipboard,
-			Events:      remoteManifest.Events,
-			Source:      sourceURL,
-		}
+		// Shared constructor so the review modal also sees the url
+		// settings' network grants (URLSettings), not just manifest hosts.
+		preview := plugin.PreviewFromManifest(remoteManifest, sourceURL)
 		s.app.PluginManager().StorePendingUpdate(pluginID, source)
 		return &UpdateResult{NeedsReview: true, Preview: preview}, nil
 	}

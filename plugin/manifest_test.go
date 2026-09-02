@@ -603,3 +603,78 @@ func TestExtractStringField_IdentifierBoundary(t *testing.T) {
 		t.Errorf("Expected 'real', got %q", got)
 	}
 }
+
+func TestParseManifestWithSettings_URLField(t *testing.T) {
+	source := `
+Plugin = {
+  name = "Grant Plugin",
+  version = "1.0.0",
+  settings = {
+    {key = "server_url", type = "url", label = "Server URL",
+     grants_network = {"GET", "POST"}, default = "http://localhost:8181"},
+    {key = "bare", type = "url", label = "No methods"},
+    {key = "decoy", type = "text", label = "Decoy", data_grants_network = {"DELETE"}}
+  }
+}
+`
+	manifest, err := ParseManifest(source)
+	if err != nil {
+		t.Fatalf("ParseManifest failed: %v", err)
+	}
+
+	// The bare url setting (no grants_network) is dropped, exactly like a
+	// sourceless search field. The decoy and server_url survive.
+	if len(manifest.Settings) != 2 {
+		t.Fatalf("Expected 2 settings (url without grants_network is dropped), got %d", len(manifest.Settings))
+	}
+
+	first := manifest.Settings[0]
+	if first.Key != "server_url" || first.Type != "url" {
+		t.Fatalf("Expected url setting server_url, got %+v", first)
+	}
+	if len(first.GrantsNetwork) != 2 || first.GrantsNetwork[0] != "GET" || first.GrantsNetwork[1] != "POST" {
+		t.Errorf("Expected GrantsNetwork [GET POST], got %v", first.GrantsNetwork)
+	}
+
+	// A neighbouring data_grants_network key must not leak into the
+	// surviving setting's method list.
+	second := manifest.Settings[1]
+	if second.Key != "decoy" {
+		t.Errorf("Expected second setting 'decoy', got '%s'", second.Key)
+	}
+	if len(second.GrantsNetwork) != 0 {
+		t.Errorf("data_grants_network must not be read as grants_network, got %v", second.GrantsNetwork)
+	}
+}
+
+func TestParseManifestWithURLFormOption_Rejected(t *testing.T) {
+	source := `
+Plugin = {
+  name = "Grant Plugin",
+  version = "1.0.0",
+  ui = {
+    card_actions = {
+      {
+        id = "act",
+        label = "Act",
+        options = {
+          {id = "server", type = "url", label = "Server", grants_network = {"GET"}}
+        }
+      }
+    }
+  }
+}
+`
+	manifest, err := ParseManifest(source)
+	if err != nil {
+		t.Fatalf("ParseManifest failed: %v", err)
+	}
+	// url is a settings-only type: a per-action option is filled at action
+	// time and must never grant anything, so it is not a valid FormField.
+	if manifest.UI == nil || len(manifest.UI.CardActions) != 1 {
+		t.Fatalf("expected the action to survive, got %+v", manifest.UI)
+	}
+	if n := len(manifest.UI.CardActions[0].Options); n != 0 {
+		t.Fatalf("url must be rejected as a form field option type, got %d options", n)
+	}
+}

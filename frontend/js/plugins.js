@@ -363,6 +363,32 @@ function renderSettingField(field, currentValue, pluginId, pluginName, settingLa
             `;
         }
 
+        case 'url': {
+            // A url setting carries the plugin's network grant: saving a host
+            // grants it, and the status line below shows and manages that
+            // grant (refreshed asynchronously once permissions are fetched).
+            const urlValue = currentValue !== undefined && currentValue !== null ? String(currentValue) : '';
+            const urlPlaceholder = field.default !== undefined && field.default !== null ? String(field.default) : '';
+            return `
+                <div class="setting-field" data-key="${escapeHTML(field.key)}">
+                    <label class="block text-[11px] font-medium text-stone-600 mb-1">${escapeHTML(field.label)}</label>
+                    <input type="text"
+                           class="block w-full border border-stone-200 rounded-md text-xs bg-white px-2 py-1.5 placeholder-stone-400 focus:outline-none focus:border-stone-400 focus:ring-1 focus:ring-stone-400/20 transition-colors"
+                           value="${escapeHTML(urlValue)}"
+                           placeholder="${escapeHTML(urlPlaceholder)}"
+                           aria-label="${escapeHTML(field.label)}"
+                           data-plugin-id="${pluginId}"
+                           data-setting-key="${escapeHTML(field.key)}"
+                           data-setting-type="url"
+                           data-url-host="${escapeHTML(urlValue)}">
+                    <div class="mt-1" data-url-status data-setting-key="${escapeHTML(field.key)}">
+                        <span class="text-[10px] text-stone-400">Checking network access\u2026</span>
+                    </div>
+                    ${description}
+                </div>
+            `;
+        }
+
         case 'select':
             const options = (field.options || []).map(opt => {
                 const selected = currentValue === opt || (currentValue === '' && field.default === opt);
@@ -416,7 +442,7 @@ async function loadPluginPermissions(pluginId, cardElement) {
         const permissions = await window.go.main.PluginService.GetPluginPermissions(pluginId);
 
         if (!permissions || permissions.length === 0) {
-            container.innerHTML = '<span class="text-stone-400">No filesystem permissions granted</span>';
+            container.innerHTML = '<span class="text-stone-400">No permissions granted</span>';
             return;
         }
 
@@ -426,11 +452,14 @@ async function loadPluginPermissions(pluginId, cardElement) {
                     <div class="flex items-center justify-between gap-2 p-2 bg-white rounded border border-stone-200">
                         <div class="flex items-center gap-2 min-w-0 flex-1">
                             <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium uppercase ${
-                                perm.type === 'write' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'
+                                perm.type === 'write' ? 'bg-amber-100 text-amber-700'
+                                    : perm.type === 'network' ? 'bg-stone-200 text-stone-600'
+                                    : 'bg-blue-100 text-blue-700'
                             }">
                                 ${perm.type}
                             </span>
                             <span class="truncate text-stone-600 font-mono text-[10px]" title="${escapeHTML(perm.path)}">${escapeHTML(perm.path)}</span>
+                            ${String(perm.pending) === '1' ? '<span class="text-[9px] text-amber-700 whitespace-nowrap">pending</span>' : ''}
                         </div>
                         <button class="text-[10px] text-red-500 hover:text-red-600 hover:bg-red-50 px-2 py-1 rounded transition-colors flex-shrink-0"
                                 data-action="revoke-permission"
@@ -443,12 +472,14 @@ async function loadPluginPermissions(pluginId, cardElement) {
             </div>
         `;
 
-        // Add revoke listeners
+        // Add revoke listeners. A network revoke must also refresh the url
+        // settings' status lines, which read the same permission rows.
         container.querySelectorAll('[data-action="revoke-permission"]').forEach(btn => {
             btn.addEventListener('click', async () => {
                 const type = btn.dataset.type;
                 const path = btn.dataset.path;
                 await revokePermission(pluginId, type, path);
+                await refreshURLGrantStatuses(cardElement, pluginId);
             });
         });
     } catch (error) {
@@ -481,6 +512,9 @@ async function loadPluginSettings(pluginId, cardElement) {
 
         // Add event listeners for setting changes
         setupSettingListeners(cardElement, pluginId);
+
+        // Fill in url settings' grant status lines once the card exists.
+        await refreshURLGrantStatuses(cardElement, pluginId);
     } catch (error) {
         console.error('Failed to load plugin settings:', error);
         placeholder.innerHTML = '<span class="text-red-500 text-[11px]">Failed to load settings</span>';
@@ -543,6 +577,16 @@ function setupSettingListeners(cardElement, pluginId) {
             const key = e.target.dataset.settingKey;
             const value = e.target.value;
             debounceSaveSetting(pluginId, key, value);
+        });
+    });
+
+    // URL settings: debounced save like text, then refresh the grant status
+    // line and the permissions section from the save's result.
+    cardElement.querySelectorAll('input[data-setting-type="url"]').forEach(input => {
+        input.addEventListener('input', (e) => {
+            const key = e.target.dataset.settingKey;
+            const value = e.target.value;
+            debounceSaveURLSetting(pluginId, key, value, cardElement);
         });
     });
 
@@ -629,10 +673,124 @@ function debounceSaveSetting(pluginId, key, value) {
 async function saveSetting(pluginId, key, value) {
     try {
         await window.go.main.PluginService.SetPluginStorage(pluginId, key, value);
+        return true;
     } catch (error) {
         console.error('Failed to save setting:', error);
-        showToast('Failed to save setting', 'error');
+        showToast('Failed to save setting: ' + (error && error.message ? error.message : 'unknown error'), 'error');
+        return false;
     }
+}
+
+// Derives the grantable host from a url setting's value, mirroring the
+// backend's NormalizeGrantHost: lowercased host, trailing dot stripped,
+// scheme-less values parsed as http, wildcards and malformed hosts rejected.
+function urlSettingHost(value) {
+    let raw = String(value || '').trim();
+    if (!raw) return '';
+    if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(raw)) raw = 'http://' + raw;
+    try {
+        const u = new URL(raw);
+        let host = u.hostname.toLowerCase();
+        // Browser URL keeps IPv6 brackets (unlike Go's url.Hostname); strip
+        // them so the displayed host matches the stored grant.
+        if (host.startsWith('[') && host.endsWith(']')) host = host.slice(1, -1);
+        host = host.replace(/\.+$/, '');
+        if (!host || host.includes('*') || !/^[a-z0-9.:-]+$/.test(host)) return '';
+        return host;
+    } catch {
+        return '';
+    }
+}
+
+function debounceSaveURLSetting(pluginId, key, value, cardElement) {
+    const timerId = `url-${pluginId}-${key}`;
+    if (settingDebounceTimers[timerId]) {
+        clearTimeout(settingDebounceTimers[timerId]);
+    }
+    settingDebounceTimers[timerId] = setTimeout(async () => {
+        delete settingDebounceTimers[timerId];
+        await saveSetting(pluginId, key, value);
+        await refreshURLGrantStatuses(cardElement, pluginId);
+        await loadPluginPermissions(pluginId, cardElement);
+    }, 300);
+}
+
+// Renders each url setting's grant status line from the plugin's permission
+// rows: granted hosts show a Revoke link, ungranted ones a Grant button that
+// saves the current input value (the grant itself rides inside the save).
+async function refreshURLGrantStatuses(cardElement, pluginId) {
+    const statuses = cardElement.querySelectorAll('[data-url-status]');
+    if (statuses.length === 0) return;
+
+    let permissions = [];
+    try {
+        permissions = (await window.go.main.PluginService.GetPluginPermissions(pluginId)) || [];
+    } catch (error) {
+        console.error('Failed to load plugin permissions:', error);
+    }
+    // Rows still pending re-approval (e.g. imported from a restored backup)
+    // are NOT honored by the policy, so they must not render as granted.
+    const grantedHosts = new Set(
+        permissions
+            .filter(p => p.type === 'network' && String(p.pending) !== '1')
+            .map(p => String(p.path || '').toLowerCase())
+    );
+
+    statuses.forEach(statusEl => {
+        const key = statusEl.dataset.settingKey;
+        const fieldDiv = statusEl.closest('.setting-field');
+        const input = fieldDiv ? fieldDiv.querySelector('input[data-setting-type="url"]') : null;
+        const host = urlSettingHost(input ? input.value : statusEl.dataset.urlHost);
+
+        if (!host) {
+            statusEl.innerHTML = '<span class="text-[10px] text-stone-400">No network access granted</span>';
+            return;
+        }
+
+        if (grantedHosts.has(host)) {
+            statusEl.innerHTML = `
+                <span class="text-[10px] text-stone-500">Network access granted to <span class="font-mono">${escapeHTML(host)}</span></span>
+                <button type="button"
+                        class="ml-2 text-[10px] text-red-500 hover:text-red-600 hover:bg-red-50 px-1 py-0.5 rounded transition-colors"
+                        data-action="revoke-url-grant"
+                        data-host="${escapeHTML(host)}">Revoke</button>
+            `;
+        } else {
+            statusEl.innerHTML = `
+                <button type="button"
+                        class="border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-[10px] font-medium py-0.5 px-2 rounded transition-colors"
+                        data-action="grant-url-host"
+                        data-key="${escapeHTML(key)}">Grant access to ${escapeHTML(host)}</button>
+            `;
+        }
+    });
+
+    statuses.forEach(statusEl => {
+        const grantBtn = statusEl.querySelector('[data-action="grant-url-host"]');
+        if (grantBtn) {
+            grantBtn.addEventListener('click', async () => {
+                const fieldDiv = statusEl.closest('.setting-field');
+                const input = fieldDiv ? fieldDiv.querySelector('input[data-setting-type="url"]') : null;
+                if (!input) return;
+                await saveSetting(pluginId, grantBtn.dataset.key, input.value);
+                await refreshURLGrantStatuses(cardElement, pluginId);
+                await loadPluginPermissions(pluginId, cardElement);
+            });
+        }
+        const revokeBtn = statusEl.querySelector('[data-action="revoke-url-grant"]');
+        if (revokeBtn) {
+            revokeBtn.addEventListener('click', async () => {
+                try {
+                    await window.go.main.PluginService.RevokePluginPermission(pluginId, 'network', revokeBtn.dataset.host);
+                } catch (error) {
+                    console.error('Failed to revoke network permission:', error);
+                    showToast('Failed to revoke permission', 'error');
+                }
+                await refreshURLGrantStatuses(cardElement, pluginId);
+                await loadPluginPermissions(pluginId, cardElement);
+            });
+        }
+    });
 }
 
 // --- Toggle Plugin Enabled ---

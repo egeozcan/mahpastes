@@ -11,13 +11,20 @@ import (
 type StorageAPI struct {
 	db       *sql.DB
 	pluginID int64
+	// urlKeys holds the keys declared as url-typed settings in the manifest.
+	// Lua may read these (they are the plugin's own configuration) but never
+	// write them: a url setting's value drives the user's network grant, and
+	// a value-derived rule would let the plugin self-grant arbitrary hosts.
+	urlKeys map[string]bool
 }
 
-// NewStorageAPI creates a new storage API instance
-func NewStorageAPI(db *sql.DB, pluginID int64) *StorageAPI {
+// NewStorageAPI creates a new storage API instance. urlKeys may be nil for
+// manifests without url settings.
+func NewStorageAPI(db *sql.DB, pluginID int64, urlKeys map[string]bool) *StorageAPI {
 	return &StorageAPI{
 		db:       db,
 		pluginID: pluginID,
+		urlKeys:  urlKeys,
 	}
 }
 
@@ -59,6 +66,15 @@ func (s *StorageAPI) get(L *lua.LState) int {
 func (s *StorageAPI) set(L *lua.LState) int {
 	key := L.CheckString(1)
 	value := L.CheckString(2)
+
+	// url-typed settings are user-owned: their value records where the user
+	// pointed the plugin, and only the user (via the plugin settings panel)
+	// may change it — together with the network grant it carries.
+	if s.urlKeys[key] {
+		L.Push(lua.LFalse)
+		L.Push(lua.LString("storage.set: key '" + key + "' is a url setting managed by the user and cannot be written by the plugin"))
+		return 2
+	}
 
 	_, err := s.db.Exec(`
 		INSERT INTO plugin_storage (plugin_id, key, value)

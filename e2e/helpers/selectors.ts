@@ -479,6 +479,8 @@ export const selectors = {
     pluginToggle: (id: number) => `[data-testid="plugin-toggle-${id}"]`,
     pluginRemove: (id: number) => `[data-testid="remove-plugin-${id}"]`,
     expandToggle: '[data-action="toggle-expand"]',
+    permissionsList: '[data-permissions-list]',
+    permissionRevoke: '[data-action="revoke-permission"]',
   },
 
   // Plugin review modal
@@ -516,6 +518,10 @@ export const selectors = {
     passwordInput: '[data-setting-type="password"]',
     checkbox: '[data-setting-type="checkbox"]',
     select: '[data-setting-type="select"]',
+    urlInput: '[data-setting-type="url"]',
+    urlStatus: '[data-url-status]',
+    grantButton: '[data-action="grant-url-host"]',
+    revokeGrant: '[data-action="revoke-url-grant"]',
     passwordToggle: '[data-action="toggle-password"]',
   },
 

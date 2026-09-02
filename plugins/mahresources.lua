@@ -1,24 +1,20 @@
 -- mahresources Upload Plugin
--- Uploads clips to a mahresources instance
+-- Uploads clips to a mahresources instance. The Server URL setting is a url
+-- setting: saving it grants the plugin network access (GET, POST) to that
+-- host, revocable from the plugin card. No allowlist editing needed.
 
 Plugin = {
     name = "mahresources",
-    version = "2.0.0",
+    version = "2.1.0",
     description = "Upload clips to a mahresources instance",
     author = "mahpastes",
 
     events = {"clip:created"},
 
-    -- EDIT THIS to match your mahresources server domain/IP. The allowlist is
-    -- host-only, so a remote instance needs its hostname added here.
-    network = {
-        ["localhost"] = {"GET", "POST"},
-        ["127.0.0.1"] = {"GET", "POST"},
-    },
-
     settings = {
-        {key = "server_url", type = "text", label = "Server URL",
-         description = "Full base URL including scheme, e.g. http://localhost:8181",
+        {key = "server_url", type = "url", label = "Server URL",
+         grants_network = {"GET", "POST"},
+         description = "Full base URL including scheme, e.g. http://localhost:8181. Saving it grants this plugin network access to that host.",
          default = "http://localhost:8181"},
         {key = "api_token", type = "password", label = "API Token",
          description = "Bearer token from Account -> API tokens; leave empty for an instance with auth disabled. Never sent over plain HTTP to a non-loopback host."},
@@ -175,6 +171,17 @@ local function server_error_message(body)
     return nil
 end
 
+-- Turns a plugin HTTP error into a user-facing message. A denied host is a
+-- permission problem, not a transport failure, and gets its own wording.
+local function http_error_message(http_err)
+    local err = tostring(http_err or "unknown error")
+    local host = err:match("domain not in allowlist: (.+)$")
+    if host then
+        return "Server '" .. host .. "' is not granted network access yet — re-save the Server URL setting (or use its Grant button) in the plugin settings"
+    end
+    return "Request failed: " .. err
+end
+
 -- Upload a single clip to mahresources. Returns true on success, false + error
 -- on failure. owner_override (from the upload dialog) takes precedence over
 -- the owner_id setting; nil/empty means "no override".
@@ -244,7 +251,7 @@ local function upload_clip(clip_id, silent, owner_override)
     })
 
     if not resp then
-        local msg = "Upload failed: " .. (http_err or "unknown error")
+        local msg = "Upload failed: " .. http_error_message(http_err)
         if not silent then toast.show(msg, "error") end
         return false, msg
     end
@@ -272,7 +279,8 @@ local function upload_clip(clip_id, silent, owner_override)
 end
 
 -- Search for entities referenced by the plugin's search fields.
--- source "groups" queries mahresources' group search API.
+-- source "groups" queries mahresources' group search API. Failures return
+-- nil, "message" so the picker shows the reason instead of "No results".
 function on_search(source, query)
     if source ~= "groups" then return {} end
     query = tostring(query or "")
@@ -282,25 +290,29 @@ function on_search(source, query)
     local auth, auth_err = auth_headers(base)
     if auth == nil then
         log("mahresources group search: " .. auth_err)
-        return {}
+        return nil, auth_err
     end
     for k, v in pairs(auth) do headers[k] = v end
 
     local url = base .. "/v1/groups?Name=" .. utils.url_encode(query) .. "&page=1"
     local resp, http_err = http.get(url, { headers = headers })
     if not resp then
+        local msg = http_error_message(http_err)
         log("mahresources group search failed: " .. tostring(http_err))
-        return {}
+        return nil, msg
     end
     if resp.status < 200 or resp.status >= 300 then
+        local detail = server_error_message(resp.body)
+        local msg = "Group search failed (HTTP " .. resp.status .. ")"
+        if detail then msg = msg .. ": " .. detail end
         log("mahresources group search failed (HTTP " .. resp.status .. ")")
-        return {}
+        return nil, msg
     end
 
     local ok, groups = pcall(json.decode, resp.body or "[]")
     if not ok or type(groups) ~= "table" then
         log("mahresources group search: unexpected response body")
-        return {}
+        return nil, "Server returned an unexpected response (expected a JSON group list)"
     end
 
     local rows = {}

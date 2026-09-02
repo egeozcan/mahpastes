@@ -16,7 +16,7 @@ func newSearchTestSandbox(t *testing.T, src string, allowed map[string][]string)
 	s := NewSandbox(manifest, 1)
 	t.Cleanup(s.Close)
 
-	api := NewHTTPAPI(allowed)
+	api := NewHTTPAPI(NewNetworkPolicy(nil, 1, manifest))
 	api.Register(s.GetState())
 	s.SetHTTPBudget(api.Budget())
 

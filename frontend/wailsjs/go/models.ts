@@ -1667,6 +1667,22 @@ export namespace plugin {
 		}
 	}
 	
+	export class URLSettingPreview {
+	    key: string;
+	    label: string;
+	    methods: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new URLSettingPreview(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.key = source["key"];
+	        this.label = source["label"];
+	        this.methods = source["methods"];
+	    }
+	}
 	export class PluginPreview {
 	    name: string;
 	    version: string;
@@ -1677,6 +1693,7 @@ export namespace plugin {
 	    clipboard: boolean;
 	    events: string[];
 	    source: string;
+	    url_settings?: URLSettingPreview[];
 	
 	    static createFrom(source: any = {}) {
 	        return new PluginPreview(source);
@@ -1693,6 +1710,7 @@ export namespace plugin {
 	        this.clipboard = source["clipboard"];
 	        this.events = source["events"];
 	        this.source = source["source"];
+	        this.url_settings = this.convertValues(source["url_settings"], URLSettingPreview);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -1739,6 +1757,7 @@ export namespace plugin {
 	    default?: any;
 	    options?: string[];
 	    source?: string;
+	    grants_network?: string[];
 	
 	    static createFrom(source: any = {}) {
 	        return new SettingField(source);
@@ -1753,6 +1772,7 @@ export namespace plugin {
 	        this.default = source["default"];
 	        this.options = source["options"];
 	        this.source = source["source"];
+	        this.grants_network = source["grants_network"];
 	    }
 	}
 

@@ -251,6 +251,16 @@ func scalarMapToLuaTable(L *lua.LState, m map[string]interface{}) *lua.LTable {
 	return t
 }
 
+// SearchError is a plugin-supplied search failure: on_search returned
+// nil, "message" instead of a row table. Manager.SearchOptions passes it
+// through unwrapped so the picker can render the plugin's own text — a
+// denied host should read as a permission problem, not "No results".
+type SearchError struct {
+	Message string
+}
+
+func (e *SearchError) Error() string { return e.Message }
+
 // CallSearch calls the on_search(source, query) handler and converts the
 // returned rows to choices. Unlike CallUIAction it acquires the sandbox lock
 // with TryLock and returns ErrPluginBusy when occupied: a blocking search
@@ -289,7 +299,9 @@ func (s *Sandbox) CallSearch(source, query string, timeout time.Duration) ([]Cho
 	s.L.Push(lua.LString(source))
 	s.L.Push(lua.LString(query))
 
-	err := s.L.PCall(2, 1, nil)
+	// Two return values: a plugin may signal failure with nil, "message".
+	// A single-value return keeps working unchanged.
+	err := s.L.PCall(2, 2, nil)
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			return nil, fmt.Errorf("on_search timed out after %v", timeout)
@@ -297,11 +309,15 @@ func (s *Sandbox) CallSearch(source, query string, timeout time.Duration) ([]Cho
 		return nil, fmt.Errorf("on_search failed: %w", err)
 	}
 
-	ret := s.L.Get(-1)
-	s.L.Pop(1)
+	retErr := s.L.Get(-1)
+	ret := s.L.Get(-2)
+	s.L.Pop(2)
 
 	tbl, ok := ret.(*lua.LTable)
 	if !ok {
+		if msg, ok := retErr.(lua.LString); ok && len(msg) > 0 {
+			return nil, &SearchError{Message: string(msg)}
+		}
 		return nil, fmt.Errorf("on_search must return a table of rows")
 	}
 

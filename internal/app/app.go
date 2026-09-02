@@ -3943,10 +3943,19 @@ func (a *App) getPluginStorage(pluginID int64, key string) (string, error) {
 	return value, nil
 }
 
-// setPluginStorage sets a value in a plugin's storage.
+// setPluginStorage sets a value in a plugin's storage. When the key is a
+// url-typed setting, the plugin manager reconciles the plugin's network
+// grants with the hosts its url settings point at — the same implementation
+// the desktop SetPluginStorage binding uses, so the REST path cannot diverge.
+// The route is admin-only, which also satisfies the stricter rule that a
+// url-setting write (a network grant) requires the admin role.
 func (a *App) setPluginStorage(pluginID int64, key, value string) error {
 	if a.db == nil {
 		return fmt.Errorf("database not initialized")
+	}
+
+	if a.pluginManager != nil {
+		return a.pluginManager.SetStorageWithGrant(pluginID, key, value)
 	}
 
 	_, err := a.db.Exec(`
@@ -4001,17 +4010,9 @@ func (a *App) updatePlugin(pluginID int64) (*UpdateResult, error) {
 	hasChanges := plugin.ManifestsHavePermissionChanges(currentManifest, remoteManifest)
 
 	if hasChanges {
-		preview := &PluginPreview{
-			Name:        remoteManifest.Name,
-			Version:     remoteManifest.Version,
-			Description: remoteManifest.Description,
-			Author:      remoteManifest.Author,
-			Network:     remoteManifest.Network,
-			Filesystem:  remoteManifest.Filesystem,
-			Clipboard:   remoteManifest.Clipboard,
-			Events:      remoteManifest.Events,
-			Source:      sourceURL,
-		}
+		// Shared constructor so the review modal also sees the url
+		// settings' network grants (URLSettings), not just manifest hosts.
+		preview := plugin.PreviewFromManifest(remoteManifest, sourceURL)
 		a.pluginManager.StorePendingUpdate(pluginID, source)
 		return &UpdateResult{NeedsReview: true, Preview: preview}, nil
 	}

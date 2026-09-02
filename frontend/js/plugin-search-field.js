@@ -147,11 +147,18 @@ const PluginSearchField = (() => {
                     // A superseded request that rejects must not overwrite a
                     // newer search's results with stale busy/error state.
                     if (my !== openToken) return;
-                    busy = isBusyError(e && e.message ? e.message : e);
+                    const raw = e && e.message ? e.message : String(e);
+                    busy = isBusyError(raw);
                     if (busy) {
                         // The plugin is running something else; the next
                         // keystroke retries. Not an error to surface loudly.
                         renderState('Plugin is busy — try again', 'text-amber-700');
+                    } else if (raw && !raw.includes('plugin search failed')) {
+                        // A plugin-supplied failure passes through unwrapped
+                        // (plugin.SearchError), so a denied host reads as a
+                        // permission problem rather than "No results". Show
+                        // it, truncated to keep the dropdown usable.
+                        renderState(raw.length > 120 ? raw.slice(0, 117) + '…' : raw, 'text-red-500');
                     } else {
                         renderState('Search failed', 'text-red-500');
                     }

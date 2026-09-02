@@ -76,9 +76,9 @@ func (b *HTTPBudget) Remaining() (time.Duration, bool) {
 
 // HTTPAPI provides restricted HTTP access to plugins
 type HTTPAPI struct {
-	allowedDomains map[string][]string // domain -> allowed methods
-	client         *http.Client
-	budget         *HTTPBudget
+	policy *NetworkPolicy // live manifest + user-grant policy
+	client *http.Client
+	budget *HTTPBudget
 
 	// Rate limiting
 	mu           sync.Mutex
@@ -86,20 +86,21 @@ type HTTPAPI struct {
 	windowStart  time.Time
 }
 
-// NewHTTPAPI creates a new HTTP API instance with the given allowed domains
-func NewHTTPAPI(allowedDomains map[string][]string) *HTTPAPI {
+// NewHTTPAPI creates a new HTTP API instance governed by the given policy.
+func NewHTTPAPI(policy *NetworkPolicy) *HTTPAPI {
 	api := &HTTPAPI{
-		allowedDomains: allowedDomains,
-		windowStart:    time.Now(),
+		policy:      policy,
+		windowStart: time.Now(),
 	}
 
 	// Create client with redirect validation to prevent domain bypass
 	api.client = &http.Client{
 		Timeout: HTTPTimeout,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			// Validate redirect URL against allowlist
+			// Validate redirect target against the live policy, with the
+			// method the original request carries.
 			domain := req.URL.Hostname()
-			if _, ok := FindAllowedMethods(api.allowedDomains, domain); !ok {
+			if err := api.policy.Allowed(domain, req.Method); err != nil {
 				return fmt.Errorf("redirect to unauthorized domain: %s", domain)
 			}
 			// Prevent downgrade to non-HTTPS
@@ -165,7 +166,9 @@ func FindAllowedMethods(allowedDomains map[string][]string, domain string) ([]st
 	return nil, false
 }
 
-// checkDomainPermission validates that the URL domain is in the allowlist and method is allowed
+// checkDomainPermission validates that the URL domain is allowed by the live
+// policy (manifest hosts first, then user-granted hosts) and the method is
+// permitted for it.
 func (h *HTTPAPI) checkDomainPermission(urlStr, method string) error {
 	parsed, err := url.Parse(urlStr)
 	if err != nil {
@@ -175,25 +178,7 @@ func (h *HTTPAPI) checkDomainPermission(urlStr, method string) error {
 	// Use url.Hostname() to correctly handle IPv6 addresses and ports
 	domain := parsed.Hostname()
 
-	allowedMethods, ok := FindAllowedMethods(h.allowedDomains, domain)
-	if !ok {
-		return fmt.Errorf("domain not in allowlist: %s", domain)
-	}
-
-	// Check if method is allowed for this domain
-	methodAllowed := false
-	for _, m := range allowedMethods {
-		if strings.EqualFold(m, method) {
-			methodAllowed = true
-			break
-		}
-	}
-
-	if !methodAllowed {
-		return fmt.Errorf("%s not allowed for domain %s (allowed: [%s])", method, domain, strings.Join(allowedMethods, ", "))
-	}
-
-	return nil
+	return h.policy.Allowed(domain, method)
 }
 
 // checkRateLimit enforces rate limiting

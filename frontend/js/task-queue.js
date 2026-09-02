@@ -74,7 +74,10 @@ function handlePluginTaskFailed(data) {
         task.error = data.error;
         updateQueueBar();
         renderQueueModal();
-        showToast(`Failed: ${task.task_name}`);
+        // Include the reason: the action's own result toast races this one
+        // over the event bridge (ordering is not guaranteed), so the last
+        // toast must carry the failure detail itself.
+        showToast(task.error ? `Failed: ${task.task_name}: ${task.error}` : `Failed: ${task.task_name}`);
     }
 }
 

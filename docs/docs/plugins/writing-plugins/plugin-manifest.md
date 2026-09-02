@@ -227,7 +227,7 @@ settings = {
 | `source` | For `search` | Name passed to the [`on_search`](#searchable-fields-on_search) hook |
 
 :::note
-Settings support types `text`, `password`, `checkbox`, `select`, and `search`. The `range` type is only available for [option form fields](#option-form-fields) in UI actions, not for settings.
+Settings support types `text`, `password`, `checkbox`, `select`, `search`, and `url`. The `range` type is only available for [option form fields](#option-form-fields) in UI actions, not for settings.
 :::
 
 ### Setting Types
@@ -303,6 +303,37 @@ plugin storage under the field's `key`.
 ```
 
 A `search` field without a `source` is dropped at parse time.
+
+#### url
+
+A text input for a server URL whose saved value grants the plugin network
+access to that host. The field declares the HTTP methods it needs via
+`grants_network`; when the user saves the field, mahpastes records a revocable
+network permission for the parsed hostname (lowercased, port and trailing dot
+stripped, wildcards rejected). The host appears under the plugin's
+Permissions on its card, with a Revoke control. Retargeting the URL revokes
+the old host and grants the new one; clearing the value revokes it.
+
+```lua
+{
+    key = "server_url",
+    type = "url",
+    label = "Server URL",
+    grants_network = {"GET", "POST"},
+    default = "http://localhost:8181",
+},
+```
+
+The grant is a snapshot of the value the *user* saved — the plugin cannot
+write a url setting from Lua (`storage.set` refuses url-typed keys), so a
+plugin can never widen its own network access. A granted host can only use
+methods listed in the manifest's `grants_network` fields. A `url` field
+without `grants_network` is dropped at parse time.
+
+If `on_search` or an action reaches an ungranted host, the request fails with
+`domain not in allowlist: <host>`; return that (or a friendlier wrapper) from
+`on_search` as `nil, "message"` so the picker shows the reason instead of
+"No results".
 
 ### Reading Settings
 

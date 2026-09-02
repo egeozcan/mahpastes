@@ -532,6 +532,50 @@ HTML apps served from a tag can upload files as new clips via `POST /_api/_uploa
 
 **Key files**: `serve_file_upload.go` (upload handler, tag validation), `serve_manager.go` (`/_api/_upload` routing).
 
+### User-Granted Plugin Network Hosts (url settings)
+
+A manifest setting with `type = "url"` and `grants_network = {"GET", "POST"}` lets the *user*
+grant a plugin network access to whatever host they type. The manifest declares *what*; the
+user supplies *where*. `plugins/mahresources.lua` is the reference user.
+
+**The security crux**: a grant is a snapshot row `(plugin_id, 'network', host)` recorded when
+the *user* saves the field — never a request-time lookup of the setting value. Setting values
+live in `plugin_storage`, which Lua can write, so a value-derived rule would be a one-line
+self-grant. Three locks enforce this:
+
+- `storage.set` refuses url-typed keys entirely (`plugin/api_storage.go`; `storage.get` still works).
+- The grant rides inside `PluginService.SetPluginStorage` / `App.setPluginStorage` (both →
+  `Manager.SetStorageWithGrant` in `plugin/manager.go`), the single user-facing write path shared
+  by desktop and REST. Lua never reaches it.
+- Allowed methods for a granted host are the union of `grants_network` across the manifest's url
+  settings, derived live from the manifest — a DB row can never authorize a method the manifest
+  never asked for. Hosts are normalized (`url.Parse` → `Hostname()`, lowercased, trailing dot
+  stripped, scheme-less values parsed as http); `*` anywhere is rejected, and granted rows match
+  **exactly**, never as `MatchDomain` wildcards.
+
+**Live resolution**: `plugin/network_policy.go` `NetworkPolicy.Allowed` is the join point —
+manifest hosts first (unchanged semantics incl. `*.`), then granted rows (filtered by
+`pending_reconfirm = 0` like `FilesystemAPI.loadPermissions`, so restored backups re-ask).
+`NewHTTPAPI` takes the policy instead of the bare map; `IsPluginURLAllowed` consults it too.
+No settings-change reload path exists, so the cache is generation-based, bumped by
+`InvalidateNetworkPolicy` on grant (save) and revoke.
+
+**Self-healing revocation**: every url-key save reconciles — inserts the new host if absent,
+deletes this plugin's `network` rows that no longer equal any url setting's current value.
+Empty value → revoke all settings-derived grants. Retargeting the server moves the grant in
+one save.
+
+**REST**: `PUT /api/v1/plugins/{id}/storage/{key}` is admin-only, which covers the stricter
+"a url-setting write is a network grant" rule. Frontend status line (Grant/Revoke buttons) in
+`plugins.js` reads `GetPluginPermissions`; `plugin-review.js` discloses url settings via
+`PluginPreview.URLSettings`. Search failures from denied hosts surface as typed `SearchError`
+(`sandbox.go` two-value `PCall`) through `on_search`'s `nil, "msg"` returns.
+
+**Key files**: `plugin/network_policy.go` (policy + `NormalizeGrantHost`), `plugin/manager.go`
+(`SetStorageWithGrant`), `plugin/api_storage.go` (Lua write lock), `plugin/api_http.go`
+(policy consumer), `plugin_service.go` + `internal/app/app.go` (write paths), `frontend/js/plugins.js`
+(url field + status line).
+
 ### Plugin UI Actions
 
 Plugins can define UI actions that appear in the lightbox and card context menu.

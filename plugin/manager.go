@@ -72,6 +72,18 @@ type Plugin struct {
 	Status   string
 	Manifest *Manifest
 	Sandbox  *Sandbox
+
+	// networkPolicy resolves the plugin's live network permissions:
+	// manifest hosts plus user-granted url-setting hosts.
+	networkPolicy *NetworkPolicy
+}
+
+// URLSettingPreview describes one url-typed setting for the review modal:
+// the user will be asked to grant its methods to whatever host they type.
+type URLSettingPreview struct {
+	Key     string   `json:"key"`
+	Label   string   `json:"label"`
+	Methods []string `json:"methods"`
 }
 
 // PluginPreview represents a parsed plugin manifest for review before install/update.
@@ -85,15 +97,15 @@ type PluginPreview struct {
 	Clipboard   bool                `json:"clipboard"`
 	Events      []string            `json:"events"`
 	Source      string              `json:"source"`
+	URLSettings []URLSettingPreview `json:"url_settings,omitempty"`
 }
 
-// PreviewFromSource parses a plugin source string and returns a preview.
-func PreviewFromSource(source, sourcePath string) (*PluginPreview, error) {
-	manifest, err := ParseManifest(source)
-	if err != nil {
-		return nil, fmt.Errorf("invalid plugin: %w", err)
-	}
-	return &PluginPreview{
+// PreviewFromManifest builds a PluginPreview from an already-parsed manifest.
+// Update paths that have parsed the remote manifest themselves must use this
+// (not a hand-built literal) so the review modal discloses every permission,
+// including the url settings' network grants.
+func PreviewFromManifest(manifest *Manifest, source string) *PluginPreview {
+	preview := &PluginPreview{
 		Name:        manifest.Name,
 		Version:     manifest.Version,
 		Description: manifest.Description,
@@ -102,8 +114,27 @@ func PreviewFromSource(source, sourcePath string) (*PluginPreview, error) {
 		Filesystem:  manifest.Filesystem,
 		Clipboard:   manifest.Clipboard,
 		Events:      manifest.Events,
-		Source:      sourcePath,
-	}, nil
+		Source:      source,
+	}
+	for _, s := range manifest.Settings {
+		if s.Type == "url" && len(s.GrantsNetwork) > 0 {
+			preview.URLSettings = append(preview.URLSettings, URLSettingPreview{
+				Key:     s.Key,
+				Label:   s.Label,
+				Methods: s.GrantsNetwork,
+			})
+		}
+	}
+	return preview
+}
+
+// PreviewFromSource parses a plugin source string and returns a preview.
+func PreviewFromSource(source, sourcePath string) (*PluginPreview, error) {
+	manifest, err := ParseManifest(source)
+	if err != nil {
+		return nil, fmt.Errorf("invalid plugin: %w", err)
+	}
+	return PreviewFromManifest(manifest, sourcePath), nil
 }
 
 // PreviewFromFile reads a plugin file and returns a preview.
@@ -138,6 +169,7 @@ type Manager struct {
 	loading          bool // true while the initial enabled-plugin set is being loaded
 	pluginsDir       string
 	modalGuard       *modalGuard
+	grantMu          sync.Mutex // serializes SetStorageWithGrant reconciliation per manager
 	pendingUpdates   map[int64]string
 	pendingInstalls  map[string]string // source URL/path -> fetched content
 	updateChecker    *UpdateChecker
@@ -255,10 +287,23 @@ func (m *Manager) loadPlugin(p *Plugin) error {
 	clipsAPI := NewClipsAPI(m.db, manifest.Network)
 	clipsAPI.Register(sandbox.GetState())
 
-	storageAPI := NewStorageAPI(m.db, p.ID)
+	// urlKeys: settings whose value only the user may write (a url setting
+	// carries the plugin's network grant; Lua must not edit it).
+	urlKeys := make(map[string]bool)
+	for _, s := range manifest.Settings {
+		if s.Type == "url" {
+			urlKeys[s.Key] = true
+		}
+	}
+	storageAPI := NewStorageAPI(m.db, p.ID, urlKeys)
 	storageAPI.Register(sandbox.GetState())
 
-	httpAPI := NewHTTPAPI(manifest.Network)
+	// The network policy is live: manifest hosts plus user-granted hosts from
+	// url-setting saves, so a grant takes effect without reloading the plugin.
+	networkPolicy := NewNetworkPolicy(m.db, p.ID, manifest)
+	p.networkPolicy = networkPolicy
+
+	httpAPI := NewHTTPAPI(networkPolicy)
 	httpAPI.Register(sandbox.GetState())
 	// The sandbox learns the HTTP budget so CallSearch can scope a deadline to
 	// one on_search call; other entry points leave it unset.
@@ -670,6 +715,10 @@ func (m *Manager) IsPluginURLAllowed(pluginID int64, rawURL string, method strin
 		return false
 	}
 	domain := parsed.Hostname()
+	if p.networkPolicy != nil {
+		return p.networkPolicy.Allowed(domain, method) == nil
+	}
+	// Fallback for a plugin loaded before the policy existed: manifest only.
 	allowedMethods, ok := FindAllowedMethods(p.Manifest.Network, domain)
 	if !ok {
 		return false
@@ -680,6 +729,192 @@ func (m *Manager) IsPluginURLAllowed(pluginID int64, rawURL string, method strin
 		}
 	}
 	return false
+}
+
+// InvalidateNetworkPolicy drops the cached network grant set of one plugin so
+// a grant or revoke made through the settings panel takes effect on the next
+// request.
+func (m *Manager) InvalidateNetworkPolicy(pluginID int64) {
+	m.mu.RLock()
+	p, ok := m.plugins[pluginID]
+	m.mu.RUnlock()
+	if ok && p.networkPolicy != nil {
+		p.networkPolicy.Invalidate()
+	}
+}
+
+// URLSettingKeys returns the manifest keys declared as url-typed settings for
+// a loaded plugin. Returns nil when the plugin is not loaded or declares none.
+func (m *Manager) URLSettingKeys(pluginID int64) map[string]bool {
+	m.mu.RLock()
+	p, ok := m.plugins[pluginID]
+	m.mu.RUnlock()
+	if !ok || p.Manifest == nil {
+		return nil
+	}
+	keys := make(map[string]bool)
+	for _, s := range p.Manifest.Settings {
+		if s.Type == "url" {
+			keys[s.Key] = true
+		}
+	}
+	if len(keys) == 0 {
+		return nil
+	}
+	return keys
+}
+
+// SetStorageWithGrant writes a plugin storage key and, when the key is a
+// url-typed setting, reconciles the plugin's network grants with the hosts
+// its url settings currently point at.
+//
+// The grant is recorded here — the single user-facing write path, shared by
+// the desktop binding and the REST endpoint — and not in the frontend, and
+// never as a request-time lookup of the setting value: Lua can write storage,
+// so a value-derived rule would be a one-line self-grant. On a url-key write:
+//
+//  1. the new value is parsed into a host (NormalizeGrantHost; a value
+//     containing `*` is rejected),
+//  2. a (plugin_id, 'network', host) row is inserted if absent,
+//  3. this plugin's network rows whose host is no longer the value of any
+//     url setting are deleted — self-healing revocation when the user
+//     retargets the server. An empty value revokes everything the settings
+//     granted.
+func (m *Manager) SetStorageWithGrant(pluginID int64, key, value string) error {
+	urlKeys := m.URLSettingKeys(pluginID)
+
+	// Validate the new value's host up front so a rejected value (wildcard,
+	// malformed) fails the save before the storage write persists it.
+	if urlKeys[key] && strings.TrimSpace(value) != "" {
+		if _, err := NormalizeGrantHost(value); err != nil {
+			return err
+		}
+	}
+
+	// Serialize per manager: concurrent saves of two url fields must not
+	// interleave their read-modify-write reconciliation.
+	m.grantMu.Lock()
+	defer m.grantMu.Unlock()
+
+	// One transaction: the storage write and the full grant reconciliation
+	// commit together or not at all.
+	tx, err := m.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`
+		INSERT INTO plugin_storage (plugin_id, key, value)
+		VALUES (?, ?, ?)
+		ON CONFLICT (plugin_id, key) DO UPDATE SET value = excluded.value
+	`, pluginID, key, value); err != nil {
+		return err
+	}
+
+	if !urlKeys[key] {
+		return tx.Commit()
+	}
+
+	// Consent is field-specific: only the host of the key the user actually
+	// saved is granted (or re-approved by clearing pending_reconfirm). The
+	// other url settings' hosts matter only for stale-row deletion below —
+	// inserting or reactivating them here would approve hosts the user did
+	// not just save, and could resurrect grants revoked from the card.
+	savedHosts := make(map[string]bool)
+	if strings.TrimSpace(value) != "" {
+		if h, err := NormalizeGrantHost(value); err == nil {
+			savedHosts[h] = true
+		}
+	}
+
+	// Collect the host every url setting currently points at (the just-saved
+	// key uses the new value; the others read their stored value).
+	allHosts := make(map[string]bool)
+	for h := range savedHosts {
+		allHosts[h] = true
+	}
+	for k := range urlKeys {
+		if k == key {
+			continue
+		}
+		var v []byte
+		if err := tx.QueryRow(
+			"SELECT value FROM plugin_storage WHERE plugin_id = ? AND key = ?", pluginID, k,
+		).Scan(&v); err != nil {
+			continue
+		}
+		if strings.TrimSpace(string(v)) == "" {
+			continue
+		}
+		h, err := NormalizeGrantHost(string(v))
+		if err != nil {
+			continue
+		}
+		allHosts[h] = true
+	}
+
+	// Grant the saved host. The table has no unique index on
+	// (plugin_id, permission_type, path), so guard the insert with NOT EXISTS
+	// to keep repeat saves from stacking duplicate rows. The save is the
+	// user's explicit re-approval, so it also clears any pending_reconfirm
+	// flag the row carried (e.g. imported from a restored backup).
+	for h := range savedHosts {
+		if _, err := tx.Exec(`
+			INSERT INTO plugin_permissions (plugin_id, permission_type, path)
+			SELECT ?, 'network', ?
+			WHERE NOT EXISTS (
+				SELECT 1 FROM plugin_permissions
+				WHERE plugin_id = ? AND permission_type = 'network' AND path = ?
+			)
+		`, pluginID, h, pluginID, h); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`
+			UPDATE plugin_permissions SET pending_reconfirm = 0
+			WHERE plugin_id = ? AND permission_type = 'network' AND path = ?
+		`, pluginID, h); err != nil {
+			return err
+		}
+	}
+
+	// Revoke hosts no url setting points at anymore. Rows are exact hosts, so
+	// a deleted row can never take a wildcard grant with it. Sibling settings'
+	// hosts keep their rows (pending or not) — only saving that field changes
+	// their consent state. Rows still pending re-approval for an abandoned
+	// host are deleted like any other stale row.
+	rows, err := tx.Query(
+		"SELECT path FROM plugin_permissions WHERE plugin_id = ? AND permission_type = 'network'",
+		pluginID,
+	)
+	if err != nil {
+		return err
+	}
+	var stale []string
+	for rows.Next() {
+		var path string
+		if err := rows.Scan(&path); err == nil && !allHosts[path] {
+			stale = append(stale, path)
+		}
+	}
+	rows.Close()
+	for _, path := range stale {
+		if _, err := tx.Exec(
+			"DELETE FROM plugin_permissions WHERE plugin_id = ? AND permission_type = 'network' AND path = ?",
+			pluginID, path,
+		); err != nil {
+			return err
+		}
+	}
+
+	// A saved url key with an empty value revokes: the loop above already
+	// deleted every settings-derived row.
+
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	m.InvalidateNetworkPolicy(pluginID)
+	return nil
 }
 
 // EnablePlugin enables a plugin
@@ -987,6 +1222,13 @@ func (m *Manager) SearchOptions(pluginID int64, source, query string) ([]Choice,
 	if err != nil {
 		if errors.Is(err, ErrPluginBusy) {
 			return nil, err
+		}
+		// A plugin-supplied failure passes through unwrapped so the picker
+		// can show the plugin's own message (e.g. a permission problem)
+		// instead of a blanket "search failed".
+		var searchErr *SearchError
+		if errors.As(err, &searchErr) {
+			return nil, searchErr
 		}
 		return nil, fmt.Errorf("plugin search failed: %w", err)
 	}
