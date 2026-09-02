@@ -87,17 +87,25 @@ test.describe('Video thumbnails and lightbox', () => {
     await expect(app.page.locator(selectors.lightbox.zoomControl)).toBeHidden();
     await expect(app.page.locator(selectors.lightbox.imageInfo)).toContainText('160×90');
 
-    const wheelWasPrevented = await video.evaluate((element: HTMLVideoElement) => {
-      const event = new WheelEvent('wheel', {
+    // Image-only zoom must stay disabled while a video is current: a
+    // ctrl+wheel over the video must not change the zoom scale. (It cannot be
+    // asserted via event.defaultPrevented any more: since the modal scroll
+    // lock, the document-level lock legitimately preventDefaults wheel events
+    // a modal cannot consume.)
+    const scaleTransform = () => app.page.evaluate(() => {
+      const img = document.querySelector('#lightbox-img');
+      return img ? img.style.transform : '';
+    });
+    const before = await scaleTransform();
+    await video.evaluate((element: HTMLVideoElement) => {
+      element.dispatchEvent(new WheelEvent('wheel', {
         bubbles: true,
         cancelable: true,
         ctrlKey: true,
         deltaY: 24,
-      });
-      element.dispatchEvent(event);
-      return event.defaultPrevented;
+      }));
     });
-    expect(wheelWasPrevented).toBe(false);
+    expect(await scaleTransform()).toBe(before);
 
     await video.evaluate(async (element: HTMLVideoElement) => {
       element.loop = true;

@@ -316,21 +316,20 @@ test.describe('mahresources Plugin', () => {
 
     // No token -> 401: missing or invalid token message. The upload action is
     // async, so the failure surfaces as an error toast rather than a return
-    // value; the toast text is the plugin's mapped message.
-    const toast = app.page.locator('#toast');
+    // value. The toast element is shared, and the file upload's success toast
+    // may still be visible, so poll until the mapped error text appears.
+    const toastText = () => app.page.locator('#toast').textContent();
     await app.executePluginActionViaAPI(pluginId!, 'upload', [clipId], {});
-    await expect(toast).toBeVisible({ timeout: 10000 });
-    const unauthMessage = await toast.textContent();
-    expect(unauthMessage).toContain('401');
+    await expect.poll(toastText, { timeout: 10000 }).toContain('401');
+    const unauthMessage = await toastText();
     expect(unauthMessage).toContain('token');
 
     // Token the server rejects -> 403: valid token, cannot write here.
     await app.setPluginStorage(pluginId!, 'api_token', 'rejected');
     recorded = [];
     await app.executePluginActionViaAPI(pluginId!, 'upload', [clipId], {});
-    await expect(toast).toBeVisible({ timeout: 10000 });
-    const forbiddenMessage = await toast.textContent();
-    expect(forbiddenMessage).toContain('403');
+    await expect.poll(toastText, { timeout: 10000 }).toContain('403');
+    const forbiddenMessage = await toastText();
     expect(forbiddenMessage).toContain('group');
     expect(forbiddenMessage).not.toBe(unauthMessage);
   });
