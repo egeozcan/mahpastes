@@ -29,6 +29,8 @@ type providerEnrollment struct {
 	Enabled bool   `json:"enabled"`
 }
 
+const providerDomainRemoved = "The Finder location was removed. Use Retry to add it again."
+
 // FileProviderService is bound on every platform. Only the explicitly enabled
 // macOS bundle has a native implementation; constructors and bindings are inert.
 type FileProviderService struct {
@@ -75,6 +77,27 @@ func (s *FileProviderService) start(ctx context.Context, db *sql.DB, dataDir str
 func (s *FileProviderService) Status() FileProviderStatus {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// Users can remove a domain in Finder while the app keeps running. Report
+	// that state on reopening Settings so Retry is available without a restart.
+	if s.server != nil && s.enrollment.Enabled {
+		result, err := fpnative.Call("list", s.enrollment.Domain)
+		if err != nil {
+			s.message = err.Error()
+		} else {
+			found := false
+			for _, id := range result.Domains {
+				if id == s.enrollment.Domain {
+					found = true
+					break
+				}
+			}
+			if !found {
+				s.message = providerDomainRemoved
+			} else if s.message == providerDomainRemoved {
+				s.message = ""
+			}
+		}
+	}
 	return s.status()
 }
 
@@ -191,7 +214,7 @@ func (s *FileProviderService) connect(register bool) error {
 	}
 	if !found {
 		if !register {
-			return errors.New("The Finder location was removed. Enable Finder access to add it again.")
+			return errors.New(providerDomainRemoved)
 		}
 		if _, err = fpnative.Call("add", s.enrollment.Domain); err != nil {
 			return err
