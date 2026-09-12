@@ -78,6 +78,8 @@ jobs:
           -derivedDataPath build/file-provider/DerivedData CODE_SIGNING_ALLOWED=NO test
       - name: Native enumeration lifecycle checks without Xcode test hosting
         run: bash scripts/macos/test-file-provider.sh
+      - name: Host enrollment persistence failure and retry
+        run: go test -race -tags bindings . -run TestDisableKeepsEnrollmentOnPersistenceFailure -count=1
       - name: Binding generation cannot load the native bridge
         run: go test -tags 'fileprovider bindings' ./internal/fpnative
       - name: No-cgo builds select the fallback
