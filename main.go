@@ -54,6 +54,7 @@ func main() {
 	shareService := NewShareService(core)
 	linkService := NewLinkService(core)
 	markdownService := NewMarkdownService(core)
+	fileProviderService := &FileProviderService{}
 
 	core.SetClipboardService(clipboardService)
 	transferHandler := coreapp.NewTransferFileHandler(core)
@@ -69,6 +70,7 @@ func main() {
 		shareService,
 		linkService,
 		markdownService,
+		fileProviderService,
 	}
 	if selfTest != nil {
 		// Presence of this binding is how the frontend detects self-test mode.
@@ -128,8 +130,14 @@ func main() {
 			if err != nil {
 				log.Fatalf("bootstrap: %v", err)
 			}
+			if !generatingBindings {
+				fileProviderService.start(ctx, db, dataDir)
+			}
 		},
-		OnShutdown: func(ctx context.Context) { core.Shutdown(ctx) },
+		OnShutdown: func(ctx context.Context) {
+			fileProviderService.stop()
+			core.Shutdown(ctx)
+		},
 		DragAndDrop: &options.DragAndDrop{
 			EnableFileDrop:     true,
 			DisableWebViewDrop: false,

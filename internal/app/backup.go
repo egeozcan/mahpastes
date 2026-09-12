@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"go-clipboard/internal/fileprovider"
 	"go-clipboard/plugin"
 )
 
@@ -1071,6 +1072,11 @@ func (a *App) RestoreBackup(backupPath, identityPolicy string) (err error) {
 	// Mark all watched_folders as paused
 	if _, err := tx.Exec("UPDATE watched_folders SET is_paused = 1"); err != nil {
 		fmt.Printf("Warning: failed to pause watch folders: %v\n", err)
+	}
+
+	// A restored numeric clip ID must never resolve through an old Finder item.
+	if err := fileprovider.ResetAfterRestore(tx); err != nil {
+		return fmt.Errorf("reset File Provider after restore: %w", err)
 	}
 
 	// Commit transaction

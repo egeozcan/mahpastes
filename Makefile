@@ -34,6 +34,10 @@ dev: ## Start development server with hot reload
 build: clean ## Production build (clean)
 	$(WAILS) build
 
+.PHONY: build-file-provider
+build-file-provider: ## Signed macOS build with Finder access (requires Xcode and signing configuration)
+	bash scripts/macos/build-file-provider.sh --signed
+
 ifeq ($(OS),Windows_NT)
 clean: ## Remove build artifacts
 	if exist "$(subst /,\,$(BUILD_DIR))" rd /s /q "$(subst /,\,$(BUILD_DIR))"

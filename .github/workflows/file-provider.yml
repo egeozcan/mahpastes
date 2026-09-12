@@ -1,0 +1,76 @@
+name: File Provider
+
+on:
+  pull_request:
+  push:
+    branches: [master, feat/macos-file-provider]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  portable:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Linux desktop libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+      - name: Test portable provider and platform fallback
+        run: go test -race ./internal/fileprovider ./internal/fpnative
+      - name: Build headless tools without Apple SDK dependencies
+        run: go build ./cmd/mp ./cmd/mahpastesd
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
+      - name: Ordinary Linux desktop build
+        if: runner.os == 'Linux'
+        run: wails build -tags webkit2_41
+      - name: Ordinary macOS and Windows desktop builds
+        if: runner.os != 'Linux'
+        run: wails build
+      - name: Accidental feature tag still selects the portable fallback
+        if: runner.os != 'macOS'
+        run: go test -tags fileprovider ./internal/fpnative
+      - name: Headless frontend and provider settings contracts
+        if: runner.os == 'Linux'
+        working-directory: e2e
+        env:
+          MAHPASTES_SHARE_DISABLE_WAN_BOOTSTRAP: '1'
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          npm run test:server
+  native:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: brew install xcodegen
+      - run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
+      - name: Build universal host and extension without signing credentials
+        run: bash scripts/macos/build-file-provider.sh --unsigned
+      - name: Native item contract tests
+        run: >-
+          xcodebuild -project build/file-provider/MahpastesFileProvider.xcodeproj
+          -scheme MahpastesFileProvider -destination 'platform=macOS'
+          -derivedDataPath build/file-provider/DerivedData CODE_SIGNING_ALLOWED=NO test
+      - name: Binding generation cannot load the native bridge
+        run: go test -tags 'fileprovider bindings' ./internal/fpnative
+      - name: No-cgo builds select the fallback
+        run: CGO_ENABLED=0 go test -tags fileprovider ./internal/fpnative

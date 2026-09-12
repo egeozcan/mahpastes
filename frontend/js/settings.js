@@ -18,6 +18,7 @@ function openSettings() {
     loadTooltipToggle();
     loadLightboxBackdropToggle();
     loadPastePathBehaviorSelect();
+    loadFileProviderSettings();
     settingsModal.removeAttribute('inert');
     settingsModal.classList.remove('opacity-0', 'pointer-events-none');
     settingsModal.classList.add('opacity-100');
