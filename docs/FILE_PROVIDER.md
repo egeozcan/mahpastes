@@ -62,6 +62,28 @@ Use a separate data directory (`MAHPASTES_DATA_DIR`) for development. The
 per-directory single-instance lock remains authoritative; do not run the desktop
 app and headless server against the same database simultaneously.
 
+### Build in CI and sign locally without Xcode
+
+The native CI job uploads `mahpastes-file-provider-unsigned-<commit>` after its
+checks pass. It contains a ZIP made with `ditto` to preserve bundle permissions.
+Use the artifact and signing script from the same trusted PR commit. Download
+it with `gh run download <run-id> -n mahpastes-file-provider-unsigned-<commit>`.
+Extract it into the checkout's `build/bin` directory:
+
+```sh
+mkdir -p build/bin
+ditto -x -k mahpastes-unsigned.zip build/bin
+# Set TEAM_ID, SIGN_IDENTITY and the provisioning profile paths above first.
+bash scripts/macos/build-file-provider.sh --sign-existing
+```
+
+This mode updates both bundles' identifiers and shared-group configuration for
+your team, generates matching entitlements, and signs the extension and host.
+It requires macOS command-line tools and Python 3, but does not run Xcode, Wails,
+Go, or Swift compilation. Your signing private key stays in the local Keychain.
+Provisioning and signed runtime acceptance are still required. Notarization is
+optional in this command and requires `notarytool`/`stapler` when enabled.
+
 Normal `make build`, release-tag workflows and installations remain unchanged.
 The native build is not automatically added to public release assets until the
 signed acceptance checks below are complete.
