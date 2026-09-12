@@ -38,6 +38,7 @@ targets:
       - FileProviderTests
       - path: FileProvider/Item.swift
       - path: FileProvider/Client.swift
+      - path: FileProvider/Enumerator.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.egeozcan.mahpastes.FileProviderTests

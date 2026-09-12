@@ -242,6 +242,8 @@ go test ./internal/... ./plugin/... ./cmd/...
 go test -tags bindings .
 go test -tags 'fileprovider bindings' ./internal/fpnative
 CGO_ENABLED=0 go test -tags fileprovider ./internal/fpnative
+# On macOS, native lifecycle regression checks need only Command Line Tools:
+bash scripts/macos/test-file-provider.sh
 cd e2e && npm run test:server
 ```
 

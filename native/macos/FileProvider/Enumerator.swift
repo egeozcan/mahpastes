@@ -1,12 +1,22 @@
 import FileProvider
 
+protocol ProviderEnumerationClient {
+    func get<T: Decodable>(_ route: String, _ query: [String: String]) async throws -> T
+    func invalidate()
+}
+
+extension ProviderClient: ProviderEnumerationClient {}
+
 final class ProviderEnumerator: NSObject, NSFileProviderEnumerator {
-    private let client: ProviderClient
+    private let client: ProviderEnumerationClient
     private let scope: String
     private let anchor: EnumerationAnchor
 
-    init(domain: String, scope: String) {
-        let client = ProviderClient(domain: domain)
+    convenience init(domain: String, scope: String) {
+        self.init(client: ProviderClient(domain: domain), scope: scope)
+    }
+
+    init(client: ProviderEnumerationClient, scope: String) {
         self.client = client; self.scope = scope
         self.anchor = EnumerationAnchor(client: client, scope: scope)
     }
@@ -14,9 +24,9 @@ final class ProviderEnumerator: NSObject, NSFileProviderEnumerator {
 
     func enumerateItems(for observer: NSFileProviderEnumerationObserver, startingAt page: NSFileProviderPage) {
         Task {
+            let initial = page.rawValue == NSFileProviderPage.initialPageSortedByName as Data
+                || page.rawValue == NSFileProviderPage.initialPageSortedByDate as Data
             do {
-                let initial = page.rawValue == NSFileProviderPage.initialPageSortedByName as Data
-                    || page.rawValue == NSFileProviderPage.initialPageSortedByDate as Data
                 let value = initial ? "" : String(data: page.rawValue, encoding: .utf8)
                 guard let value = value else { throw NSFileProviderError(.pageExpired) }
                 // Capture the baseline BEFORE creating the initial snapshot.
@@ -25,12 +35,23 @@ final class ProviderEnumerator: NSObject, NSFileProviderEnumerator {
                 let result: ItemPage = try await client.get("enumerate", ["scope": scope, "page": value])
                 observer.didEnumerate(result.items.map { ProviderItem($0) })
                 observer.finishEnumerating(upTo: result.next.isEmpty ? nil : NSFileProviderPage(Data(result.next.utf8)))
-            } catch { observer.finishEnumeratingWithError(ProviderClient.map(error)) }
+            } catch {
+                let mapped = ProviderClient.map(error) as NSError
+                // A transient continuation failure must retain the original
+                // baseline: its retry still reads the same frozen snapshot.
+                if initial || (mapped.domain == NSFileProviderErrorDomain && mapped.code == NSFileProviderError.Code.pageExpired.rawValue) {
+                    await anchor.reset()
+                }
+                observer.finishEnumeratingWithError(mapped)
+            }
         }
     }
 
     func enumerateChanges(for observer: NSFileProviderChangeObserver, from syncAnchor: NSFileProviderSyncAnchor) {
         Task {
+            // The system now owns the baseline by value and has finished the
+            // initial pages. A later full scan must capture a fresh baseline.
+            await anchor.reset()
             do {
                 guard let anchor = String(data: syncAnchor.rawValue, encoding: .utf8) else { throw NSFileProviderError(.syncAnchorExpired) }
                 let result: ItemPage = try await client.get("changes", ["scope": scope, "anchor": anchor])
@@ -50,10 +71,11 @@ final class ProviderEnumerator: NSObject, NSFileProviderEnumerator {
 }
 
 private actor EnumerationAnchor {
-    let client: ProviderClient
+    let client: ProviderEnumerationClient
     let scope: String
     var pending: Task<String, Error>?
-    init(client: ProviderClient, scope: String) { self.client = client; self.scope = scope }
+    init(client: ProviderEnumerationClient, scope: String) { self.client = client; self.scope = scope }
+    func reset() { pending = nil }
     func value() async throws -> String {
         if let pending = pending { return try await pending.value }
         let task = Task<String, Error> {

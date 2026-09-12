@@ -35,6 +35,7 @@ const providerDomainRemoved = "The Finder location was removed. Use Retry to add
 // macOS bundle has a native implementation; constructors and bindings are inert.
 type FileProviderService struct {
 	mu                 sync.Mutex
+	native             func(operation, domain string) (fpnative.Result, error)
 	ctx                context.Context
 	db                 *sql.DB
 	dataDir, groupPath string
@@ -43,13 +44,20 @@ type FileProviderService struct {
 	message, recovery  string
 }
 
+func (s *FileProviderService) callNative(operation, domain string) (fpnative.Result, error) {
+	if s.native != nil {
+		return s.native(operation, domain)
+	}
+	return fpnative.Call(operation, domain)
+}
+
 func (s *FileProviderService) start(ctx context.Context, db *sql.DB, dataDir string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.ctx = ctx
 	s.db = db
 	s.dataDir = dataDir
-	info, err := fpnative.Call("info", "")
+	info, err := s.callNative("info", "")
 	if err != nil {
 		return
 	}
@@ -80,7 +88,7 @@ func (s *FileProviderService) Status() FileProviderStatus {
 	// Users can remove a domain in Finder while the app keeps running. Report
 	// that state on reopening Settings so Retry is available without a restart.
 	if s.server != nil && s.enrollment.Enabled {
-		result, err := fpnative.Call("list", s.enrollment.Domain)
+		result, err := s.callNative("list", s.enrollment.Domain)
 		if err != nil {
 			s.message = err.Error()
 		} else {
@@ -139,13 +147,13 @@ func (s *FileProviderService) Disable() (FileProviderStatus, error) {
 		return s.status(), errors.New("Finder integration is unavailable in this build")
 	}
 	if s.enrollment.Domain != "" {
-		registered, err := fpnative.Call("list", s.enrollment.Domain)
+		registered, err := s.callNative("list", s.enrollment.Domain)
 		if err != nil {
 			return s.status(), err
 		}
 		for _, id := range registered.Domains {
 			if id == s.enrollment.Domain {
-				result, err := fpnative.Call("remove", s.enrollment.Domain)
+				result, err := s.callNative("remove", s.enrollment.Domain)
 				if err != nil {
 					return s.status(), err
 				}
@@ -154,11 +162,18 @@ func (s *FileProviderService) Disable() (FileProviderStatus, error) {
 			}
 		}
 	}
+	wasEnabled := s.enrollment.Enabled
 	s.enrollment.Enabled = false
-	err := s.saveEnrollment()
+	if err := s.saveEnrollment(); err != nil {
+		// Native removal may already have succeeded, but the persisted intent
+		// is still enabled. Keep that state and transport available for retry.
+		s.enrollment.Enabled = wasEnabled
+		s.message = err.Error()
+		return s.status(), err
+	}
 	s.disconnect()
 	s.message = ""
-	return s.status(), err
+	return s.status(), nil
 }
 
 func (s *FileProviderService) Reveal() error {
@@ -167,7 +182,7 @@ func (s *FileProviderService) Reveal() error {
 	if !s.enrollment.Enabled {
 		return errors.New("Finder integration is disabled")
 	}
-	_, err := fpnative.Call("reveal", s.enrollment.Domain)
+	_, err := s.callNative("reveal", s.enrollment.Domain)
 	return err
 }
 
@@ -179,7 +194,7 @@ func (s *FileProviderService) connect(register bool) error {
 		return err
 	}
 	if s.server == nil {
-		credential, err := fpnative.Call("credential", s.enrollment.Domain)
+		credential, err := s.callNative("credential", s.enrollment.Domain)
 		if err != nil {
 			return err
 		}
@@ -188,7 +203,7 @@ func (s *FileProviderService) connect(register bool) error {
 			return err
 		}
 		domain := s.enrollment.Domain
-		server, err := fileprovider.Start(s.ctx, store, domain, credential.Secret, func() { _, _ = fpnative.Call("signal", domain) })
+		server, err := fileprovider.Start(s.ctx, store, domain, credential.Secret, func() { _, _ = s.callNative("signal", domain) })
 		if err != nil {
 			return err
 		}
@@ -202,7 +217,7 @@ func (s *FileProviderService) connect(register bool) error {
 		}
 		s.server = server
 	}
-	result, err := fpnative.Call("list", s.enrollment.Domain)
+	result, err := s.callNative("list", s.enrollment.Domain)
 	if err != nil {
 		return err
 	}
@@ -216,11 +231,11 @@ func (s *FileProviderService) connect(register bool) error {
 		if !register {
 			return errors.New(providerDomainRemoved)
 		}
-		if _, err = fpnative.Call("add", s.enrollment.Domain); err != nil {
+		if _, err = s.callNative("add", s.enrollment.Domain); err != nil {
 			return err
 		}
 	}
-	_, err = fpnative.Call("signal", s.enrollment.Domain)
+	_, err = s.callNative("signal", s.enrollment.Domain)
 	return err
 }
 

@@ -76,6 +76,8 @@ jobs:
           xcodebuild -project build/file-provider/MahpastesFileProvider.xcodeproj
           -scheme MahpastesFileProvider -destination 'platform=macOS'
           -derivedDataPath build/file-provider/DerivedData CODE_SIGNING_ALLOWED=NO test
+      - name: Native enumeration lifecycle checks without Xcode test hosting
+        run: bash scripts/macos/test-file-provider.sh
       - name: Binding generation cannot load the native bridge
         run: go test -tags 'fileprovider bindings' ./internal/fpnative
       - name: No-cgo builds select the fallback
