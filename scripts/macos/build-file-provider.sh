@@ -53,11 +53,21 @@ group = os.environ['FP_APP_GROUP']
 keychain = os.environ['FP_KEYCHAIN_GROUP']
 info = root / 'Contents/Info.plist'
 with info.open('rb') as f:
-    data = plistlib.load(f)
+    # Wails emits XML starting with DOCTYPE, without an XML declaration.
+    # plistlib's format sniffing rejects that valid shape unless told XML.
+    data = plistlib.load(f, fmt=plistlib.FMT_XML)
 data.update(CFBundleIdentifier=bundle, MahpastesAppGroup=group,
             MahpastesKeychainGroup=keychain, LSMinimumSystemVersion='13.0')
 with info.open('wb') as f:
     plistlib.dump(data, f)
+extension_info = root / 'Contents/PlugIns/MahpastesFileProvider.appex/Contents/Info.plist'
+with extension_info.open('rb') as f:
+    extension_data = plistlib.load(f)
+for key in ('CFBundleShortVersionString', 'CFBundleVersion'):
+    if data.get(key):
+        extension_data[key] = data[key]
+with extension_info.open('wb') as f:
+    plistlib.dump(extension_data, f)
 team = os.environ.get('TEAM_ID')
 for target in ('host', 'extension'):
     entitlements = {'com.apple.security.application-groups': [group],
