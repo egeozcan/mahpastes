@@ -15,7 +15,8 @@ final class ProviderEnumerator: NSObject, NSFileProviderEnumerator {
     func enumerateItems(for observer: NSFileProviderEnumerationObserver, startingAt page: NSFileProviderPage) {
         Task {
             do {
-                let initial = page == .initialPageSortedByName || page == .initialPageSortedByDate
+                let initial = page.rawValue == NSFileProviderPage.initialPageSortedByName as Data
+                    || page.rawValue == NSFileProviderPage.initialPageSortedByDate as Data
                 let value = initial ? "" : String(data: page.rawValue, encoding: .utf8)
                 guard let value = value else { throw NSFileProviderError(.pageExpired) }
                 // Capture the baseline BEFORE creating the initial snapshot.

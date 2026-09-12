@@ -163,7 +163,8 @@ CORS access is granted and mutating methods return HTTP 405.
 
 The App Group contains an atomically replaced `provider-DOMAIN.json` discovery
 file with protocol version, domain, endpoint and SHA-256 certificate fingerprint.
-It contains no credential. The extension verifies the pinned certificate before
+It contains no credential. Both processes explicitly use the macOS Data
+Protection Keychain so the shared access-group entitlement applies. The extension verifies the pinned certificate before
 sending the token, disables proxies/cookies/caches, refuses redirects and reloads
 discovery for each operation. The certificate is regenerated on process restart.
 
@@ -256,4 +257,5 @@ phases or signed runtime acceptance are complete.
 * [Apple's File Provider sample](https://developer.apple.com/documentation/fileprovider/synchronizing-files-using-file-provider-extensions)
 * [Domain removal modes](https://developer.apple.com/documentation/fileprovider/nsfileprovidermanager/domainremovalmode)
 * [Shared App Groups](https://developer.apple.com/documentation/xcode/configuring-app-groups)
+* [Shared Keychain access](https://developer.apple.com/documentation/security/sharing-access-to-keychain-items-among-a-collection-of-apps)
 * [Notarizing macOS software](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution)

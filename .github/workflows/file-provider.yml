@@ -3,11 +3,15 @@ name: File Provider
 on:
   pull_request:
   push:
-    branches: [master, feat/macos-file-provider]
+    branches: [master]
   workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: file-provider-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   portable:

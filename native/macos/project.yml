@@ -16,7 +16,9 @@ targets:
   MahpastesFileProvider:
     type: app-extension
     platform: macOS
-    sources: [FileProvider]
+    sources:
+      - path: FileProvider
+        excludes: [Info.plist]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(FP_BUNDLE_ID).FileProvider
@@ -35,6 +37,7 @@ targets:
     sources:
       - FileProviderTests
       - path: FileProvider/Item.swift
+      - path: FileProvider/Client.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.egeozcan.mahpastes.FileProviderTests

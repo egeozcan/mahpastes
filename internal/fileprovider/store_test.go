@@ -346,3 +346,15 @@ func TestSafeNames(t *testing.T) {
 		t.Fatal("name collision")
 	}
 }
+
+func TestEmptyRestoreSignalsAndInvalidatesOldState(t *testing.T) {
+	s,db:=testStore(t);ctx:=context.Background();insertClip(t,db,"one.txt",[]byte("one"))
+	p:=enumerate(t,s,"active");before,err:=s.Head(ctx);if err!=nil{t.Fatal(err)}
+	tx,err:=db.Begin();if err!=nil{t.Fatal(err)}
+	if _,err=tx.Exec(`DELETE FROM clips`);err!=nil{t.Fatal(err)}
+	if err=ResetAfterRestore(tx);err!=nil{t.Fatal(err)};if err=tx.Commit();err!=nil{t.Fatal(err)}
+	if _,err=s.Sync(ctx);err!=nil{t.Fatal(err)}
+	after,err:=s.Head(ctx);if err!=nil||after==before{t.Fatal("empty restore did not change notification head",err)}
+	if _,err=s.Changes(ctx,"active",p.Anchor);!errors.Is(err,ErrAnchor){t.Fatal(err)}
+	if len(enumerate(t,s,"active").Items)!=0{t.Fatal("restored empty database enumerates old clips")}
+}

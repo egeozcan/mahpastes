@@ -3,6 +3,16 @@ import FileProvider
 import UniformTypeIdentifiers
 
 final class ItemTests: XCTestCase {
+    func testCancellationMappingIsIdempotent() {
+        let cancelled = ProviderClient.map(CancellationError())
+        let remapped = ProviderClient.map(cancelled) as NSError
+        XCTAssertEqual(remapped.domain, NSCocoaErrorDomain)
+        XCTAssertEqual(remapped.code, NSUserCancelledError)
+        let unavailable = ProviderClient.map(NSFileProviderError(.versionNoLongerAvailable)) as NSError
+        XCTAssertEqual(unavailable.domain, NSFileProviderErrorDomain)
+        XCTAssertEqual(unavailable.code, NSFileProviderError.Code.versionNoLongerAvailable.rawValue)
+    }
+
     func testReadOnlyCapabilitiesAndSeparateVersions() throws {
         let item = ProviderItem(ItemRecord(id: "epoch:uuid", parent: "active", name: "hello.txt",
             mime: "text/plain", size: 7, created: "2026-09-01T12:00:00.000Z",

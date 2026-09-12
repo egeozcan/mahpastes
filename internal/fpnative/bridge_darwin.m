@@ -31,6 +31,7 @@ char *mahpastes_fp_call(const char *request) {
             if (!identifier.length) return encode(@{@"error":@"Missing File Provider domain."});
             if ([operation isEqualToString:@"credential"]) {
                 NSMutableDictionary *query = [@{(__bridge id)kSecClass:(__bridge id)kSecClassGenericPassword,
+                    (__bridge id)kSecUseDataProtectionKeychain:@YES,
                     (__bridge id)kSecAttrService:@"MahpastesFileProvider",(__bridge id)kSecAttrAccount:identifier,
                     (__bridge id)kSecAttrAccessGroup:keychainGroup,(__bridge id)kSecReturnData:@YES} mutableCopy];
                 CFTypeRef result = NULL;

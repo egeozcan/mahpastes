@@ -18,7 +18,8 @@ private final class PinnedSession: NSObject, URLSessionDelegate, URLSessionTaskD
         guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
               challenge.protectionSpace.host == "127.0.0.1",
               let trust = challenge.protectionSpace.serverTrust,
-              let certificate = SecTrustGetCertificateAtIndex(trust, 0) else {
+              let certificates = SecTrustCopyCertificateChain(trust) as? [SecCertificate],
+              let certificate = certificates.first else {
             completionHandler(.cancelAuthenticationChallenge, nil); return
         }
         let digest = SHA256.hash(data: SecCertificateCopyData(certificate) as Data)
@@ -71,7 +72,7 @@ final class ProviderClient {
         guard let group = Bundle.main.object(forInfoDictionaryKey: "MahpastesKeychainGroup") as? String else {
             throw NSFileProviderError(.notAuthenticated)
         }
-        let query: [CFString: Any] = [kSecClass: kSecClassGenericPassword,
+        let query: [CFString: Any] = [kSecClass: kSecClassGenericPassword, kSecUseDataProtectionKeychain: true,
             kSecAttrService: "MahpastesFileProvider", kSecAttrAccount: domain,
             kSecAttrAccessGroup: group, kSecReturnData: true]
         var result: CFTypeRef?
@@ -156,6 +157,9 @@ final class ProviderClient {
     }
 
     static func map(_ error: Error) -> Error {
+        if (error as NSError).domain == NSCocoaErrorDomain && (error as NSError).code == NSUserCancelledError {
+            return error
+        }
         if error is CancellationError || (error as NSError).code == NSURLErrorCancelled {
             return NSError(domain: NSCocoaErrorDomain, code: NSUserCancelledError)
         }
