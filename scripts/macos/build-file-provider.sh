@@ -82,8 +82,8 @@ for target in ('host', 'extension'):
         plistlib.dump(entitlements, f)
 PY
 
-lipo -verify_arch arm64 x86_64 "$app/Contents/MacOS/mahpastes"
-lipo -verify_arch arm64 x86_64 "$extension/Contents/MacOS/MahpastesFileProvider"
+lipo "$app/Contents/MacOS/mahpastes" -verify_arch arm64 x86_64
+lipo "$extension/Contents/MacOS/MahpastesFileProvider" -verify_arch arm64 x86_64
 plutil -lint "$app/Contents/Info.plist" "$extension/Contents/Info.plist"
 
 if [[ "$mode" == --signed ]]; then
