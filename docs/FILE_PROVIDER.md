@@ -245,6 +245,8 @@ CGO_ENABLED=0 go test -tags fileprovider ./internal/fpnative
 cd e2e && npm run test:server
 ```
 
+Signed runtime results are recorded in [FILE_PROVIDER_ACCEPTANCE.md](FILE_PROVIDER_ACCEPTANCE.md).
+
 The File Provider workflow builds ordinary desktop variants on Linux, Windows
 and macOS, builds the universal native bundle on macOS without credentials, and
 runs native item contract tests. Unsigned CI cannot establish the following
