@@ -64,10 +64,11 @@ app and headless server against the same database simultaneously.
 
 ### Build in CI and sign locally without Xcode
 
-The native CI job uploads `mahpastes-file-provider-unsigned-<commit>` after its
+The native CI job uploads `mahpastes-file-provider-unsigned-<build-sha>` after its
 checks pass. It contains a ZIP made with `ditto` to preserve bundle permissions.
-Use the artifact and signing script from the same trusted PR commit. Download
-it with `gh run download <run-id> -n mahpastes-file-provider-unsigned-<commit>`.
+Use the artifact and signing script from the same trusted PR run. The artifact
+suffix is the workflow checkout SHA (the merge commit for pull-request runs).
+Download it with `gh run download <run-id> -n <artifact-name>`.
 Extract it into the checkout's `build/bin` directory:
 
 ```sh
