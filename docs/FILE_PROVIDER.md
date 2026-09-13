@@ -59,7 +59,20 @@ make build # On macOS; falls back to the ordinary app without signing configurat
 
 The default macOS build checks for nonempty `TEAM_ID` and `SIGN_IDENTITY`, and
 readable files at `HOST_PROFILE_PATH` and `EXTENSION_PROFILE_PATH`. Supply these
-through exported environment variables or make arguments. Missing configuration
+through exported environment variables, make arguments, or a machine-local
+`~/.config/mahpastes/signing.mk` file. The Makefile loads that file on macOS.
+Use `?=` assignments so environment and command-line overrides still work:
+
+```makefile
+TEAM_ID ?= YOUR_TEAM_ID
+SIGN_IDENTITY ?= YOUR_DEVELOPER_ID_IDENTITY
+HOST_PROFILE_PATH ?= $(HOME)/.config/mahpastes/profiles/host.provisionprofile
+EXTENSION_PROFILE_PATH ?= $(HOME)/.config/mahpastes/profiles/extension.provisionprofile
+```
+
+Keep the profiles at those paths; no private key or password belongs in this
+file. Once configured, plain `make install` builds with Finder integration.
+ Missing configuration
 prints a warning and builds the ordinary app without Finder integration.
 Configured signing or build failures still fail the build. Use
 `make build-file-provider` explicitly to require the signed Finder build.

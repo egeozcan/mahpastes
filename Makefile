@@ -33,7 +33,13 @@ dev: ## Start development server with hot reload
 
 ## Build
 
-# Pass signing settings supplied through either the environment or make arguments.
+# Optional machine-local settings; environment and command-line values can
+# override defaults declared with ?= in this file.
+ifeq ($(HOST_OS),Darwin)
+-include $(HOME)/.config/mahpastes/signing.mk
+endif
+
+# Pass signing settings supplied through local config, environment or make arguments.
 export TEAM_ID SIGN_IDENTITY HOST_PROFILE_PATH EXTENSION_PROFILE_PATH
 
 build: clean ## Production build (clean; Finder access on macOS when signing is configured)
