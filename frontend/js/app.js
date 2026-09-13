@@ -707,6 +707,27 @@ if (window.mahpastesMode !== 'server') {
     }, true);
 }
 
+// Wails handles dragging the custom header, but not double-clicking it.
+// Use its native zoom/maximize toggle (not fullscreen), and the same inherited
+// CSS property as its drag hit-test so controls and their icons stay excluded.
+function isHeaderWindowGesture(e) {
+    return window.mahpastesMode !== 'server' && e.button === 0 &&
+        getComputedStyle(e.target).getPropertyValue('--wails-draggable').trim() === 'drag';
+}
+
+// Word/paragraph selection happens on mouse-down, before dblclick. Cancel only
+// repeated presses on drag regions: first-press dragging and input selection
+// must keep their default behavior.
+document.querySelector('header').addEventListener('mousedown', (e) => {
+    if (e.detail > 1 && isHeaderWindowGesture(e)) e.preventDefault();
+});
+
+document.querySelector('header').addEventListener('dblclick', (e) => {
+    if (!isHeaderWindowGesture(e)) return;
+    e.preventDefault();
+    window.runtime.WindowToggleMaximise();
+});
+
 // Focus Trap for Confirm Dialog
 function setupConfirmDialogFocusTrap() {
     const dialog = document.getElementById('confirm-dialog');
