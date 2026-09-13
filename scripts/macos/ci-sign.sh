@@ -6,7 +6,7 @@ set -euo pipefail
     echo "This script requires a GitHub Actions macOS runner." >&2
     exit 1
 }
-for name in MACOS_CERTIFICATE_P12 MACOS_CERTIFICATE_PASSWORD MACOS_HOST_PROFILE MACOS_EXTENSION_PROFILE TEAM_ID SIGN_IDENTITY; do
+for name in MACOS_CERTIFICATE_P12 MACOS_CERTIFICATE_PASSWORD MACOS_HOST_PROFILE MACOS_EXTENSION_PROFILE TEAM_ID SIGN_IDENTITY APPLE_ID APPLE_APP_SPECIFIC_PASSWORD; do
     if [[ -z "${!name:-}" ]]; then
         echo "Missing signing configuration: $name (see docs/MASTER_BUILDS.md)." >&2
         exit 1
@@ -34,4 +34,9 @@ security import "$signing_dir/identity.p12" -k "$keychain" \
 security set-key-partition-list -S apple-tool:,apple:,codesign: -s \
     -k "$keychain_password" "$keychain" >/dev/null
 security list-keychains -d user -s "$keychain"
+# Keep notarization credentials in the same temporary Keychain as signing.
+export NOTARY_PROFILE=mahpastes-ci
+xcrun notarytool store-credentials "$NOTARY_PROFILE" --keychain "$keychain" \
+    --apple-id "$APPLE_ID" --team-id "$TEAM_ID" \
+    --password "$APPLE_APP_SPECIFIC_PASSWORD"
 bash scripts/macos/build-file-provider.sh --sign-existing

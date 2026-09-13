@@ -27,7 +27,7 @@ jobs:
             name: macos-universal-signed
             args: ''
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -47,7 +47,7 @@ jobs:
       - name: Build universal macOS app with Finder integration
         if: runner.os == 'macOS'
         run: bash scripts/macos/build-file-provider.sh --unsigned
-      - name: Sign macOS app
+      - name: Sign, notarize and staple macOS app
         if: runner.os == 'macOS'
         shell: bash
         env:
@@ -57,6 +57,8 @@ jobs:
           MACOS_EXTENSION_PROFILE: ${{ secrets.MACOS_EXTENSION_PROFILE }}
           TEAM_ID: ${{ secrets.MACOS_TEAM_ID }}
           SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
         run: bash scripts/macos/ci-sign.sh
       - name: Package Windows
         if: runner.os == 'Windows'
