@@ -1,0 +1,56 @@
+name: MahpastesFileProvider
+options:
+  deploymentTarget:
+    macOS: '13.0'
+settings:
+  base:
+    SWIFT_VERSION: '5.0'
+    MACOSX_DEPLOYMENT_TARGET: '13.0'
+    CODE_SIGNING_ALLOWED: NO
+    CURRENT_PROJECT_VERSION: '1'
+    MARKETING_VERSION: '1.0'
+    FP_BUNDLE_ID: io.github.egeozcan.mahpastes
+    FP_APP_GROUP: group.io.github.egeozcan.mahpastes
+    FP_KEYCHAIN_GROUP: io.github.egeozcan.mahpastes.fileprovider
+targets:
+  MahpastesFileProvider:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: FileProvider
+        excludes: [Info.plist]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(FP_BUNDLE_ID).FileProvider
+        INFOPLIST_FILE: $(SRCROOT)/../../native/macos/FileProvider/Info.plist
+        APPLICATION_EXTENSION_API_ONLY: YES
+        SKIP_INSTALL: YES
+        ENABLE_HARDENED_RUNTIME: YES
+        LD_RUNPATH_SEARCH_PATHS: $(inherited) @executable_path/../Frameworks @executable_path/../../../../Frameworks
+    dependencies:
+      - sdk: FileProvider.framework
+      - sdk: UniformTypeIdentifiers.framework
+      - sdk: Security.framework
+  FileProviderTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - FileProviderTests
+      - path: FileProvider/Item.swift
+      - path: FileProvider/Client.swift
+      - path: FileProvider/Enumerator.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.egeozcan.mahpastes.FileProviderTests
+        GENERATE_INFOPLIST_FILE: YES
+    dependencies:
+      - sdk: FileProvider.framework
+      - sdk: UniformTypeIdentifiers.framework
+schemes:
+  MahpastesFileProvider:
+    build:
+      targets:
+        MahpastesFileProvider: all
+        FileProviderTests: [test]
+    test:
+      targets: [FileProviderTests]

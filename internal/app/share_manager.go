@@ -211,9 +211,11 @@ func NewShareManager(parent context.Context, db *sql.DB, dataDir string) (*Share
 	mdnsSvc := mdns.NewMdnsService(h, mdnsServiceTag, &mdnsNotifee{host: h, ctx: ctx})
 	if err := mdnsSvc.Start(); err != nil {
 		log.Printf("share: mdns start (non-fatal): %v", err)
-		mdnsSvc = nil
+	} else {
+		// Assign only a live service: a typed nil pointer stored in this
+		// interface is non-nil and panics during shutdown.
+		m.mdnsSvc = mdnsSvc
 	}
-	m.mdnsSvc = mdnsSvc
 
 	// Register the single application protocol.
 	h.SetStreamHandler(ShareProtocolID, m.handlePublisherStream)

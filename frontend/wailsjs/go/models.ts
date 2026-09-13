@@ -1321,6 +1321,26 @@ export namespace imagemeta {
 
 export namespace main {
 	
+	export class FileProviderStatus {
+	    supported: boolean;
+	    enabled: boolean;
+	    running: boolean;
+	    message: string;
+	    recoveryPath: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new FileProviderStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.supported = source["supported"];
+	        this.enabled = source["enabled"];
+	        this.running = source["running"];
+	        this.message = source["message"];
+	        this.recoveryPath = source["recoveryPath"];
+	    }
+	}
 	export class PluginInfo {
 	    id: number;
 	    name: string;
