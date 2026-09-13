@@ -71,6 +71,8 @@ jobs:
       - run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
       - name: Build universal host and extension without signing credentials
         run: bash scripts/macos/build-file-provider.sh --unsigned
+      - name: Generate Xcode project for XCTest only
+        run: xcodegen generate --spec native/macos/project.yml --project build/file-provider
       - name: Native item contract tests
         run: >-
           xcodebuild -project build/file-provider/MahpastesFileProvider.xcodeproj

@@ -3,6 +3,7 @@ BUILD_DIR := build/bin
 
 # OS detection
 ifeq ($(OS),Windows_NT)
+    HOST_OS := Windows
     GO_BIN := $(strip $(GOBIN))
     GO_PATH := $(strip $(GOPATH))
     WAILS := wails
@@ -13,6 +14,7 @@ ifeq ($(OS),Windows_NT)
     SHELL := cmd.exe
     .SHELLFLAGS := /c
 else
+    HOST_OS := $(shell uname -s)
     GO_BIN := $(strip $(shell go env GOBIN 2>/dev/null))
     WAILS := ~/go/bin/wails
     APP_BUNDLE := $(BUILD_DIR)/$(APP_NAME).app
@@ -31,11 +33,15 @@ dev: ## Start development server with hot reload
 
 ## Build
 
-build: clean ## Production build (clean)
+build: clean ## Production build (clean; includes Finder access on macOS)
+ifeq ($(HOST_OS),Darwin)
+	$(MAKE) build-file-provider
+else
 	$(WAILS) build
+endif
 
 .PHONY: build-file-provider
-build-file-provider: ## Signed macOS build with Finder access (requires Xcode and signing configuration)
+build-file-provider: ## Signed macOS build with Finder access (requires Command Line Tools and signing configuration)
 	bash scripts/macos/build-file-provider.sh --signed
 
 ifeq ($(OS),Windows_NT)

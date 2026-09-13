@@ -33,24 +33,33 @@ if [[ "$mode" == --sign-existing ]]; then
         exit 1
     fi
 else
-    command -v xcodegen >/dev/null
-    command -v xcodebuild >/dev/null
+    swiftc_bin="$(xcrun --find swiftc)"
+    sdk_path="$(xcrun --sdk macosx --show-sdk-path)"
     wails_bin="${WAILS_BIN:-$(go env GOPATH)/bin/wails}"
     # Bindings intentionally use the non-native implementation. Ordinary builds
-    # never invoke Xcode or enable the fileprovider tag.
+    # never compile the extension or enable the fileprovider tag.
     "$wails_bin" generate module
     MACOSX_DEPLOYMENT_TARGET=13.0 "$wails_bin" build -platform darwin/universal -tags fileprovider -skipbindings
-    xcodegen generate --spec native/macos/project.yml --project "$FP_BUILD_DIR"
-    xcodebuild -project "$FP_BUILD_DIR/MahpastesFileProvider.xcodeproj" \
-        -scheme MahpastesFileProvider -configuration Release \
-        -derivedDataPath "$FP_BUILD_DIR/DerivedData" \
-        ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO \
-        "FP_BUNDLE_ID=$FP_BUNDLE_ID" "FP_APP_GROUP=$FP_APP_GROUP" \
-        "FP_KEYCHAIN_GROUP=$FP_KEYCHAIN_GROUP" build
-
-    mkdir -p "$app/Contents/PlugIns"
+    # An app extension is an executable with NSExtensionMain as its entry point.
+    # Command Line Tools provide the compiler, SDK and linker for both slices;
+    # Xcode's project generator and build system are not needed for packaging.
+    native_dir="$FP_BUILD_DIR/native"
+    mkdir -p "$native_dir"
+    for arch in arm64 x86_64; do
+        "$swiftc_bin" -O -swift-version 5 -parse-as-library -application-extension \
+            -emit-executable -module-name MahpastesFileProvider \
+            -sdk "$sdk_path" -target "$arch-apple-macosx13.0" \
+            -Xlinker -e -Xlinker _NSExtensionMain \
+            -Xlinker -rpath -Xlinker '@executable_path/../Frameworks' \
+            -Xlinker -rpath -Xlinker '@executable_path/../../../../Frameworks' \
+            native/macos/FileProvider/*.swift -o "$native_dir/MahpastesFileProvider-$arch"
+    done
     rm -rf "$extension"
-    ditto "$FP_BUILD_DIR/DerivedData/Build/Products/Release/MahpastesFileProvider.appex" "$extension"
+    mkdir -p "$extension/Contents/MacOS"
+    lipo -create "$native_dir/MahpastesFileProvider-arm64" \
+        "$native_dir/MahpastesFileProvider-x86_64" \
+        -output "$extension/Contents/MacOS/MahpastesFileProvider"
+    cp native/macos/FileProvider/Info.plist "$extension/Contents/Info.plist"
 
 fi
 
@@ -74,10 +83,14 @@ extension_info = root / 'Contents/PlugIns/MahpastesFileProvider.appex/Contents/I
 with extension_info.open('rb') as f:
     extension_data = plistlib.load(f)
 extension_data.update(CFBundleIdentifier=bundle + '.FileProvider',
+                      CFBundleExecutable='MahpastesFileProvider',
+                      CFBundleName='MahpastesFileProvider',
+                      CFBundleInfoDictionaryVersion='6.0',
+                      CFBundleSupportedPlatforms=['MacOSX'],
+                      LSMinimumSystemVersion='13.0',
                       MahpastesAppGroup=group, MahpastesKeychainGroup=keychain)
 for key in ('CFBundleShortVersionString', 'CFBundleVersion'):
-    if data.get(key):
-        extension_data[key] = data[key]
+    extension_data[key] = data.get(key) or '1.0.0'
 with extension_info.open('wb') as f:
     plistlib.dump(extension_data, f)
 team = os.environ.get('TEAM_ID')
