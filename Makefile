@@ -33,9 +33,19 @@ dev: ## Start development server with hot reload
 
 ## Build
 
-build: clean ## Production build (clean; includes Finder access on macOS)
+# Pass signing settings supplied through either the environment or make arguments.
+export TEAM_ID SIGN_IDENTITY HOST_PROFILE_PATH EXTENSION_PROFILE_PATH
+
+build: clean ## Production build (clean; Finder access on macOS when signing is configured)
 ifeq ($(HOST_OS),Darwin)
-	$(MAKE) build-file-provider
+	@if [ -n "$$TEAM_ID" ] && [ -n "$$SIGN_IDENTITY" ] && \
+	    [ -f "$$HOST_PROFILE_PATH" ] && [ -r "$$HOST_PROFILE_PATH" ] && \
+	    [ -f "$$EXTENSION_PROFILE_PATH" ] && [ -r "$$EXTENSION_PROFILE_PATH" ]; then \
+		$(MAKE) build-file-provider; \
+	else \
+		echo "Warning: Finder integration disabled: set TEAM_ID, SIGN_IDENTITY, HOST_PROFILE_PATH and EXTENSION_PROFILE_PATH (both profiles must be readable files). Building the ordinary app." >&2; \
+		$(WAILS) build; \
+	fi
 else
 	$(WAILS) build
 endif

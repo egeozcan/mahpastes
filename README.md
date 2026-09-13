@@ -103,8 +103,9 @@ make screenshots # Refresh documentation screenshots
 make help       # Show all targets
 ```
 
-On macOS, `make build` and `make install` include Finder integration and require
-Apple Command Line Tools and the [signing configuration](docs/FILE_PROVIDER.md#build-and-install).
+On macOS, `make build` and `make install` include Finder integration when the
+[signing configuration](docs/FILE_PROVIDER.md#build-and-install) is present, using
+Apple Command Line Tools. Without it, they warn and build the ordinary app.
 Windows and Linux keep the ordinary Wails build. Use `wails build` directly for
 a macOS build without Finder integration.
 
