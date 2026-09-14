@@ -776,7 +776,14 @@ func (s *Store) Enumerate(ctx context.Context, scope, pageToken string) (Page, e
 			}
 		}
 		if scope != "root" {
-			if _, err = tx.ExecContext(ctx, `INSERT INTO fp_snapshot_items SELECT ?,row_number() OVER(ORDER BY id)+?,item FROM fp_items WHERE (?='working' AND clip_id IS NOT NULL AND length(id)-length(replace(id,':',''))=1) OR (?!='working' AND parent=?)`, c.Snapshot, len(folders(epoch)), scope, scope, scope); err != nil {
+			// The working set drives background Finder updates for the entire
+			// projection, including tag folders and aliases. Enumerate parents
+			// before children, even across snapshot page boundaries.
+			if _, err = tx.ExecContext(ctx, `WITH RECURSIVE tree(id,parent,item,depth) AS (
+ SELECT id,parent,item,0 FROM fp_items WHERE parent IN ('active','archive','tags')
+ UNION ALL
+ SELECT i.id,i.parent,i.item,t.depth+1 FROM fp_items i JOIN tree t ON i.parent=t.id
+) INSERT INTO fp_snapshot_items SELECT ?,row_number() OVER(ORDER BY depth,id)+?,item FROM tree WHERE ?='working' OR (?!='working' AND parent=?)`, c.Snapshot, len(folders(epoch)), scope, scope, scope); err != nil {
 				return p, err
 			}
 		}
@@ -889,7 +896,7 @@ func (s *Store) Changes(ctx context.Context, scope, anchor string) (Page, error)
 		}
 		count++
 		c.Sequence = seq
-		if raw.Valid && (scope == parent || scope == "working" && isCanonicalItemID(id)) {
+		if raw.Valid && (scope == parent || scope == "working") {
 			var i Item
 			if err = json.Unmarshal([]byte(raw.String), &i); err != nil {
 				break
@@ -897,7 +904,7 @@ func (s *Store) Changes(ctx context.Context, scope, anchor string) (Page, error)
 			updates[id] = i
 			delete(deletes, id)
 			delete(deleteParents, id)
-		} else if scope == old || scope == "working" && isCanonicalItemID(id) {
+		} else if scope == old || scope == "working" {
 			deletes[id] = true
 			deleteParents[id] = old
 			delete(updates, id)

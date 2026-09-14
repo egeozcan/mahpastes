@@ -47,15 +47,24 @@ type Page struct {
 }
 
 type cursor struct {
-	Epoch    string `json:"e"`
-	Scope    string `json:"s"`
-	Sequence int64  `json:"q"`
-	High     int64  `json:"h,omitempty"`
-	Snapshot string `json:"p,omitempty"`
-	Offset   int64  `json:"o,omitempty"`
+	Projection int    `json:"v,omitempty"`
+	Epoch      string `json:"e"`
+	Scope      string `json:"s"`
+	Sequence   int64  `json:"q"`
+	High       int64  `json:"h,omitempty"`
+	Snapshot   string `json:"p,omitempty"`
+	Offset     int64  `json:"o,omitempty"`
 }
 
-func token(c cursor) string { b, _ := json.Marshal(c); return base64.RawURLEncoding.EncodeToString(b) }
+// Expire old working-set cursors so an existing Finder enrollment automatically
+// rescans folders and aliases omitted by the previous projection.
+func token(c cursor) string {
+	if c.Scope == "working" {
+		c.Projection = 1
+	}
+	b, _ := json.Marshal(c)
+	return base64.RawURLEncoding.EncodeToString(b)
+}
 func parseToken(s string, failure error) (cursor, error) {
 	var c cursor
 	if len(s) > 2048 {
@@ -63,6 +72,9 @@ func parseToken(s string, failure error) (cursor, error) {
 	}
 	b, err := base64.RawURLEncoding.DecodeString(s)
 	if err != nil || json.Unmarshal(b, &c) != nil || c.Epoch == "" || c.Sequence < 0 || c.Offset < 0 {
+		return c, failure
+	}
+	if c.Scope == "working" && c.Projection != 1 {
 		return c, failure
 	}
 	return c, nil
@@ -104,10 +116,6 @@ func parseFileID(id, epoch string) (uuid string, tagID int64, tagged bool, ok bo
 		return "", 0, false, false
 	}
 	return parts[1], tagID, true, true
-}
-
-func isCanonicalItemID(id string) bool {
-	return strings.Count(id, ":") == 1
 }
 
 // Folder metadata needs a deterministic value which changes when Finder needs

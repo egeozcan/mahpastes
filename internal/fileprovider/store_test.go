@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -603,5 +604,108 @@ func TestEmptyRestoreSignalsAndInvalidatesOldState(t *testing.T) {
 	}
 	if len(enumerate(t, s, "active").Items) != 0 {
 		t.Fatal("restored empty database enumerates old clips")
+	}
+}
+
+func TestWorkingSetTracksTagVisibilityWithoutReenrollment(t *testing.T) {
+	s, db := testStore(t)
+	ctx := context.Background()
+	execSQL(t, db, `INSERT INTO tags VALUES(1,'private'),(2,'private/child')`)
+	insertClip(t, db, "note.txt", []byte("one"))
+	execSQL(t, db, `INSERT INTO clip_tags VALUES(1,2)`)
+	tags := enumerate(t, s, "tags")
+	parent := tags.Items[0]
+	child := enumerate(t, s, parent.ID).Items[0]
+	alias := enumerate(t, s, child.ID).Items[0]
+	baseline := enumerate(t, s, "working")
+	seen := map[string]bool{"root": true}
+	for _, item := range baseline.Items {
+		if !seen[item.Parent] {
+			t.Errorf("working set child %s preceded parent %s", item.ID, item.Parent)
+		}
+		seen[item.ID] = true
+	}
+	for _, want := range []Item{parent, child, alias} {
+		if !seen[want.ID] {
+			t.Errorf("working set missing %s", want.ID)
+		}
+	}
+	for _, hidden := range []bool{true, false} {
+		value := "[]"
+		if hidden {
+			value = "[1]"
+		}
+		execSQL(t, db, `INSERT INTO settings VALUES('hidden_tags',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, value)
+		changes, err := s.Changes(ctx, "working", baseline.Anchor)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, want := range []Item{parent, child} {
+			got, ok := itemNamed(changes.Items, want.Name)
+			if !ok || got.Hidden != hidden {
+				t.Errorf("working set missing hidden=%v update for %s: %+v", hidden, want.Name, changes.Items)
+			}
+		}
+		baseline.Anchor = changes.Anchor
+	}
+	execSQL(t, db, `UPDATE clips SET data='two' WHERE id=1`)
+	changes, err := s.Changes(ctx, "working", baseline.Anchor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, item := range changes.Items {
+		if item.ID == alias.ID && item.ContentVersion != alias.ContentVersion {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("working set missing tag alias content update")
+	}
+	baseline.Anchor = changes.Anchor
+	execSQL(t, db, `DELETE FROM clip_tags; DELETE FROM tags`)
+	changes, err = s.Changes(ctx, "working", baseline.Anchor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []Item{parent, child, alias} {
+		found := false
+		for _, id := range changes.Deleted {
+			if id == want.ID {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("working set missing deletion for %s", want.ID)
+		}
+	}
+}
+
+func TestWorkingSetExpiresLegacyCursors(t *testing.T) {
+	s, db := testStore(t)
+	insertClip(t, db, "note.txt", []byte("one"))
+	baseline := enumerate(t, s, "working")
+	c, err := parseToken(baseline.Anchor, ErrAnchor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.Projection = 0
+	raw, err := json.Marshal(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := base64.RawURLEncoding.EncodeToString(raw)
+	if _, err := s.Changes(context.Background(), "working", legacy); !errors.Is(err, ErrAnchor) {
+		t.Fatalf("legacy working-set anchor must force a rescan: %v", err)
+	}
+	if _, err := s.Enumerate(context.Background(), "working", legacy); !errors.Is(err, ErrPage) {
+		t.Fatalf("legacy working-set page must expire: %v", err)
+	}
+	anchor, err := s.Anchor(context.Background(), "working")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Changes(context.Background(), "working", anchor); err != nil {
+		t.Fatal(err)
 	}
 }
