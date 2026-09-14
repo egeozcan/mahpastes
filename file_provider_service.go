@@ -7,9 +7,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"go-clipboard/internal/fileprovider"
@@ -203,7 +205,7 @@ func (s *FileProviderService) connect(register bool) error {
 			return err
 		}
 		domain := s.enrollment.Domain
-		server, err := fileprovider.Start(s.ctx, store, domain, credential.Secret, func() { _, _ = s.callNative("signal", domain) })
+		server, err := fileprovider.Start(s.ctx, store, domain, credential.Secret, func() error { return s.signalProjection(domain, store) })
 		if err != nil {
 			return err
 		}
@@ -235,7 +237,65 @@ func (s *FileProviderService) connect(register bool) error {
 			return err
 		}
 	}
-	_, err = s.callNative("signal", s.enrollment.Domain)
+	return s.cleanupStaleDomainsAndSignal(result.Domains)
+}
+
+// A Mahpastes installation serves a single Finder location. A development
+// build or a prior app bundle can leave a second domain behind because macOS
+// keeps domains independently from extension registration. Retire those old
+// domains once the current enrollment is available, preserving any downloads
+// in a recovery location rather than deleting them.
+func (s *FileProviderService) removeStaleDomains(domains []string) error {
+	seen := make(map[string]struct{}, len(domains))
+	for _, domain := range domains {
+		if domain == "" || domain == s.enrollment.Domain {
+			continue
+		}
+		if _, duplicate := seen[domain]; duplicate {
+			continue
+		}
+		seen[domain] = struct{}{}
+		result, err := s.callNative("remove", domain)
+		if err != nil {
+			return fmt.Errorf("remove stale Finder location: %w", err)
+		}
+		if result.RecoveryPath != "" {
+			s.recovery = result.RecoveryPath
+		}
+	}
+	return nil
+}
+
+// Stale-domain cleanup must never make the current location unavailable. The
+// next startup or explicit Enable retries a transient removal failure.
+func (s *FileProviderService) cleanupStaleDomainsAndSignal(domains []string) error {
+	if err := s.removeStaleDomains(domains); err != nil {
+		log.Printf("File Provider stale-domain cleanup: %v", err)
+	}
+	return s.signalProjection(s.enrollment.Domain, s.serverStore())
+}
+
+func (s *FileProviderService) serverStore() *fileprovider.Store {
+	if s.server == nil {
+		return nil
+	}
+	return s.server.Store()
+}
+
+func (s *FileProviderService) signalProjection(domain string, store *fileprovider.Store) error {
+	operation := "signal"
+	if store != nil {
+		scopes, err := store.Scopes(s.ctx)
+		if err != nil {
+			// The server retains its prior notification head on an error, so the
+			// next worker tick retries with every dynamic tag scope included.
+			return fmt.Errorf("collect File Provider enumerator scopes: %w", err)
+		}
+		if len(scopes) > 0 {
+			operation += ":" + strings.Join(scopes, ",")
+		}
+	}
+	_, err := s.callNative(operation, domain)
 	return err
 }
 

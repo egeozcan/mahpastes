@@ -2,12 +2,66 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"go-clipboard/internal/fpnative"
 )
+
+func TestRemoveStaleDomainsKeepsCurrentEnrollment(t *testing.T) {
+	current := "0123456789abcdef0123456789abcdef"
+	staleOne := "11111111111111111111111111111111"
+	staleTwo := "22222222222222222222222222222222"
+	var removed []string
+	service := &FileProviderService{
+		enrollment: providerEnrollment{Domain: current, Enabled: true},
+		native: func(operation, domain string) (fpnative.Result, error) {
+			if operation != "remove" {
+				t.Fatalf("native operation = %q, want remove", operation)
+			}
+			removed = append(removed, domain)
+			return fpnative.Result{}, nil
+		},
+	}
+
+	if err := service.removeStaleDomains([]string{staleOne, current, staleTwo}); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(removed, []string{staleOne, staleTwo}) {
+		t.Fatalf("removed = %v", removed)
+	}
+}
+
+func TestStaleDomainCleanupFailureDoesNotBlockCurrentSignal(t *testing.T) {
+	current := "0123456789abcdef0123456789abcdef"
+	stale := "11111111111111111111111111111111"
+	var operations []string
+	service := &FileProviderService{
+		enrollment: providerEnrollment{Domain: current, Enabled: true},
+		native: func(operation, domain string) (fpnative.Result, error) {
+			operations = append(operations, operation+":"+domain)
+			if operation == "remove" {
+				return fpnative.Result{}, errors.New("transient File Provider failure")
+			}
+			if operation == "signal" && domain == current {
+				return fpnative.Result{}, nil
+			}
+			t.Fatalf("unexpected native operation %q for %q", operation, domain)
+			return fpnative.Result{}, nil
+		},
+	}
+
+	if err := service.cleanupStaleDomainsAndSignal([]string{current, stale}); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"remove:" + stale, "signal:" + current}
+	if !reflect.DeepEqual(operations, want) {
+		t.Fatalf("operations = %v, want %v", operations, want)
+	}
+}
 
 func TestDisableKeepsEnrollmentOnPersistenceFailure(t *testing.T) {
 	dir := t.TempDir()

@@ -16,7 +16,10 @@ final class MahpastesFileProvider: NSObject, NSFileProviderReplicatedExtension {
     func enumerator(for containerItemIdentifier: NSFileProviderItemIdentifier,
                     request: NSFileProviderRequest) throws -> NSFileProviderEnumerator {
         let scope = wireID(containerItemIdentifier)
-        guard ["root", "active", "archive", "working"].contains(scope) else { throw NSFileProviderError(.noSuchItem) }
+        // Tag container identifiers are validated against the current dataset
+        // by the Go projection. The extension cannot synchronously ask the
+        // loopback service here, so it admits only their opaque prefix.
+        guard ["root", "active", "archive", "tags", "working"].contains(scope) || scope.hasPrefix("tag:") else { throw NSFileProviderError(.noSuchItem) }
         return ProviderEnumerator(domain: domain.identifier.rawValue, scope: scope)
     }
 

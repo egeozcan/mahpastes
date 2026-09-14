@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -25,6 +26,38 @@ func (s *Store) Head(ctx context.Context) (string, error) {
 	return head, err
 }
 
+// Scopes returns every container that can currently have a live Finder
+// enumerator. The host uses this after a projection change to wake dynamic tag
+// folders as well as the fixed root containers. A folder can be empty, so both
+// its own identifier and every recorded parent are included.
+func (s *Store) Scopes(ctx context.Context) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id,parent FROM fp_items`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	scopes := map[string]bool{"root": true, "active": true, "archive": true, "tags": true, "working": true}
+	for rows.Next() {
+		var id, parent string
+		if err = rows.Scan(&id, &parent); err != nil {
+			return nil, err
+		}
+		scopes[parent] = true
+		if strings.HasPrefix(id, "tag:") {
+			scopes[id] = true
+		}
+	}
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+	result := make([]string, 0, len(scopes))
+	for scope := range scopes {
+		result = append(result, scope)
+	}
+	sort.Strings(result)
+	return result, nil
+}
+
 func Open(ctx context.Context, db *sql.DB) (*Store, error) {
 	if err := initialize(ctx, db); err != nil {
 		return nil, err
@@ -34,8 +67,10 @@ func Open(ctx context.Context, db *sql.DB) (*Store, error) {
 	return s, err
 }
 
-// visibility is evaluated in every content read, including the seconds between
-// an expiry/hidden-tag change and the projection worker processing it.
+// visible is evaluated for canonical Active/Archive items in every content
+// read, including the seconds between an expiry/hidden-tag change and the
+// projection worker processing it. Tag-folder aliases deliberately remain
+// readable through a hidden tag's hidden directory.
 const visible = `(c.expires_at IS NULL OR julianday(c.expires_at)>julianday('now')) AND NOT EXISTS (
  SELECT 1 FROM clip_tags ct JOIN tags t ON t.id=ct.tag_id JOIN tags hidden
  ON (t.name=hidden.name OR substr(t.name,1,length(hidden.name)+1)=hidden.name||'/')
@@ -51,7 +86,7 @@ func state(ctx context.Context, tx *sql.Tx) (string, int64, error) {
 
 func folders(epoch string) []Item {
 	items := []Item{}
-	for _, name := range []string{"Active", "Archive"} {
+	for _, name := range []string{"Active", "Archive", "Tags"} {
 		items = append(items, Item{ID: strings.ToLower(name), Parent: "root", Name: name, MIME: "inode/directory", Folder: true, ContentVersion: epoch, MetadataVersion: epoch})
 	}
 	return items
@@ -97,8 +132,22 @@ func (s *Store) syncBatch(ctx context.Context) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	if _, err = tx.ExecContext(ctx, `INSERT OR IGNORE INTO fp_dirty SELECT c.id FROM clips c JOIN fp_items p ON p.clip_id=c.id WHERE c.expires_at IS NOT NULL AND julianday(c.expires_at)<=julianday('now')`); err != nil {
+	if _, err = tx.ExecContext(ctx, `INSERT OR IGNORE INTO fp_dirty SELECT DISTINCT c.id FROM clips c JOIN fp_items p ON p.clip_id=c.id WHERE c.expires_at IS NOT NULL AND julianday(c.expires_at)<=julianday('now')`); err != nil {
 		return 0, err
+	}
+	tagsDirty, err := s.tagsDirty(ctx, tx)
+	if err != nil {
+		return 0, err
+	}
+	folderChanges := 0
+	if tagsDirty {
+		folderChanges, err = s.syncTagFolders(ctx, tx, epoch)
+		if err != nil {
+			return 0, err
+		}
+		if _, err = tx.ExecContext(ctx, `DELETE FROM fp_tags_dirty`); err != nil {
+			return 0, err
+		}
 	}
 	rows, err := tx.QueryContext(ctx, `SELECT clip_id FROM fp_dirty ORDER BY clip_id LIMIT 256`)
 	if err != nil {
@@ -119,41 +168,8 @@ func (s *Store) syncBatch(ctx context.Context) (int, error) {
 		return 0, err
 	}
 	for _, id := range ids {
-		var old Item
-		var raw string
-		err = tx.QueryRowContext(ctx, `SELECT item FROM fp_items WHERE clip_id=?`, id).Scan(&raw)
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		if err = s.syncClipItems(ctx, tx, id, epoch); err != nil && !errors.Is(err, ErrNoSuchItem) {
 			return 0, err
-		}
-		if err == nil {
-			if err = json.Unmarshal([]byte(raw), &old); err != nil {
-				return 0, err
-			}
-		}
-		item, e := sourceItem(ctx, tx, id, epoch)
-		if e != nil && !errors.Is(e, ErrNoSuchItem) {
-			return 0, e
-		}
-		if old.ID != "" && (e != nil || old.ID != item.ID) {
-			if _, err = tx.ExecContext(ctx, `INSERT INTO fp_changes(id,old_parent,parent,item) VALUES(?,?, '',NULL)`, old.ID, old.Parent); err != nil {
-				return 0, err
-			}
-			if _, err = tx.ExecContext(ctx, `DELETE FROM fp_items WHERE clip_id=?`, id); err != nil {
-				return 0, err
-			}
-			old = Item{}
-		}
-		if e == nil && item != old {
-			b, e := json.Marshal(item)
-			if e != nil {
-				return 0, e
-			}
-			if _, err = tx.ExecContext(ctx, `INSERT INTO fp_items(id,clip_id,parent,item) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET parent=excluded.parent,item=excluded.item`, item.ID, id, item.Parent, string(b)); err != nil {
-				return 0, err
-			}
-			if _, err = tx.ExecContext(ctx, `INSERT INTO fp_changes(id,old_parent,parent,item) VALUES(?,?,?,?)`, item.ID, old.Parent, item.Parent, string(b)); err != nil {
-				return 0, err
-			}
 		}
 		if _, err = tx.ExecContext(ctx, `DELETE FROM fp_dirty WHERE clip_id=?`, id); err != nil {
 			return 0, err
@@ -163,22 +179,336 @@ func (s *Store) syncBatch(ctx context.Context) (int, error) {
 	if _, err = tx.ExecContext(ctx, `DELETE FROM fp_snapshot_items WHERE snapshot IN (SELECT id FROM fp_snapshots WHERE expires<unixepoch()); DELETE FROM fp_snapshots WHERE expires<unixepoch(); DELETE FROM fp_changes WHERE seq<(SELECT COALESCE(MAX(seq),0)-100000 FROM fp_changes) OR (created<unixepoch()-2592000 AND seq<(SELECT MAX(seq) FROM fp_changes))`); err != nil {
 		return 0, err
 	}
-	return len(ids), tx.Commit()
+	return len(ids) + folderChanges, tx.Commit()
 }
 
-func sourceItem(ctx context.Context, tx *sql.Tx, id int64, epoch string) (Item, error) {
+func (s *Store) tagsDirty(ctx context.Context, tx *sql.Tx) (bool, error) {
+	var count int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM fp_tags_dirty`).Scan(&count); err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+// syncTagFolders records directory changes separately from clip changes. The
+// tag ID (not its display name) is the stable Finder identifier, so renaming a
+// tag moves/updates one folder without invalidating files inside it.
+func (s *Store) syncTagFolders(ctx context.Context, tx *sql.Tx, epoch string) (int, error) {
+	desired, err := tagFolders(ctx, tx, epoch)
+	if err != nil {
+		return 0, err
+	}
+	old := map[string]Item{}
+	rows, err := tx.QueryContext(ctx, `SELECT id,item FROM fp_items WHERE clip_id IS NULL`)
+	if err != nil {
+		return 0, err
+	}
+	for rows.Next() {
+		var id, raw string
+		if err = rows.Scan(&id, &raw); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		var item Item
+		if err = json.Unmarshal([]byte(raw), &item); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		old[id] = item
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return 0, err
+	}
+	rows.Close()
+
+	changes := 0
+	for _, id := range treeOrder(old, true) {
+		previous := old[id]
+		if _, exists := desired[id]; exists {
+			continue
+		}
+		if _, err = tx.ExecContext(ctx, `INSERT INTO fp_changes(id,old_parent,parent,item) VALUES(?,?, '',NULL)`, id, previous.Parent); err != nil {
+			return 0, err
+		}
+		if _, err = tx.ExecContext(ctx, `DELETE FROM fp_items WHERE id=?`, id); err != nil {
+			return 0, err
+		}
+		changes++
+	}
+	for _, id := range treeOrder(desired, false) {
+		item := desired[id]
+		previous, exists := old[id]
+		if exists && previous == item {
+			continue
+		}
+		if err = s.putItem(ctx, tx, item, nil); err != nil {
+			return 0, err
+		}
+		if err = s.recordChange(ctx, tx, item, previous.Parent); err != nil {
+			return 0, err
+		}
+		changes++
+	}
+	return changes, nil
+}
+
+// treeOrder puts parents before children for creates and updates, and children
+// before parents for deletions. File Provider applies an item's parent relation
+// immediately, so emitting a new child before its new parent is not safe.
+func treeOrder(items map[string]Item, reverse bool) []string {
+	ids := make([]string, 0, len(items))
+	for id := range items {
+		ids = append(ids, id)
+	}
+	depths := map[string]int{}
+	visiting := map[string]bool{}
+	var depth func(string) int
+	depth = func(id string) int {
+		if value, known := depths[id]; known {
+			return value
+		}
+		if visiting[id] {
+			return 0
+		}
+		visiting[id] = true
+		value := 0
+		if parent, found := items[items[id].Parent]; found {
+			value = depth(parent.ID) + 1
+		}
+		delete(visiting, id)
+		depths[id] = value
+		return value
+	}
+	sort.Slice(ids, func(i, j int) bool {
+		left, right := depth(ids[i]), depth(ids[j])
+		if left == right {
+			return ids[i] < ids[j]
+		}
+		if reverse {
+			return left > right
+		}
+		return left < right
+	})
+	return ids
+}
+
+type tagRecord struct {
+	id   int64
+	name string
+}
+
+func tagFolders(ctx context.Context, tx *sql.Tx, epoch string) (map[string]Item, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT id,name FROM tags ORDER BY name,id`)
+	if err != nil {
+		return nil, err
+	}
+	var tags []tagRecord
+	for rows.Next() {
+		var t tagRecord
+		if err = rows.Scan(&t.id, &t.name); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		tags = append(tags, t)
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+
+	hiddenNames, err := hiddenTagNames(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
+	return tagFolderItems(tags, hiddenNames, epoch), nil
+}
+
+type tagFolder struct {
+	id, path, parentPath string
+}
+
+func tagFolderItems(tags []tagRecord, hiddenNames []string, epoch string) map[string]Item {
+	// Every prefix is a folder, even if a malformed legacy or plugin-created
+	// tag lacks an explicit ancestor row. Real tags retain ID-backed folder
+	// identity; synthesized ancestors use a deterministic opaque path hash.
+	folders := map[string]tagFolder{}
+	for _, tag := range tags {
+		parts := strings.Split(tag.name, "/")
+		for index := range parts {
+			path := strings.Join(parts[:index+1], "/")
+			parentPath := strings.Join(parts[:index], "/")
+			if _, found := folders[path]; !found {
+				folders[path] = tagFolder{id: syntheticTagFolderID(epoch, path), path: path, parentPath: parentPath}
+			}
+		}
+		folder := folders[tag.name]
+		folder.id = tagFolderID(epoch, tag.id)
+		folders[tag.name] = folder
+	}
+
+	byParent := map[string][]string{}
+	for path, folder := range folders {
+		byParent[folder.parentPath] = append(byParent[folder.parentPath], path)
+	}
+	names := map[string]string{}
+	for _, paths := range byParent {
+		byBase := map[string][]string{}
+		for _, path := range paths {
+			base := folderName(path[strings.LastIndex(path, "/")+1:])
+			byBase[strings.ToLower(base)] = append(byBase[strings.ToLower(base)], path)
+			names[path] = base
+		}
+		for _, collisions := range byBase {
+			if len(collisions) < 2 {
+				continue
+			}
+			for _, path := range collisions {
+				names[path] += " [" + folderCollisionSuffix(folders[path].id) + "]"
+			}
+		}
+	}
+
+	paths := make([]string, 0, len(folders))
+	for path := range folders {
+		paths = append(paths, path)
+	}
+	sort.Slice(paths, func(i, j int) bool {
+		left, right := strings.Count(paths[i], "/"), strings.Count(paths[j], "/")
+		return left < right || left == right && paths[i] < paths[j]
+	})
+	items := make(map[string]Item, len(folders))
+	for _, path := range paths {
+		folder := folders[path]
+		parent := "tags"
+		if folder.parentPath != "" {
+			parent = folders[folder.parentPath].id
+		}
+		hidden := tagIsHidden(path, hiddenNames)
+		items[folder.id] = Item{
+			ID: folder.id, Parent: parent, Name: names[path], MIME: "inode/directory", Folder: true, Hidden: hidden,
+			ContentVersion: epoch, MetadataVersion: folderMetadataVersion(names[path], parent, hidden),
+		}
+	}
+	return items
+}
+
+func hiddenTagNames(ctx context.Context, tx *sql.Tx) ([]string, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT name FROM tags WHERE id IN (SELECT value FROM json_each(COALESCE((SELECT value FROM settings WHERE key='hidden_tags'),'[]')))`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var names []string
+	for rows.Next() {
+		var name string
+		if err = rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		names = append(names, name)
+	}
+	return names, rows.Err()
+}
+
+func tagIsHidden(name string, hiddenNames []string) bool {
+	for _, hidden := range hiddenNames {
+		if name == hidden || strings.HasPrefix(name, hidden+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Store) syncClipItems(ctx context.Context, tx *sql.Tx, id int64, epoch string) error {
+	old := map[string]Item{}
+	rows, err := tx.QueryContext(ctx, `SELECT id,item FROM fp_items WHERE clip_id=?`, id)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var itemID, raw string
+		if err = rows.Scan(&itemID, &raw); err != nil {
+			rows.Close()
+			return err
+		}
+		var item Item
+		if err = json.Unmarshal([]byte(raw), &item); err != nil {
+			rows.Close()
+			return err
+		}
+		old[itemID] = item
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+
+	desired, err := desiredClipItems(ctx, tx, id, epoch)
+	if err != nil && !errors.Is(err, ErrNoSuchItem) {
+		return err
+	}
+	for itemID, previous := range old {
+		if _, exists := desired[itemID]; exists {
+			continue
+		}
+		if _, err = tx.ExecContext(ctx, `INSERT INTO fp_changes(id,old_parent,parent,item) VALUES(?,?, '',NULL)`, itemID, previous.Parent); err != nil {
+			return err
+		}
+		if _, err = tx.ExecContext(ctx, `DELETE FROM fp_items WHERE id=?`, itemID); err != nil {
+			return err
+		}
+	}
+	for itemID, item := range desired {
+		previous, exists := old[itemID]
+		if exists && previous == item {
+			continue
+		}
+		if err = s.putItem(ctx, tx, item, &id); err != nil {
+			return err
+		}
+		if err = s.recordChange(ctx, tx, item, previous.Parent); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Store) putItem(ctx context.Context, tx *sql.Tx, item Item, clipID *int64) error {
+	b, err := json.Marshal(item)
+	if err != nil {
+		return err
+	}
+	var source any
+	if clipID != nil {
+		source = *clipID
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO fp_items(id,clip_id,parent,item) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET clip_id=excluded.clip_id,parent=excluded.parent,item=excluded.item`, item.ID, source, item.Parent, string(b))
+	return err
+}
+
+func (s *Store) recordChange(ctx context.Context, tx *sql.Tx, item Item, oldParent string) error {
+	b, err := json.Marshal(item)
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO fp_changes(id,old_parent,parent,item) VALUES(?,?,?,?)`, item.ID, oldParent, item.Parent, string(b))
+	return err
+}
+
+func sourceRecord(ctx context.Context, tx *sql.Tx, id int64) (Item, string, error) {
 	var i Item
 	var uuid, name string
 	var content, metadata int64
 	var archived bool
-	err := tx.QueryRowContext(ctx, `SELECT s.uuid,s.content_rev,s.metadata_rev,s.modified,COALESCE(c.filename,''),c.content_type,length(c.data),strftime('%Y-%m-%dT%H:%M:%fZ',c.created_at),c.is_archived FROM clips c JOIN fp_sources s ON s.clip_id=c.id WHERE c.id=? AND `+visible, id).Scan(&uuid, &content, &metadata, &i.Modified, &name, &i.MIME, &i.Size, &i.Created, &archived)
+	err := tx.QueryRowContext(ctx, `SELECT s.uuid,s.content_rev,s.metadata_rev,s.modified,COALESCE(c.filename,''),c.content_type,length(c.data),strftime('%Y-%m-%dT%H:%M:%fZ',c.created_at),c.is_archived FROM clips c JOIN fp_sources s ON s.clip_id=c.id WHERE c.id=? AND (c.expires_at IS NULL OR julianday(c.expires_at)>julianday('now'))`, id).Scan(&uuid, &content, &metadata, &i.Modified, &name, &i.MIME, &i.Size, &i.Created, &archived)
 	if errors.Is(err, sql.ErrNoRows) {
-		return i, ErrNoSuchItem
+		return i, "", ErrNoSuchItem
 	}
 	if err != nil {
-		return i, err
+		return i, "", err
 	}
-	i.ID = epoch + ":" + uuid
 	i.Parent = "active"
 	if archived {
 		i.Parent = "archive"
@@ -186,7 +516,40 @@ func sourceItem(ctx context.Context, tx *sql.Tx, id int64, epoch string) (Item, 
 	i.Name = Filename(name, i.MIME, uuid)
 	i.ContentVersion = strconv.FormatInt(content, 10)
 	i.MetadataVersion = strconv.FormatInt(metadata, 10)
-	return i, nil
+	return i, uuid, nil
+}
+
+func desiredClipItems(ctx context.Context, tx *sql.Tx, id int64, epoch string) (map[string]Item, error) {
+	base, uuid, err := sourceRecord(ctx, tx, id)
+	if err != nil {
+		return nil, err
+	}
+	items := map[string]Item{}
+	var shown bool
+	if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM clips c WHERE c.id=? AND `+visible+`)`, id).Scan(&shown); err != nil {
+		return nil, err
+	}
+	if shown {
+		canonical := base
+		canonical.ID = epoch + ":" + uuid
+		items[canonical.ID] = canonical
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT t.id FROM clip_tags ct JOIN tags t ON t.id=ct.tag_id WHERE ct.clip_id=? ORDER BY t.id`, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var tagID int64
+		if err = rows.Scan(&tagID); err != nil {
+			return nil, err
+		}
+		alias := base
+		alias.ID = taggedItemID(epoch, uuid, tagID)
+		alias.Parent = tagFolderID(epoch, tagID)
+		items[alias.ID] = alias
+	}
+	return items, rows.Err()
 }
 
 func (s *Store) Item(ctx context.Context, id string) (Item, error) {
@@ -207,29 +570,72 @@ func (s *Store) Item(ctx context.Context, id string) (Item, error) {
 			return i, nil
 		}
 	}
-	clipID, err := resolve(ctx, tx, id, epoch)
-	if err != nil {
-		return Item{}, err
+	if id == "tags" {
+		return Item{ID: "tags", Parent: "root", Name: "Tags", MIME: "inode/directory", Folder: true, ContentVersion: epoch, MetadataVersion: epoch}, nil
 	}
-	return sourceItem(ctx, tx, clipID, epoch)
+	if strings.HasPrefix(id, "tag:") {
+		items, err := tagFolders(ctx, tx, epoch)
+		if err != nil {
+			return Item{}, err
+		}
+		item, found := items[id]
+		if !found {
+			return Item{}, ErrNoSuchItem
+		}
+		return item, nil
+	}
+	return fileItem(ctx, tx, id, epoch)
 }
 
-func resolve(ctx context.Context, tx *sql.Tx, id, epoch string) (int64, error) {
-	parts := strings.Split(id, ":")
-	if len(parts) != 2 || parts[0] != epoch {
-		return 0, ErrNoSuchItem
-	}
+func resolveUUID(ctx context.Context, tx *sql.Tx, uuid string) (int64, error) {
 	var clipID int64
-	err := tx.QueryRowContext(ctx, `SELECT clip_id FROM fp_sources WHERE uuid=?`, parts[1]).Scan(&clipID)
+	err := tx.QueryRowContext(ctx, `SELECT clip_id FROM fp_sources WHERE uuid=?`, uuid).Scan(&clipID)
 	if errors.Is(err, sql.ErrNoRows) {
 		err = ErrNoSuchItem
 	}
 	return clipID, err
 }
 
-// Content calls begin only after checking visibility/version in the SAME WAL
-// snapshot used for every blob chunk. begin can set HTTP headers; a short read
-// is an error and the caller must abort the response (never mark it complete).
+func fileItem(ctx context.Context, tx *sql.Tx, id, epoch string) (Item, error) {
+	uuid, tagID, tagged, ok := parseFileID(id, epoch)
+	if !ok {
+		return Item{}, ErrNoSuchItem
+	}
+	clipID, err := resolveUUID(ctx, tx, uuid)
+	if err != nil {
+		return Item{}, err
+	}
+	item, _, err := sourceRecord(ctx, tx, clipID)
+	if err != nil {
+		return Item{}, err
+	}
+	if tagged {
+		var assigned bool
+		if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM clip_tags ct JOIN tags t ON t.id=ct.tag_id WHERE ct.clip_id=? AND ct.tag_id=?)`, clipID, tagID).Scan(&assigned); err != nil {
+			return Item{}, err
+		}
+		if !assigned {
+			return Item{}, ErrNoSuchItem
+		}
+		item.ID = taggedItemID(epoch, uuid, tagID)
+		item.Parent = tagFolderID(epoch, tagID)
+		return item, nil
+	}
+	var shown bool
+	if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM clips c WHERE c.id=? AND `+visible+`)`, clipID).Scan(&shown); err != nil {
+		return Item{}, err
+	}
+	if !shown {
+		return Item{}, ErrNoSuchItem
+	}
+	item.ID = epoch + ":" + uuid
+	return item, nil
+}
+
+// Content calls begin only after checking the current projection
+// visibility/membership and version in the SAME WAL snapshot used for every
+// blob chunk. begin can set HTTP headers; a short read is an error and the
+// caller must abort the response (never mark it complete).
 func (s *Store) Content(ctx context.Context, id, version string, begin func(Item) (io.Writer, error)) error {
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
@@ -240,11 +646,15 @@ func (s *Store) Content(ctx context.Context, id, version string, begin func(Item
 	if err != nil {
 		return err
 	}
-	clipID, err := resolve(ctx, tx, id, epoch)
+	uuid, _, _, ok := parseFileID(id, epoch)
+	if !ok {
+		return ErrNoSuchItem
+	}
+	clipID, err := resolveUUID(ctx, tx, uuid)
 	if err != nil {
 		return err
 	}
-	i, err := sourceItem(ctx, tx, clipID, epoch)
+	i, err := fileItem(ctx, tx, id, epoch)
 	if err != nil {
 		return err
 	}
@@ -289,7 +699,33 @@ func (s *Store) Anchor(ctx context.Context, scope string) (string, error) {
 	}
 	defer tx.Rollback()
 	e, h, err := state(ctx, tx)
-	return token(cursor{Epoch: e, Scope: scope, Sequence: h}), err
+	if err != nil {
+		return "", err
+	}
+	valid, err := validStoreScope(ctx, tx, scope, e)
+	if err != nil {
+		return "", err
+	}
+	if !valid {
+		return "", ErrNoSuchItem
+	}
+	return token(cursor{Epoch: e, Scope: scope, Sequence: h}), nil
+}
+
+func validStoreScope(ctx context.Context, tx *sql.Tx, scope, epoch string) (bool, error) {
+	switch scope {
+	case "root", "active", "archive", "tags", "working":
+		return true, nil
+	}
+	if !strings.HasPrefix(scope, "tag:") {
+		return false, nil
+	}
+	items, err := tagFolders(ctx, tx, epoch)
+	if err != nil {
+		return false, err
+	}
+	_, exists := items[scope]
+	return exists, nil
 }
 
 func (s *Store) Enumerate(ctx context.Context, scope, pageToken string) (Page, error) {
@@ -312,6 +748,13 @@ func (s *Store) Enumerate(ctx context.Context, scope, pageToken string) (Page, e
 	if err != nil {
 		return p, err
 	}
+	valid, err := validStoreScope(ctx, tx, scope, epoch)
+	if err != nil {
+		return p, err
+	}
+	if !valid {
+		return p, ErrNoSuchItem
+	}
 	c := cursor{Epoch: epoch, Scope: scope, Sequence: high}
 	if pageToken == "" {
 		// A malfunctioning client must not grow metadata snapshots without bound.
@@ -333,7 +776,7 @@ func (s *Store) Enumerate(ctx context.Context, scope, pageToken string) (Page, e
 			}
 		}
 		if scope != "root" {
-			if _, err = tx.ExecContext(ctx, `INSERT INTO fp_snapshot_items SELECT ?,row_number() OVER(ORDER BY id)+2,item FROM fp_items WHERE ?='working' OR parent=?`, c.Snapshot, scope, scope); err != nil {
+			if _, err = tx.ExecContext(ctx, `INSERT INTO fp_snapshot_items SELECT ?,row_number() OVER(ORDER BY id)+?,item FROM fp_items WHERE (?='working' AND clip_id IS NOT NULL AND length(id)-length(replace(id,':',''))=1) OR (?!='working' AND parent=?)`, c.Snapshot, len(folders(epoch)), scope, scope, scope); err != nil {
 				return p, err
 			}
 		}
@@ -406,6 +849,13 @@ func (s *Store) Changes(ctx context.Context, scope, anchor string) (Page, error)
 	if err != nil {
 		return p, err
 	}
+	valid, err := validStoreScope(ctx, tx, scope, epoch)
+	if err != nil {
+		return p, err
+	}
+	if !valid {
+		return p, ErrAnchor
+	}
 	var low int64
 	if err = tx.QueryRowContext(ctx, `SELECT COALESCE(MIN(seq),0) FROM fp_changes`).Scan(&low); err != nil {
 		return p, err
@@ -424,6 +874,7 @@ func (s *Store) Changes(ctx context.Context, scope, anchor string) (Page, error)
 	// update and deletion for the same item in a single callback batch.
 	updates := map[string]Item{}
 	deletes := map[string]bool{}
+	deleteParents := map[string]string{}
 	count := 0
 	for rows.Next() {
 		var seq int64
@@ -438,15 +889,17 @@ func (s *Store) Changes(ctx context.Context, scope, anchor string) (Page, error)
 		}
 		count++
 		c.Sequence = seq
-		if raw.Valid && (scope == "working" || scope == parent) {
+		if raw.Valid && (scope == parent || scope == "working" && isCanonicalItemID(id)) {
 			var i Item
 			if err = json.Unmarshal([]byte(raw.String), &i); err != nil {
 				break
 			}
 			updates[id] = i
 			delete(deletes, id)
-		} else if scope == "working" || scope == old {
+			delete(deleteParents, id)
+		} else if scope == old || scope == "working" && isCanonicalItemID(id) {
 			deletes[id] = true
+			deleteParents[id] = old
 			delete(updates, id)
 		}
 	}
@@ -457,10 +910,14 @@ func (s *Store) Changes(ctx context.Context, scope, anchor string) (Page, error)
 	if err != nil {
 		return p, err
 	}
-	for _, i := range updates {
-		p.Items = append(p.Items, i)
+	for _, id := range treeOrder(updates, false) {
+		p.Items = append(p.Items, updates[id])
 	}
+	deletedItems := make(map[string]Item, len(deletes))
 	for id := range deletes {
+		deletedItems[id] = Item{ID: id, Parent: deleteParents[id]}
+	}
+	for _, id := range treeOrder(deletedItems, true) {
 		p.Deleted = append(p.Deleted, id)
 	}
 	if !p.More {

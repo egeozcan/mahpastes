@@ -67,13 +67,22 @@ char *mahpastes_fp_call(const char *request) {
             } else {
                 NSFileProviderManager *manager = [NSFileProviderManager managerForDomain:domain];
                 if (!manager) return encode(@{@"error":@"The Finder domain is not registered."});
-                if ([operation isEqualToString:@"signal"]) {
-                    // Signal all live folder enumerators as well as the working
-                    // set; notifications are hints, the journal is authoritative.
+                if ([operation isEqualToString:@"signal"] || [operation hasPrefix:@"signal:"]) {
+                    // Signal every dynamic tag folder supplied by the host as
+                    // well as the fixed containers. Notifications are hints;
+                    // the journal is authoritative.
                     dispatch_group_t signals = dispatch_group_create();
-                    for (NSString *item in @[NSFileProviderWorkingSetContainerItemIdentifier,NSFileProviderRootContainerItemIdentifier,@"active",@"archive"]) {
+                    NSMutableOrderedSet<NSString *> *items = [NSMutableOrderedSet orderedSetWithArray:@[NSFileProviderWorkingSetContainerItemIdentifier,NSFileProviderRootContainerItemIdentifier,@"active",@"archive",@"tags"]];
+                    if ([operation hasPrefix:@"signal:"]) {
+                        NSArray<NSString *> *dynamic = [[operation substringFromIndex:7] componentsSeparatedByString:@","];
+                        for (NSString *item in dynamic) if (item.length && item.length <= 256) [items addObject:item];
+                    }
+                    for (NSString *item in items) {
                         dispatch_group_enter(signals);
-                        [manager signalEnumeratorForContainerItemIdentifier:item completionHandler:^(NSError *error){dispatch_group_leave(signals);}];
+                        [manager signalEnumeratorForContainerItemIdentifier:item completionHandler:^(NSError *error){
+                            if (error) @synchronized(signals) { if (!failure) failure=error; }
+                            dispatch_group_leave(signals);
+                        }];
                     }
                     [manager signalErrorResolved:[NSError errorWithDomain:NSFileProviderErrorDomain code:NSFileProviderErrorServerUnreachable userInfo:nil] completionHandler:^(NSError *error){}];
                     dispatch_group_notify(signals,dispatch_get_global_queue(QOS_CLASS_UTILITY,0),^{dispatch_semaphore_signal(done);});

@@ -1,8 +1,8 @@
 # macOS Finder access
 
-This implements phase R of the File Provider integration: a read-only Finder
-location containing Active and Archive. Users can open, preview and copy clips
-using Finder, Terminal and file dialogs. Changes still happen in Mahpastes.
+This implements a read-only Finder location containing Active, Archive and a
+hierarchical Tags folder. Users can open, preview and copy clips using Finder,
+Terminal and file dialogs. Changes still happen in Mahpastes.
 The system controls download indicators and local materialization; this feature
 does not add cloud storage or cross-device synchronization.
 
@@ -119,14 +119,20 @@ signed acceptance checks below are complete.
 
 ## Behavior
 
-* Active and Archive are the only folders. A clip has one canonical parent and
-  keeps its item identifier when renamed, edited or archived in the app.
+* Active and Archive keep one canonical copy of each visible clip. Tags is a
+  separate hierarchy that mirrors slash-separated tag names: a clip appears at
+  each exact tag to which it is assigned. These tag aliases have their own
+  stable Finder identifiers, so assigning a clip to independent tag trees does
+  not violate File Provider's single-parent item model.
 * Names preserve a sanitized original name and append a full persistent UUID
   before the extension. The suffix keeps duplicate names stable on
   case-insensitive and Unicode-normalizing filesystems. Nameless clips receive
   a MIME-derived extension. Finder names do not replace app filenames.
 * Clips assigned a hidden tag, including descendants of hidden tags, are
-  excluded. Expired clips are excluded even before the cleanup job deletes them.
+  excluded from Active and Archive. Their tag aliases remain inside the Tags
+  hierarchy. Hidden tag folders, including descendants, carry macOS's hidden
+  filesystem flag; turn on Finder's hidden-file display to browse them. Expired
+  clips are excluded everywhere even before the cleanup job deletes them.
 * Hiding, expiry and deletion cannot revoke downloaded or separately copied
   bytes. The Settings explanation makes this limitation explicit.
 * The app must be running to enumerate or fetch uncached content. Quit retains
@@ -182,7 +188,8 @@ re-enrollment catches up without changing clip identity.
 | `fp_state` | Schema version and dataset epoch |
 | `fp_sources` | Clip UUID, content/metadata revisions and modification time |
 | `fp_dirty` | Coalesced numeric clip IDs awaiting projection |
-| `fp_items` | Current visible metadata and canonical parent |
+| `fp_tags_dirty` | Coalesced tag-tree or hidden-state changes awaiting folder projection |
+| `fp_items` | Current clip copies and tag-folder metadata, with one row per Finder item |
 | `fp_changes` | Sequence-numbered immutable metadata updates and tombstones |
 | `fp_snapshots` | Enumeration scope, epoch, high-water mark and expiry |
 | `fp_snapshot_items` | Frozen enumeration metadata, never file blobs |
@@ -196,8 +203,8 @@ leave no revisions or change events.
 The worker polls once per second, handling at most 256 dirty IDs per write
 transaction. Projection changes, immutable journal events and dirty consumption
 commit atomically. Queries also catch up before enumeration/change reads.
-Notifications signal root, Active, Archive and the working set; they are hints,
-not the source of truth.
+Notifications signal root, Active, Archive, Tags, individual tag folders and
+the working set; they are hints, not the source of truth.
 
 Successful restore rotates the dataset epoch and reconstructs source UUIDs in
 the restore transaction. Old identifiers cannot resolve to restored numeric
@@ -227,8 +234,8 @@ discovery for each operation. The certificate is regenerated on process restart.
 | `/v1/changes` | `domain`, `scope`, `anchor` | Updates, tombstones and next anchor |
 | `/v1/content` | `domain`, `id`, optional `version` | Binary bytes and matching metadata header |
 
-Scopes are `root`, `active`, `archive`, `working`. Pages contain at most 200
-items. Initial enumeration materializes a metadata snapshot in SQLite, then
+Scopes are `root`, `active`, `archive`, `tags`, opaque tag-folder identifiers,
+and `working`. Pages contain at most 200 items. Initial enumeration materializes a metadata snapshot in SQLite, then
 closes the transaction before Finder requests another page. Snapshots expire
 after ten minutes; at most 64 snapshots are retained. The Swift enumerator captures its baseline anchor before
 creating that snapshot, so concurrent anchor/enumeration callbacks cannot skip
@@ -289,8 +296,10 @@ on Intel and Apple Silicon where available:
    zero-byte and multi-megabyte files; compare hashes with app exports.
 3. Edit/rename/archive in the app while Finder is open. Confirm stable item
    identity, fresh metadata and fresh contents. Exercise plugin/API/expiry paths.
-4. Hide a parent tag and confirm its descendants leave the projection. Confirm
-   attempts to fetch newly hidden content fail and document cached-copy behavior.
+4. Hide a parent tag and confirm its canonical Active/Archive clips leave the
+   projection while the hidden tag branch and its descendants remain available
+   when Finder displays hidden files. Confirm attempts to fetch the former
+   canonical item fail and document cached-copy behavior.
 5. Cancel an in-progress download, kill/restart the extension and quit/relaunch
    the app. Confirm retry behavior and no false mass deletion on outage.
 6. Restore both nonempty and empty backups. Confirm old identifiers/anchors do
@@ -300,8 +309,8 @@ on Intel and Apple Silicon where available:
 8. Confirm Finder/TextEdit cannot overwrite, rename, trash or import into these
    read-only folders, and that the normal builds still expose no Finder setting.
 
-Writable operations (W1), real Trash semantics (W2), tag projections (T) and a
-background owner (B) remain separate phases. W1 needs atomic compare-and-swap
+Writable operations (W1), real Trash semantics (W2) and a background owner (B)
+remain separate phases. W1 needs atomic compare-and-swap
 updates, durable operation receipts, conflict recovery and native safe-save
 tests before any write capability is advertised. This PR does not claim those
 phases or signed runtime acceptance are complete.

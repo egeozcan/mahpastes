@@ -54,6 +54,24 @@ func enumerate(t *testing.T, s *Store, scope string) Page {
 	return p
 }
 
+func itemNamed(items []Item, name string) (Item, bool) {
+	for _, item := range items {
+		if item.Name == name {
+			return item, true
+		}
+	}
+	return Item{}, false
+}
+
+func fileIn(items []Item) (Item, bool) {
+	for _, item := range items {
+		if !item.Folder {
+			return item, true
+		}
+	}
+	return Item{}, false
+}
+
 func TestDirectSQLVersionsVisibilityAndMoves(t *testing.T) {
 	s, db := testStore(t)
 	ctx := context.Background()
@@ -105,6 +123,189 @@ func TestDirectSQLVersionsVisibilityAndMoves(t *testing.T) {
 	if len(enumerate(t, s, "archive").Items) != 0 {
 		t.Fatal("expired item enumerated")
 	}
+}
+
+func TestTagFoldersExposeHierarchyAliasesAndHiddenState(t *testing.T) {
+	s, db := testStore(t)
+	ctx := context.Background()
+	insertClip(t, db, "brief.txt", []byte("brief"))
+	execSQL(t, db, `INSERT INTO tags(id,name) VALUES(10,'projects'),(11,'projects/acme'),(12,'reference')`)
+	// Multiple root trees are legal. The aliases must have distinct Finder IDs
+	// even though they stream the same clip data.
+	execSQL(t, db, `INSERT INTO clip_tags(clip_id,tag_id) VALUES(1,11),(1,12)`)
+
+	root := enumerate(t, s, "root")
+	if _, found := itemNamed(root.Items, "Tags"); !found {
+		t.Fatalf("Tags root missing: %+v", root.Items)
+	}
+	tags := enumerate(t, s, "tags")
+	projects, found := itemNamed(tags.Items, "projects")
+	if !found || projects.Parent != "tags" || !projects.Folder {
+		t.Fatalf("projects tag root: %+v", tags.Items)
+	}
+	reference, found := itemNamed(tags.Items, "reference")
+	if !found {
+		t.Fatalf("reference tag root: %+v", tags.Items)
+	}
+	projectAnchor := projects.ID
+	children := enumerate(t, s, projectAnchor)
+	acme, found := itemNamed(children.Items, "acme")
+	if !found || acme.Parent != projectAnchor {
+		t.Fatalf("projects children: %+v", children.Items)
+	}
+	acmeItems := enumerate(t, s, acme.ID)
+	acmeFile, found := fileIn(acmeItems.Items)
+	if !found || acmeFile.Parent != acme.ID {
+		t.Fatalf("acme contents: %+v", acmeItems.Items)
+	}
+	referenceItems := enumerate(t, s, reference.ID)
+	referenceFile, found := fileIn(referenceItems.Items)
+	if !found || referenceFile.ID == acmeFile.ID {
+		t.Fatalf("tag aliases were not independent: acme=%+v reference=%+v", acmeFile, referenceFile)
+	}
+	scopes, err := s.Scopes(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"tags", projects.ID, acme.ID, reference.ID} {
+		if !contains(scopes, expected) {
+			t.Fatalf("signal scope %q missing from %v", expected, scopes)
+		}
+	}
+	var contents bytes.Buffer
+	if err := s.Content(ctx, acmeFile.ID, acmeFile.ContentVersion, func(Item) (io.Writer, error) { return &contents, nil }); err != nil {
+		t.Fatal(err)
+	}
+	if contents.String() != "brief" {
+		t.Fatalf("tag alias content = %q", contents.String())
+	}
+	active := enumerate(t, s, "active")
+	canonical, found := fileIn(active.Items)
+	if !found {
+		t.Fatalf("canonical Active item missing: %+v", active.Items)
+	}
+
+	// Hiding a parent keeps its entire folder branch addressable but marks it
+	// hidden for Finder. Its aliases remain available in that hidden branch;
+	// the canonical Active/Archive projection retains the existing hidden-clip
+	// behavior.
+	execSQL(t, db, `INSERT INTO settings(key,value) VALUES('hidden_tags','[10]')`)
+	if _, err := s.Sync(ctx); err != nil {
+		t.Fatal(err)
+	}
+	tagChanges, err := s.Changes(ctx, "tags", tags.Anchor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changedProjects, found := itemNamed(tagChanges.Items, "projects")
+	if !found || !changedProjects.Hidden {
+		t.Fatalf("hidden directory update missing: %+v", tagChanges)
+	}
+	projects, err = s.Item(ctx, projects.ID)
+	if err != nil || !projects.Hidden {
+		t.Fatalf("hidden projects folder = %+v, %v", projects, err)
+	}
+	acme, err = s.Item(ctx, acme.ID)
+	if err != nil || !acme.Hidden {
+		t.Fatalf("hidden descendant folder = %+v, %v", acme, err)
+	}
+	if _, err = s.Item(ctx, acmeFile.ID); err != nil {
+		t.Fatalf("hidden-tag alias no longer readable: %v", err)
+	}
+	if _, err = s.Item(ctx, referenceFile.ID); err != nil {
+		t.Fatalf("visible-tag alias no longer readable: %v", err)
+	}
+	if _, err = s.Item(ctx, canonical.ID); !errors.Is(err, ErrNoSuchItem) {
+		t.Fatalf("clip carrying a hidden tag remained in Active: %v", err)
+	}
+}
+
+func TestV1ProjectionMigratesToTagFolders(t *testing.T) {
+	_, db := testStore(t)
+	insertClip(t, db, "legacy.txt", []byte("legacy"))
+	execSQL(t, db, `INSERT INTO tags(id,name) VALUES(5,'legacy'); INSERT INTO clip_tags(clip_id,tag_id) VALUES(1,5)`)
+	// Recreate the v1 shape: one unique fp_items row per clip. Open must
+	// rebuild it rather than retaining that constraint and dropping aliases.
+	execSQL(t, db, `DROP TABLE fp_items;
+CREATE TABLE fp_items (id TEXT PRIMARY KEY, clip_id INTEGER UNIQUE, parent TEXT NOT NULL, item TEXT NOT NULL);
+UPDATE fp_state SET version=1`)
+	s, err := Open(context.Background(), db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var version int
+	if err = db.QueryRow(`SELECT version FROM fp_state`).Scan(&version); err != nil || version != 2 {
+		t.Fatalf("projection migration version = %d, %v", version, err)
+	}
+	tags := enumerate(t, s, "tags")
+	legacy, found := itemNamed(tags.Items, "legacy")
+	if !found {
+		t.Fatalf("migrated Tags root: %+v", tags.Items)
+	}
+	if _, found = fileIn(enumerate(t, s, legacy.ID).Items); !found {
+		t.Fatal("migrated tag alias missing")
+	}
+}
+
+func TestTagFoldersSynthesizeAncestorsAndUseSafeSiblingNames(t *testing.T) {
+	s, db := testStore(t)
+	// UpdateTag and legacy/plugin SQL can leave a hierarchical row without a
+	// parent. Finder must still show its full path rather than flattening it.
+	execSQL(t, db, `INSERT INTO tags(id,name) VALUES(20,'projects/acme'),(21,'Work'),(22,'work'),(23,'.')`)
+	tags := enumerate(t, s, "tags")
+	projects, found := itemNamed(tags.Items, "projects")
+	if !found {
+		t.Fatalf("synthetic projects folder missing: %+v", tags.Items)
+	}
+	children := enumerate(t, s, projects.ID)
+	if _, found = itemNamed(children.Items, "acme"); !found {
+		t.Fatalf("orphan tag was flattened instead of nested: %+v", children.Items)
+	}
+
+	seen := map[string]bool{}
+	for _, item := range tags.Items {
+		if item.Name == "." || item.Name == ".." || strings.ContainsAny(item.Name, "/\\:\x00") || seen[strings.ToLower(item.Name)] {
+			t.Fatalf("unsafe or colliding Finder name: %+v", tags.Items)
+		}
+		seen[strings.ToLower(item.Name)] = true
+	}
+}
+
+func TestTagFolderCollisionRenamesUpdateMetadataVersion(t *testing.T) {
+	s, db := testStore(t)
+	ctx := context.Background()
+	execSQL(t, db, `INSERT INTO tags(id,name) VALUES(30,'Work')`)
+	before, found := itemNamed(enumerate(t, s, "tags").Items, "Work")
+	if !found {
+		t.Fatal("initial Work folder missing")
+	}
+
+	execSQL(t, db, `INSERT INTO tags(id,name) VALUES(31,'work')`)
+	if _, err := s.Sync(ctx); err != nil {
+		t.Fatal(err)
+	}
+	during, err := s.Item(ctx, before.ID)
+	if err != nil || during.Name == "Work" || during.MetadataVersion == before.MetadataVersion {
+		t.Fatalf("collision rename did not update metadata: before=%+v during=%+v err=%v", before, during, err)
+	}
+
+	execSQL(t, db, `DELETE FROM tags WHERE id=31`)
+	if _, err = s.Sync(ctx); err != nil {
+		t.Fatal(err)
+	}
+	after, err := s.Item(ctx, before.ID)
+	if err != nil || after.Name != "Work" || after.MetadataVersion == during.MetadataVersion {
+		t.Fatalf("collision removal did not update metadata: during=%+v after=%+v err=%v", during, after, err)
+	}
+}
+
+func contains(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func TestMaterializationUsesOneSnapshot(t *testing.T) {
@@ -251,6 +452,27 @@ func TestRestoreAndNumericIDReuseCannotAlias(t *testing.T) {
 	}
 }
 
+func TestDisabledV1RestoreCreatesTagInvalidationTable(t *testing.T) {
+	_, db := testStore(t)
+	// Simulate an old enrolled projection that is disabled before the app
+	// starts again: restore calls ResetAfterRestore before Open can migrate it.
+	execSQL(t, db, `DROP TABLE fp_tags_dirty; UPDATE fp_state SET version=1`)
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = ResetAfterRestore(tx); err != nil {
+		t.Fatal(err)
+	}
+	if err = tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	var count int
+	if err = db.QueryRow(`SELECT count(*) FROM fp_tags_dirty`).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("tag invalidation table after disabled v1 restore = %d, %v", count, err)
+	}
+}
+
 func TestRollbackAndRetainedTracking(t *testing.T) {
 	s, db := testStore(t)
 	insertClip(t, db, "one.txt", []byte("one"))
@@ -348,13 +570,38 @@ func TestSafeNames(t *testing.T) {
 }
 
 func TestEmptyRestoreSignalsAndInvalidatesOldState(t *testing.T) {
-	s,db:=testStore(t);ctx:=context.Background();insertClip(t,db,"one.txt",[]byte("one"))
-	p:=enumerate(t,s,"active");before,err:=s.Head(ctx);if err!=nil{t.Fatal(err)}
-	tx,err:=db.Begin();if err!=nil{t.Fatal(err)}
-	if _,err=tx.Exec(`DELETE FROM clips`);err!=nil{t.Fatal(err)}
-	if err=ResetAfterRestore(tx);err!=nil{t.Fatal(err)};if err=tx.Commit();err!=nil{t.Fatal(err)}
-	if _,err=s.Sync(ctx);err!=nil{t.Fatal(err)}
-	after,err:=s.Head(ctx);if err!=nil||after==before{t.Fatal("empty restore did not change notification head",err)}
-	if _,err=s.Changes(ctx,"active",p.Anchor);!errors.Is(err,ErrAnchor){t.Fatal(err)}
-	if len(enumerate(t,s,"active").Items)!=0{t.Fatal("restored empty database enumerates old clips")}
+	s, db := testStore(t)
+	ctx := context.Background()
+	insertClip(t, db, "one.txt", []byte("one"))
+	p := enumerate(t, s, "active")
+	before, err := s.Head(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = tx.Exec(`DELETE FROM clips`); err != nil {
+		t.Fatal(err)
+	}
+	if err = ResetAfterRestore(tx); err != nil {
+		t.Fatal(err)
+	}
+	if err = tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Sync(ctx); err != nil {
+		t.Fatal(err)
+	}
+	after, err := s.Head(ctx)
+	if err != nil || after == before {
+		t.Fatal("empty restore did not change notification head", err)
+	}
+	if _, err = s.Changes(ctx, "active", p.Anchor); !errors.Is(err, ErrAnchor) {
+		t.Fatal(err)
+	}
+	if len(enumerate(t, s, "active").Items) != 0 {
+		t.Fatal("restored empty database enumerates old clips")
+	}
 }

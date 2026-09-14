@@ -21,10 +21,11 @@ else
     INSTALL_DIR := /Applications
     PLUGIN_DIR := $(HOME)/Library/Application Support/mahpastes/plugins
     APP_PROCESS_PATTERN := [/]$(APP_NAME).app/Contents/MacOS/$(APP_NAME)
+    FILE_PROVIDER_PROCESS_PATTERN := [/]MahpastesFileProvider\.appex/Contents/MacOS/MahpastesFileProvider
     MP_INSTALL_DIR ?= $(if $(GO_BIN),$(GO_BIN),$(HOME)/.local/bin)
 endif
 
-.PHONY: dev build clean install install-bundle uninstall bindings mp mp-install mp-cross mahpastesd mahpastesd-cross test screenshots
+.PHONY: dev build clean install install-bundle install-ready-bundle stop-installed-app stop-file-provider-extension uninstall bindings mp mp-install mp-cross mahpastesd mahpastesd-cross test screenshots
 
 ## Development
 
@@ -93,29 +94,82 @@ else
 install: build ## Build and install (kills running instance)
 	@# Wait for the old process to really exit. Replacing/opening the bundle while
 	@# it is still shutting down makes LaunchServices focus the stale process.
+	@$(MAKE) install-ready-bundle
+	@echo "Installed to $(INSTALL_DIR)/$(APP_NAME).app"
+	@echo "Updated bundled plugins"
+
+install-ready-bundle:
+	@$(MAKE) stop-installed-app
+	@$(MAKE) install-bundle
+	@# Keep the app from observing stale bundled plugins on its first launch.
+	@mkdir -p "$(PLUGIN_DIR)"
+	@cp plugins/*.lua "$(PLUGIN_DIR)/"
+	@# Launching first makes LaunchServices register the just-installed app.
+	@open -n $(INSTALL_DIR)/$(APP_NAME).app
+	@sleep 1
+	@# ExtensionKit can revive an old extension while the bundle is copied. Stop
+	@# it after registration, so the next Finder request loads this app.
+	@$(MAKE) stop-file-provider-extension
+
+stop-installed-app:
 	@pkill -TERM -f "$(APP_PROCESS_PATTERN)" 2>/dev/null || true
-	@i=0; while pgrep -f "$(APP_PROCESS_PATTERN)" >/dev/null 2>&1 && [ $$i -lt 50 ]; do sleep 0.1; i=$$((i + 1)); done; \
+	@i=0; while [ $$i -lt 50 ]; do \
+		if ! pgrep -f "$(APP_PROCESS_PATTERN)" >/dev/null 2>&1; then break; fi; \
+		sleep 0.1; i=$$((i + 1)); \
+	done; \
 	if pgrep -f "$(APP_PROCESS_PATTERN)" >/dev/null 2>&1; then \
 		pkill -KILL -f "$(APP_PROCESS_PATTERN)" 2>/dev/null || true; \
 	fi
-	@$(MAKE) install-bundle
-	@echo "Installed to $(INSTALL_DIR)/$(APP_NAME).app"
-	@# Update bundled plugins
-	@mkdir -p "$(PLUGIN_DIR)"
-	@cp plugins/*.lua "$(PLUGIN_DIR)/"
-	@echo "Updated bundled plugins"
-	open -n $(INSTALL_DIR)/$(APP_NAME).app
+	@$(MAKE) stop-file-provider-extension
+
+stop-file-provider-extension:
+	@# ExtensionKit can outlive the app that owns it. Ensure a Finder request
+	@# after installation starts the extension embedded in the replacement app.
+	@pkill -TERM -f "$(FILE_PROVIDER_PROCESS_PATTERN)" 2>/dev/null || true
+	@i=0; while [ $$i -lt 50 ]; do \
+		if ! pgrep -f "$(FILE_PROVIDER_PROCESS_PATTERN)" >/dev/null 2>&1; then break; fi; \
+		sleep 0.1; i=$$((i + 1)); \
+	done; \
+	if pgrep -f "$(FILE_PROVIDER_PROCESS_PATTERN)" >/dev/null 2>&1; then \
+		pkill -KILL -f "$(FILE_PROVIDER_PROCESS_PATTERN)" 2>/dev/null || true; \
+	fi
 
 install-bundle:
 	@set -eu; \
 	staging="$(INSTALL_DIR)/.$(APP_NAME).installing.$$$$"; \
-	trap 'rm -rf "$$staging"' EXIT HUP INT TERM; \
+	target="$(INSTALL_DIR)/$(APP_NAME).app"; \
+	previous="$(INSTALL_DIR)/.$(APP_NAME).previous.$$$$"; \
+	cleanup() { \
+		status="$$1"; \
+		trap - EXIT HUP INT TERM; \
+		set +e; \
+		if [ -e "$$previous" ]; then \
+			rm -rf "$$target"; \
+			mv "$$previous" "$$target"; \
+		fi; \
+		rm -rf "$$staging"; \
+		exit "$$status"; \
+	}; \
+	trap 'cleanup $$?' EXIT; \
+	trap 'exit 1' HUP INT TERM; \
 	rm -rf "$$staging"; \
 	cp -R "$(APP_BUNDLE)" "$$staging"; \
 	xattr -cr "$$staging"; \
-	rm -rf "$(INSTALL_DIR)/$(APP_NAME).app"; \
-	mv "$$staging" "$(INSTALL_DIR)/$(APP_NAME).app"; \
-	trap - EXIT HUP INT TERM
+	: "Do not replace the known-good installed app with an unsigned or corrupted build."; \
+	codesign --verify --deep --strict "$$staging"; \
+	if [ -e "$$target" ]; then mv "$$target" "$$previous"; fi; \
+	if ! mv "$$staging" "$$target"; then \
+		if [ -e "$$previous" ]; then mv "$$previous" "$$target"; fi; \
+		exit 1; \
+	fi; \
+	if ! codesign --verify --deep --strict "$$target"; then \
+		rm -rf "$$target"; \
+		if [ -e "$$previous" ]; then mv "$$previous" "$$target"; fi; \
+		exit 1; \
+	fi; \
+	: "The verified target is committed; backup cleanup cannot roll it back."; \
+	trap - EXIT HUP INT TERM; \
+	rm -rf "$$previous"
 
 uninstall: ## Remove installed app
 	@pkill -f "$(APP_NAME).app/Contents/MacOS/$(APP_NAME)" 2>/dev/null || true

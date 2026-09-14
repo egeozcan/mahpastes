@@ -12,6 +12,7 @@ struct ItemRecord: Codable {
     let contentVersion: String
     let metadataVersion: String
     let folder: Bool
+    let hidden: Bool
 }
 
 struct ItemPage: Decodable {
@@ -58,6 +59,15 @@ final class ProviderItem: NSObject, NSFileProviderItem {
     }
     var capabilities: NSFileProviderItemCapabilities {
         record.folder ? [.allowsReading, .allowsContentEnumerating] : [.allowsReading]
+    }
+    var fileSystemFlags: NSFileProviderFileSystemFlags {
+        // FileProvider maps these flags directly to POSIX permissions. A
+        // hidden flag by itself removes u+r, so hidden folders must retain
+        // their readable/traversable read-only mode.
+        var flags: NSFileProviderFileSystemFlags = [.userReadable]
+        if record.folder { flags.insert(.userExecutable) }
+        if record.hidden { flags.insert(.hidden) }
+        return flags
     }
     private static func date(_ value: String) -> Date? {
         let formatter = ISO8601DateFormatter()

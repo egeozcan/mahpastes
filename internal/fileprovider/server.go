@@ -32,6 +32,7 @@ type Discovery struct {
 }
 
 type Server struct {
+	store     *Store
 	http      *http.Server
 	cancel    context.CancelFunc
 	done      chan struct{}
@@ -42,7 +43,7 @@ type Server struct {
 // Start uses a separate loopback listener and credential from the public API.
 // Discovery contains no secret. The extension authenticates the certificate
 // against the App Group discovery record before sending the Keychain token.
-func Start(ctx context.Context, store *Store, domain, secret string, signal func()) (*Server, error) {
+func Start(ctx context.Context, store *Store, domain, secret string, signal func() error) (*Server, error) {
 	if domain == "" || len(secret) < 32 {
 		return nil, errors.New("invalid provider enrollment")
 	}
@@ -65,7 +66,7 @@ func Start(ctx context.Context, store *Store, domain, secret string, signal func
 	}
 	pin := sha256.Sum256(der)
 	workerCtx, cancel := context.WithCancel(ctx)
-	s := &Server{cancel: cancel, done: make(chan struct{}), Discovery: Discovery{Protocol: 1, Domain: domain, Endpoint: "https://" + listener.Addr().String(), CertificateSHA256: hex.EncodeToString(pin[:])}}
+	s := &Server{store: store, cancel: cancel, done: make(chan struct{}), Discovery: Discovery{Protocol: 1, Domain: domain, Endpoint: "https://" + listener.Addr().String(), CertificateSHA256: hex.EncodeToString(pin[:])}}
 	s.http = &http.Server{Handler: handler(store, domain, secret), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 2 * time.Minute, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8192, BaseContext: func(net.Listener) context.Context { return workerCtx }}
 	tlsListener := tls.NewListener(listener, &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{{Certificate: [][]byte{der}, PrivateKey: key}}})
 	go func() {
@@ -95,7 +96,10 @@ func Start(ctx context.Context, store *Store, domain, secret string, signal func
 					continue
 				}
 				if head != lastHead && signal != nil {
-					signal()
+					if err := signal(); err != nil {
+						log.Printf("File Provider notification: %v", err)
+						continue
+					}
 				}
 				lastHead = head
 			}
@@ -103,6 +107,10 @@ func Start(ctx context.Context, store *Store, domain, secret string, signal func
 	}()
 	return s, nil
 }
+
+// Store exposes the projection to the host solely for enumerator signalling.
+// It does not provide file bytes or bypass the authenticated loopback API.
+func (s *Server) Store() *Store { return s.store }
 
 func (s *Server) Close() {
 	s.once.Do(func() {
