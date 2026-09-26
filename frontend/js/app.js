@@ -376,10 +376,6 @@ function toggleFolderMode() {
             navigateToFolder(lastTagId);
             return;
         }
-        // Exiting folder mode — clear the remembered folder.
-        if (!folderMode && typeof window.rememberCurrentFolder === 'function') {
-            window.rememberCurrentFolder(null);
-        }
         if (typeof updateActiveTagsDisplay === 'function') {
             updateActiveTagsDisplay();
         }
