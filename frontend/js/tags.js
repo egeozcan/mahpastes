@@ -3,16 +3,6 @@
 // Roving tabindex for tag filter dropdown
 let tagFilterRover = null;
 
-// Tracks the tag ID of the current folder-view, so we can re-resolve the
-// path after any tag change (rename / delete / merge).
-let currentFolderTagID = null;
-
-/** Set by navigateToFolder — called whenever the user enters a folder. */
-function rememberCurrentFolder(tagID) {
-    currentFolderTagID = tagID;
-}
-window.rememberCurrentFolder = rememberCurrentFolder;
-
 // Constants
 const MAX_TAG_NAME_LENGTH = 50;
 
@@ -716,6 +706,14 @@ window.handleTagReferenceEvent = async function(eventName, payload) {
     }
     const validIDs = new Set(allTags.map(t => t.id));
 
+    // The folder being viewed is the deepest active filter. Read it before
+    // normalization, which drops a deleted tag's ID. Deriving it (rather than
+    // tracking it separately) keeps it right however the user left a folder:
+    // home icon, breadcrumb, "Clear all", or the filter dropdown.
+    let currentFolderTagID = (typeof isFolderMode === 'function' && isFolderMode() && activeTagFilters.length > 0)
+        ? activeTagFilters[activeTagFilters.length - 1]
+        : null;
+
     // Build substitution map for merges: source_id -> dest_id.
     const substitutions = new Map();
     if (eventName === 'tag:merged'
@@ -751,10 +749,9 @@ window.handleTagReferenceEvent = async function(eventName, payload) {
 
     // currentFolderTagID does not resolve to any live tag. Only tag:deleted
     // can genuinely remove an ID — for rename/merge, an unresolvable ID is
-    // stale state, not a deletion. Silently clear and reload so a rename
-    // doesn't accidentally kick the user out of folder mode.
+    // stale state, not a deletion. Just reload so a rename doesn't
+    // accidentally kick the user out of folder mode.
     if (eventName !== 'tag:deleted') {
-        currentFolderTagID = null;
         if (typeof loadClips === 'function') loadClips();
         return;
     }
@@ -769,7 +766,6 @@ window.handleTagReferenceEvent = async function(eventName, payload) {
         // Exit folder mode by toggling it off.
         toggleFolderMode();
     } else {
-        currentFolderTagID = null;
         if (typeof loadClips === 'function') loadClips();
     }
 };

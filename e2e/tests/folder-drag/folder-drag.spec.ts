@@ -360,6 +360,37 @@ test.describe('Folder Drag-and-Drop', () => {
     await app.expectFolderVisible('container');
   });
 
+  test('folder drop after returning home via home icon stays at root', async ({ app }) => {
+    // Regression: the home icon cleared the breadcrumb but the tag:updated
+    // event from the folder move re-navigated into the previously viewed folder.
+    await app.createTag('visited');
+    await app.createTag('src');
+    await app.createTag('dest');
+
+    // View a folder, then return to the root via the home icon
+    await app.toggleFolderMode();
+    await app.clickFolder('visited');
+    await app.expectFolderHeader('visited');
+    await app.page.locator(selectors.tags.homeIcon).click();
+    await expect(app.page.locator(selectors.tags.homeIcon)).toHaveCount(0);
+
+    // Drag src onto dest
+    await dragAndDrop(
+      app.page,
+      selectors.tags.folderCard('src'),
+      selectors.tags.folderCard('dest'),
+    );
+
+    // Wait for gallery to update
+    await app.page.waitForFunction(() => (window as any).__appReady === true, null, { timeout: 10000 });
+
+    // Still at the root, not bounced back into "visited"
+    await app.expectFolderNotVisible('src');
+    await expect(app.page.locator(selectors.tags.homeIcon)).toHaveCount(0);
+    await app.expectFolderVisible('visited');
+    await app.expectFolderVisible('dest');
+  });
+
   test('name conflict on folder reparent shows error toast', async ({ app }) => {
     // Create "shared" at root and "a/shared" (a child "shared" under "a")
     await app.createTag('shared');
