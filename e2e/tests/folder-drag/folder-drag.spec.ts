@@ -374,6 +374,23 @@ test.describe('Folder Drag-and-Drop', () => {
     await app.page.locator(selectors.tags.homeIcon).click();
     await expect(app.page.locator(selectors.tags.homeIcon)).toHaveCount(0);
 
+    // Flag when the tag:updated handler has finished. __appReady is set once at
+    // startup, so it can't tell us the bounce this test guards against has had
+    // its chance to happen. The wrapper restores the original on first call.
+    await app.page.evaluate(() => {
+      const w = window as any;
+      const original = w.handleTagReferenceEvent;
+      w.__tagEventHandled = false;
+      w.handleTagReferenceEvent = async (...args: unknown[]) => {
+        w.handleTagReferenceEvent = original;
+        try {
+          return await original(...args);
+        } finally {
+          w.__tagEventHandled = true;
+        }
+      };
+    });
+
     // Drag src onto dest
     await dragAndDrop(
       app.page,
@@ -381,8 +398,7 @@ test.describe('Folder Drag-and-Drop', () => {
       selectors.tags.folderCard('dest'),
     );
 
-    // Wait for gallery to update
-    await app.page.waitForFunction(() => (window as any).__appReady === true, null, { timeout: 10000 });
+    await app.page.waitForFunction(() => (window as any).__tagEventHandled === true, null, { timeout: 10000 });
 
     // Still at the root, not bounced back into "visited"
     await app.expectFolderNotVisible('src');
