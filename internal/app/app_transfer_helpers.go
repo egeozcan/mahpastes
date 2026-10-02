@@ -90,3 +90,13 @@ func (a *App) deleteTempFilesForClipIDs(ids []int64) error {
 	}
 	return a.tempStore.DeleteForClipIDs(ids)
 }
+
+// dropTempFilesOfPluginDeletedClips is the plugin clips API's report of clips
+// it deleted with its own SQL. Their temp files — a drag-out copy, a link
+// snapshot — would otherwise stay on disk as plaintext copies of clips the
+// library no longer holds, until the pruner happened to look.
+func (a *App) dropTempFilesOfPluginDeletedClips(ids []int64) {
+	if err := a.deleteTempFilesForClipIDs(ids); err != nil {
+		log.Printf("Warning: failed to clean temp files for plugin-deleted clips: %v", err)
+	}
+}

@@ -563,6 +563,176 @@ func normalizeShareSeqs(db sqlExecer) error {
 	return err
 }
 
+const (
+	// restoredShareSeqStride is how far past the highest seq a restore knows
+	// about a restored publication resumes. It only has to exceed what the
+	// original machine published after the backup was taken. Every clip takes
+	// at least three seqs (start, one chunk, end), so 2^32 is over a billion
+	// clips.
+	restoredShareSeqStride uint64 = 1 << 32
+
+	// restoredShareSeqClockShift scales the wall-clock floor in
+	// restoredShareSeqBase. Unix seconds << 20 grows by about a million seqs a
+	// second, which at 1 MiB per chunk is 1 TiB/s of published data. No
+	// publication sustains that. The floor stays below 2^53, the largest
+	// integer a JS number holds exactly (ShareInfo.LastSeq reaches the
+	// frontend as one), until the 23rd century.
+	restoredShareSeqClockShift = 20
+
+	// maxRestorableShareSeq bounds the head a restore will advance from. Real
+	// use never comes near it (that takes on the order of 2^30 restores). A
+	// backup that does is corrupt or hostile, and advancing it would bring
+	// int64, the type every seq column is stored as, within reach of wrapping
+	// negative.
+	maxRestorableShareSeq uint64 = 1 << 62
+)
+
+// restoredShareSeqBase returns the last_seq a restored publication resumes
+// at: a stride above the highest of three heads. Each one covers a different
+// way a follower can already be past the seqs the backup knows about.
+//
+//   - restoredHead is the backup's own. The original machine may have kept
+//     publishing after the backup was taken, and its followers kept consuming.
+//   - priorHead is the same publication's head on this install before the
+//     restore replaced it (0 if there was none). Restoring over a machine that
+//     is running the share, whether rolling it back or restoring the same
+//     backup a second time, must not start below where that machine's
+//     followers already are.
+//   - The wall-clock floor covers the same backup restored a second time on a
+//     different machine. Neither the backup nor the new install records how
+//     far the first restore's incarnation got, so both heads above are what
+//     the first restore saw. The floor grows faster than any publication
+//     consumes seqs, so a later restore starts above everything an earlier
+//     one published.
+//
+// A wrong clock only weakens the third case. The floor can raise the base but
+// never lower it, and the stride over the first two heads does not depend on
+// it. A clock too far in the future to scale is ignored.
+//
+// ok is false when the head is too high to advance safely; see
+// maxRestorableShareSeq.
+func restoredShareSeqBase(restoredHead, priorHead uint64, now time.Time) (base uint64, ok bool) {
+	head := max(restoredHead, priorHead)
+	if unix := now.Unix(); unix > 0 && uint64(unix) <= maxRestorableShareSeq>>restoredShareSeqClockShift {
+		head = max(head, uint64(unix)<<restoredShareSeqClockShift)
+	}
+	if head > maxRestorableShareSeq {
+		return 0, false
+	}
+	return head + restoredShareSeqStride, true
+}
+
+// captureShareSeqHeads records, by share_id, the highest seq each publication
+// on this install has reached (last_seq or the top of its ring, whichever is
+// higher) before a restore replaces the rows. advanceRestoredShareSeqs uses it
+// as the priorHead for the same publication coming back from the backup.
+//
+// Every row counts, invalid ones included. An earlier non-adopting restore
+// leaves a publication invalid without lowering what its followers consumed
+// before that, so a later restore that adopts it again still has to start
+// above that point.
+func captureShareSeqHeads(db sqlQueryer) (map[string]uint64, error) {
+	rows, err := db.Query(`
+		SELECT share_id, MAX(
+			last_seq,
+			COALESCE((SELECT MAX(seq) FROM share_ring WHERE publication_id = shares.id), 0)
+		)
+		FROM shares`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	heads := make(map[string]uint64)
+	for rows.Next() {
+		var shareID []byte
+		var head int64
+		if err := rows.Scan(&shareID, &head); err != nil {
+			return nil, err
+		}
+		if head > 0 {
+			heads[string(shareID)] = uint64(head)
+		}
+	}
+	return heads, rows.Err()
+}
+
+// advanceRestoredShareSeqs gives every publication a restore is about to bring
+// back a fresh seq range. "About to bring back" means every row not already
+// invalid, which is exactly the set captureShareStatuses reactivates. Paused
+// rows are included because resuming one later reconnects the same followers.
+//
+// A backup is a snapshot of a publication that may have gone on publishing,
+// so its followers can be at any seq past the backup's last_seq. Resuming at
+// last_seq+1 reissued seqs they had already consumed to new clips. Catch-up
+// only selects ring rows above the follower's since_seq, so those clips were
+// never sent: they were skipped, not duplicated. Resuming above every head a
+// follower can hold puts each follower's since_seq below the new range. The
+// ordinary head-gap path in planRetransmit then carries the follower up to
+// the new range and replays everything published after the restore.
+//
+// The restored ring rows are kept. They sit at or below the backup's head, so
+// under a head a stride higher they leave a hole in the ring's seqs, and they
+// are still the backlog of every follower that was behind the backup point:
+// the usual follower when a share moves to a new machine, or rolls back,
+// within the ring's hour. planCatchupBatch ends a batch at the hole and
+// drain-closes it, so such a follower is sent the backlog, reconnects from the
+// backup's head, and is gapped over the hole from there. Purging the rows
+// instead gapped it straight to the new head, past clips the backup still
+// held. They age out of the ring on the usual TTL.
+//
+// It runs after normalizeShareSeqs, so last_seq already covers the restored
+// ring. A publication whose head cannot be advanced safely is invalidated
+// here instead, which also keeps it out of the reactivation capture.
+func advanceRestoredShareSeqs(db interface {
+	sqlExecer
+	sqlQueryer
+}, priorHeads map[string]uint64, now time.Time) error {
+	type restoredShare struct {
+		id      int64
+		shareID []byte
+		lastSeq int64
+	}
+	rows, err := db.Query(`SELECT id, share_id, last_seq FROM shares WHERE status != 'invalid'`)
+	if err != nil {
+		return err
+	}
+	// Collected and closed before any write: the caller's transaction is one
+	// connection, and the updates below must not run under an open cursor.
+	var restored []restoredShare
+	for rows.Next() {
+		var s restoredShare
+		if err := rows.Scan(&s.id, &s.shareID, &s.lastSeq); err != nil {
+			rows.Close()
+			return err
+		}
+		restored = append(restored, s)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+
+	for _, s := range restored {
+		// A negative last_seq can only come from corrupt backup SQL. As a
+		// uint64 it is far above maxRestorableShareSeq, so it is invalidated
+		// below rather than treated as "nothing published".
+		base, ok := restoredShareSeqBase(uint64(s.lastSeq), priorHeads[string(s.shareID)], now)
+		if !ok {
+			fmt.Printf("Warning: restored share %d has last_seq %d, too high to resume safely; marking it invalid\n", s.id, s.lastSeq)
+			if _, err := db.Exec(`UPDATE shares SET status = 'invalid' WHERE id = ?`, s.id); err != nil {
+				return err
+			}
+			continue
+		}
+		if _, err := db.Exec(`UPDATE shares SET last_seq = ? WHERE id = ?`, int64(base), s.id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // captureShareStatuses records, grouped by status, the id of every shares row
 // that is not already invalid. RestoreBackup calls it inside the restore
 // transaction, after the backup's rows have been replayed, so what it captures
@@ -750,7 +920,10 @@ func ValidateBackup(backupPath string) (*BackupManifest, error) {
 //
 // Whatever the policy, restored shares rows survive as 'active' only when the
 // identity they were created under is the identity the rebuilt manager will
-// load. See the decision matrix at the invalidation below.
+// load. See the decision matrix at the invalidation below. Rows that do come
+// back resume at a fresh seq range above anything their followers can have
+// consumed, with the backup's ring history dropped; see
+// advanceRestoredShareSeqs.
 //
 // Any other value returns an error.
 //
@@ -927,12 +1100,28 @@ func (a *App) RestoreBackup(backupPath, identityPolicy string) (err error) {
 		err = fmt.Errorf("backup restored, but sharing is now disabled because the share manager could not be restarted (restarting the app may recover it): %w", rerr)
 	}()
 
-	// Begin transaction
-	tx, err := a.db.Begin()
+	// Write lock first: an adopting restore reads this install's share heads
+	// before its first DELETE, and from a plain Begin that DELETE would have
+	// to upgrade a read snapshot, which fails at once with SQLITE_BUSY while
+	// anything else is writing (an upload, a plugin, the cleanup job). See
+	// beginWriteTx. share_ring is the first table cleared below anyway.
+	tx, err := beginWriteTx(a.db, "share_ring")
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback()
+
+	// Read this install's own share heads before the rows are deleted below.
+	// A restore that adopts the identity may be landing on a machine that is
+	// already running some of the backup's publications, and their followers
+	// are wherever this machine got to. See advanceRestoredShareSeqs.
+	var priorShareHeads map[string]uint64
+	if adoptIdentity {
+		priorShareHeads, err = captureShareSeqHeads(tx)
+		if err != nil {
+			return fmt.Errorf("capture share sequences before restore: %w", err)
+		}
+	}
 
 	// Clear all existing data. Order matters: child tables before parent tables to
 	// respect FK constraints. share_ring references shares(id), so it goes first;
@@ -1014,6 +1203,21 @@ func (a *App) RestoreBackup(backupPath, identityPolicy string) (err error) {
 	// UNIQUE(publication_id, seq).
 	if err := normalizeShareSeqs(tx); err != nil {
 		return fmt.Errorf("normalize restored share sequences: %w", err)
+	}
+
+	// Adopting the identity brings the restored publications back under the
+	// share strings their followers already hold, and those followers may be
+	// past the backup's last_seq. Move the publications to a seq range none
+	// of their followers can have reached. This has to happen before their
+	// statuses are captured for reactivation, because it invalidates any it
+	// cannot advance. It also has to happen in this transaction: reactivation
+	// commits only after this one, so no crash can leave a publication active
+	// at the backup's seqs. Without adoption every row is invalidated below
+	// and never publishes again, so the rows are left as the backup had them.
+	if adoptIdentity {
+		if err := advanceRestoredShareSeqs(tx, priorShareHeads, time.Now()); err != nil {
+			return fmt.Errorf("advance restored share sequences (%s policy): %w", identityPolicy, err)
+		}
 	}
 
 	// A restored publication is only usable if the peer id in its share strings

@@ -175,7 +175,8 @@ type Manager struct {
 	updateChecker    *UpdateChecker
 	metadataGet      MetadataGetFunc
 	metadataUpdate   MetadataUpdateFunc
-	tagCreateFn      TagCreateFunc
+	tagHost          TagHostFuncs
+	clipsDeleted     ClipsDeletedFunc
 }
 
 // NewManager creates a new plugin manager
@@ -210,7 +211,72 @@ func (m *Manager) SetMetadataFuncs(getFn MetadataGetFunc, updateFn MetadataUpdat
 // SetTagCreateFunc sets the tag creation function used by the tags Lua API.
 // When set, tags.create() delegates to App.CreateTag for subtag auto-creation.
 func (m *Manager) SetTagCreateFunc(fn TagCreateFunc) {
-	m.tagCreateFn = fn
+	m.tagHost.Create = fn
+}
+
+// SetTagMutationFuncs sets the functions tags.add_to_clip, tags.remove_from_clip
+// and tags.delete delegate to, so plugin tag changes go through the App methods
+// that own their side effects (see TagHostFuncs). Like the other setters it
+// must run before plugins load; each plugin captures the functions at load.
+func (m *Manager) SetTagMutationFuncs(addFn, removeFn TagClipFunc, deleteFn TagDeleteFunc) {
+	m.tagHost.AddToClip = addFn
+	m.tagHost.RemoveFromClip = removeFn
+	m.tagHost.Delete = deleteFn
+}
+
+// SetClipsDeletedFunc sets the function clips.delete and clips.delete_many
+// report the ids they removed to. Like the other setters it must run before
+// plugins load.
+func (m *Manager) SetClipsDeletedFunc(fn ClipsDeletedFunc) {
+	m.clipsDeleted = fn
+}
+
+// clipsDeletedFor returns the clips-deleted host function for one plugin,
+// marked as a host call like tagHostFor's, so a host that ever emits a plugin
+// event from it cannot deadlock on the calling sandbox.
+func (m *Manager) clipsDeletedFor(s *Sandbox) ClipsDeletedFunc {
+	fn := m.clipsDeleted
+	if fn == nil {
+		return nil
+	}
+	return func(ids []int64) {
+		defer s.enterHostCall()()
+		fn(ids)
+	}
+}
+
+// tagHostFor returns the tag host functions for one plugin, each marking s as
+// parked in a host call while it runs. Every one of them emits plugin events
+// synchronously from inside the Lua call that made it, which is what
+// EmitEvent needs to know to avoid delivering into a sandbox whose mutex its
+// own call chain is holding.
+func (m *Manager) tagHostFor(s *Sandbox) TagHostFuncs {
+	h := m.tagHost
+	if fn := h.Create; fn != nil {
+		h.Create = func(name string) (*TagCreateResult, error) {
+			defer s.enterHostCall()()
+			return fn(name)
+		}
+	}
+	if fn := h.AddToClip; fn != nil {
+		h.AddToClip = func(clipID, tagID int64) error {
+			defer s.enterHostCall()()
+			return fn(clipID, tagID)
+		}
+	}
+	if fn := h.RemoveFromClip; fn != nil {
+		h.RemoveFromClip = func(clipID, tagID int64) error {
+			defer s.enterHostCall()()
+			return fn(clipID, tagID)
+		}
+	}
+	if fn := h.Delete; fn != nil {
+		h.Delete = func(tagID int64) error {
+			defer s.enterHostCall()()
+			return fn(tagID)
+		}
+	}
+	return h
 }
 
 // SetPermissionCallback sets the callback for filesystem permission requests
@@ -285,6 +351,7 @@ func (m *Manager) loadPlugin(p *Plugin) error {
 
 	// Register APIs
 	clipsAPI := NewClipsAPI(m.db, manifest.Network)
+	clipsAPI.onDeleted = m.clipsDeletedFor(sandbox)
 	clipsAPI.Register(sandbox.GetState())
 
 	// urlKeys: settings whose value only the user may write (a url setting
@@ -315,7 +382,7 @@ func (m *Manager) loadPlugin(p *Plugin) error {
 	utilsAPI := NewUtilsAPI(manifest.Name, manifest.Clipboard)
 	utilsAPI.Register(sandbox.GetState())
 
-	tagsAPI := NewTagsAPI(m.db, m.tagCreateFn)
+	tagsAPI := NewTagsAPI(m.db, m.tagHostFor(sandbox))
 	tagsAPI.Register(sandbox.GetState())
 
 	toastAPI := NewToastAPI(m.bridge, p.ID)
@@ -366,20 +433,14 @@ func (m *Manager) loadPlugin(p *Plugin) error {
 // UnloadPlugin unloads a plugin
 func (m *Manager) UnloadPlugin(pluginID int64) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	p, ok := m.plugins[pluginID]
 	if !ok {
+		m.mu.Unlock()
 		return
 	}
 
 	// Stop scheduled tasks
 	m.scheduler.RemovePluginTasks(pluginID)
-
-	// Close sandbox
-	if p.Sandbox != nil {
-		p.Sandbox.Close()
-	}
 
 	// Remove from event subscribers
 	for event, subscribers := range m.eventSubscribers {
@@ -393,6 +454,16 @@ func (m *Manager) UnloadPlugin(pluginID int64) {
 	}
 
 	delete(m.plugins, pluginID)
+	m.mu.Unlock()
+
+	// Close only after releasing m.mu. Close waits for a running handler, and
+	// a handler parked in a host call (tags.* re-entering the App) is about to
+	// emit an event, which needs m.mu to find subscribers: holding m.mu here
+	// deadlocks the two. Unregistering first keeps new events off the sandbox
+	// while it waits.
+	if p.Sandbox != nil {
+		p.Sandbox.Close()
+	}
 	log.Printf("Unloaded plugin: %s", p.Name)
 }
 
@@ -433,13 +504,29 @@ func (m *Manager) EmitEvent(event string, data interface{}) {
 			continue
 		}
 
-		// Call handler with data conversion happening inside the sandbox's mutex
-		if err := p.Sandbox.CallHandlerWithData(handlerName, data); err != nil {
-			log.Printf("Plugin %s handler %s failed: %v", p.Name, handlerName, err)
-			m.incrementErrorCount(pluginID)
-		} else {
-			m.resetErrorCount(pluginID)
+		// A sandbox parked in a host call is held by a handler waiting for an
+		// App call to return — very often the very call emitting this event
+		// (a handler's tags.add_to_clip emits tag:added_to_clip), or one further
+		// up a chain of plugins re-entering each other. Its mutex cannot come
+		// free until that call returns, so a synchronous delivery would wait on
+		// its own stack forever. Deliver once the handler has finished instead:
+		// the event still arrives, just after the handler that caused it.
+		if p.Sandbox.inHostCall() {
+			go m.deliverEvent(pluginID, p.Name, p.Sandbox, handlerName, data)
+			continue
 		}
+		m.deliverEvent(pluginID, p.Name, p.Sandbox, handlerName, data)
+	}
+}
+
+// deliverEvent runs one plugin's handler for an event and keeps its error
+// count. Data conversion happens inside the sandbox's mutex.
+func (m *Manager) deliverEvent(pluginID int64, name string, sandbox *Sandbox, handlerName string, data interface{}) {
+	if err := sandbox.CallHandlerWithData(handlerName, data); err != nil {
+		log.Printf("Plugin %s handler %s failed: %v", name, handlerName, err)
+		m.incrementErrorCount(pluginID)
+	} else {
+		m.resetErrorCount(pluginID)
 	}
 }
 
@@ -998,18 +1085,20 @@ func (m *Manager) Shutdown() {
 	// Stop scheduler
 	m.scheduler.StopAll()
 
-	// Close all sandboxes
+	// Close all sandboxes — after releasing m.mu, for the reason UnloadPlugin
+	// gives: closing waits for running handlers, and one parked in a host call
+	// needs m.mu to emit its event.
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	plugins := m.plugins
+	m.plugins = make(map[int64]*Plugin)
+	m.eventSubscribers = make(map[string][]int64)
+	m.mu.Unlock()
 
-	for _, p := range m.plugins {
+	for _, p := range plugins {
 		if p.Sandbox != nil {
 			p.Sandbox.Close()
 		}
 	}
-
-	m.plugins = make(map[int64]*Plugin)
-	m.eventSubscribers = make(map[string][]int64)
 }
 
 // StorePendingUpdate stores a pending update source for later confirmation.

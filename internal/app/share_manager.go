@@ -101,6 +101,10 @@ type ShareManager struct {
 	// instead of the 16 MiB of real data the production budget would need.
 	catchupCapsOverride *catchupCaps
 
+	// followTimingOverride — test-only knob. nil means defaultFollowTiming().
+	// Lets a test walk the reconnect ladder in milliseconds, without jitter.
+	followTimingOverride *followTiming
+
 	// logs is an in-memory ring buffer of share-system events surfaced to
 	// the UI via GetShareLogs. Never nil after NewShareManager.
 	logs *shareLogBuffer
@@ -129,22 +133,13 @@ func NewShareManager(parent context.Context, db *sql.DB, dataDir string) (*Share
 		return nil, fmt.Errorf("identity: %w", err)
 	}
 
-	// Neutral AgentVersion to avoid install-specific fingerprinting (spec §5.4).
-	h, err := libp2p.New(
-		libp2p.Identity(priv),
-		libp2p.UserAgent("mahpastes"),
-		libp2p.EnableRelay(),
-		libp2p.EnableHolePunching(),
-		libp2p.EnableAutoRelayWithStaticRelays(defaultStaticRelays()),
-		libp2p.ListenAddrStrings(
-			"/ip4/0.0.0.0/tcp/0",
-			"/ip4/0.0.0.0/udp/0/quic-v1",
-		),
-	)
+	relays := newRelayCandidateSource()
+	h, err := libp2p.New(shareHostOptions(priv, relays.peerSource)...)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("libp2p.New: %w", err)
 	}
+	relays.setHost(h)
 
 	// Register circuit-relay v2 stop handler so we can be reached via relay.
 	if _, err := relay.New(h); err == nil {
@@ -160,6 +155,7 @@ func NewShareManager(parent context.Context, db *sql.DB, dataDir string) (*Share
 		cancel()
 		return nil, fmt.Errorf("dht.New: %w", err)
 	}
+	relays.setRoutingPeers(kad.RoutingTable().ListPeers)
 
 	// Seeded WAN bootstrap: connect to well-known bootstrap peers so the DHT
 	// routing table is populated and FindPeer works for cross-network discovery.
@@ -446,8 +442,8 @@ func (fc *followerConn) enqueue(env []byte) {
 // This is the truncated-catch-up path: the follower consumes the batch,
 // advances its durable boundary to the batch's last clip_end, sees EOF, and
 // reconnects for the next batch. runFollowLoop resets the backoff ladder to
-// ReconnectFloor after any handshaked session, so that costs ~1s per batch
-// instead of a growing backoff.
+// ReconnectFloor after any accepted session (the batch's first frame is the
+// acceptance), so that costs ~1s per batch instead of a growing backoff.
 func (fc *followerConn) finishAfterDrain() {
 	fc.mu.Lock()
 	defer fc.mu.Unlock()
@@ -559,18 +555,11 @@ type follow struct {
 	// retry dials immediately instead of sleeping for up to ReconnectCap.
 	// Buffered 1 + non-blocking send so repeated kicks coalesce.
 	reconnectSignal chan struct{}
-}
-
-// defaultStaticRelays returns a placeholder relay list. In production libp2p
-// has a maintained public relay set; we use a small well-known list.
-// See https://github.com/libp2p/go-libp2p/blob/master/p2p/host/autorelay for
-// the upstream convention. For the initial implementation it's acceptable to
-// fall back to AutoRelay without a static list (libp2p discovers via DHT).
-func defaultStaticRelays() []peer.AddrInfo {
-	// Intentionally empty: AutoRelay will discover relays via the DHT. This
-	// returns [] to avoid pinning specific relay nodes in-source; revisit if
-	// libp2p EnableAutoRelayWithPeerSource becomes the blessed API.
-	return nil
+	// acceptSession, when set, is called by consumeStream once the session's
+	// first frame decrypts — the publisher's proof it took the handshake.
+	// Session-scoped and owned by the loop goroutine like lastSeq:
+	// followSession installs it for the session it runs and clears it after.
+	acceptSession func()
 }
 
 // registerPublication adds (or updates) a publication in the in-memory map.
@@ -734,12 +723,14 @@ type seqRange struct{ Start, End uint64 }
 //
 // Truncated means the connection must send Send and then close once it
 // drains, so the follower advances its durable boundary and reconnects for
-// whatever comes next. It fires for two reasons: surviving rows were left
+// whatever comes next. It fires for three reasons: surviving rows were left
 // behind, where leaving the connection registered for live fan-out would
 // splice live envelopes onto a stream with a seq hole in it that the follower
-// cannot decrypt past; or the batch carries a clip over the soft caps, which
-// owns the whole connection because it plus live fan-out cannot both fit the
-// follower's send queue. So Truncated does not imply rows remain.
+// cannot decrypt past; the batch stops at a hole in the ring's own seqs,
+// which only a gap can cross, and a plan's one gap opens the connection; or
+// the batch carries a clip over the soft caps, which owns the whole connection
+// because it plus live fan-out cannot both fit the follower's send queue. So
+// Truncated does not imply rows remain.
 //
 // Skipped names clips that no batch can ever carry (their envelopes exceed
 // the hard cap). GapTarget already covers them; the caller logs them.
@@ -802,13 +793,33 @@ func groupCost(g []RingRowMeta) (bytes int64, slots int) {
 // Batching converges instead. Each connection carries a whole number of
 // clips; when rows are left over the caller closes the stream after the batch
 // drains and the follower comes straight back for the next one.
+//
+// The same paging crosses holes in the ring's seqs. Seq is in every
+// envelope's AAD, so a stream has to run contiguously from wherever the
+// opening gap lands the follower. A hole met before anything is batched is
+// folded into that gap. After that a batch ends at the first hole: between
+// two clips, or between its last clip and pubLastSeq, where live fan-out
+// resumes. The follower stores the batch, reconnects from the clip_end below
+// the hole, and the next handshake's head gap carries it over. An
+// identity-adopting restore leaves exactly that shape: the backup's ring
+// under a head a stride higher (advanceRestoredShareSeqs). The age sweep can
+// leave a smaller one, since it deletes by timestamp and a clock that stepped
+// back between two emissions expires the later clip first. Each such round
+// delivers at least one clip and the next one starts above it, so a hole
+// costs one reconnect and never a loop. A contiguous ring that ends at
+// pubLastSeq, the steady state, is never cut by this.
 func planCatchupBatch(rows []RingRowMeta, sinceSeq, pubLastSeq uint64, caps catchupCaps, metaTruncated bool) catchupPlan {
 	// Publisher sequence regression: this follower is ahead of the history
 	// the publisher still has. The only way for last_seq to move backwards is
-	// a restore from an older backup under identity policy "takeover", which
-	// adopts the backup's identity and keeps the restored shares rows active —
-	// so the follower's symkey and share_id still verify, but every seq it has
-	// already consumed is about to be handed out again to a different clip.
+	// a restore from an older backup that adopts the backup's identity and
+	// keeps the restored shares rows active ("takeover", or "none" on a fresh
+	// install), so the follower's symkey and share_id still verify.
+	// RestoreBackup now resumes such publications far above any seq a
+	// follower can have consumed (advanceRestoredShareSeqs), so a database
+	// restored by this build should not reach this branch. It remains for
+	// databases restored by earlier builds, which resumed at the backup's own
+	// last_seq and handed every seq the follower had consumed out again, and
+	// as the brick guard should that resume point ever fall short.
 	//
 	// Left alone this is a permanent brick: no surviving row has seq >
 	// sinceSeq, pubLastSeq < sinceSeq means the forward-only gap below stays
@@ -816,11 +827,16 @@ func planCatchupBatch(rows []RingRowMeta, sinceSeq, pubLastSeq uint64, caps catc
 	// at pubLastSeq+1 — far below the seq it will try — whereupon the session
 	// dies, reconnects with the identical since_seq, and repeats forever.
 	//
-	// Rewinding the follower to pubLastSeq costs duplicates: clips the
-	// publisher re-emits over the reused seq range arrive as clips the
-	// follower has already stored, and it inserts them again. They carry
-	// content_hash, so the dedup feature can find them. Recoverable-with-
-	// duplicates beats permanently bricked.
+	// Rewinding the follower to pubLastSeq un-bricks it, but it is not
+	// lossless. Clips the legacy-restored publisher emitted before this
+	// handshake sit at seqs no higher than pubLastSeq, so below sinceSeq, and
+	// they are skipped for this follower rather than redelivered. A follower
+	// whose sinceSeq the publisher had already overtaken never reaches this
+	// branch, and loses the clips at seqs up to its sinceSeq the same way.
+	// Nothing in the ring records where the restore began, so neither case can
+	// be repaired here. That is why the fix lives in RestoreBackup. Clips
+	// republished over the reused range can also arrive as duplicates; they
+	// carry content_hash, so the dedup feature can find them.
 	//
 	// rows is ignored deliberately. Every ring row is written in the same
 	// transaction that raises last_seq past it, and a restore replaces shares
@@ -845,6 +861,20 @@ func planCatchupBatch(rows []RingRowMeta, sinceSeq, pubLastSeq uint64, caps catc
 	var usedSlots int
 
 	for i, g := range groups {
+		if batchEnd > batchStart {
+			// Rows are already batched behind the plan's one gap, so a hole
+			// here cannot be crossed on this connection. Stop below it.
+			if prev := groups[i-1]; g[0].Seq != prev[len(prev)-1].Seq+1 {
+				plan.Truncated = true
+				break
+			}
+		} else if i > 0 && g[0].Seq > plan.GapTarget+1 {
+			// Only skips so far. The gap past them is still the first frame,
+			// so it can cross this hole too and land on this clip_start.
+			// Landing on the skipped clip's end would seal this clip's rows
+			// above the seqs the follower is expecting.
+			plan.GapTarget = g[0].Seq - 1
+		}
 		gBytes, gSlots := groupCost(g)
 		if usedSlots+gSlots <= caps.softSlots && usedBytes+gBytes <= caps.softBytes {
 			usedBytes += gBytes
@@ -897,6 +927,24 @@ func planCatchupBatch(rows []RingRowMeta, sinceSeq, pubLastSeq uint64, caps catc
 			plan.GapTarget = lastWindow
 		}
 		plan.Truncated = true
+	}
+	// Everything left in the window was batched, but the batch stops below
+	// the head: the backup's ring under a restored head, or the age sweep
+	// took the top of the ring. Left registered, the follower would be handed
+	// the next live envelope at pubLastSeq+1 while expecting the seq after
+	// this batch, so it is drain-closed instead.
+	//
+	// This applies only to a batch that ends on a clip_end: that moves the
+	// follower's boundary past since_seq, so the next handshake starts above
+	// it. A batch that ends inside a clip comes only from a corrupt ring
+	// (every emission commits a whole clip under the fmu this handshake
+	// holds, and eviction takes a clip from its clip_start end), and
+	// truncating it would answer every reconnect with the same batch. It is
+	// left registered, as before.
+	if !plan.Truncated && len(plan.Send) > 0 {
+		if last := plan.Send[len(plan.Send)-1]; last.Kind == KindClipEnd && last.Seq < pubLastSeq {
+			plan.Truncated = true
+		}
 	}
 	// Nothing survived that we can send and nothing is being held back: the
 	// follower still has to be carried up to the publication's head, exactly
@@ -975,7 +1023,9 @@ func encodeGapEnvelope(symkey, shareID []byte, aadSeq, target uint64) ([]byte, e
 //  5. enforce per-publication + per-peer stream caps
 //  6. plan a catch-up batch from share_ring metadata with seq > since_seq
 //     (TTL enforced in SQL), fetch only that batch's envelopes, prefixed
-//     by a synthesized gap envelope when eviction left a hole (planRetransmit)
+//     by a synthesized gap envelope when eviction left a hole (planRetransmit),
+//     or answered with a no-op gap when there is nothing to send, so every
+//     accepted handshake gets a frame
 //  7. register the followerConn so future live envelopes flow here
 func (m *ShareManager) handlePublisherStream(s network.Stream) {
 	// libp2p invokes this on its own goroutine, and the body reads the DB
@@ -1148,6 +1198,28 @@ func (m *ShareManager) handlePublisherStream(s network.Stream) {
 	for _, env := range envelopes {
 		fc.enqueue(env)
 	}
+	// Every accepted handshake is answered with at least one frame. A refusal
+	// is a bare Reset, so until something arrives the follower cannot tell
+	// "accepted, idle" from "refused, reset in flight" (see followSession). A
+	// follower with nothing to catch up gets a no-op gap instead — target
+	// since_seq, sealed at since_seq+1 — which every follower version already
+	// honours as a first frame and which leaves it where it was: the next
+	// live envelope still decrypts at since_seq+1. (A follower from before
+	// this frame also logs it as a rewind to the same seq; harmless.) Nothing
+	// else is queued at this point, so it cannot crowd a catch-up batch. The
+	// condition mirrors the gap block above: no gap and no envelopes means
+	// nothing was sent.
+	if len(envelopes) == 0 && !(plan.GapTarget > 0 || plan.Rewind) {
+		acceptEnv, err := encodeGapEnvelope(pub.symkey, pub.shareID, hs.SinceSeq+1, hs.SinceSeq)
+		if err != nil {
+			log.Printf("share: accept envelope: %v", err)
+			delete(pub.followers, s)
+			pub.fmu.Unlock()
+			fc.close()
+			return
+		}
+		fc.enqueue(acceptEnv)
+	}
 	if plan.Truncated {
 		// Either backlog is left over — registering this follower for live
 		// fan-out would splice live envelopes onto a stream that stops short
@@ -1155,7 +1227,7 @@ func (m *ShareManager) handlePublisherStream(s network.Stream) {
 		// a clip over the soft caps, which needs the send queue to itself.
 		// Send the batch and close instead: the follower stores the clips,
 		// advances its durable boundary to the batch's last clip_end, and
-		// reconnects (~1s, the backoff floor after a handshaked session).
+		// reconnects (~1s, the backoff floor after an accepted session).
 		//
 		// finishAfterDrain must happen before pub.fmu is released — that is
 		// what guarantees no emission slips a live envelope in behind us.
@@ -1230,7 +1302,11 @@ func (m *ShareManager) StartShare(tagID int64) (ShareInfo, error) {
 		ShareString: s, Status: "active",
 		Followers: 0, ClipsPushed: 0, CreatedAt: now,
 	}
-	m.emitEvent("share:publication-updated", info)
+	// Events reach every unscoped SSE session whatever its role, so they never
+	// carry the share string; listeners re-fetch status instead.
+	ev := info
+	ev.ShareString = ""
+	m.emitEvent("share:publication-updated", ev)
 	m.logs.append(ShareLogEntry{
 		Level: "info", Scope: "share", PublicationID: id,
 		Message: fmt.Sprintf("started share for tag_id=%d", tagID),
@@ -1452,6 +1528,7 @@ func (m *ShareManager) GetShareLogs(followID, publicationID int64) []ShareLogEnt
 
 // emitPublicationUpdated is a small DRY helper — constructing a full
 // ShareInfo payload requires a few queries, and Pause/Resume both need it.
+// ShareString is deliberately left empty (see StartShare's emit).
 func (m *ShareManager) emitPublicationUpdated(pub *publication, tagID int64) {
 	var tagName string
 	_ = m.db.QueryRow(`SELECT name FROM tags WHERE id = ?`, tagID).Scan(&tagName)
@@ -1461,11 +1538,9 @@ func (m *ShareManager) emitPublicationUpdated(pub *publication, tagID int64) {
 	fCount := len(pub.followers)
 	status := pub.status
 	pub.fmu.Unlock()
-	pubKeyBytes, _ := PublicKeyBytes(m.host.Peerstore().PrivKey(m.host.ID()))
-	shareStr, _ := EncodeShareString(pubKeyBytes, pub.symkey)
 	m.emitEvent("share:publication-updated", ShareInfo{
 		ID: pub.id, TagID: tagID, TagName: tagName,
-		ShareString: shareStr, Status: status,
+		Status:    status,
 		Followers: fCount, ClipsPushed: clipsSent,
 		LastSeq:   lastSeqDB,
 		CreatedAt: createdAt,
@@ -1634,7 +1709,12 @@ func (m *ShareManager) emitClipForPublication(
 		return nil
 	}
 
-	tx, err := m.db.Begin()
+	// Write lock first: the emission reads last_seq before its first ring
+	// insert, and a plain Begin would then have to upgrade a read snapshot —
+	// which fails at once with SQLITE_BUSY whenever anything else is writing
+	// (the next file of an upload batch, another publication's emission), and
+	// OnClipCreated can only log that. See beginWriteTx.
+	tx, err := beginWriteTx(m.db, "share_ring")
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
@@ -1672,6 +1752,9 @@ func (m *ShareManager) emitClipForPublication(
 		ContentType: contentType, Metadata: metadata,
 		TotalSize: uint64(totalSize), ChunkCount: chunkCount,
 	}
+	// The strings came out of SQLite as raw bytes; a strict follower rejects
+	// the whole clip_start over one invalid UTF-8 byte (see sanitizeText).
+	start.sanitizeText()
 	startBytes, _ := MarshalPayload(start)
 	startEnv, err := EncryptEnvelope(p.symkey, p.shareID, nextSeq, startBytes)
 	if err != nil {
@@ -1846,7 +1929,7 @@ func (m *ShareManager) followCommit(pid peer.ID, symkey []byte, localTagName str
 		id: id, remotePeerID: pid, symkey: symkey,
 		localTagID: localTagID, lastSeq: 0,
 		// "connecting" = row inserted, runFollowLoop about to start. flips to
-		// "connected" only when followSession completes the handshake, so the
+		// "connected" only when the publisher accepts a session, so the
 		// TestFollowSessionEndFlipsStatusOffline poll gates on an actual live
 		// session (and DisconnectFollowForTest has something to cancel).
 		status: "connecting", ctx: fctx, cancel: fcancel,
@@ -2024,14 +2107,15 @@ func (m *ShareManager) dialByPeerID(ctx context.Context, pid peer.ID) error {
 //   - f.ctx.Done()       — Unfollow: exit the loop.
 //   - f.reconnectSignal  — user action (ReconnectFollow or ResumeFollow):
 //     wake now, reset the backoff ladder, re-check paused.
-//   - time.After(backoff) — normal exponential backoff between dial retries
-//     (ReconnectFloor → ReconnectCap, doubling each *consecutive failed*
-//     retry; see nextFollowBackoff).
+//   - time.After(wait)   — normal exponential backoff between dial retries
+//     (ReconnectFloor → ReconnectCap, doubling each *consecutive* failed or
+//     refused attempt, each wait jittered; see followTiming).
 //
 // Paused follows skip the session entirely and block on reconnectSignal/ctx.
 // Resuming kicks the signal which drops us back to the session attempt.
 func (m *ShareManager) runFollowLoop(f *follow) {
-	backoff := ReconnectFloor
+	ft := m.followTiming()
+	backoff := ft.floor
 	for {
 		f.mu.Lock()
 		paused := f.paused
@@ -2042,68 +2126,62 @@ func (m *ShareManager) runFollowLoop(f *follow) {
 			case <-f.ctx.Done():
 				return
 			case <-f.reconnectSignal:
-				backoff = ReconnectFloor
+				backoff = ft.floor
 				continue
 			}
 		}
 
-		handshaked, err := m.followSession(f)
+		accepted, err := m.followSession(f)
 		if err != nil {
 			m.logs.append(ShareLogEntry{
 				Level: "warn", Scope: "follow", FollowID: f.id,
 				Message: "session ended: " + err.Error(),
 			})
 		}
-		if handshaked {
-			// The session that just ended proved the peer reachable, so the
-			// ladder starts over — including the wait we are about to take.
-			// Without this, a follow that flapped in its first minute stayed
-			// pinned at the 30s cap for the rest of the app's life, no matter
-			// how many hours of clean streaming came after.
-			backoff = ReconnectFloor
+		if accepted {
+			// The session that just ended proved the publisher willing, so
+			// the ladder starts over — including the wait we are about to
+			// take. Without this, a follow that flapped in its first minute
+			// stayed pinned at the 30s cap for the rest of the app's life, no
+			// matter how many hours of clean streaming came after. A refused
+			// session must NOT reset it: a paused or stopped share refuses
+			// every handshake, and resetting on those redialed it at the
+			// floor forever.
+			backoff = ft.floor
 		}
 		select {
 		case <-f.ctx.Done():
 			return
 		case <-f.reconnectSignal:
-			backoff = ReconnectFloor
-		case <-time.After(backoff):
-			backoff = nextFollowBackoff(backoff, handshaked)
+			backoff = ft.floor
+		case <-time.After(ft.wait(backoff)):
+			backoff = ft.next(backoff, accepted)
 		}
 	}
-}
-
-// nextFollowBackoff returns the reconnect wait for a follow whose session just
-// ended. handshaked reports whether that session got as far as a completed
-// handshake: a session that actually worked resets the ladder to the floor, so
-// the backoff measures *consecutive failed dials* rather than the count of
-// sessions since the app started. Only genuine repeat failures grow, capped at
-// ReconnectCap.
-func nextFollowBackoff(current time.Duration, handshaked bool) time.Duration {
-	if handshaked {
-		return ReconnectFloor
-	}
-	next := current * 2
-	if next > ReconnectCap {
-		return ReconnectCap
-	}
-	return next
 }
 
 // followSession dials, handshakes, and streams until either the stream
 // closes on its own or the per-session context is canceled (e.g. by
 // DisconnectFollowForTest). Returns when the session ends for any reason;
 // the caller (runFollowLoop) then decides whether to reconnect. The bool
-// reports whether the handshake was written — the signal runFollowLoop uses
-// to tell "the peer is fine, the stream just ended" from "the dial failed",
-// which are the two cases the backoff ladder must not conflate.
+// reports whether the publisher accepted the session — the signal
+// runFollowLoop uses to tell "the publisher is fine, the stream just ended"
+// from "the dial failed or the publisher refused us", which are the two cases
+// the backoff ladder must not conflate.
 //
-// Status discipline: status flips to "connected" exactly once the
-// handshake is written; the deferred cleanup flips it back to "offline"
-// on every exit path (dial error, handshake error, mid-stream cancel,
-// EOF, consumeStream error). This guarantees the UI card reflects real
-// transport state regardless of which branch returns.
-func (m *ShareManager) followSession(f *follow) (handshaked bool, err error) {
+// A written handshake proves nothing: the write only buffers into the muxer,
+// and a publisher refuses (unknown share_id, bad HMAC, paused share, stream
+// caps) with a bare Reset after reading it. So a session counts as accepted
+// once its first frame decrypts — a current publisher answers every accepted
+// handshake with a frame at once — or, for a publisher too old to, once the
+// stream has stayed open for acceptGrace (FollowAcceptGrace).
+//
+// Status discipline: status flips to "connected" exactly when the session
+// is accepted; the deferred cleanup flips it back to "offline" on every exit
+// path (dial error, handshake error, mid-stream cancel, EOF, consumeStream
+// error). This guarantees the UI card reflects real transport state
+// regardless of which branch returns.
+func (m *ShareManager) followSession(f *follow) (accepted bool, err error) {
 	sessCtx, sessCancel := context.WithCancel(f.ctx)
 	f.mu.Lock()
 	f.sessionCancel = sessCancel
@@ -2111,17 +2189,23 @@ func (m *ShareManager) followSession(f *follow) (handshaked bool, err error) {
 	defer func() {
 		f.mu.Lock()
 		f.sessionCancel = nil
+		wasOffline := f.status == "offline"
 		f.mu.Unlock()
 		sessCancel()
 		// Session ended — always surface offline so the UI and tests have
 		// a reliable signal that catch-up (not live) is next on the wire.
-		m.setFollowStatus(f, "offline")
+		// A follow that was already offline (a refused or failed redial
+		// changed nothing) stays quiet: each share:follow-updated is a full
+		// refresh of the frontend's share view.
+		if !wasOffline {
+			m.setFollowStatus(f, "offline")
+		}
 	}()
 
 	if err := m.dialByPeerID(sessCtx, f.remotePeerID); err != nil {
 		return false, err
 	}
-	s, err := m.host.NewStream(sessCtx, f.remotePeerID, ShareProtocolID)
+	s, err := openFollowStream(sessCtx, m.host, f.remotePeerID, followStreamOpenTimeout)
 	if err != nil {
 		return false, err
 	}
@@ -2139,20 +2223,56 @@ func (m *ShareManager) followSession(f *follow) (handshaked bool, err error) {
 	if _, err := s.Write(hs); err != nil {
 		return false, err
 	}
-	m.setFollowStatus(f, connStatusLabel(s.Conn()))
-	m.logs.append(ShareLogEntry{
-		Level: "info", Scope: "follow", FollowID: f.id,
-		Message: fmt.Sprintf("handshake complete with %s", f.remotePeerID.String()),
-	})
 
-	return true, m.consumeStream(sessCtx, f, s)
+	// accept runs at most once per session, from whichever comes first: the
+	// first decrypted frame (consumeStream, this goroutine) or the grace
+	// timer. Once the session has ended it is a no-op, so a timer that fires
+	// late cannot report a dead session as connected.
+	var amu sync.Mutex
+	var isAccepted, ended bool
+	accept := func() {
+		amu.Lock()
+		defer amu.Unlock()
+		if isAccepted || ended {
+			return
+		}
+		isAccepted = true
+		m.setFollowStatus(f, connStatusLabel(s.Conn()))
+		m.logs.append(ShareLogEntry{
+			Level: "info", Scope: "follow", FollowID: f.id,
+			Message: fmt.Sprintf("handshake complete with %s", f.remotePeerID.String()),
+		})
+	}
+	grace := time.AfterFunc(m.followTiming().acceptGrace, accept)
+	f.acceptSession = accept
+	err = m.consumeStream(sessCtx, f, s)
+	f.acceptSession = nil
+	grace.Stop()
+	amu.Lock()
+	ended = true
+	accepted = isAccepted
+	amu.Unlock()
+	// Name the likely cause in the log: a bare "stream reset" is all the
+	// follower ever sees of a paused or stopped share. A canceled session
+	// (Reconnect, Pause, Unfollow) was ended here, not refused.
+	if !accepted && err != nil && sessCtx.Err() == nil {
+		err = fmt.Errorf("not accepted by the publisher (share paused, stopped, or full?): %w", err)
+	}
+	return accepted, err
 }
 
 // connStatusLabel names the transport a live session is riding. go-libp2p
 // marks circuit-v2 relay connections as Limited (they are byte- and
-// time-budgeted), which is exactly the "connected, but through a relay"
-// state the UI distinguishes with its own pill. Takes the narrow Stat()
-// interface rather than network.Conn so it is testable without a relay.
+// time-budgeted), which is the "connected, but through a relay" state the UI
+// has its own pill for. Takes the narrow Stat() interface rather than
+// network.Conn so it is testable without a relay.
+//
+// For a session followSession opened itself, "connected_relayed" does not
+// occur: openFollowStream refuses Limited connections and waits for DCUtR to
+// upgrade to a direct one, so the stream it returns always rides a direct
+// connection. The relay is where a NATed publisher is reached and the hole
+// punch is arranged; it never carries clip data. The label stays as the
+// classification of a Limited conn should that policy ever change.
 func connStatusLabel(c interface{ Stat() network.ConnStats }) string {
 	if c == nil {
 		return "connected"
@@ -2214,10 +2334,21 @@ func (m *ShareManager) consumeStream(sessCtx context.Context, f *follow, r io.Re
 		if err != nil {
 			return fmt.Errorf("decrypt failed at seq %d: %w", wireSeq, err)
 		}
-		kind, raw, err := PeekPayloadKind(pt)
-		if err != nil {
-			return err
+		// A frame sealed under this share's key at the seq the handshake asked
+		// for is the publisher's answer to it — see followSession.
+		if firstFrame && f.acceptSession != nil {
+			f.acceptSession()
 		}
+		// From here on the frame is authentic: it decrypted under this
+		// share's key at the seq the handshake asked for, so a payload that
+		// fails to decode will fail identically on every replay. Returning
+		// the error would hold the boundary in front of it and wedge the
+		// follow on that one frame until the ring evicts it — so an
+		// undecodable payload poisons the clip it sits in (see
+		// clipAssembler.poison) and the stream moves on.
+		//
+		// A failed peek leaves kind empty, which lands in the default case.
+		kind, raw, peekErr := PeekPayloadKind(pt)
 		// The AAD seq is authoritative for advancing — it is what the sender
 		// actually sealed under. The plaintext Seq field is informational
 		// except on a gap, where it is the advance target.
@@ -2225,19 +2356,30 @@ func (m *ShareManager) consumeStream(sessCtx context.Context, f *follow, r io.Re
 		case KindClipStart:
 			var p ClipStartPayload
 			if err := UnmarshalPayload(raw, &p); err != nil {
-				return err
+				m.dropUndecodableFrame(f, asm, wireSeq, kind, err)
+				break
 			}
+			// Text from a publisher that predates sanitizeText can carry raw
+			// non-UTF-8 bytes, which the lenient decode let through.
+			p.sanitizeText()
 			asm.onStart(p)
 		case KindClipChunk:
 			var p ClipChunkPayload
 			if err := UnmarshalPayload(raw, &p); err != nil {
-				return err
+				m.dropUndecodableFrame(f, asm, wireSeq, kind, err)
+				break
 			}
 			asm.onChunk(p)
 		case KindClipEnd:
 			var p ClipEndPayload
 			if err := UnmarshalPayload(raw, &p); err != nil {
-				return err
+				// Unreadable, but still a clip_end, and a clip_end is a
+				// boundary: step past it now, exactly as for a poisoned clip.
+				// Leaving that to the next clip's end would replay this clip
+				// on every reconnect until another one lands behind it.
+				m.dropUndecodableFrame(f, asm, wireSeq, kind, err)
+				m.advanceFollowBoundary(f, wireSeq)
+				break
 			}
 			// UpdateFollowTag can swap the destination tag mid-session, so
 			// take one snapshot under f.mu and use it for both the insert
@@ -2280,7 +2422,11 @@ func (m *ShareManager) consumeStream(sessCtx context.Context, f *follow, r io.Re
 		case KindGap:
 			var p GapPayload
 			if err := UnmarshalPayload(raw, &p); err != nil {
-				return err
+				// A gap whose target cannot be read cannot be honoured. Skip
+				// it; if the publisher really jumped, the next frame fails to
+				// decrypt and the reconnect asks for a fresh gap.
+				m.dropUndecodableFrame(f, asm, wireSeq, kind, err)
+				break
 			}
 			// Mid-session a gap is forward-only: a backwards target there
 			// would rewind the cursor and replay seqs already consumed, which
@@ -2288,17 +2434,24 @@ func (m *ShareManager) consumeStream(sessCtx context.Context, f *follow, r io.Re
 			// definition, so it can only ever sit between clips either way.
 			//
 			// The first frame is the exception, and it has to be. A publisher
-			// restored from an older backup has a last_seq BELOW what this
-			// follower already consumed; nothing it publishes from then on can
-			// ever be decrypted here, and every reconnect reproduces the same
-			// state, so the follow is bricked with no user-visible cause. The
-			// handshake answer is the publisher saying "my history rewound" —
-			// the only frame that can carry that, since after it the stream is
-			// live envelopes. Accepting it costs duplicates: clips the
-			// publisher re-emits over the reused seqs get stored again as new
-			// clips. They carry content_hash, so dedup can find them.
+			// whose database an earlier build restored from an older backup
+			// has a last_seq BELOW what this follower already consumed; nothing
+			// it publishes from then on can ever be decrypted here, and every
+			// reconnect reproduces the same state, so the follow is bricked
+			// with no user-visible cause. The handshake answer is the
+			// publisher saying "my history rewound" — the only frame that can
+			// carry that, since after it the stream is live envelopes.
+			// Accepting it costs duplicates: clips the publisher re-emits over
+			// the reused seqs get stored again as new clips. They carry
+			// content_hash, so dedup can find them. A publisher on the current
+			// build should not need to send this: RestoreBackup now resumes
+			// restored publications above every follower's seq.
 			if firstFrame || p.Seq > wireSeq {
-				if p.Seq < wireSeq {
+				// A rewind is a target below the durable boundary. wireSeq has
+				// already counted this frame, so comparing against it would
+				// also flag the publisher's accept frame — a gap to exactly
+				// since_seq — on every caught-up reconnect.
+				if p.Seq < f.lastSeq {
 					m.logs.append(ShareLogEntry{
 						Level: "warn", Scope: "follow", FollowID: f.id,
 						Message: fmt.Sprintf(
@@ -2312,6 +2465,15 @@ func (m *ShareManager) consumeStream(sessCtx context.Context, f *follow, r io.Re
 			// is an unconditional UPDATE, which is what makes that work.
 			m.advanceFollowBoundary(f, wireSeq)
 		default:
+			if peekErr != nil {
+				// Not even the kind decodes, so this could be any frame —
+				// including the clip_start of the clip that follows, whose
+				// chunks would then arrive with nothing in flight. Poisoning
+				// covers every case: whatever clip_end comes next steps the
+				// boundary past the clip this frame sat in.
+				m.dropUndecodableFrame(f, asm, wireSeq, "unknown-kind", peekErr)
+				break
+			}
 			// Forward compatibility: a newer publisher may add kinds. Step
 			// over the envelope rather than killing a session that is
 			// otherwise healthy. Wire-only: an unknown kind is not a known
@@ -2332,6 +2494,19 @@ func (m *ShareManager) consumeStream(sessCtx context.Context, f *follow, r io.Re
 func (m *ShareManager) advanceFollowBoundary(f *follow, seq uint64) {
 	f.lastSeq = seq
 	_, _ = m.db.Exec(`UPDATE follows SET last_seq = ? WHERE id = ?`, int64(seq), f.id)
+}
+
+// dropUndecodableFrame handles a frame that decrypted but whose payload did
+// not decode: it poisons the in-flight clip (see clipAssembler.poison) and
+// says so in the follow's log. The durable boundary is the caller's call — a
+// clip_end is one, every other kind is not.
+func (m *ShareManager) dropUndecodableFrame(f *follow, asm *clipAssembler, seq uint64, kind string, err error) {
+	asm.poison(fmt.Sprintf("undecodable %s frame at seq %d: %v", kind, seq, err))
+	log.Printf("share: follow %d: undecodable %s frame at seq %d: %v", f.id, kind, seq, err)
+	m.logs.append(ShareLogEntry{
+		Level: "warn", Scope: "follow", FollowID: f.id,
+		Message: fmt.Sprintf("skipped undecodable %s frame at seq %d", kind, seq),
+	})
 }
 
 func (m *ShareManager) setFollowStatus(f *follow, s string) {
@@ -2437,8 +2612,8 @@ func (m *ShareManager) ResumeAll() error {
 // follow-lifetime context are preserved.
 //
 // Status transitions are unchanged: the session defer will flip to "offline"
-// on exit, then "connected" on the next successful handshake. The existing
-// share:follow-updated event stream surfaces both flips to the UI.
+// on exit, then "connected" once the publisher accepts the next session. The
+// existing share:follow-updated event stream surfaces both flips to the UI.
 func (m *ShareManager) ReconnectFollow(id int64) error {
 	m.mu.RLock()
 	f, ok := m.follows[id]

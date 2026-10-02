@@ -35,16 +35,44 @@ type TagCreateResult struct {
 // It delegates to App.CreateTag so that subtag auto-creation works.
 type TagCreateFunc func(name string) (*TagCreateResult, error)
 
-// TagsAPI provides tag operations to plugins
-type TagsAPI struct {
-	db       *sql.DB
-	createFn TagCreateFunc
+// TagClipFunc adds a tag to, or removes it from, one clip through the host app.
+// The host takes (clipID, tagID) — the reverse of the Lua argument order.
+type TagClipFunc func(clipID, tagID int64) error
+
+// TagDeleteFunc deletes a tag through the host app.
+type TagDeleteFunc func(tagID int64) error
+
+// TagHostFuncs routes the tags API's mutations through the host app, so a
+// plugin's tag change has the same side effects as the user's:
+//   - Create: subtag auto-creation (App.CreateTag).
+//   - AddToClip: tree exclusivity, publication to a share on the tag, and the
+//     restore exclusion lock (App.AddTagToClip). Without it a clip a plugin
+//     tags into a shared folder never reaches followers.
+//   - RemoveFromClip: orphan cleanup and the tag:removed_from_clip event
+//     (App.RemoveTagFromClip).
+//   - Delete: StopShare/StopServing and the follow precondition
+//     (App.DeleteTag). A bare DELETE cascades a share's row away while its
+//     publication stays live in memory.
+//
+// A nil field falls back to direct SQL on the plugin's handle with none of
+// those side effects — the path for an API built without a host app.
+type TagHostFuncs struct {
+	Create         TagCreateFunc
+	AddToClip      TagClipFunc
+	RemoveFromClip TagClipFunc
+	Delete         TagDeleteFunc
 }
 
-// NewTagsAPI creates a new tags API instance.
-// createFn may be nil; if so, the legacy SQL path is used.
-func NewTagsAPI(db *sql.DB, createFn TagCreateFunc) *TagsAPI {
-	return &TagsAPI{db: db, createFn: createFn}
+// TagsAPI provides tag operations to plugins
+type TagsAPI struct {
+	db   *sql.DB
+	host TagHostFuncs
+}
+
+// NewTagsAPI creates a new tags API instance. Each nil field of host uses the
+// legacy SQL path for that operation.
+func NewTagsAPI(db *sql.DB, host TagHostFuncs) *TagsAPI {
+	return &TagsAPI{db: db, host: host}
 }
 
 // Register adds the tags module to the Lua state
@@ -156,8 +184,8 @@ func (t *TagsAPI) create(L *lua.LState) int {
 	}
 
 	// Delegate to App.CreateTag when available (handles subtag auto-creation)
-	if t.createFn != nil {
-		result, err := t.createFn(name)
+	if t.host.Create != nil {
+		result, err := t.host.Create(name)
 		if err != nil {
 			L.Push(lua.LNil)
 			L.Push(lua.LString(err.Error()))
@@ -282,7 +310,12 @@ func (t *TagsAPI) update(L *lua.LState) int {
 func (t *TagsAPI) deleteTag(L *lua.LState) int {
 	id := L.CheckInt64(1)
 
-	_, err := t.db.Exec("DELETE FROM tags WHERE id = ?", id)
+	var err error
+	if t.host.Delete != nil {
+		err = t.host.Delete(id)
+	} else {
+		_, err = t.db.Exec("DELETE FROM tags WHERE id = ?", id)
+	}
 	if err != nil {
 		L.Push(lua.LFalse)
 		L.Push(lua.LString(err.Error()))
@@ -314,7 +347,12 @@ func (t *TagsAPI) addToClip(L *lua.LState) int {
 		return 2
 	}
 
-	_, err := t.db.Exec("INSERT OR IGNORE INTO clip_tags (clip_id, tag_id) VALUES (?, ?)", clipID, tagID)
+	var err error
+	if t.host.AddToClip != nil {
+		err = t.host.AddToClip(clipID, tagID)
+	} else {
+		_, err = t.db.Exec("INSERT OR IGNORE INTO clip_tags (clip_id, tag_id) VALUES (?, ?)", clipID, tagID)
+	}
 	if err != nil {
 		L.Push(lua.LFalse)
 		L.Push(lua.LString(err.Error()))
@@ -346,7 +384,12 @@ func (t *TagsAPI) removeFromClip(L *lua.LState) int {
 		return 2
 	}
 
-	_, err := t.db.Exec("DELETE FROM clip_tags WHERE clip_id = ? AND tag_id = ?", clipID, tagID)
+	var err error
+	if t.host.RemoveFromClip != nil {
+		err = t.host.RemoveFromClip(clipID, tagID)
+	} else {
+		_, err = t.db.Exec("DELETE FROM clip_tags WHERE clip_id = ? AND tag_id = ?", clipID, tagID)
+	}
 	if err != nil {
 		L.Push(lua.LFalse)
 		L.Push(lua.LString(err.Error()))

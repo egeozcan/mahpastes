@@ -1,16 +1,40 @@
 package app
 
 import (
+	"bytes"
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
+	"log"
 	"mime"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 )
 
-const clipStreamChunkSize int64 = 1024 * 1024
+var (
+	// clipStreamWriteTimeout bounds how long one write of a clip body may
+	// block. The API server runs with WriteTimeout 0 so the SSE stream can stay
+	// open, which means nothing else ever times out a response: a client that
+	// stops reading — a paused download, or someone doing it on purpose — would
+	// keep its handler parked in Write for as long as it keeps the TCP
+	// connection open. The deadline slides forward before every chunk, so a
+	// slow but moving reader is fine (it needs to drain one chunk per window,
+	// ~2 KB/s at the default) and only a stalled one is cut off.
+	clipStreamWriteTimeout = 30 * time.Second
+
+	// clipStreamInMemoryMax is the largest clip served straight from memory:
+	// read whole in one statement, so the database is released before the
+	// first byte goes out. Anything bigger is served from an on-disk snapshot
+	// (clip_snapshot.go) instead of being buffered per request.
+	clipStreamInMemoryMax int64 = 1 << 20
+)
+
+// clipStreamCopyChunk is the unit each write deadline covers.
+const clipStreamCopyChunk = 64 * 1024
 
 type clipStreamMetadata struct {
 	contentType string
@@ -23,49 +47,118 @@ func loadClipStreamMetadata(db *sql.DB, clipID int64) (clipStreamMetadata, error
 		"SELECT content_type, filename, LENGTH(data) FROM clips WHERE id = ?", clipID))
 }
 
-func loadClipStreamMetadataTx(tx *sql.Tx, clipID int64) (clipStreamMetadata, error) {
-	return scanClipStreamMetadata(tx.QueryRow(
-		"SELECT content_type, filename, LENGTH(data) FROM clips WHERE id = ?", clipID))
-}
-
 func scanClipStreamMetadata(row *sql.Row) (clipStreamMetadata, error) {
 	var metadata clipStreamMetadata
 	err := row.Scan(&metadata.contentType, &metadata.filename, &metadata.size)
 	return metadata, err
 }
 
-// serveStoredClip streams a database-backed clip with bounded memory, reading
-// it in chunks rather than allocating the whole blob.
+// clipBody is one revision of a clip's bytes, detached from the database:
+// either a small clip held in memory or an open snapshot file. Nothing that
+// serves it holds a connection or a read transaction.
+type clipBody struct {
+	clipStreamMetadata
+	data   io.ReaderAt // nil when only the headers are wanted (HEAD)
+	closer func()
+}
+
+func (b *clipBody) Close() {
+	if b.closer != nil {
+		b.closer()
+	}
+}
+
+// loadClipBodyMetadata reads what a response needs before it has the bytes,
+// plus the content hash that identifies the revision. octet_length rather than
+// LENGTH because it counts bytes for a TEXT value too, and SQLite answers both
+// from the record header without loading the blob.
+func loadClipBodyMetadata(ctx context.Context, db *sql.DB, clipID int64) (clipStreamMetadata, string, error) {
+	var meta clipStreamMetadata
+	var hash string
+	err := db.QueryRowContext(ctx,
+		"SELECT content_type, filename, octet_length(data), COALESCE(content_hash, '') FROM clips WHERE id = ?",
+		clipID,
+	).Scan(&meta.contentType, &meta.filename, &meta.size, &hash)
+	if errors.Is(err, sql.ErrNoRows) {
+		return meta, "", ErrClipNotFound
+	}
+	return meta, hash, err
+}
+
+// openClipBody returns the clip's bytes in a form that can be written to a
+// client without touching the database again. headOnly skips the bytes.
+//
+// Large clips must not be streamed out of SQLite. It cannot seek into a blob:
+// every SUBSTR(data, ...) loads the whole value (~22 ms on a 100 MB clip at any
+// offset), so a chunked download is quadratic in CPU and holds clip-size memory
+// per chunk in flight, and keeping the chunks consistent meant holding a read
+// transaction across every network write — which a client that stopped
+// reading could then pin, with its WAL snapshot, forever. A snapshot costs one
+// O(n) read per revision; see clip_snapshot.go. Without a TempClipStore (a
+// misconfigured or minimal setup) each request gets a private copy instead:
+// still no transaction held across writes, just no reuse.
+func openClipBody(ctx context.Context, db *sql.DB, store *TempClipStore, clipID int64, headOnly bool) (*clipBody, error) {
+	meta, hash, err := loadClipBodyMetadata(ctx, db, clipID)
+	if err != nil {
+		return nil, err
+	}
+	if headOnly {
+		return &clipBody{clipStreamMetadata: meta}, nil
+	}
+	if meta.size <= clipStreamInMemoryMax {
+		var data []byte
+		body := &clipBody{}
+		err := db.QueryRowContext(ctx,
+			"SELECT content_type, filename, data FROM clips WHERE id = ?", clipID,
+		).Scan(&body.contentType, &body.filename, &data)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrClipNotFound
+		}
+		if err != nil {
+			return nil, err
+		}
+		body.size = int64(len(data))
+		body.data = bytes.NewReader(data)
+		return body, nil
+	}
+	if store != nil && store.db != nil && store.dir != "" {
+		return store.openSnapshot(ctx, clipID, meta, hash)
+	}
+	return openPrivateClipSnapshot(ctx, db, clipID)
+}
+
+// serveStoredClip writes a database-backed clip with the stored-XSS headers
+// (see writeClipBytes). It returns false, having written nothing, when the clip
+// could not be read — normally because it no longer exists — so the caller can
+// answer in its own terms (and a share link can refund its download slot).
 //
 // allowRanges controls single-range support. Turn it off for any caller that
 // has already spent something to serve this response — a share link claims a
 // download slot before the body is written, and a range request would let one
 // byte consume it.
-func serveStoredClip(w http.ResponseWriter, r *http.Request, db *sql.DB, clipID int64, disposition string, allowRanges bool) bool {
-	// One read transaction for the metadata and every chunk. Without it the
-	// length is read from one revision and the chunks from another, so a clip
-	// edited mid-download is delivered as a splice of both — or truncated while
-	// still advertising the original Content-Length.
-	tx, err := db.BeginTx(r.Context(), &sql.TxOptions{ReadOnly: true})
+func serveStoredClip(w http.ResponseWriter, r *http.Request, db *sql.DB, store *TempClipStore, clipID int64, disposition string, allowRanges bool) bool {
+	// Headers and body come from the same revision: the body carries the
+	// metadata read alongside its bytes, so a clip edited mid-request is
+	// delivered whole as one revision or the other, never spliced or truncated
+	// under the original Content-Length.
+	body, err := openClipBody(r.Context(), db, store, clipID, r.Method == http.MethodHead)
 	if err != nil {
+		if !errors.Is(err, ErrClipNotFound) && !errors.Is(err, context.Canceled) {
+			log.Printf("clip stream: clip %d: %v", clipID, err)
+		}
 		return false
 	}
-	defer tx.Rollback()
-
-	metadata, err := loadClipStreamMetadataTx(tx, clipID)
-	if err != nil {
-		return false
-	}
+	defer body.Close()
 
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
 	if allowRanges {
 		w.Header().Set("Accept-Ranges", "bytes")
 	}
-	if metadata.contentType != "" {
-		w.Header().Set("Content-Type", metadata.contentType)
+	if body.contentType != "" {
+		w.Header().Set("Content-Type", body.contentType)
 	}
-	name := sanitizeDownloadName(metadata.filename.String, clipID)
+	name := sanitizeDownloadName(body.filename.String, clipID)
 	if disposition == "attachment" {
 		w.Header().Set("Content-Disposition", attachmentDisposition(name))
 	} else {
@@ -76,9 +169,9 @@ func serveStoredClip(w http.ResponseWriter, r *http.Request, db *sql.DB, clipID 
 	if !allowRanges {
 		rangeHeader = ""
 	}
-	start, end, partial, rangeErr := parseClipByteRange(rangeHeader, metadata.size)
+	start, end, partial, rangeErr := parseClipByteRange(rangeHeader, body.size)
 	if rangeErr != nil {
-		w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", metadata.size))
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", body.size))
 		http.Error(w, "requested range not satisfiable", http.StatusRequestedRangeNotSatisfiable)
 		return true
 	}
@@ -86,27 +179,55 @@ func serveStoredClip(w http.ResponseWriter, r *http.Request, db *sql.DB, clipID 
 	length := end - start + 1
 	w.Header().Set("Content-Length", strconv.FormatInt(length, 10))
 	if partial {
-		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, metadata.size))
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, body.size))
 		w.WriteHeader(http.StatusPartialContent)
 	}
 	if r.Method == http.MethodHead || length == 0 {
 		return true
 	}
 
-	for offset := start; offset <= end; {
-		chunkLength := min(clipStreamChunkSize, end-offset+1)
-		var chunk []byte
-		if err := tx.QueryRow(
-			"SELECT SUBSTR(data, ?, ?) FROM clips WHERE id = ?", offset+1, chunkLength, clipID,
-		).Scan(&chunk); err != nil || len(chunk) == 0 {
-			return true
-		}
-		if _, err := w.Write(chunk); err != nil {
-			return true
-		}
-		offset += int64(len(chunk))
-	}
+	// A failed write means the client went away or stopped reading; the short
+	// body against the declared Content-Length makes net/http drop the
+	// connection, which is all there is left to do.
+	_ = copyClipBody(w, io.NewSectionReader(body.data, start, length))
 	return true
+}
+
+// copyClipBody writes src to w, sliding a write deadline forward before each
+// chunk so a client that stops reading is cut off after clipStreamWriteTimeout
+// instead of holding the handler forever (see clipStreamWriteTimeout).
+func copyClipBody(w http.ResponseWriter, src io.Reader) error {
+	rc := http.NewResponseController(w)
+	// Recorders and wrappers that cannot set deadlines report ErrNotSupported;
+	// the copy itself still works.
+	setDeadline := func(t time.Time) { _ = rc.SetWriteDeadline(t) }
+
+	buf := make([]byte, clipStreamCopyChunk)
+	for {
+		n, readErr := src.Read(buf)
+		if n > 0 {
+			setDeadline(time.Now().Add(clipStreamWriteTimeout))
+			if _, err := w.Write(buf[:n]); err != nil {
+				return err
+			}
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			return readErr
+		}
+	}
+
+	// Push the buffered tail out under a fresh deadline too, so nothing is
+	// left for net/http's own final flush to block on. The deadline is left in
+	// place: net/http clears the connection's write deadline once the response
+	// is finished, before reusing it for the next keep-alive request.
+	setDeadline(time.Now().Add(clipStreamWriteTimeout))
+	if err := rc.Flush(); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		return err
+	}
+	return nil
 }
 
 func parseClipByteRange(header string, size int64) (start, end int64, partial bool, err error) {

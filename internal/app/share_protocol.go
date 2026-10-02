@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/fxamacker/cbor/v2"
 )
@@ -207,11 +208,54 @@ type GapPayload struct {
 	Kind string `cbor:"kind"`
 }
 
+// sanitizeText makes every text field valid UTF-8, replacing each run of
+// invalid bytes with U+FFFD. The publisher scans these straight out of SQLite,
+// which hands back whatever bytes were stored — a Latin-1 filename from a Linux
+// watch folder, a multipart upload, a Lua clips.create — and CBOR text strings
+// are UTF-8 by definition: a follower decoding strictly rejects the whole
+// clip_start over one byte. The publisher runs this before encoding so deployed
+// strict followers can read what it sends; the follower runs it after its
+// lenient decode so a deployed publisher's raw bytes still never reach its
+// database as anything but valid text.
+//
+// Replacement can grow a field (a run of invalid bytes becomes three bytes) —
+// the same growth the publisher's JSON decode of metadata already allows — and
+// a header that passed MaxClipStartFieldBytes still fits MaxEnvelopeLen.
+func (p *ClipStartPayload) sanitizeText() {
+	p.Filename = strings.ToValidUTF8(p.Filename, "\uFFFD")
+	p.ContentType = strings.ToValidUTF8(p.ContentType, "\uFFFD")
+	if len(p.Metadata) == 0 {
+		return
+	}
+	clean := make(map[string]string, len(p.Metadata))
+	for k, v := range p.Metadata {
+		// Two keys that differ only in their invalid bytes collapse into one;
+		// which value survives is arbitrary, and either is as good.
+		clean[strings.ToValidUTF8(k, "\uFFFD")] = strings.ToValidUTF8(v, "\uFFFD")
+	}
+	p.Metadata = clean
+}
+
+// payloadDecMode decodes envelope payloads. It differs from the package
+// default in one setting: text that is not valid UTF-8 decodes as-is instead
+// of failing the whole payload. Publishers before sanitizeText CBOR-encoded
+// raw database strings verbatim, and a frame that decrypted but cannot be
+// decoded replays identically on every reconnect; accepting the bytes, then
+// sanitizing them, is what lets those publishers keep delivering.
+var payloadDecMode = func() cbor.DecMode {
+	dm, err := cbor.DecOptions{UTF8: cbor.UTF8DecodeInvalid}.DecMode()
+	if err != nil {
+		panic(fmt.Errorf("payload cbor decode mode: %w", err))
+	}
+	return dm
+}()
+
 // MarshalPayload CBOR-encodes any payload struct.
 func MarshalPayload(v any) ([]byte, error) { return cbor.Marshal(v) }
 
-// UnmarshalPayload CBOR-decodes into dst.
-func UnmarshalPayload(b []byte, dst any) error { return cbor.Unmarshal(b, dst) }
+// UnmarshalPayload CBOR-decodes into dst, tolerating invalid UTF-8 text (see
+// payloadDecMode). Callers that store decoded text sanitize it first.
+func UnmarshalPayload(b []byte, dst any) error { return payloadDecMode.Unmarshal(b, dst) }
 
 // PeekPayloadKind decodes just the "kind" field from a CBOR-encoded payload,
 // returning the kind string and the original bytes for a second pass.
@@ -219,7 +263,7 @@ func PeekPayloadKind(b []byte) (string, []byte, error) {
 	var peek struct {
 		Kind string `cbor:"kind"`
 	}
-	if err := cbor.Unmarshal(b, &peek); err != nil {
+	if err := payloadDecMode.Unmarshal(b, &peek); err != nil {
 		return "", nil, err
 	}
 	return peek.Kind, b, nil

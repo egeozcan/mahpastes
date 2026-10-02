@@ -216,6 +216,9 @@ func TestPlanCatchupBatch(t *testing.T) {
 			if plan.Truncated && len(plan.Send) == 0 {
 				t.Fatal("truncated with an empty batch: the follower would loop without making progress")
 			}
+			// The whole stream decrypts in order, and a batch left registered
+			// for live fan-out ends exactly where the next live envelope starts.
+			replayPlan(t, plan, tc.sinceSeq, tc.pubLastSeq)
 			// The batch's blobs are fetched with ONE range query over
 			// [first seq, last seq], which is only equivalent to the plan if
 			// the batch is a contiguous run of the surviving rows. If any

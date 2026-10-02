@@ -25,6 +25,9 @@ func setupShareLinkTest(t *testing.T) (*APIManager, *App, int64, func()) {
 		t.Fatalf("initDB: %v", err)
 	}
 	app := &App{db: db}
+	if err := app.InitTempStore(dir); err != nil {
+		t.Fatalf("InitTempStore: %v", err)
+	}
 	am := &APIManager{app: app, shareLimiter: newLoginRateLimiter()}
 
 	res, err := db.Exec("INSERT INTO clips (content_type, data, filename) VALUES (?, ?, ?)",

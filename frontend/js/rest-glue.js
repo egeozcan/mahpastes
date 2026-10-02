@@ -16,7 +16,9 @@
                 const body = await res.json();
                 if (body.error) message = body.error;
             } catch {}
-            throw new Error(message);
+            const err = new Error(message);
+            err.status = res.status;
+            throw err;
         }
         if (res.status === 204) return null;
         const text = await res.text();
@@ -256,7 +258,13 @@
         GetRandomPort: async () => (await fetchJSON(`${api}/serve/random-port`)).port,
     };
     window.go.main.ShareService = {
-        GetShareStatus: () => fetchJSON(`${api}/share`),
+        // Tag-scoped keys get 403 from every share route (P2P sharing is
+        // instance-global); show them nothing shared rather than an error on
+        // every 2s folder-status poll.
+        GetShareStatus: () => fetchJSON(`${api}/share`).catch((e) => {
+            if (e && e.status === 403) return { shares: [], follows: [] };
+            throw e;
+        }),
         StartShare: (tagID) => postJSON(`${api}/share/publish`, { tag_id: tagID }),
         StopShare: (tagID) => del(`${api}/share/publish/${tagID}`),
         PauseShare: (tagID) => putJSON(`${api}/share/publish/${tagID}/pause`, {}),

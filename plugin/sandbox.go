@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	lua "github.com/yuin/gopher-lua"
@@ -24,6 +25,10 @@ const (
 // instead of queueing behind, say, a five-minute async upload.
 var ErrPluginBusy = errors.New("plugin is busy")
 
+// errSandboxClosed is returned by an entry point that acquired the sandbox
+// after the plugin was unloaded.
+var errSandboxClosed = errors.New("plugin was unloaded")
+
 // Sandbox wraps a Lua state with resource limits
 type Sandbox struct {
 	L          *lua.LState
@@ -32,6 +37,34 @@ type Sandbox struct {
 	mu         sync.Mutex
 	cancel     context.CancelFunc
 	httpBudget *HTTPBudget
+
+	// hostCalls counts host calls in flight from this sandbox's Lua — a tags.*
+	// binding that has re-entered the App. Only the goroutine holding mu runs
+	// this sandbox's Lua, so a non-zero count means mu's holder is parked in
+	// App code that may emit a plugin event back at this sandbox; see
+	// Manager.EmitEvent.
+	hostCalls atomic.Int32
+
+	// closed is set by Close under mu, and every Call* entry point checks it
+	// after acquiring mu. A call can queue on mu behind the handler a Close is
+	// waiting for — event delivery deferred by EmitEvent always does — and
+	// must not then run on the closed state (gopher-lua nils its call stack on
+	// Close, so the next call would panic).
+	closed bool
+}
+
+// enterHostCall marks the sandbox as parked in a host call and returns the
+// matching exit. Called on the goroutine that holds mu, around the host
+// function a Lua binding calls.
+func (s *Sandbox) enterHostCall() (exit func()) {
+	s.hostCalls.Add(1)
+	return func() { s.hostCalls.Add(-1) }
+}
+
+// inHostCall reports whether the handler holding this sandbox is parked in a
+// host call, and so will not release mu until that App call returns.
+func (s *Sandbox) inHostCall() bool {
+	return s.hostCalls.Load() > 0
 }
 
 // NewSandbox creates a new sandboxed Lua environment
@@ -70,6 +103,10 @@ func (s *Sandbox) Close() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if s.closed {
+		return
+	}
+	s.closed = true
 	if s.cancel != nil {
 		s.cancel()
 	}
@@ -105,6 +142,9 @@ func (s *Sandbox) LoadSource(source string) error {
 func (s *Sandbox) CallHandler(name string, args ...lua.LValue) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.closed {
+		return nil // plugin unloaded while this call waited; skip like an undefined handler
+	}
 
 	fn := s.L.GetGlobal(name)
 	if fn == lua.LNil {
@@ -148,6 +188,9 @@ func (s *Sandbox) CallHandler(name string, args ...lua.LValue) error {
 func (s *Sandbox) CallHandlerWithData(name string, data interface{}) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.closed {
+		return nil // plugin unloaded while this call waited; skip like an undefined handler
+	}
 
 	fn := s.L.GetGlobal(name)
 	if fn == lua.LNil {
@@ -272,6 +315,9 @@ func (s *Sandbox) CallSearch(source, query string, timeout time.Duration) ([]Cho
 		return nil, ErrPluginBusy
 	}
 	defer s.mu.Unlock()
+	if s.closed {
+		return nil, errSandboxClosed
+	}
 
 	fn := s.L.GetGlobal("on_search")
 	if fn == lua.LNil {
@@ -371,6 +417,9 @@ func luaValueToChoiceString(v lua.LValue) string {
 func (s *Sandbox) CallUIAction(actionID string, clipIDs []int64, options map[string]interface{}, actionContext map[string]interface{}, timeout time.Duration) (map[string]interface{}, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.closed {
+		return nil, errSandboxClosed
+	}
 
 	fn := s.L.GetGlobal("on_ui_action")
 	if fn == lua.LNil {

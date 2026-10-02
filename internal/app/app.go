@@ -391,13 +391,13 @@ func (a *App) Bootstrap(ctx context.Context, opts BootstrapOptions) error {
 		log.Printf("Warning: Failed to initialize Markdown images: %v", err)
 	}
 
-	StartCleanupJob(ctx, a.db)
-
 	if err := a.InitTempStore(opts.DataDir); err != nil {
 		log.Printf("Warning: Failed to initialize temp store: %v", err)
 	} else if err := a.tempStore.Prune(true); err != nil {
 		log.Printf("Warning: Failed to prune temp clip files on startup: %v", err)
 	}
+
+	StartCleanupJob(ctx, a.db, a.tempStore)
 
 	if opts.InitClipboard {
 		if err := clipboard.Init(); err != nil {
@@ -437,18 +437,7 @@ func (a *App) Bootstrap(ctx context.Context, opts BootstrapOptions) error {
 		log.Printf("Warning: Failed to initialize plugin manager: %v", err)
 	} else {
 		a.pluginManager = pm
-		pm.SetMetadataFuncs(a.GetClipMetadata, a.UpdateClipMetadata)
-		pm.SetTagCreateFunc(func(name string) (*plugin.TagCreateResult, error) {
-			tag, err := a.CreateTag(name)
-			if err != nil {
-				return nil, err
-			}
-			return &plugin.TagCreateResult{
-				ID:    tag.ID,
-				Name:  tag.Name,
-				Color: tag.Color,
-			}, nil
-		})
+		a.wirePluginHostFuncs(pm)
 		pm.SetPermissionCallback(opts.PermissionCallback)
 		pm.SetFSConfinementRoot(opts.FSConfinementRoot)
 
@@ -474,6 +463,64 @@ func (a *App) Bootstrap(ctx context.Context, opts BootstrapOptions) error {
 	// waiting for plugins that are never going to arrive.
 	a.pluginsReady.Store(true)
 	return nil
+}
+
+// wirePluginHostFuncs points the plugin Lua APIs that mutate app state at the
+// App methods that own those mutations, so a plugin gets the same side effects
+// as the UI. Must run before plugins load: each plugin's API tables capture the
+// functions at load time.
+func (a *App) wirePluginHostFuncs(pm *plugin.Manager) {
+	pm.SetMetadataFuncs(a.GetClipMetadata, a.UpdateClipMetadata)
+	pm.SetTagCreateFunc(func(name string) (*plugin.TagCreateResult, error) {
+		tag, err := a.CreateTag(name)
+		if err != nil {
+			return nil, err
+		}
+		return &plugin.TagCreateResult{
+			ID:    tag.ID,
+			Name:  tag.Name,
+			Color: tag.Color,
+		}, nil
+	})
+	pm.SetTagMutationFuncs(a.addTagToClipFromPlugin, a.RemoveTagFromClip, a.DeleteTag)
+	pm.SetClipsDeletedFunc(a.dropTempFilesOfPluginDeletedClips)
+}
+
+// errRestoreInProgress is what a plugin's tags.add_to_clip returns while a
+// backup restore holds, or is waiting for, backupRestoreMu.
+var errRestoreInProgress = errors.New("a backup restore is in progress; try again once it finishes")
+
+// addTagToClipFromPlugin is AddTagToClip for the plugin tags API. It refuses
+// rather than waits while a restore holds backupRestoreMu, because Lua can run
+// on the restore's own goroutine: RestoreBackup reloads plugins under the write
+// lock, loading runs each plugin's top-level code, and AddTagToClip's read
+// acquisition would then wait on the very restore that is loading it — hanging
+// the restore and every tag mutation queued behind it. A handler on any other
+// goroutine loses nothing by being refused either: mid-restore its clip id may
+// already name a different clip.
+//
+// The probe is released before AddTagToClip takes its own read lock; holding
+// it across would be the recursive RLock AddTagToClip's comment rules out. A
+// restore that queues in between only makes that acquisition wait, which is
+// safe off the restore goroutine — and the restore goroutine cannot be here,
+// because it takes the write lock before it runs any plugin code.
+//
+// It also yields to where the clip already is. Plugins tag new clips from
+// on_clip_created, which the upload paths emit only after filing the clip into
+// the folder the user dropped it in, so a plain AddTagToClip of top-level
+// "screenshot" (auto-tagger) would strip the clip's "screenshot/2024" folder
+// tag and drop it at the root. A clip already at the requested tag or beneath
+// it satisfies "this clip is a screenshot" by hierarchy, so that call succeeds
+// and changes nothing. Every other same-tree add — a sibling, or deeper than
+// the clip sits now — keeps AddTagToClip's replace semantics, so a plugin can
+// still move a clip within a tree. The UI's AddTagToClip does not yield: a
+// user filing a clip at a tree's root means to move it there.
+func (a *App) addTagToClipFromPlugin(clipID, tagID int64) error {
+	if !a.backupRestoreMu.TryRLock() {
+		return errRestoreInProgress
+	}
+	a.backupRestoreMu.RUnlock()
+	return a.addTagToClip(clipID, tagID, true)
 }
 
 // Shutdown is called when the app is closing
@@ -1908,8 +1955,9 @@ func (a *App) CreateTag(name string) (*Tag, error) {
 		return nil, err
 	}
 
-	// Use transaction to prevent race condition in color assignment
-	tx, err := a.db.Begin()
+	// Use transaction to prevent race condition in color assignment. The
+	// ancestor checks read before the first insert, hence beginWriteTx.
+	tx, err := beginWriteTx(a.db, "tags")
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
@@ -2044,7 +2092,8 @@ func (a *App) UpdateTag(id int64, name, color string) error {
 		}
 	}
 
-	tx, err := a.db.Begin()
+	// Reads the old name before renaming, hence beginWriteTx.
+	tx, err := beginWriteTx(a.db, "tags")
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
@@ -2242,8 +2291,28 @@ func (a *App) PreviewMergeTag(sourceID, destID int64) (MergeTagPreview, error) {
 //     hidden list) via migrateTagReferences.
 //  5. Deletes the source tag row.
 //
+// Clips that newly gain the destination are published to a share on it,
+// exactly as BulkAddTag publishes (a shared source is refused, a shared
+// destination is not).
+//
 // Emits tag:merged (runtime + plugin) on success.
 func (a *App) MergeTag(sourceID, destID int64) error {
+	// Exclude restores from the first read through the publication decision,
+	// as BulkAddTag does (see backupRestoreMu's doc). That span includes the
+	// precondition reads: a restore landing between them and the tx could
+	// swap in a database where the source is shared, and the source delete
+	// below would cascade that share away. Released before the plugin event
+	// for the same re-entrancy reason as the other tag mutations.
+	a.backupRestoreMu.RLock()
+	restoreLockHeld := true
+	releaseRestoreLock := func() {
+		if restoreLockHeld {
+			restoreLockHeld = false
+			a.backupRestoreMu.RUnlock()
+		}
+	}
+	defer releaseRestoreLock()
+
 	var srcName, dstName string
 	if err := a.db.QueryRow(`SELECT name FROM tags WHERE id = ?`, sourceID).Scan(&srcName); err != nil {
 		return fmt.Errorf("source tag not found")
@@ -2275,9 +2344,35 @@ func (a *App) MergeTag(sourceID, destID int64) error {
 	// unrelated clips that happen to hold destination stay untouched),
 	// then delete any leftover source rows.
 	//
-	// (2a) Insert destination for every clip that currently has source.
-	if _, err := tx.Exec(`INSERT OR IGNORE INTO clip_tags(clip_id, tag_id)
-		SELECT clip_id, ? FROM clip_tags WHERE tag_id = ?`, destID, sourceID); err != nil {
+	// (2a) Insert destination for every clip that currently has source,
+	// collecting the clips that genuinely gained it. OR IGNORE skips a clip
+	// that already held destination and RETURNING reports only the rows
+	// actually inserted, so these are exactly the arrivals to publish — a clip
+	// already in a shared destination was published when it got there, and
+	// followers cannot dedup a second copy. Nothing below removes a
+	// destination row, so every one of them survives to the commit.
+	rows, err := tx.Query(`INSERT OR IGNORE INTO clip_tags(clip_id, tag_id)
+		SELECT clip_id, ? FROM clip_tags WHERE tag_id = ?
+		RETURNING clip_id`, destID, sourceID)
+	if err != nil {
+		return fmt.Errorf("reassign clip_tags: %w", err)
+	}
+	var newlyTagged []int64
+	for rows.Next() {
+		var clipID int64
+		if err := rows.Scan(&clipID); err != nil {
+			rows.Close()
+			return fmt.Errorf("reassign clip_tags: %w", err)
+		}
+		newlyTagged = append(newlyTagged, clipID)
+	}
+	// Drained and closed before the next statement: a *sql.Tx is one
+	// connection, and it cannot run another statement over open rows.
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("reassign clip_tags: %w", err)
+	}
+	if err := rows.Close(); err != nil {
 		return fmt.Errorf("reassign clip_tags: %w", err)
 	}
 
@@ -2322,9 +2417,43 @@ func (a *App) MergeTag(sourceID, destID int64) error {
 		return fmt.Errorf("delete source: %w", err)
 	}
 
+	// Publication follows BulkAddTag step for step; its comments carry the
+	// full reasoning. One operation-level admission is taken before the
+	// commit, so a restore starting after the commit is pinned until every
+	// arrival's hook is registered; each per-clip admission is adopted from it
+	// rather than taken through the gate again, which a restore suspending
+	// the gate meanwhile would refuse. A refusal skips only the publication —
+	// the merge still commits.
+	opAdmitted := len(newlyTagged) > 0 && a.tryAddShareHook()
+
 	if err := tx.Commit(); err != nil {
+		if opAdmitted {
+			a.shareHookWG.Done()
+		}
 		return fmt.Errorf("commit: %w", err)
 	}
+
+	suppressed := len(newlyTagged)
+	if opAdmitted {
+		suppressed = 0
+		for _, clipID := range newlyTagged {
+			if !a.adoptShareHookAdmission() {
+				// Only Shutdown's close refuses an adoption, and it never
+				// reopens; count the rest and log once.
+				suppressed++
+				continue
+			}
+			a.spawnAdmittedShareHook(clipID, destID, "MergeTag")
+		}
+		a.shareHookWG.Done()
+	}
+	if suppressed > 0 {
+		log.Printf("share: publication hooks closed or suspended (shutdown/restore); suppressed %d hook(s) under tag %d (MergeTag)", suppressed, destID)
+	}
+
+	// The coherent span ends here: the tx committed and every hook is
+	// registered. Release before the plugin event (re-entrancy).
+	releaseRestoreLock()
 
 	// Emit events.
 	if a.pluginManager != nil {
@@ -2368,7 +2497,9 @@ const removeEmptyTagsMaxPasses = 1024
 // back before returning, so this call is side-effect free and its result
 // exactly matches what RemoveEmptyTags will delete.
 func (a *App) GetRemovableEmptyTags() ([]Tag, error) {
-	tx, err := a.db.Begin()
+	// The simulation queries before each delete, so it needs the write lock
+	// up front like any read-then-write transaction (see beginWriteTx).
+	tx, err := beginWriteTx(a.db, "tags")
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin dry-run transaction: %w", err)
 	}
@@ -2477,6 +2608,13 @@ func (a *App) GetTags() ([]Tag, error) {
 
 // AddTagToClip adds a tag to a clip
 func (a *App) AddTagToClip(clipID, tagID int64) error {
+	return a.addTagToClip(clipID, tagID, false)
+}
+
+// addTagToClip is AddTagToClip. With yieldToPlacement set, a clip already
+// filed at tagID or anywhere beneath it is left exactly where it is and the
+// call succeeds having changed nothing (see addTagToClipFromPlugin).
+func (a *App) addTagToClip(clipID, tagID int64, yieldToPlacement bool) error {
 	// Exclude restores for the whole span from tx.Begin through the hook
 	// decision (see backupRestoreMu's doc): the mutation either completes
 	// entirely before a restore starts or begins entirely after it ends, so it
@@ -2498,12 +2636,28 @@ func (a *App) AddTagToClip(clipID, tagID int64) error {
 	// The exclusivity delete and the insert that replaces it are one unit: a
 	// failure between them would leave the clip stripped of its old tag and
 	// without the new one, or (when the delete failed and was ignored) holding
-	// two tags from the same tree.
-	tx, err := a.db.Begin()
+	// two tags from the same tree. removeSameTreeTags reads before it deletes,
+	// so the write lock is taken up front (see beginWriteTx) — otherwise any
+	// concurrent writer, such as the previous upload's share emission, fails
+	// this call outright and the clip never lands in its folder.
+	tx, err := beginWriteTx(a.db, "clip_tags")
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback()
+
+	// Decided inside the write transaction, so the placement yielded to is the
+	// clip's current one, not one read before a concurrent move landed. Nothing
+	// is written, so there is nothing to publish or announce either.
+	if yieldToPlacement {
+		filed, err := clipFiledAtOrUnder(tx, clipID, tagID)
+		if err != nil {
+			return fmt.Errorf("failed to read placement of clip %d for tag %d: %w", clipID, tagID, err)
+		}
+		if filed {
+			return nil
+		}
+	}
 
 	// Enforce tree exclusivity: a clip can only have one tag per root tree.
 	// Adding a/b/d removes any existing tags under the same root (a, a/b, a/b/c, etc.)
@@ -2580,8 +2734,13 @@ func (a *App) AddTagToClip(clipID, tagID int64) error {
 	// made. Release before the plugin event (re-entrancy — see the RLock above).
 	releaseRestoreLock()
 
-	// Emit plugin event
-	if a.pluginManager != nil {
+	// Announce only an association that is new. A plugin's tags.add_to_clip
+	// lands here, and the event it emits is delivered back to that plugin once
+	// its handler returns, so a re-add that changed nothing must stay silent:
+	// otherwise a handler that idempotently re-adds a tag on tag:added_to_clip
+	// triggers itself forever. The exclusivity removals above never announced
+	// themselves, so a move within a tree remains one added event.
+	if newlyTagged && a.pluginManager != nil {
 		a.pluginManager.EmitEvent("tag:added_to_clip", map[string]interface{}{
 			"tag_id":  tagID,
 			"clip_id": clipID,
@@ -2591,15 +2750,47 @@ func (a *App) AddTagToClip(clipID, tagID int64) error {
 	return nil
 }
 
+// clipFiledAtOrUnder reports whether the clip carries tagID itself or any
+// descendant of it — whether it already sits somewhere inside tagID's folder.
+// Descent is by path segment (isDescendantOf), so "screenshots/x" is not under
+// "screenshot".
+func clipFiledAtOrUnder(tx *sql.Tx, clipID, tagID int64) (bool, error) {
+	var tagName string
+	if err := tx.QueryRow("SELECT name FROM tags WHERE id = ?", tagID).Scan(&tagName); err != nil {
+		return false, err
+	}
+	rows, err := tx.Query(`
+		SELECT t.id, t.name FROM clip_tags ct
+		INNER JOIN tags t ON t.id = ct.tag_id
+		WHERE ct.clip_id = ?`, clipID)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		var name string
+		if err := rows.Scan(&id, &name); err != nil {
+			return false, err
+		}
+		if id == tagID || isDescendantOf(name, tagName) {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
+}
+
 // RemoveTagFromClip removes a tag from a clip
 func (a *App) RemoveTagFromClip(clipID, tagID int64) error {
-	_, err := a.db.Exec("DELETE FROM clip_tags WHERE clip_id = ? AND tag_id = ?", clipID, tagID)
+	res, err := a.db.Exec("DELETE FROM clip_tags WHERE clip_id = ? AND tag_id = ?", clipID, tagID)
 	if err != nil {
 		return fmt.Errorf("failed to remove tag from clip: %w", err)
 	}
 
-	// Emit plugin event
-	if a.pluginManager != nil {
+	// Announce only a removal that happened, for the reason AddTagToClip gives:
+	// a handler re-removing the tag on tag:removed_from_clip would otherwise
+	// trigger itself forever.
+	if n, rerr := res.RowsAffected(); rerr == nil && n > 0 && a.pluginManager != nil {
 		a.pluginManager.EmitEvent("tag:removed_from_clip", map[string]interface{}{
 			"tag_id":  tagID,
 			"clip_id": clipID,
@@ -2619,6 +2810,10 @@ func (a *App) RemoveTagFromClip(clipID, tagID int64) error {
 // a failure between the two strips a clip of its old tag without giving it the
 // new one. A single DELETE also keeps it to one statement, which is what a
 // *sql.Tx (one connection) can safely execute at a time.
+//
+// It reads the tag's name before it deletes, so a transaction passed in must
+// come from beginWriteTx: begun plainly, that read pins a snapshot the delete
+// then cannot upgrade while anything else is writing.
 func removeSameTreeTags(h sqlHandle, clipID, newTagID int64) error {
 	// Look up the new tag's name to find its root
 	var newTagName string
@@ -2642,36 +2837,68 @@ func removeSameTreeTags(h sqlHandle, clipID, newTagID int64) error {
 	return err
 }
 
+// orphanTagDeleteSQL deletes one tag only if it is still a throwaway: top
+// level, no clips, no children, and nothing the user wired to it. The checks
+// and the delete are one statement so a clip tagged in between cannot be
+// stripped by a decision made before it arrived.
+//
+// Each reference guard is a standing instruction that outlives the tag's
+// current contents, and each one broke silently when the tag went:
+//   - shares: tag_id is ON DELETE CASCADE, so the share's key, last_seq and
+//     ring went with it while the in-memory publication lived on, and the
+//     handed-out share string was dead for good. StopShare never ran.
+//   - follows: local_tag_id is ON DELETE RESTRICT, so the delete failed and
+//     the error was swallowed; this makes the skip deliberate.
+//   - watched_folders: auto_tag_id has no foreign key, so the folder kept
+//     pointing at a dead id and every later import failed to tag.
+//   - api_keys: scoped_tag_id is ON DELETE SET NULL and a trigger revokes the
+//     key, so emptying the folder revoked the integration's key. A key that is
+//     already revoked only waits for the retention sweep and pins nothing.
+//
+// Serving is the one reference that lives outside the database; the caller
+// checks it.
+const orphanTagDeleteSQL = `
+	DELETE FROM tags
+	WHERE id = ?
+	  AND instr(name, '/') = 0
+	  AND NOT EXISTS (SELECT 1 FROM clip_tags WHERE tag_id = tags.id)
+	  AND NOT EXISTS (SELECT 1 FROM tags child WHERE child.name LIKE tags.name || '/%')
+	  AND NOT EXISTS (SELECT 1 FROM shares WHERE tag_id = tags.id)
+	  AND NOT EXISTS (SELECT 1 FROM follows WHERE local_tag_id = tags.id)
+	  AND NOT EXISTS (SELECT 1 FROM watched_folders WHERE auto_tag_id = tags.id)
+	  AND NOT EXISTS (SELECT 1 FROM api_keys WHERE scoped_tag_id = tags.id AND is_revoked = 0)`
+
+// orphanTagDeleteMinimalSQL is orphanTagDeleteSQL without the reference
+// guards, for schemas that lack those tables (tolerated the way DeleteTag
+// tolerates them, for minimal test schemas). A database without the tables
+// holds nothing for the guards to protect, so the answer is the same.
+const orphanTagDeleteMinimalSQL = `
+	DELETE FROM tags
+	WHERE id = ?
+	  AND instr(name, '/') = 0
+	  AND NOT EXISTS (SELECT 1 FROM clip_tags WHERE tag_id = tags.id)
+	  AND NOT EXISTS (SELECT 1 FROM tags child WHERE child.name LIKE tags.name || '/%')`
+
 // deleteTagIfOrphaned deletes a tag if it has no associated clips.
 // Subtags (names containing '/') are never auto-deleted — they were
-// intentionally created as part of a hierarchy.
+// intentionally created as part of a hierarchy — and neither is a tag that
+// is shared, followed, served, a watch folder's auto-tag or an active API
+// key's scope (see orphanTagDeleteSQL). A user who wired a tag into one of
+// those means it to persist while empty; DeleteTag is the explicit path.
 func (a *App) deleteTagIfOrphaned(tagID int64) {
-	var tagName string
-	err := a.db.QueryRow("SELECT name FROM tags WHERE id = ?", tagID).Scan(&tagName)
+	if a.serveManager != nil && a.serveManager.IsServing(tagID) {
+		return
+	}
+
+	res, err := a.db.Exec(orphanTagDeleteSQL, tagID)
+	if isSQLiteNoSuchTable(err) {
+		res, err = a.db.Exec(orphanTagDeleteMinimalSQL, tagID)
+	}
 	if err != nil {
+		log.Printf("orphan tag cleanup for tag %d: %v", tagID, err)
 		return
 	}
-
-	// Never auto-delete hierarchical tags (subtags or parents of subtags)
-	if strings.Contains(tagName, "/") {
-		return
-	}
-
-	var count int
-	err = a.db.QueryRow("SELECT COUNT(*) FROM clip_tags WHERE tag_id = ?", tagID).Scan(&count)
-	if err != nil || count > 0 {
-		return
-	}
-
-	// Check if this tag has children — don't delete a parent with descendants
-	var childCount int
-	a.db.QueryRow("SELECT COUNT(*) FROM tags WHERE name LIKE ?", tagName+"/%").Scan(&childCount)
-	if childCount > 0 {
-		return
-	}
-
-	_, err = a.db.Exec("DELETE FROM tags WHERE id = ?", tagID)
-	if err == nil {
+	if n, err := res.RowsAffected(); err == nil && n > 0 {
 		a.emitPluginEvent("tag:deleted", map[string]interface{}{"id": tagID})
 	}
 }
@@ -2837,7 +3064,9 @@ func (a *App) BulkAddTag(clipIDs []int64, tagID int64) error {
 	}
 	defer releaseRestoreLock()
 
-	tx, err := a.db.Begin()
+	// Write lock up front for the same reason as AddTagToClip: the
+	// exclusivity pass below reads before it deletes.
+	tx, err := beginWriteTx(a.db, "clip_tags")
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
@@ -2942,9 +3171,10 @@ func (a *App) BulkAddTag(clipIDs []int64, tagID int64) error {
 	// registered. Release before the plugin events (re-entrancy — see above).
 	releaseRestoreLock()
 
-	// Emit plugin events for each clip
+	// One event per clip that gained the tag, as in AddTagToClip: a clip that
+	// already had it changed nothing and is not announced.
 	if a.pluginManager != nil {
-		for _, clipID := range clipIDs {
+		for _, clipID := range newlyTagged {
 			a.pluginManager.EmitEvent("tag:added_to_clip", map[string]interface{}{
 				"tag_id":  tagID,
 				"clip_id": clipID,
@@ -2969,15 +3199,42 @@ func (a *App) BulkRemoveTag(clipIDs []int64, tagID int64) error {
 		args[i+1] = id
 	}
 
-	query := fmt.Sprintf("DELETE FROM clip_tags WHERE tag_id = ? AND clip_id IN (%s)", strings.Join(placeholders, ","))
-	_, err := a.db.Exec(query, args...)
+	// RETURNING names the clips that actually lost the tag, in the same
+	// statement that removes it, so the events below cannot drift from the
+	// delete (see RemoveTagFromClip for why a no-op is not announced).
+	query := fmt.Sprintf("DELETE FROM clip_tags WHERE tag_id = ? AND clip_id IN (%s) RETURNING clip_id", strings.Join(placeholders, ","))
+	rows, err := a.db.Query(query, args...)
 	if err != nil {
 		return fmt.Errorf("failed to bulk remove tag: %w", err)
 	}
+	removed := make(map[int64]bool, len(clipIDs))
+	for rows.Next() {
+		var clipID int64
+		if err := rows.Scan(&clipID); err != nil {
+			rows.Close()
+			return fmt.Errorf("failed to bulk remove tag: %w", err)
+		}
+		removed[clipID] = true
+	}
+	// The DELETE's autocommit holds the write lock until its statement is
+	// reset, so the rows are drained and closed before the events below run
+	// handlers that may write.
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("failed to bulk remove tag: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("failed to bulk remove tag: %w", err)
+	}
 
-	// Emit plugin events for each clip
+	// One event per removed clip, in the caller's order; deleting from the set
+	// keeps a clip listed twice to one event.
 	if a.pluginManager != nil {
 		for _, clipID := range clipIDs {
+			if !removed[clipID] {
+				continue
+			}
+			delete(removed, clipID)
 			a.pluginManager.EmitEvent("tag:removed_from_clip", map[string]interface{}{
 				"tag_id":  tagID,
 				"clip_id": clipID,
@@ -3675,7 +3932,8 @@ func (a *App) GetClipMetadata(clipID int64) (map[string]string, error) {
 // inside a transaction. The modify function receives the current metadata and
 // mutates it in place; returning an error aborts the transaction.
 func (a *App) UpdateClipMetadata(clipID int64, modify func(meta map[string]string) error) error {
-	tx, err := a.db.Begin()
+	// Read-modify-write, so the write lock is taken first (see beginWriteTx).
+	tx, err := beginWriteTx(a.db, "clips")
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}

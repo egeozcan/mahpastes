@@ -33,10 +33,16 @@ const (
 	URLFetchTimeout = 60 * time.Second
 )
 
+// ClipsDeletedFunc is told which clips a plugin's clips.delete or
+// clips.delete_many just removed, so the host can drop what it keeps for a
+// clip outside the database (the App's leased temp copies).
+type ClipsDeletedFunc func(ids []int64)
+
 // ClipsAPI provides clip CRUD operations to plugins
 type ClipsAPI struct {
 	db             *sql.DB
 	allowedDomains map[string][]string // domain -> allowed methods (from manifest)
+	onDeleted      ClipsDeletedFunc    // nil: nothing to tell
 }
 
 // NewClipsAPI creates a new clips API instance
@@ -513,6 +519,7 @@ func (c *ClipsAPI) deleteClip(L *lua.LState) int {
 		L.Push(lua.LString(err.Error()))
 		return 2
 	}
+	c.notifyDeleted([]int64{id})
 
 	L.Push(lua.LTrue)
 	return 1
@@ -548,9 +555,18 @@ func (c *ClipsAPI) deleteMany(L *lua.LState) int {
 		L.Push(lua.LString(err.Error()))
 		return 2
 	}
+	c.notifyDeleted(idList)
 
 	L.Push(lua.LTrue)
 	return 1
+}
+
+// notifyDeleted runs after the rows are gone, never before: the host's
+// cleanup relies on a copy made after it being refused for a missing row.
+func (c *ClipsAPI) notifyDeleted(ids []int64) {
+	if c.onDeleted != nil {
+		c.onDeleted(ids)
+	}
 }
 
 func (c *ClipsAPI) archive(L *lua.LState) int {

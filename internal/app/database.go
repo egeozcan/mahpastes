@@ -390,6 +390,45 @@ type sqlHandle interface {
 	QueryRow(query string, args ...interface{}) *sql.Row
 }
 
+// beginWriteTx begins a transaction that already holds SQLite's write lock.
+// Every transaction that reads before it writes must start here.
+//
+// database/sql's Begin is a deferred BEGIN (the DSN sets no _txlock), so a
+// transaction takes no lock until its first statement. When that statement is
+// a read, the transaction is pinned to a WAL read snapshot and its first write
+// has to upgrade it — and SQLite refuses that upgrade with SQLITE_BUSY at once
+// while any other connection holds the write lock (the busy handler, and with
+// it busy_timeout, runs only for a connection with no transaction open), or
+// with SQLITE_BUSY_SNAPSHOT when another writer committed after the snapshot
+// was taken, because that snapshot can never become writable. Either way the
+// transaction fails in microseconds over a lock it would have been granted a
+// moment later; the share emission, whose caller only logs, lost clips that
+// way without a trace.
+//
+// So the first statement is a write: a DELETE that matches no row, which
+// changes nothing but takes the write lock from the no-transaction state,
+// where busy_timeout applies. A concurrent writer is waited out, the lock is
+// held to Commit or Rollback, and every read after it sees the latest
+// committed state. (The file provider's `UPDATE fp_state SET version=version`
+// is the same move.) A DSN-wide _txlock=immediate would do this for every
+// Begin, including the read-only snapshots that must not stall writers; this
+// keeps the lock to the transactions that need it.
+//
+// lockTable must name a table the transaction is about to write anyway, which
+// keeps this working on the minimal schemas some tests build. It is spliced
+// into the SQL, so it must be a constant.
+func beginWriteTx(db *sql.DB, lockTable string) (*sql.Tx, error) {
+	tx, err := db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	if _, err := tx.Exec("DELETE FROM " + lockTable + " WHERE 0"); err != nil {
+		_ = tx.Rollback()
+		return nil, fmt.Errorf("take write lock: %w", err)
+	}
+	return tx, nil
+}
+
 // sqlQueryer is the multi-row read subset shared by *sql.DB and *sql.Tx, so a
 // helper can be pointed at a caller's transaction to read from that
 // transaction's snapshot instead of whatever the pool hands it.
@@ -648,12 +687,52 @@ func purgeRevokedAPIKeys(db *sql.DB) (int64, error) {
 	return rows, nil
 }
 
+// deleteExpiredClips deletes every expired clip and drops its temp files, as
+// the App's own delete paths do. An expired clip is often exactly the one that
+// should not linger — a short-lived secret handed out by link — and a large
+// one that was downloaded has a full plaintext copy in the store. RETURNING
+// names the rows the DELETE took, so a clip that expires between a SELECT and
+// the DELETE cannot be missed.
+func deleteExpiredClips(db *sql.DB, store *TempClipStore) (int, error) {
+	rows, err := db.Query("DELETE FROM clips WHERE expires_at IS NOT NULL AND expires_at <= CURRENT_TIMESTAMP RETURNING id")
+	if err != nil {
+		return 0, err
+	}
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	if store != nil {
+		if err := store.DeleteForClipIDs(ids); err != nil {
+			log.Printf("Failed to drop temp files of expired clips: %v\n", err)
+		}
+	}
+	return len(ids), nil
+}
+
+// cleanupJobInterval is how often StartCleanupJob runs (tests shorten it).
+var cleanupJobInterval = time.Minute
+
 // StartCleanupJob deletes expired clips every minute until ctx is cancelled.
 // Tying the ticker goroutine to the Bootstrap context stops it from outliving
 // the app and running db.Exec on a closed *sql.DB after Shutdown — which would
 // otherwise log an error every minute and leak a goroutine per re-bootstrap.
-func StartCleanupJob(ctx context.Context, db *sql.DB) {
-	ticker := time.NewTicker(1 * time.Minute)
+//
+// It also prunes store (nil when the temp store failed to start), subject to
+// the store's own throttle. Nothing else prunes an idle headless server: there
+// every large download leaves a copy (clip_snapshot.go), and the other prunes
+// run only when a new file is made.
+func StartCleanupJob(ctx context.Context, db *sql.DB, store *TempClipStore) {
+	ticker := time.NewTicker(cleanupJobInterval)
 	go func() {
 		defer ticker.Stop()
 		for {
@@ -669,13 +748,14 @@ func StartCleanupJob(ctx context.Context, db *sql.DB) {
 					return
 				default:
 				}
-				result, err := db.Exec("DELETE FROM clips WHERE expires_at IS NOT NULL AND expires_at <= CURRENT_TIMESTAMP")
-				if err != nil {
+				if rows, err := deleteExpiredClips(db, store); err != nil {
 					log.Printf("Failed to delete expired clips: %v\n", err)
-				} else {
-					rows, _ := result.RowsAffected()
-					if rows > 0 {
-						log.Printf("Cleaned up %d expired clips\n", rows)
+				} else if rows > 0 {
+					log.Printf("Cleaned up %d expired clips\n", rows)
+				}
+				if store != nil {
+					if err := store.Prune(false); err != nil {
+						log.Printf("Failed to prune temp clip files: %v\n", err)
 					}
 				}
 				// Garbage-collect expired share links. The view path already rejects

@@ -101,25 +101,26 @@ func TestFollowReportsConnectingBeforeHandshake(t *testing.T) {
 }
 
 // A follow that flapped early used to sit at the 30s cap for the rest of the
-// app's life: the ladder counted sessions, not consecutive failures.
+// app's life: the ladder counted sessions, not consecutive failures. "Failed"
+// includes a handshake the publisher refused — only an accepted session resets.
 func TestNextFollowBackoff(t *testing.T) {
 	cases := []struct {
-		name       string
-		current    time.Duration
-		handshaked bool
-		want       time.Duration
+		name     string
+		current  time.Duration
+		accepted bool
+		want     time.Duration
 	}{
-		{"floor doubles after a failed dial", ReconnectFloor, false, 2 * ReconnectFloor},
+		{"floor doubles after a failed or refused attempt", ReconnectFloor, false, 2 * ReconnectFloor},
 		{"growth clamps at the cap", 20 * time.Second, false, ReconnectCap},
 		{"cap stays at the cap", ReconnectCap, false, ReconnectCap},
-		{"handshake resets from the cap", ReconnectCap, true, ReconnectFloor},
-		{"handshake resets from mid-ladder", 8 * time.Second, true, ReconnectFloor},
-		{"handshake keeps the floor at the floor", ReconnectFloor, true, ReconnectFloor},
+		{"accepted session resets from the cap", ReconnectCap, true, ReconnectFloor},
+		{"accepted session resets from mid-ladder", 8 * time.Second, true, ReconnectFloor},
+		{"accepted session keeps the floor at the floor", ReconnectFloor, true, ReconnectFloor},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := nextFollowBackoff(tc.current, tc.handshaked); got != tc.want {
-				t.Fatalf("nextFollowBackoff(%v, %v) = %v want %v", tc.current, tc.handshaked, got, tc.want)
+			if got := defaultFollowTiming().next(tc.current, tc.accepted); got != tc.want {
+				t.Fatalf("next(%v, %v) = %v want %v", tc.current, tc.accepted, got, tc.want)
 			}
 		})
 	}

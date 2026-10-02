@@ -10,12 +10,21 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 const (
 	defaultTempLeaseTTL      = 60 * time.Minute
 	defaultTempPruneInterval = 10 * time.Minute
+
+	// defaultStreamSnapshotTTL is the lease on a link snapshot
+	// (clip_snapshot.go), shorter than a drag-out or playback file's. A
+	// snapshot only ever spares a later request one copy out of the database,
+	// and the headless server makes one for every large clip its web UI shows,
+	// so on the hour lease browsing a big library would keep a full copy of
+	// everything viewed on disk for an hour after the last look.
+	defaultStreamSnapshotTTL = 15 * time.Minute
 )
 
 // ErrClipNotFound indicates a clip ID did not exist in the database.
@@ -35,10 +44,21 @@ type TempClipStore struct {
 	db            *sql.DB
 	dir           string
 	leaseTTL      time.Duration
+	streamTTL     time.Duration // lease on link snapshots; see defaultStreamSnapshotTTL
 	pruneInterval time.Duration
 	lastPrune     time.Time
 	now           func() time.Time
 	mu            sync.Mutex
+
+	// Streaming snapshots (clip_snapshot.go). snapMu guards only these two
+	// maps, so checking for a reusable snapshot never waits behind s.mu, which
+	// PrepareClipFile holds across a whole clip read. Lock order: mu, then
+	// snapMu.
+	snapMu      sync.Mutex
+	snapshots   map[int64]clipSnapshotRecord
+	snapFlights map[int64]*clipSnapshotFlight
+	// materialized counts snapshot copies out of the database.
+	materialized atomic.Int64
 }
 
 // NewTempClipStore creates a new temp clip store.
@@ -53,6 +73,7 @@ func NewTempClipStore(db *sql.DB, dir string, leaseTTL, pruneInterval time.Durat
 		db:            db,
 		dir:           dir,
 		leaseTTL:      leaseTTL,
+		streamTTL:     min(leaseTTL, defaultStreamSnapshotTTL),
 		pruneInterval: pruneInterval,
 		now:           time.Now,
 	}
@@ -91,7 +112,7 @@ func (s *TempClipStore) PrepareClipFile(clipID int64) (*tempPreparedFile, error)
 	safeName := tempFilenameForClip(clipID, filename, contentType)
 	tempPath := filepath.Join(s.dir, safeName)
 
-	if err := os.WriteFile(tempPath, data, 0644); err != nil {
+	if err := replaceTempFile(tempPath, data); err != nil {
 		return nil, fmt.Errorf("failed to write temp file: %w", err)
 	}
 
@@ -218,7 +239,8 @@ func (s *TempClipStore) FindExistingClipFile(clipID int64) (*tempPreparedFile, e
 	}, nil
 }
 
-// DeleteForClipIDs removes temp files for the provided clip IDs.
+// DeleteForClipIDs removes temp files for the provided clip IDs, link
+// snapshots included.
 func (s *TempClipStore) DeleteForClipIDs(ids []int64) error {
 	if len(ids) == 0 {
 		return nil
@@ -236,6 +258,7 @@ func (s *TempClipStore) DeleteForClipIDs(ids []int64) error {
 	if len(idSet) == 0 {
 		return nil
 	}
+	s.forgetSnapshots(idSet)
 
 	entries, err := os.ReadDir(s.dir)
 	if err != nil {
@@ -250,7 +273,7 @@ func (s *TempClipStore) DeleteForClipIDs(ids []int64) error {
 		if entry.IsDir() {
 			continue
 		}
-		clipID, ok := parseClipIDFromTempFilename(entry.Name())
+		clipID, _, ok := clipIDForTempFile(entry.Name())
 		if !ok {
 			continue
 		}
@@ -276,6 +299,7 @@ func (s *TempClipStore) DeleteAll() error {
 	if s.dir == "" {
 		return nil
 	}
+	s.forgetSnapshots(nil)
 
 	if err := os.RemoveAll(s.dir); err != nil {
 		return fmt.Errorf("failed to remove temp dir: %w", err)
@@ -318,20 +342,40 @@ func (s *TempClipStore) pruneLocked(force bool) error {
 			continue
 		}
 
-		stale := now.Sub(info.ModTime()) > s.leaseTTL
-		orphan := false
-		if clipID, ok := parseClipIDFromTempFilename(entry.Name()); ok {
+		clipID, snapshot, ok := clipIDForTempFile(entry.Name())
+		ttl := s.leaseTTL
+		if snapshot {
+			ttl = s.streamTTL
+		}
+		remove := now.Sub(info.ModTime()) > ttl
+		if !remove && ok {
 			exists, err := s.clipExists(clipID)
 			if err != nil {
 				return err
 			}
-			orphan = !exists
+			remove = !exists // orphan
+		}
+		// A link snapshot is reachable only through its in-memory record, so
+		// one without it — left by an earlier run, or superseded — is dead.
+		if !remove && snapshot {
+			remove = !s.isRecordedSnapshot(clipID, fullPath)
+		}
+		if !remove {
+			continue
 		}
 
-		if stale || orphan {
-			if err := os.Remove(fullPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-				return fmt.Errorf("failed to remove temp file %q: %w", fullPath, err)
+		err = os.Remove(fullPath)
+		if snapshot {
+			// Best effort: on Windows a snapshot a stream still has open
+			// cannot be removed yet, and one undeletable file must not fail
+			// every drag-out that prunes first. The next prune retries.
+			if err == nil || errors.Is(err, os.ErrNotExist) {
+				s.forgetSnapshotAt(clipID, fullPath)
 			}
+			continue
+		}
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("failed to remove temp file %q: %w", fullPath, err)
 		}
 	}
 
@@ -354,6 +398,32 @@ func (s *TempClipStore) clipExists(clipID int64) (bool, error) {
 	return false, fmt.Errorf("failed to check clip %d existence: %w", clipID, err)
 }
 
+// replaceTempFile writes data to path by renaming a fresh file over it rather
+// than truncating it in place. A leased file can be read by a long-lived
+// stream — a video playing from it over /media/ — and an in-place rewrite
+// would truncate the file under it mid-read. Windows cannot replace a file
+// that is open, so there the in-place write is the fallback.
+func replaceTempFile(path string, data []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".prepare-*")
+	if err == nil {
+		_, err = tmp.Write(data)
+		if closeErr := tmp.Close(); err == nil {
+			err = closeErr
+		}
+		if err == nil {
+			err = os.Chmod(tmp.Name(), 0644)
+		}
+		if err == nil {
+			err = os.Rename(tmp.Name(), path)
+		}
+		if err == nil {
+			return nil
+		}
+		_ = os.Remove(tmp.Name())
+	}
+	return os.WriteFile(path, data, 0644)
+}
+
 func tempFilenameForClip(clipID int64, filename sql.NullString, contentType string) string {
 	safeName := fmt.Sprintf("%d", clipID)
 	if filename.Valid && strings.TrimSpace(filename.String) != "" {
@@ -366,6 +436,21 @@ func tempFilenameForClip(clipID int64, filename sql.NullString, contentType stri
 	return safeName
 }
 
+// clipIDForTempFile returns the clip a file in the store's directory belongs
+// to, and whether it is a link snapshot rather than a leased transfer file.
+func clipIDForTempFile(name string) (clipID int64, snapshot, ok bool) {
+	if clipID, ok = parseClipIDFromTempFilename(name); ok {
+		return clipID, false, true
+	}
+	if clipID, ok = parseStreamSnapshotName(name); ok {
+		return clipID, true, true
+	}
+	return 0, false, false
+}
+
+// parseClipIDFromTempFilename returns the clip ID of a leased transfer file —
+// the names drag-out, copy-as-file and playback hand out. It rejects every
+// dot-prefixed name: in-flight copies and link snapshots.
 func parseClipIDFromTempFilename(name string) (int64, bool) {
 	if name == "" {
 		return 0, false

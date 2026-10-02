@@ -359,6 +359,8 @@ The app exposes a REST API via `api_manager.go` that the `mp` CLI and external t
 
 API keys with roles (`viewer`, `editor`, `admin`). Auth via `Authorization: Bearer <key>` header or `MP_API_KEY` env var in the CLI.
 
+Tag-scoped keys are confined to their subtree on clip/tag routes, but an admin key — scoped or not — can still mint keys of any scope and download backups (documented in the CLI tutorial), so scoped admin keys are effectively full admin. Every `/api/v1/share*` (P2P) route rejects tag-scoped keys outright (`requireUnscopedShare` via `shareRoute`), and a share string — the whole follow capability (peer id + symkey) — is returned only to admin keys: `GET /api/v1/share` blanks `share_string` for other roles, and `share:*` event payloads never carry it (listeners re-fetch).
+
 Revoking a key is a soft delete: `is_revoked = 1` plus a `revoked_at` stamp. Auth denial is instant (every lookup filters `is_revoked = 0`); the row itself is hard-deleted by the `StartCleanupJob` sweep `revokedKeyRetentionDays` (7) after revocation, so the key list doesn't accumulate dead entries forever. Deleting a scoped tag NULLs `scoped_tag_id`, and the `api_keys_revoke_on_scope_null` trigger revokes and stamps the key so it ages out on the same schedule.
 
 ### Endpoints
@@ -369,10 +371,10 @@ Routes cover all major features: clips, tags, watch folders, plugins, backup, de
 
 Revocable, single-clip public download links, distinct from the peer-to-peer `share_*.go` tag-sync feature (which is named `share`/`/api/v1/share/*` — do **not** reuse that namespace).
 
-- **Public route**: `GET /s/{token}` — unauthenticated; the 256-bit `crypto/rand` token in the path is the only capability. Streams the clip through the same hardened path as `GET /api/v1/clips/{id}/data` (`writeClipBytes`: `nosniff` + CSP sandbox + `Content-Disposition: attachment` + `Cache-Control: no-store`). Rate-limited per client IP; every reject (missing/revoked/expired/exhausted/clip-archived) is a uniform 404.
+- **Public route**: `GET /s/{token}` — unauthenticated; the 256-bit `crypto/rand` token in the path is the only capability. Streams the clip through the same hardened path as `GET /api/v1/clips/{id}/data` (`writeClipBytes`: `nosniff` + CSP sandbox + `Content-Disposition: attachment` + `Cache-Control: no-store`). Rate-limited (60 starts/min/IP) and concurrency-capped (`shareStreamMaxPerIP` 4 → 429, `shareStreamMaxConcurrent` 32 → 503), both checked before the token lookup and before a download slot is claimed. Every reject (missing/revoked/expired/exhausted/clip-archived) is a uniform 404.
 - **Management** (admin-only): `POST /api/v1/links` (mint, returns the token once), `GET /api/v1/links` (list, prefixes only), `DELETE /api/v1/links/{id}` (revoke — instant, re-checked in SQL per request, no cache).
 - Optional `expires_in_seconds` and `max_downloads` (atomic cap). Tag-scoped admin keys can only mint links inside their subtree (`enforceTagScope`). Only the token's SHA-256 hash is stored.
-- **Key files**: `share_link.go` (table-backed logic, token gen, handlers, `handleShareView`), `database.go` (`share_links` table + expiry GC in `StartCleanupJob`), `api_manager.go` (route registration + `writeClipBytes`), `link_service.go` (Wails `LinkService` for the desktop binding), `cmd/mp/link.go` (CLI), `frontend/js/rest-glue.js` (headless shim) + `ui.js`/`modals.js` (the server-mode "Copy → Public Link" affordance).
+- **Key files**: `share_link.go` (table-backed logic, token gen, handlers, `handleShareView`, `shareStreamLimiter`), `clip_stream.go` + `clip_snapshot.go` (file-backed streaming, see Video Gallery), `database.go` (`share_links` table + expiry GC in `StartCleanupJob`), `api_manager.go` (route registration + `writeClipBytes`), `link_service.go` (Wails `LinkService` for the desktop binding), `cmd/mp/link.go` (CLI), `frontend/js/rest-glue.js` (headless shim) + `ui.js`/`modals.js` (the server-mode "Copy → Public Link" affordance).
 
 ## Code Style
 
@@ -710,13 +712,39 @@ not under Playwright.
 opening frame: real footage often fades in from black, and a frame from the
 first moments is a black square that tells the user nothing.
 
-`serveStoredClip` reads inside one read-only transaction, so a clip edited
-mid-download cannot be delivered as a splice of two revisions, and it takes an
+`serveStoredClip` never holds a database transaction across network writes.
+A clip up to `clipStreamInMemoryMax` (1 MB) is read whole in one statement;
+anything larger is served from a snapshot (`clip_snapshot.go`) copied out once
+per revision into the `TempClipStore` dir under a private, read-only (0444),
+dot-prefixed per-revision name (`.stream-<clipID>-<hash16>`), and reused only
+while `clips.content_hash` equals the SHA-256 of the copy. It is deliberately
+not the drag-out/playback file (`parseClipIDFromTempFilename` rejects
+dot-names): reuse checks inode + size, not bytes, so a shared file would let an
+editor the clip was dropped into, saving in place at the same length, change
+what every public link serves. Snapshots lease for 15 min
+(`defaultStreamSnapshotTTL`), and the pruner also removes any snapshot without
+an in-memory record. Concurrent requests for one
+clip share one copy; at most `clipSnapshotMaxMaterializations` (2) copies run
+process-wide. Headers and bytes always come from one revision. It takes an
 `allowRanges` flag. Public share links pass `false` (`writeWholeClipBytes`):
 `handleShareView` claims a download slot *before* the body is written, so
 honouring `Range` would let `bytes=0-0`, or a browser's ordinary resume probe,
 spend a `max_downloads=1` link on one byte. A share link is a whole-file
 download; the authenticated API endpoint keeps ranges.
+
+Every writer of `clips.data` must set `content_hash` in the same statement and
+then drop the clip's temp files (`UpdateClipData`, `writeJSONClip`);
+`publishSnapshot` re-checks the hash (and the row's existence) under the store
+mutex so an edit or delete racing a copy cannot leave a published copy of bytes
+the library no longer holds, and `PrepareClipFile` replaces temp files by
+rename (`replaceTempFile`) so a `/media/` playback reading the old copy is
+never truncated. Every deleter of `clips` rows must drop the clip's temp files
+*after* the DELETE: the App delete paths do, the expiry reaper
+(`deleteExpiredClips`, `DELETE … RETURNING id`) does, and plugin
+`clips.delete`/`delete_many` report their ids through
+`Manager.SetClipsDeletedFunc`. `StartCleanupJob(ctx, db, store)` also prunes
+the store every tick (throttled) — the only prune an idle headless server
+gets.
 
 `UpdateClipData` drops the clip's leased temp file. Its name is derived from the
 clip ID and playback reuses a leased file rather than recopying, so without that
@@ -726,18 +754,22 @@ temp filename — `tempFilenameForClip` keeps the clip's own name, so a `video/m
 clip called `recording.txt` would be served as `text/plain` and, under `nosniff`,
 refuse to play.
 
-`serveStoredClip` (`internal/app/clip_stream.go`) is the remaining
-database-backed range streamer, used by server mode's authenticated
-`GET /api/v1/clips/{id}/data` and by share links. It carries the quadratic cost
-described above; raising `clipStreamChunkSize` divides the constant (8 MB
-measured 7× faster than 1 MB) but does not remove it.
+`serveStoredClip` (`internal/app/clip_stream.go`) backs server mode's
+authenticated `GET /api/v1/clips/{id}/data` and share links. It deliberately
+does not stream out of SQLite: modernc's `SUBSTR` loads the whole blob per call
+(~22 ms on 100 MB at any offset), so chunked streaming was quadratic in CPU,
+cost clip-size memory per chunk in flight, and its held read transaction let a
+client that stopped reading pin a pooled connection and the WAL snapshot
+forever. The API server runs with `WriteTimeout` 0 (for SSE), so
+`copyClipBody` sets a sliding per-chunk write deadline
+(`clipStreamWriteTimeout`, 30 s per 64 KB).
 
 Playback depends on codecs supported by the platform WebView/browser. The media
 contract lives in `frontend/js/ui.js` (`getVisibleMediaClips`, card thumbnails,
 `getVideoMediaUrl`), `frontend/js/lightbox.js` (mixed-media state and playback),
 `frontend/js/app.js` (media loader), `internal/app/app.go`
 (`PrepareClipMediaItem`), `internal/app/transfer_handler.go` (`serveMedia`),
-`internal/app/clip_stream.go` (DB range streaming), and
+`internal/app/clip_stream.go` + `clip_snapshot.go` (server-side clip streaming), and
 `internal/app/api_manager.go` (server ranges).
 
 ## Import Folder Wizard

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -352,9 +353,16 @@ func (sm *ServeManager) writeJSONClip(tagID int64, filename string, data interfa
 		return fmt.Errorf("failed to marshal JSON: %w", err)
 	}
 
-	_, err = sm.app.db.Exec(`UPDATE clips SET data = ? WHERE id = ?`, raw, clipID)
+	// content_hash moves with the bytes, in the same statement: dedup and the
+	// streaming snapshots (clip_snapshot.go) both take it as the revision.
+	_, err = sm.app.db.Exec(`UPDATE clips SET data = ?, content_hash = ? WHERE id = ?`, raw, computeContentHash(raw), clipID)
 	if err != nil {
 		return fmt.Errorf("failed to write clip: %w", err)
+	}
+	// As in UpdateClipData: the leased temp file now holds the previous
+	// revision, and playback and drag-out reuse a leased file as-is.
+	if err := sm.app.deleteTempFilesForClipIDs([]int64{clipID}); err != nil {
+		log.Printf("Warning: failed to drop temp file for updated clip %d: %v", clipID, err)
 	}
 	return nil
 }

@@ -83,6 +83,10 @@
       const pauseBtn = canTogglePause
         ? `<button class="share-toggle-pause border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-[11px] font-medium py-1.5 px-3 rounded-md inline-flex items-center gap-1" data-tagid="${s.tag_id}" data-paused="${paused ? '1' : '0'}" aria-label="${paused ? 'Resume share' : 'Pause share'}" title="${paused ? 'Resume share' : 'Pause share'}">${paused ? ICON_PLAY : ICON_PAUSE}${paused ? 'Resume' : 'Pause'}</button>`
         : '';
+      // Server mode redacts share_string for non-admin keys; nothing to copy.
+      const copyLinkBtn = s.share_string
+        ? `<button class="share-copy-link border border-stone-200 hover:bg-stone-100 text-stone-600 text-[11px] font-medium py-1.5 px-3 rounded-md" data-id="${s.id}" data-share="${escapeHTML(s.share_string)}">Copy link</button>`
+        : '';
       const nameSuffix = s.status === 'invalid' ? ` <span class="text-amber-700">(Re-share needed)</span>` : '';
       li.innerHTML = `
         <div class="min-w-0 flex-1">
@@ -92,7 +96,7 @@
         <div class="flex gap-2 shrink-0">
           <button class="share-logs-pub border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-[11px] font-medium py-1.5 px-3 rounded-md inline-flex items-center gap-1" data-pubid="${s.id}" data-name="${escapeHTML(s.tag_name)}" aria-label="View logs" title="View logs">${ICON_LOGS}Logs</button>
           ${pauseBtn}
-          <button class="share-copy-link border border-stone-200 hover:bg-stone-100 text-stone-600 text-[11px] font-medium py-1.5 px-3 rounded-md" data-id="${s.id}" data-share="${escapeHTML(s.share_string)}">Copy link</button>
+          ${copyLinkBtn}
           <button class="share-stop border border-stone-200 hover:bg-red-50 hover:border-red-300 text-stone-600 hover:text-red-600 text-[11px] font-medium py-1.5 px-3 rounded-md" data-tagid="${s.tag_id}">Stop</button>
         </div>`;
       pubList.appendChild(li);

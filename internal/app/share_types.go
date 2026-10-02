@@ -113,6 +113,16 @@ const (
 	HandshakeTimeout     time.Duration = 5 * time.Second
 	ReconnectFloor       time.Duration = time.Second
 	ReconnectCap         time.Duration = 30 * time.Second
+
+	// FollowAcceptGrace is how long a follower session that has decrypted no
+	// frame must stay open before it counts as accepted anyway. A current
+	// publisher answers every accepted handshake with a frame at once; this is
+	// the fallback for one too old to, which goes silent once it has
+	// registered an idle follower. Such a publisher only refuses while it
+	// processes the handshake: reading it is bounded by its HandshakeTimeout
+	// deadline and the checks after take milliseconds, so a stream still open
+	// past that, plus margin, was accepted.
+	FollowAcceptGrace time.Duration = HandshakeTimeout + time.Second
 )
 
 // ShareInfo — one entry in the publisher-side Sharing list (frontend DTO).
@@ -136,8 +146,12 @@ type FollowInfo struct {
 	RemotePeerID string `json:"remote_peer_id"`
 	LocalTagID   int64  `json:"local_tag_id"`
 	LocalTagName string `json:"local_tag_name"`
-	// "connecting" (row committed, no handshake yet) | "connected" |
-	// "connected_relayed" (connected over a circuit-v2 relay) | "offline".
+	// "connecting" (row committed, no session accepted yet) | "connected"
+	// (the publisher accepted the current session) | "connected_relayed"
+	// (connected over a circuit-v2 relay — not produced today: a relay only
+	// brokers the hole punch, and sessions run on the direct connection it
+	// yields; see connStatusLabel) | "offline". A session the publisher
+	// refuses never leaves the status it started from.
 	Status        string `json:"status"`
 	Paused        bool   `json:"paused"`
 	ClipsReceived int64  `json:"clips_received"`

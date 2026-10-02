@@ -1022,7 +1022,7 @@ async function createClipCard(clip, options = {}) {
         <div class="absolute top-2 right-2 z-30 opacity-0 group-hover:opacity-100 focus-within:opacity-100 group-[.has-checked]:opacity-100 transition-opacity duration-150">
             <div class="relative">
                 <input type="checkbox" data-id="${clip.id}"
-                    aria-label="Select clip ${clip.filename || 'Pasted Content'}"
+                    aria-label="Select clip ${escapeHTML(clip.filename) || 'Pasted Content'}"
                     class="clip-checkbox appearance-none w-5 h-5 rounded border border-white/60 bg-black/20 backdrop-blur-sm checked:bg-stone-700 checked:border-stone-700 transition-all cursor-pointer peer" ${selectedIds.has(clip.id) ? 'checked' : ''}>
                 <svg class="absolute inset-0 w-5 h-5 text-white pointer-events-none opacity-0 peer-checked:opacity-100 transition-opacity p-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7" />
@@ -1073,7 +1073,7 @@ async function createClipCard(clip, options = {}) {
         previewHTML = `
         <div class="preview-container aspect-square w-full flex flex-col items-center justify-center bg-stone-50 text-stone-400">
             <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
-            <span class="mt-2 text-[9px] font-medium uppercase tracking-wider">${getFriendlyFileType(clip.content_type, clip.filename)}</span>
+            <span class="mt-2 text-[9px] font-medium uppercase tracking-wider">${escapeHTML(getFriendlyFileType(clip.content_type, clip.filename))}</span>
         </div>`;
     }
 
@@ -1099,7 +1099,7 @@ async function createClipCard(clip, options = {}) {
                 ${escapeHTML(clip.filename) || '<span class="text-stone-400 font-normal">Pasted</span>'}
             </p>
             <div class="flex justify-between items-center">
-                <div class="flex items-center gap-1.5"><span class="text-[9px] font-medium text-stone-400 uppercase tracking-wide">${getFriendlyFileType(clip.content_type, clip.filename)}</span>${clip.duplicate_count > 0 ? `<span class="dedup-badge text-[9px] font-medium text-stone-400 bg-stone-100 border border-stone-200 rounded px-1">${clip.duplicate_count + 1} copies</span>` : ''}</div>
+                <div class="flex items-center gap-1.5"><span class="text-[9px] font-medium text-stone-400 uppercase tracking-wide">${escapeHTML(getFriendlyFileType(clip.content_type, clip.filename))}</span>${clip.duplicate_count > 0 ? `<span class="dedup-badge text-[9px] font-medium text-stone-400 bg-stone-100 border border-stone-200 rounded px-1">${clip.duplicate_count + 1} copies</span>` : ''}</div>
                 <div class="flex items-center gap-1">
                     ${dragHandleHTML}
                     <button class="card-menu-trigger p-1 text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded transition-colors"

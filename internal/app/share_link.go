@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -31,6 +32,60 @@ const (
 	// throttling token enumeration on a network-exposed daemon.
 	shareViewRatePerMin = 60
 )
+
+// Caps on /s/{token} requests in flight. shareViewRatePerMin bounds how fast
+// requests start, not how many run at once, and a download can stay open for
+// as long as its reader keeps draining one chunk per clipStreamWriteTimeout.
+// The caps keep anonymous holders of a link from accumulating them without
+// bound. A request over a cap is turned away before it claims a download
+// slot, so it cannot spend a limited link.
+//
+// A stream holds no database connection (it reads a snapshot file or an
+// in-memory copy of a small clip), so what each one costs is a goroutine, a
+// file descriptor and a 64 KB copy buffer. The global cap bounds that for the process; the per-address cap
+// keeps one client from taking every slot. Behind a reverse proxy without
+// MAHPASTESD_TRUST_PROXY=1 every visitor shares the proxy's address, so the
+// per-address cap then limits all public downloads together, as the rate
+// limiter already does.
+var (
+	shareStreamMaxConcurrent = 32 // over: 503
+	shareStreamMaxPerIP      = 4  // over: 429
+)
+
+// shareStreamLimiter counts /s/ requests in flight. The zero value is ready.
+type shareStreamLimiter struct {
+	mu    sync.Mutex
+	total int
+	perIP map[string]int
+}
+
+// acquire takes a stream slot for ip, or returns the status to refuse with.
+func (l *shareStreamLimiter) acquire(ip string) (release func(), status int) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.perIP[ip] >= shareStreamMaxPerIP {
+		return nil, http.StatusTooManyRequests
+	}
+	if l.total >= shareStreamMaxConcurrent {
+		return nil, http.StatusServiceUnavailable
+	}
+	if l.perIP == nil {
+		l.perIP = make(map[string]int)
+	}
+	l.total++
+	l.perIP[ip]++
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			l.mu.Lock()
+			defer l.mu.Unlock()
+			l.total--
+			if l.perIP[ip]--; l.perIP[ip] <= 0 {
+				delete(l.perIP, ip)
+			}
+		})
+	}, 0
+}
 
 // ShareLinkInfo is the public description of a share link. It never includes the
 // token itself — only an 8-char prefix for recognition in management UIs.
@@ -282,10 +337,21 @@ func shareNotFound(w http.ResponseWriter) {
 // in SQL on each request with no in-memory cache, which is what makes
 // revocation and expiry take effect instantly.
 func (am *APIManager) handleShareView(w http.ResponseWriter, r *http.Request) {
-	if !am.shareLimiter.allow(am.clientIP(r), shareViewRatePerMin, time.Minute) {
+	ip := am.clientIP(r)
+	if !am.shareLimiter.allow(ip, shareViewRatePerMin, time.Minute) {
 		http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
 		return
 	}
+	// Taken before the token is even looked up, so a refusal says nothing
+	// about whether the token is valid, and before the download slot is
+	// claimed, so it cannot spend a limited link.
+	release, status := am.shareStreams.acquire(ip)
+	if status != 0 {
+		w.Header().Set("Retry-After", "10")
+		http.Error(w, http.StatusText(status), status)
+		return
+	}
+	defer release()
 
 	token := r.PathValue("token")
 	if token == "" {
@@ -348,8 +414,9 @@ func (am *APIManager) handleShareView(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !am.writeWholeClipBytes(w, r, clipID) {
-		// Clip was deleted between the gate check and the read. Refund the slot so
-		// a one-time link is not permanently bricked by a non-delivery.
+		// Nothing was written: the clip was deleted between the gate check and
+		// the read, or could not be read at all. Refund the slot so a one-time
+		// link is not permanently bricked by a non-delivery.
 		am.app.db.Exec("UPDATE share_links SET download_count = download_count - 1 WHERE id = ?", linkID)
 		shareNotFound(w)
 	}

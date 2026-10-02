@@ -48,6 +48,8 @@ func TestParseClipIDFromTempFilename(t *testing.T) {
 		{name: "id_only", filename: "19", expectID: 19, expectOK: true},
 		{name: "invalid_prefix", filename: "clip_12.txt", expectID: 0, expectOK: false},
 		{name: "invalid_separator", filename: "12x.txt", expectID: 0, expectOK: false},
+		// Link snapshots are never handed to drag-out or playback.
+		{name: "stream_snapshot", filename: ".stream-42-0123456789abcdef", expectID: 0, expectOK: false},
 	}
 
 	for _, tc := range tests {

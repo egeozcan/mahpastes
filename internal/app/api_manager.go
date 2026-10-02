@@ -108,6 +108,7 @@ type APIManager struct {
 	signingKey       []byte
 	loginLimiter     *loginRateLimiter
 	shareLimiter     *loginRateLimiter
+	shareStreams     shareStreamLimiter
 	trustProxy       bool
 	secureCookies    bool
 	routesRegistered bool
@@ -176,6 +177,22 @@ func (am *APIManager) requireUnscopedSSE(next http.Handler) http.HandlerFunc {
 			Revalidate: func() bool { return am.stillAuthorized(r) },
 		}
 		next.ServeHTTP(w, r.WithContext(bridgeiface.WithSSEAuth(r.Context(), auth)))
+	}
+}
+
+// requireUnscopedShare rejects tag-scoped keys from every /api/v1/share* route.
+// P2P publications and follows are instance-global: a share string is a bearer
+// capability that works over libp2p independently of the API key (so it
+// outlives the key's revocation), and a follow writes into any local tag. The
+// routes are therefore not filtered per tag; a scoped key has no access at all,
+// as with the event stream.
+func (am *APIManager) requireUnscopedShare(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if getKeyContext(r).ScopedTagID != 0 {
+			am.jsonError(w, http.StatusForbidden, "sharing is not available for tag-scoped keys")
+			return
+		}
+		next.ServeHTTP(w, r)
 	}
 }
 
@@ -406,21 +423,25 @@ func (am *APIManager) Start(port int, bindAll bool) (APIStatus, error) {
 		mux.HandleFunc("POST /api/v1/clips/diff", am.authMiddleware(am.requireRole("viewer", am.handleImageDiff)))
 		mux.HandleFunc("POST /api/v1/clips/find", am.authMiddleware(am.requireRole("viewer", am.handleFindClipsByFilenameAndTag)))
 
-		// Share
-		mux.HandleFunc("GET /api/v1/share", am.authMiddleware(am.requireRole("viewer", am.handleGetShareStatus)))
-		mux.HandleFunc("POST /api/v1/share/publish", am.authMiddleware(am.requireRole("admin", am.handleStartShare)))
-		mux.HandleFunc("DELETE /api/v1/share/publish/{tagId}", am.authMiddleware(am.requireRole("admin", am.handleStopShare)))
-		mux.HandleFunc("PUT /api/v1/share/publish/{tagId}/pause", am.authMiddleware(am.requireRole("admin", am.handlePauseShare)))
-		mux.HandleFunc("DELETE /api/v1/share/publish/{tagId}/pause", am.authMiddleware(am.requireRole("admin", am.handleResumeShare)))
-		mux.HandleFunc("POST /api/v1/share/follow", am.authMiddleware(am.requireRole("admin", am.handleFollow)))
-		mux.HandleFunc("POST /api/v1/share/test-follow", am.authMiddleware(am.requireRole("admin", am.handleTestFollowConnection)))
-		mux.HandleFunc("POST /api/v1/share/follow-direct", am.authMiddleware(am.requireRole("admin", am.handleFollowWithoutDial)))
-		mux.HandleFunc("DELETE /api/v1/share/follow/{id}", am.authMiddleware(am.requireRole("admin", am.handleUnfollow)))
-		mux.HandleFunc("POST /api/v1/share/follow/{id}/reconnect", am.authMiddleware(am.requireRole("admin", am.handleReconnectFollow)))
-		mux.HandleFunc("PUT /api/v1/share/follow/{id}/pause", am.authMiddleware(am.requireRole("admin", am.handlePauseFollow)))
-		mux.HandleFunc("DELETE /api/v1/share/follow/{id}/pause", am.authMiddleware(am.requireRole("admin", am.handleResumeFollow)))
-		mux.HandleFunc("PUT /api/v1/share/follow/{id}/tag", am.authMiddleware(am.requireRole("admin", am.handleUpdateFollowTag)))
-		mux.HandleFunc("GET /api/v1/share/logs", am.authMiddleware(am.requireRole("viewer", am.handleGetShareLogs)))
+		// Share. Every route goes through shareRoute so none can be added
+		// without the tag-scope guard.
+		shareRoute := func(minRole string, h http.HandlerFunc) http.HandlerFunc {
+			return am.authMiddleware(am.requireUnscopedShare(am.requireRole(minRole, h)))
+		}
+		mux.HandleFunc("GET /api/v1/share", shareRoute("viewer", am.handleGetShareStatus))
+		mux.HandleFunc("POST /api/v1/share/publish", shareRoute("admin", am.handleStartShare))
+		mux.HandleFunc("DELETE /api/v1/share/publish/{tagId}", shareRoute("admin", am.handleStopShare))
+		mux.HandleFunc("PUT /api/v1/share/publish/{tagId}/pause", shareRoute("admin", am.handlePauseShare))
+		mux.HandleFunc("DELETE /api/v1/share/publish/{tagId}/pause", shareRoute("admin", am.handleResumeShare))
+		mux.HandleFunc("POST /api/v1/share/follow", shareRoute("admin", am.handleFollow))
+		mux.HandleFunc("POST /api/v1/share/test-follow", shareRoute("admin", am.handleTestFollowConnection))
+		mux.HandleFunc("POST /api/v1/share/follow-direct", shareRoute("admin", am.handleFollowWithoutDial))
+		mux.HandleFunc("DELETE /api/v1/share/follow/{id}", shareRoute("admin", am.handleUnfollow))
+		mux.HandleFunc("POST /api/v1/share/follow/{id}/reconnect", shareRoute("admin", am.handleReconnectFollow))
+		mux.HandleFunc("PUT /api/v1/share/follow/{id}/pause", shareRoute("admin", am.handlePauseFollow))
+		mux.HandleFunc("DELETE /api/v1/share/follow/{id}/pause", shareRoute("admin", am.handleResumeFollow))
+		mux.HandleFunc("PUT /api/v1/share/follow/{id}/tag", shareRoute("admin", am.handleUpdateFollowTag))
+		mux.HandleFunc("GET /api/v1/share/logs", shareRoute("viewer", am.handleGetShareLogs))
 
 		// API keys and web UI auth
 		mux.HandleFunc("GET /api/v1/status", am.handleAPIStatus)
@@ -1495,8 +1516,12 @@ func (am *APIManager) handleGetClipText(w http.ResponseWriter, r *http.Request) 
 //     previews/editor are unaffected.
 //   - CSP sandbox: even if a browser were coerced into rendering this
 //     response, it runs in an opaque origin with scripts disabled.
+//
+// Large clips are served from a snapshot file (clip_snapshot.go), never
+// streamed out of SQLite, and every write carries a sliding deadline
+// (copyClipBody) because this server has no WriteTimeout.
 func (am *APIManager) writeClipBytes(w http.ResponseWriter, r *http.Request, clipID int64) bool {
-	return serveStoredClip(w, r, am.app.db, clipID, "attachment", true)
+	return serveStoredClip(w, r, am.app.db, am.app.tempStore, clipID, "attachment", true)
 }
 
 // writeWholeClipBytes streams a clip with range support switched off. Public
@@ -1505,7 +1530,7 @@ func (am *APIManager) writeClipBytes(w http.ResponseWriter, r *http.Request, cli
 // resume probe, spend a max_downloads=1 link on a single byte. A share link is
 // a whole-file download, so the simplest correct answer is not to offer ranges.
 func (am *APIManager) writeWholeClipBytes(w http.ResponseWriter, r *http.Request, clipID int64) bool {
-	return serveStoredClip(w, r, am.app.db, clipID, "attachment", false)
+	return serveStoredClip(w, r, am.app.db, am.app.tempStore, clipID, "attachment", false)
 }
 
 // sanitizeDownloadName returns a safe, separator-free filename for use in a
@@ -4011,6 +4036,13 @@ func (am *APIManager) handleGetShareStatus(w http.ResponseWriter, r *http.Reques
 	shares, follows := am.app.shareManager.GetShareStatus()
 	if shares == nil {
 		shares = []ShareInfo{}
+	}
+	// The share string is the whole follow capability (publisher peer id +
+	// symkey). Viewers and editors may see that a tag is shared, not the key.
+	if getKeyContext(r).Role != "admin" {
+		for i := range shares {
+			shares[i].ShareString = ""
+		}
 	}
 	if follows == nil {
 		follows = []FollowInfo{}

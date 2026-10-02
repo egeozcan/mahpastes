@@ -18,7 +18,7 @@ func TestServeStoredClipRangesCanBeDisabled(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/s/tok", nil)
 	req.Header.Set("Range", "bytes=0-0")
 	rec := httptest.NewRecorder()
-	if !serveStoredClip(rec, req, db, 30, "attachment", false) {
+	if !serveStoredClip(rec, req, db, nil, 30, "attachment", false) {
 		t.Fatal("serve failed")
 	}
 	if rec.Code != http.StatusOK {
@@ -35,7 +35,7 @@ func TestServeStoredClipRangesCanBeDisabled(t *testing.T) {
 	req = httptest.NewRequest(http.MethodGet, "/s/tok", nil)
 	req.Header.Set("Range", "bytes=9999-")
 	rec = httptest.NewRecorder()
-	serveStoredClip(rec, req, db, 30, "attachment", false)
+	serveStoredClip(rec, req, db, nil, 30, "attachment", false)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
@@ -44,7 +44,7 @@ func TestServeStoredClipRangesCanBeDisabled(t *testing.T) {
 	req = httptest.NewRequest(http.MethodGet, "/api/v1/clips/30/data", nil)
 	req.Header.Set("Range", "bytes=2-4")
 	rec = httptest.NewRecorder()
-	serveStoredClip(rec, req, db, 30, "attachment", true)
+	serveStoredClip(rec, req, db, nil, 30, "attachment", true)
 	if rec.Code != http.StatusPartialContent || rec.Body.String() != "234" {
 		t.Fatalf("ranged request: %d %q", rec.Code, rec.Body.String())
 	}
