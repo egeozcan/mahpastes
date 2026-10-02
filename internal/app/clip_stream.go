@@ -22,8 +22,9 @@ var (
 	// stops reading — a paused download, or someone doing it on purpose — would
 	// keep its handler parked in Write for as long as it keeps the TCP
 	// connection open. The deadline slides forward before every chunk, so a
-	// slow but moving reader is fine (it needs to drain one chunk per window,
-	// ~2 KB/s at the default) and only a stalled one is cut off.
+	// slow but moving reader is fine (it needs to drain one chunk per window:
+	// 64 KB here, ~2 KB/s at the default; 32 KB for tag-serve's
+	// slidingDeadlineReader, ~1 KB/s) and only a stalled one is cut off.
 	clipStreamWriteTimeout = 30 * time.Second
 
 	// clipStreamInMemoryMax is the largest clip served straight from memory:
@@ -60,6 +61,10 @@ type clipBody struct {
 	clipStreamMetadata
 	data   io.ReaderAt // nil when only the headers are wanted (HEAD)
 	closer func()
+	// hash is the SHA-256 (hex) of exactly these bytes — for HEAD, the
+	// stored content_hash — or "" when unknown. It identifies the revision,
+	// which makes it a strong validator (ETag).
+	hash string
 }
 
 func (b *clipBody) Close() {
@@ -103,7 +108,7 @@ func openClipBody(ctx context.Context, db *sql.DB, store *TempClipStore, clipID 
 		return nil, err
 	}
 	if headOnly {
-		return &clipBody{clipStreamMetadata: meta}, nil
+		return &clipBody{clipStreamMetadata: meta, hash: hash}, nil
 	}
 	if meta.size <= clipStreamInMemoryMax {
 		var data []byte
@@ -119,6 +124,7 @@ func openClipBody(ctx context.Context, db *sql.DB, store *TempClipStore, clipID 
 		}
 		body.size = int64(len(data))
 		body.data = bytes.NewReader(data)
+		body.hash = computeContentHash(data)
 		return body, nil
 	}
 	if store != nil && store.db != nil && store.dir != "" {

@@ -116,7 +116,7 @@ async function runRemoveEmptyTags() {
 
     const listHTML = candidates.map(t => {
         const swatch = t.color
-            ? `<span class="inline-block w-2 h-2 rounded-full mr-1.5 align-middle" style="background-color: ${escapeHTML(t.color)}"></span>`
+            ? `<span class="inline-block w-2 h-2 rounded-full mr-1.5 align-middle" style="background-color: ${safeTagColor(t.color)}"></span>`
             : '';
         return `<span class="block text-left">${swatch}${escapeHTML(t.name)}</span>`;
     }).join('');

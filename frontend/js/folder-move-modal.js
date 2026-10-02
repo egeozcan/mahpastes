@@ -141,7 +141,8 @@ const FolderMoveModal = (() => {
         const shortName = currentTag.name.split('/').pop();
         const newPath = selectedDest.isRoot ? shortName : `${selectedDest.path}/${shortName}`;
         try {
-            await window.go.main.App.UpdateTag(currentTag.id, newPath, currentTag.color);
+            // '' keeps the stored color; a cached copy would revert one changed elsewhere.
+            await window.go.main.App.UpdateTag(currentTag.id, newPath, '');
             if (typeof showToast === 'function') showToast(`Moved to ${newPath}`, 'success');
             closeModal();
             if (typeof window.renderFolderCards === 'function') await window.renderFolderCards();

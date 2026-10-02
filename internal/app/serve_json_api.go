@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
@@ -63,20 +64,69 @@ func (sm *ServeManager) handleJSONAPI(w http.ResponseWriter, r *http.Request, ts
 	// Remove trailing slash from jsonPath.
 	jsonPath = strings.TrimSuffix(jsonPath, "/")
 
+	// The write handlers hold the clip's mutex until they return, and they
+	// answer from inside it. Writing that answer straight to the client let
+	// one that stopped reading (PUT echoes its whole body) hold the lock, and
+	// every other writer of the clip, until the write deadline. They answer
+	// into a buffer instead, sent once the handler — and the lock — is done.
 	switch r.Method {
 	case http.MethodGet:
 		sm.handleJSONGet(w, r, ts, clipFilename, jsonPath)
 	case http.MethodPost:
-		sm.handleJSONPost(w, r, ts, clipFilename, jsonPath)
+		buf := newBufferedResponse(w)
+		sm.handleJSONPost(buf, r, ts, clipFilename, jsonPath)
+		buf.send()
 	case http.MethodPut:
-		sm.handleJSONPut(w, r, ts, clipFilename, jsonPath)
+		buf := newBufferedResponse(w)
+		sm.handleJSONPut(buf, r, ts, clipFilename, jsonPath)
+		buf.send()
 	case http.MethodPatch:
-		sm.handleJSONPatch(w, r, ts, clipFilename, jsonPath)
+		buf := newBufferedResponse(w)
+		sm.handleJSONPatch(buf, r, ts, clipFilename, jsonPath)
+		buf.send()
 	case http.MethodDelete:
-		sm.handleJSONDelete(w, r, ts, clipFilename, jsonPath)
+		buf := newBufferedResponse(w)
+		sm.handleJSONDelete(buf, r, ts, clipFilename, jsonPath)
+		buf.send()
 	default:
 		jsonAPIError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
+}
+
+// bufferedResponse collects a response — headers go straight to the real
+// writer's map, status and body are held — for sending later with send.
+type bufferedResponse struct {
+	w      http.ResponseWriter
+	status int
+	body   bytes.Buffer
+}
+
+func newBufferedResponse(w http.ResponseWriter) *bufferedResponse {
+	return &bufferedResponse{w: w}
+}
+
+func (b *bufferedResponse) Header() http.Header { return b.w.Header() }
+
+func (b *bufferedResponse) WriteHeader(status int) {
+	if b.status == 0 {
+		b.status = status
+	}
+}
+
+func (b *bufferedResponse) Write(p []byte) (int, error) {
+	if b.status == 0 {
+		b.status = http.StatusOK
+	}
+	return b.body.Write(p)
+}
+
+// send writes the collected response to the client.
+func (b *bufferedResponse) send() {
+	if b.status == 0 {
+		b.status = http.StatusOK
+	}
+	b.w.WriteHeader(b.status)
+	_, _ = b.body.WriteTo(b.w)
 }
 
 // handleJSONGet reads a JSON clip and returns the value at the given path.

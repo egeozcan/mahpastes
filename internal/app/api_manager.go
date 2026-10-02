@@ -972,16 +972,15 @@ func (am *APIManager) enforceTagScope(keyCtx *apiKeyContext, clipID int64) error
 	if err := am.app.db.QueryRow("SELECT name FROM tags WHERE id = ?", keyCtx.ScopedTagID).Scan(&scopedName); err != nil {
 		return fmt.Errorf("forbidden: scoped tag not found")
 	}
-	// Check if clip has the scoped tag or any descendant. Escape SQL LIKE
-	// wildcards in the scoped name so a tag literally containing _ or % cannot
-	// over-match a sibling subtree (mirrors removeSameTreeTags in app.go).
-	escapedName := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(scopedName)
+	// Check if clip has the scoped tag or any descendant — matched exactly
+	// (underTagSQL), not with LIKE, which folds case: a key scoped to
+	// "my_proj" reached clips under "MY_PROJ/".
 	var count int
 	am.app.db.QueryRow(`
 		SELECT COUNT(*) FROM clip_tags ct
 		JOIN tags t ON ct.tag_id = t.id
-		WHERE ct.clip_id = ? AND (t.id = ? OR t.name LIKE ? ESCAPE '\')`,
-		clipID, keyCtx.ScopedTagID, escapedName+"/%").Scan(&count)
+		WHERE ct.clip_id = ? AND (t.id = ? OR `+underTagSQL("t.name")+`)`,
+		clipID, keyCtx.ScopedTagID, scopedName, scopedName).Scan(&count)
 	if count == 0 {
 		return fmt.Errorf("forbidden: clip not in scoped tag")
 	}
@@ -1108,8 +1107,8 @@ func (am *APIManager) handleListClips(w http.ResponseWriter, r *http.Request) {
 			countQuery := fmt.Sprintf(`SELECT COUNT(DISTINCT c.id) FROM clips c
 				JOIN clip_tags ct ON c.id = ct.clip_id
 				JOIN tags t ON ct.tag_id = t.id
-				WHERE (t.id = ? OR t.name LIKE ?)%s`, whereClause)
-			countArgs := append([]interface{}{tagFilter, scopedName + "/%"}, args...)
+				WHERE (t.id = ? OR `+underTagSQL("t.name")+`)%s`, whereClause)
+			countArgs := append([]interface{}{tagFilter, scopedName, scopedName}, args...)
 			am.app.db.QueryRow(countQuery, countArgs...).Scan(&totalCount)
 
 			// Fetch
@@ -1117,10 +1116,10 @@ func (am *APIManager) handleListClips(w http.ResponseWriter, r *http.Request) {
 				FROM clips c
 				JOIN clip_tags ct ON c.id = ct.clip_id
 				JOIN tags t ON ct.tag_id = t.id
-				WHERE (t.id = ? OR t.name LIKE ?)%s
+				WHERE (t.id = ? OR `+underTagSQL("t.name")+`)%s
 				ORDER BY c.created_at DESC
 				LIMIT ? OFFSET ?`, whereClause)
-			fetchArgs := append([]interface{}{tagFilter, scopedName + "/%"}, args...)
+			fetchArgs := append([]interface{}{tagFilter, scopedName, scopedName}, args...)
 			fetchArgs = append(fetchArgs, limit, offset)
 			rows, err = am.app.db.Query(query, fetchArgs...)
 		} else {
@@ -1616,15 +1615,30 @@ func (am *APIManager) handleCreateClip(w http.ResponseWriter, r *http.Request) {
 	// Compute content hash for dedup
 	contentHash := computeContentHash(data)
 
-	// Check for duplicate
+	// Check for duplicate. A tag-scoped key may only dedup against clips it
+	// can already see: matched anywhere, the existing clip came back in the
+	// response (name, metadata) and was tagged into the key's scope — which,
+	// by tree exclusivity, moved it out of wherever it was filed. So the
+	// lookup itself is scoped (and finds the key's own earlier copy), and a
+	// match is returned as it is: it is already in scope, and re-tagging it
+	// with the scope's root would move it up out of its folder.
 	var existingID int64
-	err = am.app.db.QueryRow("SELECT id FROM clips WHERE content_hash = ?", contentHash).Scan(&existingID)
-	if err == nil {
-		// Duplicate exists - if tag-scoped, ensure tag is applied to existing clip
-		if keyCtx.ScopedTagID > 0 {
-			am.app.AddTagToClip(existingID, keyCtx.ScopedTagID)
+	if keyCtx.ScopedTagID > 0 {
+		var scopedName string
+		err = am.app.db.QueryRow("SELECT name FROM tags WHERE id = ?", keyCtx.ScopedTagID).Scan(&scopedName)
+		if err == nil {
+			err = am.app.db.QueryRow(`
+				SELECT c.id FROM clips c
+				JOIN clip_tags ct ON ct.clip_id = c.id
+				JOIN tags t ON t.id = ct.tag_id
+				WHERE c.content_hash = ? AND (t.id = ? OR `+underTagSQL("t.name")+`)
+				ORDER BY c.id LIMIT 1`,
+				contentHash, keyCtx.ScopedTagID, scopedName, scopedName).Scan(&existingID)
 		}
-		// Return existing clip
+	} else {
+		err = am.app.db.QueryRow("SELECT id FROM clips WHERE content_hash = ?", contentHash).Scan(&existingID)
+	}
+	if err == nil {
 		am.handleGetClipByID(w, existingID)
 		return
 	}
@@ -1781,9 +1795,9 @@ func (am *APIManager) handleListTags(w http.ResponseWriter, r *http.Request) {
 			SELECT t.id, t.name, t.color, COUNT(ct.clip_id) as count
 			FROM tags t
 			LEFT JOIN clip_tags ct ON t.id = ct.tag_id
-			WHERE t.id = ? OR t.name LIKE ?
+			WHERE t.id = ? OR `+underTagSQL("t.name")+`
 			GROUP BY t.id
-			ORDER BY t.name`, keyCtx.ScopedTagID, scopedName+"/%")
+			ORDER BY t.name`, keyCtx.ScopedTagID, scopedName, scopedName)
 		if err != nil {
 			am.jsonOK(w, []Tag{})
 			return
@@ -1868,8 +1882,10 @@ func (am *APIManager) handleUpdateTag(w http.ResponseWriter, r *http.Request) {
 		am.jsonError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-
-	if keyCtx.ScopedTagID > 0 && !am.isTagInScope(body.Name, keyCtx.ScopedTagID) {
+	// An empty name (`mp tag update <tag> --color`) keeps the current one,
+	// resolved inside UpdateTag's transaction. The tag itself was scope-checked
+	// above, so only a rename needs its new name checked.
+	if keyCtx.ScopedTagID > 0 && strings.TrimSpace(body.Name) != "" && !am.isTagInScope(body.Name, keyCtx.ScopedTagID) {
 		am.jsonError(w, http.StatusForbidden, "tag-scoped key can only rename tags within its scope")
 		return
 	}

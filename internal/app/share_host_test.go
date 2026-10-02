@@ -209,8 +209,8 @@ func TestRelayCandidateSource(t *testing.T) {
 	}
 	lanOnly := speakHop(newLoopbackHost(t))
 	plain := newLoopbackHost(t, advertisePublic("1.2.3.20"))
-	// Another mahpastes node: every share host also runs the hop service, so
-	// a follower or publisher with a public address looks like any relay.
+	// Another mahpastes node: older versions also ran the hop service, so a
+	// follower or publisher with a public address can look like any relay.
 	sharePeer := speakHop(newLoopbackHost(t, advertisePublic("1.2.3.21")))
 	sharePeer.SetStreamHandler(ShareProtocolID, func(s network.Stream) { s.Reset() })
 	for _, h := range append(append([]host.Host{}, hops...), lanOnly, plain, sharePeer) {
@@ -373,4 +373,48 @@ func TestFollowStreamOpenOverRelayIsBounded(t *testing.T) {
 		t.Fatalf("control stream over the relayed connection failed: %v", err)
 	}
 	s.Reset()
+}
+
+// A share host is a relay client, never a relay. NewShareManager used to call
+// relay.New on its host, which starts the circuit-v2 hop service: any peer on
+// the public network could then reserve a slot and pipe its traffic through
+// the user's machine, and an install with a public address advertises that
+// service to the DHT. Being reached through someone else's relay needs only
+// the stop protocol, which libp2p.EnableRelay registers on its own.
+func TestShareManagerDoesNotRunRelayHop(t *testing.T) {
+	m, err := NewShareManager(context.Background(), newTestDB(t), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Stop()
+
+	var hop, stop bool
+	for _, p := range m.Host().Mux().Protocols() {
+		switch p {
+		case circuitproto.ProtoIDv2Hop:
+			hop = true
+		case circuitproto.ProtoIDv2Stop:
+			stop = true
+		}
+	}
+	if hop {
+		t.Fatalf("share host serves %s — it is relaying traffic for arbitrary peers", circuitproto.ProtoIDv2Hop)
+	}
+	if !stop {
+		t.Fatalf("share host does not serve %s — it can no longer be reached through a relay", circuitproto.ProtoIDv2Stop)
+	}
+
+	// libp2p.EnableRelayService would register the hop handler later, and only
+	// once AutoNAT reports public reachability — the check above cannot see it.
+	var cfg libp2p.Config
+	priv, _, err := libp2pCrypto.GenerateEd25519Key(cryptoRand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.Apply(shareHostOptions(priv, newRelayCandidateSource().peerSource)...); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.EnableRelayService {
+		t.Fatal("shareHostOptions enables the relay service")
+	}
 }

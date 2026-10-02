@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
 	"strings"
 
 	coreapp "go-clipboard/internal/app"
@@ -675,7 +674,10 @@ func (s *PluginService) applyPluginUpdate(pluginID int64, source string, manifes
 		return nil, fmt.Errorf("plugin not found: %w", err)
 	}
 
-	destPath := filepath.Join(s.app.PluginManager().PluginsDir(), filename)
+	destPath, err := s.app.PluginManager().PluginFilePath(filename)
+	if err != nil {
+		return nil, err
+	}
 
 	// Backup original file for rollback
 	oldContent, readErr := os.ReadFile(destPath)

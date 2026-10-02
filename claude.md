@@ -359,7 +359,7 @@ The app exposes a REST API via `api_manager.go` that the `mp` CLI and external t
 
 API keys with roles (`viewer`, `editor`, `admin`). Auth via `Authorization: Bearer <key>` header or `MP_API_KEY` env var in the CLI.
 
-Tag-scoped keys are confined to their subtree on clip/tag routes, but an admin key — scoped or not — can still mint keys of any scope and download backups (documented in the CLI tutorial), so scoped admin keys are effectively full admin. Every `/api/v1/share*` (P2P) route rejects tag-scoped keys outright (`requireUnscopedShare` via `shareRoute`), and a share string — the whole follow capability (peer id + symkey) — is returned only to admin keys: `GET /api/v1/share` blanks `share_string` for other roles, and `share:*` event payloads never carry it (listeners re-fetch).
+Tag-scoped keys are confined to their subtree on clip/tag routes (an upload's dedup lookup included — a scoped key only ever gets back a clip already in its scope), but an admin key — scoped or not — can still mint keys of any scope and download backups (documented in the CLI tutorial), so scoped admin keys are effectively full admin. Every `/api/v1/share*` (P2P) route rejects tag-scoped keys outright (`requireUnscopedShare` via `shareRoute`), and a share string — the whole follow capability (peer id + symkey) — is returned only to admin keys: `GET /api/v1/share` blanks `share_string` for other roles, and `share:*` event payloads never carry it (listeners re-fetch).
 
 Revoking a key is a soft delete: `is_revoked = 1` plus a `revoked_at` stamp. Auth denial is instant (every lookup filters `is_revoked = 0`); the row itself is hard-deleted by the `StartCleanupJob` sweep `revokedKeyRetentionDays` (7) after revocation, so the key list doesn't accumulate dead entries forever. Deleting a scoped tag NULLs `scoped_tag_id`, and the `api_keys_revoke_on_scope_null` trigger revokes and stamps the key so it ages out on the same schedule.
 
@@ -375,6 +375,15 @@ Revocable, single-clip public download links, distinct from the peer-to-peer `sh
 - **Management** (admin-only): `POST /api/v1/links` (mint, returns the token once), `GET /api/v1/links` (list, prefixes only), `DELETE /api/v1/links/{id}` (revoke — instant, re-checked in SQL per request, no cache).
 - Optional `expires_in_seconds` and `max_downloads` (atomic cap). Tag-scoped admin keys can only mint links inside their subtree (`enforceTagScope`). Only the token's SHA-256 hash is stored.
 - **Key files**: `share_link.go` (table-backed logic, token gen, handlers, `handleShareView`, `shareStreamLimiter`), `clip_stream.go` + `clip_snapshot.go` (file-backed streaming, see Video Gallery), `database.go` (`share_links` table + expiry GC in `StartCleanupJob`), `api_manager.go` (route registration + `writeClipBytes`), `link_service.go` (Wails `LinkService` for the desktop binding), `cmd/mp/link.go` (CLI), `frontend/js/rest-glue.js` (headless shim) + `ui.js`/`modals.js` (the server-mode "Copy → Public Link" affordance).
+
+### P2P Tag Sharing (`share_*.go`)
+
+- **Relay client, never a relay.** `libp2p.EnableRelay` (in `shareHostOptions`) registers the circuit-v2 STOP side, which is all a NAT'd publisher needs to be reached through someone else's relay. Do not call `relay.New(host)`: that starts the HOP service and relays arbitrary third parties' traffic through the user's machine. `TestShareManagerDoesNotRunRelayHop` pins this.
+- **Status reads never take `publication.fmu`.** An emission holds `fmu` for a whole clip. Reporters (`GetShareStatus`, `emitPublicationUpdated`) read `publication.reportedView()`, which every mutation under `fmu` refreshes via `setStatusLocked` / `addFollowerLocked` / `removeFollowerLocked` / `closeAllFollowersLocked` — use those helpers, never assign `status` or touch `followers` directly. Anything that *decides* (emit, admit a follower) still reads `status` under `fmu`.
+
+## Backup and Restore
+
+`database.sql` in a backup is **parsed, never executed** (`internal/app/backup_sql.go`). `backupSQLReader` accepts only `INSERT INTO <table> (<cols>) VALUES (<literals>);` with `formatSQLValue`'s literal forms, and fails the whole restore on anything else. `backupRowWriter` checks the table against `backupTables` and every column against the live `PRAGMA table_info`, then binds the values as parameters. Rows for other tables (e.g. `api_keys`), sensitive or non-text settings keys, and `plugins` rows whose `filename` is not a bare `.lua` name, and `plugin_permissions` rows of a type the app never grants (`restorablePermissionTypes`), are skipped and counted; a column this install lacks is dropped from the row, not the row. Only a row the schema refuses (constraint/mismatch) is skipped on insert — any other database error aborts the restore, because SQLite rolls the whole transaction back on some (a full disk) and later statements would autocommit onto the live library. Every use of a stored plugin filename as a path goes through `plugin.Manager.PluginFilePath`, which refuses any directory part. `clips.content_hash` is recomputed from each restored row's bytes (dedup trusts it), and a clip row whose `data` is not a blob/text literal is skipped. After the row replay, restored plugin permissions are marked pending, and watch folders and follows are paused. Every tag server is closed first, immediately (`ServeManager.CloseAll`) — a server looks clips up by the tag id it started with, which the backup may have given to another tag — and `StartServing` refuses (`errRestoreInProgress`) while a restore holds `backupRestoreMu`. Adding a table to backups means exporting it in `exportDatabaseToSQL` *and* adding it to `backupTables`, which drives the pre-restore clear (children before parents) and the restore allowlist — a table exported but not listed is silently skipped on restore.
 
 ## Code Style
 
@@ -436,6 +445,12 @@ Events are emitted via `pluginManager.EmitEvent(eventName, data)`. Plugins subsc
 2. Call `pluginManager.EmitEvent("event:name", data)` where the event occurs
 3. Handler name convention: `clip:created` → `on_clip_created`
 
+**Deferred delivery**: an event aimed at a plugin whose handler is parked in a host call (a `tags.*` binding re-entering the App — usually the very call emitting it) cannot be delivered synchronously. It goes on that sandbox's queue (`Manager.deferEvent`): FIFO, one drainer goroutine, capped at `maxDeferredEvents` (10000); overflow is dropped and logged. While anything is queued, later events for that plugin queue behind it rather than being delivered synchronously, so order holds. Never spawn a goroutine per event here — a handler tagging N clips would park N of them on the sandbox mutex. A delivery that finds the sandbox closed (`errSandboxClosed`) counts as neither a success nor an error.
+
+**Error counting** (`countRun`) only charges a run to a plugin while its sandbox is still the loaded copy, and the auto-disable at `MaxConsecutiveErrors` only unloads that same copy: a copy replaced by a reload or update can finish a run later, and must not count against — or unload — its replacement.
+
+**Reloading**: `LoadPlugins` reads the rows first, then replaces whatever is loaded — it unregisters the old copies synchronously and closes their sandboxes *without waiting*, because `RestoreBackup` calls it under `backupRestoreMu`'s write lock and an old handler can be parked in a `tags.*` host call waiting for that lock.
+
 ### Lua APIs
 
 APIs are registered in `plugin/manager.go` when loading plugins. Each API module is a global table:
@@ -477,11 +492,15 @@ Tag operations exposed to the frontend (and to plugins via `plugin/api_tags.go`)
 - `GetHiddenTags()` → `[]int64, error`
 - `SetHiddenTags(ids)` → `error`
 
+**Tag colors and names reach markup.** Plugin `tags.update` goes through `UpdateTag` (`TagHostFuncs.Update`), so both accept only `tagColorPattern` (a `#rgb[a]`/`#rrggbb[aa]` hex or a bare CSS keyword). In `UpdateTag` an empty name or color keeps the stored one, resolved inside the transaction — the folder views rename with color `''` rather than echoing a cached copy. `normalizeTagColors` resets any invalid stored color at startup (`initDB`) and after a restore, and `pickColorForTag` never passes an invalid color to a new subtag. On the frontend, interpolate a tag color only through `safeTagColor` (`utils.js`; `frontend/tag_color_sink_test.go` fails the build otherwise) and a tag name only through `escapeHTML` — attributes (`data-testid`, `aria-label`) included. Names arrive from REST editors, plugins and followed shares. `showConfirmDialog` renders its message as HTML: escape anything interpolated into it.
+
 ### Tag Hierarchy & Folder Mode
 
 Tags form hierarchical trees using `/` as separator (e.g., `work/client1/projectA`). Key behaviors:
 
 **Tree exclusivity**: A clip can only have ONE tag per root tree. Adding `a/b/d` automatically removes any existing tags under the same root (`a`, `a/b`, `a/b/c`, etc.). Tags from different trees (e.g., `a/b` and `x/y`) coexist freely. Enforced in `AddTagToClip` and `BulkAddTag` via `removeSameTreeTags()`.
+
+**Subtree matching**: never `name LIKE parent || '/%'` — SQLite's LIKE folds ASCII case and reads `_`/`%` in the parent as wildcards, so renames, merges, filters and tag-scoped API keys on `my_tag` also reached `my-tag/…` and `MY_TAG/…`. Use `underTagSQL(col)` (bind the parent path twice) or `underTagColSQL` (`tag_hierarchy.go`). `UpdateTag` refuses to move a tag into its own subtree, and tag names must be valid UTF-8 without control characters (`checkTagNameText`) — SQLite's `length`/`substr` stop at NUL.
 
 **Hierarchical filtering** (normal mode): Filtering by `a` shows clips tagged with `a`, `a/b`, `a/b/c`, etc. via `getDescendantTagIDs()` expansion in `GetClips`. Multiple filters use AND logic.
 
@@ -514,6 +533,8 @@ HTML clips served from a tag can read/write JSON clips in the same tag via REST 
 **Concurrency**: Per-clip `sync.Mutex` serializes writes to the same JSON clip.
 
 **Reserved tag names**: `CreateTag` rejects any tag where a path segment equals `_api` (e.g., `_api`, `work/_api`). Substrings are fine (e.g., `my_api_stuff`).
+
+**Connection limits**: tag servers can bind every interface, so `StartServing` sets header/read/write/idle timeouts (`serve*Timeout` in `serve_manager.go`). Clip bodies come from `openClipBody` (see Video Gallery's `serveStoredClip` notes) — detached from the database — and are served by `http.ServeContent` through `slidingDeadlineReader`, which moves the write deadline forward before every chunk (past `WriteTimeout` for a steady reader), never a whole-blob `w.Write`, which a client that stops reading would pin forever. Cutting stalled clients off is why resuming matters: a strong `ETag` (SHA-256 of the clip's type and content hash) goes out on GET — not on HEAD, which only has the stored hash — so ranges, multi-range and `If-Range` work and browsers resume rather than restart. A Range header with more than `maxServeRanges` ranges is ignored (amplification). `/_api/_upload` caps the body with `MaxBytesReader` before parsing (`ParseMultipartForm` alone spools any size to disk), and the JSON write handlers answer into a buffer sent after the clip mutex is released.
 
 **Key files**: `serve_json_api.go` (JSON handler, path navigation, CRUD operations), `serve_manager.go` (cookie setting, `/_api` routing, `tagServer` struct fields).
 

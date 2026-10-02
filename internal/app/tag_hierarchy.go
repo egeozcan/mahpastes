@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // validateTagName enforces the same rules that App.CreateTag applies, so
@@ -17,6 +19,9 @@ func validateTagName(name string) (string, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return "", fmt.Errorf("tag name cannot be empty")
+	}
+	if err := checkTagNameText(name); err != nil {
+		return "", err
 	}
 	if len(name) > maxTagNameLength {
 		return "", fmt.Errorf("tag name too long (max %d characters)", maxTagNameLength)
@@ -30,6 +35,50 @@ func validateTagName(name string) (string, error) {
 		}
 	}
 	return name, nil
+}
+
+// checkTagNameText refuses names that are not clean text: invalid UTF-8, or
+// control characters (NUL above all — SQLite's length and substr stop at it,
+// so such a name lost its subtree to every subtree query, and invalid UTF-8
+// made the cascade rename's character offsets disagree and garble children).
+func checkTagNameText(name string) error {
+	if !utf8.ValidString(name) {
+		return fmt.Errorf("tag name is not valid UTF-8")
+	}
+	for _, r := range name {
+		if unicode.IsControl(r) {
+			return fmt.Errorf("tag name contains a control character")
+		}
+	}
+	return nil
+}
+
+// servedInSubtree returns the first served tag at or under name, from a
+// snapshot of ServeManager.GetStatus, or "".
+func servedInSubtree(served []ServeInfo, name string) string {
+	prefix := name + "/"
+	for _, info := range served {
+		if info.TagName == name || strings.HasPrefix(info.TagName, prefix) {
+			return info.TagName
+		}
+	}
+	return ""
+}
+
+// underTagSQL is a SQL condition that col names a tag strictly under a tag
+// path; bind that path to both of its placeholders. It replaces
+// `col LIKE path || '/%'`, which SQLite evaluates with ASCII case folded and
+// with _ and % in the path as wildcards: a rename, merge, filter or key scope
+// on "my_tag" also reached "my-tag/…", "myXtag/…" and "MY_TAG/…". substr and
+// length both count characters for text, so the comparison is exact.
+func underTagSQL(col string) string {
+	return "substr(" + col + ", 1, length(?) + 1) = ? || '/'"
+}
+
+// underTagColSQL is underTagSQL with the parent path taken from another
+// column rather than a parameter.
+func underTagColSQL(col, parentCol string) string {
+	return "substr(" + col + ", 1, length(" + parentCol + ") + 1) = " + parentCol + " || '/'"
 }
 
 // getTagDepth counts the number of "/" separators in a tag name.
@@ -128,7 +177,7 @@ func (a *App) checkMergeTagPreconditions(sourceID, destID int64, srcName, dstNam
 		blockers = append(blockers, fmt.Sprintf("tag %q in source subtree is currently served. Stop the server first.", served))
 	}
 	// Block on descendant collision with destination subtree.
-	rows, err := a.db.Query(`SELECT name FROM tags WHERE name LIKE ? || '/%'`, srcName)
+	rows, err := a.db.Query(`SELECT name FROM tags WHERE `+underTagSQL("name"), srcName, srcName)
 	if err == nil {
 		defer rows.Close()
 		srcPrefix := srcName + "/"
@@ -183,14 +232,7 @@ func (a *App) tagIsServedInSubtree(oldName string) string {
 	if a.serveManager == nil {
 		return ""
 	}
-	infos := a.serveManager.GetStatus()
-	prefix := oldName + "/"
-	for _, info := range infos {
-		if info.TagName == oldName || strings.HasPrefix(info.TagName, prefix) {
-			return info.TagName
-		}
-	}
-	return ""
+	return servedInSubtree(a.serveManager.GetStatus(), oldName)
 }
 
 // getHiddenTagsTx reads and parses the hidden_tags setting inside the given

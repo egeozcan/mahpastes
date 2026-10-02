@@ -3,16 +3,20 @@ package app
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html"
+	"io"
 	"log"
 	"net"
 	"net/http"
 	"net/url"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -66,6 +70,20 @@ type childTagInfo struct {
 	shortName string
 	tagID     int64
 }
+
+// maxServeRanges is the most ranges one tag-serve request may ask for.
+const maxServeRanges = 32
+
+// Tag server connection limits. ReadTimeout covers a whole request, so it
+// must leave room for the largest upload /_api/_upload accepts on a slow link;
+// WriteTimeout starts once the request headers are read, so it must exceed
+// ReadTimeout or a slow upload's response could never be written.
+const (
+	serveReadHeaderTimeout = 10 * time.Second
+	serveReadTimeout       = 2 * time.Minute
+	serveWriteTimeout      = 5 * time.Minute
+	serveIdleTimeout       = 2 * time.Minute
+)
 
 // ServeManager manages per-tag HTTP servers.
 type ServeManager struct {
@@ -131,7 +149,7 @@ func (sm *ServeManager) buildFileList(tagID int64) ([]virtualFile, error) {
 
 // getImmediateChildTags returns the immediate child tags of the given parent tag name.
 func (sm *ServeManager) getImmediateChildTags(parentTagName string) ([]childTagInfo, error) {
-	rows, err := sm.app.db.Query(`SELECT id, name FROM tags WHERE name LIKE ? || '/%'`, parentTagName)
+	rows, err := sm.app.db.Query(`SELECT id, name FROM tags WHERE `+underTagSQL("name"), parentTagName, parentTagName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query child tags: %w", err)
 	}
@@ -170,19 +188,84 @@ func (sm *ServeManager) resolveSubtag(tagName string) (int64, error) {
 	return id, nil
 }
 
-// serveClipData reads the blob from the database and writes it to the HTTP response.
-func (sm *ServeManager) serveClipData(w http.ResponseWriter, clipID int64, contentType string) {
-	var data []byte
-	err := sm.app.db.QueryRow("SELECT data FROM clips WHERE id = ?", clipID).Scan(&data)
+// serveClipData writes one clip's bytes to the response.
+//
+// It used to read the whole blob into memory and hand it to a single Write,
+// which a client that stopped reading would block forever — holding the
+// handler, and a clip-sized buffer, for as long as it kept the connection
+// open. Now the body is detached from the database before the first byte goes
+// out (openClipBody: small clips read whole, large ones from a per-revision
+// snapshot file), and every chunk is written under a write deadline that
+// slides forward as the client keeps reading (slidingDeadlineReader), so only
+// a stalled client is cut off, never a slow one that keeps moving.
+//
+// Cutting a stalled client off is what makes resuming matter: a paused video
+// or download loses its connection after clipStreamWriteTimeout. So the
+// response is served by http.ServeContent — ranges, multi-range, If-Range —
+// with the revision's content hash as a strong ETag, which a browser needs
+// before it will resume rather than restart, and which makes a stale If-Range
+// get the whole new revision instead of a range spliced onto the old bytes.
+func (sm *ServeManager) serveClipData(w http.ResponseWriter, r *http.Request, clipID int64) {
+	body, err := openClipBody(r.Context(), sm.app.db, sm.app.tempStore, clipID, r.Method == http.MethodHead)
 	if err != nil {
-		http.Error(w, "clip not found", http.StatusNotFound)
+		if errors.Is(err, ErrClipNotFound) {
+			http.Error(w, "clip not found", http.StatusNotFound)
+			return
+		}
+		if !errors.Is(err, context.Canceled) {
+			log.Printf("serve: clip %d: %v", clipID, err)
+		}
+		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	if contentType != "" {
-		w.Header().Set("Content-Type", contentType)
+	defer body.Close()
+
+	if body.contentType != "" {
+		w.Header().Set("Content-Type", body.contentType)
 	}
-	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(data)))
-	w.Write(data)
+	if body.data == nil {
+		// HEAD: the bytes were not loaded, so there is nothing to range over
+		// (or to sniff a type from); describe the whole clip. No ETag: all
+		// HEAD has is the stored content_hash, which older builds left stale
+		// on JSON clips they edited, and a wrong validator is worse than none.
+		w.Header().Set("Accept-Ranges", "bytes")
+		w.Header().Set("Content-Length", strconv.FormatInt(body.size, 10))
+		return
+	}
+	if body.hash != "" {
+		// The type is part of the representation: the same bytes re-added
+		// under another type must not revalidate as unchanged.
+		w.Header().Set("ETag", fmt.Sprintf(`"%x"`, sha256.Sum256([]byte(body.contentType+"\x00"+body.hash))))
+	}
+	// Each range costs its own part header, so thousands of one-byte ranges
+	// make a response many times the clip's size. Past maxServeRanges the
+	// header is ignored and the clip goes out whole, as RFC 9110 allows.
+	if strings.Count(r.Header.Get("Range"), ",") >= maxServeRanges {
+		r.Header.Del("Range")
+	}
+	// A failed write means the client went away or stalled past the
+	// deadline; the short body makes net/http drop the connection.
+	http.ServeContent(w, r, "", time.Time{}, &slidingDeadlineReader{
+		ReadSeeker: io.NewSectionReader(body.data, 0, body.size),
+		rc:         http.NewResponseController(w),
+	})
+}
+
+// slidingDeadlineReader is a response body source that moves the response's
+// write deadline forward before each read, so the write of what it returns
+// gets a fresh clipStreamWriteTimeout — copyClipBody's rule, for a body that
+// http.ServeContent copies itself. It deliberately exposes only Read and
+// Seek: anything that let the copy bypass Read would bypass the deadline.
+type slidingDeadlineReader struct {
+	io.ReadSeeker
+	rc *http.ResponseController
+}
+
+func (s *slidingDeadlineReader) Read(p []byte) (int, error) {
+	// Recorders and wrappers that cannot set deadlines report
+	// ErrNotSupported; the copy still works.
+	_ = s.rc.SetWriteDeadline(time.Now().Add(clipStreamWriteTimeout))
+	return s.ReadSeeker.Read(p)
 }
 
 // makeHandler builds the http.Handler for a tag server.
@@ -292,7 +375,7 @@ func (sm *ServeManager) makeHandler(ts *tagServer) http.Handler {
 			// Directory listing — check for index.html clip first (scoped to this level).
 			for _, f := range files {
 				if f.filename == "index.html" {
-					sm.serveClipData(w, f.clipID, f.contentType)
+					sm.serveClipData(w, r, f.clipID)
 					return
 				}
 			}
@@ -320,7 +403,7 @@ func (sm *ServeManager) makeHandler(ts *tagServer) http.Handler {
 		// Serve a specific file.
 		for _, f := range files {
 			if f.filename == filename {
-				sm.serveClipData(w, f.clipID, f.contentType)
+				sm.serveClipData(w, r, f.clipID)
 				return
 			}
 		}
@@ -443,6 +526,16 @@ func formatSize(bytes int64) string {
 
 // StartServing starts an HTTP server for the given tag on the specified port.
 func (sm *ServeManager) StartServing(tagID int64, port int, bindAll bool, apiAccess string) (ServeInfo, error) {
+	// Not while a restore is replacing the rows: a server keeps the tag id and
+	// name it starts with, and the restore stops every server because the
+	// backup can give that id to another tag. Refused rather than waited for
+	// — a restore can take minutes. Taken before sm.mu, the order the restore
+	// takes them in.
+	if !sm.app.backupRestoreMu.TryRLock() {
+		return ServeInfo{}, errRestoreInProgress
+	}
+	defer sm.app.backupRestoreMu.RUnlock()
+
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
@@ -485,6 +578,17 @@ func (sm *ServeManager) StartServing(tagID int64, port int, bindAll bool, apiAcc
 	ts.server = &http.Server{
 		Addr:    addr,
 		Handler: sm.makeHandler(ts),
+		// A tag server can listen on every interface, so it gets the API
+		// server's slow-client limits. Unlike the API server it has no
+		// long-lived stream to keep open, so it also has a WriteTimeout as a
+		// backstop for every response; clip bodies slide their own per-chunk
+		// deadline past it (slidingDeadlineReader), so a large download at a
+		// steady pace finishes however long it takes.
+		ReadHeaderTimeout: serveReadHeaderTimeout,
+		ReadTimeout:       serveReadTimeout,
+		WriteTimeout:      serveWriteTimeout,
+		IdleTimeout:       serveIdleTimeout,
+		MaxHeaderBytes:    1 << 20,
 	}
 
 	ln, err := net.Listen("tcp", addr)
@@ -585,6 +689,24 @@ func (sm *ServeManager) StopAll() {
 		log.Printf("serve: stopped server for tag %q (id=%d) during shutdown", ts.tagName, tagID)
 	}
 	sm.servers = make(map[int64]*tagServer)
+}
+
+// CloseAll stops every server at once, dropping in-flight requests rather than
+// waiting for them as StopAll does. RestoreBackup uses it: it stops the
+// servers so none serves a tag the backup may have given another tag's id,
+// a graceful drain buys nothing there, and waiting on any client with a
+// request in flight (up to StopAll's timeout per server) held every tag
+// mutation off for the duration.
+func (sm *ServeManager) CloseAll() {
+	sm.mu.Lock()
+	servers := sm.servers
+	sm.servers = make(map[int64]*tagServer)
+	sm.mu.Unlock()
+
+	for tagID, ts := range servers {
+		_ = ts.server.Close()
+		log.Printf("serve: closed server for tag %q (id=%d) for a restore", ts.tagName, tagID)
+	}
 }
 
 // GetRandomPort finds an available TCP port on localhost by briefly binding to port 0.

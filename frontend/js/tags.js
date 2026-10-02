@@ -59,11 +59,11 @@ function renderTagFilterDropdown() {
         item.style.paddingRight = '12px';
         item.innerHTML = `
             <input type="checkbox"
-                   data-testid="tag-checkbox-${tag.name}"
+                   data-testid="tag-checkbox-${escapeHTML(tag.name)}"
                    class="rounded border-stone-300 text-stone-600 focus:ring-stone-500"
                    ${isActive ? 'checked' : ''}>
             <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium text-white"
-                  style="background-color: ${tag.color}">
+                  style="background-color: ${safeTagColor(tag.color)}">
                 ${escapeHTML(displayName)}
             </span>
             ${isHidden ? '<svg class="w-3 h-3 text-stone-400 ml-auto flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.878 9.878L3 3m6.878 6.878L21 21"/></svg>' : `<span class="text-stone-400 text-[10px] ml-auto">${tag.count}</span>`}
@@ -168,7 +168,7 @@ function restoreTagFilterFocus(tagId) {
     // Find the tag's name to locate its checkbox in the re-rendered list
     const tag = allTags.find(t => t.id === tagId);
     if (!tag) return;
-    const checkbox = tagFilterList.querySelector(`[data-testid="tag-checkbox-${tag.name}"]`);
+    const checkbox = tagFilterList.querySelector(`[data-testid="${CSS.escape(`tag-checkbox-${tag.name}`)}"]`);
     if (!checkbox) return;
     const label = checkbox.closest('label');
     if (!label) return;
@@ -257,7 +257,7 @@ function updateActiveTagsDisplay() {
                         pill.setAttribute('data-drop-target', String(segTag.id));
                         pill.innerHTML = `
                             ${escapeHTML(segments[i])}
-                            <button class="hover:opacity-75" aria-label="Remove ${segTag.name} filter">
+                            <button class="hover:opacity-75" aria-label="Remove ${escapeHTML(segTag.name)} filter">
                                 <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
                                 </svg>
@@ -298,7 +298,7 @@ function updateActiveTagsDisplay() {
                     pill.style.backgroundColor = tag.color;
                     pill.innerHTML = `
                         ${escapeHTML(tag.name)}
-                        <button class="hover:opacity-75" aria-label="Remove ${tag.name} filter">
+                        <button class="hover:opacity-75" aria-label="Remove ${escapeHTML(tag.name)} filter">
                             <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
                             </svg>
@@ -500,11 +500,11 @@ async function renderTagPopoverList(clipId) {
         item.style.paddingRight = '12px';
         item.innerHTML = `
             <input type="checkbox"
-                   data-testid="tag-checkbox-${tag.name}"
+                   data-testid="tag-checkbox-${escapeHTML(tag.name)}"
                    class="rounded border-stone-300 text-stone-600 focus:ring-stone-500"
                    ${hasTag ? 'checked' : ''}>
             <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium text-white"
-                  style="background-color: ${tag.color}">
+                  style="background-color: ${safeTagColor(tag.color)}">
                 ${escapeHTML(displayName)}
             </span>
         `;

@@ -53,7 +53,7 @@ func openBackupTestDBWithDriver(t *testing.T, driverName, dsn string) *sql.DB {
 		`CREATE TABLE plugin_storage (plugin_id INTEGER, key TEXT, value TEXT)`,
 		`CREATE TABLE plugin_permissions (plugin_id INTEGER, permission TEXT, pending_reconfirm INTEGER)`,
 		`CREATE TABLE shares (id INTEGER PRIMARY KEY, tag_id INTEGER, symkey BLOB, share_id BLOB UNIQUE, last_seq INTEGER, clips_sent INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'active', created_at INTEGER)`,
-		`CREATE TABLE follows (id INTEGER PRIMARY KEY, remote_peer_id TEXT, symkey BLOB, local_tag_id INTEGER, last_seq INTEGER DEFAULT 0, clips_received INTEGER NOT NULL DEFAULT 0, last_seen_at INTEGER, created_at INTEGER)`,
+		`CREATE TABLE follows (id INTEGER PRIMARY KEY, remote_peer_id TEXT, symkey BLOB, local_tag_id INTEGER, last_seq INTEGER DEFAULT 0, clips_received INTEGER NOT NULL DEFAULT 0, last_seen_at INTEGER, created_at INTEGER, paused INTEGER NOT NULL DEFAULT 0)`,
 		`CREATE TABLE share_ring (id INTEGER PRIMARY KEY, publication_id INTEGER, seq INTEGER, kind TEXT, envelope_bytes BLOB, ts INTEGER, FOREIGN KEY(publication_id) REFERENCES shares(id) ON DELETE CASCADE)`,
 		// Mirrors production: without this index a test asserting "no UNIQUE
 		// conflict on the next seq" would pass even with the fix reverted.

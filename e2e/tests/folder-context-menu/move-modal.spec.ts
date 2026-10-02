@@ -43,6 +43,29 @@ test.describe('Folder move modal', () => {
         expect(renamed).toBeDefined();
     });
 
+    // The modal used to send back the color from its cached tag list, so a
+    // color changed elsewhere (REST, a plugin) since the list loaded was
+    // reverted by the move.
+    test('a move keeps a color changed since the tag list loaded', async ({ app }) => {
+        const { src, dst } = await setupTwoFolders(app);
+
+        await app.page.click(selectors.folderCard(src), { button: 'right' });
+        await app.page.click(selectors.folderContextMenuItem('move'));
+        await app.page.click(`${MOVE_TREE} [data-dest-name="${dst}"]`);
+        // While the modal is open, the color changes elsewhere.
+        await app.page.evaluate(async (n) => {
+            const tags = await window.go.main.App.GetTags();
+            const t = tags.find((x: any) => x.name === n);
+            await window.go.main.App.UpdateTag(t.id, '', '#123456');
+        }, src);
+        await app.page.click(MOVE_CONFIRM);
+        await expect(app.page.locator(MOVE_MODAL)).toBeHidden();
+
+        const tags = await app.page.evaluate(() => window.go.main.App.GetTags());
+        const moved = tags.find((t: any) => t.name === `${dst}/${src}`);
+        expect(moved?.color).toBe('#123456');
+    });
+
     test('self and descendants are disabled', async ({ app }) => {
         const { src } = await setupTwoFolders(app);
         await app.page.evaluate(async (parent) => {

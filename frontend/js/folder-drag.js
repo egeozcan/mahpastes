@@ -231,7 +231,8 @@ async function _executeDrop(payload, target) {
                 newName = targetTag.name + '/' + shortName;
             }
 
-            await window.go.main.App.UpdateTag(draggedTag.id, newName, draggedTag.color);
+            // '' keeps the stored color; a cached copy would revert one changed elsewhere.
+            await window.go.main.App.UpdateTag(draggedTag.id, newName, '');
             _announceDragResult(`Moved folder "${shortName}" to ${target.tagId === null ? 'root' : getShortTagName(allTags.find(t => t.id === target.tagId)?.name || 'folder')}.`);
             await loadTags();
             await loadClips();

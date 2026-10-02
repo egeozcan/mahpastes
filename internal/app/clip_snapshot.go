@@ -140,7 +140,7 @@ func (s *TempClipStore) reuseSnapshot(clipID int64, meta clipStreamMetadata, has
 	if now := s.now(); now.Sub(info.ModTime()) > s.streamTTL/2 {
 		_ = os.Chtimes(rec.path, now, now)
 	}
-	return &clipBody{clipStreamMetadata: meta, data: f, closer: func() { f.Close() }}
+	return &clipBody{clipStreamMetadata: meta, data: f, closer: func() { f.Close() }, hash: hash}
 }
 
 // materializeSnapshot copies the clip out of the database and publishes the
@@ -156,9 +156,9 @@ func (s *TempClipStore) materializeSnapshot(ctx context.Context, clipID int64) (
 		clipSnapshotBeforePublish(clipID)
 	}
 	if s.publishSnapshot(f, clipID, meta, sum) {
-		return &clipBody{clipStreamMetadata: meta, data: f, closer: func() { f.Close() }}, nil
+		return &clipBody{clipStreamMetadata: meta, data: f, closer: func() { f.Close() }, hash: sum}, nil
 	}
-	return privateClipBody(f, meta), nil
+	return privateClipBody(f, meta, sum), nil
 }
 
 // publishSnapshot renames a fresh copy to the clip's stream snapshot name and
@@ -248,15 +248,15 @@ func (s *TempClipStore) forgetSnapshots(ids map[int64]struct{}) {
 // openPrivateClipSnapshot serves one request from its own copy, for setups
 // without a TempClipStore.
 func openPrivateClipSnapshot(ctx context.Context, db *sql.DB, clipID int64) (*clipBody, error) {
-	f, meta, _, err := materializeClipFile(ctx, db, "", clipID, nil)
+	f, meta, sum, err := materializeClipFile(ctx, db, "", clipID, nil)
 	if err != nil {
 		return nil, err
 	}
-	return privateClipBody(f, meta), nil
+	return privateClipBody(f, meta, sum), nil
 }
 
-func privateClipBody(f *os.File, meta clipStreamMetadata) *clipBody {
-	return &clipBody{clipStreamMetadata: meta, data: f, closer: func() {
+func privateClipBody(f *os.File, meta clipStreamMetadata, sum string) *clipBody {
+	return &clipBody{clipStreamMetadata: meta, data: f, hash: sum, closer: func() {
 		f.Close()
 		_ = os.Remove(f.Name())
 	}}
@@ -294,6 +294,13 @@ func materializeClipFile(ctx context.Context, db *sql.DB, dir string, clipID int
 	// The leading dot keeps an unpublished copy out of the store's clip-ID
 	// namespace (parseClipIDFromTempFilename rejects it), so drag-out and
 	// playback never pick it up; the pruner still removes a leftover by age.
+	// The store's dir is made once at startup; recreate it if it has been
+	// removed since, or every clip too large to serve from memory fails.
+	if dir != "" {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return nil, meta, "", fmt.Errorf("create snapshot dir: %w", err)
+		}
+	}
 	f, err := os.CreateTemp(dir, ".snapshot-*")
 	if err != nil {
 		return nil, meta, "", fmt.Errorf("create snapshot: %w", err)

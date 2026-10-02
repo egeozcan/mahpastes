@@ -361,6 +361,17 @@ function copyToClipboard(text) {
     document.body.removeChild(textArea);
 }
 
+// Tag colors are free text in the database and reach the DOM from the REST
+// API, plugins, followed shares and restored backups. Only a hex color or a
+// bare CSS keyword is interpolated into markup; anything else could close the
+// attribute or chain extra declarations onto a style, so it falls back to the
+// default stone.
+function safeTagColor(color) {
+    return typeof color === 'string' && /^(#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})|[a-zA-Z]{1,30})$/.test(color)
+        ? color
+        : '#78716C';
+}
+
 function escapeHTML(str) {
     if (!str) return '';
     return str.replace(/[&<>"']/g, function (m) {
@@ -555,8 +566,8 @@ async function openFolderRenameDialog(tagID, currentName) {
         }
         const newPath = parent ? `${parent}/${newShortName.trim()}` : newShortName.trim();
         try {
-            const tag = (await window.go.main.App.GetTags()).find(t => t.id === tagID);
-            await window.go.main.App.UpdateTag(tagID, newPath, tag?.color || '#000000');
+            // '' keeps the stored color.
+            await window.go.main.App.UpdateTag(tagID, newPath, '');
             showToast(`Renamed to ${newShortName}`, 'success');
             if (typeof window.renderFolderCards === 'function') await window.renderFolderCards();
             if (typeof loadClips === 'function') await loadClips();

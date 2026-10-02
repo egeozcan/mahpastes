@@ -452,18 +452,18 @@ async function loadPluginPermissions(pluginId, cardElement) {
                     <div class="flex items-center justify-between gap-2 p-2 bg-white rounded border border-stone-200">
                         <div class="flex items-center gap-2 min-w-0 flex-1">
                             <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium uppercase ${
-                                perm.type === 'write' ? 'bg-amber-100 text-amber-700'
+                                perm.type === 'fs_write' ? 'bg-amber-100 text-amber-700'
                                     : perm.type === 'network' ? 'bg-stone-200 text-stone-600'
                                     : 'bg-blue-100 text-blue-700'
                             }">
-                                ${perm.type}
+                                ${escapeHTML(perm.type)}
                             </span>
                             <span class="truncate text-stone-600 font-mono text-[10px]" title="${escapeHTML(perm.path)}">${escapeHTML(perm.path)}</span>
                             ${String(perm.pending) === '1' ? '<span class="text-[9px] text-amber-700 whitespace-nowrap">pending</span>' : ''}
                         </div>
                         <button class="text-[10px] text-red-500 hover:text-red-600 hover:bg-red-50 px-2 py-1 rounded transition-colors flex-shrink-0"
                                 data-action="revoke-permission"
-                                data-type="${perm.type}"
+                                data-type="${escapeHTML(perm.type)}"
                                 data-path="${escapeHTML(perm.path)}">
                             Revoke
                         </button>
@@ -918,7 +918,7 @@ function renderURLInput() {
 
 // --- Remove Plugin ---
 function removePlugin(pluginId, pluginName) {
-    showConfirmDialog('Remove Plugin', `Remove "${pluginName}"? This cannot be undone.`, async () => {
+    showConfirmDialog('Remove Plugin', `Remove "${escapeHTML(pluginName)}"? This cannot be undone.`, async () => {
         try {
             await window.go.main.PluginService.RemovePlugin(pluginId);
             showToast('Plugin removed');

@@ -369,6 +369,10 @@ func initDB() (*sql.DB, error) {
 		log.Printf("Warning: Markdown content-type migration failed: %v", err)
 	}
 
+	if err := normalizeTagColors(db); err != nil {
+		log.Printf("Warning: tag color normalization failed: %v", err)
+	}
+
 	// Backfill content hashes for existing clips that don't have one
 	backfillContentHashes(db)
 
@@ -434,6 +438,44 @@ func beginWriteTx(db *sql.DB, lockTable string) (*sql.Tx, error) {
 // transaction's snapshot instead of whatever the pool hands it.
 type sqlQueryer interface {
 	Query(query string, args ...interface{}) (*sql.Rows, error)
+}
+
+// normalizeTagColors resets every tag color isValidTagColor refuses to the
+// default. Colors are interpolated into the UI's markup, and before UpdateTag
+// validated them any REST editor or plugin could store anything — as can a
+// backup, which is why RestoreBackup runs this too. Idempotent.
+func normalizeTagColors(db interface {
+	sqlQueryer
+	sqlExecer
+}) error {
+	rows, err := db.Query(`SELECT id, COALESCE(color, '') FROM tags`)
+	if err != nil {
+		return err
+	}
+	var bad []int64
+	for rows.Next() {
+		var id int64
+		var color string
+		if err := rows.Scan(&id, &color); err != nil {
+			rows.Close()
+			return err
+		}
+		if !isValidTagColor(color) {
+			bad = append(bad, id)
+			log.Printf("tag %d: color %q is not a hex color or a CSS keyword; resetting it to %s", id, color, tagColors[0])
+		}
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return err
+	}
+	for _, id := range bad {
+		if _, err := db.Exec(`UPDATE tags SET color = ? WHERE id = ?`, tagColors[0], id); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func promoteMarkdownClipTypes(db sqlExecer) error {

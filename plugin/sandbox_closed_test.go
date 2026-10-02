@@ -19,8 +19,9 @@ function on_search(source, query) return {} end`); err != nil {
 	}
 	s.Close()
 
-	if err := s.CallHandlerWithData("on_tag_created", map[string]interface{}{"id": 1}); err != nil {
-		t.Fatalf("CallHandlerWithData on a closed sandbox = %v, want a silent skip", err)
+	// Event delivery skips it without counting a run (see deliverEvent).
+	if err := s.CallHandlerWithData("on_tag_created", map[string]interface{}{"id": 1}); !errors.Is(err, errSandboxClosed) {
+		t.Fatalf("CallHandlerWithData on a closed sandbox = %v, want errSandboxClosed", err)
 	}
 	if err := s.CallHandler("on_tag_created"); err != nil {
 		t.Fatalf("CallHandler on a closed sandbox = %v, want a silent skip", err)

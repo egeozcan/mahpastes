@@ -2,6 +2,7 @@ package app
 
 import (
 	"crypto/subtle"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -72,8 +73,17 @@ func (sm *ServeManager) handleFileUpload(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	// Parse multipart form with size limit.
+	// Cap the body before parsing: ParseMultipartForm's argument only bounds
+	// what it keeps in memory, and spools any larger file part to a temp file
+	// with no limit — the size check below would run after the whole upload
+	// was already on disk. The slack covers the multipart framing and fields.
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize+1<<20)
 	if err := r.ParseMultipartForm(maxUploadSize); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			jsonAPIError(w, http.StatusRequestEntityTooLarge, "file too large (max 10 MB)")
+			return
+		}
 		jsonAPIError(w, http.StatusBadRequest, "invalid multipart form")
 		return
 	}

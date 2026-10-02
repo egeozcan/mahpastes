@@ -367,8 +367,10 @@ func (a *App) pluginStoragePasswordKeys(tx sqlQueryer) (map[int64]map[string]boo
 		names[r.id] = r.name
 		manifest := loaded[r.id]
 		if manifest == nil && pluginsDir != "" && r.filename != "" {
-			if source, readErr := os.ReadFile(filepath.Join(pluginsDir, r.filename)); readErr == nil {
-				manifest, _ = plugin.ParseManifest(string(source))
+			if path, pathErr := a.pluginManager.PluginFilePath(r.filename); pathErr == nil {
+				if source, readErr := os.ReadFile(path); readErr == nil {
+					manifest, _ = plugin.ParseManifest(string(source))
+				}
 			}
 		}
 		if manifest == nil {
@@ -1072,6 +1074,15 @@ func (a *App) RestoreBackup(backupPath, identityPolicy string) (err error) {
 		a.shareManager = nil
 		oldSM.Stop()
 	}
+
+	// Stop every tag server. Each keeps the tag id and name it started with
+	// and looks its clips up by that id, which after the restore can name a
+	// different tag: a server started for "public" on every interface would
+	// serve — and with read-write API access let the network edit — whatever
+	// the backup filed under that id. The user restarts the servers they want.
+	if a.serveManager != nil {
+		a.serveManager.CloseAll()
+	}
 	// Rebuild on every exit path, not only success: a failed restore rolls its
 	// transaction back, so the manager comes back up on the untouched
 	// pre-restore rows instead of leaving the app with sharing silently dead.
@@ -1123,68 +1134,24 @@ func (a *App) RestoreBackup(backupPath, identityPolicy string) (err error) {
 		}
 	}
 
-	// Clear all existing data. Order matters: child tables before parent tables to
-	// respect FK constraints. share_ring references shares(id), so it goes first;
+	// Clear all existing data. backupTables lists children before parents so
+	// foreign keys hold: share_ring references shares(id), so it goes first;
 	// clip_tags references both clips and tags, so it precedes them.
-	tables := []string{
-		"share_ring", // FK → shares(id)
-		"shares",     // FK → tags(id)
-		"follows",    // FK → tags(id)
-		"clip_tags",  // FK → clips, tags
-		"clips",
-		"tags",
-		"settings",
-		"watched_folders",
-		"plugin_storage",
-		"plugin_permissions",
-		"plugins",
-	}
-
-	for _, table := range tables {
+	for _, table := range backupTables {
 		if _, err := tx.Exec(fmt.Sprintf("DELETE FROM %s", table)); err != nil {
 			return fmt.Errorf("failed to clear %s: %w", table, err)
 		}
 	}
 
-	// Read and execute SQL
+	// Replay the backup's rows. database.sql is parsed, never executed: see
+	// backupSQLReader for what used to run and what is accepted now.
 	rc, err := sqlFile.Open()
 	if err != nil {
 		return fmt.Errorf("failed to open database.sql: %w", err)
 	}
 	defer rc.Close()
-
-	sqlBytes, err := io.ReadAll(rc)
-	if err != nil {
-		return fmt.Errorf("failed to read database.sql: %w", err)
-	}
-
-	// Execute each statement
-	statements := strings.Split(string(sqlBytes), ";\n")
-	for _, stmt := range statements {
-		stmt = strings.TrimSpace(stmt)
-		if stmt == "" {
-			continue
-		}
-
-		// Skip comment-only blocks
-		// A statement might have leading comments, so filter them out
-		lines := strings.Split(stmt, "\n")
-		var sqlLines []string
-		for _, line := range lines {
-			trimmedLine := strings.TrimSpace(line)
-			if trimmedLine != "" && !strings.HasPrefix(trimmedLine, "--") {
-				sqlLines = append(sqlLines, line)
-			}
-		}
-		if len(sqlLines) == 0 {
-			continue
-		}
-		stmt = strings.Join(sqlLines, "\n")
-
-		if _, err := tx.Exec(stmt); err != nil {
-			// Log warning but continue (for forward compatibility)
-			fmt.Printf("Warning: failed to execute SQL: %v\nStatement: %s\n", err, stmt[:min(100, len(stmt))])
-		}
+	if err := restoreBackupRows(tx, rc); err != nil {
+		return fmt.Errorf("failed to restore database.sql: %w", err)
 	}
 
 	// Backup SQL may contain legacy or externally supplied MIME values. Apply
@@ -1192,6 +1159,10 @@ func (a *App) RestoreBackup(backupPath, identityPolicy string) (err error) {
 	// exposing restored rows.
 	if err := promoteMarkdownClipTypes(tx); err != nil {
 		return fmt.Errorf("promote restored Markdown clips: %w", err)
+	}
+	// Tag colors land in the UI's markup; a backup's are whatever it says.
+	if err := normalizeTagColors(tx); err != nil {
+		return fmt.Errorf("normalize restored tag colors: %w", err)
 	}
 
 	// Backups written before the export became snapshot-consistent can carry
@@ -1268,14 +1239,23 @@ func (a *App) RestoreBackup(backupPath, identityPolicy string) (err error) {
 		return fmt.Errorf("invalidate restored shares (%s policy): %w", identityPolicy, err)
 	}
 
-	// Mark all plugin_permissions as pending_reconfirm
+	// Restored plugins re-ask for every permission and restored watch folders
+	// start paused. Either one failing must fail the restore: committing
+	// anyway would leave a backup's plugins with their grants live and its
+	// folders importing — the backup's choices, never confirmed on this
+	// machine.
 	if _, err := tx.Exec("UPDATE plugin_permissions SET pending_reconfirm = 1"); err != nil {
-		fmt.Printf("Warning: failed to mark permissions as pending: %v\n", err)
+		return fmt.Errorf("mark restored plugin permissions for reconfirmation: %w", err)
 	}
-
-	// Mark all watched_folders as paused
 	if _, err := tx.Exec("UPDATE watched_folders SET is_paused = 1"); err != nil {
-		fmt.Printf("Warning: failed to pause watch folders: %v\n", err)
+		return fmt.Errorf("pause restored watch folders: %w", err)
+	}
+	// Restored follows start paused for the same reason: each one dials its
+	// publisher as soon as the share manager resumes, a feed into a local tag
+	// from a peer the backup chose, told when and from where this machine is
+	// online. The user resumes the ones they recognise.
+	if _, err := tx.Exec("UPDATE follows SET paused = 1"); err != nil {
+		return fmt.Errorf("pause restored follows: %w", err)
 	}
 
 	// A restored numeric clip ID must never resolve through an old Finder item.

@@ -20,6 +20,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -483,6 +484,7 @@ func (a *App) wirePluginHostFuncs(pm *plugin.Manager) {
 		}, nil
 	})
 	pm.SetTagMutationFuncs(a.addTagToClipFromPlugin, a.RemoveTagFromClip, a.DeleteTag)
+	pm.SetTagUpdateFunc(a.UpdateTag)
 	pm.SetClipsDeletedFunc(a.dropTempFilesOfPluginDeletedClips)
 }
 
@@ -878,6 +880,14 @@ const (
 	maxTagNameLength = 50
 	defaultClipLimit = 50
 )
+
+// tagColorPattern is what a tag color may be set to: a hex color or a bare CSS
+// keyword. The value is interpolated into markup and inline styles by every
+// view that shows a tag, and reaches UpdateTag as free text from the REST API.
+// plugin/api_tags.go keeps a copy for tags.update.
+var tagColorPattern = regexp.MustCompile(`^(#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})|[a-zA-Z]{1,30})$`)
+
+func isValidTagColor(color string) bool { return tagColorPattern.MatchString(color) }
 
 // tagColors is the palette of colors auto-assigned to new tags
 var tagColors = []string{
@@ -2039,12 +2049,13 @@ func (a *App) CreateTag(name string) (*Tag, error) {
 // If no ancestor exists, it falls back to palette rotation based on current
 // tag count.  The lookup uses the provided transaction.
 func (a *App) pickColorForTag(tx *sql.Tx, name string) string {
-	// Walk ancestors from nearest to root, looking for an existing tag color
+	// Walk ancestors from nearest to root, looking for an existing tag color.
+	// One that is not a valid color is not passed on (see tagColorPattern).
 	parent := getParentTagName(name)
 	for parent != "" {
 		var color string
 		err := tx.QueryRow("SELECT color FROM tags WHERE name = ?", parent).Scan(&color)
-		if err == nil {
+		if err == nil && isValidTagColor(color) {
 			return color
 		}
 		parent = getParentTagName(parent)
@@ -2060,36 +2071,40 @@ func (a *App) pickColorForTag(tx *sql.Tx, name string) string {
 }
 
 // UpdateTag updates a tag's name and/or color
+//
+// An empty name keeps the current one and an empty color keeps the current
+// color, both resolved inside the transaction: `mp tag update` sends only
+// what it changes, and the folder views rename without a color, so neither
+// writes back a stale copy of the field it is not changing.
 func (a *App) UpdateTag(id int64, name, color string) error {
 	name = strings.TrimSpace(name)
-	if name == "" {
-		return fmt.Errorf("tag name cannot be empty")
+	if name != "" {
+		if len(name) > maxTagNameLength {
+			return fmt.Errorf("tag name too long (max %d characters)", maxTagNameLength)
+		}
+
+		// Reserve "_api" as a path segment — used by tag serve JSON API.
+		// Also reject empty path segments (leading/trailing/consecutive slashes).
+		for _, seg := range strings.Split(name, "/") {
+			if strings.TrimSpace(seg) == "" {
+				return fmt.Errorf("tag name contains empty path segment")
+			}
+			if seg == "_api" {
+				return fmt.Errorf("tag name contains reserved segment '_api'")
+			}
+		}
 	}
-	if len(name) > maxTagNameLength {
-		return fmt.Errorf("tag name too long (max %d characters)", maxTagNameLength)
+	if color != "" && !isValidTagColor(color) {
+		return fmt.Errorf("invalid tag color %q: use a hex color such as #3B82F6", color)
 	}
 
-	// Reserve "_api" as a path segment — used by tag serve JSON API.
-	// Also reject empty path segments (leading/trailing/consecutive slashes).
-	for _, seg := range strings.Split(name, "/") {
-		if strings.TrimSpace(seg) == "" {
-			return fmt.Errorf("tag name contains empty path segment")
-		}
-		if seg == "_api" {
-			return fmt.Errorf("tag name contains reserved segment '_api'")
-		}
-	}
-
-	// Check if any tag in the subtree is currently served. ServeManager
-	// caches tag names, so renames break the server's path resolution.
-	var oldNameForCheck string
-	if err := a.db.QueryRow(`SELECT name FROM tags WHERE id = ?`, id).Scan(&oldNameForCheck); err != nil {
-		return fmt.Errorf("tag not found")
-	}
-	if oldNameForCheck != name {
-		if served := a.tagIsServedInSubtree(oldNameForCheck); served != "" {
-			return fmt.Errorf("cannot rename: tag %q in this subtree is currently served. Stop the server first.", served)
-		}
+	// Which tags are served, read before the write lock: ServeManager's lock
+	// can be held for a server's whole shutdown, and waiting on it while
+	// holding SQLite's write lock would stall every other writer. The snapshot
+	// is checked below against the name the transaction reads.
+	var served []ServeInfo
+	if a.serveManager != nil && name != "" {
+		served = a.serveManager.GetStatus()
 	}
 
 	// Reads the old name before renaming, hence beginWriteTx.
@@ -2100,10 +2115,38 @@ func (a *App) UpdateTag(id int64, name, color string) error {
 	defer tx.Rollback()
 
 	// Fetch the old name so we can cascade rename descendants
-	var oldName string
-	err = tx.QueryRow("SELECT name FROM tags WHERE id = ?", id).Scan(&oldName)
+	var oldName, oldColor string
+	err = tx.QueryRow("SELECT name, COALESCE(color, '') FROM tags WHERE id = ?", id).Scan(&oldName, &oldColor)
 	if err != nil {
 		return fmt.Errorf("tag not found")
+	}
+
+	if name == "" {
+		name = oldName
+	}
+	if color == "" {
+		color = oldColor
+	}
+	if name == oldName && color == oldColor {
+		return nil // nothing changes, so nothing to announce
+	}
+	if strings.HasPrefix(name, oldName+"/") {
+		return fmt.Errorf("cannot move tag %q into its own subtree", oldName)
+	}
+	// Checked only for a new name: a tag named before these checks existed
+	// can still be recolored while its own name is passed back.
+	if name != oldName {
+		if err := checkTagNameText(name); err != nil {
+			return err
+		}
+	}
+	// Check if any tag in the subtree is currently served. ServeManager
+	// caches tag names, so renames break the server's path resolution. The
+	// name checked is the one this transaction read and will rename.
+	if name != oldName {
+		if s := servedInSubtree(served, oldName); s != "" {
+			return fmt.Errorf("cannot rename: tag %q in this subtree is currently served. Stop the server first.", s)
+		}
 	}
 
 	_, err = tx.Exec("UPDATE tags SET name = ?, color = ? WHERE id = ?", name, color, id)
@@ -2114,12 +2157,13 @@ func (a *App) UpdateTag(id int64, name, color string) error {
 		return fmt.Errorf("failed to update tag: %w", err)
 	}
 
-	// After updating the tag itself, cascade rename descendants
+	// After updating the tag itself, cascade rename descendants. The renamed
+	// row is excluded by id: under its new name it can match its own old
+	// prefix only if it moved into its own subtree, which is refused above.
 	if oldName != name {
-		oldPrefix := oldName + "/"
 		newPrefix := name + "/"
-		_, err = tx.Exec(`UPDATE tags SET name = ? || SUBSTR(name, ?) WHERE name LIKE ?`,
-			newPrefix, utf8.RuneCountInString(oldPrefix)+1, oldPrefix+"%")
+		_, err = tx.Exec(`UPDATE tags SET name = ? || SUBSTR(name, length(?) + 2) WHERE `+underTagSQL("name")+` AND id != ?`,
+			newPrefix, oldName, oldName, oldName, id)
 		if err != nil {
 			if strings.Contains(err.Error(), "UNIQUE") {
 				return fmt.Errorf("tag rename conflicts with an existing tag")
@@ -2274,7 +2318,7 @@ func (a *App) PreviewMergeTag(sourceID, destID int64) (MergeTagPreview, error) {
 
 	// Descendants: tags whose name starts with "{srcName}/".
 	if err := a.db.QueryRow(
-		`SELECT COUNT(*) FROM tags WHERE name LIKE ? || '/%'`, srcName,
+		`SELECT COUNT(*) FROM tags WHERE `+underTagSQL("name"), srcName, srcName,
 	).Scan(&out.DescendantCount); err != nil {
 		return out, fmt.Errorf("count descendants: %w", err)
 	}
@@ -2383,9 +2427,9 @@ func (a *App) MergeTag(sourceID, destID int64) error {
 	if _, err := tx.Exec(`DELETE FROM clip_tags
 		WHERE clip_id IN (SELECT clip_id FROM clip_tags WHERE tag_id = ?)
 		  AND tag_id IN (
-		    SELECT id FROM tags WHERE name = ? OR name LIKE ? || '/%'
+		    SELECT id FROM tags WHERE name = ? OR `+underTagSQL("name")+`
 		  )
-		  AND tag_id != ?`, sourceID, destRoot, destRoot, destID); err != nil {
+		  AND tag_id != ?`, sourceID, destRoot, destRoot, destRoot, destID); err != nil {
 		return fmt.Errorf("same-tree cleanup: %w", err)
 	}
 
@@ -2397,10 +2441,9 @@ func (a *App) MergeTag(sourceID, destID int64) error {
 
 	// (3) Rename descendants with prefix swap. Reuses the same SQL as
 	// UpdateTag's cascade rename.
-	oldPrefix := srcName + "/"
 	newPrefix := dstName + "/"
-	if _, err := tx.Exec(`UPDATE tags SET name = ? || SUBSTR(name, ?) WHERE name LIKE ?`,
-		newPrefix, utf8.RuneCountInString(oldPrefix)+1, oldPrefix+"%"); err != nil {
+	if _, err := tx.Exec(`UPDATE tags SET name = ? || SUBSTR(name, length(?) + 2) WHERE `+underTagSQL("name"),
+		newPrefix, srcName, srcName, srcName); err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			return fmt.Errorf("merge would create duplicate tag path")
 		}
@@ -2472,13 +2515,13 @@ func (a *App) MergeTag(sourceID, destID int64) error {
 
 // candidateEmptyTagsQuery selects tag ids/names that currently have no clips
 // AND no descendant tags (path-based hierarchy via "/" prefix match).
-const candidateEmptyTagsQuery = `
+var candidateEmptyTagsQuery = `
 	SELECT t.id, t.name, t.color
 	FROM tags t
 	LEFT JOIN clip_tags ct ON ct.tag_id = t.id
 	WHERE NOT EXISTS (
 		SELECT 1 FROM tags children
-		WHERE children.name LIKE t.name || '/%'
+		WHERE ` + underTagColSQL("children.name", "t.name") + `
 	)
 	GROUP BY t.id
 	HAVING COUNT(ct.clip_id) = 0
@@ -2824,16 +2867,14 @@ func removeSameTreeTags(h sqlHandle, clipID, newTagID int64) error {
 
 	// Drop every tag on this clip under the same root tree, except the tag
 	// being added — leaving that one alone is what keeps a repeat add a no-op.
-	// Escape SQL LIKE wildcards in the root name so _ and % are treated literally.
-	escapedRoot := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(root)
 	_, err := h.Exec(`
 		DELETE FROM clip_tags
 		WHERE clip_id = ?
 		  AND tag_id != ?
 		  AND tag_id IN (
-		    SELECT id FROM tags WHERE name = ? OR name LIKE ? ESCAPE '\'
+		    SELECT id FROM tags WHERE name = ? OR `+underTagSQL("name")+`
 		  )`,
-		clipID, newTagID, root, escapedRoot+"/%")
+		clipID, newTagID, root, root, root)
 	return err
 }
 
@@ -2857,12 +2898,12 @@ func removeSameTreeTags(h sqlHandle, clipID, newTagID int64) error {
 //
 // Serving is the one reference that lives outside the database; the caller
 // checks it.
-const orphanTagDeleteSQL = `
+var orphanTagDeleteSQL = `
 	DELETE FROM tags
 	WHERE id = ?
 	  AND instr(name, '/') = 0
 	  AND NOT EXISTS (SELECT 1 FROM clip_tags WHERE tag_id = tags.id)
-	  AND NOT EXISTS (SELECT 1 FROM tags child WHERE child.name LIKE tags.name || '/%')
+	  AND NOT EXISTS (SELECT 1 FROM tags child WHERE ` + underTagColSQL("child.name", "tags.name") + `)
 	  AND NOT EXISTS (SELECT 1 FROM shares WHERE tag_id = tags.id)
 	  AND NOT EXISTS (SELECT 1 FROM follows WHERE local_tag_id = tags.id)
 	  AND NOT EXISTS (SELECT 1 FROM watched_folders WHERE auto_tag_id = tags.id)
@@ -2872,12 +2913,12 @@ const orphanTagDeleteSQL = `
 // guards, for schemas that lack those tables (tolerated the way DeleteTag
 // tolerates them, for minimal test schemas). A database without the tables
 // holds nothing for the guards to protect, so the answer is the same.
-const orphanTagDeleteMinimalSQL = `
+var orphanTagDeleteMinimalSQL = `
 	DELETE FROM tags
 	WHERE id = ?
 	  AND instr(name, '/') = 0
 	  AND NOT EXISTS (SELECT 1 FROM clip_tags WHERE tag_id = tags.id)
-	  AND NOT EXISTS (SELECT 1 FROM tags child WHERE child.name LIKE tags.name || '/%')`
+	  AND NOT EXISTS (SELECT 1 FROM tags child WHERE ` + underTagColSQL("child.name", "tags.name") + `)`
 
 // deleteTagIfOrphaned deletes a tag if it has no associated clips.
 // Subtags (names containing '/') are never auto-deleted — they were
@@ -2912,7 +2953,7 @@ func (a *App) getDescendantTagIDs(tagID int64) ([]int64, error) {
 		return nil, fmt.Errorf("failed to find tag %d: %w", tagID, err)
 	}
 
-	rows, err := a.db.Query("SELECT id FROM tags WHERE name LIKE ?", parentName+"/%")
+	rows, err := a.db.Query("SELECT id FROM tags WHERE "+underTagSQL("name"), parentName, parentName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query descendant tags: %w", err)
 	}
@@ -2941,10 +2982,10 @@ func (a *App) getChildTags(tagID int64) ([]Tag, error) {
 		SELECT t.id, t.name, t.color, COUNT(ct.clip_id) as count
 		FROM tags t
 		LEFT JOIN clip_tags ct ON t.id = ct.tag_id
-		WHERE t.name LIKE ?
+		WHERE `+underTagSQL("t.name")+`
 		GROUP BY t.id
 		ORDER BY t.name
-	`, parentName+"/%")
+	`, parentName, parentName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query child tags: %w", err)
 	}
@@ -3020,10 +3061,10 @@ func (a *App) getDescendantClipCount(tagID int64, archived bool) (int, error) {
 		FROM clip_tags ct
 		INNER JOIN tags t ON ct.tag_id = t.id
 		INNER JOIN clips c ON c.id = ct.clip_id
-		WHERE (t.id = ? OR t.name LIKE ?)
+		WHERE (t.id = ? OR `+underTagSQL("t.name")+`)
 		  AND c.is_archived = ?
 		  AND (c.expires_at IS NULL OR c.expires_at > CURRENT_TIMESTAMP)
-	`, tagID, parentName+"/%", archivedInt).Scan(&count)
+	`, tagID, parentName, parentName, archivedInt).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("failed to count descendant clips: %w", err)
 	}
@@ -4295,7 +4336,10 @@ func (a *App) applyPluginUpdate(pluginID int64, source string, manifest *plugin.
 		return nil, fmt.Errorf("plugin not found: %w", err)
 	}
 
-	destPath := filepath.Join(a.pluginManager.PluginsDir(), filename)
+	destPath, err := a.pluginManager.PluginFilePath(filename)
+	if err != nil {
+		return nil, err
+	}
 
 	oldContent, readErr := os.ReadFile(destPath)
 

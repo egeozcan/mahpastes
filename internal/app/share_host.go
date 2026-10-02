@@ -143,9 +143,10 @@ func (s *relayCandidateSource) candidates(numPeers int) []peer.AddrInfo {
 		if len(protos) > 0 && !speaksHop {
 			return
 		}
-		// Every share host runs the hop service too, so another mahpastes
-		// node — a follower, the publisher this host follows, a LAN peer —
-		// qualifies on protocols alone. Reserving on one would put its IP and
+		// Installs from before the hop service was removed (see
+		// NewShareManager) still run it, so another mahpastes node — a
+		// follower, the publisher this host follows, a LAN peer — can qualify
+		// on protocols alone. Reserving on one would put its IP and
 		// peer id into this host's advertised addresses and route each
 		// follower dialing the circuit through it, linking who follows whom
 		// for anyone who looks this host up. Only an identified peer can be

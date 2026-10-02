@@ -224,6 +224,12 @@ func (m *Manager) SetTagMutationFuncs(addFn, removeFn TagClipFunc, deleteFn TagD
 	m.tagHost.Delete = deleteFn
 }
 
+// SetTagUpdateFunc sets the function tags.update delegates to (App.UpdateTag).
+// Like the other setters it must run before plugins load.
+func (m *Manager) SetTagUpdateFunc(fn TagUpdateFunc) {
+	m.tagHost.Update = fn
+}
+
 // SetClipsDeletedFunc sets the function clips.delete and clips.delete_many
 // report the ids they removed to. Like the other setters it must run before
 // plugins load.
@@ -276,6 +282,12 @@ func (m *Manager) tagHostFor(s *Sandbox) TagHostFuncs {
 			return fn(tagID)
 		}
 	}
+	if fn := h.Update; fn != nil {
+		h.Update = func(tagID int64, name, color string) error {
+			defer s.enterHostCall()()
+			return fn(tagID, name, color)
+		}
+	}
 	return h
 }
 
@@ -294,15 +306,9 @@ func (m *Manager) SetFSConfinementRoot(root string) {
 
 // LoadPlugins loads all enabled plugins from the database
 func (m *Manager) LoadPlugins() error {
-	m.mu.Lock()
-	m.loading = true
-	m.mu.Unlock()
-	defer func() {
-		m.mu.Lock()
-		m.loading = false
-		m.mu.Unlock()
-	}()
-
+	// Read what to load before touching what is loaded: a failed query
+	// leaves the running copies in place instead of no plugins at all. The
+	// rows are read whole, so loading (which queries too) holds no cursor.
 	rows, err := m.db.Query(`
 		SELECT id, filename, name, version, enabled, status
 		FROM plugins WHERE enabled = 1 AND status != 'error'
@@ -310,8 +316,7 @@ func (m *Manager) LoadPlugins() error {
 	if err != nil {
 		return fmt.Errorf("failed to query plugins: %w", err)
 	}
-	defer rows.Close()
-
+	var toLoad []Plugin
 	for rows.Next() {
 		var p Plugin
 		var enabled int
@@ -320,8 +325,48 @@ func (m *Manager) LoadPlugins() error {
 			continue
 		}
 		p.Enabled = enabled == 1
+		toLoad = append(toLoad, p)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return fmt.Errorf("failed to read plugins: %w", err)
+	}
 
-		if err := m.loadPlugin(&p); err != nil {
+	// A reload (RestoreBackup calls this on a running app) replaces whatever
+	// is loaded. Loading on top of it used to register every plugin a second
+	// time — a second subscriber entry and a second live sandbox — so each
+	// event reached each plugin twice until the app restarted.
+	//
+	// The old copies are unregistered here, under m.mu, so nothing new reaches
+	// them, but their sandboxes are closed without waiting. An old copy can be
+	// busy for minutes (an async UI action runs up to MaxUIActionTime), or be
+	// parked in a tags.* host call waiting for backupRestoreMu while
+	// RestoreBackup — which calls this — holds it for writing: Close would
+	// wait for the handler, the handler for the restore, the restore for
+	// Close. Each old sandbox closes once its handler finishes, and a run it
+	// completes after being replaced is not counted (see countRun).
+	m.mu.Lock()
+	old := m.plugins
+	m.plugins = make(map[int64]*Plugin)
+	m.eventSubscribers = make(map[string][]int64)
+	m.loading = true
+	m.mu.Unlock()
+	for id, p := range old {
+		m.scheduler.RemovePluginTasks(id)
+		if p.Sandbox != nil {
+			go p.Sandbox.Close()
+		}
+	}
+	defer func() {
+		m.mu.Lock()
+		m.loading = false
+		m.mu.Unlock()
+	}()
+
+	for i := range toLoad {
+		p := &toLoad[i]
+		if err := m.loadPlugin(p); err != nil {
 			log.Printf("Failed to load plugin %s: %v", p.Name, err)
 			m.incrementErrorCount(p.ID)
 			continue
@@ -331,9 +376,26 @@ func (m *Manager) LoadPlugins() error {
 	return nil
 }
 
+// PluginFilePath returns where a plugins row's filename lives in the plugins
+// dir, refusing a name with any directory part. Every plugin file the app
+// writes has a bare name, but the column is data a backup restore writes too:
+// joined unchecked, a "../" name read, overwrote (on update) or deleted (on
+// removal) a file anywhere the user can write. Every use of a stored filename
+// as a path goes through here.
+func (m *Manager) PluginFilePath(filename string) (string, error) {
+	if filename == "" || strings.ContainsAny(filename, "/\\\x00") || filepath.Base(filename) != filename ||
+		filename == "." || filename == ".." {
+		return "", fmt.Errorf("invalid plugin filename %q", filename)
+	}
+	return filepath.Join(m.pluginsDir, filename), nil
+}
+
 func (m *Manager) loadPlugin(p *Plugin) error {
 	// Read plugin source
-	sourcePath := filepath.Join(m.pluginsDir, p.Filename)
+	sourcePath, err := m.PluginFilePath(p.Filename)
+	if err != nil {
+		return err
+	}
 	source, err := os.ReadFile(sourcePath)
 	if err != nil {
 		return fmt.Errorf("failed to read plugin file: %w", err)
@@ -432,11 +494,23 @@ func (m *Manager) loadPlugin(p *Plugin) error {
 
 // UnloadPlugin unloads a plugin
 func (m *Manager) UnloadPlugin(pluginID int64) {
+	if p := m.detachPlugin(pluginID, nil); p != nil {
+		m.closeDetached(p)
+	}
+}
+
+// detachPlugin unregisters pluginID — only while only is its loaded sandbox,
+// when only is non-nil — so nothing new reaches it, and returns it for
+// closeDetached, or nil if it did nothing. The check and the removal share
+// one critical section, so a copy that replaced the one asked about is never
+// the one removed. Close is separate because it waits for a running handler:
+// anything that must happen promptly (recording why) goes in between.
+func (m *Manager) detachPlugin(pluginID int64, only *Sandbox) *Plugin {
 	m.mu.Lock()
 	p, ok := m.plugins[pluginID]
-	if !ok {
+	if !ok || (only != nil && p.Sandbox != only) {
 		m.mu.Unlock()
-		return
+		return nil
 	}
 
 	// Stop scheduled tasks
@@ -455,12 +529,15 @@ func (m *Manager) UnloadPlugin(pluginID int64) {
 
 	delete(m.plugins, pluginID)
 	m.mu.Unlock()
+	return p
+}
 
-	// Close only after releasing m.mu. Close waits for a running handler, and
-	// a handler parked in a host call (tags.* re-entering the App) is about to
-	// emit an event, which needs m.mu to find subscribers: holding m.mu here
-	// deadlocks the two. Unregistering first keeps new events off the sandbox
-	// while it waits.
+// closeDetached closes a plugin detachPlugin returned. It runs without m.mu:
+// Close waits for a running handler, and a handler parked in a host call
+// (tags.* re-entering the App) is about to emit an event, which needs m.mu
+// to find subscribers — holding m.mu here deadlocks the two. Detaching first
+// keeps new events off the sandbox while it waits.
+func (m *Manager) closeDetached(p *Plugin) {
 	if p.Sandbox != nil {
 		p.Sandbox.Close()
 	}
@@ -510,24 +587,87 @@ func (m *Manager) EmitEvent(event string, data interface{}) {
 		// up a chain of plugins re-entering each other. Its mutex cannot come
 		// free until that call returns, so a synchronous delivery would wait on
 		// its own stack forever. Deliver once the handler has finished instead:
-		// the event still arrives, just after the handler that caused it.
-		if p.Sandbox.inHostCall() {
-			go m.deliverEvent(pluginID, p.Name, p.Sandbox, handlerName, data)
+		// the event arrives just after the handler that caused it (unless the
+		// queue is full; see maxDeferredEvents). Once anything is queued, later
+		// events queue behind it, so they are not delivered out of order.
+		if m.deferEvent(pluginID, p.Name, p.Sandbox, handlerName, data) {
 			continue
 		}
 		m.deliverEvent(pluginID, p.Name, p.Sandbox, handlerName, data)
 	}
 }
 
+// deferEvent queues a delivery for after the sandbox's current handler, and
+// reports false — queuing nothing — when the sandbox is free and nothing is
+// queued, so the caller delivers synchronously. The queue is per sandbox,
+// bounded (maxDeferredEvents) and drained in order by one goroutine. It used
+// to be a goroutine per event, each parked on the sandbox mutex with its
+// payload: a handler that tags N clips spawned N of them, delivered in
+// whatever order the mutex woke them, and a handler whose deliveries emit more
+// events than they consume grew them without limit.
+func (m *Manager) deferEvent(pluginID int64, name string, sandbox *Sandbox, handlerName string, data interface{}) bool {
+	queued, start, dropped, firstDrop := sandbox.queueIfBusy(deferredEvent{handler: handlerName, data: data})
+	if firstDrop {
+		log.Printf("Plugin %s: %d events are already waiting for its handler to finish; dropping further events until they drain", name, maxDeferredEvents)
+	}
+	if !queued {
+		return false
+	}
+	if dropped || !start {
+		return true
+	}
+	go func() {
+		for {
+			ev, ok, droppedCount := sandbox.popDeferred()
+			if !ok {
+				if droppedCount > 0 {
+					log.Printf("Plugin %s: dropped %d events while its deferred-event queue was full", name, droppedCount)
+				}
+				return
+			}
+			m.deliverEvent(pluginID, name, sandbox, ev.handler, ev.data)
+		}
+	}()
+	return true
+}
+
 // deliverEvent runs one plugin's handler for an event and keeps its error
 // count. Data conversion happens inside the sandbox's mutex.
 func (m *Manager) deliverEvent(pluginID int64, name string, sandbox *Sandbox, handlerName string, data interface{}) {
-	if err := sandbox.CallHandlerWithData(handlerName, data); err != nil {
+	err := sandbox.CallHandlerWithData(handlerName, data)
+	if errors.Is(err, errSandboxClosed) {
+		return // unloaded; nothing ran, so nothing to count
+	}
+	if err != nil {
 		log.Printf("Plugin %s handler %s failed: %v", name, handlerName, err)
-		m.incrementErrorCount(pluginID)
+	}
+	m.countRun(pluginID, sandbox, err != nil)
+}
+
+// countRun records one handler run against the plugin's consecutive-error
+// count — but only while sandbox is still the plugin's loaded copy. A copy a
+// reload replaced (LoadPlugins, on every backup restore) can finish a run
+// afterwards; charged to the id, its failure counted against, and could
+// auto-disable, the copy that replaced it.
+func (m *Manager) countRun(pluginID int64, sandbox *Sandbox, failed bool) {
+	m.mu.RLock()
+	p, ok := m.plugins[pluginID]
+	current := ok && p.Sandbox == sandbox
+	m.mu.RUnlock()
+	if !current {
+		return
+	}
+	if failed {
+		m.incrementErrorCountFor(pluginID, sandbox)
 	} else {
 		m.resetErrorCount(pluginID)
 	}
+}
+
+// RecordFailureForTest charges one failed run of sandbox to pluginID, as a
+// handler failure does.
+func (m *Manager) RecordFailureForTest(pluginID int64, sandbox *Sandbox) {
+	m.incrementErrorCountFor(pluginID, sandbox)
 }
 
 func eventToHandler(event string) string {
@@ -545,6 +685,25 @@ func eventToHandler(event string) string {
 }
 
 func (m *Manager) incrementErrorCount(pluginID int64) {
+	m.incrementErrorCountFor(pluginID, nil)
+}
+
+// incrementErrorCountFor counts a failure and auto-disables the plugin at
+// MaxConsecutiveErrors. When failed is non-nil, nothing happens unless that
+// sandbox is still the plugin's loaded copy — the copy that failed may have
+// been replaced (an update, a re-enable, a reload) since countRun checked —
+// and the auto-disable removes that copy only, atomically (detachPlugin),
+// writing status 'error' only if it did.
+func (m *Manager) incrementErrorCountFor(pluginID int64, failed *Sandbox) {
+	if failed != nil {
+		m.mu.RLock()
+		p, ok := m.plugins[pluginID]
+		current := ok && p.Sandbox == failed
+		m.mu.RUnlock()
+		if !current {
+			return
+		}
+	}
 	_, err := m.db.Exec(
 		"UPDATE plugins SET error_count = error_count + 1 WHERE id = ?",
 		pluginID,
@@ -561,9 +720,18 @@ func (m *Manager) incrementErrorCount(pluginID int64) {
 	}
 
 	if errorCount >= MaxConsecutiveErrors {
+		p := m.detachPlugin(pluginID, failed)
+		if failed != nil && p == nil {
+			return // replaced since: the new copy has not failed
+		}
+		// Recorded before closing: Close waits for any other run holding the
+		// sandbox (minutes, for an async action), and a status written after
+		// it would land on a copy the user re-enabled in the meantime.
 		m.db.Exec("UPDATE plugins SET status = 'error' WHERE id = ?", pluginID)
-		m.UnloadPlugin(pluginID)
 		log.Printf("Plugin %d disabled after %d consecutive errors", pluginID, errorCount)
+		if p != nil {
+			m.closeDetached(p)
+		}
 	}
 }
 
@@ -1065,8 +1233,10 @@ func (m *Manager) RemovePlugin(pluginID int64) error {
 	}
 
 	// Delete file
-	if filename != "" {
-		os.Remove(filepath.Join(m.pluginsDir, filename))
+	if path, err := m.PluginFilePath(filename); err == nil {
+		os.Remove(path)
+	} else if filename != "" {
+		log.Printf("Plugin %d: not deleting its file: %v", pluginID, err)
 	}
 
 	return nil
@@ -1199,12 +1369,15 @@ func (m *Manager) ExecuteUIAction(pluginID int64, actionID string, clipIDs []int
 	if action.Async {
 		go func() {
 			luaResult, err := p.Sandbox.CallUIAction(actionID, clipIDs, options, context, MaxUIActionTime)
+			if errors.Is(err, errSandboxClosed) {
+				return // unloaded before it ran; nothing to count or show
+			}
 			if err != nil {
 				log.Printf("Plugin %s async action %s failed: %v", p.Name, actionID, err)
-				m.incrementErrorCount(pluginID)
+				m.countRun(pluginID, p.Sandbox, true)
 				return
 			}
-			m.resetErrorCount(pluginID)
+			m.countRun(pluginID, p.Sandbox, false)
 			actionResult := luaResultToActionResult(luaResult)
 			if actionResult.Modal != nil {
 				actionResult.Modal.PluginID = p.ID

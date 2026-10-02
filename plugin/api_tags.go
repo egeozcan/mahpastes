@@ -3,6 +3,7 @@ package plugin
 import (
 	"database/sql"
 	"log"
+	"regexp"
 	"strings"
 
 	lua "github.com/yuin/gopher-lua"
@@ -23,6 +24,11 @@ var tagColors = []string{
 
 const maxTagNameLength = 50
 
+// tagColorPattern - MUST stay in sync with app.go:tagColorPattern. Tag colors
+// are interpolated into the UI's markup and inline styles, so tags.update only
+// accepts a hex color or a bare CSS keyword.
+var tagColorPattern = regexp.MustCompile(`^(#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})|[a-zA-Z]{1,30})$`)
+
 // TagCreateResult holds the fields returned by the tag-creation callback.
 // This mirrors the main.Tag struct without importing the main package.
 type TagCreateResult struct {
@@ -42,6 +48,10 @@ type TagClipFunc func(clipID, tagID int64) error
 // TagDeleteFunc deletes a tag through the host app.
 type TagDeleteFunc func(tagID int64) error
 
+// TagUpdateFunc renames and/or recolors a tag through the host app. An empty
+// name or color keeps the stored one.
+type TagUpdateFunc func(tagID int64, name, color string) error
+
 // TagHostFuncs routes the tags API's mutations through the host app, so a
 // plugin's tag change has the same side effects as the user's:
 //   - Create: subtag auto-creation (App.CreateTag).
@@ -53,6 +63,9 @@ type TagDeleteFunc func(tagID int64) error
 //   - Delete: StopShare/StopServing and the follow precondition
 //     (App.DeleteTag). A bare DELETE cascades a share's row away while its
 //     publication stays live in memory.
+//   - Update: name validation (the reserved _api segment), the served-subtree
+//     guard, the descendant cascade and the tag:updated events
+//     (App.UpdateTag). A bare UPDATE renamed a/b to x and left a/b/c behind.
 //
 // A nil field falls back to direct SQL on the plugin's handle with none of
 // those side effects — the path for an API built without a host app.
@@ -61,6 +74,7 @@ type TagHostFuncs struct {
 	AddToClip      TagClipFunc
 	RemoveFromClip TagClipFunc
 	Delete         TagDeleteFunc
+	Update         TagUpdateFunc
 }
 
 // TagsAPI provides tag operations to plugins
@@ -254,6 +268,30 @@ func (t *TagsAPI) update(L *lua.LState) int {
 	id := L.CheckInt64(1)
 	opts := L.CheckTable(2)
 
+	if t.host.Update != nil {
+		var name, color string
+		if v := opts.RawGetString("name"); v != lua.LNil {
+			name = strings.TrimSpace(v.String())
+			if name == "" {
+				L.Push(lua.LFalse)
+				L.Push(lua.LString("tag name cannot be empty"))
+				return 2
+			}
+		}
+		if v := opts.RawGetString("color"); v != lua.LNil {
+			color = v.String()
+		}
+		if err := t.host.Update(id, name, color); err != nil {
+			L.Push(lua.LFalse)
+			L.Push(lua.LString(err.Error()))
+			return 2
+		}
+		L.Push(lua.LTrue)
+		return 1
+	}
+
+	// Legacy fallback: direct SQL (no cascade, validation or events)
+
 	// Get current values
 	var currentName, currentColor string
 	err := t.db.QueryRow("SELECT name, color FROM tags WHERE id = ?", id).Scan(&currentName, &currentColor)
@@ -286,8 +324,14 @@ func (t *TagsAPI) update(L *lua.LState) int {
 		}
 	}
 
-	if colorVal := opts.RawGetString("color"); colorVal != lua.LNil {
+	// An empty color keeps the stored one, as App.UpdateTag does.
+	if colorVal := opts.RawGetString("color"); colorVal != lua.LNil && colorVal.String() != "" {
 		color = colorVal.String()
+		if !tagColorPattern.MatchString(color) {
+			L.Push(lua.LFalse)
+			L.Push(lua.LString("invalid tag color: use a hex color such as #3B82F6"))
+			return 2
+		}
 	}
 
 	_, err = t.db.Exec("UPDATE tags SET name = ?, color = ? WHERE id = ?", name, color, id)

@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/libp2p/go-libp2p"
@@ -23,7 +24,6 @@ import (
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/p2p/discovery/mdns"
-	"github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/relay"
 )
 
 // mdnsServiceTag identifies mahpastes instances on the local network via mDNS.
@@ -141,10 +141,11 @@ func NewShareManager(parent context.Context, db *sql.DB, dataDir string) (*Share
 	}
 	relays.setHost(h)
 
-	// Register circuit-relay v2 stop handler so we can be reached via relay.
-	if _, err := relay.New(h); err == nil {
-		// OK if this fails — libp2p host still usable; relay reservation handled by AutoRelay
-	}
+	// No relay.New(h) here: that starts the circuit-v2 HOP service, which
+	// relays arbitrary third parties' traffic through this machine — and an
+	// install with a public address is advertised as a relay on the public
+	// DHT. Being reached through a relay needs only the STOP side, which
+	// libp2p.EnableRelay (in shareHostOptions) already registers.
 
 	// Kademlia DHT. Publisher=auto-server, but we don't know yet which role
 	// this node plays; auto-server is safe for both because a node without
@@ -364,6 +365,55 @@ type publication struct {
 	removed   bool
 	followers map[network.Stream]*followerConn
 	fmu       sync.Mutex
+
+	// view mirrors status and the follower count for code that only reports
+	// them. fmu is held for the whole of a clip emission — every chunk read,
+	// sealed and written to the ring — so a status read that took it would
+	// wait out a large clip, and GetShareStatus did so while holding m.mu,
+	// parking every other caller of the manager behind it. Each write of
+	// status or followers happens under fmu and refreshes view before fmu is
+	// released (setStatusLocked, addFollowerLocked, removeFollowerLocked,
+	// closeAllFollowersLocked), so view is never staler than the last
+	// completed mutation. It is a report, not a gate: anything that decides
+	// whether to emit or admit still reads status under fmu.
+	view atomic.Pointer[publicationView]
+}
+
+// publicationView is one consistent reading of a publication's reported state.
+type publicationView struct {
+	status    string
+	followers int
+}
+
+// refreshViewLocked republishes view from the fields it mirrors. Caller holds
+// fmu (or owns p exclusively, as registerPublication does).
+func (p *publication) refreshViewLocked() {
+	p.view.Store(&publicationView{status: p.status, followers: len(p.followers)})
+}
+
+func (p *publication) setStatusLocked(status string) {
+	p.status = status
+	p.refreshViewLocked()
+}
+
+func (p *publication) addFollowerLocked(s network.Stream, fc *followerConn) {
+	p.followers[s] = fc
+	p.refreshViewLocked()
+}
+
+func (p *publication) removeFollowerLocked(s network.Stream) {
+	delete(p.followers, s)
+	p.refreshViewLocked()
+}
+
+// reportedView returns the publication's status and follower count without
+// waiting for an emission in progress. A publication that never went through
+// registerPublication (a test fixture) reports the zero view.
+func (p *publication) reportedView() publicationView {
+	if v := p.view.Load(); v != nil {
+		return *v
+	}
+	return publicationView{}
 }
 
 // currentStatus reads status under fmu. Callers that already hold fmu must
@@ -386,6 +436,7 @@ func (p *publication) closeAllFollowersLocked() {
 		fc.close()
 	}
 	p.followers = map[network.Stream]*followerConn{}
+	p.refreshViewLocked()
 }
 
 // followerConn owns one follower's stream and a bounded async send queue.
@@ -567,7 +618,7 @@ type follow struct {
 func (m *ShareManager) registerPublication(id, tagID int64, shareID, symkey []byte, status string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.publications[id] = &publication{
+	p := &publication{
 		id:        id,
 		tagID:     tagID,
 		shareID:   append([]byte(nil), shareID...),
@@ -575,6 +626,8 @@ func (m *ShareManager) registerPublication(id, tagID int64, shareID, symkey []by
 		status:    status,
 		followers: map[network.Stream]*followerConn{},
 	}
+	p.refreshViewLocked()
+	m.publications[id] = p
 }
 
 // findPublicationByShareID linear-scans the map (small N) to find which
@@ -1109,7 +1162,7 @@ func (m *ShareManager) handlePublisherStream(s network.Stream) {
 	// followerConn.enqueue path to serialise all writes through its single
 	// sender goroutine; writing to s directly here would race the sender.
 	fc := newFollowerConn(s, s)
-	pub.followers[s] = fc
+	pub.addFollowerLocked(s, fc)
 
 	// Catch-up retransmit: the METADATA of ring rows with seq > since_seq that
 	// are still within TTL — seq, kind and envelope length, no blobs. The
@@ -1125,7 +1178,7 @@ func (m *ShareManager) handlePublisherStream(s network.Stream) {
 	rows, metaTruncated, err := RingRetransmitMeta(m.db, pub.id, hs.SinceSeq, nowUnix, CatchupMetaRowCap)
 	if err != nil {
 		log.Printf("share: retransmit query: %v", err)
-		delete(pub.followers, s)
+		pub.removeFollowerLocked(s)
 		pub.fmu.Unlock()
 		// fc.close() rather than a bare s.Reset(): the sender goroutine is
 		// already running and would otherwise block on its queue forever.
@@ -1139,7 +1192,7 @@ func (m *ShareManager) handlePublisherStream(s network.Stream) {
 	var lastSeqI int64
 	if err := m.db.QueryRow(`SELECT last_seq FROM shares WHERE id = ?`, pub.id).Scan(&lastSeqI); err != nil {
 		log.Printf("share: read last_seq for retransmit: %v", err)
-		delete(pub.followers, s)
+		pub.removeFollowerLocked(s)
 		pub.fmu.Unlock()
 		fc.close()
 		return
@@ -1155,7 +1208,7 @@ func (m *ShareManager) handlePublisherStream(s network.Stream) {
 	envelopes, err := fetchPlannedEnvelopes(m.db, pub.id, plan.Send, nowUnix)
 	if err != nil {
 		log.Printf("share: catch-up fetch: %v", err)
-		delete(pub.followers, s)
+		pub.removeFollowerLocked(s)
 		pub.fmu.Unlock()
 		fc.close()
 		return
@@ -1188,7 +1241,7 @@ func (m *ShareManager) handlePublisherStream(s network.Stream) {
 			// Sending the rows without the gap would leave the follower
 			// unable to decrypt any of them — reset and let it retry.
 			log.Printf("share: gap envelope: %v", err)
-			delete(pub.followers, s)
+			pub.removeFollowerLocked(s)
 			pub.fmu.Unlock()
 			fc.close()
 			return
@@ -1213,7 +1266,7 @@ func (m *ShareManager) handlePublisherStream(s network.Stream) {
 		acceptEnv, err := encodeGapEnvelope(pub.symkey, pub.shareID, hs.SinceSeq+1, hs.SinceSeq)
 		if err != nil {
 			log.Printf("share: accept envelope: %v", err)
-			delete(pub.followers, s)
+			pub.removeFollowerLocked(s)
 			pub.fmu.Unlock()
 			fc.close()
 			return
@@ -1247,7 +1300,7 @@ func (m *ShareManager) handlePublisherStream(s network.Stream) {
 	go func() {
 		_, _ = io.Copy(io.Discard, s)
 		pub.fmu.Lock()
-		delete(pub.followers, s)
+		pub.removeFollowerLocked(s)
 		pub.fmu.Unlock()
 		fc.close()
 	}()
@@ -1393,8 +1446,10 @@ func (m *ShareManager) PauseShare(tagID int64) error {
 		pub.fmu.Unlock()
 		return fmt.Errorf("persist paused: %w", err)
 	}
-	pub.status = "paused"
+	// Followers first, so the reported view never shows a paused share that
+	// still has followers.
 	pub.closeAllFollowersLocked()
+	pub.setStatusLocked("paused")
 	pub.fmu.Unlock()
 
 	m.logs.append(ShareLogEntry{
@@ -1434,7 +1489,7 @@ func (m *ShareManager) ResumeShare(tagID int64) error {
 		pub.fmu.Unlock()
 		return fmt.Errorf("persist active: %w", err)
 	}
-	pub.status = "active"
+	pub.setStatusLocked("active")
 	pub.fmu.Unlock()
 
 	m.logs.append(ShareLogEntry{
@@ -1534,14 +1589,11 @@ func (m *ShareManager) emitPublicationUpdated(pub *publication, tagID int64) {
 	_ = m.db.QueryRow(`SELECT name FROM tags WHERE id = ?`, tagID).Scan(&tagName)
 	var clipsSent, createdAt, lastSeqDB int64
 	_ = m.db.QueryRow(`SELECT clips_sent, last_seq, created_at FROM shares WHERE id = ?`, pub.id).Scan(&clipsSent, &lastSeqDB, &createdAt)
-	pub.fmu.Lock()
-	fCount := len(pub.followers)
-	status := pub.status
-	pub.fmu.Unlock()
+	view := pub.reportedView()
 	m.emitEvent("share:publication-updated", ShareInfo{
 		ID: pub.id, TagID: tagID, TagName: tagName,
-		Status:    status,
-		Followers: fCount, ClipsPushed: clipsSent,
+		Status:    view.status,
+		Followers: view.followers, ClipsPushed: clipsSent,
 		LastSeq:   lastSeqDB,
 		CreatedAt: createdAt,
 	})
@@ -2698,35 +2750,54 @@ func (m *ShareManager) runRingSweeper() {
 
 // GetShareStatus returns DTOs for every publication and follow currently
 // registered, combining in-memory state with DB counters.
+//
+// It never waits on a publication's fmu (see publication.view) and holds m.mu
+// only to copy the two maps. The UI polls this; holding m.mu across the DB
+// reads below, or behind an emission, would queue StopShare's write lock
+// behind it — and every later reader of m.mu, including the next clip's
+// OnClipCreated, behind that.
 func (m *ShareManager) GetShareStatus() (shares []ShareInfo, follows []FollowInfo) {
 	m.mu.RLock()
-	defer m.mu.RUnlock()
-
+	pubs := make([]*publication, 0, len(m.publications))
 	for _, p := range m.publications {
+		pubs = append(pubs, p)
+	}
+	fols := make([]*follow, 0, len(m.follows))
+	for _, f := range m.follows {
+		fols = append(fols, f)
+	}
+	m.mu.RUnlock()
+
+	var pubKeyBytes []byte
+	if len(pubs) > 0 {
+		pubKeyBytes, _ = PublicKeyBytes(m.host.Peerstore().PrivKey(m.host.ID()))
+	}
+	for _, p := range pubs {
 		var tagName string
 		m.db.QueryRow(`SELECT name FROM tags WHERE id = ?`, p.tagID).Scan(&tagName)
 		var clipsSent, createdAt, lastSeqDB int64
 		// Authoritative counters live in the DB; no envelope-count heuristics.
-		m.db.QueryRow(`SELECT clips_sent, last_seq, created_at FROM shares WHERE id = ?`, p.id).Scan(&clipsSent, &lastSeqDB, &createdAt)
-		p.fmu.Lock()
-		fCount := len(p.followers)
-		status := p.status
-		p.fmu.Unlock()
+		// No row means a StopShare landed after the maps were copied: the
+		// share is gone, so it is not reported.
+		if err := m.db.QueryRow(`SELECT clips_sent, last_seq, created_at FROM shares WHERE id = ?`, p.id).
+			Scan(&clipsSent, &lastSeqDB, &createdAt); errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		view := p.reportedView()
 
 		// Reconstruct share string from stored key + our pubkey.
-		pubKeyBytes, _ := PublicKeyBytes(m.host.Peerstore().PrivKey(m.host.ID()))
 		shareStr, _ := EncodeShareString(pubKeyBytes, p.symkey)
 
 		shares = append(shares, ShareInfo{
 			ID: p.id, TagID: p.tagID, TagName: tagName,
-			ShareString: shareStr, Status: status,
-			Followers: fCount, ClipsPushed: clipsSent,
+			ShareString: shareStr, Status: view.status,
+			Followers: view.followers, ClipsPushed: clipsSent,
 			LastSeq:   lastSeqDB,
 			CreatedAt: createdAt,
 		})
 	}
 
-	for _, f := range m.follows {
+	for _, f := range fols {
 		f.mu.Lock()
 		status := f.status
 		paused := f.paused
@@ -2737,7 +2808,10 @@ func (m *ShareManager) GetShareStatus() (shares []ShareInfo, follows []FollowInf
 		var createdAt, lastSeqDB, clipsRecv int64
 		var lastSeenSQL sql.NullInt64
 		m.db.QueryRow(`SELECT name FROM tags WHERE id = ?`, localTagID).Scan(&localTagName)
-		m.db.QueryRow(`SELECT created_at, last_seq, clips_received, last_seen_at FROM follows WHERE id = ?`, f.id).Scan(&createdAt, &lastSeqDB, &clipsRecv, &lastSeenSQL)
+		if err := m.db.QueryRow(`SELECT created_at, last_seq, clips_received, last_seen_at FROM follows WHERE id = ?`, f.id).
+			Scan(&createdAt, &lastSeqDB, &clipsRecv, &lastSeenSQL); errors.Is(err, sql.ErrNoRows) {
+			continue // unfollowed after the maps were copied
+		}
 		var lastSeenPtr *int64
 		if lastSeenSQL.Valid {
 			v := lastSeenSQL.Int64

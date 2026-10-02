@@ -289,7 +289,7 @@ async function showServeTagPicker() {
                 ${availableTags.map(tag => `
                     <button class="serve-tag-option w-full text-left px-3 py-2 text-xs text-stone-600 hover:bg-stone-100 transition-colors flex items-center gap-2"
                             data-tag-id="${tag.id}">
-                        <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background-color: ${tag.color}"></span>
+                        <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background-color: ${safeTagColor(tag.color)}"></span>
                         ${escapeHTML(tag.name)}
                     </button>
                 `).join('')}

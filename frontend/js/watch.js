@@ -136,7 +136,7 @@ function createWatchFolderCard(folder) {
     if (folder.auto_tag_id && typeof allTags !== 'undefined') {
         const tag = allTags.find(t => t.id === folder.auto_tag_id);
         if (tag) {
-            autoTagHtml = ` • <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium text-white" style="background-color: ${tag.color}">${escapeHTML(tag.name)}</span>`;
+            autoTagHtml = ` • <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium text-white" style="background-color: ${safeTagColor(tag.color)}">${escapeHTML(tag.name)}</span>`;
         }
     }
 
@@ -147,7 +147,7 @@ function createWatchFolderCard(folder) {
                 ${notExistsWarning}
             </div>
             <p class="text-[11px] text-stone-400">
-                ${filterDesc}
+                ${escapeHTML(filterDesc)}
                 ${folder.auto_archive ? ' • Auto-archive' : ''}
                 ${autoTagHtml}
                 ${folder.is_paused ? ' • <span class="text-amber-500">Paused</span>' : ''}

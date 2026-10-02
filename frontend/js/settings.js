@@ -127,7 +127,7 @@ async function selectRestoreBackup() {
             </div>
             <div class="flex justify-between py-1 border-b border-stone-100">
                 <span class="text-stone-500">App version:</span>
-                <span class="font-medium">${manifest.app_version}</span>
+                <span class="font-medium">${escapeHTML(manifest.app_version)}</span>
             </div>
             <div class="pt-2">
                 <span class="text-stone-500">This backup contains:</span>
@@ -300,12 +300,12 @@ function renderHiddenTagsSettings() {
         row.dataset.testid = `hidden-tag-row-${tag.name}`;
         row.innerHTML = `
             <div class="flex items-center gap-2">
-                <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background-color: ${tag.color}"></span>
+                <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background-color: ${safeTagColor(tag.color)}"></span>
                 <span class="text-xs font-medium text-stone-700">${escapeHTML(tag.name)}</span>
                 <span class="text-[10px] text-stone-400">${tag.count}</span>
             </div>
             <div class="relative inline-flex items-center cursor-pointer">
-                <input type="checkbox" class="sr-only peer" data-testid="hidden-tag-toggle-${tag.name}" ${isHidden ? 'checked' : ''}>
+                <input type="checkbox" class="sr-only peer" data-testid="hidden-tag-toggle-${escapeHTML(tag.name)}" ${isHidden ? 'checked' : ''}>
                 <div class="w-8 h-4 bg-stone-300 rounded-full peer peer-checked:bg-stone-800 peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-stone-400 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:after:translate-x-4"></div>
             </div>
         `;

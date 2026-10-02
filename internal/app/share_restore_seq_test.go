@@ -31,7 +31,6 @@ func widenForShareManager(t *testing.T, db *sql.DB) {
 	for _, s := range []string{
 		`ALTER TABLE clips ADD COLUMN metadata TEXT DEFAULT '{}'`,
 		`ALTER TABLE clips ADD COLUMN content_hash TEXT DEFAULT ''`,
-		`ALTER TABLE follows ADD COLUMN paused INTEGER NOT NULL DEFAULT 0`,
 		`CREATE UNIQUE INDEX idx_shares_tag_id ON shares(tag_id)`,
 	} {
 		if _, err := db.Exec(s); err != nil {

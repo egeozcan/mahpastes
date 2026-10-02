@@ -51,6 +51,73 @@ type Sandbox struct {
 	// must not then run on the closed state (gopher-lua nils its call stack on
 	// Close, so the next call would panic).
 	closed bool
+
+	// deferred is this sandbox's queue of events EmitEvent could not deliver
+	// synchronously (see Manager.EmitEvent), drained in order by a single
+	// goroutine while draining is set. deferMu guards the fields below and is
+	// never held across a handler, so pushing never waits on mu.
+	deferMu         sync.Mutex
+	deferred        []deferredEvent
+	draining        bool
+	deferredDropped int
+}
+
+// deferredEvent is one event delivery queued behind a host call.
+type deferredEvent struct {
+	handler string
+	data    interface{}
+}
+
+// maxDeferredEvents bounds one sandbox's queue of deferred events. A handler
+// can emit events back at its own plugin in a loop — tagging a few thousand
+// clips through tags.add_to_clip is one per clip — so the bound is generous;
+// what it stops is a handler whose deliveries each emit more than one event,
+// which would otherwise grow the queue without limit.
+const maxDeferredEvents = 10000
+
+// queueIfBusy queues ev when it cannot be delivered synchronously: the
+// sandbox's handler is parked in a host call, or earlier events are still
+// queued — an event that skipped past them would arrive out of order. queued
+// false means neither holds and the caller delivers ev itself. Otherwise
+// startDrainer reports that no drainer is running and the caller must start
+// one, and dropped that the queue was full and ev was discarded, with
+// firstDrop set on the first discard since the queue last emptied.
+func (s *Sandbox) queueIfBusy(ev deferredEvent) (queued, startDrainer, dropped, firstDrop bool) {
+	s.deferMu.Lock()
+	defer s.deferMu.Unlock()
+	if !s.draining && !s.inHostCall() {
+		return false, false, false, false
+	}
+	if len(s.deferred) >= maxDeferredEvents {
+		s.deferredDropped++
+		return true, false, true, s.deferredDropped == 1
+	}
+	s.deferred = append(s.deferred, ev)
+	if s.draining {
+		return true, false, false, false
+	}
+	s.draining = true
+	return true, true, false, false
+}
+
+// popDeferred hands the drainer the next queued event. When the queue is empty
+// it clears draining — in the same critical section, so a concurrent push
+// either lands before (and is returned here) or sees draining false and starts
+// a new drainer — and returns how many events were dropped since it last
+// emptied.
+func (s *Sandbox) popDeferred() (ev deferredEvent, ok bool, dropped int) {
+	s.deferMu.Lock()
+	defer s.deferMu.Unlock()
+	if len(s.deferred) == 0 {
+		s.deferred = nil
+		s.draining = false
+		dropped, s.deferredDropped = s.deferredDropped, 0
+		return deferredEvent{}, false, dropped
+	}
+	ev = s.deferred[0]
+	s.deferred[0] = deferredEvent{} // let the payload go once delivered
+	s.deferred = s.deferred[1:]
+	return ev, true, 0
 }
 
 // enterHostCall marks the sandbox as parked in a host call and returns the
@@ -111,6 +178,11 @@ func (s *Sandbox) Close() {
 		s.cancel()
 	}
 	s.L.Close()
+
+	// Nothing queued can run any more; let the drainer finish at its next pop.
+	s.deferMu.Lock()
+	s.deferred = nil
+	s.deferMu.Unlock()
 }
 
 // LoadSource loads and executes the plugin source with timeout protection
@@ -184,12 +256,14 @@ func (s *Sandbox) CallHandler(name string, args ...lua.LValue) error {
 	return nil
 }
 
-// CallHandlerWithData calls a handler function with Go data that will be converted to Lua inside the mutex
+// CallHandlerWithData calls a handler function with Go data that will be converted to Lua inside the mutex.
+// It returns errSandboxClosed, having run nothing, once the plugin was unloaded
+// — the caller must not count that as a run of the handler either way.
 func (s *Sandbox) CallHandlerWithData(name string, data interface{}) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
-		return nil // plugin unloaded while this call waited; skip like an undefined handler
+		return errSandboxClosed
 	}
 
 	fn := s.L.GetGlobal(name)
