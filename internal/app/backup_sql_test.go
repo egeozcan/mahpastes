@@ -424,9 +424,6 @@ func TestRestoreBackupFailsWhenPermissionsCannotBeReset(t *testing.T) {
 // whatever file the path named.
 func TestRestoreBackupSkipsPluginRowsWithAPath(t *testing.T) {
 	db := newBackupTestDB(t)
-	if _, err := db.Exec(`ALTER TABLE plugins ADD COLUMN filename TEXT`); err != nil {
-		t.Fatal(err)
-	}
 	err := restoreRowsInTx(t, db, `
 INSERT INTO plugins (id, name, filename) VALUES (1, 'traversal', '../../important.txt');
 INSERT INTO plugins (id, name, filename) VALUES (2, 'absolute', '/etc/hosts');

@@ -62,6 +62,11 @@ type ActionResult struct {
 	Modal        *ModalData `json:"modal,omitempty"`
 }
 
+// StatusNeedsReview marks a plugins row a backup restore brought in that this
+// install has not reviewed. Such a row is held disabled; PreviewInstalled
+// returns the review the user approves before enabling it.
+const StatusNeedsReview = "needs_review"
+
 // Plugin represents a loaded plugin
 type Plugin struct {
 	ID       int64
@@ -1170,6 +1175,20 @@ func (m *Manager) SetStorageWithGrant(pluginID int64, key, value string) error {
 	}
 	m.InvalidateNetworkPolicy(pluginID)
 	return nil
+}
+
+// PreviewInstalled returns the install review for a plugin already in the
+// plugins dir — the one a restored plugin held for review is enabled through.
+func (m *Manager) PreviewInstalled(pluginID int64) (*PluginPreview, error) {
+	var filename string
+	if err := m.db.QueryRow("SELECT filename FROM plugins WHERE id = ?", pluginID).Scan(&filename); err != nil {
+		return nil, fmt.Errorf("plugin %d not found", pluginID)
+	}
+	path, err := m.PluginFilePath(filename)
+	if err != nil {
+		return nil, err
+	}
+	return PreviewFromFile(path)
 }
 
 // EnablePlugin enables a plugin

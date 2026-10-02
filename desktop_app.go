@@ -313,7 +313,7 @@ func (d *App) ShowRestoreBackupDialog() (*coreapp.BackupManifest, string, error)
 		return nil, "", nil
 	}
 
-	manifest, err := coreapp.ValidateBackup(openPath)
+	manifest, err := coreapp.InspectBackupForRestore(openPath)
 	if err != nil {
 		return nil, "", err
 	}

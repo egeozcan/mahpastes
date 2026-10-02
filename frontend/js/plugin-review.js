@@ -27,7 +27,7 @@ const reviewApproveBtn = document.getElementById('plugin-review-approve');
 /**
  * Show the plugin review modal and return a promise that resolves to true (approved) or false (cancelled).
  * @param {object} preview - PluginPreview object from backend
- * @param {'install'|'update'} mode
+ * @param {'install'|'update'|'restore'} mode
  * @param {string} [currentVersion] - Current version (for update mode)
  */
 function showPluginReview(preview, mode, currentVersion) {
@@ -36,7 +36,8 @@ function showPluginReview(preview, mode, currentVersion) {
         reviewSource = preview.source;
 
         // Title
-        reviewTitle.textContent = mode === 'update' ? 'Review Update' : 'Review Plugin';
+        reviewTitle.textContent = mode === 'update' ? 'Review Update'
+            : (mode === 'restore' ? 'Review Restored Plugin' : 'Review Plugin');
 
         // Warning banner
         if (mode === 'update') {
@@ -121,7 +122,8 @@ function showPluginReview(preview, mode, currentVersion) {
         }
 
         // Button text
-        reviewApproveBtn.textContent = mode === 'update' ? 'Approve & Update' : 'Approve & Install';
+        reviewApproveBtn.textContent = mode === 'update' ? 'Approve & Update'
+            : (mode === 'restore' ? 'Approve & Enable' : 'Approve & Install');
         reviewApproveBtn.disabled = false;
 
         // Show modal

@@ -159,6 +159,7 @@ func (sm *ServeManager) handleFileUpload(w http.ResponseWriter, r *http.Request,
 	filename := header.Filename
 	contentType = cliptype.PromoteMarkdown(filename, contentType)
 	contentHash := computeContentHash(data)
+	epoch := sm.app.currentRestoreEpoch()
 	result, err := sm.app.db.Exec(
 		"INSERT INTO clips (content_type, data, filename, content_hash) VALUES (?, ?, ?, ?)",
 		contentType, data, filename, contentHash,
@@ -170,8 +171,12 @@ func (sm *ServeManager) handleFileUpload(w http.ResponseWriter, r *http.Request,
 	clipID, _ := result.LastInsertId()
 
 	// Tag the clip.
-	if err := sm.app.AddTagToClip(clipID, targetTagID); err != nil {
+	if err := sm.app.addTagToNewClip(clipID, targetTagID, epoch); err != nil {
 		log.Printf("serve upload: failed to tag clip %d with tag %d: %v", clipID, targetTagID, err)
+		if errors.Is(err, errRestoredSinceInsert) {
+			jsonAPIError(w, http.StatusConflict, "a backup restore replaced the library during the upload; retry it")
+			return
+		}
 	}
 
 	// Emit plugin event.

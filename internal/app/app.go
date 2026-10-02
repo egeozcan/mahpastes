@@ -152,6 +152,13 @@ type App struct {
 	// tests. No reader calls the writer and the writer calls no reader, so the
 	// lock cannot self-deadlock; see the audit in RestoreBackup.
 	backupRestoreMu sync.RWMutex
+
+	// restoreEpoch counts restores, bumped by RestoreBackup under the write
+	// side of backupRestoreMu and read under the read side. An upload that
+	// tags the clip it just inserted reads it before the insert and hands it
+	// to addTagToNewClip: a restore in between deleted that clip, and its id —
+	// and the tag id — may now name restored rows.
+	restoreEpoch uint64
 }
 
 // PluginsReady reports whether plugin loading has finished (successfully or
@@ -522,7 +529,7 @@ func (a *App) addTagToClipFromPlugin(clipID, tagID int64) error {
 		return errRestoreInProgress
 	}
 	a.backupRestoreMu.RUnlock()
-	return a.addTagToClip(clipID, tagID, true)
+	return a.addTagToClip(clipID, tagID, true, nil)
 }
 
 // Shutdown is called when the app is closing
@@ -1506,6 +1513,7 @@ func (a *App) UploadFiles(files []FileData, expirationMinutes int, autoTagID int
 		}
 
 		contentHash := computeContentHash(data)
+		epoch := a.currentRestoreEpoch()
 		result, err := a.db.Exec("INSERT INTO clips (content_type, data, filename, expires_at, content_hash) VALUES (?, ?, ?, ?, ?)",
 			contentType, data, file.Name, expiresAt, contentHash)
 		if err != nil {
@@ -1517,8 +1525,12 @@ func (a *App) UploadFiles(files []FileData, expirationMinutes int, autoTagID int
 
 		// Auto-tag with folder tag if specified
 		if autoTagID > 0 {
-			if err := a.AddTagToClip(clipID, autoTagID); err != nil {
+			if err := a.addTagToNewClip(clipID, autoTagID, epoch); err != nil {
 				log.Printf("Failed to auto-tag clip %d with tag %d: %v", clipID, autoTagID, err)
+				if errors.Is(err, errRestoredSinceInsert) {
+					// The clip is gone; clipID names a restored one now.
+					continue
+				}
 			}
 		}
 
@@ -2651,13 +2663,36 @@ func (a *App) GetTags() ([]Tag, error) {
 
 // AddTagToClip adds a tag to a clip
 func (a *App) AddTagToClip(clipID, tagID int64) error {
-	return a.addTagToClip(clipID, tagID, false)
+	return a.addTagToClip(clipID, tagID, false, nil)
+}
+
+// errRestoredSinceInsert refuses to tag a clip an upload inserted before a
+// restore replaced the library: that clip is gone, and its id names whatever
+// restored row now holds it.
+var errRestoredSinceInsert = errors.New("a backup restore replaced the library after this clip was inserted; not tagging")
+
+// currentRestoreEpoch reads restoreEpoch for an upload about to insert a clip
+// it will tag. Read before the insert, not after: a restore landing between
+// the insert and a later read would hand back the new epoch, and the tag would
+// go onto a restored clip.
+func (a *App) currentRestoreEpoch() uint64 {
+	a.backupRestoreMu.RLock()
+	defer a.backupRestoreMu.RUnlock()
+	return a.restoreEpoch
+}
+
+// addTagToNewClip is AddTagToClip for a clip the caller just inserted, with
+// epoch read by currentRestoreEpoch before that insert. It refuses with
+// errRestoredSinceInsert when a restore ran in between.
+func (a *App) addTagToNewClip(clipID, tagID int64, epoch uint64) error {
+	return a.addTagToClip(clipID, tagID, false, &epoch)
 }
 
 // addTagToClip is AddTagToClip. With yieldToPlacement set, a clip already
 // filed at tagID or anywhere beneath it is left exactly where it is and the
-// call succeeds having changed nothing (see addTagToClipFromPlugin).
-func (a *App) addTagToClip(clipID, tagID int64, yieldToPlacement bool) error {
+// call succeeds having changed nothing (see addTagToClipFromPlugin). With
+// epoch set, it refuses if a restore has run since (see addTagToNewClip).
+func (a *App) addTagToClip(clipID, tagID int64, yieldToPlacement bool, epoch *uint64) error {
 	// Exclude restores for the whole span from tx.Begin through the hook
 	// decision (see backupRestoreMu's doc): the mutation either completes
 	// entirely before a restore starts or begins entirely after it ends, so it
@@ -2675,6 +2710,10 @@ func (a *App) addTagToClip(clipID, tagID int64, yieldToPlacement bool) error {
 		}
 	}
 	defer releaseRestoreLock()
+
+	if epoch != nil && *epoch != a.restoreEpoch {
+		return errRestoredSinceInsert
+	}
 
 	// The exclusivity delete and the insert that replaces it are one unit: a
 	// failure between them would leave the clip stripped of its old tag and

@@ -49,7 +49,7 @@ func openBackupTestDBWithDriver(t *testing.T, driverName, dsn string) *sql.DB {
 		`CREATE TABLE clip_tags (clip_id INTEGER, tag_id INTEGER)`,
 		`CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT)`,
 		`CREATE TABLE watched_folders (id INTEGER PRIMARY KEY, path TEXT, is_paused INTEGER)`,
-		`CREATE TABLE plugins (id INTEGER PRIMARY KEY, name TEXT)`,
+		`CREATE TABLE plugins (id INTEGER PRIMARY KEY, filename TEXT UNIQUE, name TEXT, version TEXT, enabled INTEGER DEFAULT 1, status TEXT DEFAULT 'enabled', error_count INTEGER DEFAULT 0)`,
 		`CREATE TABLE plugin_storage (plugin_id INTEGER, key TEXT, value TEXT)`,
 		`CREATE TABLE plugin_permissions (plugin_id INTEGER, permission TEXT, pending_reconfirm INTEGER)`,
 		`CREATE TABLE shares (id INTEGER PRIMARY KEY, tag_id INTEGER, symkey BLOB, share_id BLOB UNIQUE, last_seq INTEGER, clips_sent INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'active', created_at INTEGER)`,

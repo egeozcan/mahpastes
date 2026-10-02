@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -294,6 +295,7 @@ func (w *WatcherManager) importFile(filePath string, folder *WatchedFolder) (int
 	}
 
 	// Upload and get the clip ID
+	epoch := w.app.currentRestoreEpoch()
 	clipID, err := w.app.UploadFileAndGetID(*fileData)
 	if err != nil {
 		return 0, err
@@ -309,8 +311,11 @@ func (w *WatcherManager) importFile(filePath string, folder *WatchedFolder) (int
 
 	// Auto-tag if configured
 	if folder.AutoTagID != nil {
-		if err := w.app.AddTagToClip(clipID, *folder.AutoTagID); err != nil {
+		if err := w.app.addTagToNewClip(clipID, *folder.AutoTagID, epoch); err != nil {
 			log.Printf("Failed to auto-tag clip %d with tag %d: %v", clipID, *folder.AutoTagID, err)
+			if errors.Is(err, errRestoredSinceInsert) {
+				return 0, err
+			}
 		}
 	}
 

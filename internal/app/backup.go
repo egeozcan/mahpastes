@@ -908,6 +908,39 @@ func ValidateBackup(backupPath string) (*BackupManifest, error) {
 	return &manifest, nil
 }
 
+// InspectBackupForRestore returns a backup's manifest with its summary
+// replaced by a count of what database.sql actually holds (countBackupRows),
+// for the restore confirmation. The summary a backup carries is written by
+// whoever wrote the ZIP, so it cannot be what the user confirms against.
+func InspectBackupForRestore(backupPath string) (*BackupManifest, error) {
+	manifest, err := ValidateBackup(backupPath)
+	if err != nil {
+		return nil, err
+	}
+	r, err := zip.OpenReader(backupPath)
+	if err != nil {
+		return nil, fmt.Errorf("invalid backup file: %w", err)
+	}
+	defer r.Close()
+	for _, f := range r.File {
+		if f.Name != "database.sql" {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return nil, fmt.Errorf("failed to open database.sql: %w", err)
+		}
+		defer rc.Close()
+		summary, err := countBackupRows(rc)
+		if err != nil {
+			return nil, fmt.Errorf("backup is corrupted (database.sql): %w", err)
+		}
+		manifest.Summary = summary
+		return manifest, nil
+	}
+	return nil, fmt.Errorf("backup is corrupted (missing database.sql)")
+}
+
 // RestoreBackup restores data from a backup ZIP file.
 // identityPolicy controls how a conflict between the backup's identity and
 // this install's identity is resolved:
@@ -1057,6 +1090,13 @@ func (a *App) RestoreBackup(backupPath, identityPolicy string) (err error) {
 	if sqlFile == nil {
 		return fmt.Errorf("backup is corrupted (missing database.sql)")
 	}
+
+	// The plugins this install already runs were reviewed here, at install or
+	// by a later approval; read before anything below replaces them. A
+	// restored plugin is left as the backup had it only when its file is one
+	// of these, byte for byte. See restorePluginStates.
+	pluginsDir := filepath.Join(dataDir, "plugins")
+	reviewedPlugins := reviewedPluginHashes(a.db, pluginsDir)
 
 	// Quiesce the share-publication hooks and tear the running manager down
 	// before the database is replaced. A hook admitted before this point holds
@@ -1247,6 +1287,18 @@ func (a *App) RestoreBackup(backupPath, identityPolicy string) (err error) {
 	if _, err := tx.Exec("UPDATE plugin_permissions SET pending_reconfirm = 1"); err != nil {
 		return fmt.Errorf("mark restored plugin permissions for reconfirmation: %w", err)
 	}
+	// Restored plugins are code the backup chose, and LoadPlugins runs every
+	// enabled row. Each one is committed disabled and awaiting review, and
+	// only those already reviewed on this machine get the backup's state back
+	// after their files are extracted — so a crash before that resolves to
+	// "disabled", never to an unreviewed plugin running at the next start.
+	restoredPlugins, err := capturePluginStates(tx)
+	if err != nil {
+		return fmt.Errorf("capture restored plugin states: %w", err)
+	}
+	if _, err := tx.Exec("UPDATE plugins SET enabled = 0, status = ?", plugin.StatusNeedsReview); err != nil {
+		return fmt.Errorf("hold restored plugins for review: %w", err)
+	}
 	if _, err := tx.Exec("UPDATE watched_folders SET is_paused = 1"); err != nil {
 		return fmt.Errorf("pause restored watch folders: %w", err)
 	}
@@ -1267,6 +1319,10 @@ func (a *App) RestoreBackup(backupPath, identityPolicy string) (err error) {
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit restore: %w", err)
 	}
+	// Every clip and tag id an in-flight upload holds now names a restored
+	// row, or nothing. Bumped only once the replacement is committed: a
+	// rolled-back restore left their clips where they were.
+	a.restoreEpoch++
 
 	// Install the adopted identity FIRST, ahead of every other post-commit
 	// step. The restored shares are active on disk from the commit onwards, and
@@ -1309,9 +1365,6 @@ func (a *App) RestoreBackup(backupPath, identityPolicy string) (err error) {
 		fmt.Printf("Warning: failed to clear temp files after restore: %v\n", err)
 	}
 
-	// Copy plugin files
-	pluginsDir := filepath.Join(dataDir, "plugins")
-
 	// Clear existing plugins
 	if err := os.RemoveAll(pluginsDir); err != nil {
 		fmt.Printf("Warning: failed to clear plugins directory: %v\n", err)
@@ -1329,6 +1382,8 @@ func (a *App) RestoreBackup(backupPath, identityPolicy string) (err error) {
 			}
 		}
 	}
+
+	restorePluginStates(a.db, pluginsDir, restoredPlugins, reviewedPlugins)
 
 	// Reload plugin manager
 	if a.pluginManager != nil {
@@ -1516,4 +1571,87 @@ func extractZipFile(f *zip.File, destPath string, baseDir string, perm os.FileMo
 		return err
 	}
 	return os.Rename(tmpPath, destPath)
+}
+
+// restoredPluginState is a plugins row's enabled/status as the backup had it.
+type restoredPluginState struct {
+	id       int64
+	filename string
+	enabled  bool
+	status   string
+}
+
+func capturePluginStates(tx *sql.Tx) ([]restoredPluginState, error) {
+	rows, err := tx.Query(`SELECT id, filename, COALESCE(enabled, 1), COALESCE(status, 'enabled') FROM plugins`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []restoredPluginState
+	for rows.Next() {
+		var st restoredPluginState
+		if err := rows.Scan(&st.id, &st.filename, &st.enabled, &st.status); err != nil {
+			return nil, err
+		}
+		out = append(out, st)
+	}
+	return out, rows.Err()
+}
+
+// reviewedPluginHashes returns the SHA-256 of every plugin file this install
+// has reviewed: each plugins row not itself still awaiting review. A file it
+// cannot read contributes nothing, which can only hold a plugin for review.
+func reviewedPluginHashes(db *sql.DB, pluginsDir string) map[string]bool {
+	out := map[string]bool{}
+	rows, err := db.Query(`SELECT filename FROM plugins WHERE COALESCE(status, '') != ?`, plugin.StatusNeedsReview)
+	if err != nil {
+		return out
+	}
+	var names []string
+	for rows.Next() {
+		var name string
+		if rows.Scan(&name) == nil {
+			names = append(names, name)
+		}
+	}
+	rows.Close()
+	for _, name := range names {
+		if h, ok := pluginFileHash(pluginsDir, name); ok {
+			out[h] = true
+		}
+	}
+	return out
+}
+
+func pluginFileHash(pluginsDir, filename string) (string, bool) {
+	if !isBarePluginFilename(filename) {
+		return "", false
+	}
+	data, err := os.ReadFile(filepath.Join(pluginsDir, filename))
+	if err != nil {
+		return "", false
+	}
+	return computeContentHash(data), true
+}
+
+// restorePluginStates gives each restored plugin whose extracted file is one
+// this install had already reviewed the enabled/status the backup recorded.
+// The rest stay disabled with status needs_review until the user approves
+// them through the same review an install shows. Restoring your own backup on
+// the machine that made it changes nothing; a backup from elsewhere — or one
+// built to plant a plugin — runs nothing until someone has looked at it.
+func restorePluginStates(db *sql.DB, pluginsDir string, restored []restoredPluginState, reviewed map[string]bool) {
+	for _, st := range restored {
+		h, ok := pluginFileHash(pluginsDir, st.filename)
+		if !ok || !reviewed[h] {
+			continue
+		}
+		enabled := 0
+		if st.enabled {
+			enabled = 1
+		}
+		if _, err := db.Exec(`UPDATE plugins SET enabled = ?, status = ? WHERE id = ?`, enabled, st.status, st.id); err != nil {
+			fmt.Printf("Warning: restored plugin %s stays held for review: %v\n", st.filename, err)
+		}
+	}
 }

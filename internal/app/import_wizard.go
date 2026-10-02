@@ -856,6 +856,7 @@ func (a *App) applyImportDecision(session *importSession, d ImportDecision, res 
 		}
 	}
 
+	epoch := a.currentRestoreEpoch()
 	clipID, err := a.UploadFileAndGetID(*fileData)
 	// A zero clip ID means the row never committed. Trashing on that would
 	// destroy the only copy — the same hard stop ProcessExistingFiles enforces
@@ -877,7 +878,13 @@ func (a *App) applyImportDecision(session *importSession, d ImportDecision, res 
 		tagID, err := a.resolveImportTag(tagName, tagCache)
 		if err != nil {
 			res.Status, res.Error = ImportStatusTagFailed, err.Error()
-		} else if err := a.AddTagToClip(clipID, tagID); err != nil {
+		} else if err := a.addTagToNewClip(clipID, tagID, epoch); errors.Is(err, errRestoredSinceInsert) {
+			// The clip is gone with the library it was imported into; the
+			// file is the only copy left, so it must not be trashed below.
+			res.ClipID, res.Imported = 0, false
+			res.Status, res.Error = ImportStatusImportFailed, err.Error()
+			return
+		} else if err != nil {
 			// Tree exclusivity can legitimately reject a tag. The clip is
 			// imported either way, so the trash below is still safe.
 			res.Status, res.Error = ImportStatusTagFailed, err.Error()
@@ -908,6 +915,12 @@ func (a *App) applyImportDecision(session *importSession, d ImportDecision, res 
 	// re-running the wizard shows the file as a duplicate rather than silently
 	// importing it twice.
 	if d.Action == ImportActionImportDelete && res.Status == ImportStatusOK {
+		// A restore since the import deleted the clip: the file is the only
+		// copy again.
+		if a.currentRestoreEpoch() != epoch {
+			res.Status, res.Error = ImportStatusTrashFailed, errRestoredSinceInsert.Error()
+			return
+		}
 		// `seen` and importedHash describe the bytes the clip was actually built
 		// from, so this deletes the file that was imported or nothing at all.
 		if err := trashVerified(abs, seen, importedHash); err != nil {

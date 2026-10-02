@@ -297,6 +297,7 @@
         PreviewPluginFromURL: (source) => postJSON(`${api}/plugins/preview`, { source }),
         RemovePlugin: (id) => del(`${api}/plugins/${id}`),
         EnablePlugin: (id) => putJSON(`${api}/plugins/${id}/enable`, {}),
+        PreviewInstalledPlugin: (id) => fetchJSON(`${api}/plugins/${id}/review`),
         DisablePlugin: (id) => putJSON(`${api}/plugins/${id}/disable`, {}),
         UpdatePlugin: (id) => postJSON(`${api}/plugins/${id}/update`, {}),
         ConfirmPluginUpdate: async () => { throw new Error('plugin update confirmation is unavailable in server mode'); },

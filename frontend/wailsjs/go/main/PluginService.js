@@ -62,6 +62,10 @@ export function IsPluginURLAllowed(arg1, arg2, arg3) {
   return window['go']['main']['PluginService']['IsPluginURLAllowed'](arg1, arg2, arg3);
 }
 
+export function PreviewInstalledPlugin(arg1) {
+  return window['go']['main']['PluginService']['PreviewInstalledPlugin'](arg1);
+}
+
 export function PreviewPluginFromPath(arg1) {
   return window['go']['main']['PluginService']['PreviewPluginFromPath'](arg1);
 }

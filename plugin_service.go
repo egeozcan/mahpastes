@@ -148,6 +148,15 @@ func (s *PluginService) EnablePlugin(id int64) error {
 	return s.app.PluginManager().EnablePlugin(id)
 }
 
+// PreviewInstalledPlugin returns the install review for a plugin already
+// installed — shown before enabling one a backup restore held for review.
+func (s *PluginService) PreviewInstalledPlugin(id int64) (*PluginPreview, error) {
+	if s.app.PluginManager() == nil {
+		return nil, fmt.Errorf("plugin manager not initialized")
+	}
+	return s.app.PluginManager().PreviewInstalled(id)
+}
+
 // DisablePlugin disables a plugin
 func (s *PluginService) DisablePlugin(id int64) error {
 	if s.app.PluginManager() == nil {

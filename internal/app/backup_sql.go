@@ -681,3 +681,37 @@ func restoreBackupRows(tx *sql.Tx, src io.Reader) error {
 		}
 	}
 }
+
+// countBackupRows reads database.sql the way restoreBackupRows does and counts
+// the rows a restore would write to the tables the confirm dialog reports. The
+// manifest's own summary is only what the backup claims: one saying "0
+// plugins" restored and ran whatever plugins rows the SQL held. Rows the
+// writer would skip before reaching the database are not counted; a row the
+// schema itself refuses at insert time still is, which can only overstate.
+func countBackupRows(src io.Reader) (BackupSummary, error) {
+	var sum BackupSummary
+	reader := newBackupSQLReader(src)
+	for {
+		ins, err := reader.next()
+		if errors.Is(err, io.EOF) {
+			return sum, nil
+		}
+		if err != nil {
+			return sum, err
+		}
+		table := strings.ToLower(ins.table)
+		if len(ins.columns) != len(ins.values) || refuseBackupRow(table, ins) != "" {
+			continue
+		}
+		switch table {
+		case "clips":
+			sum.Clips++
+		case "tags":
+			sum.Tags++
+		case "plugins":
+			sum.Plugins++
+		case "watched_folders":
+			sum.WatchFolders++
+		}
+	}
+}

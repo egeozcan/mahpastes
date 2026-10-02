@@ -478,6 +478,7 @@ export const selectors = {
     pluginCard: (id: number) => `[data-testid="plugin-card-${id}"]`,
     pluginToggle: (id: number) => `[data-testid="plugin-toggle-${id}"]`,
     pluginRemove: (id: number) => `[data-testid="remove-plugin-${id}"]`,
+    needsReviewBadge: (id: number) => `[data-testid="plugin-needs-review-${id}"]`,
     expandToggle: '[data-action="toggle-expand"]',
     permissionsList: '[data-permissions-list]',
     permissionRevoke: '[data-action="revoke-permission"]',
@@ -486,6 +487,7 @@ export const selectors = {
   // Plugin review modal
   pluginReview: {
     modal: '[data-testid="plugin-review-modal"]',
+    title: '#plugin-review-title',
     cancelButton: '[data-testid="plugin-review-cancel"]',
     approveButton: '[data-testid="plugin-review-approve"]',
     name: '#plugin-review-name',

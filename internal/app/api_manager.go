@@ -19,6 +19,7 @@ import (
 	"mime/multipart"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -375,6 +376,7 @@ func (am *APIManager) Start(port int, bindAll bool) (APIStatus, error) {
 		mux.HandleFunc("POST /api/v1/plugins", am.authMiddleware(am.requireRole("admin", am.handleInstallPlugin)))
 		mux.HandleFunc("POST /api/v1/plugins/check-updates", am.authMiddleware(am.requireRole("admin", am.handleCheckPluginUpdates)))
 		mux.HandleFunc("DELETE /api/v1/plugins/{id}", am.authMiddleware(am.requireRole("admin", am.handleRemovePlugin)))
+		mux.HandleFunc("GET /api/v1/plugins/{id}/review", am.authMiddleware(am.requireRole("admin", am.handleReviewInstalledPlugin)))
 		mux.HandleFunc("PUT /api/v1/plugins/{id}/enable", am.authMiddleware(am.requireRole("admin", am.handleEnablePlugin)))
 		mux.HandleFunc("PUT /api/v1/plugins/{id}/disable", am.authMiddleware(am.requireRole("admin", am.handleDisablePlugin)))
 		mux.HandleFunc("GET /api/v1/plugins/{id}/storage", am.authMiddleware(am.requireRole("admin", am.handleGetPluginStorageAll)))
@@ -773,6 +775,10 @@ func (am *APIManager) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 
 		if c, err := r.Cookie("_mp_session"); err == nil && am.signingKey != nil {
 			if id, err := verifySessionToken(am.signingKey, c.Value); err == nil {
+				if !isSafeMethod(r.Method) && !am.sameOriginRequest(r) {
+					am.jsonError(w, http.StatusForbidden, "cross-origin request refused")
+					return
+				}
 				if keyCtx, err := am.loadKeyContextByID(id); err == nil {
 					ctx := context.WithValue(r.Context(), apiKeyContextKey, keyCtx)
 					next.ServeHTTP(w, r.WithContext(ctx))
@@ -783,6 +789,52 @@ func (am *APIManager) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 
 		am.jsonError(w, http.StatusUnauthorized, "authentication required")
 	}
+}
+
+func isSafeMethod(method string) bool {
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		return true
+	}
+	return false
+}
+
+// sameOriginRequest reports whether a cookie-authenticated request came from
+// the web UI's own origin. SameSite=Strict is not enough on its own: a site is
+// scheme plus registrable domain, ports ignored, so a page a tag server hosts
+// on another port of the same host — an HTML clip anyone with write access to
+// the tag can put there — is same-site with the web UI and its requests carry
+// the session cookie. A form POST or a no-cors fetch needs no preflight, so
+// the browser sends it whatever the CORS headers say.
+//
+// Sec-Fetch-Site is set by the browser and cannot be forged by a page; where a
+// browser predates it, the Origin header (sent on every non-GET fetch and form
+// post) must name this host. Neither present means not a browser the web UI
+// runs in — API clients authenticate with a bearer key, which a page cannot
+// attach to someone else's request.
+func (am *APIManager) sameOriginRequest(r *http.Request) bool {
+	switch r.Header.Get("Sec-Fetch-Site") {
+	case "same-origin":
+		return true
+	case "":
+	default:
+		return false
+	}
+	origin := r.Header.Get("Origin")
+	if origin == "" || origin == "null" {
+		return false
+	}
+	u, err := url.Parse(origin)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	host := r.Host
+	if am.trustProxy {
+		if fwd := r.Header.Get("X-Forwarded-Host"); fwd != "" {
+			host = strings.TrimSpace(strings.Split(fwd, ",")[0])
+		}
+	}
+	return strings.EqualFold(u.Host, host)
 }
 
 func (am *APIManager) validateAPIKey(token string) (*apiKeyContext, error) {
@@ -1644,6 +1696,7 @@ func (am *APIManager) handleCreateClip(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Insert new clip
+	epoch := am.app.currentRestoreEpoch()
 	result, err := am.app.db.Exec(
 		"INSERT INTO clips (content_type, data, filename, content_hash) VALUES (?, ?, ?, ?)",
 		partContentType, data, filename, contentHash,
@@ -1657,7 +1710,10 @@ func (am *APIManager) handleCreateClip(w http.ResponseWriter, r *http.Request) {
 
 	// Auto-apply scoped tag
 	if keyCtx.ScopedTagID > 0 {
-		am.app.AddTagToClip(clipID, keyCtx.ScopedTagID)
+		if err := am.app.addTagToNewClip(clipID, keyCtx.ScopedTagID, epoch); errors.Is(err, errRestoredSinceInsert) {
+			am.jsonError(w, http.StatusConflict, "a backup restore replaced the library during the upload; retry it")
+			return
+		}
 	}
 
 	if preview, err := am.app.getClipPreview(clipID); err == nil {
@@ -3012,15 +3068,19 @@ func (am *APIManager) handleListDuplicates(w http.ResponseWriter, r *http.Reques
 
 func (am *APIManager) handleMergeDuplicates(w http.ResponseWriter, r *http.Request) {
 	keyCtx := getKeyContext(r)
+	// A merge spans every clip with the same bytes, wherever it is filed: the
+	// oldest copy survives and inherits the others' tags. Started from an
+	// in-scope clip by a scoped key, that handed the key's tag to an
+	// out-of-scope original and pulled it into the key's view. Refused like
+	// the other dedup routes.
+	if keyCtx.ScopedTagID > 0 {
+		am.jsonError(w, http.StatusForbidden, "dedup operations are not available for tag-scoped keys")
+		return
+	}
 
 	clipID, err := parseIntParam(r.PathValue("clipId"))
 	if err != nil {
 		am.jsonError(w, http.StatusBadRequest, "invalid clip id")
-		return
-	}
-
-	if err := am.enforceTagScope(keyCtx, clipID); err != nil {
-		am.jsonError(w, http.StatusForbidden, err.Error())
 		return
 	}
 
@@ -3332,6 +3392,26 @@ func (am *APIManager) handleRemovePlugin(w http.ResponseWriter, r *http.Request)
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleReviewInstalledPlugin returns the install review for an installed
+// plugin, which the web UI shows before enabling one a restore held for review.
+func (am *APIManager) handleReviewInstalledPlugin(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIntParam(r.PathValue("id"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid plugin id")
+		return
+	}
+	if am.app.pluginManager == nil {
+		am.jsonError(w, http.StatusInternalServerError, "plugin manager not available")
+		return
+	}
+	preview, err := am.app.pluginManager.PreviewInstalled(id)
+	if err != nil {
+		am.jsonError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	am.jsonOK(w, preview)
 }
 
 func (am *APIManager) handleEnablePlugin(w http.ResponseWriter, r *http.Request) {

@@ -104,10 +104,13 @@ function createPluginCard(plugin) {
     li.dataset.testid = `plugin-card-${plugin.id}`;
 
     const isExpanded = expandedPluginId === plugin.id;
+    const needsReview = plugin.status === 'needs_review';
     const statusDot = plugin.status === 'error'
         ? 'bg-red-500'
-        : (plugin.enabled ? 'bg-emerald-500' : 'bg-stone-300');
-    const statusTitle = plugin.enabled ? (plugin.status === 'error' ? 'Error' : 'Enabled') : 'Disabled';
+        : (plugin.enabled ? 'bg-emerald-500' : (needsReview ? 'bg-amber-500' : 'bg-stone-300'));
+    const statusTitle = plugin.enabled
+        ? (plugin.status === 'error' ? 'Error' : 'Enabled')
+        : (needsReview ? 'Needs review' : 'Disabled');
 
     li.innerHTML = `
         <div class="p-4 cursor-pointer" data-action="toggle-expand">
@@ -120,6 +123,7 @@ function createPluginCard(plugin) {
                             <h3 class="text-sm font-medium text-stone-700 truncate">${escapeHTML(plugin.name)}</h3>
                             <span class="text-[10px] text-stone-400 font-mono">v${escapeHTML(plugin.version || '0.0.0')}</span>
                             ${pluginUpdates[plugin.id] ? '<span class="text-[9px] text-amber-600 font-medium ml-1">Update available</span>' : ''}
+                            ${needsReview ? `<span class="text-[9px] text-amber-700 font-medium ml-1" data-testid="plugin-needs-review-${plugin.id}">Needs review</span>` : ''}
                         </div>
                         ${plugin.author ? `<p class="text-[11px] text-stone-400 truncate">by ${escapeHTML(plugin.author)}</p>` : ''}
                     </div>
@@ -148,6 +152,12 @@ function createPluginCard(plugin) {
                 ${plugin.description ? `
                 <div>
                     <p class="text-[11px] text-stone-500">${escapeHTML(plugin.description)}</p>
+                </div>
+                ` : ''}
+
+                ${needsReview ? `
+                <div class="p-2 bg-amber-50 border border-amber-200 rounded text-amber-700">
+                    <span class="text-[11px] font-medium">Restored from a backup. Review its permissions before enabling it.</span>
                 </div>
                 ` : ''}
 
@@ -206,7 +216,11 @@ function createPluginCard(plugin) {
     const enableToggle = li.querySelector('[data-action="toggle-enable"] input');
     enableToggle.addEventListener('change', (e) => {
         e.stopPropagation();
-        togglePluginEnabled(plugin.id, e.target.checked);
+        if (e.target.checked && needsReview) {
+            reviewAndEnablePlugin(plugin.id);
+        } else {
+            togglePluginEnabled(plugin.id, e.target.checked);
+        }
     });
 
     const removeBtn = li.querySelector('[data-action="remove"]');
@@ -810,6 +824,24 @@ async function togglePluginEnabled(pluginId, enabled) {
         console.error('Failed to toggle plugin:', error);
         showToast('Failed to update plugin');
         await loadPlugins(); // Refresh to correct UI state
+    }
+}
+
+// A plugin a backup restore brought in runs nothing until the user has seen
+// the same review an install shows.
+async function reviewAndEnablePlugin(pluginId) {
+    try {
+        const preview = await window.go.main.PluginService.PreviewInstalledPlugin(pluginId);
+        const approved = await showPluginReview(preview, 'restore');
+        if (!approved) {
+            await loadPlugins(); // put the toggle back
+            return;
+        }
+        await togglePluginEnabled(pluginId, true);
+    } catch (error) {
+        console.error('Failed to review plugin:', error);
+        showToast('Failed to review plugin: ' + (error.message || 'Unknown error'));
+        await loadPlugins();
     }
 }
 

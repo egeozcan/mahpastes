@@ -33,6 +33,8 @@ export function ImportPluginFromPath(arg1:string):Promise<main.PluginInfo>;
 
 export function IsPluginURLAllowed(arg1:number,arg2:string,arg3:string):Promise<boolean>;
 
+export function PreviewInstalledPlugin(arg1:number):Promise<plugin.PluginPreview>;
+
 export function PreviewPluginFromPath(arg1:string):Promise<plugin.PluginPreview>;
 
 export function PreviewPluginFromURL(arg1:string):Promise<plugin.PluginPreview>;
