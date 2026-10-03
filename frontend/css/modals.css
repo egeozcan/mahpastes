@@ -1432,7 +1432,10 @@ input[type="range"].comparison-range::-webkit-slider-thumb {
     inset: 0;
     background-color: rgba(28, 25, 23, 0.4);
     backdrop-filter: blur(4px);
-    z-index: 150; /* Above lightbox (100) */
+    /* Above the lightbox (100) and the editor (200): a plugin result or
+       options dialog can open while either is up. Below prompt-class
+       dialogs (240) and the confirm (250), which can stack on top of it. */
+    z-index: 230;
     display: flex;
     align-items: center;
     justify-content: center;

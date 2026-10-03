@@ -40,19 +40,71 @@ const ShortcutManager = (() => {
 
     // --- Context Detection ---
 
+    // Full-screen viewers own shortcut contexts of their own, so the generic
+    // "a dialog is open" check must not count them as blocking.
+    const VIEWER_IDS = new Set(['lightbox', 'editor-modal', 'comparison-modal', 'import-wizard-modal']);
+
+    // Every modal in the app is marked inert while closed; open ones drop it
+    // and show themselves (no opacity-0 / hidden).
+    function isModalShown(el) {
+        return !!el && !el.hasAttribute('inert') && !el.classList.contains('hidden')
+            && !el.classList.contains('opacity-0');
+    }
+
+    // App dialogs are top-level layers. User content — a plugin's markdown
+    // result, a previewed clip — always renders inside one of them, so an
+    // aria-modal nested in another aria-modal element is content that happens
+    // to carry the attribute, never a dialog. Counting it would leave every
+    // shortcut dead for as long as it sits in the DOM.
+    function isAppDialog(el) {
+        return !el.parentElement?.closest('[aria-modal="true"]');
+    }
+
+    function isViewerShown(el) {
+        if (!el) return false;
+        if (el.id === 'import-wizard-modal') return isModalShown(el);
+        return el.classList.contains('active');
+    }
+
+    // Painted above `other`: higher z-index, or later in the DOM on a tie.
+    function isAbove(el, other) {
+        const dz = zIndexOf(el) - zIndexOf(other);
+        if (dz !== 0) return dz > 0;
+        return !!(other.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING);
+    }
+
+    // The first open dialog that is not a full-screen viewer, if any. Generic
+    // on purpose: a hand-kept list of modal ids drifts every time a modal is
+    // added, and each one it misses lets gallery keys fire behind it. A dialog
+    // painted beneath an open viewer is not the one the user is looking at;
+    // it must not take the viewer's keys (nor leave Escape with nothing to do).
+    function getOpenDialog() {
+        let topViewer = null;
+        for (const id of VIEWER_IDS) {
+            const viewer = document.getElementById(id);
+            if (isViewerShown(viewer) && (!topViewer || isAbove(viewer, topViewer))) topViewer = viewer;
+        }
+        for (const el of document.querySelectorAll('[aria-modal="true"]')) {
+            if (VIEWER_IDS.has(el.id) || !isAppDialog(el) || !isModalShown(el)) continue;
+            if (topViewer && !isAbove(el, topViewer)) continue;
+            return el;
+        }
+        return null;
+    }
+
     function getActiveContexts() {
+        // An open dialog (confirm, prompt, settings, share modals, the cheat
+        // sheet, ...) owns the keyboard. Escape still reaches it through
+        // closeTopModalOverlay, which runs before context dispatch.
+        if (getOpenDialog()) return [];
+
         const contexts = ['global'];
         const lightbox = document.getElementById('lightbox');
         const editorModal = document.getElementById('editor-modal');
         const comparisonModal = document.getElementById('comparison-modal');
-        const confirmDialog = document.getElementById('confirm-dialog');
         const watchView = document.getElementById('watch-view');
         const bulkToolbar = document.getElementById('bulk-toolbar');
-        const settingsModal = document.getElementById('settings-modal');
-        const pluginsModal = document.querySelector('[data-testid="plugins-modal"]');
 
-        // Don't fire shortcuts when a modal dialog that has its own key handling is open
-        if (confirmDialog && confirmDialog.classList.contains('opacity-100')) return [];
         if (editorModal && editorModal.classList.contains('active')) {
             contexts.push('editor');
             const imageEditorView = document.getElementById('image-editor-view');
@@ -68,44 +120,35 @@ const ShortcutManager = (() => {
             return contexts;
         }
         // Import wizard: a full-screen modal with its own single-letter keys.
-        // This must sit ABOVE the generic openModals sweep below, which returns
-        // [] for anything modal-shaped and would make every wizard key dead.
         const importWizardModal = document.getElementById('import-wizard-modal');
         if (importWizardModal && !importWizardModal.classList.contains('opacity-0')) {
             contexts.push('import-wizard');
             return contexts;
         }
-        if (settingsModal && !settingsModal.classList.contains('opacity-0')) return [];
-        if (pluginsModal && !pluginsModal.classList.contains('opacity-0')) return [];
 
         // Nav drawer open — suppress all shortcuts (drawer has its own key handling)
         const navDrawer = document.getElementById('nav-drawer');
         if (navDrawer && !navDrawer.classList.contains('translate-x-full')) return [];
-
-        // Check for any other open modal (plugin options, plugin review, folder modal, etc.)
-        const openModals = ['plugin-options-modal', 'plugin-result-modal', 'plugin-review-modal',
-                            'folder-modal', 'restore-confirm-dialog', 'text-editor-modal', 'metadata-modal'];
-        for (const id of openModals) {
-            const modal = document.getElementById(id);
-            if (modal && (modal.classList.contains('opacity-100') || modal.classList.contains('active') ||
-                (modal.style.display !== 'none' && modal.offsetParent !== null && !modal.classList.contains('opacity-0') && !modal.classList.contains('hidden')))) {
-                return [];
-            }
-        }
 
         if (lightbox && lightbox.classList.contains('active')) {
             contexts.push('lightbox');
             return contexts;
         }
 
+        // From here on the main window is showing: app-level keys (menu,
+        // settings, cheat sheet) are live. They are deliberately absent above,
+        // where they would open their overlay behind a full-screen viewer.
+        contexts.push('app');
+
         if (watchView && !watchView.classList.contains('hidden')) {
             contexts.push('watch');
             return contexts;
         }
 
-        const serveViewEl = document.getElementById('serve-view');
-        if (serveViewEl && !serveViewEl.classList.contains('hidden')) {
-            return contexts; // global only — no gallery/bulk/clip shortcuts
+        // Serve and share views hide the gallery: no gallery/bulk/clip keys.
+        for (const id of ['serve-view', 'share-view']) {
+            const view = document.getElementById(id);
+            if (view && !view.classList.contains('hidden')) return contexts;
         }
 
         // Gallery-level contexts
@@ -234,9 +277,22 @@ const ShortcutManager = (() => {
         const handlesEscapeLocally = e.target.matches?.('#editor-filename, #text-editor-find, #text-editor-replace, #canvas-text-input');
         if (isEditable && (e.key !== 'Escape' || handlesEscapeLocally)) return;
 
-        // Handle Escape for modal overlays that block all shortcut contexts.
-        // These modals cause getActiveContexts() to return [], so they can't be
-        // handled through the normal context-based dispatch.
+        // Escape inside something that dismisses itself — an autocomplete with
+        // its suggestions showing, or a picker marked data-owns-escape — is
+        // that component's to handle. Closing the dialog around it instead
+        // would throw away what the user was typing.
+        if (e.key === 'Escape' && e.target.closest?.('[aria-expanded="true"][aria-autocomplete], [data-owns-escape]')) return;
+
+        // A popover marked data-owns-keys runs its own keyboard (arrow keys
+        // between menu items) while focus is inside it. Without this the
+        // capture-phase dispatch below hands ArrowLeft/Right to whatever is
+        // underneath — the lightbox pages to the next clip. Escape still
+        // reaches the layer handling below, which closes the popover.
+        if (e.key !== 'Escape' && e.target.closest?.('[data-owns-keys]')) return;
+
+        // Escape closes the topmost layer. Runs before context dispatch:
+        // dialogs make getActiveContexts() return [], so they can't be
+        // handled through it.
         if (e.key === 'Escape') {
             if (closeTopModalOverlay()) {
                 e.preventDefault();
@@ -261,11 +317,20 @@ const ShortcutManager = (() => {
         if (!combo) return;
 
         const activeContexts = getActiveContexts();
-        if (activeContexts.length === 0) return;
+        if (activeContexts.length === 0) {
+            // The cheat sheet is a dialog, so it blocks every context — but
+            // its own key toggles it closed again.
+            if (isCheatSheetOpen() && combo === getEffectiveCombo('show-cheatsheet')) {
+                e.preventDefault();
+                e.stopPropagation();
+                closeCheatSheet();
+            }
+            return;
+        }
 
         // Check contexts in priority order (most specific first)
-        // import-wizard > clip > bulk > lightbox > watch > gallery > global
-        const priority = ['import-wizard', 'clip', 'bulk', 'lightbox', 'image-editor', 'text-editor', 'editor', 'comparison', 'watch', 'gallery', 'global'];
+        // import-wizard > clip > bulk > lightbox > watch > gallery > app > global
+        const priority = ['import-wizard', 'clip', 'bulk', 'lightbox', 'image-editor', 'text-editor', 'editor', 'comparison', 'watch', 'gallery', 'app', 'global'];
 
         for (const ctx of priority) {
             if (!activeContexts.includes(ctx)) continue;
@@ -377,7 +442,8 @@ const ShortcutManager = (() => {
     function contextsOverlap(ctx1, ctx2) {
         if (ctx1 === ctx2) return true;
         const hierarchy = {
-            global: ['gallery', 'lightbox', 'editor', 'image-editor', 'text-editor', 'comparison', 'watch', 'bulk', 'clip'],
+            global: ['app', 'gallery', 'lightbox', 'editor', 'image-editor', 'text-editor', 'comparison', 'import-wizard', 'watch', 'bulk', 'clip'],
+            app: ['gallery', 'watch', 'bulk', 'clip'],
             gallery: ['clip', 'bulk'],
             editor: ['image-editor', 'text-editor'],
         };
@@ -490,92 +556,94 @@ const ShortcutManager = (() => {
 
     // --- Modal Overlay Escape ---
 
+    // Every layer Escape can dismiss, and how. Escape closes only the topmost
+    // open one (highest z-index, later in the DOM on a tie), so a confirm
+    // stacked on Settings closes the confirm, not Settings beneath it.
+    // `close` may return false to decline (Settings while recording a key).
+    // Layers without `close` still count: when a full-screen viewer is on top,
+    // Escape falls through to its own shortcut context.
+    const call = (name, ...args) => () => {
+        if (typeof window[name] === 'function') return window[name](...args);
+    };
+    const ESCAPE_LAYERS = [
+        { selector: '#confirm-dialog', close: call('closeConfirmDialog') },
+        { selector: '#prompt-dialog', close: call('closePromptDialog') },
+        { selector: '#conflict-dialog', close: call('closeConflictDialog', 'skip') },
+        { selector: '#path-paste-dialog', close: call('closePathPasteDialog', null) },
+        { selector: '#restore-confirm-dialog', close: call('hideRestoreConfirmDialog') },
+        { selector: '#plugin-review-modal', close: call('closePluginReview', false) },
+        { selector: '#plugin-result-modal', close: call('closePluginResultModal') },
+        { selector: '#plugin-options-modal', close: call('closePluginOptionsDialog') },
+        { selector: '#metadata-modal', close: call('closeMetadataModal') },
+        {
+            selector: '#settings-modal',
+            close: () => {
+                // Let the shortcut recorder consume Escape.
+                if (typeof recordingActionId !== 'undefined' && recordingActionId !== null) return false;
+                if (typeof closeSettings === 'function') closeSettings();
+            },
+        },
+        { selector: '#plugins-modal', close: call('closePlugins') },
+        { selector: '#maintenance-modal', close: call('closeMaintenance') },
+        { selector: '#api-modal', close: call('closeApiModal') },
+        { selector: '#queue-modal', close: call('closeQueueModal') },
+        { selector: '#folder-modal', close: call('closeFolderModal') },
+        { selector: '#merge-tag-modal', close: call('closeMergeTagModal') },
+        { selector: '[data-testid="folder-move-modal"]', close: () => window.FolderMoveModal?.close() },
+        { selector: '#create-share-modal', close: () => window.ShareView?.closeCreate() },
+        { selector: '#follow-share-modal', close: () => window.ShareView?.closeFollow() },
+        { selector: '#edit-follow-modal', close: () => window.ShareView?.closeEditFollow() },
+        { selector: '#share-logs-modal', close: () => window.ShareView?.closeLogs() },
+        { selector: '#shortcuts-cheatsheet', close: () => closeCheatSheet() },
+        { selector: '#import-wizard-modal', close: () => window.ImportWizard?.requestClose() },
+        { selector: '#tag-popover', isOpen: el => !el.classList.contains('hidden'), close: call('closeTagPopover', { restoreFocus: true }) },
+        { selector: '.expiration-popover', isOpen: () => true, close: call('closeExpirationPopover', { restoreFocus: true }) },
+        { selector: '.search-options-popover', isOpen: () => true, close: () => {
+            if (typeof closeSearchOptionsPopover === 'function') closeSearchOptionsPopover();
+            document.getElementById('search-options-btn')?.focus();
+        } },
+        { selector: '.sort-popover', isOpen: () => true, close: call('closeSortPopover') },
+        { selector: '#serve-tag-picker', isOpen: () => true, close: call('closeServeTagPicker') },
+        { selector: '#tag-filter-dropdown', isOpen: el => !el.classList.contains('hidden'), close: call('closeTagFilterDropdown') },
+        { selector: '#nav-drawer', isOpen: el => !el.classList.contains('translate-x-full'), close: call('closeDrawer') },
+        { selector: '#lightbox', isOpen: el => el.classList.contains('active') },
+        { selector: '#editor-modal', isOpen: el => el.classList.contains('active') },
+        { selector: '#comparison-modal', isOpen: el => el.classList.contains('active') },
+    ];
+
+    function zIndexOf(el) {
+        const z = parseInt(getComputedStyle(el).zIndex, 10);
+        return Number.isNaN(z) ? 0 : z;
+    }
+
+    function getTopEscapeLayer() {
+        const open = [];
+        const known = new Set();
+        for (const layer of ESCAPE_LAYERS) {
+            const el = document.querySelector(layer.selector);
+            if (!el) continue;
+            known.add(el);
+            const shown = layer.isOpen ? layer.isOpen(el) : isModalShown(el);
+            if (shown) open.push({ el, close: layer.close });
+        }
+        // A dialog nobody registered still sits on top of what is beneath it;
+        // with no closer, its own Escape handler gets the key.
+        for (const el of document.querySelectorAll('[aria-modal="true"]')) {
+            if (!known.has(el) && isAppDialog(el) && isModalShown(el)) open.push({ el, close: null });
+        }
+        if (open.length === 0) return null;
+        open.sort((a, b) => {
+            const dz = zIndexOf(b.el) - zIndexOf(a.el);
+            if (dz !== 0) return dz;
+            return a.el.compareDocumentPosition(b.el) & Node.DOCUMENT_POSITION_FOLLOWING ? 1 : -1;
+        });
+        return open[0];
+    }
+
     function closeTopModalOverlay() {
-        // Import wizard. Checked early because it is a full-screen modal, but
-        // it yields to a stacked confirm: handleKeydown calls this BEFORE
-        // getActiveContexts(), so the "confirm dialog blocks everything" guard
-        // there does not protect this path. Without the bail-out, Escape on the
-        // discard prompt would close the wizard underneath it.
-        const importWizardModal = document.getElementById('import-wizard-modal');
-        if (importWizardModal && !importWizardModal.classList.contains('opacity-0')) {
-            const stackedConfirm = document.getElementById('confirm-dialog');
-            if (stackedConfirm && stackedConfirm.classList.contains('opacity-100')) return false;
-            if (typeof ImportWizard !== 'undefined') ImportWizard.requestClose();
-            return true;
-        }
-
-        // Upload conflict dialog
-        const conflictDialog = document.getElementById('conflict-dialog');
-        if (conflictDialog && !conflictDialog.classList.contains('opacity-0')) {
-            if (typeof closeConflictDialog === 'function') closeConflictDialog('skip');
-            return true;
-        }
-
-        // Pasted-path dialog (text clip vs. the file the path names)
-        const pathPasteDialog = document.getElementById('path-paste-dialog');
-        if (pathPasteDialog && !pathPasteDialog.classList.contains('opacity-0')) {
-            if (typeof closePathPasteDialog === 'function') closePathPasteDialog(null);
-            return true;
-        }
-
-        // Plugin result modal takes highest priority
-        const resultModal = document.getElementById('plugin-result-modal');
-        if (resultModal && !resultModal.classList.contains('opacity-0')) {
-            if (typeof closePluginResultModal === 'function') closePluginResultModal();
-            return true;
-        }
-
-        // Plugin options dialog
-        const optionsModal = document.getElementById('plugin-options-modal');
-        if (optionsModal && !optionsModal.classList.contains('opacity-0')) {
-            if (typeof closePluginOptionsDialog === 'function') closePluginOptionsDialog();
-            return true;
-        }
-
-        // Metadata modal
-        const metadataModal = document.getElementById('metadata-modal');
-        if (metadataModal && !metadataModal.classList.contains('opacity-0')) {
-            if (typeof closeMetadataModal === 'function') closeMetadataModal();
-            return true;
-        }
-
-        // Settings modal (skip if recording a shortcut — let the recording handler consume Escape)
-        const settingsModal = document.getElementById('settings-modal');
-        if (settingsModal && !settingsModal.classList.contains('opacity-0')) {
-            if (typeof recordingActionId !== 'undefined' && recordingActionId !== null) return false;
-            if (typeof closeSettings === 'function') closeSettings();
-            return true;
-        }
-
-        // Plugins modal
-        const pluginsModal = document.querySelector('[data-testid="plugins-modal"]');
-        if (pluginsModal && !pluginsModal.classList.contains('opacity-0')) {
-            if (typeof closePlugins === 'function') closePlugins();
-            return true;
-        }
-
-        // Tag filter dropdown
-        const tagDropdown = document.getElementById('tag-filter-dropdown');
-        if (tagDropdown && !tagDropdown.classList.contains('hidden')) {
-            if (typeof closeTagFilterDropdown === 'function') closeTagFilterDropdown();
-            return true;
-        }
-
-        // Sort popover
-        const sortPopover = document.querySelector('.sort-popover');
-        if (sortPopover) {
-            if (typeof closeSortPopover === 'function') closeSortPopover();
-            return true;
-        }
-
-        // Nav drawer
-        const navDrawer = document.getElementById('nav-drawer');
-        if (navDrawer && !navDrawer.classList.contains('translate-x-full')) {
-            if (typeof closeDrawer === 'function') closeDrawer();
-            return true;
-        }
-
-        return false;
+        const top = getTopEscapeLayer();
+        if (!top || !top.close) return false;
+        return top.close() !== false;
     }
 
     // --- Override migration ---

@@ -41,6 +41,9 @@ func (b *Bridge) OpenFiles(opts FileDialogOptions) ([]string, error) {
 
 // SaveFile shows the native "save as" dialog. Returns "" if cancelled.
 func (b *Bridge) SaveFile(opts FileDialogOptions) (string, error) {
+	if b != nil && b.testSaveFile != nil {
+		return b.testSaveFile(opts)
+	}
 	if !b.active() {
 		return "", nil
 	}

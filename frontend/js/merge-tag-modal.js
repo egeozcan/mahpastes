@@ -11,6 +11,11 @@ const mergeTagPreview = document.getElementById('merge-tag-preview');
 let mergeTagSourceID = null;
 let mergeTagAutocomplete = null;
 let mergePreviewTimer = null;
+// Bumped on every keystroke; a preview answering an older value is dropped.
+let mergePreviewGen = 0;
+// Guards the confirm click while MergeTag is in flight.
+let mergeTagBusy = false;
+const mergeTagFocus = mergeTagModal ? createModalFocus(mergeTagModal) : null;
 
 async function openMergeTagModal(sourceID, sourceName) {
     mergeTagSourceID = sourceID;
@@ -38,7 +43,7 @@ async function openMergeTagModal(sourceID, sourceName) {
             onSelect: () => updateMergePreview(),
         });
     }
-    mergeTagDestInput.focus();
+    mergeTagFocus.open(mergeTagDestInput);
 }
 
 function closeMergeTagModal() {
@@ -48,12 +53,19 @@ function closeMergeTagModal() {
     mergeTagModal.querySelector(':scope > div').classList.remove('scale-100');
     mergeTagModal.setAttribute('inert', '');
     mergeTagSourceID = null;
+    mergeTagFocus.close();
 }
 
 async function updateMergePreview() {
     if (mergePreviewTimer) clearTimeout(mergePreviewTimer);
+    // Disarm immediately: until the new value has been previewed, the button
+    // must not merge into the destination the previous value resolved to.
+    const myGen = ++mergePreviewGen;
+    mergeTagConfirmBtn.disabled = true;
+    delete mergeTagConfirmBtn.dataset.destId;
     mergePreviewTimer = setTimeout(async () => {
         const destName = mergeTagDestInput.value.trim();
+        const stale = () => myGen !== mergePreviewGen;
         if (!destName || mergeTagSourceID == null) {
             mergeTagPreview.textContent = '';
             mergeTagConfirmBtn.disabled = true;
@@ -63,10 +75,12 @@ async function updateMergePreview() {
         try {
             tags = await window.go.main.App.GetTags();
         } catch (err) {
-            mergeTagPreview.textContent = `Error loading tags: ${err.message || err}`;
+            if (stale()) return;
+            mergeTagPreview.textContent = `Error loading tags: ${errText(err)}`;
             mergeTagConfirmBtn.disabled = true;
             return;
         }
+        if (stale()) return;
         const dest = tags.find(t => t.name === destName);
         if (!dest) {
             mergeTagPreview.textContent = `"${destName}" does not exist. Create it first.`;
@@ -75,6 +89,7 @@ async function updateMergePreview() {
         }
         try {
             const preview = await window.go.main.App.PreviewMergeTag(mergeTagSourceID, dest.id);
+            if (stale()) return;
             if (preview.blockers && preview.blockers.length > 0) {
                 mergeTagPreview.innerHTML = preview.blockers.map(b =>
                     `<span class="block text-red-500">${escapeHTML(b)}</span>`
@@ -88,7 +103,8 @@ async function updateMergePreview() {
             mergeTagConfirmBtn.disabled = false;
             mergeTagConfirmBtn.dataset.destId = dest.id;
         } catch (err) {
-            mergeTagPreview.textContent = `Error: ${err.message || err}`;
+            if (stale()) return;
+            mergeTagPreview.textContent = `Error: ${errText(err)}`;
             mergeTagConfirmBtn.disabled = true;
         }
     }, 200);
@@ -100,22 +116,21 @@ mergeTagCancelBtn?.addEventListener('click', closeMergeTagModal);
 mergeTagModal?.addEventListener('click', (e) => {
     if (e.target === mergeTagModal) closeMergeTagModal();
 });
-mergeTagModal?.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-        e.stopPropagation();
-        closeMergeTagModal();
-    }
-});
 mergeTagConfirmBtn?.addEventListener('click', async () => {
     const destID = parseInt(mergeTagConfirmBtn.dataset.destId, 10);
-    if (!destID || mergeTagSourceID == null) return;
+    if (!destID || mergeTagSourceID == null || mergeTagBusy) return;
+    mergeTagBusy = true;
+    mergeTagConfirmBtn.disabled = true;
     try {
         await window.go.main.App.MergeTag(mergeTagSourceID, destID);
         if (typeof showToast === 'function') showToast('Tag merged', 'success');
         closeMergeTagModal();
         // Event handler (tag:merged) reloads state + re-navigates.
     } catch (err) {
-        if (typeof showToast === 'function') showToast(`Merge failed: ${err.message || err}`, 'error');
+        mergeTagConfirmBtn.disabled = false;
+        if (typeof showToast === 'function') showToast(`Merge failed: ${errText(err)}`, 'error');
+    } finally {
+        mergeTagBusy = false;
     }
 });
 

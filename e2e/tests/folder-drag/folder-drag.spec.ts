@@ -123,8 +123,11 @@ test.describe('Folder Drag-and-Drop', () => {
   });
 
   test('single clip dragged to home icon moves to root', async ({ app }) => {
-    // Setup: create tag and upload clip
+    // Setup: create tag and upload clip. The subfolder keeps 'work' alive once
+    // its last clip leaves (an emptied childless top-level tag is auto-deleted;
+    // that case is covered by the next test).
     await app.createTag('work');
+    await app.createTag('work/sub');
     const imgPath = await createTempFile(generateTestImage(100, 100, [0, 255, 0]), 'png');
     const imgName = path.basename(imgPath);
     await app.uploadFile(imgPath);
@@ -149,6 +152,33 @@ test.describe('Folder Drag-and-Drop', () => {
 
     // Clip should be gone from this folder
     await app.expectClipCount(0);
+  });
+
+  test('dragging an auto-deleted folder\'s last clip to home lands on the folder root', async ({ app }) => {
+    // 'work' has no children, so emptying it auto-deletes the tag.
+    await app.createTag('work');
+    const imgPath = await createTempFile(generateTestImage(100, 100, [0, 128, 0]), 'png');
+    const imgName = path.basename(imgPath);
+    await app.uploadFile(imgPath);
+    await app.addTagToClip(imgName, 'work');
+
+    await app.toggleFolderMode();
+    await app.clickFolder('work');
+    await app.expectClipCount(1);
+
+    await dragAndDrop(
+      app.page,
+      selectors.gallery.clipCardByName(imgName),
+      selectors.tags.homeIcon,
+    );
+
+    // Still in folder mode, at the root: the deleted folder is gone and the
+    // now-untagged clip is listed there. No "Error loading clips."
+    await expect(app.page.locator('[data-testid="folder-mode-button"]')).toHaveAttribute('aria-pressed', 'true');
+    await app.expectFolderNotVisible('work');
+    await app.expectClipVisible(imgName);
+    // Load errors render in the status line beside the gallery, not inside it.
+    await expect(app.page.locator(selectors.gallery.emptyState)).not.toContainText('Error loading clips');
   });
 
   test('multi-select drag moves all selected clips', async ({ app }) => {

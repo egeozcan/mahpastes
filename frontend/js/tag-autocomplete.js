@@ -62,6 +62,8 @@ const TagAutocomplete = (() => {
         return true;
     }
 
+    let listboxCounter = 0;
+
     function attach(input, opts) {
         const getTags = opts.getTags || (async () => {
             if (window.go && window.go.main && window.go.main.App && window.go.main.App.GetTags) {
@@ -85,8 +87,15 @@ const TagAutocomplete = (() => {
         const dropdown = document.createElement('div');
         dropdown.className = 'hidden absolute left-0 right-0 mt-1 bg-white border border-stone-200 rounded-md shadow-lg max-h-56 overflow-y-auto z-[70]';
         dropdown.setAttribute('role', 'listbox');
+        dropdown.id = `tag-ac-listbox-${++listboxCounter}`;
         // Inserted after the input so it appears below it within the same stacking context.
         input.insertAdjacentElement('afterend', dropdown);
+        // Combobox semantics. aria-expanded also tells ShortcutManager that an
+        // Escape here dismisses the suggestions, not the dialog around them.
+        input.setAttribute('role', 'combobox');
+        input.setAttribute('aria-autocomplete', 'list');
+        input.setAttribute('aria-controls', dropdown.id);
+        input.setAttribute('aria-expanded', 'false');
 
         let cachedTags = null;
         let items = [];       // {kind, name, tag?}[]
@@ -182,6 +191,7 @@ const TagAutocomplete = (() => {
             renderDropdown();
             applyPlacement();
             dropdown.classList.remove('hidden');
+            input.setAttribute('aria-expanded', 'true');
             open = true;
         }
 
@@ -210,6 +220,7 @@ const TagAutocomplete = (() => {
         function closeDropdown() {
             openToken++;   // invalidate any in-flight openDropdown
             dropdown.classList.add('hidden');
+            input.setAttribute('aria-expanded', 'false');
             open = false;
             activeIndex = -1;
         }
@@ -308,6 +319,9 @@ const TagAutocomplete = (() => {
                 input.removeEventListener('keydown', onKeydown);
                 input.removeEventListener('blur', onBlur);
                 document.removeEventListener('click', onDocumentClick);
+                for (const attr of ['role', 'aria-autocomplete', 'aria-controls', 'aria-expanded']) {
+                    input.removeAttribute(attr);
+                }
                 dropdown.remove();
             },
             refresh() {

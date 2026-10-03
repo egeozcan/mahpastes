@@ -234,6 +234,10 @@ export function IsDirectory(arg1) {
   return window['go']['main']['App']['IsDirectory'](arg1);
 }
 
+export function ListClipsPage(arg1) {
+  return window['go']['main']['App']['ListClipsPage'](arg1);
+}
+
 export function MergeDuplicates(arg1) {
   return window['go']['main']['App']['MergeDuplicates'](arg1);
 }

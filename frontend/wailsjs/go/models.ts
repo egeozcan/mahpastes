@@ -195,6 +195,38 @@ export namespace app {
 	        this.data_encoding = source["data_encoding"];
 	    }
 	}
+	export class ClipListRequest {
+	    mode: string;
+	    archived: boolean;
+	    tag_ids: number[];
+	    hidden_tag_ids: number[];
+	    folder_tag_id: number;
+	    query: string;
+	    search_content: boolean;
+	    sort_field: string;
+	    sort_dir: string;
+	    offset: number;
+	    limit: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ClipListRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.mode = source["mode"];
+	        this.archived = source["archived"];
+	        this.tag_ids = source["tag_ids"];
+	        this.hidden_tag_ids = source["hidden_tag_ids"];
+	        this.folder_tag_id = source["folder_tag_id"];
+	        this.query = source["query"];
+	        this.search_content = source["search_content"];
+	        this.sort_field = source["sort_field"];
+	        this.sort_dir = source["sort_dir"];
+	        this.offset = source["offset"];
+	        this.limit = source["limit"];
+	    }
+	}
 	export class ClipMatch {
 	    id: number;
 	    filename: string;
@@ -279,6 +311,43 @@ export namespace app {
 		    return a;
 		}
 	}
+	export class ClipPage {
+	    clips: ClipPreview[];
+	    total: number;
+	    offset: number;
+	    has_more: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ClipPage(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.clips = this.convertValues(source["clips"], ClipPreview);
+	        this.total = source["total"];
+	        this.offset = source["offset"];
+	        this.has_more = source["has_more"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
 	export class CompactResult {
 	    before: number;
 	    after: number;
@@ -1321,6 +1390,20 @@ export namespace imagemeta {
 
 export namespace main {
 	
+	export class ClipboardImage {
+	    data: string;
+	    content_type: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ClipboardImage(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.data = source["data"];
+	        this.content_type = source["content_type"];
+	    }
+	}
 	export class FileProviderStatus {
 	    supported: boolean;
 	    enabled: boolean;
@@ -1413,6 +1496,38 @@ export namespace main {
 	        this.options = this.convertValues(source["options"], plugin.FormField);
 	        this.file_types = source["file_types"];
 	        this.max_size = source["max_size"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class RestoreSelection {
+	    manifest?: app.BackupManifest;
+	    path: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new RestoreSelection(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.manifest = this.convertValues(source["manifest"], app.BackupManifest);
+	        this.path = source["path"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

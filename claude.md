@@ -665,10 +665,13 @@ routes to `handleListClipsViaApp` → `SearchClips`. The *presence* of
 preview-only post-filter the `mp` CLI relies on. "Show hidden" needs no param —
 it is the absence of `hidden` ones.
 
-**Known cap**: every gallery query returns at most 50 clips. Plain search filters
-the current 50 cards; deep search widens the database scope first, then returns
-the first 50 matching clips in the selected sort order. The UI does not yet
-report when more matches exist.
+**Paging**: the gallery loads through `App.ListClipsPage(ClipListRequest)` →
+`ClipPage{clips, total, offset, has_more}` (modes: all/folder/untagged/search),
+`defaultClipLimit` (50) per page. A "Load more" button under the gallery fetches
+the next page and the count reads e.g. `50 of 120 clips`; a reload of the same
+view keeps the number already loaded. Plain search still only filters the cards
+already loaded; select-all and bulk actions apply to loaded clips only. Pages
+are ordered like the unpaged listing functions (ties broken by id).
 
 **Key files**: `internal/app/app.go` (`SearchClips`, `clipSearchSpec`,
 `buildClipSearchClause`), `frontend/js/search-options.js` (state, popover,

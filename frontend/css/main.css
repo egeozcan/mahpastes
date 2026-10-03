@@ -359,9 +359,12 @@ body.drag-preparing * {
     line-height: 1.4;
 }
 
-/* Show on hover with delay */
+/* Show on hover with delay — and on keyboard focus, so keyboard users get the
+   same hint (often the only text an icon-only control has). */
 [data-tooltip]:hover::before,
-[data-tooltip]:hover::after {
+[data-tooltip]:hover::after,
+[data-tooltip]:focus-visible::before,
+[data-tooltip]:focus-visible::after {
     opacity: 1;
     transition-delay: 300ms;
 }

@@ -10,11 +10,29 @@ const videoMediaURLCache = new Map();
 const pendingVideoMediaURLs = new Map();
 const renderedClipsById = new Map();
 
+// Bumped per clip whenever its bytes change, so a fetch that started before
+// the change cannot repopulate a cache entry with the previous revision.
+const mediaRevisions = new Map();
+
 function clearMediaCaches() {
     imageCache.clear();
     videoMediaURLCache.clear();
     pendingVideoMediaURLs.clear();
 }
+
+// Forget everything cached for one clip after its bytes were replaced in place
+// (editor Save, upload-conflict Overwrite). The caches are keyed by clip id, so
+// without this the card, lightbox and comparison keep showing the old image,
+// and an overwritten video keeps pointing at a leased file the backend dropped.
+function invalidateClipMedia(clipId) {
+    const id = Number(clipId);
+    imageCache.delete(id);
+    imageCache.delete(String(clipId));
+    videoMediaURLCache.delete(id);
+    pendingVideoMediaURLs.delete(id);
+    mediaRevisions.set(id, (mediaRevisions.get(id) || 0) + 1);
+}
+window.invalidateClipMedia = invalidateClipMedia;
 
 function rememberRenderedClip(clip) {
     renderedClipsById.set(Number(clip.id), clip);
@@ -232,7 +250,7 @@ function buildBulkMenuItemList(pluginActions) {
     if (!isServerMode) {
         items.push({ id: 'bulk-copy', label: `Copy ${count} files`, iconHtml: getMenuIcon('copy-file'), tooltip: 'Copy selected files to clipboard for pasting' });
     }
-    items.push({ id: 'bulk-download', label: `Download ${count} clips`, iconHtml: getMenuIcon('save'), tooltip: 'Save selected files to your Downloads folder' });
+    items.push({ id: 'bulk-download', label: `Download ${count} clips`, iconHtml: getMenuIcon('save'), tooltip: 'Save the selected clips as a ZIP file' });
     if (canCompareBulkSelection()) {
         items.push({ id: 'bulk-compare', label: 'Compare', iconHtml: getMenuIcon('compare'), tooltip: 'Compare the two selected images' });
     }
@@ -392,7 +410,7 @@ const cardMenuTooltips = {
     'copy-public-link': 'Create a revocable public link and copy it to clipboard',
     'copy-file': 'Place file on clipboard for pasting into other apps',
     'copy-contents': 'Copy the raw text or data to clipboard',
-    'save-file': 'Save a copy to your Downloads folder',
+    'save-file': 'Save a copy to a file',
     'edit': 'Open in the built-in image editor for annotation',
     'tags': 'Add or remove tags',
     'metadata': 'View and edit file metadata',
@@ -566,7 +584,7 @@ async function handleCardAction(action, clipId, triggerButton) {
             try {
                 await window.go.main.App.OpenClipWithDefaultApp(id);
             } catch (err) {
-                showToast('Failed to open clip.');
+                showToast('Failed to open clip.', 'error');
             }
             break;
         case 'open-with':
@@ -576,7 +594,7 @@ async function handleCardAction(action, clipId, triggerButton) {
                     await window.go.main.App.OpenClipWithApp(id, appPath);
                 }
             } catch (err) {
-                showToast('Failed to open clip.');
+                showToast('Failed to open clip.', 'error');
             }
             break;
         case 'copy-path':
@@ -659,13 +677,20 @@ const EXPIRATION_PRESETS = [
     { label: '7d', minutes: 10080 },
 ];
 
+// What had focus when the expiration popover opened; Escape returns there.
+let expirationPopoverOpener = null;
+
 function openExpirationPopover(clipId, anchorElement, isBulk = false) {
     closeExpirationPopover();
+    expirationPopoverOpener = document.activeElement;
 
+    // z-[115]: it also opens from the lightbox's Actions menu (lightbox is 100).
     const popover = document.createElement('div');
-    popover.className = 'expiration-popover fixed bg-white rounded-lg shadow-xl border border-stone-200 p-2 z-[60]';
+    popover.className = 'expiration-popover fixed bg-white rounded-lg shadow-xl border border-stone-200 p-2 z-[115]';
     popover.setAttribute('role', 'menu');
     popover.setAttribute('aria-label', 'Set expiration');
+    // Its arrow keys are its own, not the gallery's or the lightbox's.
+    popover.dataset.ownsKeys = '';
 
     const row = document.createElement('div');
     row.className = 'flex items-center gap-1.5';
@@ -678,8 +703,8 @@ function openExpirationPopover(clipId, anchorElement, isBulk = false) {
         btn.addEventListener('click', () => {
             closeExpirationPopover();
             if (isBulk) {
+                // The helper clears the selection only once the change succeeded.
                 bulkSetExpiration(Array.from(selectedIds), preset.minutes);
-                selectedIds.clear();
             } else {
                 setExpiration(Number(clipId), preset.minutes);
             }
@@ -688,8 +713,19 @@ function openExpirationPopover(clipId, anchorElement, isBulk = false) {
     });
 
     popover.appendChild(row);
+    // Left/Right move between presets (a one-row menu).
+    row.addEventListener('keydown', (e) => {
+        if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+        const items = Array.from(row.querySelectorAll('[role="menuitem"]'));
+        const idx = items.indexOf(document.activeElement);
+        if (idx === -1) return;
+        e.preventDefault();
+        const next = (idx + (e.key === 'ArrowRight' ? 1 : -1) + items.length) % items.length;
+        items[next].focus();
+    });
     document.body.appendChild(popover);
     positionExpirationPopover(popover, anchorElement);
+    row.querySelector('[role="menuitem"]')?.focus();
 }
 
 function positionExpirationPopover(popover, anchor) {
@@ -715,9 +751,16 @@ function positionExpirationPopover(popover, anchor) {
     popover.style.top = `${top}px`;
 }
 
-function closeExpirationPopover() {
+// restoreFocus: return focus to the opener (Escape). Also done whenever focus
+// is inside the popover being removed, so it never drops to body.
+function closeExpirationPopover({ restoreFocus: restore = false } = {}) {
     const existing = document.querySelector('.expiration-popover');
-    if (existing) existing.remove();
+    if (!existing) return;
+    const focusWasInside = existing.contains(document.activeElement);
+    existing.remove();
+    const opener = expirationPopoverOpener;
+    expirationPopoverOpener = null;
+    if (restore || focusWasInside) restoreFocus(opener);
 }
 
 function renderDragHandle(clipId) {
@@ -1151,13 +1194,14 @@ async function createClipCard(clip, options = {}) {
 
     // A clip only reaches the gallery with a hidden tag when a search was asked
     // to include it. Dim it the same way a hidden folder card is dimmed, so the
-    // result never looks like an ordinary listing that leaked something.
-    if (typeof getHiddenTags === 'function' && Array.isArray(clip.tags)) {
-        const hidden = getHiddenTags() || [];
-        if (clip.tags.some(tag => hidden.includes(tag.id))) {
-            card.dataset.hidden = 'true';
-        }
+    // result never looks like an ordinary listing that leaked something. Only
+    // then: inside a hidden tag's folder, or filtering by it, the clip is an
+    // ordinary result and must not look withheld.
+    if (galleryWaivedHiddenTags.length > 0 && Array.isArray(clip.tags)
+        && clip.tags.some(tag => galleryWaivedHiddenTags.some(h => tag.name === h || tag.name.startsWith(h + '/')))) {
+        card.dataset.hidden = 'true';
     }
+    if (selectedIds.has(Number(clip.id))) card.classList.add('has-checked');
 
     // Checkbox logic
     const checkbox = card.querySelector('.clip-checkbox');
@@ -1383,9 +1427,12 @@ async function getVideoMediaUrl(clipId) {
     if (cached && cached.expiresAt > Date.now() + 5000) return cached.url;
     if (pendingVideoMediaURLs.has(id)) return pendingVideoMediaURLs.get(id);
 
+    const revision = mediaRevisions.get(id) || 0;
     const pending = (async () => {
         if (window.mahpastesMode === 'server') {
-            const url = `/api/v1/clips/${id}/data`;
+            // The revision keeps the browser from reusing a response for bytes
+            // that have since been overwritten.
+            const url = revision ? `/api/v1/clips/${id}/data?rev=${revision}` : `/api/v1/clips/${id}/data`;
             videoMediaURLCache.set(id, { url, expiresAt: Number.POSITIVE_INFINITY });
             return url;
         }
@@ -1402,26 +1449,30 @@ async function getVideoMediaUrl(clipId) {
 
         const parsedExpiry = Date.parse(prepared.lease_expires_at);
         const expiresAt = Number.isFinite(parsedExpiry) ? parsedExpiry : Date.now() + 55 * 60 * 1000;
-        videoMediaURLCache.set(id, { url: prepared.transfer_url, expiresAt });
+        if ((mediaRevisions.get(id) || 0) === revision) {
+            videoMediaURLCache.set(id, { url: prepared.transfer_url, expiresAt });
+        }
         return prepared.transfer_url;
     })();
     pendingVideoMediaURLs.set(id, pending);
     try {
         return await pending;
     } finally {
-        pendingVideoMediaURLs.delete(id);
+        if (pendingVideoMediaURLs.get(id) === pending) pendingVideoMediaURLs.delete(id);
     }
 }
 
 // Get cached or load image data URL
 async function getImageDataUrl(clipId) {
-    if (imageCache.has(clipId)) {
-        return imageCache.get(clipId);
+    const id = Number(clipId);
+    if (imageCache.has(id)) {
+        return imageCache.get(id);
     }
 
-    const clipData = await getClipData(clipId);
+    const revision = mediaRevisions.get(id) || 0;
+    const clipData = await getClipData(id);
     const dataUrl = `data:${clipData.content_type};base64,${clipData.data}`;
-    imageCache.set(clipId, dataUrl);
+    if ((mediaRevisions.get(id) || 0) === revision) imageCache.set(id, dataUrl);
     return dataUrl;
 }
 
@@ -1554,21 +1605,42 @@ const searchInput = document.getElementById('search-input');
 // file contents, which no card attribute can express — so the local filter must
 // not second-guess what it returned.
 let galleryShowsSearchResults = false;
+// Names of the hidden tags a deep search with "Show hidden clips" waived for
+// the cards on screen; clips carrying one (or a descendant) are dimmed.
+let galleryWaivedHiddenTags = [];
+function setGalleryWaivedHiddenTags(ids) {
+    const wanted = new Set(ids || []);
+    galleryWaivedHiddenTags = allTags.filter(t => wanted.has(t.id)).map(t => t.name);
+}
 function setGalleryShowsSearchResults(value) { galleryShowsSearchResults = value; }
 function galleryIsSearchResults() { return galleryShowsSearchResults; }
 
 function applySearchFilter() {
-    const query = searchInput.value.toLowerCase();
-    const cards = gallery.querySelectorAll('li');
+    const query = searchInput.value.trim().toLowerCase();
+    const cards = gallery.querySelectorAll(':scope > li');
+    let deselected = false;
     cards.forEach(card => {
         if (!query || galleryShowsSearchResults) {
             card.style.display = '';
-        } else {
-            const filename = card.dataset.filename || '';
-            const type = card.dataset.type || '';
-            card.style.display = (filename.includes(query) || type.includes(query)) ? '' : 'none';
+            return;
+        }
+        // Folder cards match on their name; clip cards on filename and type.
+        const name = card.dataset.filename ?? card.dataset.folderName ?? '';
+        const type = card.dataset.type || '';
+        const visible = name.includes(query) || type.includes(query);
+        card.style.display = visible ? '' : 'none';
+        // A clip the filter hides cannot stay selected: bulk actions would act
+        // on cards the user can no longer see.
+        if (!visible && card.dataset.id && selectedIds.has(Number(card.dataset.id))) {
+            selectedIds.delete(Number(card.dataset.id));
+            const cb = card.querySelector('.clip-checkbox');
+            if (cb) cb.checked = false;
+            card.classList.remove('has-checked');
+            deselected = true;
         }
     });
+    if (deselected) updateBulkToolbar();
+    if (typeof renderGalleryCount === 'function') renderGalleryCount();
     window.LightboxController?.setClips(getVisibleMediaClips());
 }
 
@@ -1712,9 +1784,24 @@ window.folderStatusMap = folderStatusMap;
 window.updateFolderBadgesInPlace = updateFolderBadgesInPlace;
 window.applyFolderStatusUpdate = applyFolderStatusUpdate;
 
+// Re-render the folder cards in place (rename, status changes). loadClips does
+// not use this: it builds the cards before clearing the gallery, so a reload
+// never flashes an empty frame.
 async function renderFolderCards() {
     const myGen = ++_folderRenderGen;
+    const cards = await buildFolderCards(() => myGen !== _folderRenderGen);
+    if (!cards) return;
 
+    gallery.querySelectorAll(':scope > [data-folder]').forEach(card => card.remove());
+    // Folders lead the gallery, ahead of the clip cards.
+    const firstClip = gallery.querySelector(':scope > li[data-id]');
+    for (const card of cards) gallery.insertBefore(card, firstClip);
+    if (window.__galleryRover) window.__galleryRover.update();
+}
+
+// Build (but do not insert) the folder cards for the folder being viewed.
+// Resolves to null when isStale() reports the render was superseded.
+async function buildFolderCards(isStale = () => false) {
     let folderTags;
     if (activeTagFilters.length > 0) {
         const currentTagId = activeTagFilters[activeTagFilters.length - 1];
@@ -1723,18 +1810,30 @@ async function renderFolderCards() {
         folderTags = await getTopLevelTags();
     }
 
-    if (myGen !== _folderRenderGen) return;
-    if (!folderTags || folderTags.length === 0) return;
-
-    gallery.querySelectorAll('[data-folder]').forEach(card => card.remove());
+    if (isStale()) return null;
+    if (!folderTags || folderTags.length === 0) return [];
 
     const hidden = (typeof getHiddenTags === 'function') ? (getHiddenTags() || []) : [];
+    const counts = await Promise.all(folderTags.map(tag => getDescendantClipCount(tag.id, isViewingArchive)));
+    if (isStale()) return null;
 
-    for (const tag of folderTags) {
-        const count = await getDescendantClipCount(tag.id, isViewingArchive);
-        if (myGen !== _folderRenderGen) return;
+    const cards = [];
+    for (const [i, tag] of folderTags.entries()) {
+        const count = counts[i];
 
-        const shortName = getShortTagName(tag.name);
+        // Path relative to the folder being viewed: normally the leaf name,
+        // but a tag whose intermediate parent was deleted (a/b/c listed
+        // under a, or p/q at the root once p is gone) shows the rest of its
+        // path so it is not mistaken for a/c or q.
+        const viewedTag = activeTagFilters.length > 0
+            ? allTags.find(t => t.id === activeTagFilters[activeTagFilters.length - 1])
+            : null;
+        let shortName = tag.name;
+        if (viewedTag) {
+            shortName = tag.name.startsWith(viewedTag.name + '/')
+                ? tag.name.substring(viewedTag.name.length + 1)
+                : getShortTagName(tag.name);
+        }
         const isHidden = hidden.includes(tag.id);
         const state = folderStatusMap.get(tag.id) || {};
         const countText = `${count} clip${count !== 1 ? 's' : ''}`;
@@ -1744,6 +1843,8 @@ async function renderFolderCards() {
         card.setAttribute('data-testid', `folder-card-${shortName}`);
         card.setAttribute('data-folder', tag.id);
         card.setAttribute('data-folder-path', tag.name);
+        // What the plain search filter matches a folder card against.
+        card.dataset.folderName = shortName.toLowerCase();
         card.setAttribute('draggable', 'true');
         card.setAttribute('aria-grabbed', 'false');
         card.setAttribute('tabindex', '0');
@@ -1778,16 +1879,34 @@ async function renderFolderCards() {
             FolderContextMenu.attach(card, tag);
         }
 
-        gallery.appendChild(card);
+        cards.push(card);
     }
+    return cards;
 }
 
 // Expose to other modules and for test hooks.
 window.renderFolderCards = renderFolderCards;
 
-function navigateToFolder(tagId, { focusFirst = false, isHistoryNav = false } = {}) {
+// Bumped by every folder navigation. A navigation that has to wait for the
+// tag list checks it afterwards: one that started meanwhile has won.
+let _folderNavGen = 0;
+
+async function navigateToFolder(tagId, { focusFirst = false, isHistoryNav = false } = {}) {
+    const myNav = ++_folderNavGen;
     // Replace active filters with this tag's ancestors + this tag
-    const tag = allTags.find(t => t.id === tagId);
+    let tag = allTags.find(t => t.id === tagId);
+    if (!tag && typeof loadTags === 'function') {
+        // The tag may be newer than the cached list (created by a plugin, the
+        // REST API or a just-finished upload): refresh once before giving up.
+        // The filters are compared too, since not every way of moving
+        // (a filter checkbox, leaving folder mode) comes through here.
+        const filtersBefore = activeTagFilters.join(',');
+        const folderModeBefore = typeof isFolderMode === 'function' ? isFolderMode() : null;
+        await loadTags();
+        if (myNav !== _folderNavGen || activeTagFilters.join(',') !== filtersBefore
+            || (typeof isFolderMode === 'function' ? isFolderMode() : null) !== folderModeBefore) return;
+        tag = allTags.find(t => t.id === tagId);
+    }
     if (!tag) return;
 
     // A fresh navigation (folder click, filter change) invalidates the
@@ -1832,6 +1951,7 @@ function currentFolderTagId() {
 }
 
 function navigateToFolderRoot() {
+    _folderNavGen++;
     activeTagFilters.length = 0;
     updateActiveTagsDisplay();
     renderTagFilterDropdown();
@@ -1847,7 +1967,9 @@ function navigateFolderBack() {
     folderForwardStack.push(currentId);
 
     const tag = allTags.find(t => t.id === currentId);
-    const parentName = tag ? getParentTagName(tag.name) : '';
+    // Nearest surviving ancestor: a/b/c whose a/b was deleted goes up to a.
+    const byName = Object.fromEntries(allTags.map(t => [t.name, t]));
+    const parentName = tag ? nearestExistingAncestorName(tag.name, byName) : '';
     if (parentName) {
         const parentTag = allTags.find(t => t.name === parentName);
         if (parentTag) {

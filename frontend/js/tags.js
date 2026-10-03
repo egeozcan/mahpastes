@@ -37,6 +37,11 @@ let tagPopoverMode = 'single';
 
 function renderTagFilterDropdown() {
     if (!tagFilterList) return;
+    // A re-render (a tag created by a plugin, REST or a share) replaces every
+    // row: remember which tag had focus and give it back afterwards.
+    const focused = tagFilterList.contains(document.activeElement) ? document.activeElement : null;
+    const focusedTagId = focused?.closest('label')?.dataset.tagId;
+    const focusedCheckbox = focused?.matches('input[type="checkbox"]');
     tagFilterList.innerHTML = '';
 
     if (allTags.length === 0) {
@@ -54,6 +59,7 @@ function renderTagFilterDropdown() {
         const displayName = depth === 0 ? tag.name : getShortTagName(tag.name);
 
         const item = document.createElement('label');
+        item.dataset.tagId = String(tag.id);
         item.className = `flex items-center gap-2 py-1.5 hover:bg-stone-100 cursor-pointer transition-colors${isHidden ? ' opacity-50' : ''}`;
         item.style.paddingLeft = `${12 + depth * 16}px`;
         item.style.paddingRight = '12px';
@@ -120,6 +126,16 @@ function renderTagFilterDropdown() {
                 }
             },
         });
+    }
+
+    if (focused) {
+        const labels = Array.from(tagFilterList.querySelectorAll('label'));
+        const idx = Math.max(0, labels.findIndex(l => l.dataset.tagId === focusedTagId));
+        const label = labels[idx];
+        if (label) {
+            tagFilterRover?.setActiveIndex(idx);
+            (focusedCheckbox ? label.querySelector('input[type="checkbox"]') : label).focus();
+        }
     }
 }
 
@@ -307,7 +323,13 @@ function updateActiveTagsDisplay() {
 
                     pill.querySelector('button').addEventListener('click', (e) => {
                         e.stopPropagation();
-                        toggleTagFilter(tagId);
+                        // Remove, never toggle: a pill that outlived its filter
+                        // must not add the id back.
+                        if (activeTagFilters.includes(tagId)) {
+                            toggleTagFilter(tagId);
+                        } else {
+                            updateActiveTagsDisplay();
+                        }
                     });
 
                     activeTagsContainer.appendChild(pill);
@@ -404,25 +426,43 @@ document.addEventListener('click', (e) => {
 
 // --- Tag Popover for Clip Tagging ---
 
+// What had focus when the popover opened (a card, its menu button, the
+// lightbox's Actions button), so keyboard users land back there.
+let tagPopoverOpener = null;
+
 function openTagPopover(clipId, anchorElement) {
     currentTaggingClipId = clipId;
     tagPopoverMode = 'single';
     renderTagPopoverList(clipId);
-    positionPopover(anchorElement);
-    tagPopover.classList.remove('hidden');
+    showTagPopover(anchorElement);
 }
 
 function openBulkTagPopover(anchorElement) {
     currentTaggingClipId = null;
     tagPopoverMode = 'bulk';
     renderTagPopoverList(null);
-    positionPopover(anchorElement);
-    tagPopover.classList.remove('hidden');
+    showTagPopover(anchorElement);
 }
 
-function closeTagPopover() {
+function showTagPopover(anchorElement) {
+    if (tagPopover.classList.contains('hidden')) tagPopoverOpener = document.activeElement;
+    positionPopover(anchorElement);
+    tagPopover.classList.remove('hidden');
+    // First tag checkbox, or the new-tag field when there are no tags yet.
+    const first = tagPopover.querySelector('#tag-popover-list input') || createTagInput;
+    first?.focus();
+}
+
+// restoreFocus: return focus to the opener. Also done whenever focus is still
+// inside the popover (a checkbox was just toggled), so it never drops to body.
+function closeTagPopover({ restoreFocus: restore = false } = {}) {
+    if (!tagPopover || tagPopover.classList.contains('hidden')) return;
+    const focusWasInside = tagPopover.contains(document.activeElement);
     tagPopover.classList.add('hidden');
     currentTaggingClipId = null;
+    const opener = tagPopoverOpener;
+    tagPopoverOpener = null;
+    if (restore || focusWasInside) restoreFocus(opener);
 }
 
 function positionPopover(anchorElement) {
@@ -762,6 +802,11 @@ window.handleTagReferenceEvent = async function(eventName, payload) {
     const parent = parentName ? allTags.find(t => t.name === parentName) : null;
     if (parent && typeof navigateToFolder === 'function') {
         navigateToFolder(parent.id);
+    } else if (payload && payload.auto && typeof navigateToFolderRoot === 'function') {
+        // An emptied folder the backend cleaned up on its own (typically the
+        // user just dragged its last clip to Home): the user is still working
+        // in folder mode, so land on the folder root instead of leaving it.
+        navigateToFolderRoot();
     } else if (typeof toggleFolderMode === 'function' && typeof isFolderMode === 'function' && isFolderMode()) {
         // Exit folder mode by toggling it off.
         toggleFolderMode();

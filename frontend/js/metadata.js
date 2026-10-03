@@ -8,6 +8,9 @@ const metadataSaveBtn = document.getElementById('metadata-save');
 const metadataSystemInfo = document.getElementById('metadata-system-info');
 
 let currentMetadataClipId = null;
+// Bumped per load; a response for an earlier open is dropped.
+let metadataLoadGen = 0;
+const metadataModalFocus = createModalFocus(metadataModal);
 
 function openMetadataModal(clipId, clipData) {
     currentMetadataClipId = clipId;
@@ -18,6 +21,7 @@ function openMetadataModal(clipId, clipData) {
     metadataModal.querySelector(':scope > div').classList.add('scale-100');
     renderSystemInfo(clipData);
     loadMetadata(clipId);
+    metadataModalFocus.open(metadataCloseBtn);
 }
 
 function renderSystemInfo(clipData) {
@@ -58,22 +62,42 @@ function closeMetadataModal() {
     metadataModal.querySelector(':scope > div').classList.remove('scale-100');
     currentMetadataClipId = null;
     metadataModal.setAttribute('inert', '');
+    metadataModalFocus.close();
 }
 
 async function loadMetadata(clipId) {
+    const myGen = ++metadataLoadGen;
     metadataList.innerHTML = '';
+    // Save replaces every key (SetClipMetadataBulk), so it stays off until the
+    // stored metadata is actually on screen — otherwise it would wipe them.
+    metadataSaveBtn.disabled = true;
+    metadataAddBtn.disabled = true;
     try {
         const meta = await window.go.main.App.GetClipMetadata(clipId);
+        if (myGen !== metadataLoadGen || currentMetadataClipId !== clipId) return;
         const entries = Object.entries(meta || {});
         if (entries.length === 0) {
             renderEmptyState();
         } else {
             entries.forEach(([key, value]) => renderMetadataRow(key, value));
         }
+        metadataSaveBtn.disabled = false;
+        metadataAddBtn.disabled = false;
     } catch (err) {
+        if (myGen !== metadataLoadGen || currentMetadataClipId !== clipId) return;
         console.error('Failed to load metadata:', err);
-        renderEmptyState();
+        renderLoadError(err);
     }
+}
+
+function renderLoadError(err) {
+    metadataList.textContent = '';
+    const p = document.createElement('p');
+    p.dataset.testid = 'metadata-error';
+    p.setAttribute('role', 'alert');
+    p.className = 'text-xs text-red-500 text-center py-4';
+    p.textContent = `Could not load metadata: ${errText(err)}`;
+    metadataList.appendChild(p);
 }
 
 function renderEmptyState() {
@@ -136,7 +160,7 @@ function addMetadataRow() {
 }
 
 async function saveMetadata() {
-    if (!currentMetadataClipId) return;
+    if (!currentMetadataClipId || metadataSaveBtn.disabled) return;
 
     const rows = metadataList.querySelectorAll('[data-testid="metadata-row"]');
     const meta = {};
@@ -178,7 +202,7 @@ async function saveMetadata() {
         closeMetadataModal();
     } catch (err) {
         console.error('Failed to save metadata:', err);
-        showToast('Failed to save metadata', 'error');
+        showToast('Failed to save metadata: ' + errText(err), 'error');
     }
 }
 

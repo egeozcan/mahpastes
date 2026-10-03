@@ -783,6 +783,10 @@ const EditorCore = (() => {
             const tag = e.target.tagName;
             if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
             if (!canvas) return;
+            // A dialog stacked over the editor (prompt, plugin modal) keeps Space
+            // for its own buttons.
+            const dialog = e.target.closest?.('[aria-modal="true"]');
+            if (dialog && dialog.id !== 'editor-modal') return;
 
             spaceHeld = true;
             updateCursor();
@@ -1030,6 +1034,13 @@ const EditorCore = (() => {
         get undoStack() { return undoStack; },
         get redoStack() { return redoStack; },
         isDirty,
+        // The history entry on screen now; a save captures it before exporting.
+        get currentRevision() { return currentRevision; },
+        // Mark a saved revision as the clean baseline (edits made after it stay dirty).
+        markClean(revision) {
+            cleanRevision = revision;
+            updateUndoRedoButtons();
+        },
         prepareForAction,
         getHistoryStats,
         getCurrentSnapshot,

@@ -70,6 +70,9 @@
         link.click();
         link.remove();
         setTimeout(() => URL.revokeObjectURL(objectURL), 1000);
+        // Mirror the desktop bindings, which resolve to the saved path ("" on
+        // cancel): a browser download has no cancel signal, so report the name.
+        return filename;
     }
 
     async function uploadOne(fileData, autoTagID) {
@@ -103,6 +106,27 @@
                 + `&search=${encodeURIComponent(query || '')}`
                 + `&search_content=${searchContent ? 'true' : 'false'}`;
             return (await fetchJSON(`${api}/clips?${q}`)).clips || [];
+        },
+        // One page of a gallery listing plus its total — same request shape as
+        // the desktop binding. `dir` is always sent so the server takes the
+        // App-backed path, which pages in SQL.
+        ListClipsPage: async (req) => {
+            const r = req || {};
+            const q = new URLSearchParams(clipQuery(r.archived, r.mode === 'folder' || r.mode === 'untagged' ? [] : r.tag_ids,
+                r.mode === 'folder' ? [] : r.hidden_tag_ids, r.sort_field || 'created_at', r.sort_dir || 'desc'));
+            if (r.mode === 'folder') q.set('folder_tag', String(r.folder_tag_id));
+            if (r.mode === 'untagged') q.set('untagged', 'true');
+            if (r.mode === 'search') {
+                q.set('search', r.query || '');
+                q.set('search_content', r.search_content ? 'true' : 'false');
+            }
+            q.set('offset', String(r.offset || 0));
+            q.set('limit', String(r.limit || 50));
+            const body = await fetchJSON(`${api}/clips?${q.toString()}`);
+            const clips = body.clips || [];
+            const offset = body.offset || 0;
+            const total = typeof body.total === 'number' ? body.total : clips.length;
+            return { clips, total, offset, has_more: offset + clips.length < total };
         },
         GetClipData: async (id) => {
             const res = await fetch(`${api}/clips/${id}/data`, { credentials: 'same-origin' });
@@ -183,7 +207,17 @@
         AddTagToClip: (clipID, tagID) => putJSON(`${api}/clips/${clipID}/tags/${tagID}`, {}),
         RemoveTagFromClip: (clipID, tagID) => del(`${api}/clips/${clipID}/tags/${tagID}`),
         GetChildTags: (id) => fetchJSON(`${api}/tags/${id}/children`),
-        GetTopLevelTags: () => fetchJSON(`${api}/tags`),
+        // Tags with no existing ancestor, matching the desktop binding.
+        GetTopLevelTags: async () => {
+            const tags = (await fetchJSON(`${api}/tags`)) || [];
+            const names = new Set(tags.map((t) => t.name));
+            return tags.filter((t) => {
+                for (let i = t.name.lastIndexOf('/'); i > 0; i = t.name.lastIndexOf('/', i - 1)) {
+                    if (names.has(t.name.substring(0, i))) return false;
+                }
+                return true;
+            });
+        },
         GetDescendantClipCount: async () => 0,
         GetHiddenClipInfo: async (archived, tagIds, hiddenIds) => {
             const params = new URLSearchParams();
@@ -239,7 +273,7 @@
         ProbeFilePaths: async () => [],
         SaveClipToFile: async (id) => {
             const clip = await fetchJSON(`${api}/clips/${id}`);
-            await downloadBlob(`${api}/clips/${id}/data`, clip.filename || `clip_${id}`);
+            return await downloadBlob(`${api}/clips/${id}/data`, clip.filename || `clip_${id}`);
         },
         CopyToClipboard: async (text) => navigator.clipboard ? navigator.clipboard.writeText(text) : undefined,
         ChooseApplication: async () => { throw new Error('application picker is desktop-only in server mode'); },

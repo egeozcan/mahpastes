@@ -76,6 +76,9 @@ const MarkdownRenderer = (() => {
                 ALLOWED_TAGS: allowedTags,
                 ALLOWED_ATTR: allowedAttributes,
                 ALLOW_DATA_ATTR: false,
+                // aria-* is on by default in DOMPurify. A document's
+                // aria-modal="true" would read as an open app dialog.
+                ALLOW_ARIA_ATTR: false,
             });
             container.innerHTML = cleanHTML;
             container.querySelectorAll('input[type="checkbox"]').forEach((checkbox) => {

@@ -60,7 +60,7 @@ async function loadPlugins() {
         renderPluginsList();
     } catch (error) {
         console.error('Failed to load plugins:', error);
-        showToast('Failed to load plugins');
+        showToast('Failed to load plugins', 'error');
     }
 }
 
@@ -233,7 +233,13 @@ function createPluginCard(plugin) {
     if (updateBtn) {
         updateBtn.addEventListener('click', async (e) => {
             e.stopPropagation();
-            await updatePlugin(plugin.id, plugin.name);
+            if (updateBtn.disabled) return;
+            updateBtn.disabled = true;
+            try {
+                await updatePlugin(plugin.id, plugin.name);
+            } finally {
+                updateBtn.disabled = false;
+            }
         });
     }
 
@@ -434,17 +440,10 @@ async function togglePluginExpand(pluginId) {
         expandedPluginId = pluginId;
     }
 
-    // Re-render to update expanded state
+    // Re-render to update expanded state. Rendering an expanded card loads its
+    // permissions and settings itself; loading them again here attached a
+    // second set of comboboxes to the same fields.
     renderPluginsList();
-
-    // Load permissions and settings for newly expanded plugin
-    if (expandedPluginId) {
-        const card = pluginsList.querySelector(`li[data-id="${expandedPluginId}"]`);
-        if (card) {
-            await loadPluginPermissions(expandedPluginId, card);
-            await loadPluginSettings(expandedPluginId, card);
-        }
-    }
 }
 
 // --- Load Plugin Permissions ---
@@ -690,7 +689,7 @@ async function saveSetting(pluginId, key, value) {
         return true;
     } catch (error) {
         console.error('Failed to save setting:', error);
-        showToast('Failed to save setting: ' + (error && error.message ? error.message : 'unknown error'), 'error');
+        showToast('Failed to save setting: ' + errText(error), 'error');
         return false;
     }
 }
@@ -822,7 +821,7 @@ async function togglePluginEnabled(pluginId, enabled) {
         loadClips(); // re-render cards with updated plugin actions
     } catch (error) {
         console.error('Failed to toggle plugin:', error);
-        showToast('Failed to update plugin');
+        showToast('Failed to update plugin', 'error');
         await loadPlugins(); // Refresh to correct UI state
     }
 }
@@ -840,7 +839,7 @@ async function reviewAndEnablePlugin(pluginId) {
         await togglePluginEnabled(pluginId, true);
     } catch (error) {
         console.error('Failed to review plugin:', error);
-        showToast('Failed to review plugin: ' + (error.message || 'Unknown error'));
+        showToast('Failed to review plugin: ' + errText(error), 'error');
         await loadPlugins();
     }
 }
@@ -863,11 +862,16 @@ async function importPlugin() {
         }
     } catch (error) {
         console.error('Failed to import plugin:', error);
-        showToast('Failed to import plugin: ' + (error.message || 'Unknown error'));
+        showToast('Failed to import plugin: ' + errText(error), 'error');
     }
 }
 
+// Enter in the URL field bypasses the disabled Install button, so the guard
+// lives here rather than on the button.
+let installFromURLBusy = false;
+
 async function installFromURL() {
+    if (installFromURLBusy) return;
     const urlInput = document.getElementById('plugin-url-input');
     const url = urlInput?.value?.trim();
     if (!url) {
@@ -875,6 +879,7 @@ async function installFromURL() {
         return;
     }
 
+    installFromURLBusy = true;
     try {
         const installBtn = document.getElementById('plugin-url-install-btn');
         if (installBtn) {
@@ -884,7 +889,7 @@ async function installFromURL() {
 
         const preview = await window.go.main.PluginService.PreviewPluginFromURL(url);
         if (!preview) {
-            showToast('Failed to fetch plugin from URL');
+            showToast('Failed to fetch plugin from URL', 'error');
             return;
         }
 
@@ -901,8 +906,9 @@ async function installFromURL() {
         }
     } catch (error) {
         console.error('Failed to install from URL:', error);
-        showToast('Failed to install: ' + (error.message || 'Unknown error'));
+        showToast('Failed to install: ' + errText(error), 'error');
     } finally {
+        installFromURLBusy = false;
         const installBtn = document.getElementById('plugin-url-install-btn');
         if (installBtn) {
             installBtn.disabled = false;
@@ -962,12 +968,17 @@ function removePlugin(pluginId, pluginName) {
             loadClips();
         } catch (error) {
             console.error('Failed to remove plugin:', error);
-            showToast('Failed to remove plugin');
+            showToast('Failed to remove plugin', 'error');
         }
     }, null, { confirmLabel: 'Remove' });
 }
 
+// Plugins with an update in flight; a second request for one is ignored.
+const pluginUpdatesInFlight = new Set();
+
 async function updatePlugin(pluginId, pluginName) {
+    if (pluginUpdatesInFlight.has(pluginId)) return;
+    pluginUpdatesInFlight.add(pluginId);
     try {
         const result = await window.go.main.PluginService.UpdatePlugin(pluginId);
 
@@ -996,7 +1007,9 @@ async function updatePlugin(pluginId, pluginName) {
         }
     } catch (error) {
         console.error('Failed to update plugin:', error);
-        showToast('Failed to update plugin: ' + (error.message || 'Unknown error'));
+        showToast('Failed to update plugin: ' + errText(error), 'error');
+    } finally {
+        pluginUpdatesInFlight.delete(pluginId);
     }
 }
 
@@ -1013,7 +1026,7 @@ async function revokePermission(pluginId, permType, path) {
         }
     } catch (error) {
         console.error('Failed to revoke permission:', error);
-        showToast('Failed to revoke permission');
+        showToast('Failed to revoke permission', 'error');
     }
 }
 
@@ -1077,8 +1090,8 @@ async function executePluginAction(pluginId, actionId, clipIds, options, isAsync
         return result;
     } catch (error) {
         console.error('Failed to execute plugin action:', error);
-        showToast('Action failed: ' + (error.message || 'Unknown error'), 'error');
-        return { success: false, error: error.message };
+        showToast('Action failed: ' + errText(error), 'error');
+        return { success: false, error: errText(error) };
     }
 }
 
@@ -1322,6 +1335,15 @@ function openPluginOptionsDialog(action, clipIds) {
     modal.removeAttribute('inert');
     modal.classList.remove('opacity-0', 'pointer-events-none');
     modal.classList.add('opacity-100');
+    // Take focus (and trap Tab) so the dialog is usable from the keyboard —
+    // it can open over the lightbox or the editor.
+    pluginOptionsFocus().open();
+}
+
+let _pluginOptionsFocus = null;
+function pluginOptionsFocus() {
+    if (!_pluginOptionsFocus) _pluginOptionsFocus = createModalFocus(document.getElementById('plugin-options-modal'));
+    return _pluginOptionsFocus;
 }
 
 function closePluginOptionsDialog() {
@@ -1335,6 +1357,7 @@ function closePluginOptionsDialog() {
     modal.setAttribute('inert', '');
     currentPluginAction = null;
     currentActionClipIds = [];
+    pluginOptionsFocus().close();
 }
 
 // --- Plugin Options Dialog Event Listeners ---

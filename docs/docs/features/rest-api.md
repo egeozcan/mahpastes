@@ -20,7 +20,7 @@ The REST API runs a separate HTTP server with key-based authentication. Every re
 ## Starting the Server
 
 1. Open the menu drawer and click **API** (or the API button in settings)
-2. Set a port (default: `8484`)
+2. Set a port (default: `44557`, the port the `mp` CLI uses)
 3. Optionally enable **Network** toggle to bind to `0.0.0.0` instead of `127.0.0.1`
 4. Click **Start Server**
 
@@ -154,6 +154,14 @@ Query parameters:
 | `content_type` | string | -- | Filter by exact content type |
 | `archived` | bool | -- | Filter by archive status (`true` / `false`) |
 | `search` | string | -- | Search filename and text content |
+
+`total` is the size of the whole listing and every page is cut in SQL, so `offset`
+reaches every clip. One combination is the exception: `search` without `search_content`
+on a request that also uses `sort`, `dir`, `hidden`, more than one `tag`, `folder_tag`,
+or `untagged`. That search is a post-filter over each clip's 500-byte preview, applied to
+the first 50 clips of the listing, so `total` is at most 50 and later pages come back
+empty. Add `search_content=true` (whole text content) or `search_content=false` (filename and
+content type only) to have such a search paged with its true total.
 
 Response:
 

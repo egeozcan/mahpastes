@@ -43,7 +43,7 @@ const PluginSearchField = (() => {
         dropdown.setAttribute('role', 'listbox');
         input.insertAdjacentElement('afterend', dropdown);
 
-        // Full combobox ARIA, which the tag autocomplete lacks.
+        // Full combobox ARIA (also how ShortcutManager knows Escape here is ours).
         input.setAttribute('role', 'combobox');
         input.setAttribute('aria-expanded', 'false');
         input.setAttribute('aria-controls', dropdown.id);

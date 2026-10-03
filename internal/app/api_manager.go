@@ -1346,6 +1346,64 @@ func (am *APIManager) handleListClipsViaApp(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
+	// Page in SQL unless the preview-only `search` post-filter is asked for:
+	// the listing functions stop at defaultClipLimit, so slicing their result
+	// could never reach past the first 50 clips. content_type is an exact
+	// match, so it is applied in SQL here too.
+	contentType := q.Get("content_type")
+	if q.Get("search") == "" || q.Has("search_content") {
+		req := ClipListRequest{Archived: archived, TagIDs: tagIDs, HiddenTagIDs: hiddenIDs,
+			SortField: sortField, SortDir: sortDir, Offset: offset, Limit: limit}
+		if q.Get("untagged") == "true" {
+			if keyCtx.ScopedTagID > 0 {
+				am.jsonOK(w, apiClipListResponse{Clips: []apiClipResponse{}, Total: 0, Limit: limit, Offset: offset})
+				return
+			}
+			req.Mode, req.TagIDs = "untagged", nil
+		} else if v := q.Get("folder_tag"); v != "" {
+			folderID, parseErr := parseIntParam(v)
+			if parseErr != nil {
+				am.jsonError(w, http.StatusBadRequest, "invalid folder_tag")
+				return
+			}
+			// Folder listings do no key-scope filtering of their own (see below).
+			if keyCtx.ScopedTagID > 0 {
+				var name string
+				if err := am.app.db.QueryRow("SELECT name FROM tags WHERE id = ?", folderID).Scan(&name); err != nil || !am.isTagInScope(name, keyCtx.ScopedTagID) {
+					am.jsonOK(w, apiClipListResponse{Clips: []apiClipResponse{}, Total: 0, Limit: limit, Offset: offset})
+					return
+				}
+			}
+			req.Mode, req.FolderTagID = "folder", folderID
+		} else if q.Has("search_content") {
+			req.Mode = "search"
+		}
+		// The query narrows folder and untagged listings as well as a plain
+		// search; dropping it there returned the whole folder.
+		if q.Has("search_content") {
+			req.Query, req.SearchContent = q.Get("search"), q.Get("search_content") == "true"
+		}
+		page, err := am.app.listClipsPage(req, contentType)
+		if err != nil {
+			am.jsonError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		clips := make([]apiClipResponse, 0, len(page.Clips))
+		for _, p := range page.Clips {
+			clips = append(clips, apiClipResponse{
+				ID:          p.ID,
+				Filename:    p.Filename,
+				ContentType: p.ContentType,
+				Size:        p.Size,
+				IsArchived:  p.IsArchived,
+				CreatedAt:   p.CreatedAt.Format(time.RFC3339),
+				Tags:        p.Tags,
+			})
+		}
+		am.jsonOK(w, apiClipListResponse{Clips: clips, Total: page.Total, Limit: limit, Offset: page.Offset})
+		return
+	}
+
 	var previews []ClipPreview
 	usedDBSearch := false
 	if q.Get("untagged") == "true" {
@@ -1385,7 +1443,6 @@ func (am *APIManager) handleListClipsViaApp(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	contentType := q.Get("content_type")
 	search := strings.ToLower(q.Get("search"))
 	if usedDBSearch {
 		// Already applied in SQL, over the whole clip — re-running it against the

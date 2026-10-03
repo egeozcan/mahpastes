@@ -11,6 +11,7 @@ const pluginResultBody = document.getElementById('plugin-result-body');
 const pluginResultClose = document.getElementById('plugin-result-close');
 const pluginResultCopy = document.getElementById('plugin-result-copy');
 const pluginResultPaste = document.getElementById('plugin-result-paste');
+const pluginResultFocus = createModalFocus(pluginResultModal);
 
 async function renderPluginContent(content, format, pluginId, renderGen) {
     switch (format) {
@@ -105,6 +106,7 @@ async function showPluginResultModal(data) {
     pluginResultModal.removeAttribute('inert');
     pluginResultModal.classList.remove('opacity-0', 'pointer-events-none');
     pluginResultModal.classList.add('opacity-100');
+    pluginResultFocus.open(pluginResultClose);
 }
 
 function closePluginResultModal() {
@@ -112,6 +114,7 @@ function closePluginResultModal() {
     pluginResultModal.classList.remove('opacity-100');
     pluginResultModal.classList.add('opacity-0', 'pointer-events-none');
     pluginResultModal.setAttribute('inert', '');
+    pluginResultFocus.close();
     currentModalData = null;
     // Notify Go side so modal.show() lock is released
     window.runtime.EventsEmit('plugin:modal:closed');

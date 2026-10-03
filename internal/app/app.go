@@ -1008,6 +1008,116 @@ func (a *App) GetUntaggedClips(archived bool, hiddenTagIDs []int64, sortField st
 	return a.getClipsInternal(archived, nil, hiddenTagIDs, sortField, sortDir, false, nil, true)
 }
 
+// ClipListRequest names one page of a gallery listing. Mode picks which of the
+// listing functions it pages through, with the same filter semantics:
+//   - "all" (default): GetClips — hierarchical tag filters, hidden anti-join.
+//   - "folder": GetFolderClips(FolderTagID) — exact level, hidden tags ignored.
+//   - "untagged": GetUntaggedClips — folder-mode root.
+//   - "search": SearchClips(Query, SearchContent).
+type ClipListRequest struct {
+	Mode          string  `json:"mode"`
+	Archived      bool    `json:"archived"`
+	TagIDs        []int64 `json:"tag_ids"`
+	HiddenTagIDs  []int64 `json:"hidden_tag_ids"`
+	FolderTagID   int64   `json:"folder_tag_id"`
+	Query         string  `json:"query"`
+	SearchContent bool    `json:"search_content"`
+	SortField     string  `json:"sort_field"`
+	SortDir       string  `json:"sort_dir"`
+	Offset        int     `json:"offset"`
+	Limit         int     `json:"limit"`
+}
+
+// ClipPage is one page of a listing plus the size of the whole listing, so
+// the gallery can say "50 of 120 clips" and offer to load the rest.
+type ClipPage struct {
+	Clips   []ClipPreview `json:"clips"`
+	Total   int           `json:"total"`
+	Offset  int           `json:"offset"`
+	HasMore bool          `json:"has_more"`
+}
+
+// maxClipPageLimit bounds a single page; the gallery asks for defaultClipLimit.
+const maxClipPageLimit = 200
+
+// ListClipsPage returns one page of a gallery listing and its total. Pages are
+// ordered exactly like the unpaged listing functions (ties broken by id), so
+// walking the offsets visits every clip once while the library is unchanged.
+func (a *App) ListClipsPage(req ClipListRequest) (ClipPage, error) {
+	return a.listClipsPage(req, "")
+}
+
+// listClipsPage is ListClipsPage, optionally narrowed to one exact content
+// type (REST `content_type`). It is not a ClipListRequest field so the bound
+// type, and the frontend bindings generated from it, stay unchanged.
+func (a *App) listClipsPage(req ClipListRequest, contentType string) (ClipPage, error) {
+	limit := req.Limit
+	if limit <= 0 {
+		limit = defaultClipLimit
+	}
+	if limit > maxClipPageLimit {
+		limit = maxClipPageLimit
+	}
+	offset := req.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
+	// Folder and untagged listings take an optional query too (REST
+	// `folder_tag`/`untagged` with `search` + `search_content`); the gallery
+	// never sends one there, since folder mode disables deep search.
+	var narrow *clipSearchSpec
+	if strings.TrimSpace(req.Query) != "" {
+		narrow = &clipSearchSpec{Query: req.Query, InContent: req.SearchContent}
+	}
+
+	var q clipListQuery
+	switch req.Mode {
+	case "folder":
+		// The folder can vanish while it is open (orphan auto-delete, another
+		// client); it lists as empty rather than as an error.
+		var exists int
+		if err := a.db.QueryRow(`SELECT 1 FROM tags WHERE id = ?`, req.FolderTagID).Scan(&exists); errors.Is(err, sql.ErrNoRows) {
+			return ClipPage{Clips: []ClipPreview{}, Offset: offset}, nil
+		} else if err != nil {
+			return ClipPage{}, fmt.Errorf("failed to find tag %d: %w", req.FolderTagID, err)
+		}
+		descendantIDs, err := a.getDescendantTagIDs(req.FolderTagID)
+		if err != nil {
+			return ClipPage{}, err
+		}
+		q = a.buildClipListQuery(req.Archived, []int64{req.FolderTagID}, descendantIDs, req.SortField, req.SortDir, false, narrow, false)
+	case "untagged":
+		q = a.buildClipListQuery(req.Archived, nil, req.HiddenTagIDs, req.SortField, req.SortDir, false, narrow, true)
+	case "search":
+		q = a.buildClipListQuery(req.Archived, req.TagIDs, req.HiddenTagIDs, req.SortField, req.SortDir, true,
+			&clipSearchSpec{Query: req.Query, InContent: req.SearchContent}, false)
+	case "", "all":
+		q = a.buildClipListQuery(req.Archived, req.TagIDs, req.HiddenTagIDs, req.SortField, req.SortDir, true, nil, false)
+	default:
+		return ClipPage{}, fmt.Errorf("unknown listing mode %q", req.Mode)
+	}
+	if contentType != "" {
+		q.where += "\n\t\t  AND c.content_type = ?"
+		q.args = append(q.args, contentType)
+	}
+
+	clips, total, consumed, err := a.queryClipPreviewsCounted(q, offset, limit)
+	if err != nil {
+		return ClipPage{}, err
+	}
+	if len(clips) == 0 && (offset > 0 || consumed > 0) {
+		// A page past the end, or one whose only rows were unreadable, has no
+		// row to carry the window count.
+		if total, err = a.countClips(q); err != nil {
+			return ClipPage{}, err
+		}
+	}
+	// has_more counts rows consumed, readable or not, so a skipped row
+	// neither ends paging early nor makes it loop.
+	return ClipPage{Clips: clips, Total: total, Offset: offset, HasMore: offset+consumed < total}, nil
+}
+
 // HiddenClipInfo reports clips that match the active tag filters but are kept
 // out of the gallery because they also carry a hidden tag. Tags lists the hidden
 // tag names responsible, so the UI can explain what is being withheld.
@@ -1168,6 +1278,20 @@ func (a *App) buildClipFilterScope(tagIDs []int64, hiddenTagIDs []int64, expandF
 }
 
 func (a *App) getClipsInternal(archived bool, tagIDs []int64, hiddenTagIDs []int64, sortField string, sortDir string, expandFilters bool, search *clipSearchSpec, untaggedOnly ...bool) ([]ClipPreview, error) {
+	wantUntagged := len(untaggedOnly) > 0 && untaggedOnly[0]
+	q := a.buildClipListQuery(archived, tagIDs, hiddenTagIDs, sortField, sortDir, expandFilters, search, wantUntagged)
+	return a.queryClipPreviews(q, 0, defaultClipLimit)
+}
+
+// clipListQuery is a gallery listing's WHERE clause, its arguments and its
+// ORDER BY, shared by the page query and the total count so both always agree.
+type clipListQuery struct {
+	where string
+	args  []interface{}
+	order string
+}
+
+func (a *App) buildClipListQuery(archived bool, tagIDs []int64, hiddenTagIDs []int64, sortField string, sortDir string, expandFilters bool, search *clipSearchSpec, wantUntagged bool) clipListQuery {
 	archivedInt := 0
 	if archived {
 		archivedInt = 1
@@ -1188,111 +1312,101 @@ func (a *App) getClipsInternal(archived bool, tagIDs []int64, hiddenTagIDs []int
 	}
 
 	scope := a.buildClipFilterScope(tagIDs, hiddenTagIDs, expandFilters)
-	filterGroups := scope.filterGroups
-	effectiveHidden := scope.effectiveHidden
 
-	var query string
+	var conds []string
 	var args []interface{}
-
-	wantUntagged := len(untaggedOnly) > 0 && untaggedOnly[0]
-	untaggedClause := ""
-	if wantUntagged {
-		untaggedClause = "\n\t\t  AND NOT EXISTS (SELECT 1 FROM clip_tags ct2 WHERE ct2.clip_id = c.id)"
-	}
-
-	searchClause, searchArgs := buildClipSearchClause(search)
-
-	selectCols := `c.id, c.content_type, c.filename, c.created_at, c.expires_at, SUBSTR(c.data, 1, 500), c.is_archived, LENGTH(c.data),
-		       (SELECT COUNT(*) FROM clips c2 WHERE c2.content_hash = c.content_hash AND c2.content_hash != '' AND c2.id != c.id)`
-
-	if len(filterGroups) > 0 {
-		// Filter by tags using EXISTS per group (AND logic - clip must match ALL groups)
-
-		// Build EXISTS clauses for each filter group
-		var existsClauses []string
-		for _, group := range filterGroups {
-			placeholders := make([]string, len(group.ids))
-			for i, id := range group.ids {
-				placeholders[i] = "?"
-				args = append(args, id)
-			}
-			existsClauses = append(existsClauses,
-				fmt.Sprintf("EXISTS (SELECT 1 FROM clip_tags ct WHERE ct.clip_id = c.id AND ct.tag_id IN (%s))",
-					strings.Join(placeholders, ",")))
-		}
-
-		// Hidden tags anti-join via NOT EXISTS
-		hiddenClause := ""
-		if len(effectiveHidden) > 0 {
-			hiddenPlaceholders := make([]string, len(effectiveHidden))
-			for i, id := range effectiveHidden {
-				hiddenPlaceholders[i] = "?"
-				args = append(args, id)
-			}
-			hiddenClause = fmt.Sprintf("\n\t\t  AND NOT EXISTS (SELECT 1 FROM clip_tags ct WHERE ct.clip_id = c.id AND ct.tag_id IN (%s))",
-				strings.Join(hiddenPlaceholders, ","))
-		}
-
-		args = append(args, searchArgs...)
-		args = append(args, archivedInt)
-
-		query = fmt.Sprintf(`
-		SELECT %s
-		FROM clips c
-		WHERE %s%s%s%s
-		  AND c.is_archived = ?
-		  AND (c.expires_at IS NULL OR c.expires_at > CURRENT_TIMESTAMP)
-		%s
-		LIMIT %d`, selectCols, strings.Join(existsClauses, "\n\t\t  AND "), hiddenClause, untaggedClause, searchClause, orderClause, defaultClipLimit)
-	} else if len(effectiveHidden) > 0 {
-		// No tag filters but has hidden tags - use NOT EXISTS anti-join
-		hiddenPlaceholders := make([]string, len(effectiveHidden))
-		for i, id := range effectiveHidden {
-			hiddenPlaceholders[i] = "?"
+	placeholders := func(ids []int64) string {
+		ph := make([]string, len(ids))
+		for i, id := range ids {
+			ph[i] = "?"
 			args = append(args, id)
 		}
-		args = append(args, searchArgs...)
-		args = append(args, archivedInt)
-
-		query = fmt.Sprintf(`
-		SELECT %s
-		FROM clips c
-		WHERE NOT EXISTS (SELECT 1 FROM clip_tags ct WHERE ct.clip_id = c.id AND ct.tag_id IN (%s))%s%s
-		  AND c.is_archived = ?
-		  AND (c.expires_at IS NULL OR c.expires_at > CURRENT_TIMESTAMP)
-		%s
-		LIMIT %d`, selectCols, strings.Join(hiddenPlaceholders, ","), untaggedClause, searchClause, orderClause, defaultClipLimit)
-	} else {
-		// No filters, no hidden tags - original simple query
-		args = append(args, archivedInt)
-		args = append(args, searchArgs...)
-		query = fmt.Sprintf(`
-		SELECT %s
-		FROM clips c
-		WHERE c.is_archived = ?%s%s AND (c.expires_at IS NULL OR c.expires_at > CURRENT_TIMESTAMP)
-		%s
-		LIMIT %d`, selectCols, untaggedClause, searchClause, orderClause, defaultClipLimit)
+		return strings.Join(ph, ",")
 	}
+
+	// Filter groups AND together: a clip must match every group.
+	for _, group := range scope.filterGroups {
+		conds = append(conds, fmt.Sprintf(
+			"EXISTS (SELECT 1 FROM clip_tags ct WHERE ct.clip_id = c.id AND ct.tag_id IN (%s))", placeholders(group.ids)))
+	}
+	if len(scope.effectiveHidden) > 0 {
+		conds = append(conds, fmt.Sprintf(
+			"NOT EXISTS (SELECT 1 FROM clip_tags ct WHERE ct.clip_id = c.id AND ct.tag_id IN (%s))", placeholders(scope.effectiveHidden)))
+	}
+	if wantUntagged {
+		conds = append(conds, "NOT EXISTS (SELECT 1 FROM clip_tags ct2 WHERE ct2.clip_id = c.id)")
+	}
+	if searchClause, searchArgs := buildClipSearchClause(search); searchClause != "" {
+		conds = append(conds, strings.TrimPrefix(strings.TrimSpace(searchClause), "AND "))
+		args = append(args, searchArgs...)
+	}
+	conds = append(conds, "c.is_archived = ?", "(c.expires_at IS NULL OR c.expires_at > CURRENT_TIMESTAMP)")
+	args = append(args, archivedInt)
+
+	return clipListQuery{where: strings.Join(conds, "\n\t\t  AND "), args: args, order: orderClause}
+}
+
+func (a *App) countClips(q clipListQuery) (int, error) {
+	var n int
+	if err := a.db.QueryRow("SELECT COUNT(*) FROM clips c WHERE "+q.where, q.args...).Scan(&n); err != nil {
+		return 0, fmt.Errorf("failed to count clips: %w", err)
+	}
+	return n, nil
+}
+
+func (a *App) queryClipPreviews(q clipListQuery, offset, limit int) ([]ClipPreview, error) {
+	clips, _, _, err := a.queryClipPreviewsCounted(q, offset, limit)
+	return clips, err
+}
+
+// queryClipPreviewsCounted returns one page of previews plus the size of the
+// whole listing, in one pass. The filter (which for a content search scans
+// every text clip's bytes) runs once, in an inner query that keeps only ids and
+// the window count; the preview columns are read for the page's rows alone.
+// The total is 0 when the page is empty — the caller recounts if it needs to.
+func (a *App) queryClipPreviewsCounted(q clipListQuery, offset, limit int) ([]ClipPreview, int, int, error) {
+	selectCols := `c.id, c.content_type, c.filename, c.created_at, c.expires_at, SUBSTR(c.data, 1, 500), c.is_archived, LENGTH(c.data),
+		       (SELECT COUNT(*) FROM clips c2 WHERE c2.content_hash = c.content_hash AND c2.content_hash != '' AND c2.id != c.id),
+		       page.total`
+	query := fmt.Sprintf(`
+		SELECT %s
+		FROM (
+			SELECT c.id AS id, COUNT(*) OVER () AS total
+			FROM clips c
+			WHERE %s
+			%s
+			LIMIT %d OFFSET %d
+		) page
+		INNER JOIN clips c ON c.id = page.id
+		%s`, selectCols, q.where, q.order, limit, offset, q.order)
+	args := q.args
 
 	rows, err := a.db.Query(query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query clips: %w", err)
+		return nil, 0, 0, fmt.Errorf("failed to query clips: %w", err)
 	}
 	defer rows.Close()
 
 	var clips []ClipPreview
 	var clipIDs []int64
+	total := 0
+	consumed := 0
 	for rows.Next() {
+		consumed++
 		var clip ClipPreview
 		var filename sql.NullString
 		var expiresAt sql.NullTime
 		var previewData []byte
 		var isArchivedInt int
 
-		if err := rows.Scan(&clip.ID, &clip.ContentType, &filename, &clip.CreatedAt, &expiresAt, &previewData, &isArchivedInt, &clip.Size, &clip.DuplicateCount); err != nil {
-			log.Printf("Failed to scan clip row: %v\n", err)
+		// One unreadable row is skipped rather than failing the whole page:
+		// the caller derives has_more from `consumed`, not the page length.
+		var rowTotal int
+		if err := rows.Scan(&clip.ID, &clip.ContentType, &filename, &clip.CreatedAt, &expiresAt, &previewData, &isArchivedInt, &clip.Size, &clip.DuplicateCount, &rowTotal); err != nil {
+			log.Printf("Skipping unreadable clip row: %v", err)
 			continue
 		}
+		total = rowTotal
 
 		clip.Filename = filename.String
 		clip.IsArchived = isArchivedInt == 1
@@ -1310,6 +1424,11 @@ func (a *App) getClipsInternal(archived bool, tagIDs []int64, hiddenTagIDs []int
 		clip.Tags = []Tag{} // Initialize empty, will be filled by batch query
 		clips = append(clips, clip)
 		clipIDs = append(clipIDs, clip.ID)
+	}
+	// An error mid-iteration (a busy database, an I/O error) ends the loop
+	// like the last row does; without this check it read as a short page.
+	if err := rows.Err(); err != nil {
+		return nil, 0, 0, fmt.Errorf("failed to read clips: %w", err)
 	}
 
 	// Batch load tags for all clips (fixes N+1 query problem)
@@ -1329,7 +1448,7 @@ func (a *App) getClipsInternal(archived bool, tagIDs []int64, hiddenTagIDs []int
 	if clips == nil {
 		clips = []ClipPreview{}
 	}
-	return clips, nil
+	return clips, total, consumed, nil
 }
 
 // getTagsForClips batch loads tags for multiple clips in a single query
@@ -2034,19 +2153,23 @@ func (a *App) CreateTag(name string) (*Tag, error) {
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	// Emit events for auto-created ancestors first, then for the requested tag
+	// Emit events for auto-created ancestors first, then for the requested
+	// tag. The runtime event refreshes the frontend's tag cache: tags created
+	// by plugins, the REST API or a followed share never pass through it.
 	for _, anc := range createdAncestors {
 		a.emitPluginEvent("tag:created", map[string]interface{}{
 			"id":    anc.ID,
 			"name":  anc.Name,
 			"color": anc.Color,
 		})
+		a.emitEvent("tag:created", map[string]any{"id": anc.ID, "name": anc.Name, "color": anc.Color})
 	}
 	a.emitPluginEvent("tag:created", map[string]interface{}{
 		"id":    id,
 		"name":  name,
 		"color": color,
 	})
+	a.emitEvent("tag:created", map[string]any{"id": id, "name": name, "color": color})
 
 	return &Tag{
 		ID:    id,
@@ -2169,18 +2292,54 @@ func (a *App) UpdateTag(id int64, name, color string) error {
 		return fmt.Errorf("failed to update tag: %w", err)
 	}
 
+	// Rows the exclusivity pass below drops, announced after the commit.
+	var dropped []clipTagRemoval
+
 	// After updating the tag itself, cascade rename descendants. The renamed
 	// row is excluded by id: under its new name it can match its own old
 	// prefix only if it moved into its own subtree, which is refused above.
 	if oldName != name {
 		newPrefix := name + "/"
-		_, err = tx.Exec(`UPDATE tags SET name = ? || SUBSTR(name, length(?) + 2) WHERE `+underTagSQL("name")+` AND id != ?`,
+		// RETURNING collects exactly the rows this rename moved. Selecting the
+		// moved set by the new name instead would also take in tags already
+		// under the destination (an orphan x/b/z whose x/b was deleted), and
+		// those would then survive the exclusivity pass below.
+		descRows, err := tx.Query(`UPDATE tags SET name = ? || SUBSTR(name, length(?) + 2) WHERE `+underTagSQL("name")+` AND id != ? RETURNING id`,
 			newPrefix, oldName, oldName, oldName, id)
 		if err != nil {
 			if strings.Contains(err.Error(), "UNIQUE") {
 				return fmt.Errorf("tag rename conflicts with an existing tag")
 			}
 			return fmt.Errorf("failed to rename descendant tags: %w", err)
+		}
+		movedIDs := []int64{id}
+		for descRows.Next() {
+			var movedID int64
+			if err := descRows.Scan(&movedID); err != nil {
+				descRows.Close()
+				return fmt.Errorf("failed to rename descendant tags: %w", err)
+			}
+			movedIDs = append(movedIDs, movedID)
+		}
+		if err := descRows.Err(); err != nil {
+			descRows.Close()
+			if strings.Contains(err.Error(), "UNIQUE") {
+				return fmt.Errorf("tag rename conflicts with an existing tag")
+			}
+			return fmt.Errorf("failed to rename descendant tags: %w", err)
+		}
+		if err := descRows.Close(); err != nil {
+			return fmt.Errorf("failed to rename descendant tags: %w", err)
+		}
+
+		// A move into another root tree can leave a clip holding a tag of
+		// the moved subtree and another tag already in the destination tree
+		// (a/b + x, then a/b -> x/b). Within one tree a move cannot add a
+		// second tag, so only a root change needs the cleanup.
+		if newRoot := getRootTagName(name); newRoot != getRootTagName(oldName) {
+			if dropped, err = dropOtherTagsInTreeForMoved(tx, movedIDs, newRoot); err != nil {
+				return fmt.Errorf("failed to enforce tree exclusivity: %w", err)
+			}
 		}
 	}
 
@@ -2194,6 +2353,7 @@ func (a *App) UpdateTag(id int64, name, color string) error {
 		"name":  name,
 		"color": color,
 	})
+	a.announceClipTagRemovals(dropped)
 
 	// Emit Wails runtime event so the frontend can re-resolve folder-view state.
 	a.emitEvent("tag:updated", map[string]any{
@@ -2436,13 +2596,27 @@ func (a *App) MergeTag(sourceID, destID int64) error {
 	// other tag under destination's root tree (keep destination only).
 	// Anchoring on source (not destination) ensures we don't accidentally
 	// rewrite an unrelated clip that already happened to carry destination.
-	if _, err := tx.Exec(`DELETE FROM clip_tags
+	// The source's own rows (same-root case) are left out of the
+	// announcement: they go with the source, which tag:merged reports.
+	cleanupRows, err := tx.Query(`DELETE FROM clip_tags
 		WHERE clip_id IN (SELECT clip_id FROM clip_tags WHERE tag_id = ?)
 		  AND tag_id IN (
 		    SELECT id FROM tags WHERE name = ? OR `+underTagSQL("name")+`
 		  )
-		  AND tag_id != ?`, sourceID, destRoot, destRoot, destRoot, destID); err != nil {
+		  AND tag_id != ?
+		RETURNING clip_id, tag_id`, sourceID, destRoot, destRoot, destRoot, destID)
+	if err != nil {
 		return fmt.Errorf("same-tree cleanup: %w", err)
+	}
+	cleaned, err := scanClipTagRemovals(cleanupRows)
+	if err != nil {
+		return fmt.Errorf("same-tree cleanup: %w", err)
+	}
+	var dropped []clipTagRemoval
+	for _, r := range cleaned {
+		if r.tagID != sourceID {
+			dropped = append(dropped, r)
+		}
 	}
 
 	// (2c) Delete remaining source clip_tags rows (catches cross-root case;
@@ -2452,14 +2626,46 @@ func (a *App) MergeTag(sourceID, destID int64) error {
 	}
 
 	// (3) Rename descendants with prefix swap. Reuses the same SQL as
-	// UpdateTag's cascade rename.
+	// UpdateTag's cascade rename. RETURNING collects the moved ids for the
+	// exclusivity pass below.
 	newPrefix := dstName + "/"
-	if _, err := tx.Exec(`UPDATE tags SET name = ? || SUBSTR(name, length(?) + 2) WHERE `+underTagSQL("name"),
-		newPrefix, srcName, srcName, srcName); err != nil {
+	descRows, err := tx.Query(`UPDATE tags SET name = ? || SUBSTR(name, length(?) + 2) WHERE `+underTagSQL("name")+` RETURNING id`,
+		newPrefix, srcName, srcName, srcName)
+	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			return fmt.Errorf("merge would create duplicate tag path")
 		}
 		return fmt.Errorf("rename descendants: %w", err)
+	}
+	var movedDescendants []int64
+	for descRows.Next() {
+		var id int64
+		if err := descRows.Scan(&id); err != nil {
+			descRows.Close()
+			return fmt.Errorf("rename descendants: %w", err)
+		}
+		movedDescendants = append(movedDescendants, id)
+	}
+	if err := descRows.Err(); err != nil {
+		descRows.Close()
+		if strings.Contains(err.Error(), "UNIQUE") {
+			return fmt.Errorf("merge would create duplicate tag path")
+		}
+		return fmt.Errorf("rename descendants: %w", err)
+	}
+	if err := descRows.Close(); err != nil {
+		return fmt.Errorf("rename descendants: %w", err)
+	}
+
+	// (3b) A clip tagged with a source descendant (a/b/c) now carries x/c;
+	// if it also held another tag in destination's tree (x/y) it has two.
+	// (2b) only covered clips holding the source itself. The moved tag wins.
+	if len(movedDescendants) > 0 {
+		descDropped, err := dropOtherTagsInTreeForMoved(tx, movedDescendants, destRoot)
+		if err != nil {
+			return fmt.Errorf("same-tree cleanup for descendants: %w", err)
+		}
+		dropped = append(dropped, descDropped...)
 	}
 
 	// (4) Migrate non-networked references.
@@ -2517,6 +2723,7 @@ func (a *App) MergeTag(sourceID, destID int64) error {
 			"source_name": srcName, "dest_name": dstName,
 		})
 	}
+	a.announceClipTagRemovals(dropped)
 	a.emitEvent("tag:merged", map[string]any{
 		"source_id": sourceID, "dest_id": destID,
 		"source_name": srcName, "dest_name": dstName,
@@ -2917,6 +3124,77 @@ func removeSameTreeTags(h sqlHandle, clipID, newTagID int64) error {
 	return err
 }
 
+// clipTagRemoval is one clip_tags row an operation deleted on its own
+// initiative (an exclusivity pass), to be announced once it commits.
+type clipTagRemoval struct {
+	clipID, tagID int64
+}
+
+// scanClipTagRemovals drains a `DELETE … RETURNING clip_id, tag_id` and closes
+// it, so the transaction can run its next statement.
+func scanClipTagRemovals(rows *sql.Rows) ([]clipTagRemoval, error) {
+	var removed []clipTagRemoval
+	for rows.Next() {
+		var r clipTagRemoval
+		if err := rows.Scan(&r.clipID, &r.tagID); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		removed = append(removed, r)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	return removed, rows.Close()
+}
+
+// announceClipTagRemovals emits tag:removed_from_clip for rows a rename or
+// merge dropped, exactly as RemoveTagFromClip announces its own. Call it after
+// the commit and outside backupRestoreMu (handlers re-enter the App).
+//
+// Removals carry no share notification: the share protocol only publishes
+// arrivals, and RemoveTagFromClip/BulkRemoveTag send nothing to followers
+// either.
+func (a *App) announceClipTagRemovals(removed []clipTagRemoval) {
+	if a.pluginManager == nil {
+		return
+	}
+	for _, r := range removed {
+		a.pluginManager.EmitEvent("tag:removed_from_clip", map[string]interface{}{
+			"tag_id":  r.tagID,
+			"clip_id": r.clipID,
+		})
+	}
+}
+
+// dropOtherTagsInTreeForMoved restores tree exclusivity after tags were moved
+// into another root tree (a rename that changes the root, or a merge renaming
+// the source's descendants). Every clip carrying one of movedIDs loses its
+// other tags under root, so the moved tag wins. Clips that carry no moved tag
+// are left alone. Before the move each clip held at most one tag of the moved
+// subtree (it came from a single tree), so the moved tag kept is unambiguous.
+//
+// The ids are bound once, as a JSON array, so the statement's parameter count
+// does not grow with the subtree. It returns the rows it deleted.
+func dropOtherTagsInTreeForMoved(tx *sql.Tx, movedIDs []int64, root string) ([]clipTagRemoval, error) {
+	movedJSON, err := json.Marshal(movedIDs)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := tx.Query(`
+		WITH moved(id) AS (SELECT value FROM json_each(?))
+		DELETE FROM clip_tags
+		WHERE clip_id IN (SELECT clip_id FROM clip_tags WHERE tag_id IN (SELECT id FROM moved))
+		  AND tag_id IN (SELECT id FROM tags WHERE name = ? OR `+underTagSQL("name")+`)
+		  AND tag_id NOT IN (SELECT id FROM moved)
+		RETURNING clip_id, tag_id`, string(movedJSON), root, root, root)
+	if err != nil {
+		return nil, err
+	}
+	return scanClipTagRemovals(rows)
+}
+
 // orphanTagDeleteSQL deletes one tag only if it is still a throwaway: top
 // level, no clips, no children, and nothing the user wired to it. The checks
 // and the delete are one statement so a clip tagged in between cannot be
@@ -2970,17 +3248,25 @@ func (a *App) deleteTagIfOrphaned(tagID int64) {
 		return
 	}
 
-	res, err := a.db.Exec(orphanTagDeleteSQL, tagID)
+	var name string
+	err := a.db.QueryRow(orphanTagDeleteSQL+" RETURNING name", tagID).Scan(&name)
 	if isSQLiteNoSuchTable(err) {
-		res, err = a.db.Exec(orphanTagDeleteMinimalSQL, tagID)
+		err = a.db.QueryRow(orphanTagDeleteMinimalSQL+" RETURNING name", tagID).Scan(&name)
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return // still referenced, or already gone
 	}
 	if err != nil {
 		log.Printf("orphan tag cleanup for tag %d: %v", tagID, err)
 		return
 	}
-	if n, err := res.RowsAffected(); err == nil && n > 0 {
-		a.emitPluginEvent("tag:deleted", map[string]interface{}{"id": tagID})
-	}
+	a.emitPluginEvent("tag:deleted", map[string]interface{}{"id": tagID})
+	// Same runtime event as DeleteTag, so the frontend drops the tag from its
+	// cache and leaves a folder view that pointed at it. "auto" tells it the
+	// user did not ask for the deletion (they emptied the folder, often by
+	// dragging its last clip to Home), so it stays in folder mode at the root
+	// rather than leaving folder mode the way an explicit delete does.
+	a.emitEvent("tag:deleted", map[string]any{"id": tagID, "name": name, "auto": true})
 }
 
 // getDescendantTagIDs returns all tag IDs whose names are descendants of the
@@ -3030,31 +3316,69 @@ func (a *App) getChildTags(tagID int64) ([]Tag, error) {
 	}
 	defer rows.Close()
 
-	var children []Tag
+	var descendants []Tag
 	for rows.Next() {
 		var tag Tag
 		if err := rows.Scan(&tag.ID, &tag.Name, &tag.Color, &tag.Count); err != nil {
 			log.Printf("Failed to scan child tag: %v", err)
 			continue
 		}
-		if isImmediateChildOf(tag.Name, parentName) {
-			children = append(children, tag)
-		}
+		descendants = append(descendants, tag)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to read child tags: %w", err)
 	}
 
-	if children == nil {
-		children = []Tag{}
-	}
+	// A child is a descendant whose nearest *existing* ancestor is this tag.
+	// Deleting a mid-level tag (a/b) leaves its descendants (a/b/c) behind;
+	// they show under a, whose folder count already includes them, rather
+	// than becoming unreachable from folder mode.
+	children := []Tag{}
+	children = append(children, filterByNearestAncestor(descendants, parentName)...)
 	return children, nil
 }
 
-// getTopLevelTags returns tags whose names contain no "/" separator, with clip counts.
+// filterByNearestAncestor returns the tags in candidates whose nearest
+// existing proper ancestor is parent ("" for the top level). Existence is
+// judged against candidates itself, so it must hold every tag that could sit
+// between parent and a candidate: all tags under parent (or all tags, for
+// the top level).
+func filterByNearestAncestor(candidates []Tag, parent string) []Tag {
+	existing := make(map[string]bool, len(candidates)+1)
+	if parent != "" {
+		existing[parent] = true
+	}
+	for _, t := range candidates {
+		existing[t.Name] = true
+	}
+	var out []Tag
+	for _, t := range candidates {
+		if nearestExistingAncestor(t.Name, existing) == parent {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// nearestExistingAncestor walks up name's ancestors and returns the first one
+// present in existing, or "" when none is.
+func nearestExistingAncestor(name string, existing map[string]bool) string {
+	for p := getParentTagName(name); p != ""; p = getParentTagName(p) {
+		if existing[p] {
+			return p
+		}
+	}
+	return ""
+}
+
+// getTopLevelTags returns tags with no existing ancestor, with clip counts:
+// every root tag, plus any tag whose ancestors were all deleted (p/q once p
+// is gone), which would otherwise be unreachable from folder mode.
 func (a *App) getTopLevelTags() ([]Tag, error) {
 	rows, err := a.db.Query(`
 		SELECT t.id, t.name, t.color, COUNT(ct.clip_id) as count
 		FROM tags t
 		LEFT JOIN clip_tags ct ON t.id = ct.tag_id
-		WHERE t.name NOT LIKE '%/%'
 		GROUP BY t.id
 		ORDER BY t.name
 	`)
@@ -3063,19 +3387,21 @@ func (a *App) getTopLevelTags() ([]Tag, error) {
 	}
 	defer rows.Close()
 
-	var tags []Tag
+	var all []Tag
 	for rows.Next() {
 		var tag Tag
 		if err := rows.Scan(&tag.ID, &tag.Name, &tag.Color, &tag.Count); err != nil {
 			log.Printf("Failed to scan top-level tag: %v", err)
 			continue
 		}
-		tags = append(tags, tag)
+		all = append(all, tag)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to read top-level tags: %w", err)
 	}
 
-	if tags == nil {
-		tags = []Tag{}
-	}
+	tags := []Tag{}
+	tags = append(tags, filterByNearestAncestor(all, "")...)
 	return tags, nil
 }
 
@@ -3661,6 +3987,9 @@ func (a *App) AddWatchedFolder(config WatchedFolderConfig) (*WatchedFolder, erro
 	if config.FilterMode == "" {
 		config.FilterMode = "all"
 	}
+	if err := validateWatchFilterRegex(config.FilterRegex); err != nil {
+		return nil, err
+	}
 
 	// Serialize presets to JSON
 	var presetsJSON []byte
@@ -3700,8 +4029,25 @@ func boolToInt(b bool) int {
 	return 0
 }
 
-// UpdateWatchedFolder updates an existing watched folder config.
-// Zero-value fields in config are treated as "not provided" and keep existing values.
+// validateWatchFilterRegex refuses a filter regex Go cannot compile. Stored,
+// such a pattern made the watcher log and skip every file, so the folder
+// silently imported nothing.
+func validateWatchFilterRegex(pattern string) error {
+	if pattern == "" {
+		return nil
+	}
+	if _, err := regexp.Compile(pattern); err != nil {
+		return fmt.Errorf("invalid filter regex %q: %v", pattern, err)
+	}
+	return nil
+}
+
+// UpdateWatchedFolder replaces an existing watched folder's filter, archive
+// and auto-tag settings with config. It is a full replacement: the edit modal
+// always sends the whole form, so a false/empty/nil field means the user
+// cleared it (unchecked auto-archive, removed the auto-tag or the regex).
+// Path and process_existing are fixed at creation and ignored here. Callers
+// that only want to change some fields use UpdateWatchedFolderPartial.
 func (a *App) UpdateWatchedFolder(id int64, config WatchedFolderConfig) error {
 	existing, err := a.GetWatchedFolderByID(id)
 	if err != nil {
@@ -3711,42 +4057,25 @@ func (a *App) UpdateWatchedFolder(id int64, config WatchedFolderConfig) error {
 		return fmt.Errorf("watch folder %d not found", id)
 	}
 
-	filterMode := existing.FilterMode
-	if config.FilterMode != "" {
-		filterMode = config.FilterMode
+	filterMode := config.FilterMode
+	if filterMode == "" {
+		filterMode = "all"
 	}
-
-	filterPresets := existing.FilterPresets
-	if len(config.FilterPresets) > 0 {
-		filterPresets = config.FilterPresets
-	}
-
-	filterRegex := existing.FilterRegex
-	if config.FilterRegex != "" {
-		filterRegex = config.FilterRegex
-	}
-
-	autoArchive := existing.AutoArchive
-	if config.AutoArchive {
-		autoArchive = true
-	}
-
-	autoTagID := existing.AutoTagID
-	if config.AutoTagID != nil {
-		autoTagID = config.AutoTagID
+	if err := validateWatchFilterRegex(config.FilterRegex); err != nil {
+		return err
 	}
 
 	var presetsJSON []byte
-	if len(filterPresets) > 0 {
-		presetsJSON, _ = json.Marshal(filterPresets)
+	if len(config.FilterPresets) > 0 {
+		presetsJSON, _ = json.Marshal(config.FilterPresets)
 	}
 
 	_, err = a.db.Exec(`
 		UPDATE watched_folders
 		SET filter_mode = ?, filter_presets = ?, filter_regex = ?, auto_archive = ?, auto_tag_id = ?
 		WHERE id = ?
-	`, filterMode, string(presetsJSON), filterRegex,
-		boolToInt(autoArchive), autoTagID, id)
+	`, filterMode, string(presetsJSON), config.FilterRegex,
+		boolToInt(config.AutoArchive), config.AutoTagID, id)
 	if err != nil {
 		return fmt.Errorf("failed to update watched folder: %w", err)
 	}
@@ -3781,10 +4110,12 @@ func (a *App) UpdateWatchedFolderPartial(id int64, fields map[string]json.RawMes
 			filterPresets = v
 		}
 	}
+	regexSupplied := false
 	if raw, ok := fields["filter_regex"]; ok {
 		var v string
 		if err := json.Unmarshal(raw, &v); err == nil {
 			filterRegex = v
+			regexSupplied = true
 		}
 	}
 	if raw, ok := fields["auto_archive"]; ok {
@@ -3802,6 +4133,15 @@ func (a *App) UpdateWatchedFolderPartial(id int64, fields map[string]json.RawMes
 				autoTagID = &v
 			}
 		}
+	}
+	// The stored regex is written back too, so it is validated even when the
+	// request left it alone — but the error then says so, since nothing the
+	// caller sent is wrong.
+	if err := validateWatchFilterRegex(filterRegex); err != nil {
+		if !regexSupplied {
+			return fmt.Errorf("the stored filter regex of watch folder %d is invalid; set a valid filter_regex (or clear it) first: %w", id, err)
+		}
+		return err
 	}
 
 	var presetsJSON []byte

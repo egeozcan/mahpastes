@@ -20,8 +20,9 @@ import (
 // runtime calls were skipped when the ctx hadn't been set yet (e.g., during
 // unit tests that don't run Wails).
 type Bridge struct {
-	ctx      context.Context
-	testSink func(name string, data ...interface{})
+	ctx          context.Context
+	testSink     func(name string, data ...interface{})
+	testSaveFile func(opts FileDialogOptions) (string, error)
 }
 
 // New constructs a Bridge from the context delivered by Wails OnStartup.
@@ -57,6 +58,12 @@ func (b *Bridge) Quit() {
 // Only used by test code; production code never calls this.
 func (b *Bridge) SetTestEventSink(sink func(name string, data ...interface{})) {
 	b.testSink = sink
+}
+
+// SetTestSaveFile installs a stand-in for the native save dialog. Only used
+// by test code; production code never calls this.
+func (b *Bridge) SetTestSaveFile(fn func(opts FileDialogOptions) (string, error)) {
+	b.testSaveFile = fn
 }
 
 // Emit dispatches an event to the frontend. No-op if the bridge isn't active.

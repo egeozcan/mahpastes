@@ -122,4 +122,57 @@ test.describe('Folder move modal', () => {
         const renamed = tags.find((t: any) => t.name === `${dst}/${src}`);
         expect(renamed).toBeUndefined();
     });
+
+    test('tree rows are keyboard options: arrows move, Enter picks', async ({ app }) => {
+        // A second choosable row, sorted after the (disabled) source row.
+        const other = `zzz-${Date.now()}`;
+        await app.createTag(other);
+        const { src, dst } = await setupTwoFolders(app);
+
+        const card = app.page.locator(selectors.folderCard(src));
+        await card.focus();
+        await card.click({ button: 'right' });
+        await app.page.click(selectors.folderContextMenuItem('move'));
+        await expect(app.page.locator(MOVE_MODAL)).toBeVisible();
+
+        // Focus starts on the first choosable row; the source row is skipped.
+        const dstRow = app.page.locator(`${MOVE_TREE} [data-dest-path="${dst}"]`);
+        const otherRow = app.page.locator(`${MOVE_TREE} [data-dest-path="${other}"]`);
+        const firstEnabled = app.page.locator(`${MOVE_TREE} [role="option"]:not([aria-disabled="true"])`).first();
+        await expect(firstEnabled).toBeFocused();
+        await expect(firstEnabled).toHaveAttribute('data-dest-path', dst);
+
+        // ArrowDown steps over the disabled source row; ArrowUp comes back.
+        await app.page.keyboard.press('ArrowDown');
+        await expect(otherRow).toBeFocused();
+        await expect(otherRow).toHaveAttribute('tabindex', '0');
+        await app.page.keyboard.press('ArrowUp');
+        await expect(dstRow).toBeFocused();
+
+        await app.page.keyboard.press('Enter');
+        await expect(dstRow).toHaveAttribute('aria-selected', 'true');
+        await expect(app.page.locator(MOVE_PREVIEW)).toContainText(`${dst}/${src}`);
+
+        // Escape closes and returns focus to the folder card.
+        await app.page.keyboard.press('Escape');
+        await expect(app.page.locator(MOVE_MODAL)).toBeHidden();
+        await expect(card).toBeFocused();
+    });
+
+    test('tree sorts by path segments so children sit under their parent', async ({ app }) => {
+        await app.page.evaluate(async () => {
+            for (const name of ['photos-2024', 'photos/trips', 'mover']) {
+                await window.go.main.App.CreateTag(name);
+            }
+        });
+        await app.enterFolderMode();
+
+        await app.page.click(selectors.folderCard('mover'), { button: 'right' });
+        await app.page.click(selectors.folderContextMenuItem('move'));
+        await expect(app.page.locator(MOVE_MODAL)).toBeVisible();
+
+        const paths = await app.page.locator(`${MOVE_TREE} [data-dest-path]`).evaluateAll(
+            (els) => els.map((el) => el.getAttribute('data-dest-path')));
+        expect(paths).toEqual(['mover', 'photos', 'photos/trips', 'photos-2024']);
+    });
 });

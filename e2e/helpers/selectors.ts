@@ -60,7 +60,8 @@ export const selectors = {
     clipTitle: '#gallery > li p',
     clipType: '#gallery > li span',
     expirationBadge: '.absolute.top-2.left-2',
-    emptyState: '#empty-state',
+    emptyState: '#gallery-status',
+    loadMoreButton: '#gallery-load-more-btn',
     marqueeOverlay: '.marquee-overlay',
   },
 

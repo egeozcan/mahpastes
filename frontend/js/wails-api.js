@@ -10,9 +10,133 @@ let _pendingFocusAfterLoad = false;
 // soon as a newer one has started.
 let _clipLoadGen = 0;
 
+// Gallery listings are paged: the first CLIP_PAGE_SIZE clips render, and
+// "Load more" under the gallery appends the next page.
+const CLIP_PAGE_SIZE = 50;
+// What is on screen: the request it came from (minus paging), how many clips
+// are loaded, and how many the listing holds in all.
+let _galleryView = { key: null, request: null, loaded: 0, total: 0, hasMore: false };
+
+// Fetch clips from the start of a listing until `want` are loaded or it runs out.
+// More than 200 takes several requests; rows that shift between them (an
+// upload, a delete) would otherwise render one clip twice, so each id is kept
+// once. The offset advances by rows fetched, not rows kept.
+async function fetchClipPages(request, want) {
+    const clips = [];
+    const seen = new Set();
+    let fetched = 0;
+    let total = 0;
+    let hasMore = false;
+    do {
+        const page = await window.go.main.App.ListClipsPage({
+            ...request,
+            offset: fetched,
+            limit: Math.min(200, want - fetched),
+        });
+        const got = (page && page.clips) || [];
+        fetched += got.length;
+        for (const clip of got) {
+            const id = Number(clip.id);
+            if (seen.has(id)) continue;
+            seen.add(id);
+            clips.push(clip);
+        }
+        total = page ? page.total : clips.length;
+        hasMore = !!(page && page.has_more);
+        if (got.length === 0) break;
+    } while (hasMore && fetched < want);
+    return { clips, total, hasMore };
+}
+
+// The gallery's footer count: clip cards only (folder cards are not clips),
+// "50 of 120 clips" while more pages exist, and the visible subset while the
+// plain search filter is hiding cards.
+function renderGalleryCount() {
+    const cards = Array.from(gallery.querySelectorAll(':scope > li[data-id]'));
+    const loaded = cards.length;
+    const visible = cards.filter(c => c.style.display !== 'none').length;
+    const filtering = visible !== loaded;
+    if (filtering) {
+        updateClipCount(visible, _galleryView.hasMore ? null : loaded, { filtering: true, loaded });
+    } else if (_galleryView.hasMore) {
+        updateClipCount(loaded, _galleryView.total);
+    } else {
+        updateClipCount(loaded);
+    }
+}
+
+// Empty and error states live beside the gallery, never inside it: the
+// gallery's children are cards, and everything that walks it assumes so.
+function showGalleryStatus(message, kind = 'empty') {
+    const el = document.getElementById('gallery-status');
+    if (!el) return;
+    el.textContent = message;
+    el.classList.toggle('text-stone-400', kind !== 'error');
+    el.classList.toggle('text-red-500', kind === 'error');
+    el.classList.remove('hidden');
+}
+
+function hideGalleryStatus() {
+    const el = document.getElementById('gallery-status');
+    if (!el) return;
+    el.classList.add('hidden');
+    el.textContent = '';
+}
+
+function renderLoadMore() {
+    const wrap = document.getElementById('gallery-load-more');
+    if (!wrap) return;
+    const { hasMore, loaded, total } = _galleryView;
+    wrap.classList.toggle('hidden', !hasMore);
+    const btn = document.getElementById('gallery-load-more-btn');
+    if (btn) {
+        btn.disabled = false;
+        btn.textContent = 'Load more';
+        btn.setAttribute('aria-label', `Load more clips (${loaded} of ${total} shown)`);
+    }
+}
+
+// Where focus was in the gallery before a reload, so a reload of the same
+// view (delete, archive, a background refresh) can put it back instead of
+// dropping it to <body>, where the arrow keys stop working.
+function captureGalleryFocus() {
+    const active = document.activeElement;
+    const inGallery = active && active !== gallery && gallery.contains(active);
+    if (!inGallery) return null;
+    const card = active.closest('#gallery > li');
+    if (!card) return null;
+    const items = Array.from(gallery.querySelectorAll(':scope > li'));
+    return { id: card.dataset.id || null, folder: card.dataset.folder || null, index: items.indexOf(card) };
+}
+
+function restoreGalleryFocus(snapshot) {
+    if (!snapshot) return;
+    // Only reclaim focus nobody else has taken in the meantime.
+    const active = document.activeElement;
+    if (active && active !== document.body && active !== gallery && !gallery.contains(active)) return;
+    const items = Array.from(gallery.querySelectorAll(':scope > li'))
+        .filter(el => el.style.display !== 'none');
+    if (items.length === 0) return;
+    let target = null;
+    if (snapshot.id) target = items.find(el => el.dataset.id === snapshot.id);
+    if (!target && snapshot.folder) target = items.find(el => el.dataset.folder === snapshot.folder);
+    if (!target) target = items[Math.min(Math.max(snapshot.index, 0), items.length - 1)];
+    const rover = window.__galleryRover;
+    if (rover) {
+        const idx = rover.getItems().indexOf(target);
+        if (idx >= 0) rover.setActiveIndex(idx);
+    }
+    target.focus({ preventScroll: true });
+}
+
 async function loadClips({ focusFirst = false } = {}) {
     _pendingFocusAfterLoad = focusFirst;
     const myGen = ++_clipLoadGen;
+    // Any in-flight standalone folder-card render is superseded by this one.
+    if (typeof _folderRenderGen !== 'undefined') _folderRenderGen++;
+    // Focus is read twice: here, and again just before the gallery is cleared
+    // (see below). The later reading wins when it finds a card.
+    const entryFocusSnapshot = captureGalleryFocus();
     try {
         // Clear gallery focus, but not if user is interacting with the tag filter dropdown
         const tagDropdown = document.getElementById('tag-filter-dropdown');
@@ -40,58 +164,96 @@ async function loadClips({ focusFirst = false } = {}) {
         // database: neither option can be resolved from the cards on screen.
         const deepSearch = typeof isDeepSearchActive === 'function' && isDeepSearchActive();
         const searchOptions = typeof getSearchOptions === 'function' ? getSearchOptions() : { inContent: false, includeHidden: false };
-        if (typeof setGalleryShowsSearchResults === 'function') setGalleryShowsSearchResults(deepSearch);
 
-        let clips;
+        const request = {
+            mode: 'all',
+            archived: !!isViewingArchive,
+            tag_ids: [...activeTagFilters],
+            hidden_tag_ids: effectiveHidden,
+            folder_tag_id: 0,
+            query: '',
+            search_content: false,
+            sort_field: currentSortField,
+            sort_dir: currentSortDir,
+        };
         if (deepSearch) {
             // "Show hidden clips" is expressed by asking for no hidden tags at all.
-            const hiddenForSearch = searchOptions.includeHidden ? [] : effectiveHidden;
-            clips = await window.go.main.App.SearchClips(isViewingArchive, activeTagFilters, hiddenForSearch,
-                getSearchQuery(), searchOptions.inContent, currentSortField, currentSortDir);
+            request.mode = 'search';
+            request.hidden_tag_ids = searchOptions.includeHidden ? [] : effectiveHidden;
+            request.query = getSearchQuery();
+            request.search_content = !!searchOptions.inContent;
         } else if (isFolderMode() && activeTagFilters.length > 0) {
-            // Show clips tagged directly with this folder's tag, excluding clips
-            // that also have a descendant tag (those belong in subfolders).
-            const currentFolderTagId = activeTagFilters[activeTagFilters.length - 1];
-            // Hidden tags are not passed: inside a folder, a clip is shown even if it
-            // also carries a hidden tag from another tree (hiding only dims folder cards).
-            clips = await window.go.main.App.GetFolderClips(isViewingArchive, currentFolderTagId, currentSortField, currentSortDir);
+            // Clips tagged directly with this folder's tag; those with a
+            // descendant tag belong in subfolders. Hidden tags are not applied:
+            // inside a folder, hiding only dims folder cards.
+            request.mode = 'folder';
+            request.folder_tag_id = activeTagFilters[activeTagFilters.length - 1];
+            request.tag_ids = [];
+            request.hidden_tag_ids = [];
         } else if (isFolderMode()) {
-            // Root level folder mode: only show untagged clips alongside folder cards
-            clips = await window.go.main.App.GetUntaggedClips(isViewingArchive, effectiveHidden, currentSortField, currentSortDir);
-        } else {
-            clips = await window.go.main.App.GetClips(isViewingArchive, activeTagFilters, effectiveHidden, currentSortField, currentSortDir);
+            // Root level folder mode: only untagged clips alongside folder cards
+            request.mode = 'untagged';
+            request.tag_ids = [];
         }
 
-        if (myGen !== _clipLoadGen) return;
+        // A reload of the view already on screen keeps as many clips as were
+        // loaded (and the focused card); any other view starts at one page.
+        const viewKey = JSON.stringify(request);
+        const sameView = viewKey === _galleryView.key;
+        const want = sameView ? Math.max(CLIP_PAGE_SIZE, _galleryView.loaded) : CLIP_PAGE_SIZE;
+        const isStale = () => myGen !== _clipLoadGen;
+
+        // Fetch the clips and the folder cards together, before touching the
+        // gallery, so a reload never shows an empty frame.
+        const [page, folderCards] = await Promise.all([
+            fetchClipPages(request, want),
+            isFolderMode() ? buildFolderCards(isStale) : Promise.resolve([]),
+        ]);
+        if (isStale() || folderCards === null) return;
+
+        // Where focus is now, just before the gallery is cleared: a delete
+        // confirmed in a dialog starts the reload while focus is still on the
+        // dialog's button, and only returns it to the card as the dialog
+        // closes. When focus has left the gallery since (a card removed ahead
+        // of the reload), the reading taken at the start still applies.
+        const focusSnapshot = captureGalleryFocus() || entryFocusSnapshot;
 
         if (typeof clearPreparedDragState === 'function') {
             clearPreparedDragState();
         }
+        if (typeof setGalleryShowsSearchResults === 'function') setGalleryShowsSearchResults(deepSearch);
+        if (typeof setGalleryWaivedHiddenTags === 'function') {
+            setGalleryWaivedHiddenTags(deepSearch && searchOptions.includeHidden ? effectiveHidden : []);
+        }
 
         gallery.innerHTML = '';
         clearRenderedClips();
-        selectedIds.clear();
+        hideGalleryStatus();
+        _galleryView = { key: viewKey, request, loaded: 0, total: page.total, hasMore: page.hasMore };
+
+        for (const card of folderCards) gallery.appendChild(card);
+        if (isFolderMode() && typeof initFolderDrag === 'function') initFolderDrag();
+
+        for (const clip of page.clips) {
+            if (isStale()) return;
+            const card = await createClipCard(clip);
+            if (isStale()) {
+                card?.remove();
+                return;
+            }
+        }
+        _galleryView.loaded = page.clips.length;
+
+        // The selection survives a reload; only clips no longer listed drop out.
+        const rendered = new Set(page.clips.map(c => Number(c.id)));
+        for (const id of Array.from(selectedIds)) {
+            if (!rendered.has(id)) selectedIds.delete(id);
+        }
+        const checkboxes = Array.from(gallery.querySelectorAll('.clip-checkbox'));
+        selectAllCheckbox.checked = selectedIds.size > 0 && checkboxes.length > 0 && checkboxes.every(cb => cb.checked);
         updateBulkToolbar();
 
-        // Render folder cards in folder mode
-        if (isFolderMode()) {
-            await renderFolderCards();
-            if (typeof initFolderDrag === 'function') initFolderDrag();
-        }
-
-        if (clips && clips.length > 0) {
-            for (const clip of clips) {
-                if (myGen !== _clipLoadGen) return;
-                const card = await createClipCard(clip);
-                if (myGen !== _clipLoadGen) {
-                    card?.remove();
-                    return;
-                }
-            }
-            // Update count to include folder cards
-            const folderCount = gallery.querySelectorAll('[data-folder]').length;
-            updateClipCount(clips.length + folderCount);
-        } else if (!isFolderMode() || gallery.children.length === 0) {
+        if (page.clips.length === 0 && folderCards.length === 0) {
             let emptyMsg;
             if (deepSearch) {
                 emptyMsg = 'No clips match your search.';
@@ -102,12 +264,11 @@ async function loadClips({ focusFirst = false } = {}) {
             } else {
                 emptyMsg = 'No active clips. Paste or drop something!';
             }
-            gallery.innerHTML = `<p class="text-gray-500 col-span-full text-center">${emptyMsg}</p>`;
-            updateClipCount(0);
-        } else {
-            updateClipCount(gallery.querySelectorAll('[data-folder]').length);
+            showGalleryStatus(emptyMsg);
         }
         if (typeof applySearchFilter === 'function') applySearchFilter();
+        renderGalleryCount();
+        renderLoadMore();
         // Nothing is being withheld when the search was told to include hidden clips.
         updateHiddenClipsNote(deepSearch && searchOptions.includeHidden ? [] : effectiveHidden);
         window.LightboxController?.setClips(getVisibleMediaClips());
@@ -129,6 +290,8 @@ async function loadClips({ focusFirst = false } = {}) {
                     pills[pills.length - 1].focus();
                 }
             }
+        } else if (sameView) {
+            restoreGalleryFocus(focusSnapshot);
         }
     } catch (error) {
         console.error('Error loading clips:', error);
@@ -136,7 +299,17 @@ async function loadClips({ focusFirst = false } = {}) {
         // touch the gallery. Without this a slow search that fails late replaces
         // the results of the newer search that already rendered.
         if (myGen === _clipLoadGen) {
-            gallery.innerHTML = '<p class="text-red-500 col-span-full text-center">Error loading clips.</p>';
+            gallery.innerHTML = '';
+            clearRenderedClips();
+            _galleryView = { key: null, request: null, loaded: 0, total: 0, hasMore: false };
+            // Nothing is on screen, so nothing may stay selected: bulk actions
+            // would otherwise act on clips the user can no longer see.
+            selectedIds.clear();
+            selectAllCheckbox.checked = false;
+            updateBulkToolbar();
+            renderLoadMore();
+            updateClipCount(0);
+            showGalleryStatus('Error loading clips.', 'error');
             clearHiddenClipsNote();
         }
     } finally {
@@ -149,6 +322,87 @@ async function loadClips({ focusFirst = false } = {}) {
             window.__galleryRenderSeq = (window.__galleryRenderSeq || 0) + 1;
         }
     }
+}
+
+// Append the next page of the listing on screen.
+async function loadMoreClips() {
+    const view = _galleryView;
+    if (!view.hasMore || !view.request) return;
+    const myGen = _clipLoadGen;
+    const btn = document.getElementById('gallery-load-more-btn');
+    const buttonHadFocus = !!btn && document.activeElement === btn;
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Loading…';
+    }
+    const firstNewIndex = gallery.querySelectorAll(':scope > li').length;
+    let reloaded = false;
+    try {
+        const page = await window.go.main.App.ListClipsPage({
+            ...view.request,
+            offset: view.loaded,
+            limit: CLIP_PAGE_SIZE,
+        });
+        // A reload or navigation since the click owns the gallery now.
+        if (myGen !== _clipLoadGen || view !== _galleryView) return;
+
+        // The listing changed size behind the gallery (the expiry reaper, a
+        // REST client, a plugin): offsets no longer line up with what is on
+        // screen, so appending this page positionally would skip clips or
+        // keep deleted ones. Reload the same view one page further instead.
+        if (page && page.total !== view.total) {
+            reloaded = true;
+            view.loaded += CLIP_PAGE_SIZE;
+            await loadClips();
+        } else {
+            for (const clip of (page && page.clips) || []) {
+                // Clips added since the first page shift offsets; never show one twice.
+                if (gallery.querySelector(`:scope > li[data-id="${Number(clip.id)}"]`)) continue;
+                await createClipCard(clip);
+                if (myGen !== _clipLoadGen) return;
+            }
+            view.loaded += ((page && page.clips) || []).length;
+            view.total = page ? page.total : view.total;
+            view.hasMore = !!(page && page.has_more);
+            if (typeof applySearchFilter === 'function') applySearchFilter();
+            renderGalleryCount();
+            window.LightboxController?.setClips(getVisibleMediaClips());
+            if (window.__galleryRover) window.__galleryRover.update();
+            // New cards arrive unselected, so "select all" no longer holds.
+            const checkboxes = Array.from(gallery.querySelectorAll('.clip-checkbox'));
+            selectAllCheckbox.checked = selectedIds.size > 0 && checkboxes.length > 0 && checkboxes.every(cb => cb.checked);
+            updateBulkToolbar();
+        }
+    } catch (error) {
+        console.error('Error loading more clips:', error);
+        showToast('Failed to load more clips: ' + errText(error), 'error');
+    } finally {
+        const current = _galleryView;
+        if (view === current || reloaded) {
+            renderLoadMore();
+            // Disabling the button during the fetch dropped its focus to <body>.
+            // With more pages left, give it back so Enter keeps loading; the last
+            // page hides the button, so hand focus to the first card it brought in.
+            const active = document.activeElement;
+            if (buttonHadFocus && (active === btn || active === document.body || !active)) {
+                const nextBtn = document.getElementById('gallery-load-more-btn');
+                if (current.hasMore && nextBtn) nextBtn.focus();
+                else focusGalleryItem(firstNewIndex);
+            }
+        }
+    }
+}
+
+function focusGalleryItem(index) {
+    const items = Array.from(gallery.querySelectorAll(':scope > li')).filter(el => el.style.display !== 'none');
+    if (items.length === 0) return;
+    const target = items[Math.min(Math.max(index, 0), items.length - 1)];
+    const rover = window.__galleryRover;
+    if (rover) {
+        const idx = rover.getItems().indexOf(target);
+        if (idx >= 0) rover.setActiveIndex(idx);
+    }
+    target.focus();
 }
 
 async function upload(files) {
@@ -165,17 +419,26 @@ async function upload(files) {
         // Overwrite existing clips
         for (const { clipID, fileData } of result.toOverwrite) {
             await window.go.main.App.UpdateClipData(clipID, fileData.content_type, fileData.data, fileData.name);
+            invalidateClipMedia(clipID);
         }
 
         // Upload new files
+        const duplicatesBefore = window.__duplicateUploadEvents || 0;
         if (result.toUpload.length > 0) {
             await window.go.main.App.UploadFiles(result.toUpload, minutes, autoTagID);
         }
+        // Content that already exists elsewhere in the library raises a
+        // clip:duplicate toast; this summary would immediately replace it.
+        const duplicates = (window.__duplicateUploadEvents || 0) - duplicatesBefore;
 
         const totalProcessed = result.toUpload.length + result.toOverwrite.length;
         if (totalProcessed > 0 || result.skippedCount > 0) {
             const parts = [];
-            if (result.toUpload.length > 0) parts.push(`${result.toUpload.length} uploaded`);
+            if (result.toUpload.length > 0) {
+                parts.push(`${result.toUpload.length} uploaded` + (duplicates > 0
+                    ? ` (${duplicates} duplicate${duplicates === 1 ? '' : 's'} of existing clips)`
+                    : ''));
+            }
             if (result.toOverwrite.length > 0) parts.push(`${result.toOverwrite.length} overwritten`);
             if (result.skippedCount > 0) parts.push(`${result.skippedCount} skipped`);
             showToast(parts.join(', ') + '.');
@@ -186,7 +449,7 @@ async function upload(files) {
         }
     } catch (error) {
         console.error('Error uploading:', error);
-        showToast('Upload failed.');
+        showToast('Upload failed: ' + errText(error), 'error');
     }
 }
 
@@ -198,7 +461,7 @@ async function deleteClip(id) {
             loadClips();
         } catch (error) {
             console.error('Error deleting clip:', error);
-            showToast('Failed to delete clip.');
+            showToast('Failed to delete clip.', 'error');
         }
     });
 }
@@ -226,7 +489,7 @@ async function toggleArchiveClip(id) {
         loadClips();
     } catch (error) {
         console.error('Error toggling archive:', error);
-        showToast('Failed to change archive status.');
+        showToast('Failed to change archive status.', 'error');
     }
 }
 
@@ -240,7 +503,7 @@ async function saveTempFile(id) {
         }
     } catch (error) {
         console.error('Error saving temp file:', error);
-        showToast('Failed to save temp file.');
+        showToast('Failed to save temp file.', 'error');
     }
 }
 
@@ -250,7 +513,7 @@ async function copyFileToClipboard(id) {
         showToast('File copied to clipboard!');
     } catch (error) {
         console.error('Error copying file to clipboard:', error);
-        showToast('Failed to copy file.');
+        showToast('Failed to copy file.', 'error');
     }
 }
 
@@ -260,7 +523,7 @@ async function copyClipContents(id) {
         showToast('Contents copied to clipboard!');
     } catch (error) {
         console.error('Error copying contents:', error);
-        showToast('Failed to copy contents.');
+        showToast('Failed to copy contents.', 'error');
     }
 }
 
@@ -277,7 +540,7 @@ async function createAndCopyPublicLink(id) {
         copyToClipboard(window.location.origin + path);
     } catch (error) {
         console.error('Error creating public link:', error);
-        showToast('Failed to create public link.');
+        showToast('Failed to create public link.', 'error');
     }
 }
 
@@ -291,7 +554,7 @@ async function deleteAllTempFiles() {
             showToast('All temp files deleted.');
         } catch (error) {
             console.error('Error deleting temp files:', error);
-            showToast('Failed to delete temp files.');
+            showToast('Failed to delete temp files.', 'error');
         }
     });
 }
@@ -306,7 +569,7 @@ async function bulkDelete() {
             loadClips();
         } catch (error) {
             console.error('Error in bulk delete:', error);
-            showToast('Bulk delete failed.');
+            showToast('Bulk delete failed.', 'error');
         }
     });
 }
@@ -326,21 +589,22 @@ async function bulkArchive() {
         loadClips();
     } catch (error) {
         console.error('Error in bulk archive:', error);
-        showToast(isViewingArchive ? 'Bulk restore failed.' : 'Bulk archive failed.');
+        showToast(isViewingArchive ? 'Bulk restore failed.' : 'Bulk archive failed.', 'error');
     }
 }
 
 async function bulkDownload() {
     if (selectedIds.size === 0) return;
     try {
-        await window.go.main.App.BulkDownloadToFile(Array.from(selectedIds));
-        showToast('Download complete.');
+        // Resolves to the path written, or "" when the save dialog was
+        // cancelled — only a written file earns the success toast.
+        const savedPath = await window.go.main.App.BulkDownloadToFile(Array.from(selectedIds));
+        if (savedPath) {
+            showToast('Download complete.');
+        }
     } catch (error) {
         console.error('Error in bulk download:', error);
-        // User cancelled is not an error
-        if (!error.message.includes('cancelled')) {
-            showToast('Bulk download failed.');
-        }
+        showToast('Bulk download failed: ' + errText(error), 'error');
     }
 }
 
@@ -351,7 +615,7 @@ async function bulkCopyFiles() {
         showToast(`${selectedIds.size} file${selectedIds.size > 1 ? 's' : ''} copied to clipboard!`);
     } catch (error) {
         console.error('Error copying files to clipboard:', error);
-        showToast('Failed to copy files.');
+        showToast('Failed to copy files.', 'error');
     }
 }
 
@@ -506,12 +770,11 @@ async function getClipText(id) {
 // Save clip to file using native dialog
 async function saveClipToFile(id) {
     try {
+        // Resolves to the path written, or "" when the dialog was cancelled.
         await window.go.main.App.SaveClipToFile(id);
     } catch (error) {
         console.error('Error saving clip to file:', error);
-        if (!error.message.includes('cancelled')) {
-            showToast('Failed to save file.');
-        }
+        showToast('Failed to save file: ' + errText(error), 'error');
     }
 }
 
@@ -533,7 +796,7 @@ async function createTag(name) {
         return tag;
     } catch (error) {
         console.error('Error creating tag:', error);
-        showToast(error.message || 'Failed to create tag.');
+        showToast(errText(error) || 'Failed to create tag.', 'error');
         return null;
     }
 }
@@ -545,7 +808,7 @@ async function createTagSilent(name) {
         const tag = await window.go.main.App.CreateTag(name);
         return { tag, error: null };
     } catch (error) {
-        const msg = error.message || String(error);
+        const msg = errText(error);
         // "already exists" is not a real failure — the tag is usable
         if (msg.includes('already exists')) {
             return { tag: null, error: null };
@@ -561,7 +824,7 @@ async function updateTag(id, name, color) {
         showToast('Tag updated.');
     } catch (error) {
         console.error('Error updating tag:', error);
-        showToast(error.message || 'Failed to update tag.');
+        showToast(errText(error) || 'Failed to update tag.', 'error');
     }
 }
 
@@ -571,7 +834,7 @@ async function deleteTag(id) {
         showToast('Tag deleted.');
     } catch (error) {
         console.error('Error deleting tag:', error);
-        showToast('Failed to delete tag.');
+        showToast('Failed to delete tag.', 'error');
     }
 }
 
@@ -580,7 +843,7 @@ async function addTagToClip(clipId, tagId) {
         await window.go.main.App.AddTagToClip(clipId, tagId);
     } catch (error) {
         console.error('Error adding tag to clip:', error);
-        showToast('Failed to add tag.');
+        showToast('Failed to add tag.', 'error');
     }
 }
 
@@ -589,7 +852,7 @@ async function removeTagFromClip(clipId, tagId) {
         await window.go.main.App.RemoveTagFromClip(clipId, tagId);
     } catch (error) {
         console.error('Error removing tag from clip:', error);
-        showToast('Failed to remove tag.');
+        showToast('Failed to remove tag.', 'error');
     }
 }
 
@@ -599,7 +862,7 @@ async function bulkAddTag(clipIds, tagId) {
         showToast(`Tag added to ${clipIds.length} clips.`);
     } catch (error) {
         console.error('Error in bulk add tag:', error);
-        showToast('Failed to add tag to clips.');
+        showToast('Failed to add tag to clips.', 'error');
     }
 }
 
@@ -609,7 +872,7 @@ async function bulkRemoveTag(clipIds, tagId) {
         showToast(`Tag removed from ${clipIds.length} clips.`);
     } catch (error) {
         console.error('Error in bulk remove tag:', error);
-        showToast('Failed to remove tag from clips.');
+        showToast('Failed to remove tag from clips.', 'error');
     }
 }
 
@@ -720,7 +983,7 @@ async function setExpiration(id, minutes) {
         loadClips();
     } catch (error) {
         console.error('Error setting expiration:', error);
-        showToast('Failed to set expiration.');
+        showToast('Failed to set expiration.', 'error');
     }
 }
 
@@ -731,7 +994,7 @@ async function cancelExpiration(id) {
         loadClips();
     } catch (error) {
         console.error('Error canceling expiration:', error);
-        showToast('Failed to cancel expiration.');
+        showToast('Failed to cancel expiration.', 'error');
     }
 }
 
@@ -739,10 +1002,13 @@ async function bulkSetExpiration(ids, minutes) {
     try {
         await window.go.main.App.BulkSetExpiration(ids, minutes);
         showToast(`Expiration set on ${ids.length} clips.`);
+        selectedIds.clear();
+        updateBulkToolbar();
         loadClips();
     } catch (error) {
+        // Keep the selection so the user can retry without re-picking clips.
         console.error('Error in bulk set expiration:', error);
-        showToast('Failed to set expiration.');
+        showToast('Failed to set expiration: ' + errText(error), 'error');
     }
 }
 
@@ -750,10 +1016,12 @@ async function bulkCancelExpiration(ids) {
     try {
         await window.go.main.App.BulkCancelExpiration(ids);
         showToast(`Expiration canceled on ${ids.length} clips.`);
+        selectedIds.clear();
+        updateBulkToolbar();
         loadClips();
     } catch (error) {
         console.error('Error in bulk cancel expiration:', error);
-        showToast('Failed to cancel expiration.');
+        showToast('Failed to cancel expiration: ' + errText(error), 'error');
     }
 }
 

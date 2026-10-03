@@ -276,7 +276,7 @@ async function handleLightboxFileAction(action, clip) {
             try {
                 await window.go.main.App.OpenClipWithDefaultApp(clip.id);
             } catch (err) {
-                showToast('Failed to open clip.');
+                showToast('Failed to open clip.', 'error');
             }
             break;
         case 'open-with':
@@ -286,7 +286,7 @@ async function handleLightboxFileAction(action, clip) {
                     await window.go.main.App.OpenClipWithApp(clip.id, appPath);
                 }
             } catch (err) {
-                showToast('Failed to open clip.');
+                showToast('Failed to open clip.', 'error');
             }
             break;
         case 'copy-path':
@@ -355,9 +355,21 @@ async function handleLightboxFileAction(action, clip) {
 
 // --- Comparison Functions ---
 
+// Pending cleanup from the last close. A quick re-open must cancel it, or it
+// blanks the images and clip ids of the comparison that just opened.
+let comparisonCloseTimer = null;
+// Debounce for diff requests: the threshold slider fires per input tick.
+let diffLoadTimer = null;
+const DIFF_DEBOUNCE_MS = 150;
+
 async function openComparisonModal() {
     const selectedArray = Array.from(selectedIds);
     if (selectedArray.length !== 2) return;
+
+    if (comparisonCloseTimer) {
+        clearTimeout(comparisonCloseTimer);
+        comparisonCloseTimer = null;
+    }
 
     lastFocusedElementBeforeComparison = document.activeElement;
     comparisonClipIds = [...selectedArray];
@@ -374,6 +386,7 @@ async function openComparisonModal() {
         comparisonImgDiff.src = '';
     } catch (error) {
         console.error('Failed to load images for comparison:', error);
+        showToast('Could not load images for comparison: ' + errText(error), 'error');
         return;
     }
 
@@ -417,7 +430,11 @@ function closeComparisonModal() {
     if (window._comparisonResizeObserver) {
         window._comparisonResizeObserver.disconnect();
     }
-    setTimeout(() => {
+    clearTimeout(diffLoadTimer);
+    diffLoadTimer = null;
+    if (comparisonCloseTimer) clearTimeout(comparisonCloseTimer);
+    comparisonCloseTimer = setTimeout(() => {
+        comparisonCloseTimer = null;
         comparisonImgBottom.src = '';
         comparisonImgTop.src = '';
         comparisonImgDiff.src = '';
@@ -572,36 +589,47 @@ function swapComparisonImages() {
     updateComparisonImageInfo();
 }
 
-async function loadDiffImage() {
-    const threshold = parseInt(comparisonRange.value);
-    const cacheKey = threshold;
+function showDiffResult(entry) {
+    comparisonImgDiff.src = entry.dataUrl;
+    comparisonSimilarity.textContent = `${(entry.similarity * 100).toFixed(1)}% similar`;
+    comparisonSimilarity.classList.remove('hidden');
+}
 
-    if (diffCache.has(cacheKey)) {
-        const cached = diffCache.get(cacheKey);
-        comparisonImgDiff.src = cached.dataUrl;
-        comparisonSimilarity.textContent = `${(cached.similarity * 100).toFixed(1)}% similar`;
-        comparisonSimilarity.classList.remove('hidden');
+function loadDiffImage() {
+    const threshold = parseInt(comparisonRange.value);
+    clearTimeout(diffLoadTimer);
+    diffLoadTimer = null;
+
+    if (diffCache.has(threshold)) {
+        showDiffResult(diffCache.get(threshold));
         return;
     }
-
     if (comparisonClipIds.length !== 2) return;
 
+    // A full diff per slider tick would queue dozens of requests and paint
+    // whichever returned last; wait for the slider to settle.
+    diffLoadTimer = setTimeout(() => fetchDiffImage(threshold), DIFF_DEBOUNCE_MS);
+}
+
+async function fetchDiffImage(threshold) {
+    diffLoadTimer = null;
+    const pair = comparisonClipIds.join(',');
+    // Still current: same pair, still in diff mode, slider still on this value.
+    const stillWanted = () => comparisonMode === 'diff'
+        && parseInt(comparisonRange.value) === threshold
+        && comparisonClipIds.join(',') === pair;
     try {
         const result = await window.go.main.App.GetImageDiff(
             comparisonClipIds[0],
             comparisonClipIds[1],
             threshold
         );
-        diffCache.set(cacheKey, {
-            dataUrl: result.diff_data_url,
-            similarity: result.similarity,
-        });
-        if (comparisonMode === 'diff') {
-            comparisonImgDiff.src = result.diff_data_url;
-            comparisonSimilarity.textContent = `${(result.similarity * 100).toFixed(1)}% similar`;
-            comparisonSimilarity.classList.remove('hidden');
-        }
+        if (comparisonClipIds.join(',') !== pair) return;
+        const entry = { dataUrl: result.diff_data_url, similarity: result.similarity };
+        diffCache.set(threshold, entry);
+        if (stillWanted()) showDiffResult(entry);
     } catch (error) {
+        if (!stillWanted()) return;
         console.error('Failed to load diff image:', error);
         comparisonSimilarity.textContent = 'Diff failed';
         comparisonSimilarity.classList.remove('hidden');

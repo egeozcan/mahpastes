@@ -487,8 +487,12 @@
             if (event.pointerType !== 'touch') {
                 // Recorded here because pointerdown runs before the context menu's
                 // document-level dismiss handler: a click that only dismisses an
-                // open menu must not also close the lightbox.
-                state.suppressBackdropClick = event.button !== 0 || Boolean(deps.menusOpen?.());
+                // open menu must not also close the lightbox. A press that starts
+                // on the image (or anything else) and is released over the
+                // backdrop must not close it either — the browser targets that
+                // click at the common ancestor, which is the backdrop.
+                state.suppressBackdropClick = event.button !== 0 || Boolean(deps.menusOpen?.())
+                    || !isBackdropTarget(event.target);
             }
             if (event.pointerType === 'touch' || event.button !== 0 || !isPannable()) return;
             if (event.target.closest('button')) return;
@@ -535,6 +539,10 @@
             event.preventDefault();
         }
 
+        function isBackdropTarget(target) {
+            return target === deps.elements.viewport || target === deps.elements.panLayer;
+        }
+
         function onViewportClick(event) {
             const suppressed = state.suppressBackdropClick;
             state.suppressBackdropClick = false;
@@ -545,8 +553,7 @@
             // the image itself is only scaled by a transform, so for anything
             // larger than the viewport its box reaches far past the visible
             // picture — often across the whole viewport.
-            const target = event.target;
-            if (target !== deps.elements.viewport && target !== deps.elements.panLayer) return;
+            if (!isBackdropTarget(event.target)) return;
             if (deps.shouldCloseOnBackdrop && !deps.shouldCloseOnBackdrop()) return;
             close();
         }

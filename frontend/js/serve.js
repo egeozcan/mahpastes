@@ -97,7 +97,7 @@ function switchView(view) {
             break;
         case 'serve':
             serveView.classList.remove('hidden');
-            loadServeStatus();
+            loadServeStatus({ force: true });
             startServePolling();
             break;
         case 'share':
@@ -173,7 +173,7 @@ function renderServeCard(info) {
                     data-tag-id="${info.tag_id}" data-running="${info.running}" data-bind-all="${info.bind_all}">
                 ${toggleLabel}
             </button>
-            ${!info.running ? `<button class="serve-remove-btn p-1 text-stone-400 hover:text-red-500 transition-colors rounded hover:bg-red-50" data-tag-id="${info.tag_id}" title="Remove from list">
+            ${!info.running ? `<button class="serve-remove-btn p-1 text-stone-400 hover:text-red-500 transition-colors rounded hover:bg-red-50" data-tag-id="${info.tag_id}" title="Remove from list" aria-label="Remove from list">
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12"/></svg>
             </button>` : ''}
         </div>
@@ -182,11 +182,21 @@ function renderServeCard(info) {
     return li;
 }
 
+// What the list was last rendered from. The 2s poll re-renders only when this
+// changes, so it does not rebuild the list (and drop focus or a click in
+// progress) every tick.
+let lastServeRenderKey = null;
+// Tags whose Start/Stop is in flight; their buttons ignore further clicks.
+const serveToggleInFlight = new Set();
+
 // --- Load Serve Status ---
-async function loadServeStatus() {
+// `force` re-renders even if nothing changed or focus is inside the list (after
+// the user's own action, which must show its result).
+async function loadServeStatus({ force = false } = {}) {
     // Skip re-render if user is interacting with a dropdown to avoid
     // nuking the DOM mid-interaction (e.g. API access select being open).
     if (serveList.querySelector('select:focus')) return;
+    if (!force && serveList.contains(document.activeElement)) return;
 
     try {
         const statuses = await window.go.main.ServeService.GetServeStatus();
@@ -201,6 +211,17 @@ async function loadServeStatus() {
                 apiAccessPreferences.set(s.tag_id, s.api_access);
             }
         }
+
+        const renderKey = JSON.stringify({
+            entries: [...configuredEntries.keys()],
+            running: (statuses || []).map(st => [st.tag_id, st.url, st.request_count, st.bind_all, st.api_access]),
+            bind: [...bindPreferences],
+            api: [...apiAccessPreferences],
+            busy: [...serveToggleInFlight],
+        });
+        if (!force && renderKey === lastServeRenderKey) return;
+        if (!force && serveList.contains(document.activeElement)) return;
+        lastServeRenderKey = renderKey;
 
         serveList.innerHTML = '';
 
@@ -229,6 +250,7 @@ async function loadServeStatus() {
         }
     } catch (error) {
         console.error('Failed to load serve status:', error);
+        lastServeRenderKey = null;
         serveList.innerHTML = '<li class="text-center text-sm text-stone-400 py-8">Failed to load serve status</li>';
     }
 }
@@ -256,7 +278,7 @@ async function addConfiguredServeEntry(tagID, tagName) {
     if (!configuredEntries.has(tagID)) {
         configuredEntries.set(tagID, { tag_id: tagID, tag_name: tagName, bind_all: false });
     }
-    await loadServeStatus();
+    await loadServeStatus({ force: true });
 }
 
 // --- Tag Picker ---
@@ -264,7 +286,7 @@ async function showServeTagPicker() {
     // Remove existing picker if open
     const existing = document.getElementById('serve-tag-picker');
     if (existing) {
-        existing.remove();
+        closeServeTagPicker({ restoreFocus: false });
         return;
     }
 
@@ -280,6 +302,11 @@ async function showServeTagPicker() {
         // Create dropdown
         const picker = document.createElement('div');
         picker.id = 'serve-tag-picker';
+        // Its own keydown handler runs arrows, Enter and Escape; ShortcutManager
+        // leaves them alone while focus is inside, and closes it on Escape from
+        // anywhere else (closeServeTagPicker).
+        picker.setAttribute('data-owns-escape', '');
+        picker.setAttribute('data-owns-keys', '');
         picker.className = 'absolute left-1/2 -translate-x-1/2 mt-2 w-56 bg-white rounded-lg shadow-xl border border-stone-200 z-50';
         picker.innerHTML = `
             <div class="p-2 border-b border-stone-100">
@@ -304,8 +331,7 @@ async function showServeTagPicker() {
         async function selectOption(option) {
             const tagID = parseInt(option.dataset.tagId, 10);
             const tagName = option.textContent.trim();
-            picker.remove();
-            document.removeEventListener('click', closeOnOutside);
+            closeServeTagPicker({ restoreFocus: false });
             await addConfiguredServeEntry(tagID, tagName);
         }
 
@@ -333,8 +359,7 @@ async function showServeTagPicker() {
                 if (current && options.includes(current)) selectOption(current);
             } else if (e.key === 'Escape') {
                 e.preventDefault();
-                picker.remove();
-                document.removeEventListener('click', closeOnOutside);
+                closeServeTagPicker();
             }
         });
 
@@ -345,17 +370,30 @@ async function showServeTagPicker() {
         // Close on outside click
         const closeOnOutside = (e) => {
             if (!picker.contains(e.target) && e.target !== addServeBtn) {
-                picker.remove();
-                document.removeEventListener('click', closeOnOutside);
+                closeServeTagPicker({ restoreFocus: false });
             }
         };
+        servePickerOutsideHandler = closeOnOutside;
         // Delay to avoid immediate close from the current click
         setTimeout(() => document.addEventListener('click', closeOnOutside), 0);
 
     } catch (error) {
         console.error('Failed to load tags for serve picker:', error);
-        showToast('Failed to load tags');
+        showToast('Failed to load tags', 'error');
     }
+}
+
+let servePickerOutsideHandler = null;
+
+function closeServeTagPicker({ restoreFocus = true } = {}) {
+    const picker = document.getElementById('serve-tag-picker');
+    if (servePickerOutsideHandler) {
+        document.removeEventListener('click', servePickerOutsideHandler);
+        servePickerOutsideHandler = null;
+    }
+    if (!picker) return;
+    picker.remove();
+    if (restoreFocus) addServeBtn?.focus();
 }
 
 async function openServeViewForTag(tagID) {
@@ -366,7 +404,7 @@ async function openServeViewForTag(tagID) {
     await addConfiguredServeEntry(tagID, tag.name);
 
     // Best-effort highlight — if rows expose a per-tag attribute, scroll and flash.
-    const row = document.querySelector(`[data-serve-row-tag-id="${tagID}"]`);
+    const row = serveList.querySelector(`:scope > li[data-tag-id="${tagID}"]`);
     if (row) {
         row.scrollIntoView({ behavior: 'smooth', block: 'center' });
         row.classList.add('ring-2', 'ring-stone-500');
@@ -382,11 +420,11 @@ async function startServingTag(tagID, bindAll = false) {
         const port = await window.go.main.ServeService.GetRandomPort();
         await window.go.main.ServeService.StartServing(tagID, port, bindAll, apiAccess);
         showToast('Tag server started');
-        await loadServeStatus();
+        await loadServeStatus({ force: true });
         updateServeIndicator();
     } catch (error) {
         console.error('Failed to start serving:', error);
-        showToast('Failed to start server: ' + error.message);
+        showToast('Failed to start server: ' + errText(error), 'error');
     }
 }
 
@@ -395,11 +433,11 @@ async function stopServingTag(tagID) {
     try {
         await window.go.main.ServeService.StopServing(tagID);
         showToast('Tag server stopped');
-        await loadServeStatus();
+        await loadServeStatus({ force: true });
         updateServeIndicator();
     } catch (error) {
         console.error('Failed to stop serving:', error);
-        showToast('Failed to stop server: ' + error.message);
+        showToast('Failed to stop server: ' + errText(error), 'error');
     }
 }
 
@@ -482,10 +520,13 @@ serveList.addEventListener('click', async (e) => {
     const removeBtn = e.target.closest('.serve-remove-btn');
     if (removeBtn) {
         const tagID = parseInt(removeBtn.dataset.tagId, 10);
+        const hadFocus = document.activeElement === removeBtn;
         configuredEntries.delete(tagID);
         bindPreferences.delete(tagID);
         apiAccessPreferences.delete(tagID);
-        await loadServeStatus();
+        await loadServeStatus({ force: true });
+        // The row is gone; keep keyboard users in the view.
+        if (hadFocus) addServeBtn?.focus();
         return;
     }
 
@@ -493,12 +534,29 @@ serveList.addEventListener('click', async (e) => {
     const toggleBtn = e.target.closest('.serve-toggle-btn');
     if (toggleBtn) {
         const tagID = parseInt(toggleBtn.dataset.tagId, 10);
+        // A double click must not start (or stop) the same server twice.
+        if (serveToggleInFlight.has(tagID)) return;
         const running = toggleBtn.dataset.running === 'true';
         const bindAll = toggleBtn.dataset.bindAll === 'true';
-        if (running) {
-            await stopServingTag(tagID);
-        } else {
-            await startServingTag(tagID, bindAll);
+        const hadFocus = document.activeElement === toggleBtn;
+        serveToggleInFlight.add(tagID);
+        toggleBtn.disabled = true;
+        toggleBtn.textContent = running ? 'Stopping…' : 'Starting…';
+        try {
+            if (running) {
+                await stopServingTag(tagID);
+            } else {
+                await startServingTag(tagID, bindAll);
+            }
+        } finally {
+            serveToggleInFlight.delete(tagID);
+            await loadServeStatus({ force: true });
+            // The forced render replaced the button (and disabling it had
+            // already dropped focus to <body>): focus its replacement.
+            const active = document.activeElement;
+            if (hadFocus && (!active || active === document.body || !active.isConnected)) {
+                serveList.querySelector(`.serve-toggle-btn[data-tag-id="${tagID}"]`)?.focus();
+            }
         }
     }
 });

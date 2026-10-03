@@ -212,6 +212,15 @@ async function _executeDrop(payload, target) {
             }
             selectedIds.clear();
             updateBulkToolbar();
+            // Emptying a top-level folder auto-deletes its tag. Reloading with
+            // that dead id would list nothing (or fail); go to the folder root.
+            if (payload.folderId != null && typeof loadTags === 'function') {
+                await loadTags();
+                if (!allTags.some(t => t.id === payload.folderId)) {
+                    navigateToFolderRoot();
+                    return;
+                }
+            }
             await loadClips();
         } else if (payload.type === 'folder') {
             const draggedFolderId = payload.ids[0];
@@ -238,7 +247,7 @@ async function _executeDrop(payload, target) {
             await loadClips();
         }
     } catch (err) {
-        const msg = (err && (err.message || String(err))) || 'Failed to move item.';
+        const msg = errText(err) || 'Failed to move item.';
         showToast(msg, 'error');
         _announceDragResult('Move failed.');
     }

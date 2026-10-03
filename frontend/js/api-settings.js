@@ -25,6 +25,7 @@ const apiKeyRevealClose = document.getElementById('api-key-reveal-close');
 const apiKeysList = document.getElementById('api-keys-list');
 
 let apiServerRunning = false;
+const apiModalFocus = createModalFocus(apiModal);
 
 function openApiModal() {
     loadAPIStatus();
@@ -35,6 +36,7 @@ function openApiModal() {
     apiModal.classList.add('opacity-100');
     apiModal.querySelector(':scope > div').classList.remove('scale-95');
     apiModal.querySelector(':scope > div').classList.add('scale-100');
+    apiModalFocus.open(apiModalClose);
 }
 
 function closeApiModal() {
@@ -45,6 +47,7 @@ function closeApiModal() {
     apiModal.setAttribute('inert', '');
     hideCreateKeyForm();
     hideKeyReveal();
+    apiModalFocus.close();
 }
 
 // Event listeners
@@ -88,20 +91,31 @@ async function loadAPIStatus() {
     }
 }
 
+// Start/Stop and Create Key each ignore clicks while their call is in flight:
+// a double click on Create made two keys.
+let apiToggleBusy = false;
+let apiCreateKeyBusy = false;
+
 async function toggleAPIServer() {
+    if (apiToggleBusy) return;
+    apiToggleBusy = true;
+    apiToggleBtn.disabled = true;
     try {
         if (apiServerRunning) {
             await window.go.main.APIService.StopAPI();
             showToast('API server stopped');
         } else {
-            const port = parseInt(apiPortInput.value, 10) || 8484;
+            const port = parseInt(apiPortInput.value, 10) || 44557;
             const bindAll = apiBindToggle.checked;
             await window.go.main.APIService.StartAPI(port, bindAll);
             showToast('API server started');
         }
-        loadAPIStatus();
+        await loadAPIStatus();
     } catch (err) {
-        showToast('Error: ' + err);
+        showToast('Error: ' + errText(err), 'error');
+    } finally {
+        apiToggleBusy = false;
+        apiToggleBtn.disabled = false;
     }
 }
 
@@ -187,6 +201,9 @@ async function createAPIKey() {
     }
     const role = apiKeyRoleSelect.value;
     const scopedTagID = parseInt(apiKeyScopeSelect.value, 10) || 0;
+    if (apiCreateKeyBusy) return;
+    apiCreateKeyBusy = true;
+    apiCreateKeyBtn.disabled = true;
 
     try {
         const result = await window.go.main.APIService.CreateAPIKey(name, role, scopedTagID);
@@ -198,7 +215,10 @@ async function createAPIKey() {
 
         loadAPIKeys();
     } catch (err) {
-        showToast('Failed to create key: ' + err);
+        showToast('Failed to create key: ' + errText(err), 'error');
+    } finally {
+        apiCreateKeyBusy = false;
+        apiCreateKeyBtn.disabled = false;
     }
 }
 
@@ -224,7 +244,7 @@ async function revokeAPIKey(id) {
         showToast('Key revoked');
         loadAPIKeys();
     } catch (err) {
-        showToast('Failed to revoke key: ' + err);
+        showToast('Failed to revoke key: ' + errText(err), 'error');
     }
 }
 

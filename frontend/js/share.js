@@ -32,6 +32,9 @@
   const addShareBtn = document.getElementById('add-share-btn');
   const addFollowBtn = document.getElementById('add-follow-btn');
 
+  const createShareFocus = createModalFocus(createModal);
+  const followModalFocus = createModalFocus(followModal);
+
   function escapeHTML(s) {
     return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   }
@@ -163,6 +166,7 @@
       qrBox.innerHTML = '';
       createModal.removeAttribute('inert');
       createModal.classList.remove('hidden');
+      createShareFocus.open(tagSelect);
     } catch (e) {
       console.error(e);
     }
@@ -176,10 +180,13 @@
   }
   window.openShareFlowForTag = openShareFlowForTag;
 
-  document.querySelectorAll('.create-share-close').forEach(b => b.addEventListener('click', () => {
+  function closeCreateShareModal() {
     createModal.classList.add('hidden');
     createModal.setAttribute('inert', '');
-  }));
+    createShareFocus.close();
+  }
+
+  document.querySelectorAll('.create-share-close').forEach(b => b.addEventListener('click', closeCreateShareModal));
 
   confirmBtn.addEventListener('click', async () => {
     const tagID = parseInt(tagSelect.value, 10);
@@ -187,6 +194,9 @@
       if (typeof showToast === 'function') showToast('Pick a tag first', 'error');
       return;
     }
+    // A second click while StartShare is in flight would start it twice.
+    if (confirmBtn.disabled) return;
+    confirmBtn.disabled = true;
     try {
       const info = await window.go.main.ShareService.StartShare(tagID);
       stringBox.textContent = info.share_string;
@@ -199,6 +209,8 @@
       const msg = (e && e.message) ? e.message : String(e);
       console.error('share: StartShare failed', e);
       if (typeof showToast === 'function') showToast(msg, 'error');
+    } finally {
+      confirmBtn.disabled = false;
     }
   });
 
@@ -430,6 +442,7 @@
     resetFollowModal();
     followModal.removeAttribute('inert');
     followModal.classList.remove('hidden');
+    followModalFocus.open(followString);
     // Attach autocomplete once per open — it destroys on close.
     if (window.TagAutocomplete && !autocompleteHandle) {
       autocompleteHandle = window.TagAutocomplete.attach(followTagInput, {
@@ -442,11 +455,14 @@
     }
   });
 
-  document.querySelectorAll('.follow-share-close').forEach(b => b.addEventListener('click', () => {
+  function closeFollowShareModal() {
     followModal.classList.add('hidden');
     followModal.setAttribute('inert', '');
     resetFollowModal();
-  }));
+    followModalFocus.close();
+  }
+
+  document.querySelectorAll('.follow-share-close').forEach(b => b.addEventListener('click', closeFollowShareModal));
 
   followString.addEventListener('input', () => {
     // Bump immediately so any in-flight dial is discarded the moment the user edits.
@@ -494,9 +510,7 @@
       } else {
         await window.go.main.ShareService.Follow(s, tagName);
       }
-      followModal.classList.add('hidden');
-      followModal.setAttribute('inert', '');
-      resetFollowModal();
+      closeFollowShareModal();
       await refresh();
     } catch (e) {
       // Restore state so the user can adjust input and retry. Show the raw
@@ -611,6 +625,7 @@
   let editFollowID = null;
   let editFollowOriginalTag = '';
   let editFollowAutocomplete = null;
+  const editFollowFocus = createModalFocus(editFollowModal);
 
   function openEditFollowModal(id, currentTag) {
     editFollowID = id;
@@ -631,7 +646,7 @@
         },
       });
     }
-    requestAnimationFrame(() => editFollowInput.focus());
+    editFollowFocus.open(editFollowInput);
   }
 
   function closeEditFollowModal() {
@@ -640,6 +655,7 @@
     if (editFollowAutocomplete) { editFollowAutocomplete.destroy(); editFollowAutocomplete = null; }
     editFollowID = null;
     editFollowOriginalTag = '';
+    editFollowFocus.close();
   }
 
   function updateEditSaveEnabled() {
@@ -684,6 +700,7 @@
 
   // State of the currently open logs view so Refresh knows what to re-fetch.
   let shareLogsFilter = { followID: 0, publicationID: 0 };
+  const shareLogsFocus = createModalFocus(shareLogsModal);
 
   function levelStyles(level) {
     if (level === 'error') return 'text-red-600';
@@ -729,6 +746,7 @@
       : 'Recent share-system events, newest first. In-memory only — cleared on app restart.';
     shareLogsModal.removeAttribute('inert');
     shareLogsModal.classList.remove('hidden');
+    shareLogsFocus.open();
     loadShareLogs();
   }
 
@@ -736,15 +754,13 @@
     shareLogsModal.classList.add('hidden');
     shareLogsModal.setAttribute('inert', '');
     shareLogsList.innerHTML = '';
+    shareLogsFocus.close();
   }
 
   document.querySelectorAll('.share-logs-close').forEach(b => b.addEventListener('click', closeShareLogsModal));
   if (shareLogsRefreshBtn) shareLogsRefreshBtn.addEventListener('click', loadShareLogs);
   shareLogsModal.addEventListener('click', (e) => {
     if (e.target === shareLogsModal) closeShareLogsModal();
-  });
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !shareLogsModal.classList.contains('hidden')) closeShareLogsModal();
   });
 
   // Re-render on backend events.
@@ -766,8 +782,16 @@
     });
   }
 
-  // Expose for view switcher.
-  window.ShareView = { refresh };
+  // Expose for the view switcher, and the modal closers for ShortcutManager's
+  // Escape handling.
+  window.ShareView = {
+    refresh,
+    openLogs: openShareLogsModal,
+    closeCreate: closeCreateShareModal,
+    closeFollow: closeFollowShareModal,
+    closeEditFollow: closeEditFollowModal,
+    closeLogs: closeShareLogsModal,
+  };
 
   // Back button behaves like other views — flip to clips.
   const backBtn = document.getElementById('share-back-btn');

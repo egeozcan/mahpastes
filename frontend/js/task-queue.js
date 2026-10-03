@@ -77,7 +77,7 @@ function handlePluginTaskFailed(data) {
         // Include the reason: the action's own result toast races this one
         // over the event bridge (ordering is not guaranteed), so the last
         // toast must carry the failure detail itself.
-        showToast(task.error ? `Failed: ${task.task_name}: ${task.error}` : `Failed: ${task.task_name}`);
+        showToast(task.error ? `Failed: ${task.task_name}: ${task.error}` : `Failed: ${task.task_name}`, 'error');
     }
 }
 
@@ -153,6 +153,8 @@ function getVisibleTasks() {
 }
 
 // Queue modal functions
+const queueModalFocus = queueModal ? createModalFocus(queueModal) : null;
+
 function openQueueModal() {
     if (queueModal) {
         queueModal.removeAttribute('inert');
@@ -164,6 +166,7 @@ function openQueueModal() {
             inner.classList.add('scale-100');
         }
         renderQueueModal();
+        queueModalFocus.open(document.getElementById('queue-modal-close'));
     }
 }
 
@@ -177,6 +180,7 @@ function closeQueueModal() {
             inner.classList.remove('scale-100');
         }
         queueModal.setAttribute('inert', '');
+        queueModalFocus.close();
     }
 }
 

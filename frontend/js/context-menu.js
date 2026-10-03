@@ -210,10 +210,7 @@ const ContextMenu = (() => {
             const item = e.target.closest('[role="menuitem"]');
             if (!item) return;
             e.stopPropagation();
-            if (onActionCallback) {
-                onActionCallback(item.dataset.action, currentClipId, item);
-            }
-            close();
+            runAction(item);
         });
 
         // Keyboard handler for submenu (panel is on body, not inside menu, so events don't bubble to menu)
@@ -457,6 +454,17 @@ const ContextMenu = (() => {
         }
     }
 
+    // Close first, then act. close() hands focus back to whatever opened the
+    // menu; doing that after the action would yank focus out of the dialog or
+    // popover the action just opened, and leave that dialog remembering a
+    // menu item that no longer exists as the place to return focus to.
+    function runAction(item) {
+        const callback = onActionCallback;
+        const clipId = currentClipId;
+        close();
+        if (callback) callback(item.dataset.action, clipId, item);
+    }
+
     // --- Public API ---
 
     function open(items, clipId, anchor, onAction, options = {}) {
@@ -492,10 +500,7 @@ const ContextMenu = (() => {
             // Don't handle clicks on submenu triggers — they open submenus
             if (item.classList.contains('card-menu-submenu-trigger')) return;
             e.stopPropagation();
-            if (onActionCallback) {
-                onActionCallback(item.dataset.action, currentClipId, item);
-            }
-            close();
+            runAction(item);
         });
 
         // Add to DOM and position

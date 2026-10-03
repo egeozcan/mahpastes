@@ -57,7 +57,7 @@ async function saveSettings() {
         closeSettings();
     } catch (error) {
         console.error('Failed to save settings:', error);
-        showToast('Failed to save settings');
+        showToast('Failed to save settings', 'error');
     }
 }
 
@@ -80,6 +80,7 @@ const restoreBackupInfo = document.getElementById('restore-backup-info');
 const restoreIdentityPanel = document.getElementById('restore-identity-panel');
 const restoreTakeoverWarning = document.getElementById('restore-takeover-warning');
 const restoreTakeoverPubList = document.getElementById('restore-takeover-pub-list');
+const restoreConfirmFocus = createModalFocus(restoreConfirmDialog);
 
 let pendingRestorePath = null;
 // Resolved identity policy: "none" when no collision; one of "keep"/"takeover" otherwise.
@@ -97,7 +98,7 @@ async function createBackup() {
         }
     } catch (error) {
         console.error('Failed to create backup:', error);
-        showToast('Failed to create backup: ' + error.message);
+        showToast('Failed to create backup: ' + errText(error), 'error');
     } finally {
         createBackupBtn.disabled = false;
         createBackupBtn.textContent = 'Create Backup';
@@ -108,12 +109,12 @@ async function selectRestoreBackup() {
     try {
         const result = await window.go.main.App.ShowRestoreBackupDialog();
 
-        if (!result || !result[0]) {
+        if (!result || !result.manifest) {
             return; // User cancelled or no manifest
         }
 
-        const manifest = result[0];
-        const backupPath = result[1];
+        const manifest = result.manifest;
+        const backupPath = result.path;
 
         // Store path for confirmation
         pendingRestorePath = backupPath;
@@ -190,7 +191,7 @@ async function selectRestoreBackup() {
 
     } catch (error) {
         console.error('Failed to select backup:', error);
-        showToast('Failed to read backup: ' + error.message);
+        showToast('Failed to read backup: ' + errText(error), 'error');
     }
 }
 
@@ -200,9 +201,19 @@ function showRestoreConfirmDialog() {
     restoreConfirmDialog.classList.add('opacity-100');
     restoreConfirmDialog.querySelector(':scope > div').classList.remove('scale-95');
     restoreConfirmDialog.querySelector(':scope > div').classList.add('scale-100');
+    // Start on Cancel: the other button deletes the whole library.
+    restoreConfirmFocus.open(restoreConfirmCancel);
 }
 
-function hideRestoreConfirmDialog() {
+// True while ConfirmRestoreBackup runs. The dialog stays up until it settles:
+// Escape, Cancel or a backdrop click would otherwise hide "Restoring…" and
+// leave the user with no sign that their library is being replaced.
+let restoreInFlight = false;
+
+// Returns false (declining, for the Escape handler) while a restore is running.
+// `force` is for teardown only.
+function hideRestoreConfirmDialog({ force = false } = {}) {
+    if (restoreInFlight && !force) return false;
     restoreConfirmDialog.classList.add('opacity-0', 'pointer-events-none');
     restoreConfirmDialog.classList.remove('opacity-100');
     restoreConfirmDialog.querySelector(':scope > div').classList.add('scale-95');
@@ -217,6 +228,7 @@ function hideRestoreConfirmDialog() {
     restoreIdentityPanel.classList.add('hidden');
     restoreTakeoverWarning.classList.add('hidden');
     restoreConfirmDialog.setAttribute('inert', '');
+    restoreConfirmFocus.close();
 }
 
 async function confirmRestore() {
@@ -225,12 +237,16 @@ async function confirmRestore() {
         return;
     }
 
+    if (restoreInFlight) return;
     try {
+        restoreInFlight = true;
         restoreConfirmYes.disabled = true;
+        restoreConfirmCancel.disabled = true;
         restoreConfirmYes.textContent = 'Restoring...';
 
         await window.go.main.App.ConfirmRestoreBackup(pendingRestorePath, pendingIdentityPolicy);
 
+        restoreInFlight = false;
         hideRestoreConfirmDialog();
         closeSettings();
         showToast('Backup restored successfully');
@@ -242,9 +258,11 @@ async function confirmRestore() {
 
     } catch (error) {
         console.error('Failed to restore backup:', error);
-        showToast('Failed to restore: ' + error.message);
+        showToast('Failed to restore: ' + errText(error), 'error');
     } finally {
+        restoreInFlight = false;
         restoreConfirmYes.disabled = false;
+        restoreConfirmCancel.disabled = false;
         restoreConfirmYes.textContent = 'Delete & Restore';
     }
 }
@@ -265,7 +283,7 @@ restoreIdentityPanel.addEventListener('change', (e) => {
 // Event listeners for backup
 createBackupBtn.addEventListener('click', createBackup);
 restoreBackupBtn.addEventListener('click', selectRestoreBackup);
-restoreConfirmCancel.addEventListener('click', hideRestoreConfirmDialog);
+restoreConfirmCancel.addEventListener('click', () => hideRestoreConfirmDialog());
 restoreConfirmYes.addEventListener('click', confirmRestore);
 restoreConfirmDialog.addEventListener('click', (e) => {
     if (e.target === restoreConfirmDialog) hideRestoreConfirmDialog();
@@ -331,7 +349,7 @@ async function toggleHiddenTag(tagId, hidden) {
         await window.go.main.App.SetHiddenTags(getHiddenTags());
     } catch (error) {
         console.error('Error saving hidden tags:', error);
-        showToast('Failed to save hidden tags setting.');
+        showToast('Failed to save hidden tags setting.', 'error');
     }
 }
 
@@ -356,7 +374,7 @@ if (updateIntervalSelect) {
             showToast('Update check interval saved');
         } catch (error) {
             console.error('Failed to save update interval:', error);
-            showToast('Failed to save setting');
+            showToast('Failed to save setting', 'error');
         }
     });
 }

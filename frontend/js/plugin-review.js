@@ -23,6 +23,7 @@ const reviewEventsSection = document.getElementById('plugin-review-events-sectio
 const reviewEvents = document.getElementById('plugin-review-events');
 const reviewCancelBtn = document.getElementById('plugin-review-cancel');
 const reviewApproveBtn = document.getElementById('plugin-review-approve');
+const reviewFocus = createModalFocus(reviewModal);
 
 /**
  * Show the plugin review modal and return a promise that resolves to true (approved) or false (cancelled).
@@ -31,6 +32,13 @@ const reviewApproveBtn = document.getElementById('plugin-review-approve');
  * @param {string} [currentVersion] - Current version (for update mode)
  */
 function showPluginReview(preview, mode, currentVersion) {
+    // Only one review is shown at a time. A newer one replaces it, so settle
+    // the older caller as cancelled rather than leaving its promise hanging.
+    if (reviewResolve) {
+        const previous = reviewResolve;
+        reviewResolve = null;
+        previous(false);
+    }
     return new Promise((resolve) => {
         reviewResolve = resolve;
         reviewSource = preview.source;
@@ -132,6 +140,7 @@ function showPluginReview(preview, mode, currentVersion) {
         reviewModal.classList.add('opacity-100');
         reviewModal.querySelector(':scope > div').classList.remove('scale-95');
         reviewModal.querySelector(':scope > div').classList.add('scale-100');
+        reviewFocus.open(reviewCancelBtn);
     });
 }
 
@@ -141,6 +150,7 @@ function closePluginReview(approved) {
     reviewModal.querySelector(':scope > div').classList.add('scale-95');
     reviewModal.querySelector(':scope > div').classList.remove('scale-100');
     reviewModal.setAttribute('inert', '');
+    reviewFocus.close();
 
     if (reviewResolve) {
         reviewResolve(approved);

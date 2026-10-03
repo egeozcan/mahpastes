@@ -635,12 +635,16 @@ export class AppHelper {
 
       try {
         if (App?.GetClips) {
-          const [clips, archived] = await Promise.all([
-            App.GetClips(false, [], [], "", ""),
-            App.GetClips(true, [], [], "", ""),
-          ]);
-          const all = [...(clips || []), ...(archived || [])];
-          await Promise.all(all.map((c: any) => App.DeleteClip(c.id).catch(() => {})));
+          // GetClips returns one page (50); keep going until both views are empty.
+          for (let round = 0; round < 50; round++) {
+            const [clips, archived] = await Promise.all([
+              App.GetClips(false, [], [], "", ""),
+              App.GetClips(true, [], [], "", ""),
+            ]);
+            const all = [...(clips || []), ...(archived || [])];
+            if (all.length === 0) break;
+            await Promise.all(all.map((c: any) => App.DeleteClip(c.id).catch(() => {})));
+          }
         }
       } catch {}
 
@@ -723,18 +727,80 @@ export class AppHelper {
         if (wizard?.isOpen?.()) wizard.close();
       } catch {}
 
-      // All modals use opacity-0/pointer-events-none when closed
+      // Close every open dialog through its own close function. Flipping its
+      // classes alone leaves `inert` off, the focus trap installed, and
+      // createModalFocus still "open" with a stale opener — the next test on
+      // this worker-scoped page then reopens it and restores focus to a card
+      // that no longer exists. Topmost layers first, so each close restores
+      // focus into a layer that is still there.
+      {
+        const w = window as any;
+        const isShown = (el: Element | null) => !!el && !el.hasAttribute('inert')
+          && !el.classList.contains('opacity-0') && !el.classList.contains('hidden');
+        const closers: Array<[string, () => unknown]> = [
+          ['#confirm-dialog', () => w.closeConfirmDialog?.()],
+          ['#restore-confirm-dialog', () => w.hideRestoreConfirmDialog?.({ force: true })],
+          ['#prompt-dialog', () => w.closePromptDialog?.()],
+          ['#conflict-dialog', () => w.closeConflictDialog?.('skip')],
+          ['#plugin-review-modal', () => w.closePluginReview?.(false)],
+          ['#plugin-result-modal', () => w.closePluginResultModal?.()],
+          ['#plugin-options-modal', () => w.closePluginOptionsDialog?.()],
+          ['#metadata-modal', () => w.closeMetadataModal?.()],
+          ['#merge-tag-modal', () => w.closeMergeTagModal?.()],
+          ['#api-modal', () => w.closeApiModal?.()],
+          ['#queue-modal', () => w.closeQueueModal?.()],
+          ['#folder-modal', () => w.closeFolderModal?.()],
+          ['#maintenance-modal', () => w.closeMaintenance?.()],
+          ['#settings-modal', () => w.closeSettings?.()],
+          ['[data-testid="plugins-modal"]', () => w.closePlugins?.()],
+          // @ts-ignore - shortcuts.js top-level const
+          ['#shortcuts-cheatsheet', () => typeof ShortcutManager !== 'undefined' && ShortcutManager.closeCheatSheet()],
+          ['[data-testid="folder-move-modal"]', () => w.FolderMoveModal?.close?.()],
+          ['#create-share-modal', () => w.ShareView?.closeCreate?.()],
+          ['#follow-share-modal', () => w.ShareView?.closeFollow?.()],
+          ['#edit-follow-modal', () => w.ShareView?.closeEditFollow?.()],
+          ['#share-logs-modal', () => w.ShareView?.closeLogs?.()],
+        ];
+        for (const [selector, close] of closers) {
+          if (!isShown(document.querySelector(selector))) continue;
+          try { close(); } catch {}
+        }
+        // Popovers and menus: idempotent closers, safe to call unconditionally.
+        for (const close of [
+          () => w.closeTagPopover?.(),
+          () => w.closeExpirationPopover?.(),
+          () => w.closeSortPopover?.(),
+          () => w.closeTagFilterDropdown?.(false),
+          () => w.closeCardMenu?.(),
+          () => w.closeLightboxPluginMenu?.(),
+          () => w.closeLightboxFileMenu?.(),
+        ]) {
+          try { close(); } catch {}
+        }
+      }
+
+      // Tooltips are a persisted setting; a test that turns them off must not
+      // leave them off for the rest of the worker.
+      try {
+        const toggleTooltips = (window as any).toggleTooltips;
+        if (typeof toggleTooltips === 'function') await toggleTooltips(true);
+      } catch {}
+
+      // Fallback for anything a closer missed (or a page without one): all
+      // modals use opacity-0/pointer-events-none when closed.
       const modalIds = [
         'confirm-dialog', 'restore-confirm-dialog', 'folder-modal',
         'settings-modal', 'maintenance-modal', 'plugin-options-modal',
         'plugin-result-modal', 'plugin-review-modal', 'path-paste-dialog',
-        'import-wizard-modal',
+        'import-wizard-modal', 'prompt-dialog', 'conflict-dialog', 'metadata-modal',
+        'api-modal', 'queue-modal', 'merge-tag-modal',
       ];
       for (const id of modalIds) {
         const el = document.getElementById(id);
         if (el) {
           el.classList.remove('opacity-100');
           el.classList.add('opacity-0', 'pointer-events-none');
+          el.setAttribute('inert', '');
         }
       }
 
@@ -750,7 +816,16 @@ export class AppHelper {
       if (window.LightboxController) window.LightboxController.close();
       else document.querySelector('#lightbox')?.classList.remove('active');
       document.querySelector('#editor-modal')?.classList.remove('active');
-      document.querySelector('#comparison-modal')?.classList.remove('active');
+      // Through its own close so the focus trap and resize observer go too.
+      const closeComparison = (window as any).closeComparisonModal;
+      if (document.querySelector('#comparison-modal.active')) {
+        if (typeof closeComparison === 'function') {
+          // Its focus restore runs 300ms later, inside the next test; drop the opener.
+          // @ts-ignore - app.js top-level let
+          lastFocusedElementBeforeComparison = null;
+          closeComparison();
+        } else document.querySelector('#comparison-modal')?.classList.remove('active');
+      }
 
       // Watch view uses .hidden class
       document.querySelector('#watch-view')?.classList.add('hidden');
@@ -837,9 +912,13 @@ export class AppHelper {
         }
       }
 
-      // Close nav drawer if open and restore inert
+      // Close nav drawer if open and restore inert. Its own close releases the
+      // focus trap; without restoring focus, since the opener may be gone.
       const navDrawer = document.getElementById('nav-drawer');
-      if (navDrawer) {
+      const closeDrawerFn = (window as any).closeDrawer;
+      if (typeof closeDrawerFn === 'function') {
+        try { closeDrawerFn(false); } catch {}
+      } else if (navDrawer) {
         navDrawer.classList.add('translate-x-full');
         navDrawer.setAttribute('inert', '');
       }
@@ -1691,6 +1770,10 @@ export class AppHelper {
   async expectEmptyState(): Promise<void> {
     const emptyState = this.page.locator(selectors.gallery.emptyState);
     await expect(emptyState).toBeVisible();
+    // The same element carries the red "Error loading clips." state, which is
+    // not an empty gallery.
+    await expect(emptyState).not.toHaveClass(/text-red-500/);
+    await expect(emptyState).not.toContainText('Error loading clips');
   }
 
   // ==================== Tags ====================
@@ -3721,7 +3804,7 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
 
     // Wait for full app initialization (only once per worker)
     await page.waitForSelector(selectors.header.root, { timeout: 30000 });
-    await page.waitForSelector(selectors.gallery.container, { timeout: 30000 });
+    await page.waitForSelector(selectors.gallery.container, { state: 'attached', timeout: 30000 });
     await page.waitForFunction(
       () => typeof (window as any).go?.main?.App?.GetClips === 'function',
       { timeout: 30000 }

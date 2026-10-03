@@ -131,6 +131,7 @@ async function resolvePastedFilePaths(text) {
 
 let pathPasteResolve = null;
 let pathPasteFocusTrapCleanup = null;
+let pathPasteOpener = null;
 
 /**
  * Ask whether a pasted path should become a text clip or the file it names.
@@ -170,7 +171,7 @@ function showPathPasteDialog(probes) {
     dialogContent.classList.remove('scale-95');
     dialogContent.classList.add('scale-100');
 
-    lastFocusedElement = document.activeElement;
+    pathPasteOpener = document.activeElement;
     if (pathPasteFocusTrapCleanup) pathPasteFocusTrapCleanup();
     pathPasteFocusTrapCleanup = trapFocus(dialog);
     setTimeout(() => fileBtn.focus(), 100);
@@ -195,7 +196,8 @@ function closePathPasteDialog(choice) {
     dialogContent.classList.add('scale-95');
     dialog.setAttribute('inert', '');
 
-    if (lastFocusedElement) lastFocusedElement.focus();
+    restoreFocus(pathPasteOpener);
+    pathPasteOpener = null;
 
     const resolve = pathPasteResolve;
     pathPasteResolve = null;

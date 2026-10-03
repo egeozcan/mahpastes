@@ -66,6 +66,15 @@ test.describe('Tooltips', () => {
   });
 
   test('tooltips can be disabled via settings toggle', async ({ app }) => {
+    try {
+      await disableTooltipsViaSettings(app);
+    } finally {
+      // The page is shared by the worker's next tests.
+      await app.page.evaluate(() => (window as any).toggleTooltips(true));
+    }
+  });
+
+  async function disableTooltipsViaSettings(app: any) {
     // Open settings
     await app.page.locator('#drawer-toggle-btn').click();
     await app.page.locator('#open-settings-btn').click();
@@ -89,11 +98,11 @@ test.describe('Tooltips', () => {
     await btn.hover();
     await app.page.waitForTimeout(400);
 
-    const display = await btn.evaluate((el) => {
+    const display = await btn.evaluate((el: Element) => {
       return window.getComputedStyle(el, '::after').display;
     });
     expect(display).toBe('none');
-  });
+  }
 
   test('tooltip setting persists across page reload', async ({ app }) => {
     // Open settings and disable tooltips

@@ -1,5 +1,5 @@
 import { test, expect } from '../../fixtures/test-fixtures';
-import { createTempFile } from '../../helpers/test-data';
+import { createTempFile, generateTestText } from '../../helpers/test-data';
 import { generateTestImage } from '../../helpers/test-data';
 import { selectors } from '../../helpers/selectors';
 import * as path from 'path';
@@ -174,6 +174,89 @@ test.describe('Metadata', () => {
     await app.openMetadataModal(filename);
     const typeValue = await app.getSystemMetadataValue('Type');
     expect(typeValue).toBe('image/png');
+    await app.closeMetadataModal();
+  });
+});
+
+test.describe('Metadata modal — load failures and stale responses', () => {
+  test.afterEach(async ({ app }) => {
+    await app.page.evaluate(() => {
+      const w = window as any;
+      w.__releaseA?.();
+      delete w.__releaseA;
+      w.__restoreGetClipMetadata?.();
+      delete w.__restoreGetClipMetadata;
+    });
+  });
+
+  test('a failed load shows an error and keeps Save from wiping the stored keys', async ({ app }) => {
+    const file = await createTempFile(generateTestText('meta-fail'), 'txt');
+    const name = path.basename(file);
+    await app.uploadFile(file);
+    const clipId = Number(await app.page.locator(selectors.gallery.clipCardByName(name)).getAttribute('data-id'));
+    await app.page.evaluate(async (id) => {
+      const api = (window as any).go.main.App;
+      await api.SetClipMetadata(id, 'keep', 'me');
+      const original = api.GetClipMetadata;
+      (window as any).__restoreGetClipMetadata = () => { api.GetClipMetadata = original; };
+      api.GetClipMetadata = () => Promise.reject('database is locked');
+    }, clipId);
+
+    const card = app.page.locator(selectors.gallery.clipCardByName(name));
+    await card.locator(selectors.clipActions.menuTrigger).click();
+    await app.page.locator(selectors.cardMenu.metadata).click();
+
+    await expect(app.page.locator('[data-testid="metadata-error"]')).toContainText('database is locked');
+    await expect(app.page.locator(selectors.metadata.saveButton)).toBeDisabled();
+    await app.closeMetadataModal();
+
+    const stored = await app.page.evaluate(async (id) => {
+      (window as any).__restoreGetClipMetadata();
+      return (window as any).go.main.App.GetClipMetadata(id);
+    }, clipId);
+    expect(stored).toEqual({ keep: 'me' });
+  });
+
+  test("a slow response for the previous clip never renders into the next one", async ({ app }) => {
+    const a = await createTempFile(generateTestText('meta-a'), 'txt');
+    const b = await createTempFile(generateTestText('meta-b'), 'txt');
+    await app.uploadFile(a);
+    await app.uploadFile(b);
+    const idA = Number(await app.page.locator(selectors.gallery.clipCardByName(path.basename(a))).getAttribute('data-id'));
+    const idB = Number(await app.page.locator(selectors.gallery.clipCardByName(path.basename(b))).getAttribute('data-id'));
+    await app.page.evaluate(async ({ idA, idB }) => {
+      const api = (window as any).go.main.App;
+      await api.SetClipMetadata(idA, 'owner', 'clip-a');
+      await api.SetClipMetadata(idB, 'owner', 'clip-b');
+      const original = api.GetClipMetadata;
+      (window as any).__restoreGetClipMetadata = () => { api.GetClipMetadata = original; };
+      api.GetClipMetadata = (id: number) => id === idA
+        ? new Promise(resolve => {
+          (window as any).__releaseA = () => {
+            const result = original(id);
+            resolve(result);
+            return result.then(() => {}, () => {});
+          };
+        })
+        : original(id);
+    }, { idA, idB });
+
+    const cardA = app.page.locator(selectors.gallery.clipCardByName(path.basename(a)));
+    await cardA.locator(selectors.clipActions.menuTrigger).click();
+    await app.page.locator(selectors.cardMenu.metadata).click();
+    await app.closeMetadataModal();
+    await app.openMetadataModal(path.basename(b));
+    // Let A's response land, then give its (dropped) render a frame to show up.
+    await app.page.evaluate(async () => {
+      const w = window as any;
+      const pending = w.__releaseA();
+      delete w.__releaseA;
+      await pending;
+      await new Promise(requestAnimationFrame);
+    });
+
+    await app.expectMetadataRowCount(1);
+    await expect(app.page.locator('[data-testid="metadata-value"]').first()).toHaveValue('clip-b');
     await app.closeMetadataModal();
   });
 });

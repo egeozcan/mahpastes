@@ -12,6 +12,10 @@ let saveAsMode = false;
 let editorSaving = false;
 let lastFocusedBeforeEditor = null;
 let editorFocusTrapCleanup = null;
+// Bumped on every open and close. An image save captures it, so a save that
+// resolves after the editor was closed (or reopened on another clip) never
+// closes or marks clean an editor it did not come from.
+let editorSession = 0;
 
 // --- Utility Functions ---
 
@@ -56,10 +60,10 @@ function getNewFilename(original) {
 function reportTextEncodingRefusal(result) {
     if (result.reason === 'unpaired-surrogate') {
         const at = result.position ? ` at line ${result.position.line}, column ${result.position.column}` : '';
-        showToast(`Cannot save: unpaired ${result.codeUnit}${at}. Remove it and try again.`);
+        showToast(`Cannot save: unpaired ${result.codeUnit}${at}. Remove it and try again.`, 'error');
         return;
     }
-    showToast('Cannot save: the text could not be encoded.');
+    showToast('Cannot save: the text could not be encoded.', 'error');
 }
 
 function setSaveAsMode(enabled) {
@@ -124,6 +128,7 @@ function updateEditorSaveState() {
  * pass `'edit'` so Markdown and CSV land in the editor rather than in Preview.
  */
 async function openEditor(clipId, options = {}) {
+    editorSession++;
     const editorModal = document.getElementById('editor-modal');
     if (!editorModal.classList.contains('active')) lastFocusedBeforeEditor = document.activeElement;
     try {
@@ -263,7 +268,7 @@ async function openEditor(clipId, options = {}) {
         editorFocusTrapCleanup = null;
         editorModal.classList.remove('active');
         editorModal.setAttribute('inert', '');
-        showToast('Failed to open editor.');
+        showToast('Failed to open editor.', 'error');
     }
 }
 
@@ -339,6 +344,7 @@ function closeEditor(options) {
         return;
     }
 
+    editorSession++;
     const editorModal = document.getElementById('editor-modal');
     if (editorFocusTrapCleanup) editorFocusTrapCleanup();
     editorFocusTrapCleanup = null;
@@ -470,7 +476,29 @@ function selectTool(tool) {
 
 // --- Save ---
 
+// After an image save resolves: close only the editor the save came from, and
+// only when nothing was drawn while the write was in flight. Returns true when
+// the caller should stop (the editor stays open, or is not this save's).
+function settleImageSave(session, savedRevision, message) {
+    if (session !== editorSession) {
+        showToast(message);
+        loadClips();
+        return true;
+    }
+    if (EditorCore.currentRevision !== savedRevision) {
+        EditorCore.markClean(savedRevision);
+        showToast(`${message} Edits made while saving are still unsaved.`);
+        setEditorSaving(false);
+        updateEditorSaveState();
+        loadClips();
+        return true;
+    }
+    return false;
+}
+
 async function performSaveEditorInPlace(snapshot) {
+    const session = editorSession;
+    let savedRevision = null;
     setEditorSaving(true);
     // Captured once. `isTextEditor` is mutable module state describing whatever the
     // editor holds *now*; reading it after the awaited write would let a late text
@@ -509,6 +537,8 @@ async function performSaveEditorInPlace(snapshot) {
             targetFilename = snapshot.filename;
             contentType = snapshot.contentType;
         } else {
+            // What is on the canvas now is what this save writes.
+            savedRevision = EditorCore.currentRevision;
             const exported = await EditorExport.exportCanvas({
                 canvas: EditorCore.canvas,
                 originalMime: EditorCore.originalContentType,
@@ -520,6 +550,7 @@ async function performSaveEditorInPlace(snapshot) {
             targetFilename = exported.filename;
         }
         await window.go.main.App.UpdateClipData(targetClipID, contentType, base64Data, targetFilename);
+        invalidateClipMedia(targetClipID);
         if (isTextSave) {
             // The write is awaited, so the editor may have been closed and pointed at
             // another clip while it was in flight. Clearing a draft or closing the
@@ -542,14 +573,16 @@ async function performSaveEditorInPlace(snapshot) {
                 return;
             }
             TextClipEditor.clearDraft();
+        } else if (settleImageSave(session, savedRevision, 'Saved.')) {
+            return;
         }
         showToast('Saved!');
         closeEditor({ force: true });
         loadClips();
     } catch (error) {
         console.error('Error saving in place:', error);
-        showToast('Failed to save.');
-        setEditorSaving(false);
+        showToast('Failed to save: ' + errText(error), 'error');
+        if (isTextSave || session === editorSession) setEditorSaving(false);
     } finally {
         if (isTextSave) TextClipEditor.endSave(snapshot);
     }
@@ -607,6 +640,8 @@ async function performSaveEditorContent(snapshot) {
         return;
     }
 
+    const session = editorSession;
+    let savedRevision = null;
     setEditorSaving(true);
     // Same reasoning as save-in-place: pin the branch before any await.
     const isTextSave = isTextEditor;
@@ -631,6 +666,7 @@ async function performSaveEditorContent(snapshot) {
             contentType = snapshot.contentType;
         } else {
             EditorCore.prepareForAction('save');
+            savedRevision = EditorCore.currentRevision;
             const exported = await EditorExport.exportCanvas({
                 canvas: EditorCore.canvas,
                 originalMime: EditorCore.originalContentType,
@@ -663,14 +699,27 @@ async function performSaveEditorContent(snapshot) {
                 return;
             }
             TextClipEditor.clearDraft();
+        } else if (session !== editorSession || EditorCore.currentRevision !== savedRevision) {
+            // A copy leaves the open clip untouched, so nothing is marked clean:
+            // just never close an editor the save did not come from, or one the
+            // user kept drawing in.
+            showToast(session === editorSession
+                ? 'Saved as new clip! Edits made while saving are still unsaved.'
+                : 'Saved as new clip!');
+            if (session === editorSession) {
+                setEditorSaving(false);
+                updateEditorSaveState();
+            }
+            loadClips();
+            return;
         }
         showToast('Saved as new clip!');
         closeEditor({ force: true });
         loadClips();
     } catch (error) {
         console.error('Error saving:', error);
-        showToast('Failed to save.');
-        setEditorSaving(false);
+        showToast('Failed to save: ' + errText(error), 'error');
+        if (isTextSave || session === editorSession) setEditorSaving(false);
     } finally {
         if (isTextSave) TextClipEditor.endSave(snapshot);
     }
@@ -864,9 +913,18 @@ function setupEditorListeners() {
         document.getElementById('editor-anon-pixelate').setAttribute('aria-pressed', 'false');
     });
 
-    // Click outside to close
-    document.getElementById('editor-modal').addEventListener('click', (e) => {
-        if (e.target.id === 'editor-modal') {
+    // Click outside to close. Both the press and the release must land on the
+    // backdrop: a drag that starts on the canvas (a brush stroke, a crop) and
+    // ends outside it produces a click on the backdrop too.
+    const editorBackdrop = document.getElementById('editor-modal');
+    let editorPressOnBackdrop = false;
+    editorBackdrop.addEventListener('mousedown', (e) => {
+        editorPressOnBackdrop = e.target === editorBackdrop;
+    });
+    editorBackdrop.addEventListener('click', (e) => {
+        const pressOnBackdrop = editorPressOnBackdrop;
+        editorPressOnBackdrop = false;
+        if (e.target === editorBackdrop && pressOnBackdrop) {
             closeEditor();
         }
     });

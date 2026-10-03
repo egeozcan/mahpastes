@@ -243,9 +243,20 @@ function getUploadExpirationMinutes() {
     return parseInt(uploadExpirySelect.value, 10) || 0;
 }
 
-function updateClipCount(count) {
-    if (clipCountEl) {
-        clipCountEl.textContent = count === 1 ? '1 clip' : `${count} clips`;
+// `count` clips shown. With `total` (more exist than are loaded) it reads
+// "50 of 120 clips"; while the plain search filter hides loaded cards it reads
+// "3 of 50 loaded clips" (or "3 of 12 clips" once everything is loaded).
+function updateClipCount(count, total = null, { filtering = false, loaded = 0 } = {}) {
+    if (!clipCountEl) return;
+    const noun = n => (n === 1 ? 'clip' : 'clips');
+    if (filtering) {
+        clipCountEl.textContent = total != null
+            ? `${count} of ${total} ${noun(total)}`
+            : `${count} of ${loaded} loaded ${noun(loaded)}`;
+    } else if (total != null && total > count) {
+        clipCountEl.textContent = `${count} of ${total} ${noun(total)}`;
+    } else {
+        clipCountEl.textContent = `${count} ${noun(count)}`;
     }
 }
 
@@ -259,7 +270,6 @@ let isStretched = false;
 let lastFocusedElementBeforeComparison = null;
 let comparisonClipIds = []; // [idA, idB] - track which clips are being compared
 let diffCache = new Map(); // Map<threshold, {dataUrl, similarity}> - cache diff results
-let lastFocusedElement = null; // For confirm dialog
 
 // Tag state
 let allTags = [];
@@ -275,10 +285,15 @@ let hiddenTags = [];
 function normalizeActiveTagFilters(validIDs, substitutions) {
     const subs = substitutions || new Map();
     const replaced = activeTagFilters.map(id => subs.has(id) ? subs.get(id) : id);
-    const kept = replaced.filter(id => validIDs.has(id));
+    // A merge can map the source onto a destination that is already a filter.
+    const kept = [...new Set(replaced.filter(id => validIDs.has(id)))];
     activeTagFilters.length = 0;
     activeTagFilters.push(...kept);
-    // Re-render the filter pills so the UI reflects the normalized list.
+    // Re-render the filter pills and the dropdown so neither keeps a dead id:
+    // a stale pill's X would re-add the deleted tag and empty the gallery.
+    if (typeof updateActiveTagsDisplay === 'function') {
+        updateActiveTagsDisplay();
+    }
     if (typeof renderTagFilterDropdown === 'function') {
         renderTagFilterDropdown();
     }
@@ -507,7 +522,13 @@ document.addEventListener('drop', async e => {
 }, false);
 
 // File input change
-fileInput.addEventListener('change', e => handleFiles(e.target.files));
+fileInput.addEventListener('change', e => {
+    // Copy the list, then clear the input: picking the same file again must
+    // fire another change event (Upload / `n` twice on one file did nothing).
+    const files = Array.from(e.target.files || []);
+    e.target.value = '';
+    handleFiles(files);
+});
 
 // Paste
 document.addEventListener('paste', e => {
@@ -531,6 +552,7 @@ document.addEventListener('paste', e => {
 toggleArchiveViewBtn.addEventListener('click', toggleViewMode);
 headerArchiveBtn.addEventListener('click', toggleViewMode);
 headerAddBtn.addEventListener('click', () => fileInput.click());
+document.getElementById('gallery-load-more-btn')?.addEventListener('click', () => loadMoreClips());
 
 // Confirm Dialog Listeners
 document.getElementById('confirm-yes-btn').addEventListener('click', async () => {
@@ -565,6 +587,14 @@ document.getElementById('prompt-input').addEventListener('keydown', (e) => {
     }
 });
 
+document.getElementById('prompt-dialog').addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        closePromptDialog();
+    }
+});
+
 // Conflict Dialog Listeners
 document.getElementById('conflict-overwrite-btn').addEventListener('click', () => closeConflictDialog('overwrite'));
 document.getElementById('conflict-keep-btn').addEventListener('click', () => closeConflictDialog('keep'));
@@ -592,7 +622,6 @@ bulkCancelExpiryBtn.addEventListener('click', bulkCancelExpiry);
 async function bulkCancelExpiry() {
     if (selectedIds.size === 0) return;
     await bulkCancelExpiration(Array.from(selectedIds));
-    selectedIds.clear();
 }
 
 // Comparison Listeners
@@ -637,9 +666,8 @@ lightboxNext.addEventListener('click', (event) => {
     event.stopPropagation();
     window.LightboxController.command('next');
 });
-lightbox.addEventListener('click', (event) => {
-    if (event.target === lightbox) window.LightboxController.close();
-});
+// Backdrop clicks are the controller's (onViewportClick): it honours the
+// lightbox_close_on_backdrop setting and ignores drags that end on the backdrop.
 
 // --- Mouse back/forward navigation buttons ---
 //
@@ -767,7 +795,9 @@ async function handleFiles(files) {
         fileDataArray.push(fileData);
     }
 
-    upload(fileDataArray);
+    // Same queue as pastes: one upload's conflict prompt must be answered
+    // before the next upload checks for conflicts of its own.
+    return enqueuePaste(() => upload(fileDataArray));
 }
 
 // The system WebView hands clipboard bitmap data (screen captures, "Copy Image")
@@ -788,7 +818,7 @@ async function pastedImageName(fileData) {
     return `pasted_image_${hash.slice(0, 16)}.${ext}`;
 }
 
-// Pastes are serialized so a rapid double Cmd+V of the same capture cannot race:
+// Uploads (pastes, file picks, drops) are serialized so a rapid double Cmd+V of the same capture cannot race:
 // the second paste's duplicate check runs only after the first clip is committed,
 // which lets content-addressed naming collapse it into an identical-content skip.
 let pasteQueue = Promise.resolve();
@@ -1173,6 +1203,7 @@ async function handleFolderDrop(folderFiles, looseFiles, dirPaths) {
         for (const { clipID, fileData } of result.toOverwrite) {
             try {
                 await window.go.main.App.UpdateClipData(clipID, fileData.content_type, fileData.data, fileData.name);
+                invalidateClipMedia(clipID);
                 overwrittenCount++;
             } catch (error) {
                 console.error('Error overwriting clip:', error);
@@ -1211,6 +1242,7 @@ async function handleFolderDrop(folderFiles, looseFiles, dirPaths) {
             for (const { clipID, fileData } of result.toOverwrite) {
                 try {
                     await window.go.main.App.UpdateClipData(clipID, fileData.content_type, fileData.data, fileData.name);
+                    invalidateClipMedia(clipID);
                     overwrittenCount++;
                 } catch (error) {
                     console.error('Error overwriting clip:', error);
@@ -1283,7 +1315,7 @@ async function handleText(text) {
         data: base64
     };
 
-    upload([fileData]);
+    return enqueuePaste(() => upload([fileData]));
 }
 
 // Reads each path off disk and uploads it as a clip, the same way a dropped
@@ -1374,7 +1406,7 @@ window.addEventListener('load', async () => {
         // System
         ShortcutManager.register({
             id: 'show-cheatsheet', label: 'Show Shortcuts', category: 'system',
-            defaultKey: '?', context: 'global',
+            defaultKey: '?', context: 'app',
             callback: () => {
                 if (ShortcutManager.isCheatSheetOpen()) {
                     ShortcutManager.closeCheatSheet();
@@ -1460,7 +1492,7 @@ window.addEventListener('load', async () => {
 
         ShortcutManager.register({
             id: 'open-settings', label: 'Open Settings', category: 'navigation',
-            defaultKey: ',', context: 'global',
+            defaultKey: ',', context: 'app',
             callback: () => { if (typeof openSettings === 'function') openSettings(); }
         });
         ShortcutManager.register({
@@ -1470,7 +1502,7 @@ window.addEventListener('load', async () => {
         });
         ShortcutManager.register({
             id: 'open-drawer', label: 'Open Menu', category: 'navigation',
-            defaultKey: 'm', context: 'global',
+            defaultKey: 'm', context: 'app',
             callback: () => openDrawer()
         });
 
@@ -1893,6 +1925,9 @@ window.addEventListener('load', async () => {
         });
 
         window.runtime.EventsOn("clip:duplicate", (data) => {
+            // upload() folds this into its summary toast when the event lands
+            // before the upload finishes; one arriving later shows on its own.
+            window.__duplicateUploadEvents = (window.__duplicateUploadEvents || 0) + 1;
             showToast(`Duplicate clip detected — ${data.count} other ${data.count === 1 ? 'copy' : 'copies'} exist`, 'info');
         });
 
@@ -1906,6 +1941,18 @@ window.addEventListener('load', async () => {
         });
         window.runtime.EventsOn('tag:merged', (payload) => {
             window.handleTagReferenceEvent('tag:merged', payload);
+        });
+        // Tags created outside this window's own calls (plugins, REST, a
+        // followed share, auto-created ancestors) only need the tag cache
+        // refreshed. One create can emit several events (each new ancestor),
+        // so coalesce them into a single reload.
+        let tagCreatedReloadTimer = null;
+        window.runtime.EventsOn('tag:created', () => {
+            clearTimeout(tagCreatedReloadTimer);
+            tagCreatedReloadTimer = setTimeout(() => {
+                tagCreatedReloadTimer = null;
+                loadTags().catch((err) => console.error('Failed to reload tags:', err));
+            }, 50);
         });
 
         // macOS side-button navigation arrives as a backend event because
@@ -2027,8 +2074,24 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
-// Load all tags and update UI
+// Load all tags and update UI. Loads can overlap (a tag:created reload and
+// navigateToFolder's own): only the newest one writes allTags, so an older
+// response can never land last, and an older caller waits for the newest so
+// it reads current tags when it resumes.
+let tagLoadSeq = 0;
+let tagLoadLatest = null;
 async function loadTags() {
-    allTags = await getAllTags();
-    renderTagFilterDropdown();
+    const seq = ++tagLoadSeq;
+    const run = (async () => {
+        const tags = await getAllTags();
+        if (seq !== tagLoadSeq) return;
+        allTags = tags;
+        renderTagFilterDropdown();
+    })();
+    tagLoadLatest = run;
+    await run;
+    for (let latest = tagLoadLatest; latest !== run; latest = tagLoadLatest) {
+        await latest;
+        if (latest === tagLoadLatest) break;
+    }
 }

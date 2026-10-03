@@ -16,13 +16,13 @@ test.describe('Serve - UI', () => {
   test('should switch to serve view via tab', async ({ app }) => {
     await app.switchToServeView();
     await expect(app.page.locator(selectors.serve.view)).toBeVisible();
-    await expect(app.page.locator('#gallery')).not.toBeVisible();
+    await expect(app.page.locator('section:has(#gallery)')).not.toBeVisible();
   });
 
   test('should switch back to clips via back button', async ({ app }) => {
     await app.switchToServeView();
     await app.page.click(selectors.serve.backBtn);
-    await expect(app.page.locator('#gallery')).toBeVisible();
+    await expect(app.page.locator('section:has(#gallery)')).toBeVisible();
     await expect(app.page.locator(selectors.serve.view)).not.toBeVisible();
   });
 });

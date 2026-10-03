@@ -70,6 +70,7 @@ type desktopCore interface {
 	GetWatchedFolders() ([]coreapp.WatchedFolder, error)
 	ImportApply(decisions []coreapp.ImportDecision) (*coreapp.ImportApplySummary, error)
 	ImportInspect(relPath string) (*coreapp.ImportInspection, error)
+	ListClipsPage(req coreapp.ClipListRequest) (coreapp.ClipPage, error)
 	MergeDuplicates(clipID int64) error
 	MergeTag(sourceID, destID int64) error
 	PreviewMergeTag(sourceID, destID int64) (coreapp.MergeTagPreview, error)
@@ -118,13 +119,44 @@ func (d *App) setBridge(b *wailsbridge.Bridge) {
 	d.core.SetBridge(b)
 }
 
-// BulkDownloadToFile creates a ZIP archive and saves it using native save dialog.
-func (d *App) BulkDownloadToFile(ids []int64) error {
+// BulkDownloadToFile asks where to save, then writes a ZIP of the clips there.
+// It returns the path written, or "" when the user cancelled the dialog, so
+// the frontend can tell a cancel from a completed download.
+func (d *App) BulkDownloadToFile(ids []int64) (string, error) {
 	if len(ids) == 0 {
-		return fmt.Errorf("no clips selected")
+		return "", fmt.Errorf("no clips selected")
 	}
 
-	db := d.core.DB()
+	// Ask first: building the archive reads every selected blob, which is
+	// wasted work (and a long pause before the dialog) if the user cancels.
+	defaultFilename := fmt.Sprintf("clips_%s.zip", time.Now().Format("20060102150405"))
+	savePath, err := d.bridge.SaveFile(wailsbridge.FileDialogOptions{
+		DefaultFilename: defaultFilename,
+		Title:           "Save Clips Archive",
+		Filters: []wailsbridge.FileFilter{
+			{DisplayName: "ZIP Archives", Pattern: "*.zip"},
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to show save dialog: %w", err)
+	}
+	if savePath == "" {
+		return "", nil
+	}
+
+	buf, err := buildClipsZip(d.core.DB(), ids)
+	if err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(savePath, buf, 0644); err != nil {
+		return "", fmt.Errorf("failed to write file: %w", err)
+	}
+	return savePath, nil
+}
+
+// buildClipsZip returns a ZIP archive holding the given clips, each entry
+// prefixed with its id so equal filenames cannot collide.
+func buildClipsZip(db *sql.DB, ids []int64) ([]byte, error) {
 	placeholders := make([]string, len(ids))
 	args := make([]interface{}, len(ids))
 	for i, id := range ids {
@@ -135,7 +167,7 @@ func (d *App) BulkDownloadToFile(ids []int64) error {
 	query := fmt.Sprintf("SELECT id, content_type, filename, data FROM clips WHERE id IN (%s)", stringsJoin(placeholders, ","))
 	rows, err := db.Query(query, args...)
 	if err != nil {
-		return fmt.Errorf("failed to query clips: %w", err)
+		return nil, fmt.Errorf("failed to query clips: %w", err)
 	}
 	defer rows.Close()
 
@@ -174,28 +206,13 @@ func (d *App) BulkDownloadToFile(ids []int64) error {
 			continue
 		}
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to read clips: %w", err)
+	}
 	if err := zw.Close(); err != nil {
-		return fmt.Errorf("failed to close zip: %w", err)
+		return nil, fmt.Errorf("failed to close zip: %w", err)
 	}
-
-	defaultFilename := fmt.Sprintf("clips_%s.zip", time.Now().Format("20060102150405"))
-	savePath, err := d.bridge.SaveFile(wailsbridge.FileDialogOptions{
-		DefaultFilename: defaultFilename,
-		Title:           "Save Clips Archive",
-		Filters: []wailsbridge.FileFilter{
-			{DisplayName: "ZIP Archives", Pattern: "*.zip"},
-		},
-	})
-	if err != nil {
-		return fmt.Errorf("failed to show save dialog: %w", err)
-	}
-	if savePath == "" {
-		return nil
-	}
-	if err := os.WriteFile(savePath, buf.Bytes(), 0644); err != nil {
-		return fmt.Errorf("failed to write file: %w", err)
-	}
-	return nil
+	return buf.Bytes(), nil
 }
 
 func (d *App) OpenClipWithDefaultApp(id int64) error {
@@ -231,15 +248,24 @@ func (d *App) GetClipboardText() (string, error) {
 	return string(data), nil
 }
 
-func (d *App) GetClipboardImage() (string, string, error) {
-	data := clipboard.Read(clipboard.FmtImage)
-	if len(data) == 0 {
-		return "", "", fmt.Errorf("no image in clipboard")
-	}
-	return base64.StdEncoding.EncodeToString(data), "image/png", nil
+// ClipboardImage is a clipboard image as base64 plus its content type. It is
+// a struct because a Wails v2 bound method may return at most (T, error).
+type ClipboardImage struct {
+	Data        string `json:"data"`
+	ContentType string `json:"content_type"`
 }
 
-func (d *App) SaveClipToFile(id int64) error {
+func (d *App) GetClipboardImage() (*ClipboardImage, error) {
+	data := clipboard.Read(clipboard.FmtImage)
+	if len(data) == 0 {
+		return nil, fmt.Errorf("no image in clipboard")
+	}
+	return &ClipboardImage{Data: base64.StdEncoding.EncodeToString(data), ContentType: "image/png"}, nil
+}
+
+// SaveClipToFile saves a clip through the native save dialog. It returns the
+// path written, or "" when the user cancelled.
+func (d *App) SaveClipToFile(id int64) (string, error) {
 	var data []byte
 	var filename sql.NullString
 	var contentType string
@@ -247,9 +273,9 @@ func (d *App) SaveClipToFile(id int64) error {
 	row := d.core.DB().QueryRow("SELECT data, filename, content_type FROM clips WHERE id = ?", id)
 	if err := row.Scan(&data, &filename, &contentType); err != nil {
 		if err == sql.ErrNoRows {
-			return fmt.Errorf("clip not found")
+			return "", fmt.Errorf("clip not found")
 		}
-		return fmt.Errorf("failed to get clip: %w", err)
+		return "", fmt.Errorf("failed to get clip: %w", err)
 	}
 
 	defaultFilename := filename.String
@@ -266,15 +292,15 @@ func (d *App) SaveClipToFile(id int64) error {
 		Title:           "Save Clip",
 	})
 	if err != nil {
-		return fmt.Errorf("failed to show save dialog: %w", err)
+		return "", fmt.Errorf("failed to show save dialog: %w", err)
 	}
 	if savePath == "" {
-		return nil
+		return "", nil
 	}
 	if err := os.WriteFile(savePath, data, 0644); err != nil {
-		return fmt.Errorf("failed to write file: %w", err)
+		return "", fmt.Errorf("failed to write file: %w", err)
 	}
-	return nil
+	return savePath, nil
 }
 
 func (d *App) ShowCreateBackupDialog() (string, error) {
@@ -299,7 +325,17 @@ func (d *App) ShowCreateBackupDialog() (string, error) {
 	return savePath, nil
 }
 
-func (d *App) ShowRestoreBackupDialog() (*coreapp.BackupManifest, string, error) {
+// RestoreSelection is the backup the user picked to restore: its inspected
+// manifest and path. A struct because a Wails v2 bound method may return at
+// most (T, error) — three return values reached JS as null.
+type RestoreSelection struct {
+	Manifest *coreapp.BackupManifest `json:"manifest"`
+	Path     string                  `json:"path"`
+}
+
+// ShowRestoreBackupDialog lets the user pick a backup and inspects it. It
+// returns nil when the user cancelled.
+func (d *App) ShowRestoreBackupDialog() (*RestoreSelection, error) {
 	openPath, err := d.bridge.OpenFile(wailsbridge.FileDialogOptions{
 		Title: "Select Backup to Restore",
 		Filters: []wailsbridge.FileFilter{
@@ -307,17 +343,17 @@ func (d *App) ShowRestoreBackupDialog() (*coreapp.BackupManifest, string, error)
 		},
 	})
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to show open dialog: %w", err)
+		return nil, fmt.Errorf("failed to show open dialog: %w", err)
 	}
 	if openPath == "" {
-		return nil, "", nil
+		return nil, nil
 	}
 
 	manifest, err := coreapp.InspectBackupForRestore(openPath)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
-	return manifest, openPath, nil
+	return &RestoreSelection{Manifest: manifest, Path: openPath}, nil
 }
 
 func (d *App) SelectFolder() (string, error) {

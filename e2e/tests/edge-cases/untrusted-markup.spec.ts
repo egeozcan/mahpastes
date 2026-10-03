@@ -150,14 +150,14 @@ function on_startup() end
       const api = window.go.main.App;
       // @ts-ignore
       window.__origShowRestoreBackupDialog = api.ShowRestoreBackupDialog;
-      api.ShowRestoreBackupDialog = async () => [{
+      api.ShowRestoreBackupDialog = async () => ({ manifest: {
         format_version: 1,
         app_version: '<img id=pwn-backup src=x>',
         created_at: new Date().toISOString(),
         platform: 'darwin',
         summary: { clips: 1, tags: 0, plugins: 0, watch_folders: 0 },
         excluded: [],
-      }, '/nonexistent/crafted-backup.zip'];
+      }, path: '/nonexistent/crafted-backup.zip' });
       // @ts-ignore - global from settings.js
       return selectRestoreBackup();
     });

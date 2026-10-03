@@ -155,7 +155,8 @@ function createWatchFolderCard(folder) {
         </div>
         <div class="flex items-center gap-1">
             <button class="p-2 text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded-md transition-colors"
-                    data-action="toggle-pause" data-tooltip="${folder.is_paused ? 'Resume watching this folder' : 'Pause watching this folder'}">
+                    data-action="toggle-pause" aria-label="${folder.is_paused ? 'Resume watching folder' : 'Pause watching folder'}"
+                    data-tooltip="${folder.is_paused ? 'Resume watching this folder' : 'Pause watching this folder'}">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     ${folder.is_paused
                         ? '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>'
@@ -164,7 +165,7 @@ function createWatchFolderCard(folder) {
                 </svg>
             </button>
             <button class="p-2 text-stone-400 hover:text-red-500 hover:bg-red-50 rounded-md transition-colors"
-                    data-action="remove" data-tooltip="Stop watching this folder and remove it from the list">
+                    data-action="remove" aria-label="Remove watch folder" data-tooltip="Stop watching this folder and remove it from the list">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12"></path>
                 </svg>
@@ -196,7 +197,7 @@ async function toggleFolderPause(id, paused) {
         loadWatchFolders();
     } catch (error) {
         console.error('Failed to toggle folder pause:', error);
-        showToast('Failed to update folder');
+        showToast('Failed to update folder', 'error');
     }
 }
 
@@ -210,7 +211,7 @@ async function removeWatchFolder(id) {
             showToast('Folder removed');
         } catch (error) {
             console.error('Failed to remove folder:', error);
-            showToast('Failed to remove folder');
+            showToast('Failed to remove folder', 'error');
         }
     }, null, { confirmLabel: 'Remove' });
 }
@@ -225,7 +226,7 @@ async function toggleGlobalPause() {
         updateWatchIndicator();
     } catch (error) {
         console.error('Failed to toggle global pause:', error);
-        showToast('Failed to update watch status');
+        showToast('Failed to update watch status', 'error');
         globalWatchToggle.checked = !globalWatchToggle.checked; // Revert
     }
 }
@@ -358,7 +359,21 @@ function updateFilterState() {
     }
 }
 
+// Guards Save while a save is in flight: adding with "process existing" can run
+// for a while, and a second click would add the same folder twice.
+let folderSaveInFlight = false;
+
+function setFolderSaveBusy(busy) {
+    folderSaveInFlight = busy;
+    folderModalSave.disabled = busy;
+    folderModalSave.textContent = busy
+        ? (editingFolderId !== null ? 'Saving…' : 'Adding…')
+        : (editingFolderId !== null ? 'Save Changes' : 'Add Folder');
+    if (!busy) updateFilterState();
+}
+
 async function saveFolderConfig() {
+    if (folderSaveInFlight) return;
     const path = folderModalPath.dataset.path;
 
     let filterMode = 'all';
@@ -389,31 +404,71 @@ async function saveFolderConfig() {
         auto_tag_id: selectedTagId
     };
 
+    setFolderSaveBusy(true);
+    let folder = null;
     try {
         if (editingFolderId !== null) {
             // Update existing folder
             await window.go.main.App.UpdateWatchedFolder(editingFolderId, config);
-            await window.go.main.App.RefreshWatches();
             closeFolderModal();
             loadWatchFolders();
-            showToast('Folder updated');
-        } else {
-            // Add new folder
-            const folder = await window.go.main.App.AddWatchedFolder(config);
-            await window.go.main.App.RefreshWatches();
-
-            // Process existing if requested
-            if (config.process_existing && folder) {
-                await window.go.main.App.ProcessExistingFilesInFolder(folder.id);
+            try {
+                await window.go.main.App.RefreshWatches();
+                showToast('Folder updated');
+            } catch (error) {
+                console.error('Failed to refresh watches:', error);
+                showToast('Folder updated, but the watcher could not be refreshed: ' + errText(error), 'error');
             }
-
-            closeFolderModal();
-            loadWatchFolders();
-            showToast('Folder added');
+            return;
         }
+        folder = await window.go.main.App.AddWatchedFolder(config);
     } catch (error) {
         console.error('Failed to save folder:', error);
-        showToast('Failed to save folder: ' + error.message);
+        showToast('Failed to save folder: ' + errText(error), 'error');
+        return;
+    } finally {
+        // The save is over once the folder exists. Holding the guard through
+        // the import below would make every later Add/Edit Save do nothing.
+        setFolderSaveBusy(false);
+    }
+
+    // Added. The modal's job is done: close it before the (possibly long)
+    // import of existing files, which is tracked on its own.
+    closeFolderModal();
+    loadWatchFolders();
+    try {
+        await window.go.main.App.RefreshWatches();
+    } catch (error) {
+        // The folder is saved; only starting to watch it failed.
+        console.error('Failed to refresh watches:', error);
+        showToast('Folder added, but watching it could not start: ' + errText(error), 'error');
+        return;
+    }
+
+    if (config.process_existing && folder) {
+        await importExistingFiles(folder.id);
+    } else {
+        showToast('Folder added');
+    }
+}
+
+// Imports already in progress, by folder id: the import runs after the modal
+// has closed, and must not be started twice for the same folder.
+const folderImportsInFlight = new Set();
+
+async function importExistingFiles(folderId) {
+    if (folderImportsInFlight.has(folderId)) return;
+    folderImportsInFlight.add(folderId);
+    showToast('Folder added — importing existing files…');
+    try {
+        await window.go.main.App.ProcessExistingFilesInFolder(folderId);
+        showToast('Folder added; existing files imported');
+    } catch (error) {
+        console.error('Failed to import existing files:', error);
+        showToast('Folder added, but importing existing files failed: ' + errText(error), 'error');
+    } finally {
+        folderImportsInFlight.delete(folderId);
+        loadWatchFolders();
     }
 }
 
@@ -462,33 +517,19 @@ function initWatchEvents() {
     if (typeof window.runtime === 'undefined') return;
 
     window.runtime.EventsOn('watch:error', (data) => {
-        showToast(`Failed to import ${data.file}: ${data.error}`);
+        showToast(`Failed to import ${data.file}: ${data.error}`, 'error');
     });
 
-    window.runtime.EventsOn('watch:import', async (clip) => {
+    // An import may or may not belong in the view on screen — folder level,
+    // descendant tag filters, search and sort all decide that — so reload the
+    // listing rather than guessing. Debounced: a folder sync fires one event
+    // per file. loadClips keeps the selection and the focused card.
+    let watchReloadTimer = null;
+    window.runtime.EventsOn('watch:import', (clip) => {
         showToast(`Imported: ${clip.filename}`);
         if (isViewingWatch) return;
-        if (clip.is_archived !== isViewingArchive) return;
-
-        // Tag filter check (AND logic)
-        if (activeTagFilters.length > 0) {
-            const clipTagIds = (clip.tags || []).map(t => t.id);
-            if (!activeTagFilters.every(fid => clipTagIds.includes(fid))) return;
-        }
-
-        // Hidden tag check
-        const effectiveHidden = getHiddenTags().filter(id => !activeTagFilters.includes(id));
-        if (effectiveHidden.length > 0) {
-            const clipTagIds = (clip.tags || []).map(t => t.id);
-            if (clipTagIds.some(tid => effectiveHidden.includes(tid))) return;
-        }
-
-        // Clear empty state if present
-        const emptyMsg = gallery.querySelector('p.col-span-full');
-        if (emptyMsg) emptyMsg.remove();
-
-        await createClipCard(clip, { prepend: true });
-        updateClipCount(gallery.querySelectorAll(':scope > li').length);
+        clearTimeout(watchReloadTimer);
+        watchReloadTimer = setTimeout(() => { loadClips(); }, 300);
     });
 }
 

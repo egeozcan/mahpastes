@@ -200,5 +200,43 @@ function on_clip_created() end
       await expect(card.locator('text=app:startup')).toBeVisible();
       await expect(card.locator('text=clip:created')).toBeVisible();
     });
+
+    test('expanding a card loads its permissions once', async ({ app, tempDir }) => {
+      const pluginPath = path.join(tempDir, 'expand-once.lua');
+      await fs.writeFile(pluginPath, `
+Plugin = {
+  name = "Expand Once Plugin",
+  version = "1.0.0",
+  events = {"app:startup"},
+}
+function on_startup() end
+`);
+      const result = await app.importPluginFromPath(pluginPath);
+      expect(result).not.toBeNull();
+      await app.openPluginsModal();
+
+      await app.page.evaluate(() => {
+        const svc = (window as any).go.main.PluginService;
+        const original = svc.GetPluginPermissions;
+        (window as any).__permissionLoads = 0;
+        (window as any).__restorePermissions = () => { svc.GetPluginPermissions = original; };
+        svc.GetPluginPermissions = (id: number) => { (window as any).__permissionLoads++; return original(id); };
+      });
+      try {
+        const card = app.page.locator(`[data-testid="plugin-card-${result!.id}"]`);
+        await card.locator('[data-action="toggle-expand"]').click();
+        // Every load is issued as the expanded card renders, before any of them
+        // answers, so once the list has rendered the count is final.
+        await expect(card.locator('[data-permissions-list]')).toContainText('No permissions granted');
+        expect(await app.page.evaluate(() => (window as any).__permissionLoads)).toBe(1);
+      } finally {
+        await app.page.evaluate(() => {
+          const w = window as any;
+          w.__restorePermissions?.();
+          delete w.__restorePermissions;
+          delete w.__permissionLoads;
+        });
+      }
+    });
   });
 });
