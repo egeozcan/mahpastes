@@ -2,8 +2,10 @@ package app
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/base64"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"image"
 	"mime"
@@ -39,25 +41,39 @@ type MarkdownImageData struct {
 // extension or declared MIME type alone.
 func (a *App) GetMarkdownImage(clipID int64) (MarkdownImageData, error) {
 	// Size first, from octet_length (the record header, not the blob): an
-	// over-limit clip is refused without reading it. validateMarkdownImage
-	// still checks the bytes actually read, since the row can change between
-	// the two statements.
-	var size int64
-	if err := a.db.QueryRow(`
-		SELECT octet_length(data) FROM clips
-		WHERE id = ? AND (expires_at IS NULL OR datetime(expires_at) > CURRENT_TIMESTAMP)`, clipID).Scan(&size); err != nil {
-		return MarkdownImageData{}, fmt.Errorf("get Markdown image: %w", err)
-	}
-	if size > maxMarkdownImageBytes {
-		return MarkdownImageData{}, fmt.Errorf("image exceeds %d byte limit", maxMarkdownImageBytes)
-	}
-
+	// over-limit clip is refused without reading it. The read is a separate
+	// statement, so it repeats the limit in its WHERE clause — an overwrite
+	// landing in between cannot get an oversize blob selected. A guarded read
+	// that finds no row means the clip changed; measure again.
 	var data []byte
 	var contentType string
-	if err := a.db.QueryRow(`
-		SELECT data, content_type FROM clips
-		WHERE id = ? AND (expires_at IS NULL OR datetime(expires_at) > CURRENT_TIMESTAMP)`, clipID).Scan(&data, &contentType); err != nil {
-		return MarkdownImageData{}, fmt.Errorf("get Markdown image: %w", err)
+	read := false
+	for attempt := 0; attempt < guardedBlobReadAttempts && !read; attempt++ {
+		var size int64
+		if err := a.db.QueryRow(`
+			SELECT octet_length(data) FROM clips
+			WHERE id = ? AND (expires_at IS NULL OR datetime(expires_at) > CURRENT_TIMESTAMP)`, clipID).Scan(&size); err != nil {
+			return MarkdownImageData{}, fmt.Errorf("get Markdown image: %w", err)
+		}
+		if size > maxMarkdownImageBytes {
+			return MarkdownImageData{}, fmt.Errorf("image exceeds %d byte limit", maxMarkdownImageBytes)
+		}
+
+		err := a.db.QueryRow(`
+			SELECT data, content_type FROM clips
+			WHERE id = ? AND (expires_at IS NULL OR datetime(expires_at) > CURRENT_TIMESTAMP)
+			  AND octet_length(data) <= ?`, clipID, maxMarkdownImageBytes).Scan(&data, &contentType)
+		switch {
+		case err == nil:
+			read = true
+		case errors.Is(err, sql.ErrNoRows):
+			// Changed since it was measured: measure again.
+		default:
+			return MarkdownImageData{}, fmt.Errorf("get Markdown image: %w", err)
+		}
+	}
+	if !read {
+		return MarkdownImageData{}, fmt.Errorf("get Markdown image: clip %d kept changing while it was read", clipID)
 	}
 
 	validatedType, width, height, decodedSize, err := validateMarkdownImage(data, contentType)

@@ -1748,10 +1748,15 @@ func (a *App) GetClipData(id int64) (*ClipData, error) {
 		return nil, fmt.Errorf("failed to get clip: %w", err)
 	}
 
+	return encodeClipData(id, contentType, filename.String, data), nil
+}
+
+// encodeClipData builds the bridge payload for one clip revision's bytes.
+func encodeClipData(id int64, contentType, filename string, data []byte) *ClipData {
 	clip := &ClipData{
 		ID:           id,
 		ContentType:  contentType,
-		Filename:     filename.String,
+		Filename:     filename,
 		ValidUTF8:    utf8.Valid(data),
 		DataEncoding: "base64",
 	}
@@ -1776,7 +1781,7 @@ func (a *App) GetClipData(id int64) (*ClipData, error) {
 		clip.Data = base64.StdEncoding.EncodeToString(data)
 	}
 
-	return clip, nil
+	return clip
 }
 
 // maxEditableTextBytes mirrors TextCodec.MAX_EDITABLE_BYTES
@@ -1798,37 +1803,59 @@ func textEditCapApplies(contentType string) bool {
 // over maxEditableTextBytes comes back as {too_large, size} without its bytes,
 // decided from octet_length(data) — answered from the record header, never by
 // loading the blob.
+//
+// The measure and the read are separate statements, so the read carries the
+// cap itself (clipTextGuardSQL): an overwrite landing between them cannot get
+// an over-cap blob selected. A guarded read that finds no row means the clip
+// changed (grew, was retyped, or went away); measure again and decide afresh.
 func (a *App) GetClipText(id int64) (*ClipData, error) {
-	var contentType string
-	var filename sql.NullString
-	var size int64
-	err := a.db.QueryRow("SELECT content_type, filename, octet_length(data) FROM clips WHERE id = ?", id).
-		Scan(&contentType, &filename, &size)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("clip not found")
+	for attempt := 0; attempt < guardedBlobReadAttempts; attempt++ {
+		var contentType string
+		var filename sql.NullString
+		var size int64
+		err := a.db.QueryRow("SELECT content_type, filename, octet_length(data) FROM clips WHERE id = ?", id).
+			Scan(&contentType, &filename, &size)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				return nil, fmt.Errorf("clip not found")
+			}
+			return nil, fmt.Errorf("failed to get clip: %w", err)
 		}
-		return nil, fmt.Errorf("failed to get clip: %w", err)
+		if textEditCapApplies(contentType) && size > maxEditableTextBytes {
+			return &ClipData{
+				ID:           id,
+				ContentType:  contentType,
+				Filename:     filename.String,
+				DataEncoding: "base64",
+				Size:         size,
+				TooLarge:     true,
+			}, nil
+		}
+
+		var data []byte
+		err = a.db.QueryRow("SELECT content_type, data, filename FROM clips WHERE id = ? AND "+clipTextGuardSQL, id, maxEditableTextBytes).
+			Scan(&contentType, &data, &filename)
+		if err == sql.ErrNoRows {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to get clip: %w", err)
+		}
+		return encodeClipData(id, contentType, filename.String, data), nil
 	}
-	if textEditCapApplies(contentType) && size > maxEditableTextBytes {
-		return &ClipData{
-			ID:           id,
-			ContentType:  contentType,
-			Filename:     filename.String,
-			DataEncoding: "base64",
-			Size:         size,
-			TooLarge:     true,
-		}, nil
-	}
-	// The full read is its own single-row scan, so filename, type and bytes
-	// still come from one revision. If the clip grew past the cap in between,
-	// TextCodec's own check declines it.
-	clip, err := a.GetClipData(id)
-	if err != nil {
-		return nil, err
-	}
-	return clip, nil
+	return nil, fmt.Errorf("clip %d kept changing while it was read", id)
 }
+
+// guardedBlobReadAttempts bounds the measure/guarded-read retries of a
+// size-checked blob read. A miss needs a concurrent write each time, so this
+// is only ever exhausted by a clip being rewritten continuously.
+const guardedBlobReadAttempts = 3
+
+// clipTextGuardSQL is the text editor's cap as a WHERE condition, binding
+// maxEditableTextBytes once: image types (which the image editor opens, with
+// no cap) pass, anything else only while its blob is within the cap. It
+// matches textEditCapApplies — a case-sensitive "image/" prefix.
+const clipTextGuardSQL = "(substr(content_type, 1, 6) = 'image/' OR octet_length(data) <= ?)"
 
 // UploadFileAndGetID uploads a single file and returns the clip ID
 func (a *App) UploadFileAndGetID(file FileData) (int64, error) {

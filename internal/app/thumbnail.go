@@ -221,35 +221,50 @@ func (c *ThumbnailCache) ensure(ctx context.Context, clipID int64, hash string) 
 // and records the result under the hash of the bytes it actually read.
 func (c *ThumbnailCache) generate(ctx context.Context, clipID int64) (thumbResult, error) {
 	var contentType, hash string
-	var size int64
-	err := c.db.QueryRowContext(ctx,
-		"SELECT content_type, octet_length(data), COALESCE(content_hash, '') FROM clips WHERE id = ?", clipID,
-	).Scan(&contentType, &size, &hash)
-	if errors.Is(err, sql.ErrNoRows) {
-		return thumbResult{}, ErrClipNotFound
-	}
-	if err != nil {
-		return thumbResult{}, err
-	}
-
 	var out []byte
 	var outType string
-	if size > thumbMaxSourceBytes || !strings.HasPrefix(contentType, "image/") {
-		err = errThumbPassthrough
-	} else {
-		var data []byte
-		if err := c.db.QueryRowContext(ctx,
-			"SELECT content_type, data, COALESCE(content_hash, '') FROM clips WHERE id = ?", clipID,
-		).Scan(&contentType, &data, &hash); err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return thumbResult{}, ErrClipNotFound
-			}
+	var err error
+	read := false
+	// The measure and the read are separate statements, so the read repeats
+	// thumbMaxSourceBytes in its WHERE clause: an overwrite landing between
+	// them cannot get an oversize blob selected. A guarded read that finds no
+	// row means the clip changed; measure again and decide afresh.
+	for attempt := 0; attempt < guardedBlobReadAttempts && !read; attempt++ {
+		var size int64
+		err = c.db.QueryRowContext(ctx,
+			"SELECT content_type, octet_length(data), COALESCE(content_hash, '') FROM clips WHERE id = ?", clipID,
+		).Scan(&contentType, &size, &hash)
+		if errors.Is(err, sql.ErrNoRows) {
+			return thumbResult{}, ErrClipNotFound
+		}
+		if err != nil {
 			return thumbResult{}, err
 		}
+
+		if size > thumbMaxSourceBytes || !strings.HasPrefix(contentType, "image/") {
+			err = errThumbPassthrough
+			read = true
+			break
+		}
+		var data []byte
+		rerr := c.db.QueryRowContext(ctx,
+			"SELECT content_type, data, COALESCE(content_hash, '') FROM clips WHERE id = ? AND octet_length(data) <= ?",
+			clipID, thumbMaxSourceBytes,
+		).Scan(&contentType, &data, &hash)
+		if errors.Is(rerr, sql.ErrNoRows) {
+			continue // changed since it was measured: measure again
+		}
+		if rerr != nil {
+			return thumbResult{}, rerr
+		}
+		read = true
 		if hash == "" {
 			hash = computeContentHash(data)
 		}
 		out, outType, err = renderThumbnail(contentType, data)
+	}
+	if !read {
+		return thumbResult{}, fmt.Errorf("clip %d kept changing while its thumbnail was read", clipID)
 	}
 	if !isContentHash(hash) {
 		return thumbResult{}, fmt.Errorf("clip %d has no content hash", clipID)

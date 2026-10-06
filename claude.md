@@ -764,6 +764,15 @@ index name and a `DROP INDEX` of the old one — and on an existing library each
 new index costs one full read of every clip at startup (logged), so add one
 only when a query cannot use the existing two.
 
+**Size-checked blob reads.** A pre-check of `octet_length(data)` is only a
+hint: the read that follows is a separate statement. A read meant to stay under
+a limit repeats it in its own `WHERE` (`AND octet_length(data) <= ?`); if that
+finds no row, measure again and decide afresh, up to `guardedBlobReadAttempts`
+(3). `GetClipText` (`clipTextGuardSQL`), `handleGetClipText`,
+`GetMarkdownImage`, `ThumbnailCache.generate` and
+`TempClipStore.loadClipForPrepare` do; `guarded_blob_reads_test.go` grows a
+clip between the statements and fails if any over-limit blob is returned.
+
 **Key files**: `internal/app/app.go` (`SearchClips`, `clipSearchSpec`,
 `buildClipSearchClause`), `frontend/js/search-options.js` (state, popover,
 persistence), `frontend/js/ui.js` (`applySearchFilter`, debounce),

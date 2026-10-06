@@ -1624,42 +1624,54 @@ func (am *APIManager) handleGetClipText(w http.ResponseWriter, r *http.Request) 
 
 	// Size first, from octet_length (the record header, not the blob), so
 	// neither an over-cap text clip nor an over-limit one is read just to be
-	// refused.
+	// refused. The read that follows is a separate statement, so it carries
+	// both limits in its WHERE clause: an overwrite landing in between cannot
+	// get an oversize blob selected. A guarded read that finds no row means the
+	// clip changed; measure again and decide afresh.
 	var contentType string
 	var filename sql.NullString
-	var size int64
-	if err := am.app.db.QueryRow("SELECT content_type, filename, octet_length(data) FROM clips WHERE id = ?", id).
-		Scan(&contentType, &filename, &size); err != nil {
-		am.jsonError(w, http.StatusNotFound, "clip not found")
-		return
-	}
-	if textEditCapApplies(contentType) && size > maxEditableTextBytes {
-		am.jsonOK(w, apiClipTextResponse{
-			ID:           id,
-			Filename:     filename.String,
-			ContentType:  contentType,
-			DataEncoding: "base64",
-			Size:         int(size),
-			TooLarge:     true,
-		})
-		return
-	}
-	if size > maxInlineTextBytes {
-		am.jsonError(w, http.StatusRequestEntityTooLarge,
-			fmt.Sprintf("clip is too large to load inline (%d bytes, limit %d) — download it instead", size, maxInlineTextBytes))
-		return
-	}
-
 	var data []byte
-	if err := am.app.db.QueryRow("SELECT data, content_type, filename FROM clips WHERE id = ?", id).
-		Scan(&data, &contentType, &filename); err != nil {
-		am.jsonError(w, http.StatusNotFound, "clip not found")
-		return
-	}
+	read := false
+	for attempt := 0; attempt < guardedBlobReadAttempts && !read; attempt++ {
+		var size int64
+		if err := am.app.db.QueryRow("SELECT content_type, filename, octet_length(data) FROM clips WHERE id = ?", id).
+			Scan(&contentType, &filename, &size); err != nil {
+			am.jsonError(w, http.StatusNotFound, "clip not found")
+			return
+		}
+		if textEditCapApplies(contentType) && size > maxEditableTextBytes {
+			am.jsonOK(w, apiClipTextResponse{
+				ID:           id,
+				Filename:     filename.String,
+				ContentType:  contentType,
+				DataEncoding: "base64",
+				Size:         int(size),
+				TooLarge:     true,
+			})
+			return
+		}
+		if size > maxInlineTextBytes {
+			am.jsonError(w, http.StatusRequestEntityTooLarge,
+				fmt.Sprintf("clip is too large to load inline (%d bytes, limit %d) — download it instead", size, maxInlineTextBytes))
+			return
+		}
 
-	if len(data) > maxInlineTextBytes {
-		am.jsonError(w, http.StatusRequestEntityTooLarge,
-			fmt.Sprintf("clip is too large to load inline (%d bytes, limit %d) — download it instead", len(data), maxInlineTextBytes))
+		err := am.app.db.QueryRow(
+			"SELECT data, content_type, filename FROM clips WHERE id = ? AND octet_length(data) <= ? AND "+clipTextGuardSQL,
+			id, maxInlineTextBytes, maxEditableTextBytes,
+		).Scan(&data, &contentType, &filename)
+		switch {
+		case err == nil:
+			read = true
+		case errors.Is(err, sql.ErrNoRows):
+			// Changed since it was measured: measure again.
+		default:
+			am.jsonError(w, http.StatusInternalServerError, "failed to read clip")
+			return
+		}
+	}
+	if !read {
+		am.jsonError(w, http.StatusConflict, "clip kept changing while it was read")
 		return
 	}
 
