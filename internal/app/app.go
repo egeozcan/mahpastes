@@ -1204,6 +1204,18 @@ type ClipPage struct {
 	HasMore bool          `json:"has_more"`
 }
 
+// GetLibraryVersion returns the library change counter, which every write to
+// clips, clip_tags or tags bumps (ensureLibraryVersion), whoever makes it. The
+// gallery compares it with the value it read before its last load to decide
+// whether a refocus needs a reload. It only ever grows within one database.
+func (a *App) GetLibraryVersion() (int64, error) {
+	var v int64
+	if err := a.db.QueryRow(`SELECT version FROM library_version WHERE id = 1`).Scan(&v); err != nil {
+		return 0, fmt.Errorf("failed to read library version: %w", err)
+	}
+	return v, nil
+}
+
 // maxClipPageLimit bounds a single page; the gallery asks for defaultClipLimit.
 const maxClipPageLimit = 200
 

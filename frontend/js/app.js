@@ -1990,9 +1990,9 @@ window.addEventListener('load', async () => {
     // for every Cmd-Tab. Changes this app hears about (watch imports, shared
     // clips, tag events) reload the gallery when they arrive, hidden or not.
     // Writes made through the REST API, the mp CLI or a plugin emit no
-    // frontend event, so a gallery last loaded more than
-    // REFOCUS_RELOAD_STALE_MS ago is reloaded to pick them up. A fresher one
-    // only sheds the cards whose expiry has passed, in place.
+    // frontend event, but they move the library change counter, so the
+    // gallery reloads only when that counter has moved since its listing;
+    // otherwise it just sheds the cards whose expiry has passed, in place.
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible' && window.__appReady) {
             refreshGalleryOnRefocus();

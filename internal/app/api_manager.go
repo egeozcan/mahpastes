@@ -305,6 +305,7 @@ func (am *APIManager) Start(port int, bindAll bool) (APIStatus, error) {
 	if !am.routesRegistered {
 		mux := am.mux
 		mux.HandleFunc("GET /api/v1/clips", am.authMiddleware(am.requireRole("viewer", am.handleListClips)))
+		mux.HandleFunc("GET /api/v1/library/version", am.authMiddleware(am.requireRole("viewer", am.handleLibraryVersion)))
 		mux.HandleFunc("GET /api/v1/clips/hidden-info", am.authMiddleware(am.requireRole("viewer", am.handleHiddenClipInfo)))
 		mux.HandleFunc("GET /api/v1/clips/{id}", am.authMiddleware(am.requireRole("viewer", am.handleGetClip)))
 		mux.HandleFunc("GET /api/v1/clips/{id}/data", am.authMiddleware(am.requireRole("viewer", am.handleGetClipData)))
@@ -1235,6 +1236,23 @@ func (am *APIManager) handleListClips(w http.ResponseWriter, r *http.Request) {
 
 // handleHiddenClipInfo reports how many clips the given filters would match if
 // no tags were hidden, so a client can tell the user what it is withholding.
+// handleLibraryVersion returns the library change counter (GetLibraryVersion).
+// It moves on any write anywhere in the library, so it would tell a tag-scoped
+// key about activity outside its subtree: scoped keys are refused, and the web
+// UI treats the refusal as "unknown" and reloads, as it did before the counter.
+func (am *APIManager) handleLibraryVersion(w http.ResponseWriter, r *http.Request) {
+	if getKeyContext(r).ScopedTagID != 0 {
+		am.jsonError(w, http.StatusForbidden, "the library version is not available for tag-scoped keys")
+		return
+	}
+	v, err := am.app.GetLibraryVersion()
+	if err != nil {
+		am.jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	am.jsonOK(w, map[string]int64{"version": v})
+}
+
 func (am *APIManager) handleHiddenClipInfo(w http.ResponseWriter, r *http.Request) {
 	keyCtx := getKeyContext(r)
 	q := r.URL.Query()

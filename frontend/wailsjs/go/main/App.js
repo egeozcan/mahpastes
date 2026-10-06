@@ -190,6 +190,10 @@ export function GetImageDiff(arg1, arg2, arg3) {
   return window['go']['main']['App']['GetImageDiff'](arg1, arg2, arg3);
 }
 
+export function GetLibraryVersion() {
+  return window['go']['main']['App']['GetLibraryVersion']();
+}
+
 export function GetOrphanDBRows() {
   return window['go']['main']['App']['GetOrphanDBRows']();
 }

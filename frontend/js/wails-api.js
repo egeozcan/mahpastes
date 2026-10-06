@@ -145,7 +145,6 @@ function restoreGalleryFocus(snapshot) {
 
 async function loadClips({ focusFirst = false } = {}) {
     _pendingFocusAfterLoad = focusFirst;
-    _clipLoadStartedAt = Date.now();
     const myGen = ++_clipLoadGen;
     _clipLoadInFlight = myGen;
     // Any in-flight standalone folder-card render is superseded by this one.
@@ -219,6 +218,12 @@ async function loadClips({ focusFirst = false } = {}) {
         const want = sameView ? Math.max(CLIP_PAGE_SIZE, _galleryView.loaded) : CLIP_PAGE_SIZE;
         const isStale = () => myGen !== _clipLoadGen;
 
+        // The library version this listing reflects at least: read before the
+        // listing, so a write landing in between makes the next refocus
+        // reload rather than be missed (see refreshGalleryOnRefocus).
+        const libraryVersion = await readLibraryVersion();
+        if (isStale()) return;
+
         // Fetch the clips and the folder cards together, before touching the
         // gallery, so a reload never shows an empty frame.
         const [page, folderCards] = await Promise.all([
@@ -226,6 +231,7 @@ async function loadClips({ focusFirst = false } = {}) {
             isFolderMode() ? buildFolderCards(isStale) : Promise.resolve([]),
         ]);
         if (isStale() || folderCards === null) return;
+        _galleryLibraryVersion = libraryVersion;
 
         // Where focus is now, just before the gallery is cleared: a delete
         // confirmed in a dialog starts the reload while focus is still on the
@@ -514,26 +520,39 @@ function removeClipCardInPlace(id) {
     return true;
 }
 
-// When the gallery's listing was last requested. A load reads the library
-// as of its start, so that is what staleness is measured from.
-let _clipLoadStartedAt = 0;
+// The library change counter (GetLibraryVersion) as read just before the
+// gallery's current listing; null when it could not be read. Every write to
+// clips, their tags or tags moves the counter, whoever makes it — including
+// the REST API, the mp CLI and plugins, which tell this window nothing.
+let _galleryLibraryVersion = null;
 
-// How old a listing may be before a refocus reloads it. Writes made through
-// the REST API, the mp CLI or a plugin reach the library without telling
-// this window, so this is the bound on how long such a change can go unseen
-// across a refocus. window.__refocusReloadStaleMs overrides it (tests).
-const REFOCUS_RELOAD_STALE_MS = 30 * 1000;
+async function readLibraryVersion() {
+    try {
+        const v = await window.go.main.App.GetLibraryVersion();
+        return typeof v === 'number' ? v : null;
+    } catch (err) {
+        // Unknown (e.g. a tag-scoped server session): refocus will reload.
+        return null;
+    }
+}
 
 // Bring the gallery up to date as the window becomes visible again (see the
-// visibilitychange listener in app.js). A listing older than the threshold is
-// reloaded; a fresher one only drops the cards whose expiry has passed, which
-// is all that can change in it without an event. Anything the patch cannot
-// express (a card that is not patchable, a duplicate group) falls back to a
-// reload. Returns 'reload', 'patched' or 'none', for tests.
-function refreshGalleryOnRefocus() {
+// visibilitychange listener in app.js). If the library changed since the
+// listing was read, reload it; otherwise only drop the cards whose expiry has
+// passed, which is all that can change in it without a write. Anything the
+// patch cannot express (a card that is not patchable, a duplicate group)
+// falls back to a reload. Resolves to 'reload', 'patched' or 'none', for tests.
+async function refreshGalleryOnRefocus() {
     if (_clipLoadInFlight) return 'none'; // a load already under way is fresh
-    const staleMs = Number(window.__refocusReloadStaleMs) || REFOCUS_RELOAD_STALE_MS;
-    if (!_galleryView.request || Date.now() - _clipLoadStartedAt > staleMs) {
+    if (!_galleryView.request || _galleryLibraryVersion == null) {
+        loadClips();
+        return 'reload';
+    }
+    const gen = _clipLoadGen;
+    const version = await readLibraryVersion();
+    // A load started meanwhile reads the library itself.
+    if (gen !== _clipLoadGen || _clipLoadInFlight) return 'none';
+    if (version == null || version !== _galleryLibraryVersion) {
         loadClips();
         return 'reload';
     }

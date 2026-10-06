@@ -98,6 +98,8 @@ export function GetHiddenTags():Promise<Array<number>>;
 
 export function GetImageDiff(arg1:number,arg2:number,arg3:number):Promise<app.DiffResult>;
 
+export function GetLibraryVersion():Promise<number>;
+
 export function GetOrphanDBRows():Promise<app.OrphanReport>;
 
 export function GetRemovableEmptyTags():Promise<Array<app.Tag>>;

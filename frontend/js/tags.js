@@ -751,12 +751,22 @@ function renderCardTags(card, tags) {
 // queued on a short timer (like tag:created) and resolved with one loadTags
 // and one final gallery action. The returned promise settles once the batch
 // holding this event has been handled.
+//
+// Batches never overlap: a flush that finds one running leaves its events
+// queued, and the running batch takes them in (see applyTagReferenceEvents)
+// or, failing that, flushes them when it ends. Two batches resolved side by
+// side would each read a tag list already reflecting the other's deletes, and
+// the first would normalize away the folder the second needs to recover from.
 const TAG_REF_DEBOUNCE_MS = 50;
 const TAG_REF_MAX_WAIT_MS = 500;
+// How many times one batch re-reads the tags to take in events that arrived
+// while it was reading; a steady stream past this goes to the next batch.
+const TAG_REF_MAX_ABSORB = 10;
 let tagRefQueue = [];
 let tagRefTimer = null;
 let tagRefFirstAt = 0;
 let tagRefWaiters = [];
+let tagRefRunning = false;
 
 window.handleTagReferenceEvent = function(eventName, payload) {
     tagRefQueue.push({ eventName, payload });
@@ -769,18 +779,34 @@ window.handleTagReferenceEvent = function(eventName, payload) {
 };
 
 async function flushTagReferenceEvents() {
-    const events = tagRefQueue;
-    const waiters = tagRefWaiters;
-    tagRefQueue = [];
-    tagRefWaiters = [];
     tagRefTimer = null;
-    tagRefFirstAt = 0;
+    if (tagRefRunning) return; // the running batch takes these, or re-flushes
+    tagRefRunning = true;
+    const events = [];
+    const waiters = [];
+    // Move everything queued so far into this batch.
+    const takeQueued = () => {
+        const taken = tagRefQueue;
+        events.push(...taken);
+        waiters.push(...tagRefWaiters);
+        tagRefQueue = [];
+        tagRefWaiters = [];
+        clearTimeout(tagRefTimer);
+        tagRefTimer = null;
+        tagRefFirstAt = 0;
+        return taken.length;
+    };
+    takeQueued();
     try {
-        await applyTagReferenceEvents(events);
+        await applyTagReferenceEvents(events, takeQueued);
     } catch (err) {
         console.error('Failed to apply tag changes:', err);
     } finally {
+        tagRefRunning = false;
         waiters.forEach(resolve => resolve());
+        if (tagRefQueue.length > 0 && !tagRefTimer) {
+            tagRefTimer = setTimeout(flushTagReferenceEvents, 0);
+        }
     }
 }
 
@@ -788,11 +814,19 @@ async function flushTagReferenceEvents() {
 // tag list as it stands after all of them. Only the last gallery action
 // matters (each reload or navigation supersedes the one before), so the
 // events update where the viewer should end up and one action runs at the end.
-async function applyTagReferenceEvents(events) {
+//
+// takeQueued (optional) moves events that arrived during the tag reload into
+// `events`. They are taken in and the tags re-read until a read finishes with
+// nothing new, so every event in the batch arrived before the tag list it is
+// resolved against was read: that list already reflects all of them.
+async function applyTagReferenceEvents(events, takeQueued) {
     if (events.length === 0) return;
     // Always reload the tag list first so subsequent lookups use fresh data.
     if (typeof loadTags === 'function') {
         await loadTags();
+        for (let i = 0; takeQueued && i < TAG_REF_MAX_ABSORB && takeQueued() > 0; i++) {
+            await loadTags();
+        }
     }
     const validIDs = new Set(allTags.map(t => t.id));
 

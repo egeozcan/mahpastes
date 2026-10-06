@@ -373,6 +373,10 @@ func initDB() (*sql.DB, error) {
 		log.Printf("Warning: Failed to create idx_share_links_clip: %v", err)
 	}
 
+	if err := ensureLibraryVersion(db); err != nil {
+		log.Printf("Warning: library version counter unavailable: %v", err)
+	}
+
 	// Promote legacy Markdown clips whose MIME type was supplied inconsistently
 	// by browsers, operating systems, or API clients.
 	if err := promoteMarkdownClipTypes(db); err != nil {
@@ -891,6 +895,44 @@ func ensureClipListingIndexes(db *sql.DB) error {
 		}
 		if hasClips == 1 {
 			log.Printf("Built clip index %s in %v", idx.name, time.Since(start).Round(time.Millisecond))
+		}
+	}
+	return nil
+}
+
+// libraryVersionTables are the tables whose rows a gallery shows: clips,
+// their tags and the tags themselves (names and colors on the pills).
+var libraryVersionTables = []string{"clips", "clip_tags", "tags"}
+
+// ensureLibraryVersion installs the library change counter: a one-row table
+// whose version every insert, update or delete on libraryVersionTables bumps,
+// by trigger, inside the writer's own statement. Triggers rather than calls at
+// each write site, because the writers are many (the app, the REST API and so
+// the mp CLI, plugins, watch imports, followed shares, the expiry reaper,
+// restore) and most of them tell the window nothing. The gallery records the
+// version when it loads and, on refocus, reloads only if it has moved
+// (GetLibraryVersion). The table is deliberately not in backupTables: it
+// describes this database, not the library's content.
+func ensureLibraryVersion(db *sql.DB) error {
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS library_version (
+		id      INTEGER PRIMARY KEY CHECK (id = 1),
+		version INTEGER NOT NULL
+	)`); err != nil {
+		return fmt.Errorf("create library_version: %w", err)
+	}
+	if _, err := db.Exec(`INSERT OR IGNORE INTO library_version (id, version) VALUES (1, 0)`); err != nil {
+		return fmt.Errorf("seed library_version: %w", err)
+	}
+	for _, table := range libraryVersionTables {
+		for _, op := range []string{"INSERT", "UPDATE", "DELETE"} {
+			name := "library_version_" + table + "_" + strings.ToLower(op)
+			stmt := fmt.Sprintf(`CREATE TRIGGER IF NOT EXISTS %s AFTER %s ON %s
+				BEGIN
+					UPDATE library_version SET version = version + 1 WHERE id = 1;
+				END`, name, op, table)
+			if _, err := db.Exec(stmt); err != nil {
+				return fmt.Errorf("create trigger %s: %w", name, err)
+			}
 		}
 	}
 	return nil
