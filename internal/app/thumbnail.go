@@ -82,6 +82,10 @@ const (
 // errThumbPassthrough means "serve the original bytes"; it is not a failure.
 var errThumbPassthrough = errors.New("thumbnail: serve original")
 
+// errThumbHashGone means a generation finished after every clip holding the
+// bytes it read was deleted or edited: its result was discarded, not published.
+var errThumbHashGone = errors.New("thumbnail: content no longer in the library")
+
 // ThumbnailCache generates, stores and serves gallery thumbnails.
 type ThumbnailCache struct {
 	db       *sql.DB
@@ -92,8 +96,14 @@ type ThumbnailCache struct {
 	flights singleflight.Group
 	sem     chan struct{}
 
+	// pruneMu serializes Prune with publish, so an entry is never published
+	// for a hash that a sweep has already found dead.
 	pruneMu   sync.Mutex
 	lastPrune time.Time
+
+	// beforePublish, when set (tests only), runs after a generation has read
+	// and rendered a clip and before its result is published.
+	beforePublish func()
 
 	// dropMu guards dropTimer, the one pending DropOrphansSoon sweep.
 	dropMu    sync.Mutex
@@ -257,14 +267,25 @@ func (c *ThumbnailCache) generate(ctx context.Context, clipID int64) (thumbResul
 		ext = ".jpg"
 	}
 	path := c.base(hash) + ext
-	if err := writeFileAtomic(c.dir, path, out); err != nil {
+	if c.beforePublish != nil {
+		c.beforePublish()
+	}
+	if err := c.publish(hash, path, out); err != nil {
 		return thumbResult{}, err
 	}
 	return thumbResult{thumbEntry{path: path, contentType: outType, original: ext == ".orig"}, hash}, nil
 }
 
-func writeFileAtomic(dir, path string, data []byte) error {
-	tmp, err := os.CreateTemp(dir, ".tmp-")
+// publish atomically installs data at path as the entry for hash, but only
+// while some clip still holds hash. A generation reads the clip long before
+// it finishes decoding; if the clip is deleted (or edited) in between, the
+// DropOrphansSoon sweep that deletion scheduled may already have run, and an
+// unchecked rename would leave a copy of deleted content on disk until the
+// next periodic prune. The liveness check and the rename happen under
+// pruneMu: a sweep either ran before (and the check sees the hash gone) or
+// runs after (and sees the published file).
+func (c *ThumbnailCache) publish(hash, path string, data []byte) error {
+	tmp, err := os.CreateTemp(c.dir, ".tmp-")
 	if err != nil {
 		return err
 	}
@@ -278,11 +299,33 @@ func writeFileAtomic(dir, path string, data []byte) error {
 		os.Remove(name)
 		return err
 	}
-	if err := os.Rename(name, path); err != nil {
+
+	c.pruneMu.Lock()
+	defer c.pruneMu.Unlock()
+	live, err := c.hashLive(hash)
+	if err == nil && !live {
+		err = errThumbHashGone
+	}
+	if err == nil {
+		err = os.Rename(name, path)
+	}
+	if err != nil {
 		os.Remove(name)
 		return err
 	}
 	return nil
+}
+
+// hashLive reports whether any clip holds content hash.
+func (c *ThumbnailCache) hashLive(hash string) (bool, error) {
+	var one int
+	err := c.db.QueryRow(
+		"SELECT 1 FROM clips INDEXED BY idx_clips_content_hash WHERE content_hash = ? LIMIT 1", hash,
+	).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil, err
 }
 
 // renderThumbnail returns an encoded thumbnail of data and its content type,
@@ -549,13 +592,15 @@ func (c *ThumbnailCache) Serve(w http.ResponseWriter, r *http.Request, clipID in
 
 	entry, gotHash, err := c.ensure(ctx, clipID, hash)
 	if err != nil {
-		if !errors.Is(err, ErrClipNotFound) && !errors.Is(err, context.Canceled) {
+		if !errors.Is(err, ErrClipNotFound) && !errors.Is(err, context.Canceled) && !errors.Is(err, errThumbHashGone) {
 			log.Printf("thumbnail: clip %d: %v", clipID, err)
 		}
 		if errors.Is(err, ErrClipNotFound) {
 			return false
 		}
-		// Any other failure: the original still renders the card.
+		// Any other failure: the original still renders the card. After
+		// errThumbHashGone the clip was deleted (serveOriginal finds no row)
+		// or edited (it serves the new bytes, not immutable).
 		return c.serveOriginal(w, r, clipID, "", false)
 	}
 	if gotHash != hash {
@@ -713,18 +758,15 @@ func (c *ThumbnailCache) Prune(force bool) error {
 	var live []file
 	var total int64
 	for hash, files := range byHash {
-		var one int
-		err := c.db.QueryRow(
-			"SELECT 1 FROM clips INDEXED BY idx_clips_content_hash WHERE content_hash = ? LIMIT 1", hash,
-		).Scan(&one)
-		if errors.Is(err, sql.ErrNoRows) {
+		ok, err := c.hashLive(hash)
+		if err != nil {
+			return err
+		}
+		if !ok {
 			for _, f := range files {
 				_ = os.Remove(f.path)
 			}
 			continue
-		}
-		if err != nil {
-			return err
 		}
 		for _, f := range files {
 			live = append(live, f)

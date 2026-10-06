@@ -932,6 +932,10 @@ comparison view only.
   `DeleteAllTempFiles` (after a restore) and the expiry reaper call
   `ThumbnailCache.DropOrphansSoon`, which runs one forced orphan sweep ~0.5 s
   later (calls coalesce). A new clip-row deleter must reach one of those.
+  A generation that read a clip before a delete/edit can finish after that
+  sweep, so entries are installed only through `ThumbnailCache.publish`, which
+  renames under `pruneMu` after re-checking `hashLive`; a dead hash is discarded
+  (`errThumbHashGone`). Never write a cache entry any other way.
 - **URLs carry the hash.** `ClipPreview.content_hash` (from the covering
   listing index, so free) and the paged REST listing's `content_hash` feed the
   URL. A request whose hash is current gets `Cache-Control: private,
