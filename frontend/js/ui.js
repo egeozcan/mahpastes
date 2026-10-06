@@ -60,10 +60,14 @@ const mediaRevisions = new Map();
 // source-less video black and ignores its poster).
 const VIDEO_FRAME_CACHE_MAX = 300;
 const videoFrameCache = new Map(); // id -> { revision, url }, oldest use first
+// Bumped by videoFrameCacheDelete (a clip was deleted). It is part of the
+// revision, so a capture still encoding (canvas.toBlob) when its clip was
+// deleted finds its revision stale and never publishes an entry.
+const videoFrameGenerations = new Map(); // id -> deletions seen
 
 function videoFrameRevision(clip) {
     const id = Number(clip.id);
-    return `${clip.content_hash || ''}:${mediaRevisions.get(id) || 0}`;
+    return `${clip.content_hash || ''}:${mediaRevisions.get(id) || 0}:${videoFrameGenerations.get(id) || 0}`;
 }
 
 function videoFrameCacheGet(clip) {
@@ -71,7 +75,7 @@ function videoFrameCacheGet(clip) {
     const entry = videoFrameCache.get(id);
     if (!entry) return null;
     if (entry.revision !== videoFrameRevision(clip)) {
-        videoFrameCacheDelete(id);
+        videoFrameCacheEvict(id);
         return null;
     }
     videoFrameCache.delete(id);
@@ -79,18 +83,28 @@ function videoFrameCacheGet(clip) {
     return entry.url;
 }
 
-function videoFrameCacheDelete(id) {
+// Drop one entry and revoke its object URL (eviction, stale revision).
+function videoFrameCacheEvict(id) {
     const entry = videoFrameCache.get(id);
     if (!entry) return;
     videoFrameCache.delete(id);
     if (entry.url.startsWith('blob:')) URL.revokeObjectURL(entry.url);
 }
 
+// The clip was deleted: drop its entry and invalidate any capture of it still
+// in flight, which would otherwise install a fresh entry for a clip that no
+// longer exists once its toBlob callback ran.
+function videoFrameCacheDelete(id) {
+    const key = Number(id);
+    videoFrameCacheEvict(key);
+    videoFrameGenerations.set(key, (videoFrameGenerations.get(key) || 0) + 1);
+}
+
 function videoFrameCacheSet(id, revision, url) {
-    videoFrameCacheDelete(id);
+    videoFrameCacheEvict(id);
     videoFrameCache.set(id, { revision, url });
     while (videoFrameCache.size > VIDEO_FRAME_CACHE_MAX) {
-        videoFrameCacheDelete(videoFrameCache.keys().next().value);
+        videoFrameCacheEvict(videoFrameCache.keys().next().value);
     }
 }
 window.__videoFrameCacheStats = () => ({ entries: videoFrameCache.size, max: VIDEO_FRAME_CACHE_MAX });
@@ -112,7 +126,7 @@ function invalidateClipMedia(clipId) {
     imageCacheDelete(id);
     videoMediaURLCache.delete(id);
     pendingVideoMediaURLs.delete(id);
-    videoFrameCacheDelete(id);
+    videoFrameCacheEvict(id);
     mediaRevisions.set(id, (mediaRevisions.get(id) || 0) + 1);
 }
 window.invalidateClipMedia = invalidateClipMedia;

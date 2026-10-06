@@ -731,9 +731,14 @@ are ordered like the unpaged listing functions (ties broken by id).
   failed or fell back to a live `<video>` sets `_mediaFailed` and is rebuilt,
   not reused, so a reload retries it.
 - Captured video frames are cached in `videoFrameCache`, keyed by clip id and
-  revision (content hash plus `mediaRevisions`). The cache holds up to 300
-  object URLs (`canvas.toBlob`). A URL is revoked when it is evicted, when
-  `invalidateClipMedia` runs, or when the clip is deleted. The frame is still only ever shown through
+  revision (content hash + `mediaRevisions` + `videoFrameGenerations`). The
+  cache holds up to 300 object URLs (`canvas.toBlob`). A capture records its
+  revision before encoding and publishes only if it still matches when
+  `toBlob` calls back. `videoFrameCacheDelete` is the clip-deleted path: it
+  drops the entry *and* bumps the clip's generation, so an encode pending at
+  delete time cannot resurrect it. Plain removal (LRU, stale revision, replace,
+  `invalidateClipMedia`) is `videoFrameCacheEvict`, which must not cancel a
+  capture in flight. The frame is still only ever shown through
   `img.video-thumb`.
 
 **Never read a clips column past the blob through the table.** `clips` stores
