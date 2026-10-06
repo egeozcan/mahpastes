@@ -18,8 +18,17 @@ import (
 type TransferFileHandler struct {
 	app         *App
 	mu          sync.RWMutex
-	tokens      map[string]string // transfer token → filename
+	tokens      map[string]transferToken
 	mediaTokens map[string]mediaToken
+	now         func() time.Time // tests only; nil means time.Now
+}
+
+// transferToken authorizes one temp file for drag-out (DownloadURL) reads.
+// It expires with the file's lease: every hover and drag mints one, so an
+// unexpiring map grew for the life of the process.
+type transferToken struct {
+	filename  string
+	expiresAt time.Time
 }
 
 type mediaToken struct {
@@ -33,14 +42,28 @@ func NewTransferFileHandler(app *App) *TransferFileHandler {
 	return &TransferFileHandler{app: app}
 }
 
-// RegisterToken stores a one-time token that authorizes access to a specific temp file.
+// RegisterToken stores a token that authorizes access to a specific temp file
+// for the length of a temp file lease. Expired tokens are dropped here.
 func (h *TransferFileHandler) RegisterToken(token, filename string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.tokens == nil {
-		h.tokens = make(map[string]string)
+		h.tokens = make(map[string]transferToken)
 	}
-	h.tokens[token] = filename
+	now := h.clock()
+	for existing, item := range h.tokens {
+		if !item.expiresAt.After(now) {
+			delete(h.tokens, existing)
+		}
+	}
+	h.tokens[token] = transferToken{filename: filename, expiresAt: now.Add(defaultTempLeaseTTL)}
+}
+
+func (h *TransferFileHandler) clock() time.Time {
+	if h.now != nil {
+		return h.now()
+	}
+	return time.Now()
 }
 
 // RegisterMediaToken authorizes range-based reads of one leased temp file for
@@ -107,7 +130,7 @@ func (h *TransferFileHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	h.mu.RLock()
 	authorized, ok := h.tokens[token]
 	h.mu.RUnlock()
-	if !ok || authorized != filename {
+	if !ok || authorized.filename != filename || !authorized.expiresAt.After(h.clock()) {
 		http.NotFound(w, r)
 		return
 	}

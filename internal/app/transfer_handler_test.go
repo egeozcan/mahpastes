@@ -361,3 +361,46 @@ func TestTransferHandler_MediaUsesStoredContentType(t *testing.T) {
 		t.Fatalf("Content-Type = %q, want video/mp4", got)
 	}
 }
+
+// Drag-out tokens are minted on every hover and drag; they expire with the
+// temp file lease and are pruned as new ones arrive, rather than piling up for
+// the life of the process.
+func TestTransferHandler_TokensExpireAndArePruned(t *testing.T) {
+	handler, tempDir := newTestHandler(t)
+	now := time.Now()
+	handler.now = func() time.Time { return now }
+
+	if err := os.WriteFile(filepath.Join(tempDir, "7_a.txt"), []byte("a"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	old, _ := generateTransferToken()
+	handler.RegisterToken(old, "7_a.txt")
+
+	get := func(token string) int {
+		req := httptest.NewRequest(http.MethodGet, "/transfer/"+token+"/7_a.txt", nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	if code := get(old); code != http.StatusOK {
+		t.Fatalf("fresh token: status %d, want 200", code)
+	}
+
+	now = now.Add(defaultTempLeaseTTL + time.Second)
+	if code := get(old); code != http.StatusNotFound {
+		t.Fatalf("expired token: status %d, want 404", code)
+	}
+
+	fresh, _ := generateTransferToken()
+	handler.RegisterToken(fresh, "7_a.txt")
+	handler.mu.RLock()
+	_, stillThere := handler.tokens[old]
+	n := len(handler.tokens)
+	handler.mu.RUnlock()
+	if stillThere || n != 1 {
+		t.Fatalf("expired token not pruned: present=%v, %d tokens held", stillThere, n)
+	}
+	if code := get(fresh); code != http.StatusOK {
+		t.Fatalf("new token: status %d, want 200", code)
+	}
+}
