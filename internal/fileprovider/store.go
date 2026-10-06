@@ -665,15 +665,29 @@ func (s *Store) Content(ctx context.Context, id, version string, begin func(Item
 	if err != nil {
 		return err
 	}
-	for offset := int64(0); offset < i.Size; {
-		var b []byte
-		n := min(int64(1<<20), i.Size-offset)
-		if err = tx.QueryRowContext(ctx, `SELECT substr(data,?,?) FROM clips WHERE id=?`, offset+1, n, clipID).Scan(&b); err != nil {
+	// One read of the whole blob: SQLite materializes the entire value for
+	// every substr, so reading it in substr chunks costs O(n²). RawBytes
+	// avoids another copy of the blob; it is valid until rows closes.
+	rows, err := tx.QueryContext(ctx, `SELECT data FROM clips WHERE id=?`, clipID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		if err = rows.Err(); err != nil {
 			return err
 		}
-		if int64(len(b)) != n {
-			return io.ErrUnexpectedEOF
-		}
+		return ErrNoSuchItem
+	}
+	var data sql.RawBytes
+	if err = rows.Scan(&data); err != nil {
+		return err
+	}
+	if int64(len(data)) != i.Size {
+		return io.ErrUnexpectedEOF
+	}
+	for offset := 0; offset < len(data); {
+		b := data[offset:min(offset+1<<20, len(data))]
 		written, e := w.Write(b)
 		if e != nil {
 			return e
@@ -681,7 +695,7 @@ func (s *Store) Content(ctx context.Context, id, version string, begin func(Item
 		if written != len(b) {
 			return io.ErrShortWrite
 		}
-		offset += n
+		offset += len(b)
 	}
 	return nil
 }

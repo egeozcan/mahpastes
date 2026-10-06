@@ -694,6 +694,7 @@ export namespace app {
 	    symlinks: number;
 	    non_regular: number;
 	    app_temp: number;
+	    app_clips: number;
 	    unreadable: number;
 	
 	    static createFrom(source: any = {}) {
@@ -706,6 +707,7 @@ export namespace app {
 	        this.symlinks = source["symlinks"];
 	        this.non_regular = source["non_regular"];
 	        this.app_temp = source["app_temp"];
+	        this.app_clips = source["app_clips"];
 	        this.unreadable = source["unreadable"];
 	    }
 	}
@@ -1410,6 +1412,8 @@ export namespace main {
 	    running: boolean;
 	    message: string;
 	    recoveryPath: string;
+	    location: string;
+	    path: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new FileProviderStatus(source);
@@ -1422,6 +1426,8 @@ export namespace main {
 	        this.running = source["running"];
 	        this.message = source["message"];
 	        this.recoveryPath = source["recoveryPath"];
+	        this.location = source["location"];
+	        this.path = source["path"];
 	    }
 	}
 	export class PluginInfo {

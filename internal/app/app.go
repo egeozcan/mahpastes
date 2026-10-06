@@ -159,6 +159,10 @@ type App struct {
 	// to addTagToNewClip: a restore in between deleted that clip, and its id —
 	// and the tag id — may now name restored rows.
 	restoreEpoch uint64
+
+	// projectionMount holds the file manager mount roots (see
+	// SetProjectionMount).
+	projectionMount atomic.Pointer[[]string]
 }
 
 // PluginsReady reports whether plugin loading has finished (successfully or
@@ -3981,6 +3985,9 @@ func (a *App) AddWatchedFolder(config WatchedFolderConfig) (*WatchedFolder, erro
 	// Validate path exists
 	if _, err := os.Stat(config.Path); os.IsNotExist(err) {
 		return nil, fmt.Errorf("folder does not exist: %s", config.Path)
+	}
+	if a.insideProjectionMount(config.Path) {
+		return nil, errProjectionMount
 	}
 
 	// Default filter mode

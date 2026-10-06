@@ -30,7 +30,11 @@ endif
 ## Development
 
 dev: ## Start development server with hot reload
+ifeq ($(HOST_OS),Linux)
+	bash scripts/linux/wails.sh dev
+else
 	$(WAILS) dev
+endif
 
 ## Build
 
@@ -53,6 +57,8 @@ ifeq ($(HOST_OS),Darwin)
 		echo "Warning: Finder integration disabled: set TEAM_ID, SIGN_IDENTITY, HOST_PROFILE_PATH and EXTENSION_PROFILE_PATH (both profiles must be readable files). Building the ordinary app." >&2; \
 		$(WAILS) build; \
 	fi
+else ifeq ($(HOST_OS),Linux)
+	bash scripts/linux/wails.sh build
 else
 	$(WAILS) build
 endif
@@ -70,7 +76,11 @@ clean: ## Remove build artifacts
 endif
 
 bindings: ## Regenerate Wails frontend bindings after Go changes
+ifeq ($(HOST_OS),Linux)
+	bash scripts/linux/wails.sh generate module
+else
 	$(WAILS) generate module
+endif
 
 ## Install
 
@@ -90,6 +100,12 @@ uninstall: ## Remove installed app
 	-taskkill /IM "$(APP_NAME).exe" /F 2>nul
 	if exist "$(INSTALL_DIR)" rd /s /q "$(INSTALL_DIR)"
 	@echo Removed $(APP_NAME) from $(INSTALL_DIR)
+else ifeq ($(HOST_OS),Linux)
+install: build ## Build and install to ~/.local (kills running instance)
+	@bash scripts/linux/install.sh
+
+uninstall: ## Remove installed app (keeps data)
+	@bash scripts/linux/install.sh --uninstall
 else
 install: build ## Build and install (kills running instance)
 	@# Wait for the old process to really exit. Replacing/opening the bundle while

@@ -185,6 +185,11 @@ func (w *WatcherManager) debounceFile(path string) {
 
 // processFile handles a new file in a watched folder
 func (w *WatcherManager) processFile(filePath string) {
+	// A watch created before the clips folder was mounted over its path would
+	// otherwise import the mount's own change events in a loop.
+	if w.app.insideProjectionMount(filePath) {
+		return
+	}
 	dir := filepath.Dir(filePath)
 
 	// Find which folder ID this belongs to
@@ -356,6 +361,9 @@ func (w *WatcherManager) ProcessExistingFiles(folderID int64) error {
 
 	if folder == nil {
 		return fmt.Errorf("folder not found")
+	}
+	if w.app.insideProjectionMount(folder.Path) {
+		return errProjectionMount
 	}
 
 	entries, err := os.ReadDir(folder.Path)

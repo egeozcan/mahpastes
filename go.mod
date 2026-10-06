@@ -19,6 +19,7 @@ require (
 require (
 	github.com/fxamacker/cbor/v2 v2.9.2
 	github.com/go-ole/go-ole v1.3.0
+	github.com/hanwen/go-fuse/v2 v2.11.0
 	github.com/libp2p/go-libp2p v0.48.0
 	github.com/libp2p/go-libp2p-kad-dht v0.40.0
 	github.com/multiformats/go-multiaddr v0.16.1

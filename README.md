@@ -68,8 +68,8 @@ wails build -platform darwin/universal
 # Windows
 wails build -platform windows/amd64
 
-# Linux
-wails build -platform linux/amd64
+# Linux (WebKitGTK 4.1: Ubuntu 24.04+, Debian 13, Fedora 40+)
+wails build -platform linux/amd64 -tags webkit2_41
 ```
 
 ### Install on macOS
@@ -79,6 +79,39 @@ After building, copy to Applications:
 ```bash
 cp -R build/bin/mahpastes.app /Applications/
 ```
+
+### Install on Linux
+
+`make install` builds and installs for the current user, without root:
+the app goes to `~/.local/bin/mahpastes`, with a desktop entry and icons under
+`~/.local/share`. Set `PREFIX` to install elsewhere. `make uninstall` removes
+them again and keeps your data.
+
+Build dependencies:
+
+```bash
+# Ubuntu / Debian
+sudo apt install build-essential pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev nodejs npm
+# Fedora
+sudo dnf install golang nodejs npm gcc pkgconf-pkg-config gtk3-devel webkit2gtk4.1-devel
+# Arch
+sudo pacman -S --needed go nodejs npm base-devel pkgconf gtk3 webkit2gtk-4.1
+```
+
+The build picks WebKitGTK 4.1 when it is installed and falls back to 4.0
+(for example on Ubuntu 22.04). Distribution Go packages can be older than
+`go.mod` requires. Go 1.21 or newer downloads the right toolchain itself;
+otherwise install Go from [go.dev](https://go.dev/dl/).
+
+On image-based systems (Silverblue, Kinoite, Bazzite, Bluefin), build inside
+a [distrobox](https://distrobox.it/) or toolbox container named
+`mahpastes-dev` (override with `DEV_CONTAINER`). When the host lacks the
+toolchain, `make build`, `make dev` and `make install` build in that container
+automatically and install on the host. The installed app only needs the GTK 3
+and WebKitGTK runtime libraries, which these desktops already ship.
+
+Browsing clips in the file manager additionally needs the `fuse3` package at
+runtime (see [File manager access on Linux](docs/FILE_PROVIDER.md#linux-file-manager-access)).
 
 ## Development
 
@@ -97,7 +130,7 @@ A `Makefile` provides shortcuts for common operations:
 ```bash
 make dev        # Start dev server with hot reload
 make build      # Clean production build
-make install    # Build, kill running app, install to /Applications, launch
+make install    # Build, kill running app, install (/Applications, ~/.local on Linux), launch
 make test       # Run e2e tests
 make screenshots # Refresh documentation screenshots
 make help       # Show all targets
@@ -106,8 +139,9 @@ make help       # Show all targets
 On macOS, `make build` and `make install` include Finder integration when the
 [signing configuration](docs/FILE_PROVIDER.md#build-and-install) is present, using
 Apple Command Line Tools. Without it, they warn and build the ordinary app.
-Windows and Linux keep the ordinary Wails build. Use `wails build` directly for
-a macOS build without Finder integration.
+On Linux the same Settings section mounts the clips as a read-only folder
+instead; it needs no build options. Windows keeps the ordinary Wails build.
+Use `wails build` directly for a macOS build without Finder integration.
 
 ### Project Structure
 

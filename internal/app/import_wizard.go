@@ -128,6 +128,9 @@ type ImportScanSkipped struct {
 	Symlinks   int `json:"symlinks"`
 	NonRegular int `json:"non_regular"`
 	AppTemp    int `json:"app_temp"`
+	// AppClips counts folders skipped because they are the app's own
+	// file manager mount of the clips.
+	AppClips   int `json:"app_clips"`
 	Unreadable int `json:"unreadable"`
 }
 
@@ -396,6 +399,9 @@ func (a *App) StartImportSession(root string, recursive bool) (*ImportScanResult
 	if !info.IsDir() {
 		return nil, fmt.Errorf("not a folder: %s", abs)
 	}
+	if a.insideProjectionMount(abs) {
+		return nil, errProjectionMount
+	}
 	startGeneration, approved := a.approveAndCaptureGeneration(abs)
 	if !approved {
 		return nil, fmt.Errorf("folder was not chosen through the import picker")
@@ -462,6 +468,12 @@ func (a *App) StartImportSession(root string, recursive bool) (*ImportScanResult
 			}
 			if tempDir != "" && (isInsideDir(tempDir, p) || isInsideDir(resolvedTempDir, p)) {
 				result.Skipped.AppTemp++
+				return fs.SkipDir
+			}
+			// The clips folder mounted for file managers holds only clips
+			// that are already in the app.
+			if a.insideProjectionMount(p) {
+				result.Skipped.AppClips++
 				return fs.SkipDir
 			}
 			return nil

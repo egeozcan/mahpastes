@@ -54,7 +54,7 @@ func main() {
 	shareService := NewShareService(core)
 	linkService := NewLinkService(core)
 	markdownService := NewMarkdownService(core)
-	fileProviderService := &FileProviderService{}
+	fileProviderService := &FileProviderService{onMount: core.SetProjectionMount}
 
 	core.SetClipboardService(clipboardService)
 	transferHandler := coreapp.NewTransferFileHandler(core)

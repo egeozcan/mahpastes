@@ -10,11 +10,13 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 
 	"go-clipboard/internal/fileprovider"
+	"go-clipboard/internal/fpfuse"
 	"go-clipboard/internal/fpnative"
 )
 
@@ -24,17 +26,29 @@ type FileProviderStatus struct {
 	Running      bool   `json:"running"`
 	Message      string `json:"message"`
 	RecoveryPath string `json:"recoveryPath"`
+	// Location names where the clips appear ("Finder" or "file manager") and
+	// Path is the mount point when the location is a plain directory.
+	Location string `json:"location"`
+	Path     string `json:"path"`
 }
 
 type providerEnrollment struct {
 	Domain  string `json:"domain"`
 	Enabled bool   `json:"enabled"`
+	// MountPath is the Linux mount point chosen at first enable. It stays put
+	// across launches even if the defaults change.
+	MountPath string `json:"mountPath,omitempty"`
+	// CreatedMountDir records that the app created MountPath, so disabling
+	// removes only a directory the user did not make.
+	CreatedMountDir bool `json:"createdMountDir,omitempty"`
 }
 
 const providerDomainRemoved = "The Finder location was removed. Use Retry to add it again."
+const providerFolderUnmounted = "The folder was unmounted outside Mahpastes. Use Retry to mount it again."
 
-// FileProviderService is bound on every platform. Only the explicitly enabled
-// macOS bundle has a native implementation; constructors and bindings are inert.
+// FileProviderService is bound on every platform. The explicitly enabled macOS
+// bundle registers a Finder File Provider domain; Linux builds serve the same
+// projection as a FUSE mount from the app process. Elsewhere it is inert.
 type FileProviderService struct {
 	mu                 sync.Mutex
 	native             func(operation, domain string) (fpnative.Result, error)
@@ -44,6 +58,12 @@ type FileProviderService struct {
 	enrollment         providerEnrollment
 	server             *fileprovider.Server
 	message, recovery  string
+	// Linux FUSE backend. mountMode selects it; mount is the live mount.
+	mountMode bool
+	mount     *fpfuse.Mount
+	// onMount reports the mount directory ("" when unmounted) so watch
+	// folders and imports can stay out of it.
+	onMount func(dir string)
 }
 
 func (s *FileProviderService) callNative(operation, domain string) (fpnative.Result, error) {
@@ -59,6 +79,10 @@ func (s *FileProviderService) start(ctx context.Context, db *sql.DB, dataDir str
 	s.ctx = ctx
 	s.db = db
 	s.dataDir = dataDir
+	if s.native == nil && fpfuse.Supported() {
+		s.startMount()
+		return
+	}
 	info, err := s.callNative("info", "")
 	if err != nil {
 		return
@@ -87,6 +111,15 @@ func (s *FileProviderService) start(ctx context.Context, db *sql.DB, dataDir str
 func (s *FileProviderService) Status() FileProviderStatus {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.mountMode {
+		// Someone can unmount the folder behind the app's back (fusermount3 -u,
+		// or a file manager's eject). Report it so Retry can mount it again.
+		if s.mount != nil && !s.mount.Alive() {
+			s.disconnect()
+			s.message = providerFolderUnmounted
+		}
+		return s.status()
+	}
 	// Users can remove a domain in Finder while the app keeps running. Report
 	// that state on reopening Settings so Retry is available without a restart.
 	if s.server != nil && s.enrollment.Enabled {
@@ -112,12 +145,18 @@ func (s *FileProviderService) Status() FileProviderStatus {
 }
 
 func (s *FileProviderService) status() FileProviderStatus {
-	return FileProviderStatus{Supported: s.groupPath != "", Enabled: s.enrollment.Enabled, Running: s.server != nil && s.message == "", Message: s.message, RecoveryPath: s.recovery}
+	if s.mountMode {
+		return FileProviderStatus{Supported: true, Enabled: s.enrollment.Enabled, Running: s.mount != nil, Message: s.message, Location: "file manager", Path: s.mountPath()}
+	}
+	return FileProviderStatus{Supported: s.groupPath != "", Enabled: s.enrollment.Enabled, Running: s.server != nil && s.message == "", Message: s.message, RecoveryPath: s.recovery, Location: "Finder"}
 }
 
 func (s *FileProviderService) Enable() (FileProviderStatus, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.mountMode {
+		return s.enableMount()
+	}
 	if s.groupPath == "" || s.db == nil {
 		return s.status(), errors.New("Finder integration is unavailable in this build")
 	}
@@ -145,6 +184,9 @@ func (s *FileProviderService) Enable() (FileProviderStatus, error) {
 func (s *FileProviderService) Disable() (FileProviderStatus, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.mountMode {
+		return s.disableMount()
+	}
 	if s.groupPath == "" {
 		return s.status(), errors.New("Finder integration is unavailable in this build")
 	}
@@ -183,6 +225,18 @@ func (s *FileProviderService) Reveal() error {
 	defer s.mu.Unlock()
 	if !s.enrollment.Enabled {
 		return errors.New("Finder integration is disabled")
+	}
+	if s.mountMode {
+		if s.mount == nil {
+			return errors.New("the clips folder is not mounted")
+		}
+		// xdg-open hands the directory to the desktop's default file manager.
+		cmd := exec.Command("xdg-open", s.mount.Dir())
+		if err := cmd.Start(); err != nil {
+			return fmt.Errorf("open file manager: %w", err)
+		}
+		go func() { _ = cmd.Wait() }()
+		return nil
 	}
 	_, err := s.callNative("reveal", s.enrollment.Domain)
 	return err
@@ -333,6 +387,13 @@ func writeProviderFile(path string, b []byte) error {
 }
 
 func (s *FileProviderService) disconnect() {
+	if s.mount != nil {
+		s.mount.Close()
+		s.mount = nil
+		if s.onMount != nil {
+			s.onMount("")
+		}
+	}
 	if s.server != nil {
 		s.server.Close()
 		s.server = nil
@@ -342,3 +403,132 @@ func (s *FileProviderService) disconnect() {
 	}
 }
 func (s *FileProviderService) stop() { s.mu.Lock(); defer s.mu.Unlock(); s.disconnect() }
+
+// The Linux backend reuses the enrollment file and projection store, but needs
+// no domain registration, credential or loopback server: the app process
+// answers filesystem requests directly from the store.
+
+func (s *FileProviderService) startMount() {
+	s.mountMode = true
+	b, err := os.ReadFile(filepath.Join(s.dataDir, "file-provider.json"))
+	if errors.Is(err, os.ErrNotExist) {
+		s.message = availabilityMessage()
+		return
+	}
+	if err == nil {
+		err = json.Unmarshal(b, &s.enrollment)
+	}
+	if err == nil && s.enrollment.Enabled {
+		err = s.connectMount()
+	} else if err == nil {
+		s.message = availabilityMessage()
+	}
+	if err != nil {
+		s.message = err.Error()
+		log.Printf("File manager mount: %v", err)
+	}
+}
+
+func availabilityMessage() string {
+	if err := fpfuse.Available(); err != nil {
+		return err.Error()
+	}
+	return ""
+}
+
+func (s *FileProviderService) enableMount() (FileProviderStatus, error) {
+	if s.db == nil {
+		return s.status(), errors.New("the clips folder is unavailable until the app has started")
+	}
+	if s.enrollment.MountPath == "" {
+		s.enrollment.MountPath = defaultMountPath(s.dataDir)
+	}
+	s.enrollment.Enabled = true
+	if err := s.saveEnrollment(); err != nil {
+		s.enrollment.Enabled = false
+		return s.status(), err
+	}
+	if err := s.connectMount(); err != nil {
+		s.message = err.Error()
+		return s.status(), err
+	}
+	s.message = ""
+	return s.status(), nil
+}
+
+func (s *FileProviderService) disableMount() (FileProviderStatus, error) {
+	wasEnabled := s.enrollment.Enabled
+	s.enrollment.Enabled = false
+	if err := s.saveEnrollment(); err != nil {
+		s.enrollment.Enabled = wasEnabled
+		s.message = err.Error()
+		return s.status(), err
+	}
+	s.disconnect()
+	// Leave no empty placeholder behind in the home directory; Remove refuses
+	// a directory that is still a busy mount or has gained other contents.
+	if path := s.enrollment.MountPath; path != "" && s.enrollment.CreatedMountDir {
+		if err := os.Remove(path); err == nil || errors.Is(err, os.ErrNotExist) {
+			// A directory the user makes there later is theirs.
+			s.enrollment.CreatedMountDir = false
+			if err := s.saveEnrollment(); err != nil {
+				log.Printf("File manager mount: %v", err)
+			}
+		}
+	}
+	s.message = availabilityMessage()
+	return s.status(), nil
+}
+
+func (s *FileProviderService) connectMount() error {
+	if s.mount != nil {
+		if s.mount.Alive() {
+			return nil
+		}
+		// Unmounted from outside the app before Status noticed: mount again.
+		s.disconnect()
+	}
+	if s.enrollment.MountPath == "" {
+		s.enrollment.MountPath = defaultMountPath(s.dataDir)
+	}
+	store, err := fileprovider.Open(s.ctx, s.db)
+	if err != nil {
+		return err
+	}
+	mount, err := fpfuse.Start(s.ctx, store, s.enrollment.MountPath)
+	if err != nil {
+		return err
+	}
+	s.mount = mount
+	if mount.Created() && !s.enrollment.CreatedMountDir {
+		s.enrollment.CreatedMountDir = true
+		if err := s.saveEnrollment(); err != nil {
+			log.Printf("File manager mount: %v", err)
+		}
+	}
+	if s.onMount != nil {
+		s.onMount(mount.Dir())
+	}
+	return nil
+}
+
+func (s *FileProviderService) mountPath() string {
+	if s.enrollment.MountPath != "" {
+		return s.enrollment.MountPath
+	}
+	return defaultMountPath(s.dataDir)
+}
+
+// The standard data directory mounts at ~/Mahpastes. A custom
+// MAHPASTES_DATA_DIR (a development or second profile) mounts inside its own
+// data directory so two instances never compete for one mount point.
+// MAHPASTES_MOUNT_DIR overrides both.
+func defaultMountPath(dataDir string) string {
+	if dir := os.Getenv("MAHPASTES_MOUNT_DIR"); dir != "" {
+		return dir
+	}
+	if home, err := os.UserHomeDir(); err == nil && os.Getenv("MAHPASTES_DATA_DIR") == "" {
+		return filepath.Join(home, "Mahpastes")
+	}
+	return filepath.Join(dataDir, "Mahpastes")
+}

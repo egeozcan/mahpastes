@@ -35,7 +35,7 @@ type Server struct {
 	store     *Store
 	http      *http.Server
 	cancel    context.CancelFunc
-	done      chan struct{}
+	done      <-chan struct{}
 	once      sync.Once
 	Discovery Discovery
 }
@@ -66,7 +66,7 @@ func Start(ctx context.Context, store *Store, domain, secret string, signal func
 	}
 	pin := sha256.Sum256(der)
 	workerCtx, cancel := context.WithCancel(ctx)
-	s := &Server{store: store, cancel: cancel, done: make(chan struct{}), Discovery: Discovery{Protocol: 1, Domain: domain, Endpoint: "https://" + listener.Addr().String(), CertificateSHA256: hex.EncodeToString(pin[:])}}
+	s := &Server{store: store, cancel: cancel, Discovery: Discovery{Protocol: 1, Domain: domain, Endpoint: "https://" + listener.Addr().String(), CertificateSHA256: hex.EncodeToString(pin[:])}}
 	s.http = &http.Server{Handler: handler(store, domain, secret), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 2 * time.Minute, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8192, BaseContext: func(net.Listener) context.Context { return workerCtx }}
 	tlsListener := tls.NewListener(listener, &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{{Certificate: [][]byte{der}, PrivateKey: key}}})
 	go func() {
@@ -74,37 +74,7 @@ func Start(ctx context.Context, store *Store, domain, secret string, signal func
 			log.Printf("File Provider listener stopped: %v", err)
 		}
 	}()
-	go func() {
-		defer close(s.done)
-		ticker := time.NewTicker(time.Second)
-		defer ticker.Stop()
-		lastHead := ""
-		for {
-			select {
-			case <-workerCtx.Done():
-				return
-			case <-ticker.C:
-				_, err := store.Sync(workerCtx)
-				if err != nil {
-					if workerCtx.Err() == nil {
-						log.Printf("File Provider projection: %v", err)
-					}
-					continue
-				}
-				head, err := store.Head(workerCtx)
-				if err != nil {
-					continue
-				}
-				if head != lastHead && signal != nil {
-					if err := signal(); err != nil {
-						log.Printf("File Provider notification: %v", err)
-						continue
-					}
-				}
-				lastHead = head
-			}
-		}
-	}()
+	s.done = Watch(workerCtx, store, signal)
 	return s, nil
 }
 

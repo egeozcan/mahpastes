@@ -111,7 +111,8 @@ Go, or Swift compilation. Your signing private key stays in the local Keychain.
 Provisioning and signed runtime acceptance are still required. Notarization is
 optional in this command and requires `notarytool`/`stapler` when enabled.
 
-On Windows and Linux, `make build` still uses the ordinary Wails build.
+On Windows, `make build` still uses the ordinary Wails build. Linux builds
+always include the FUSE variant described [below](#linux-file-manager-access).
 Release-tag workflows remain unchanged. To build without Finder integration
 on macOS, run `wails build` directly.
 The native build is not automatically added to public release assets until the
@@ -143,6 +144,77 @@ signed acceptance checks below are complete.
   recovery path returned by macOS. A failed removal keeps the service running.
 * Finder writes, imports, renames, moves, trash and deletion are not advertised;
   required mutation callbacks return a read-only error. Archive is not Trash.
+
+## Linux file manager access
+
+Linux builds serve the same projection as a read-only FUSE filesystem. Settings
+shows **File manager access** in place of Finder access. Enabling it mounts
+`~/Mahpastes` with `Active`, `Archive` and `Tags`, where any file manager, file
+dialog or shell can browse it. **Open in file manager** runs `xdg-open`.
+
+* The app process serves the mount itself through
+  [go-fuse](https://github.com/hanwen/go-fuse), which is pure Go (no cgo or
+  libfuse). There is no extension, loopback service or credential. The mount
+  exists only while the app runs: Quit unmounts it, and the next launch
+  remounts it while the setting stays enabled. A mount left behind by a crash
+  ("Transport endpoint is not connected") is detached at startup.
+* The runtime needs the setuid `fusermount3` helper (package `fuse3` on Ubuntu,
+  Debian, Fedora and Arch) and `/dev/fuse`. Without them, Settings explains
+  what to install. Flatpak and other sandboxes without `/dev/fuse` cannot mount.
+* The mount point is chosen at first enable and stored in `file-provider.json`.
+  With a custom `MAHPASTES_DATA_DIR` it defaults to `<data dir>/Mahpastes`, so
+  a development profile never competes with the main instance.
+  `MAHPASTES_MOUNT_DIR` overrides it. A non-empty directory that is not a mount
+  is refused. Disabling unmounts and removes the empty directory.
+* Names, the hidden/expired rules and tag aliases match the Finder location.
+  Linux has no hidden-file flag, so hidden tag folders get a leading dot.
+* The mount is `noexec,nosuid,nodev` but not `ro` (so `findmnt` shows `rw`).
+  The kernel raises directory inotify events only for operations that pass
+  through the VFS; invalidating FUSE caches reaches no directory watcher,
+  including for `NotifyDelete`. So the app replays each projection change on
+  one dedicated, locked OS thread (the *pump*): `mknod`/`mkdir` for new items
+  (IN_CREATE), `unlink`/`rmdir` for removed ones (IN_DELETE), and a utimes
+  request for changed ones (IN_MODIFY for new content, IN_ATTRIB for
+  metadata). `mknod` avoids the open/close events that would make
+  thumbnailers or indexers read the clip. Folder mtimes and ctimes advance
+  whenever an entry is added or removed, as on a local filesystem. Any
+  inotify watcher receives these events. In Dolphin (KDE Plasma 6), new clips
+  appear without a manual refresh. A removal raised the correct IN_DELETE
+  but did not leave Dolphin's view in the one test made before folder times
+  were added; that case is not yet verified.
+* Read-only is enforced in the handlers instead. FUSE requests carry the
+  caller's thread ID. A change succeeds only from the pump thread, and only
+  for the exact name it is announcing. Everything else gets `EROFS`: create,
+  mknod, mkdir, unlink, rmdir, rename, link, symlink, setattr and opening for
+  writing. This includes plugins and other goroutines of the app.
+  `access(W_OK)` fails too, so file managers present the folder as read-only.
+  Nothing in the FUSE server can write to the database. If a replay fails, the
+  listing is updated directly and kernel caches are invalidated, so the
+  contents stay correct even without an event.
+* Directory listings come from `Store.List`, which reads `fp_items` and writes
+  no snapshot rows. Once listed, a directory's view changes only through
+  replays, so it differs from the projection by exactly the changes still to
+  be announced. Reads use `Store.ReadAt`, which applies the visibility,
+  membership and version checks of `Content` to each range. A file handle
+  pins the content revision current at `open`. A later edit makes further
+  reads fail with `ESTALE` rather than mixing revisions; reopening returns
+  the new bytes.
+* The projection worker (`Watch`, shared with the macOS server) catches up
+  every second and triggers the replay. Kernel entry and attribute caches
+  expire after one second as a backstop.
+* Unmounting from outside the app (`fusermount3 -u`, or a file manager's
+  eject) is noticed. Settings reports it and **Retry** mounts again.
+* Watch folders and imports refuse the mount, including when it is reached
+  through a symlink. A recursive import of a parent folder skips it and
+  reports it as "Mahpastes clips folder". The processing of watched files
+  also ignores it. Otherwise the app would re-import its own clips, and a
+  watch on the mount would feed on the events the mount raises.
+* Indexers: Baloo, which indexes all of `$HOME` by default, did not read
+  through the mount during a forced full scan (`balooctl6 check`) on KDE
+  Plasma 6. The only other access observed came from KDE's trash probing for
+  `.Trash` on the new mount. Backup tools that cross filesystems will copy the
+  mount like any other folder while the app runs. Exclude `~/Mahpastes`, or
+  use their one-file-system option.
 
 ## Architecture and platform boundary
 
@@ -272,7 +344,7 @@ typed-nil shutdown bug was fixed because it prevented the suite from completing
 on hosts where multicast discovery cannot start.
 
 ```sh
-go test -race ./internal/fileprovider ./internal/fpnative
+go test -race ./internal/fileprovider ./internal/fpnative ./internal/fpfuse
 go test ./internal/... ./plugin/... ./cmd/...
 go test -tags bindings .
 go test -tags 'fileprovider bindings' ./internal/fpnative
