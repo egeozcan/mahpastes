@@ -50,7 +50,7 @@ test.describe('Video thumbnails and lightbox', () => {
     // bug. That was found by snapshotting a real WKWebView.
     const thumbnail = card.locator('img.video-thumb[data-clip-id]');
     await expect(thumbnail).toBeVisible();
-    await expect(thumbnail).toHaveAttribute('src', /^data:image\//);
+    await expect(thumbnail).toHaveAttribute('src', /^blob:/);
     await expect(card.locator('video[data-clip-id]')).toHaveCount(0);
     await expect(card.locator('.video-play-badge')).toBeVisible();
 

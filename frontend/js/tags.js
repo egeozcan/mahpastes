@@ -586,9 +586,12 @@ async function handleClipTagToggle(clipId, tagId, add) {
             }
         }
     }
-    // Refresh to show updated tags on card
-    loadClips();
     closeTagPopover();
+    // Re-render the card's pills in place; reload when the change moved the
+    // clip out of the view (or the view cannot be patched).
+    if (!(typeof refreshClipTagsInPlace === 'function' && await refreshClipTagsInPlace(clipId))) {
+        loadClips();
+    }
 }
 
 async function handleBulkTagToggle(tagId, add) {
@@ -638,8 +641,11 @@ if (createTagBtn) {
 
             // If in single mode, add to the clip
             if (tagPopoverMode === 'single' && currentTaggingClipId) {
-                await addTagToClip(currentTaggingClipId, tag.id);
-                loadClips();
+                const clipId = currentTaggingClipId;
+                await addTagToClip(clipId, tag.id);
+                if (!(typeof refreshClipTagsInPlace === 'function' && await refreshClipTagsInPlace(clipId))) {
+                    loadClips();
+                }
             } else if (tagPopoverMode === 'bulk') {
                 await bulkAddTag(Array.from(selectedIds), tag.id);
                 loadClips();

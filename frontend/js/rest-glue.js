@@ -220,6 +220,9 @@
         PreviewMergeTag: (sourceID, destID) => postJSON(`${api}/tags/${sourceID}/merge-preview`, { dest_id: destID }),
         AddTagToClip: (clipID, tagID) => putJSON(`${api}/clips/${clipID}/tags/${tagID}`, {}),
         RemoveTagFromClip: (clipID, tagID) => del(`${api}/clips/${clipID}/tags/${tagID}`),
+        // The clip's tags, as the desktop binding returns them (the gallery
+        // re-renders a card's pills from this after a tag change on it).
+        GetClipTags: async (clipID) => ((await fetchJSON(`${api}/clips/${clipID}`)) || {}).tags || [],
         GetChildTags: (id) => fetchJSON(`${api}/tags/${id}/children`),
         // Tags with no existing ancestor, matching the desktop binding.
         GetTopLevelTags: async () => {

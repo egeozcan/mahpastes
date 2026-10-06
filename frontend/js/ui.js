@@ -50,11 +50,57 @@ const renderedClipsById = new Map();
 // the change cannot repopulate a cache entry with the previous revision.
 const mediaRevisions = new Map();
 
+// Captured video-card frames, so a card rebuilt for a clip whose bytes have
+// not changed (another view, a folder visited again) shows the frame at once
+// instead of leasing a temp file, range-fetching, seeking and re-encoding.
+// Keyed by clip id; each entry remembers the revision it was captured from and
+// is used only while that revision is current. The frame is an object URL
+// (canvas.toBlob), revoked when the entry is evicted or invalidated. It is
+// only ever shown through img.video-thumb, never video.poster (WebKit paints a
+// source-less video black and ignores its poster).
+const VIDEO_FRAME_CACHE_MAX = 300;
+const videoFrameCache = new Map(); // id -> { revision, url }, oldest use first
+
+function videoFrameRevision(clip) {
+    const id = Number(clip.id);
+    return `${clip.content_hash || ''}:${mediaRevisions.get(id) || 0}`;
+}
+
+function videoFrameCacheGet(clip) {
+    const id = Number(clip.id);
+    const entry = videoFrameCache.get(id);
+    if (!entry) return null;
+    if (entry.revision !== videoFrameRevision(clip)) {
+        videoFrameCacheDelete(id);
+        return null;
+    }
+    videoFrameCache.delete(id);
+    videoFrameCache.set(id, entry);
+    return entry.url;
+}
+
+function videoFrameCacheDelete(id) {
+    const entry = videoFrameCache.get(id);
+    if (!entry) return;
+    videoFrameCache.delete(id);
+    if (entry.url.startsWith('blob:')) URL.revokeObjectURL(entry.url);
+}
+
+function videoFrameCacheSet(id, revision, url) {
+    videoFrameCacheDelete(id);
+    videoFrameCache.set(id, { revision, url });
+    while (videoFrameCache.size > VIDEO_FRAME_CACHE_MAX) {
+        videoFrameCacheDelete(videoFrameCache.keys().next().value);
+    }
+}
+window.__videoFrameCacheStats = () => ({ entries: videoFrameCache.size, max: VIDEO_FRAME_CACHE_MAX });
+
 function clearMediaCaches() {
     imageCache.clear();
     imageCacheBytes = 0;
     videoMediaURLCache.clear();
     pendingVideoMediaURLs.clear();
+    // Captured frames stay: each is checked against its clip's revision.
 }
 
 // Forget everything cached for one clip after its bytes were replaced in place
@@ -66,6 +112,7 @@ function invalidateClipMedia(clipId) {
     imageCacheDelete(id);
     videoMediaURLCache.delete(id);
     pendingVideoMediaURLs.delete(id);
+    videoFrameCacheDelete(id);
     mediaRevisions.set(id, (mediaRevisions.get(id) || 0) + 1);
 }
 window.invalidateClipMedia = invalidateClipMedia;
@@ -1189,6 +1236,10 @@ async function createClipCard(clip, options = {}) {
     card.dataset.type = (clip.content_type || '').toLowerCase();
     card.dataset.size = clip.size || 0;
     card.dataset.createdAt = clip.created_at || '';
+    // The clip object the card's listeners close over; in-place patches and
+    // card reuse (reuseClipCard) update this object rather than replacing it.
+    card._clip = clip;
+    card._renderSig = clipCardSignature(clip);
     rememberRenderedClip(clip);
     if (clip.expires_at) {
         card.dataset.expiresAt = clip.expires_at;
@@ -1260,13 +1311,7 @@ async function createClipCard(clip, options = {}) {
         </div>`;
     }
 
-    let expirationBadge = '';
-    if (clip.expires_at) {
-        const remaining = formatTimeRemaining(clip.expires_at);
-        expirationBadge = `<div class="absolute top-2 left-2 bg-stone-700 text-white text-[8px] font-semibold px-1.5 py-0.5 rounded z-20 uppercase tracking-wide">
-            Temp · ${remaining}
-        </div>`;
-    }
+    const expirationBadge = expirationBadgeHTML(clip);
     const dragHandleHTML = renderDragHandle(clip.id);
 
     card.innerHTML = `
@@ -1278,11 +1323,11 @@ async function createClipCard(clip, options = {}) {
 
         <!-- Minimal footer -->
         <div class="p-2.5 flex flex-col gap-1.5 border-t border-stone-100">
-            <p class="text-[11px] font-medium text-stone-700 truncate" title="${escapeHTML(clip.filename) || 'Pasted Content'}">
+            <p class="clip-filename text-[11px] font-medium text-stone-700 truncate" title="${escapeHTML(clip.filename) || 'Pasted Content'}">
                 ${escapeHTML(clip.filename) || '<span class="text-stone-400 font-normal">Pasted</span>'}
             </p>
             <div class="flex justify-between items-center">
-                <div class="flex items-center gap-1.5"><span class="text-[9px] font-medium text-stone-400 uppercase tracking-wide">${escapeHTML(getFriendlyFileType(clip.content_type, clip.filename))}</span>${clip.duplicate_count > 0 ? `<span class="dedup-badge text-[9px] font-medium text-stone-400 bg-stone-100 border border-stone-200 rounded px-1">${clip.duplicate_count + 1} copies</span>` : ''}</div>
+                <div class="flex items-center gap-1.5"><span class="clip-type-label text-[9px] font-medium text-stone-400 uppercase tracking-wide">${escapeHTML(getFriendlyFileType(clip.content_type, clip.filename))}</span>${clip.duplicate_count > 0 ? `<span class="dedup-badge text-[9px] font-medium text-stone-400 bg-stone-100 border border-stone-200 rounded px-1">${clip.duplicate_count + 1} copies</span>` : ''}</div>
                 <div class="flex items-center gap-1">
                     ${dragHandleHTML}
                     <button class="card-menu-trigger p-1 text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded transition-colors"
@@ -1337,8 +1382,7 @@ async function createClipCard(clip, options = {}) {
     // result never looks like an ordinary listing that leaked something. Only
     // then: inside a hidden tag's folder, or filtering by it, the clip is an
     // ordinary result and must not look withheld.
-    if (galleryWaivedHiddenTags.length > 0 && Array.isArray(clip.tags)
-        && clip.tags.some(tag => galleryWaivedHiddenTags.some(h => tag.name === h || tag.name.startsWith(h + '/')))) {
+    if (clipShownDespiteHiddenTag(clip)) {
         card.dataset.hidden = 'true';
     }
     if (selectedIds.has(Number(clip.id))) card.classList.add('has-checked');
@@ -1427,6 +1471,91 @@ async function createClipCard(clip, options = {}) {
     return card;
 }
 
+function clipShownDespiteHiddenTag(clip) {
+    return galleryWaivedHiddenTags.length > 0 && Array.isArray(clip.tags)
+        && clip.tags.some(tag => galleryWaivedHiddenTags.some(h => tag.name === h || tag.name.startsWith(h + '/')));
+}
+
+// Everything a card's markup is built from. A full reload keeps a card whose
+// signature is unchanged (reuseClipCard) instead of rebuilding it, which would
+// refetch and re-decode its thumbnail or recapture its video frame. Besides the
+// clip's own fields it covers the render context a card bakes in: folder mode
+// (draggable), the hidden-tag dimming of a search that included hidden clips,
+// and whether drag-out is available (the drag handle).
+function clipCardSignature(clip) {
+    const id = Number(clip.id);
+    const tags = Array.isArray(clip.tags) ? clip.tags.map(t => [t.id, t.name, t.color]) : [];
+    return JSON.stringify([
+        clip.filename || '', Number(clip.size) || 0, clip.content_type || '', clip.created_at || '',
+        clip.expires_at || '', !!clip.is_archived, Number(clip.duplicate_count) || 0,
+        clip.content_hash || '', clip.preview || '', tags, mediaRevisions.get(id) || 0,
+        typeof isFolderMode === 'function' && isFolderMode(), clipShownDespiteHiddenTag(clip),
+        typeof canDragOut === 'function' && canDragOut(),
+    ]);
+}
+
+// Take a card from the previous render into this one. The listeners close over
+// card._clip, so the fresh listing row is copied into that object rather than
+// swapped for it. Selection is re-read (a bulk action clears it before its
+// reload) and the expiry countdown is re-rendered, as a rebuild would have.
+function reuseClipCard(card, clip) {
+    const kept = card._clip;
+    Object.assign(kept, clip);
+    rememberRenderedClip(kept);
+    renderCardExpiry(card, kept);
+    const selected = selectedIds.has(Number(kept.id));
+    const checkbox = card.querySelector('.clip-checkbox');
+    if (checkbox) checkbox.checked = selected;
+    card.classList.toggle('has-checked', selected);
+    card._renderSig = clipCardSignature(kept);
+    return card;
+}
+
+function expirationBadgeHTML(clip) {
+    if (!clip.expires_at) return '';
+    const remaining = formatTimeRemaining(clip.expires_at);
+    return `<div class="clip-expiration-badge absolute top-2 left-2 bg-stone-700 text-white text-[8px] font-semibold px-1.5 py-0.5 rounded z-20 uppercase tracking-wide">
+            Temp · ${escapeHTML(remaining)}
+        </div>`;
+}
+
+// Re-render a card's expiry badge from clip.expires_at.
+function renderCardExpiry(card, clip) {
+    card.querySelector('.clip-expiration-badge')?.remove();
+    if (clip.expires_at) {
+        card.dataset.expiresAt = clip.expires_at;
+        card.querySelector('[data-action="open-lightbox"]')?.insertAdjacentHTML('afterbegin', expirationBadgeHTML(clip));
+    } else {
+        delete card.dataset.expiresAt;
+    }
+}
+
+// Re-render everything on a card that shows the clip's filename.
+function renderCardFilename(card, clip) {
+    const name = clip.filename || '';
+    card.dataset.filename = name.toLowerCase();
+    card.setAttribute('aria-label', `Clip: ${name || 'Pasted Content'}`);
+    const label = card.querySelector('.clip-filename');
+    if (label) {
+        label.setAttribute('title', name || 'Pasted Content');
+        label.innerHTML = escapeHTML(name) || '<span class="text-stone-400 font-normal">Pasted</span>';
+    }
+    card.querySelector('.clip-checkbox')?.setAttribute('aria-label', `Select clip ${name || 'Pasted Content'}`);
+    const type = card.querySelector('.clip-type-label');
+    if (type) type.textContent = getFriendlyFileType(clip.content_type, clip.filename);
+    const isVideo = (clip.content_type || '').startsWith('video/');
+    card.querySelectorAll('img[data-clip-id]').forEach(img => {
+        img.setAttribute('alt', name || (isVideo ? 'Uploaded video' : 'Uploaded image'));
+    });
+    card.querySelector('video[data-clip-id]')?.setAttribute('aria-label', name || 'Uploaded video');
+}
+
+// A card leaving the gallery: stop watching it for media work.
+function forgetCardMedia(card) {
+    cardMediaTasks.delete(card);
+    if (cardMediaObserver) cardMediaObserver.unobserve(card);
+}
+
 // Load a card's media. Images get a URL-served thumbnail straight away (the
 // browser lazy-loads it); videos capture a representative frame, through the
 // card media scheduler.
@@ -1435,7 +1564,9 @@ function loadMediaForCard(clip, card) {
     if (card.querySelector(`img[data-clip-id="${clipId}"]:not(.video-thumb)`)) {
         loadImageCard(clip, card).catch(error => showCardMediaError(clipId, card, error));
     } else if (card.querySelector(`video[data-clip-id="${clipId}"]`)) {
-        scheduleCardMedia(card, () => loadVideoCard(clipId, card).catch(error => showCardMediaError(clipId, card, error)));
+        // A frame already captured for this revision needs no decoder at all.
+        if (showCachedVideoFrame(clip, card)) return;
+        scheduleCardMedia(card, () => loadVideoCard(clip, card).catch(error => showCardMediaError(clipId, card, error)));
     }
 }
 
@@ -1488,7 +1619,30 @@ const VIDEO_CARD_SLOT_TIMEOUT_MS = 15000;
 // Capture a video card's frame. Video elements seek just past the start so
 // clips whose first frame is empty still get a useful thumbnail. Resolves when
 // the card has settled on a frame, the live element or an error.
-async function loadVideoCard(clipId, card) {
+// Show a cached frame (videoFrameCache) on a video card: the same end state
+// freezeToImage reaches, without loading the video. False when nothing is cached.
+function showCachedVideoFrame(clip, card) {
+    const clipId = clip.id;
+    const url = videoFrameCacheGet(clip);
+    const thumb = card.querySelector(`img.video-thumb[data-clip-id="${clipId}"]`);
+    if (!url || !thumb) return false;
+    thumb.src = url;
+    thumb.dataset.frameCached = 'true';
+    thumb.classList.remove('hidden');
+    card.querySelector(`video[data-clip-id="${clipId}"]`)?.remove();
+    const badge = card.querySelector('.video-play-badge');
+    badge?.classList.remove('hidden');
+    badge?.classList.add('flex');
+    card.querySelector('.loading-spinner')?.remove();
+    return true;
+}
+
+async function loadVideoCard(clip, card) {
+    const clipId = clip.id;
+    // Captured now, so a frame from bytes replaced mid-capture is not cached
+    // under the new revision.
+    const frameRevision = videoFrameRevision(clip);
+    if (showCachedVideoFrame(clip, card)) return;
     const video = card.querySelector(`video[data-clip-id="${clipId}"]`);
     const thumb = card.querySelector(`img.video-thumb[data-clip-id="${clipId}"]`);
     const spinner = card.querySelector('.loading-spinner');
@@ -1535,30 +1689,50 @@ async function loadVideoCard(clipId, card) {
     // snapshotting a real WKWebView; see docs in CLAUDE.md.
     const freezeToImage = () => {
         if (settled || !thumb) return keepLiveVideo();
+        let canvas;
         try {
             const width = video.videoWidth;
             const height = video.videoHeight;
             if (!width || !height) return keepLiveVideo();
             const scale = Math.min(1, THUMBNAIL_MAX_EDGE / Math.max(width, height));
-            const canvas = document.createElement('canvas');
+            canvas = document.createElement('canvas');
             canvas.width = Math.max(1, Math.round(width * scale));
             canvas.height = Math.max(1, Math.round(height * scale));
             canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
-            thumb.src = canvas.toDataURL('image/jpeg', 0.85);
+            // A tainted canvas throws here, synchronously, so the live-video
+            // fallback still applies. The JPEG becomes an object URL kept in
+            // videoFrameCache, so a rebuilt card never captures it again.
+            canvas.toBlob((blob) => {
+                let url = null;
+                if (blob && videoFrameRevision(clip) === frameRevision) {
+                    url = URL.createObjectURL(blob);
+                    videoFrameCacheSet(Number(clipId), frameRevision, url);
+                } else {
+                    // No blob, or the clip's bytes changed while encoding:
+                    // show this frame without caching it under the new revision.
+                    try { url = canvas.toDataURL('image/jpeg', 0.85); } catch { url = null; }
+                }
+                if (url) {
+                    thumb.src = url;
+                    thumb.classList.remove('hidden');
+                    showBadge();
+                } else if (spinner) {
+                    spinner.innerHTML = '<span class="text-red-400 text-xs">Failed to load</span>';
+                }
+                finish();
+            }, 'image/jpeg', 0.85);
         } catch (error) {
             console.warn(`Could not capture thumbnail for clip ${clipId}:`, error);
             return keepLiveVideo();
         }
         settled = true;
-        thumb.classList.remove('hidden');
         // Releasing the source frees the decoder and ends the range
         // fetch. A gallery page holds up to defaultClipLimit cards, and
         // a still frame has no business keeping a video pipeline alive.
+        // The canvas already holds the frame.
         video.removeAttribute('src');
         video.load();
         video.remove();
-        showBadge();
-        finish();
     };
 
     // `seeked` says the seek finished, not that a frame was presented.

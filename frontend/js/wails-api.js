@@ -24,6 +24,11 @@ const CLIP_PAGE_SIZE = 50;
 // What is on screen: the request it came from (minus paging), how many clips
 // are loaded, and how many the listing holds in all.
 let _galleryView = { key: null, request: null, loaded: 0, total: 0, hasMore: false };
+// A gallery load (or "Load more") still running. While one is, a single-clip
+// change is not patched into the DOM: the load may have read the listing
+// before the change and would paint it back. A fresh reload supersedes it.
+let _clipLoadInFlight = 0;
+let _loadMoreInFlight = 0;
 
 // Fetch clips from the start of a listing until `want` are loaded or it runs out.
 // More than 200 takes several requests; rows that shift between them (an
@@ -141,6 +146,7 @@ function restoreGalleryFocus(snapshot) {
 async function loadClips({ focusFirst = false } = {}) {
     _pendingFocusAfterLoad = focusFirst;
     const myGen = ++_clipLoadGen;
+    _clipLoadInFlight = myGen;
     // Any in-flight standalone folder-card render is superseded by this one.
     if (typeof _folderRenderGen !== 'undefined') _folderRenderGen++;
     // Focus is read twice: here, and again just before the gallery is cleared
@@ -235,22 +241,50 @@ async function loadClips({ focusFirst = false } = {}) {
             setGalleryWaivedHiddenTags(deepSearch && searchOptions.includeHidden ? effectiveHidden : []);
         }
 
-        gallery.innerHTML = '';
-        clearRenderedClips();
+        // Cards whose clip is unchanged are kept, not rebuilt: a rebuild
+        // refetches and re-decodes every thumbnail and recaptures every
+        // video frame. Everything else in the gallery goes.
+        const reusable = new Map();
+        for (const el of Array.from(gallery.children)) {
+            if (el.dataset && el.dataset.id && el._clip) reusable.set(Number(el.dataset.id), el);
+        }
+        const keep = new Set();
+        for (const clip of page.clips) {
+            const old = reusable.get(Number(clip.id));
+            if (old && old._renderSig === clipCardSignature(clip)) keep.add(old);
+        }
+        for (const el of Array.from(gallery.children)) {
+            if (keep.has(el)) continue;
+            el.remove();
+            if (typeof forgetCardMedia === 'function') forgetCardMedia(el);
+        }
+        renderedClipsById.clear();
         hideGalleryStatus();
         _galleryView = { key: viewKey, request, loaded: 0, total: page.total, hasMore: page.hasMore };
 
-        for (const card of folderCards) gallery.appendChild(card);
-        if (isFolderMode() && typeof initFolderDrag === 'function') initFolderDrag();
-
+        // Put every card in listing order, folder cards first. A node already
+        // in place is not touched: moving one drops its focus.
+        const ordered = [...folderCards];
         for (const clip of page.clips) {
             if (isStale()) return;
-            const card = await createClipCard(clip);
-            if (isStale()) {
-                card?.remove();
-                return;
+            const old = reusable.get(Number(clip.id));
+            let card;
+            if (old && keep.has(old)) {
+                card = reuseClipCard(old, clip);
+            } else {
+                card = await createClipCard(clip);
+                if (isStale()) {
+                    card?.remove();
+                    return;
+                }
             }
+            ordered.push(card);
         }
+        ordered.forEach((card, i) => {
+            if (gallery.children[i] !== card) gallery.insertBefore(card, gallery.children[i] || null);
+        });
+        while (gallery.children.length > ordered.length) gallery.lastElementChild.remove();
+        if (isFolderMode() && typeof initFolderDrag === 'function') initFolderDrag();
         _galleryView.loaded = page.clips.length;
 
         // The selection survives a reload; only clips no longer listed drop out.
@@ -263,17 +297,7 @@ async function loadClips({ focusFirst = false } = {}) {
         updateBulkToolbar();
 
         if (page.clips.length === 0 && folderCards.length === 0) {
-            let emptyMsg;
-            if (deepSearch) {
-                emptyMsg = 'No clips match your search.';
-            } else if (activeTagFilters.length > 0) {
-                emptyMsg = 'No clips match the selected tags.';
-            } else if (isViewingArchive) {
-                emptyMsg = 'No archived clips.';
-            } else {
-                emptyMsg = 'No active clips. Paste or drop something!';
-            }
-            showGalleryStatus(emptyMsg);
+            showGalleryStatus(galleryEmptyMessage(deepSearch));
         }
         if (typeof applySearchFilter === 'function') applySearchFilter();
         renderGalleryCount();
@@ -332,6 +356,7 @@ async function loadClips({ focusFirst = false } = {}) {
         if (myGen === _clipLoadGen) {
             window.__galleryRenderSeq = (window.__galleryRenderSeq || 0) + 1;
         }
+        if (_clipLoadInFlight === myGen) _clipLoadInFlight = 0;
     }
 }
 
@@ -348,6 +373,7 @@ async function loadMoreClips() {
     }
     const firstNewIndex = gallery.querySelectorAll(':scope > li').length;
     let reloaded = false;
+    _loadMoreInFlight++;
     try {
         const page = await window.go.main.App.ListClipsPage({
             ...view.request,
@@ -392,6 +418,7 @@ async function loadMoreClips() {
         console.error('Error loading more clips:', error);
         showToast('Failed to load more clips: ' + errText(error), 'error');
     } finally {
+        _loadMoreInFlight--;
         const current = _galleryView;
         if (view === current || reloaded) {
             renderLoadMore();
@@ -406,6 +433,153 @@ async function loadMoreClips() {
             }
         }
     }
+}
+
+function galleryEmptyMessage(deepSearch) {
+    if (deepSearch) return 'No clips match your search.';
+    if (activeTagFilters.length > 0) return 'No clips match the selected tags.';
+    if (isViewingArchive) return 'No archived clips.';
+    return 'No active clips. Paste or drop something!';
+}
+
+// --- In-place gallery patches ---
+//
+// A change to one clip (delete, archive, rename, expiry, a tag on its card)
+// is patched into the gallery instead of reloading it, when the outcome is
+// certain. Each patch returns false when it is not, and the caller reloads.
+// Not patched: deep search (the database decides what matches), a load still
+// in flight, and a clip with duplicates (the other copies' "N copies" badges
+// change with it).
+
+function galleryPatchable() {
+    if (_clipLoadInFlight || _loadMoreInFlight) return false;
+    const request = _galleryView.request;
+    if (!request || request.mode === 'search') return false;
+    if (typeof galleryIsSearchResults === 'function' && galleryIsSearchResults()) return false;
+    return true;
+}
+
+function galleryClipCard(id) {
+    const card = gallery.querySelector(`:scope > li[data-id="${Number(id)}"]`);
+    return card && card._clip ? card : null;
+}
+
+// Everything that summarises the gallery, after a card changed or left.
+function afterGalleryPatch() {
+    const checkboxes = Array.from(gallery.querySelectorAll('.clip-checkbox'));
+    selectAllCheckbox.checked = selectedIds.size > 0 && checkboxes.length > 0 && checkboxes.every(cb => cb.checked);
+    updateBulkToolbar();
+    if (!gallery.querySelector(':scope > li')) showGalleryStatus(galleryEmptyMessage(false));
+    // Re-applies the plain search filter (a rename can change whether a card
+    // matches), recounts, and hands the lightbox the new media list.
+    if (typeof applySearchFilter === 'function') applySearchFilter();
+    renderGalleryCount();
+    renderLoadMore();
+    window.LightboxController?.setClips(getVisibleMediaClips());
+    if (window.__galleryRover) window.__galleryRover.update();
+    // Same completion signal a reload gives.
+    window.__galleryRenderSeq = (window.__galleryRenderSeq || 0) + 1;
+}
+
+// Take one clip's card out of the gallery (deleted, or archived/restored out
+// of the view). The listing shrank by one, so the loaded/total counts both
+// drop and "Load more" keeps its offset. A card that had focus hands it to
+// the card now at its position.
+function removeClipCardInPlace(id) {
+    if (!galleryPatchable()) return false;
+    const card = galleryClipCard(id);
+    if (!card) return false;
+    if ((Number(card._clip.duplicate_count) || 0) > 0) return false;
+    const remaining = Array.from(gallery.querySelectorAll(':scope > li')).filter(el => el.style.display !== 'none');
+    const index = remaining.indexOf(card);
+    const active = document.activeElement;
+    const hadFocus = !!active && card.contains(active);
+
+    card.remove();
+    forgetCardMedia(card);
+    renderedClipsById.delete(Number(id));
+    selectedIds.delete(Number(id));
+    _galleryView.loaded = Math.max(0, _galleryView.loaded - 1);
+    _galleryView.total = Math.max(0, _galleryView.total - 1);
+
+    // The last loaded card went while more pages remain: show the next one.
+    if (!gallery.querySelector(':scope > li[data-id]') && _galleryView.hasMore) {
+        loadClips();
+        return true;
+    }
+    afterGalleryPatch();
+    if (hadFocus && index >= 0) focusGalleryItem(index);
+    return true;
+}
+
+// After a rename the card shows the new name. Not patched when the order
+// depends on the name, or when the name makes it Markdown (RenameClip changes
+// the content type of a .md/.markdown rename).
+function renameClipCardInPlace(id, filename) {
+    if (!galleryPatchable()) return false;
+    if (currentSortField === 'name') return false;
+    if (/\.(md|markdown)$/i.test(filename)) return false;
+    const card = galleryClipCard(id);
+    if (!card) return false;
+    card._clip.filename = filename;
+    renderCardFilename(card, card._clip);
+    card._renderSig = clipCardSignature(card._clip);
+    afterGalleryPatch();
+    return true;
+}
+
+// Set (an ISO timestamp) or clear (null) a card's expiry badge.
+function setClipExpiryInPlace(id, expiresAt) {
+    if (!galleryPatchable()) return false;
+    const card = galleryClipCard(id);
+    if (!card) return false;
+    card._clip.expires_at = expiresAt;
+    renderCardExpiry(card, card._clip);
+    card._renderSig = clipCardSignature(card._clip);
+    afterGalleryPatch();
+    return true;
+}
+
+// Would a clip carrying these tags still be listed in the view on screen?
+// Mirrors the listing: folder = exact tag, untagged = no tags, otherwise every
+// filter matched by the tag or a descendant and no hidden tag (or descendant)
+// carried. Unsure means no: the caller reloads.
+function clipTagsFitView(tags) {
+    const request = _galleryView.request;
+    if (!request) return false;
+    const names = tags.map(t => t.name);
+    if (request.mode === 'folder') return tags.some(t => Number(t.id) === Number(request.folder_tag_id));
+    if (request.mode === 'untagged') return tags.length === 0;
+    if (request.mode !== 'all') return false;
+    const under = (name, root) => name === root || name.startsWith(root + '/');
+    for (const filterId of request.tag_ids) {
+        const filter = allTags.find(t => t.id === filterId);
+        if (!filter || !names.some(n => under(n, filter.name))) return false;
+    }
+    for (const hiddenId of request.hidden_tag_ids) {
+        const hidden = allTags.find(t => t.id === hiddenId);
+        if (!hidden || names.some(n => under(n, hidden.name))) return false;
+    }
+    return true;
+}
+
+// Re-read one clip's tags after a tag change on its card and re-render the
+// pills. False (reload) when the clip no longer belongs in the view.
+async function refreshClipTagsInPlace(id) {
+    if (!galleryPatchable() || !galleryClipCard(id)) return false;
+    let tags;
+    try {
+        tags = (await window.go.main.App.GetClipTags(Number(id))) || [];
+    } catch (error) {
+        return false;
+    }
+    const card = galleryClipCard(id);
+    if (!card || !galleryPatchable() || !clipTagsFitView(tags)) return false;
+    card._clip.tags = tags;
+    renderCardTags(card, tags);
+    card._renderSig = clipCardSignature(card._clip);
+    afterGalleryPatch();
+    return true;
 }
 
 function focusGalleryItem(index) {
@@ -473,7 +647,9 @@ async function deleteClip(id) {
         try {
             await window.go.main.App.DeleteClip(id);
             showToast('Clip deleted.');
-            loadClips();
+            // After the dialog has closed and handed focus back to the
+            // card, so removing the card can pass focus to its neighbour.
+            setTimeout(() => { if (!removeClipCardInPlace(id)) loadClips(); }, 0);
         } catch (error) {
             console.error('Error deleting clip:', error);
             showToast('Failed to delete clip.', 'error');
@@ -489,7 +665,7 @@ function renameClip(id) {
         try {
             await window.go.main.App.RenameClip(id, newName.trim());
             showToast('Clip renamed.');
-            loadClips();
+            if (!renameClipCardInPlace(id, newName.trim())) loadClips();
         } catch (error) {
             console.error('Error renaming clip:', error);
             showToast('Failed to rename clip.', 'error');
@@ -501,7 +677,8 @@ async function toggleArchiveClip(id) {
     try {
         await window.go.main.App.ToggleArchive(id);
         showToast(isViewingArchive ? 'Clip restored.' : 'Clip archived.');
-        loadClips();
+        // Archiving or restoring always moves the clip out of the view.
+        if (!removeClipCardInPlace(id)) loadClips();
     } catch (error) {
         console.error('Error toggling archive:', error);
         showToast('Failed to change archive status.', 'error');
@@ -1006,7 +1183,9 @@ async function setExpiration(id, minutes) {
     try {
         await window.go.main.App.SetExpiration(id, minutes);
         showToast('Expiration set.');
-        loadClips();
+        // The backend stamps now + minutes; the badge only shows the rest
+        // rounded to minutes, so the local clock gives the same badge.
+        if (!setClipExpiryInPlace(id, new Date(Date.now() + minutes * 60000).toISOString())) loadClips();
     } catch (error) {
         console.error('Error setting expiration:', error);
         showToast('Failed to set expiration.', 'error');
@@ -1017,7 +1196,7 @@ async function cancelExpiration(id) {
     try {
         await window.go.main.App.CancelExpiration(id);
         showToast('Expiration canceled.');
-        loadClips();
+        if (!setClipExpiryInPlace(id, null)) loadClips();
     } catch (error) {
         console.error('Error canceling expiration:', error);
         showToast('Failed to cancel expiration.', 'error');
