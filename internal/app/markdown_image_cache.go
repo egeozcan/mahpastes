@@ -35,11 +35,30 @@ type markdownImageCacheMetadata struct {
 	LastAccess  time.Time `json:"last_access"`
 }
 
+// markdownImageCache is a disk cache of remote Markdown images with an
+// in-memory index of every entry. The index is built from the directory once,
+// at construction; after that Put, Get, Stats and pruning consult only the
+// index, so a Put no longer rescans the directory and a hit touches no
+// metadata file. A hit records its access time in the index and, best-effort,
+// as the data file's mtime (no rewrite, no fsync), which the next startup's
+// scan folds back into the LRU order. A hit reads the data file outside the
+// mutex: files are only ever replaced by rename, and a size mismatch with the
+// index is treated as a miss.
 type markdownImageCache struct {
 	mu       sync.Mutex
 	dir      string
 	maxBytes int64
 	now      func() time.Time
+	index    map[string]*markdownImageIndexEntry
+	total    int64
+}
+
+type markdownImageIndexEntry struct {
+	key         string
+	contentType string
+	size        int64
+	expiresAt   time.Time
+	lastAccess  time.Time
 }
 
 func newMarkdownImageCache(dir string, maxBytes int64, now func() time.Time) (*markdownImageCache, error) {
@@ -51,11 +70,11 @@ func newMarkdownImageCache(dir string, maxBytes int64, now func() time.Time) (*m
 	}
 	cache := &markdownImageCache{dir: dir, maxBytes: maxBytes, now: now}
 	cache.mu.Lock()
-	err := cache.pruneLocked()
-	cache.mu.Unlock()
-	if err != nil {
+	defer cache.mu.Unlock()
+	if err := cache.rebuildIndexLocked(); err != nil {
 		return nil, err
 	}
+	cache.pruneLocked()
 	return cache, nil
 }
 
@@ -64,9 +83,12 @@ func markdownImageCacheKey(rawURL string) string {
 	return hex.EncodeToString(hash[:])
 }
 
-func (c *markdownImageCache) paths(rawURL string) (string, string) {
-	key := markdownImageCacheKey(rawURL)
+func (c *markdownImageCache) keyPaths(key string) (string, string) {
 	return filepath.Join(c.dir, key+".bin"), filepath.Join(c.dir, key+".json")
+}
+
+func (c *markdownImageCache) paths(rawURL string) (string, string) {
+	return c.keyPaths(markdownImageCacheKey(rawURL))
 }
 
 func (c *markdownImageCache) Put(rawURL string, data []byte, contentType string, ttl time.Duration) error {
@@ -79,7 +101,8 @@ func (c *markdownImageCache) Put(rawURL string, data []byte, contentType string,
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	dataPath, metadataPath := c.paths(rawURL)
+	key := markdownImageCacheKey(rawURL)
+	dataPath, metadataPath := c.keyPaths(key)
 	now := c.now().UTC()
 	metadata := markdownImageCacheMetadata{
 		ContentType: contentType,
@@ -91,68 +114,87 @@ func (c *markdownImageCache) Put(rawURL string, data []byte, contentType string,
 	if err != nil {
 		return fmt.Errorf("encode cache metadata: %w", err)
 	}
+	// The old entry is gone from the index before its files are replaced, so
+	// a failed write never leaves the index describing bytes that are not there.
+	c.dropLocked(key)
 	if err := writeAtomicFile(dataPath, data, 0o600); err != nil {
+		_ = os.Remove(metadataPath)
 		return err
 	}
 	if err := writeAtomicFile(metadataPath, encodedMetadata, 0o600); err != nil {
 		_ = os.Remove(dataPath)
 		return err
 	}
-	return c.pruneLocked()
+	c.index[key] = &markdownImageIndexEntry{
+		key:         key,
+		contentType: contentType,
+		size:        metadata.Size,
+		expiresAt:   metadata.ExpiresAt,
+		lastAccess:  now,
+	}
+	c.total += metadata.Size
+	c.pruneLocked()
+	return nil
 }
 
 func (c *markdownImageCache) Get(rawURL string) (markdownImageCacheEntry, bool, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	key := markdownImageCacheKey(rawURL)
+	dataPath, _ := c.keyPaths(key)
 
-	dataPath, metadataPath := c.paths(rawURL)
-	metadata, err := readMarkdownImageCacheMetadata(metadataPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return markdownImageCacheEntry{}, false, nil
-		}
-		c.removeEntryLocked(dataPath, metadataPath)
+	c.mu.Lock()
+	entry := c.index[key]
+	if entry == nil {
+		c.mu.Unlock()
 		return markdownImageCacheEntry{}, false, nil
 	}
-	if !c.now().UTC().Before(metadata.ExpiresAt) {
-		c.removeEntryLocked(dataPath, metadataPath)
+	if !c.now().UTC().Before(entry.expiresAt) {
+		c.dropLocked(key)
+		c.removeKeyFilesLocked(key)
+		c.mu.Unlock()
 		return markdownImageCacheEntry{}, false, nil
 	}
+	want := *entry
+	c.mu.Unlock()
+
 	data, err := os.ReadFile(dataPath)
-	if err != nil || int64(len(data)) != metadata.Size {
-		c.removeEntryLocked(dataPath, metadataPath)
+	if err != nil || int64(len(data)) != want.size {
+		c.mu.Lock()
+		// Only if the entry is still the one this read was checked against: a
+		// concurrent Put may have just replaced it with a good one.
+		if c.index[key] == entry {
+			c.dropLocked(key)
+			c.removeKeyFilesLocked(key)
+		}
+		c.mu.Unlock()
 		if err != nil && !os.IsNotExist(err) {
 			return markdownImageCacheEntry{}, false, fmt.Errorf("read cached image: %w", err)
 		}
 		return markdownImageCacheEntry{}, false, nil
 	}
-	metadata.LastAccess = c.now().UTC()
-	if encoded, err := json.Marshal(metadata); err == nil {
-		_ = writeAtomicFile(metadataPath, encoded, 0o600)
+
+	now := c.now().UTC()
+	c.mu.Lock()
+	if c.index[key] == entry {
+		entry.lastAccess = now
 	}
-	return markdownImageCacheEntry{Data: data, ContentType: metadata.ContentType}, true, nil
+	c.mu.Unlock()
+	// Persists the access for the next startup's LRU order; best-effort.
+	_ = os.Chtimes(dataPath, now, now)
+	return markdownImageCacheEntry{Data: data, ContentType: want.contentType}, true, nil
 }
 
 func (c *markdownImageCache) Stats() (MarkdownImageCacheStats, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if err := c.pruneLocked(); err != nil {
-		return MarkdownImageCacheStats{}, err
-	}
-	entries, err := c.metadataEntriesLocked()
-	if err != nil {
-		return MarkdownImageCacheStats{}, err
-	}
-	stats := MarkdownImageCacheStats{Entries: len(entries)}
-	for _, entry := range entries {
-		stats.Bytes += entry.metadata.Size
-	}
-	return stats, nil
+	c.pruneLocked()
+	return MarkdownImageCacheStats{Entries: len(c.index), Bytes: c.total}, nil
 }
 
 func (c *markdownImageCache) Clear() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.index = map[string]*markdownImageIndexEntry{}
+	c.total = 0
 	if err := os.RemoveAll(c.dir); err != nil {
 		return fmt.Errorf("clear Markdown image cache: %w", err)
 	}
@@ -168,40 +210,79 @@ type cacheMetadataEntry struct {
 	metadata     markdownImageCacheMetadata
 }
 
-func (c *markdownImageCache) pruneLocked() error {
+func (c *markdownImageCache) dropLocked(key string) {
+	if entry := c.index[key]; entry != nil {
+		c.total -= entry.size
+		delete(c.index, key)
+	}
+}
+
+func (c *markdownImageCache) removeKeyFilesLocked(key string) {
+	dataPath, metadataPath := c.keyPaths(key)
+	c.removeEntryLocked(dataPath, metadataPath)
+}
+
+// rebuildIndexLocked scans the directory: the only full scan, done at
+// construction. Entries whose data file is missing or the wrong size are
+// removed. A data file's mtime newer than the recorded last access is a hit
+// recorded by Get since the metadata was written.
+func (c *markdownImageCache) rebuildIndexLocked() error {
+	c.index = map[string]*markdownImageIndexEntry{}
+	c.total = 0
 	entries, err := c.metadataEntriesLocked()
 	if err != nil {
 		return err
 	}
-	now := c.now().UTC()
-	var retained []cacheMetadataEntry
-	var total int64
 	for _, entry := range entries {
-		if !now.Before(entry.metadata.ExpiresAt) {
+		info, err := os.Stat(entry.dataPath)
+		if err != nil || info.Size() != entry.metadata.Size {
 			c.removeEntryLocked(entry.dataPath, entry.metadataPath)
 			continue
 		}
-		if info, err := os.Stat(entry.dataPath); err != nil || info.Size() != entry.metadata.Size {
-			c.removeEntryLocked(entry.dataPath, entry.metadataPath)
-			continue
+		lastAccess := entry.metadata.LastAccess
+		if mtime := info.ModTime().UTC(); mtime.After(lastAccess) {
+			lastAccess = mtime
 		}
-		retained = append(retained, entry)
-		total += entry.metadata.Size
-	}
-	if c.maxBytes <= 0 || total <= c.maxBytes {
-		return nil
-	}
-	sort.Slice(retained, func(i, j int) bool {
-		return retained[i].metadata.LastAccess.Before(retained[j].metadata.LastAccess)
-	})
-	for _, entry := range retained {
-		if total <= c.maxBytes {
-			break
+		key := strings.TrimSuffix(filepath.Base(entry.metadataPath), ".json")
+		c.index[key] = &markdownImageIndexEntry{
+			key:         key,
+			contentType: entry.metadata.ContentType,
+			size:        entry.metadata.Size,
+			expiresAt:   entry.metadata.ExpiresAt,
+			lastAccess:  lastAccess,
 		}
-		c.removeEntryLocked(entry.dataPath, entry.metadataPath)
-		total -= entry.metadata.Size
+		c.total += entry.metadata.Size
 	}
 	return nil
+}
+
+// pruneLocked drops expired entries, then the least recently used until the
+// cache fits maxBytes — from the index alone.
+func (c *markdownImageCache) pruneLocked() {
+	now := c.now().UTC()
+	for key, entry := range c.index {
+		if !now.Before(entry.expiresAt) {
+			c.dropLocked(key)
+			c.removeKeyFilesLocked(key)
+		}
+	}
+	if c.maxBytes <= 0 || c.total <= c.maxBytes {
+		return
+	}
+	retained := make([]*markdownImageIndexEntry, 0, len(c.index))
+	for _, entry := range c.index {
+		retained = append(retained, entry)
+	}
+	sort.Slice(retained, func(i, j int) bool {
+		return retained[i].lastAccess.Before(retained[j].lastAccess)
+	})
+	for _, entry := range retained {
+		if c.total <= c.maxBytes {
+			break
+		}
+		c.dropLocked(entry.key)
+		c.removeKeyFilesLocked(entry.key)
+	}
 }
 
 func (c *markdownImageCache) metadataEntriesLocked() ([]cacheMetadataEntry, error) {

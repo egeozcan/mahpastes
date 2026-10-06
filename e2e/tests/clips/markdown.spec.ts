@@ -196,7 +196,67 @@ test.describe('Markdown clips', () => {
     await card.locator(selectors.clipActions.view).click();
     const image = app.page.locator(`${selectors.textEditor.previewContent} img[alt="Local chart"]`);
     await expect(image).toBeVisible();
-    await expect(image).toHaveAttribute('src', /^data:image\/png;base64,/);
+    // Held as a per-session object URL, so re-renders reuse it.
+    await expect(image).toHaveAttribute('src', /^blob:/);
+    expect(await image.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(8);
+  });
+
+  test('loads several local images concurrently and re-renders without refetching them', async ({ app }) => {
+    // The preview used to await each image in turn and refetch every one of
+    // them (base64 over IPC, re-validated in Go) on every re-render.
+    const names: string[] = [];
+    for (let i = 0; i < 6; i++) {
+      const imagePath = await createTempFile(generateTestImage(4 + i, 4), 'png');
+      names.push(path.basename(imagePath));
+      await app.uploadFile(imagePath);
+    }
+    const markdown = names.map((name, i) => `![Image ${i}](${name})`).join('\n\n');
+    const markdownPath = await createTempFile(markdown, 'md');
+    const markdownName = path.basename(markdownPath);
+    await app.uploadFile(markdownPath);
+    await app.createTag('gallery');
+    for (const name of [...names, markdownName]) await app.addTagToClip(name, 'gallery');
+
+    await app.page.evaluate(() => {
+      const service = (window as any).go.main.MarkdownService;
+      const original = service.GetLocalImage;
+      const stats = { calls: 0, inFlight: 0, maxInFlight: 0 };
+      (window as any).__imageStats = stats;
+      service.GetLocalImage = async (clipID: number) => {
+        stats.calls++;
+        stats.inFlight++;
+        stats.maxInFlight = Math.max(stats.maxInFlight, stats.inFlight);
+        try {
+          await new Promise(resolve => setTimeout(resolve, 150));
+          return await original.call(service, clipID);
+        } finally {
+          stats.inFlight--;
+        }
+      };
+    });
+
+    const card = app.page.locator(selectors.gallery.clipCardByName(markdownName));
+    await card.locator(selectors.clipActions.view).click();
+    const images = app.page.locator(`${selectors.textEditor.previewContent} img`);
+    await expect(images).toHaveCount(6);
+    for (let i = 0; i < 6; i++) {
+      await expect(app.page.locator(`${selectors.textEditor.previewContent} img[alt="Image ${i}"]`)).toBeVisible();
+    }
+    const first = await app.page.evaluate(() => ({ ...(window as any).__imageStats }));
+    expect(first.calls).toBe(6);
+    expect(first.maxInFlight).toBeGreaterThan(1);
+    expect(first.maxInFlight).toBeLessThanOrEqual(4);
+
+    // An edit re-renders the preview; the images come from the session cache.
+    await app.page.locator(selectors.textEditor.editTab).click();
+    await app.page.keyboard.press('ControlOrMeta+End');
+    await app.page.keyboard.type('\n\nmore text');
+    await app.page.locator(selectors.textEditor.previewTab).click();
+    await expect(app.page.locator(`${selectors.textEditor.previewContent} p`, { hasText: 'more text' })).toBeVisible();
+    await expect(images).toHaveCount(6);
+    const second = await app.page.evaluate(() => ({ ...(window as any).__imageStats }));
+    expect(second.calls).toBe(6);
+    await app.cancelTextEditor();
   });
 
   test('blocks remote images behind explicit HTTPS controls', async ({ app }) => {

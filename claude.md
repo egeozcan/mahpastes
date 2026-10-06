@@ -953,6 +953,15 @@ comparison view only.
   (full images for lightbox/compare) is an LRU bounded at 150 MB of data-URL
   characters; use `imageCacheGet/Set/Delete`, never the Map directly.
 
+## Text Editor and Markdown Preview
+
+- **Open size pre-check.** The editor reads through `GetClipText` (desktop binding; server mode's `GET /api/v1/clips/{id}/text`), never `GetClipData`. A non-image clip over the 16 MiB edit cap comes back as `{too_large, size}` with no bytes, decided from `octet_length(data)` before the blob is read. `maxEditableTextBytes` (Go) is a pre-check copy of `TextCodec.MAX_EDITABLE_BYTES`, which stays the authority; `TestMaxEditableTextBytesMatchesTextCodec` keeps them equal, so change both together.
+- **No whole-document work per keystroke.** `code-editor-adapter.js` memoizes `getValue()` per document revision and keeps `getLength()`, `getByteLength()` (exact UTF-8) and `getCharacterCount()` (code points) updated from each change's ranges. Use these in change, cursor and dirty-check paths. Do not use `TextEncoder`, `Array.from(value)` or repeated `getValue()` there. `frontend/src/` is bundled into the committed `frontend/dist/text-editor.bundle.js` (`npm --prefix frontend run build:text-editor`), so rebuild and commit it with any `src` change.
+- **Drafts.** A draft of an original over 256K chars stores `originalLength` + `originalHash` instead of `originalText`. Drafts over ~2M chars are not written. Recovery accepts either form.
+- **Validator worker.** Requests go to the worker one at a time. A newer generation rejects older work as `stale` immediately. A queued request is dropped without being sent; the one already running finishes and its result is discarded. The worker is terminated only by a deadline, and a superseded run that blows its deadline has the live requests behind it replayed on a fresh thread. Do not reintroduce kill-on-supersede.
+- **Preview images.** `markdown-preview.js` loads images through a pool of `IMAGE_LOAD_CONCURRENCY` (4) and caches each validated image as an object URL for the editor session, keyed `local:<clipID>`, `remote:<url>`, or by the `data:` URL itself. The cache is cleared and its URLs revoked on `open`/`close`, and `remote:` entries are dropped on `markdown:image-cache-cleared`. Every image still comes through Go validation (`GetMarkdownImage` checks `octet_length(data)` against the 15 MB limit before selecting the blob, then the sniffed type, `DecodeConfig` dimensions and decode budget). Never swap this for raw `/media/` URLs.
+- **Remote image disk cache** (`markdown_image_cache.go`) keeps an in-memory index built by one directory scan at startup. `Put` prunes from the index without rescanning. A hit reads the data file outside the mutex, records its access in the index and as the data file's mtime, and never rewrites or fsyncs metadata. The startup scan folds that mtime back into the LRU order.
+
 ## Import Folder Wizard
 
 A desktop-only triage flow reached from the nav drawer (`#open-import-btn`). It scans a

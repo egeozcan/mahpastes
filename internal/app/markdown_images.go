@@ -38,6 +38,20 @@ type MarkdownImageData struct {
 // GetMarkdownImage returns a validated local clip image without trusting its
 // extension or declared MIME type alone.
 func (a *App) GetMarkdownImage(clipID int64) (MarkdownImageData, error) {
+	// Size first, from octet_length (the record header, not the blob): an
+	// over-limit clip is refused without reading it. validateMarkdownImage
+	// still checks the bytes actually read, since the row can change between
+	// the two statements.
+	var size int64
+	if err := a.db.QueryRow(`
+		SELECT octet_length(data) FROM clips
+		WHERE id = ? AND (expires_at IS NULL OR datetime(expires_at) > CURRENT_TIMESTAMP)`, clipID).Scan(&size); err != nil {
+		return MarkdownImageData{}, fmt.Errorf("get Markdown image: %w", err)
+	}
+	if size > maxMarkdownImageBytes {
+		return MarkdownImageData{}, fmt.Errorf("image exceeds %d byte limit", maxMarkdownImageBytes)
+	}
+
 	var data []byte
 	var contentType string
 	if err := a.db.QueryRow(`

@@ -4,20 +4,108 @@ const MarkdownPreview = (() => {
     const MAX_PREVIEW_IMAGE_BYTES = 100 * 1024 * 1024;
     const MAX_PREVIEW_IMAGES = 256;
     const MAX_LOCAL_REFERENCES = 128;
+    // Images fetched at once while enhancing a render. Each in-flight fetch
+    // reserves MAX_IMAGE_BYTES of the preview budget, so this also bounds that.
+    const IMAGE_LOAD_CONCURRENCY = 4;
     let sourceClipID = null;
     let generation = 0;
     let loadedImageBytes = 0;
     let loadedImageDecodedBytes = 0;
     let reservedImageBytes = 0;
     const activeDownloads = new Map();
+    // Per editor session: image key -> Promise of a validated image held as an
+    // object URL. Preview re-renders on every edit; without this each render
+    // refetched (and re-validated, and re-shipped as base64) every image.
+    // Keys: `local:<clipID>`, `remote:<url>`, or the data: URL itself. Only
+    // successes stay cached. Cleared, and its URLs revoked, when the session
+    // ends: a session is one open clip, so a referenced image edited elsewhere
+    // is picked up the next time the editor opens.
+    let imageCache = new Map();
 
     function service() {
         return window.go?.main?.MarkdownService || null;
     }
 
+    function revokeEntries(promises) {
+        for (const promise of promises) {
+            promise.then(entry => URL.revokeObjectURL(entry.url), () => {});
+        }
+    }
+
+    function clearImageCache() {
+        revokeEntries(imageCache.values());
+        imageCache = new Map();
+    }
+
+    function dropRemoteImages() {
+        const dropped = [];
+        for (const [key, promise] of imageCache) {
+            if (key.startsWith('remote:')) {
+                dropped.push(promise);
+                imageCache.delete(key);
+            }
+        }
+        revokeEntries(dropped);
+    }
+
+    // Converts a backend MarkdownImageData (already validated in Go: sniffed
+    // type, DecodeConfig dimensions, decode budget) into a cache entry.
+    function toImageEntry(result) {
+        const binary = atob(result.data || '');
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        return {
+            url: URL.createObjectURL(new Blob([bytes], { type: result.content_type })),
+            content_type: result.content_type,
+            size: result.size,
+            decoded_size: result.decoded_size,
+            width: result.width,
+            height: result.height,
+        };
+    }
+
+    // One fetch per key per session; concurrent asks share it. A failure is
+    // not cached, so the next render retries.
+    function cachedImage(key, fetchResult) {
+        let promise = imageCache.get(key);
+        if (promise) return promise;
+        const cache = imageCache;
+        promise = Promise.resolve().then(fetchResult).then(toImageEntry);
+        cache.set(key, promise);
+        promise.catch(() => {
+            if (cache.get(key) === promise) cache.delete(key);
+        });
+        return promise;
+    }
+
+    function rememberImage(key, result) {
+        const previous = imageCache.get(key);
+        if (previous) revokeEntries([previous]);
+        const entry = toImageEntry(result);
+        imageCache.set(key, Promise.resolve(entry));
+        return entry;
+    }
+
+    async function runPool(tasks, limit) {
+        let next = 0;
+        const lanes = Array.from({ length: Math.min(limit, tasks.length) }, async () => {
+            while (next < tasks.length) {
+                const task = tasks[next++];
+                try {
+                    await task();
+                } catch (error) {
+                    console.error('Markdown image load failed:', error);
+                }
+            }
+        });
+        await Promise.all(lanes);
+    }
+
     function open(clipID) {
+        clearImageCache();
         sourceClipID = clipID;
         generation++;
+        wakeBudgetWaiters();
         loadedImageBytes = 0;
         loadedImageDecodedBytes = 0;
         reservedImageBytes = 0;
@@ -25,6 +113,7 @@ const MarkdownPreview = (() => {
 
     function beginRender() {
         generation++;
+        wakeBudgetWaiters();
         loadedImageBytes = 0;
         loadedImageDecodedBytes = 0;
         reservedImageBytes = 0;
@@ -36,7 +125,9 @@ const MarkdownPreview = (() => {
 
     function close() {
         generation++;
+        wakeBudgetWaiters();
         sourceClipID = null;
+        clearImageCache();
         for (const requestID of activeDownloads.keys()) {
             service()?.CancelRemoteImage(requestID).catch(() => {});
         }
@@ -192,7 +283,26 @@ const MarkdownPreview = (() => {
         }
     }
 
-    function reserveImageBudget(placeholder, gen) {
+    // Fetches waiting for another in-flight fetch to release its reservation.
+    let budgetWaiters = [];
+
+    function wakeBudgetWaiters() {
+        const waiters = budgetWaiters;
+        budgetWaiters = [];
+        waiters.forEach(resolve => resolve());
+    }
+
+    // Reserves the worst case (MAX_IMAGE_BYTES) for one fetch. With several
+    // fetches in flight, a reservation that does not fit yet waits for one of
+    // them to settle — they may well turn out smaller — and is refused only
+    // when nothing else is outstanding, which is exactly when the old serial
+    // loop refused it.
+    async function reserveImageBudget(placeholder, gen) {
+        while (gen === generation &&
+            loadedImageBytes + reservedImageBytes + MAX_IMAGE_BYTES > MAX_PREVIEW_IMAGE_BYTES &&
+            reservedImageBytes > 0) {
+            await new Promise(resolve => budgetWaiters.push(resolve));
+        }
         if (gen !== generation || loadedImageBytes + reservedImageBytes + MAX_IMAGE_BYTES > MAX_PREVIEW_IMAGE_BYTES) {
             const note = document.createElement('span');
             note.className = 'markdown-image-note';
@@ -208,6 +318,7 @@ const MarkdownPreview = (() => {
         if (gen === generation) {
             reservedImageBytes = Math.max(0, reservedImageBytes - MAX_IMAGE_BYTES);
         }
+        wakeBudgetWaiters();
     }
 
     function displayImage(placeholder, result, alt, title) {
@@ -225,7 +336,7 @@ const MarkdownPreview = (() => {
         loadedImageBytes += size;
         loadedImageDecodedBytes += decodedSize;
         const img = document.createElement('img');
-        img.src = `data:${result.content_type};base64,${result.data}`;
+        img.src = result.url;
         img.alt = alt || 'Markdown image';
         if (title) img.title = title;
         placeholder.replaceWith(img);
@@ -243,7 +354,7 @@ const MarkdownPreview = (() => {
         if (!api) return;
         const gen = descriptor.generation ?? generation;
         const placeholder = resetImagePlaceholder(descriptor);
-        if (!reserveImageBudget(placeholder, gen)) return;
+        if (!(await reserveImageBudget(placeholder, gen))) return;
         const requestID = crypto.randomUUID();
         placeholder.appendChild(externalLink(descriptor.source, descriptor.source));
         const progress = document.createElement('progress');
@@ -267,7 +378,8 @@ const MarkdownPreview = (() => {
             const active = activeDownloads.get(requestID);
             releaseDownloadReservation(active);
             if (!active || gen !== generation) return;
-            displayImage(placeholder, result, descriptor.alt, descriptor.title);
+            const entry = rememberImage(`remote:${descriptor.source}`, result);
+            displayImage(placeholder, entry, descriptor.alt, descriptor.title);
         } catch (error) {
             const active = activeDownloads.get(requestID);
             releaseDownloadReservation(active);
@@ -285,27 +397,36 @@ const MarkdownPreview = (() => {
     async function probeRemoteImage(descriptor, gen) {
         addURLControls(descriptor, true);
         const api = service();
-        if (!api || !reserveImageBudget(descriptor.placeholder, gen)) return;
+        const key = `remote:${descriptor.source}`;
+        const cached = imageCache.has(key);
+        if (!api || (!cached && !(await reserveImageBudget(descriptor.placeholder, gen)))) return;
         try {
-            const result = await api.GetCachedRemoteImage(descriptor.source);
-            releaseImageBudget(gen);
-            if (gen !== generation || !result?.hit) return;
-            displayImage(descriptor.placeholder, result, descriptor.alt, descriptor.title);
+            const entry = await cachedImage(key, async () => {
+                const result = await api.GetCachedRemoteImage(descriptor.source);
+                // A miss is not an image; it must not be cached as one.
+                if (!result?.hit) throw new Error('not cached');
+                return result;
+            });
+            if (!cached) releaseImageBudget(gen);
+            if (gen !== generation) return;
+            displayImage(descriptor.placeholder, entry, descriptor.alt, descriptor.title);
         } catch (_) {
-            releaseImageBudget(gen);
+            if (!cached) releaseImageBudget(gen);
             // A cache miss/failure leaves the explicit Load control intact.
         }
     }
 
     async function loadLocalImage(placeholder, clipID, descriptor, gen = generation) {
-        if (!reserveImageBudget(placeholder, gen)) return;
+        const key = `local:${clipID}`;
+        const cached = imageCache.has(key);
+        if (!cached && !(await reserveImageBudget(placeholder, gen))) return;
         try {
-            const result = await service().GetLocalImage(clipID);
-            releaseImageBudget(gen);
+            const entry = await cachedImage(key, () => service().GetLocalImage(clipID));
+            if (!cached) releaseImageBudget(gen);
             if (gen !== generation) return;
-            displayImage(placeholder, result, descriptor?.alt, descriptor?.title);
+            displayImage(placeholder, entry, descriptor?.alt, descriptor?.title);
         } catch (error) {
-            releaseImageBudget(gen);
+            if (!cached) releaseImageBudget(gen);
             if (gen !== generation) return;
             const note = document.createElement('span');
             note.className = 'markdown-image-note markdown-image-error';
@@ -320,14 +441,17 @@ const MarkdownPreview = (() => {
             resetImagePlaceholder(descriptor).append('Unsupported embedded image');
             return;
         }
-        if (!reserveImageBudget(descriptor.placeholder, gen)) return;
+        const key = descriptor.source;
+        const cached = imageCache.has(key);
+        if (!cached && !(await reserveImageBudget(descriptor.placeholder, gen))) return;
         try {
-            const result = await service().ValidateEmbeddedImage(match[2].replace(/\s/g, ''), match[1].toLowerCase());
-            releaseImageBudget(gen);
+            const entry = await cachedImage(key, () =>
+                service().ValidateEmbeddedImage(match[2].replace(/\s/g, ''), match[1].toLowerCase()));
+            if (!cached) releaseImageBudget(gen);
             if (gen !== generation) return;
-            displayImage(descriptor.placeholder, result, descriptor.alt, descriptor.title);
+            displayImage(descriptor.placeholder, entry, descriptor.alt, descriptor.title);
         } catch (error) {
-            releaseImageBudget(gen);
+            if (!cached) releaseImageBudget(gen);
             if (gen !== generation) return;
             resetImagePlaceholder(descriptor).append(String(error?.message || error || 'Embedded image unavailable'));
         }
@@ -391,51 +515,59 @@ const MarkdownPreview = (() => {
             if (result) applyReferenceResult(link, result);
         });
 
-        for (const descriptor of descriptors) {
-            if (gen !== generation) return;
-            if (/^https:\/\//i.test(descriptor.source)) {
-                await probeRemoteImage(descriptor, gen);
-                continue;
-            }
-            if (/^http:\/\//i.test(descriptor.source)) {
-                addURLControls(descriptor, false);
-                continue;
-            }
-            if (/^data:/i.test(descriptor.source)) {
-                await validateEmbeddedImage(descriptor, gen);
-                continue;
-            }
-            if (isExternalScheme(descriptor.source) || descriptor.source.startsWith('/')) {
-                resetImagePlaceholder(descriptor).append('Image unavailable');
-                continue;
-            }
+        // A pool rather than a serial await per image: each fetch is an IPC
+        // round trip plus Go-side validation, and they are independent — every
+        // descriptor owns its placeholder.
+        const tasks = descriptors.map(descriptor => () => enhanceImage(descriptor, gen, resultByReference));
+        await runPool(tasks, IMAGE_LOAD_CONCURRENCY);
+    }
 
-            const result = resultByReference.get(descriptor.source);
-            const placeholder = resetImagePlaceholder(descriptor);
-            if (!result) {
-                placeholder.append('Local reference could not be resolved');
-                continue;
-            }
-            placeholder.dataset.markdownReferenceStatus = result.status;
-            if (result.status === 'unique') {
-                await loadLocalImage(placeholder, result.candidates[0].clip_id, descriptor, gen);
-            } else if (result.status === 'ambiguous') {
-                const button = document.createElement('button');
-                button.type = 'button';
-                button.textContent = 'Choose Image';
-                button.addEventListener('click', () => showCandidateChooser(placeholder, result.candidates, '', true));
-                placeholder.appendChild(button);
-            } else {
-                const note = document.createElement('span');
-                note.className = 'markdown-image-note';
-                note.textContent = result.status === 'invalid' ? 'Relative image unavailable' : 'Image unavailable';
-                placeholder.appendChild(note);
-            }
+    async function enhanceImage(descriptor, gen, resultByReference) {
+        if (gen !== generation) return;
+        if (/^https:\/\//i.test(descriptor.source)) {
+            await probeRemoteImage(descriptor, gen);
+            return;
+        }
+        if (/^http:\/\//i.test(descriptor.source)) {
+            addURLControls(descriptor, false);
+            return;
+        }
+        if (/^data:/i.test(descriptor.source)) {
+            await validateEmbeddedImage(descriptor, gen);
+            return;
+        }
+        if (isExternalScheme(descriptor.source) || descriptor.source.startsWith('/')) {
+            resetImagePlaceholder(descriptor).append('Image unavailable');
+            return;
+        }
+
+        const result = resultByReference.get(descriptor.source);
+        const placeholder = resetImagePlaceholder(descriptor);
+        if (!result) {
+            placeholder.append('Local reference could not be resolved');
+            return;
+        }
+        placeholder.dataset.markdownReferenceStatus = result.status;
+        if (result.status === 'unique') {
+            await loadLocalImage(placeholder, result.candidates[0].clip_id, descriptor, gen);
+        } else if (result.status === 'ambiguous') {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.textContent = 'Choose Image';
+            button.addEventListener('click', () => showCandidateChooser(placeholder, result.candidates, '', true));
+            placeholder.appendChild(button);
+        } else {
+            const note = document.createElement('span');
+            note.className = 'markdown-image-note';
+            note.textContent = result.status === 'invalid' ? 'Relative image unavailable' : 'Image unavailable';
+            placeholder.appendChild(note);
         }
     }
 
     if (window.runtime?.EventsOn) {
         window.runtime.EventsOn('markdown:image-cache-cleared', () => {
+            // The session cache must not keep showing what the user just cleared.
+            dropRemoteImages();
             if (typeof TextClipEditor !== 'undefined') TextClipEditor.refreshPreview();
         });
         window.runtime.EventsOn('markdown:image-progress', progress => {
