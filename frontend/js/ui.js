@@ -1276,11 +1276,14 @@ async function createClipCard(clip, options = {}) {
     if (options.prepend) {
         gallery.prepend(card);
         window.LightboxController?.setClips(getVisibleMediaClips());
+        if (window.__galleryRover) window.__galleryRover.update();
     } else {
+        // Batch renders (loadClips, loadMoreClips) update the rover once when
+        // done: update() lays out the whole grid and walks every card, so
+        // calling it per append made a render quadratic.
         gallery.appendChild(card);
     }
 
-    if (window.__galleryRover) window.__galleryRover.update();
     return card;
 }
 

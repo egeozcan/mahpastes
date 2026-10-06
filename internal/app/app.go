@@ -333,6 +333,14 @@ func (a *App) emitWatchImport(clip ClipPreview) {
 	a.bridge.Emit("watch:import", clip)
 }
 
+// clipPreviewExpr selects a card's 500-byte preview for text-like clips only.
+// SUBSTR on a blob loads the whole value, so running it unconditionally read
+// every image and video on a page in full just to throw the result away.
+// The type test must match the one that keeps Preview in Go.
+func clipPreviewExpr(prefix string) string {
+	return fmt.Sprintf("CASE WHEN substr(%[1]scontent_type, 1, 5) = 'text/' OR %[1]scontent_type = 'application/json' THEN SUBSTR(%[1]sdata, 1, 500) END", prefix)
+}
+
 // getClipPreview fetches a single clip's preview data (private helper, not exported to frontend)
 func (a *App) getClipPreview(id int64) (*ClipPreview, error) {
 	var clip ClipPreview
@@ -342,7 +350,7 @@ func (a *App) getClipPreview(id int64) (*ClipPreview, error) {
 	var isArchivedInt int
 
 	err := a.db.QueryRow(`
-		SELECT id, content_type, filename, created_at, expires_at, SUBSTR(data, 1, 500), is_archived, LENGTH(data)
+		SELECT id, content_type, filename, created_at, expires_at, `+clipPreviewExpr("")+`, is_archived, LENGTH(data)
 		FROM clips WHERE id = ?`, id).Scan(
 		&clip.ID, &clip.ContentType, &filename, &clip.CreatedAt, &expiresAt, &previewData, &isArchivedInt, &clip.Size)
 	if err != nil {
@@ -1365,7 +1373,7 @@ func (a *App) queryClipPreviews(q clipListQuery, offset, limit int) ([]ClipPrevi
 // the window count; the preview columns are read for the page's rows alone.
 // The total is 0 when the page is empty — the caller recounts if it needs to.
 func (a *App) queryClipPreviewsCounted(q clipListQuery, offset, limit int) ([]ClipPreview, int, int, error) {
-	selectCols := `c.id, c.content_type, c.filename, c.created_at, c.expires_at, SUBSTR(c.data, 1, 500), c.is_archived, LENGTH(c.data),
+	selectCols := `c.id, c.content_type, c.filename, c.created_at, c.expires_at, ` + clipPreviewExpr("c.") + `, c.is_archived, LENGTH(c.data),
 		       (SELECT COUNT(*) FROM clips c2 WHERE c2.content_hash = c.content_hash AND c2.content_hash != '' AND c2.id != c.id),
 		       page.total`
 	query := fmt.Sprintf(`

@@ -106,6 +106,20 @@ func initDB() (*sql.DB, error) {
 	_, _ = db.Exec("CREATE INDEX IF NOT EXISTS idx_clips_content_hash ON clips(content_hash)")
 	// Migrate: Add metadata column for key-value metadata (JSON)
 	_, _ = db.Exec("ALTER TABLE clips ADD COLUMN metadata TEXT DEFAULT '{}'")
+	// Listing indexes. Every column but id and content_type is stored after
+	// the data blob, and reading a column past a blob walks its whole
+	// overflow chain, so without these a gallery page sorted the entire
+	// library by reading through every clip's bytes. They cover the listing's
+	// filter (is_archived, expires_at) and the created/name sort orders; type
+	// sorts are cheap already since content_type precedes data.
+	for _, stmt := range []string{
+		"CREATE INDEX IF NOT EXISTS idx_clips_list_created ON clips(is_archived, created_at, id, expires_at)",
+		"CREATE INDEX IF NOT EXISTS idx_clips_list_name ON clips(is_archived, filename, created_at, id, expires_at)",
+	} {
+		if _, err := db.Exec(stmt); err != nil {
+			log.Printf("Warning: Failed to create clip listing index: %v", err)
+		}
+	}
 
 	// Create settings table
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS settings (
