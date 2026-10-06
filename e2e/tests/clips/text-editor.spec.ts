@@ -162,4 +162,40 @@ test.describe('Text Editor', () => {
     await expect(app.page.locator(selectors.textEditor.draftStatus)).toHaveText('Recovered draft');
     await app.cancelTextEditor();
   });
+
+  test('a draft of a large clip stores a hash of the original, not a second copy, and still recovers', async ({ app }) => {
+    // Autosave used to stringify the original and the current text in full after
+    // every pause; past ~1 MB that pair alone overran the storage quota.
+    const original = 'line of original text\n'.repeat(20000); // ~440 KB
+    const textPath = await createTempFile(original, 'txt');
+    const filename = path.basename(textPath);
+    await app.uploadFile(textPath);
+    await app.openTextEditor(filename);
+
+    await app.page.locator(selectors.textEditor.editor).click();
+    await app.page.keyboard.press('ControlOrMeta+Home');
+    await app.page.keyboard.type('EDITED ');
+    await expect(app.page.locator(selectors.textEditor.draftStatus)).toHaveText('Draft saved');
+
+    const record = await app.page.evaluate(() => {
+      const key = Object.keys(localStorage).find((k) => k.startsWith('mahpastes:text-editor-draft:v2:'));
+      const draft = JSON.parse(localStorage.getItem(key!)!);
+      return {
+        hasOriginalText: 'originalText' in draft,
+        originalLength: draft.originalLength,
+        hash: typeof draft.originalHash,
+        textStart: draft.text.slice(0, 12),
+      };
+    });
+    expect(record).toEqual({ hasOriginalText: false, originalLength: original.length, hash: 'string', textStart: 'EDITED line ' });
+
+    await app.page.reload();
+    await app.page.waitForFunction(() => (window as any).__appReady === true, { timeout: 10000 });
+    await app.expectClipVisible(filename);
+    await app.openTextEditor(filename);
+    await expect(app.page.locator(selectors.textEditor.draftStatus)).toHaveText('Recovered draft');
+    const head = await app.page.evaluate('TextClipEditor.getValue().slice(0, 12)');
+    expect(head).toBe('EDITED line ');
+    await app.cancelTextEditor();
+  });
 });

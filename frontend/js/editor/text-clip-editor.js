@@ -146,12 +146,29 @@ const TextClipEditor = (() => {
         return clipID === null ? null : `${DRAFT_PREFIX_V1}${clipID}`;
     }
 
-    function getValue() {
-        return adapter && adapter.isMounted() ? adapter.getValue() : '';
+    function mounted() {
+        return !!adapter && adapter.isMounted();
     }
 
-    function isDirty() {
-        return active && !unavailableReason && getValue() !== originalValue;
+    // The adapter memoizes the string per document revision, so repeat calls
+    // within one change are free; handlers still read it once and pass it down.
+    function getValue() {
+        return mounted() ? adapter.getValue() : '';
+    }
+
+    function valueLength() {
+        return mounted() ? adapter.getLength() : 0;
+    }
+
+    /**
+     * Lengths first: a document whose length differs from the original is dirty
+     * without materializing or comparing it. Only equal lengths need the full
+     * compare. `value`, when the caller already has it, saves the read.
+     */
+    function isDirty(value) {
+        if (!active || unavailableReason) return false;
+        if (valueLength() !== originalValue.length) return true;
+        return (value === undefined ? getValue() : value) !== originalValue;
     }
 
     function clearDraft() {
@@ -168,26 +185,77 @@ const TextClipEditor = (() => {
         }
     }
 
+    // An original this long is identified in the draft by length + hash instead
+    // of a full copy: stringifying both texts after every pause doubled the
+    // write, and at ~1 MB the pair alone overran a typical 5 MB quota.
+    const DRAFT_INLINE_ORIGINAL_MAX = 256 * 1024;
+    // Past this the current text alone cannot fit localStorage (UTF-16, ~5 MB),
+    // so the write is skipped rather than serialized just to fail.
+    const DRAFT_MAX_TEXT = 2 * 1024 * 1024;
+
+    // cyrb53: a fast 53-bit string hash. It only has to tell this clip's
+    // original from another revision of it (filename and type must match too),
+    // not resist an adversary.
+    function hashText(text) {
+        let h1 = 0xdeadbeef;
+        let h2 = 0x41c6ce57;
+        for (let i = 0; i < text.length; i++) {
+            const ch = text.charCodeAt(i);
+            h1 = Math.imul(h1 ^ ch, 2654435761);
+            h2 = Math.imul(h2 ^ ch, 1597334677);
+        }
+        h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+        h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+        return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
+    }
+
+    // Per open; the original never changes within a session.
+    let originalHashMemo = null;
+    function originalHash() {
+        if (originalHashMemo === null) originalHashMemo = hashText(originalValue);
+        return originalHashMemo;
+    }
+
+    function draftMatchesOriginal(draft) {
+        if (typeof draft.originalText === 'string') return draft.originalText === originalValue;
+        return draft.originalLength === originalValue.length &&
+            typeof draft.originalHash === 'string' &&
+            draft.originalHash === originalHash();
+    }
+
     function persistDraft() {
         if (!active) return;
         const status = element('text-editor-draft-status');
         const key = draftKeyV2();
-        if (!key || !isDirty()) {
+        const text = getValue();
+        if (!key || !isDirty(text)) {
             clearDraft();
             if (status) status.textContent = '';
             return;
         }
+        if (text.length > DRAFT_MAX_TEXT) {
+            // An older, smaller draft would now recover the wrong text.
+            storageRemove(key);
+            if (status) status.textContent = 'Draft unavailable';
+            return;
+        }
 
-        const saved = storageSet(key, JSON.stringify({
+        const record = {
             filename,
             contentType,
-            originalText: originalValue,
-            text: getValue(),
+            text,
             // Carried so a recovered draft can be encoded back to bytes with the
             // same BOM and newline style as the clip it came from.
             profile: textProfile,
             updatedAt: Date.now(),
-        }));
+        };
+        if (originalValue.length > DRAFT_INLINE_ORIGINAL_MAX) {
+            record.originalLength = originalValue.length;
+            record.originalHash = originalHash();
+        } else {
+            record.originalText = originalValue;
+        }
+        const saved = storageSet(key, JSON.stringify(record));
         if (status) status.textContent = saved ? 'Draft saved' : 'Draft unavailable';
     }
 
@@ -260,7 +328,7 @@ const TextClipEditor = (() => {
             const draft = JSON.parse(raw);
             const matchesClip = draft.filename === filename &&
                 draft.contentType === contentType &&
-                draft.originalText === originalValue;
+                draftMatchesOriginal(draft);
             if (!matchesClip || typeof draft.text !== 'string' || draft.text === originalValue) {
                 storageRemove(key);
                 return false;
@@ -295,21 +363,19 @@ const TextClipEditor = (() => {
      * Returns true when the flag changed, so the caller can re-apply the parts of the
      * UI that depend on it.
      */
-    function refreshDegraded() {
+    function refreshDegraded(value) {
         if (!active || unavailableReason) return false;
-        const current = Math.max(openByteLength && !isDirty() ? openByteLength : 0, byteLengthOfValue());
+        const current = Math.max(openByteLength && !isDirty(value) ? openByteLength : 0, byteLengthOfValue());
         const next = current > codec().ENHANCED_ASSISTANCE_MAX_BYTES;
         if (next === degraded) return false;
         degraded = next;
         return true;
     }
 
+    // Maintained by the adapter per change from the edited ranges, so this is
+    // O(1) here rather than a whole-document TextEncoder pass per keystroke.
     function byteLengthOfValue() {
-        try {
-            return new TextEncoder().encode(getValue()).length;
-        } catch (_) {
-            return getValue().length;
-        }
+        return mounted() ? adapter.getByteLength() : 0;
     }
 
     // Formatting, validation, diagnostics, highlighting, and table rendering are
@@ -566,14 +632,16 @@ const TextClipEditor = (() => {
         if (!adapter || !adapter.isMounted()) return;
         const { line, column } = adapter.getCursorPosition();
         element('text-editor-cursor-status').textContent = `Ln ${line}, Col ${column}`;
-        const count = Array.from(getValue()).length;
+        // Code points, as Array.from(value).length would count them, kept by the
+        // adapter per change: a cursor move no longer builds an n-element array.
+        const count = adapter.getCharacterCount();
         element('text-editor-character-status').textContent = `${count} ${count === 1 ? 'character' : 'characters'}`;
     }
 
-    function updateSaveState() {
+    function updateSaveState(value) {
         if (!active) return;
         const saveButton = element('editor-save-in-place');
-        if (saveButton) saveButton.disabled = !isDirty();
+        if (saveButton) saveButton.disabled = !isDirty(value);
     }
 
     // --- search ---------------------------------------------------------------
@@ -780,13 +848,15 @@ const TextClipEditor = (() => {
     }
 
     function handleChange() {
-        if (refreshDegraded()) {
+        // Read once and passed down: each read used to be a fresh doc.toString().
+        const value = getValue();
+        if (refreshDegraded(value)) {
             TextDiagnostics.setEnabled(assistanceEnabled());
             applyLanguage();
             applyToolbarState();
         }
-        TextDiagnostics.schedule(getValue());
-        updateSaveState();
+        TextDiagnostics.schedule(value);
+        updateSaveState(value);
         scheduleDraft();
         if (findPanelOpen()) refreshSearch(false);
         // Preview always renders the current unsaved value, so an edit made while
@@ -859,6 +929,7 @@ const TextClipEditor = (() => {
         // Back to detection on every open, including reopening the same clip.
         tableOptions = { ...TABLE_OPTION_DEFAULTS };
         originalValue = options.text || '';
+        originalHashMemo = null;
         TextPreview.clear();
         MarkdownPreview.open(clipID);
 
