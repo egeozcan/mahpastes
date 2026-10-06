@@ -862,9 +862,11 @@ comparison view only.
   (HEIC, TIFF, …); over the decode budget; or a result no smaller than the
   original. The decision is cached as an empty `.orig` marker.
 - **Decode budget.** `image.DecodeConfig` runs first and anything over
-  `thumbMaxSourcePixels` (64 MP) or `thumbMaxSourceBytes` (64 MB, checked with
-  `octet_length` before the blob is read) passes through without decoding — a
-  small PNG declaring a 30000² canvas never allocates it. At most
+  `thumbMaxSourcePixels` (64 MP), over `thumbMaxDecodeBytes` (256 MB of decoded
+  buffer, estimated from the header's color model by `decodeBytesPerPixel` — a
+  16-bit PNG is 8 bytes a pixel), or over `thumbMaxSourceBytes` (64 MB, checked
+  with `octet_length` before the blob is read) passes through without decoding
+  — a small PNG declaring a 30000² canvas never allocates it. At most
   `thumbGenerateConcurrency` (2) decodes run at once; one flight per clip+hash.
 - **Cache.** `{dataDir}/clip_thumbs/{content_hash}-512.{jpg,png,orig}`. Keyed by
   the hash, so an edit is a miss by construction and writers of `clips.data`
@@ -872,6 +874,12 @@ comparison view only.
   statement). `StartCleanupJob` calls `Prune` (throttled to 10 min): entries
   whose hash no clip holds are removed, then least recently used (mtime,
   refreshed on hits older than a day) over `thumbCacheMaxBytes` (256 MB).
+  Thumbnails are downscaled copies of library content, so a delete must not
+  leave them for a whole prune interval: `deleteTempFilesForClipIDs` (every App
+  delete/edit path and the plugin `SetClipsDeletedFunc` callback),
+  `DeleteAllTempFiles` (after a restore) and the expiry reaper call
+  `ThumbnailCache.DropOrphansSoon`, which runs one forced orphan sweep ~0.5 s
+  later (calls coalesce). A new clip-row deleter must reach one of those.
 - **URLs carry the hash.** `ClipPreview.content_hash` (from the covering
   listing index, so free) and the paged REST listing's `content_hash` feed the
   URL. A request whose hash is current gets `Cache-Control: private,
@@ -884,9 +892,12 @@ comparison view only.
   WebView code that could call `GetClipData`. It is per process rather than per
   clip like `/media/` so a page of cards costs one bridge call, not fifty.
 - **Server mode:** `GET /api/v1/clips/{id}/thumb?h={hash}`, viewer role,
-  `enforceTagScope` exactly like `/data`; non-image clips are 404. In server
-  mode `getImageDataUrl` returns the same-origin `/api/v1/clips/{id}/data` URL
-  instead of a FileReader-built data URL.
+  `enforceTagScope` exactly like `/data`; non-image clips are 404. Every REST
+  clip shape (single clip, legacy, paged and tag listings) carries
+  `content_hash`. In server mode `getImageDataUrl` returns the same-origin
+  `/api/v1/clips/{id}/data` URL instead of a FileReader-built data URL, still
+  refusing a card over 64 MB (`SERVER_IMAGE_MAX_INLINE`, matching rest-glue's
+  `GetClipData`) with the "download it instead" error.
 - **Frontend** (`ui.js`): the card `<img>` has `loading="lazy"
   decoding="async"` and starts `opacity-0`, never `hidden` — a `display:none`
   lazy image is never fetched. On error the card falls back to the full image

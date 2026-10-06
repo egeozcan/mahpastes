@@ -808,6 +808,7 @@ func StartCleanupJob(ctx context.Context, db *sql.DB, store *TempClipStore, thum
 					log.Printf("Failed to delete expired clips: %v\n", err)
 				} else if rows > 0 {
 					log.Printf("Cleaned up %d expired clips\n", rows)
+					thumbs.DropOrphansSoon()
 				}
 				if store != nil {
 					if err := store.Prune(false); err != nil {

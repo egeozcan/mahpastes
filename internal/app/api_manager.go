@@ -1212,7 +1212,7 @@ func (am *APIManager) handleListClips(w http.ResponseWriter, r *http.Request) {
 		var filename sql.NullString
 		var isArchived int
 
-		if err := rows.Scan(&c.ID, &c.ContentType, &filename, &c.Size, &isArchived, &c.CreatedAt); err != nil {
+		if err := rows.Scan(&c.ID, &c.ContentType, &filename, &c.Size, &isArchived, &c.CreatedAt, &c.ContentHash); err != nil {
 			continue
 		}
 		c.Filename = filename.String
@@ -1459,6 +1459,7 @@ func (am *APIManager) handleListClipsViaApp(w http.ResponseWriter, r *http.Reque
 			IsArchived:  p.IsArchived,
 			CreatedAt:   p.CreatedAt.Format(time.RFC3339),
 			Tags:        p.Tags,
+			ContentHash: p.ContentHash,
 		})
 	}
 	total := len(clips)
@@ -1491,8 +1492,8 @@ func (am *APIManager) handleGetClip(w http.ResponseWriter, r *http.Request) {
 	var isArchived int
 
 	err = am.app.db.QueryRow(
-		"SELECT id, content_type, filename, LENGTH(data), is_archived, created_at FROM clips WHERE id = ?", id,
-	).Scan(&c.ID, &c.ContentType, &filename, &c.Size, &isArchived, &c.CreatedAt)
+		"SELECT id, content_type, filename, LENGTH(data), is_archived, created_at, COALESCE(content_hash, '') FROM clips WHERE id = ?", id,
+	).Scan(&c.ID, &c.ContentType, &filename, &c.Size, &isArchived, &c.CreatedAt, &c.ContentHash)
 	if err != nil {
 		am.jsonError(w, http.StatusNotFound, "clip not found")
 		return
@@ -1638,8 +1639,9 @@ func (am *APIManager) handleGetClipText(w http.ResponseWriter, r *http.Request) 
 //   - nosniff: stop content-type sniffing into an executable type.
 //   - Content-Disposition: attachment (always, even with an empty filename):
 //     direct navigation downloads instead of rendering inline. The web UI
-//     reads clip bytes via fetch()+Blob, which ignores this header, so image
-//     previews/editor are unaffected.
+//     reads clip bytes via fetch()+Blob or loads this URL straight into an
+//     <img> (lightbox, comparison, a card whose thumbnail failed); both ignore
+//     this header, so image previews/editor are unaffected.
 //   - CSP sandbox: even if a browser were coerced into rendering this
 //     response, it runs in an opaque origin with scripts disabled.
 //
@@ -1817,8 +1819,8 @@ func (am *APIManager) handleGetClipByID(w http.ResponseWriter, id int64) {
 	var isArchived int
 
 	err := am.app.db.QueryRow(
-		"SELECT id, content_type, filename, LENGTH(data), is_archived, created_at FROM clips WHERE id = ?", id,
-	).Scan(&c.ID, &c.ContentType, &filename, &c.Size, &isArchived, &c.CreatedAt)
+		"SELECT id, content_type, filename, LENGTH(data), is_archived, created_at, COALESCE(content_hash, '') FROM clips WHERE id = ?", id,
+	).Scan(&c.ID, &c.ContentType, &filename, &c.Size, &isArchived, &c.CreatedAt, &c.ContentHash)
 	if err != nil {
 		return
 	}
@@ -3064,7 +3066,7 @@ func legacyClipListSQL(conditions []string) (count, page string) {
 	}
 	from := "FROM clips c INDEXED BY " + clipListingIndex + " WHERE " + where
 	return "SELECT COUNT(*) " + from,
-		"SELECT c.id, c.content_type, c.filename, LENGTH(c.data), c.is_archived, c.created_at " + from +
+		"SELECT c.id, c.content_type, c.filename, LENGTH(c.data), c.is_archived, c.created_at, COALESCE(c.content_hash, '') " + from +
 			" ORDER BY c.created_at DESC, c.id DESC LIMIT ? OFFSET ?"
 }
 
@@ -3120,7 +3122,7 @@ func (am *APIManager) handleGetTagClips(w http.ResponseWriter, r *http.Request) 
 		var filename sql.NullString
 		var isArchived int
 
-		if err := rows.Scan(&c.ID, &c.ContentType, &filename, &c.Size, &isArchived, &c.CreatedAt); err != nil {
+		if err := rows.Scan(&c.ID, &c.ContentType, &filename, &c.Size, &isArchived, &c.CreatedAt, &c.ContentHash); err != nil {
 			continue
 		}
 		c.Filename = filename.String

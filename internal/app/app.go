@@ -4120,8 +4120,11 @@ func (a *App) CreateTempFile(id int64) (string, error) {
 	return item.AbsPath, nil
 }
 
-// DeleteAllTempFiles deletes all files from the temp directory
+// DeleteAllTempFiles deletes all files from the temp directory. A restore
+// calls it after replacing the library, so it also sweeps thumbnails whose
+// hash the restored library no longer holds.
 func (a *App) DeleteAllTempFiles() error {
+	a.thumbCache.DropOrphansSoon()
 	if a.tempStore == nil {
 		return nil
 	}

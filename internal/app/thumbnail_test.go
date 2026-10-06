@@ -440,3 +440,137 @@ func TestClipListingCarriesContentHash(t *testing.T) {
 		t.Fatalf("getClipPreview hash = %q (%v), want %s", preview.ContentHash, err, hash)
 	}
 }
+
+func TestRenderThumbnailBudgetsDecodeBytesByColorModel(t *testing.T) {
+	// 6000x6000 is 36 MP, under the pixel cap. As 16-bit RGBA it decodes to
+	// 8 bytes a pixel (288 MB), over the decode budget; the header alone
+	// must say so.
+	wide := encodePNG(t, image.NewNRGBA64(image.Rect(0, 0, 8, 8)))
+	binary.BigEndian.PutUint32(wide[16:], 6000)
+	binary.BigEndian.PutUint32(wide[20:], 6000)
+	binary.BigEndian.PutUint32(wide[29:], crc32.ChecksumIEEE(wide[12:29]))
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(wide))
+	if err != nil || cfg.ColorModel != color.NRGBA64Model {
+		t.Fatalf("crafted header: model %v err %v", cfg.ColorModel, err)
+	}
+	start := time.Now()
+	if _, _, err := renderThumbnail("image/png", wide); !errors.Is(err, errThumbPassthrough) {
+		t.Fatalf("err = %v, want passthrough for a 288 MB decode", err)
+	}
+	if d := time.Since(start); d > 2*time.Second {
+		t.Fatalf("refusal took %v; the budget check must come before any decode", d)
+	}
+
+	if withinDecodeBudget(cfg) {
+		t.Fatal("a 36 MP 16-bit image is within the decode budget")
+	}
+	for _, c := range []struct {
+		cfg  image.Config
+		want bool
+	}{
+		{image.Config{ColorModel: color.NRGBAModel, Width: 6000, Height: 6000}, true},   // 144 MB
+		{image.Config{ColorModel: color.NRGBA64Model, Width: 5000, Height: 5000}, true}, // 200 MB
+		{image.Config{ColorModel: color.YCbCrModel, Width: 9000, Height: 8000}, false},  // 72 MP
+		{image.Config{ColorModel: color.GrayModel, Width: 8000, Height: 8000}, true},    // 64 MP, 64 MB
+	} {
+		if got := withinDecodeBudget(c.cfg); got != c.want {
+			t.Errorf("withinDecodeBudget(%v %dx%d) = %v, want %v", c.cfg.ColorModel, c.cfg.Width, c.cfg.Height, got, c.want)
+		}
+	}
+	for _, tc := range []struct {
+		model color.Model
+		want  int64
+	}{
+		{color.GrayModel, 1}, {color.Gray16Model, 2}, {color.YCbCrModel, 4},
+		{color.NRGBAModel, 4}, {color.RGBA64Model, 8}, {color.NRGBA64Model, 8},
+		{color.Palette{color.Black, color.White}, 1},
+	} {
+		if got := decodeBytesPerPixel(tc.model); got != tc.want {
+			t.Errorf("decodeBytesPerPixel(%T) = %d, want %d", tc.model, got, tc.want)
+		}
+	}
+}
+
+func TestThumbnailDroppedSoonAfterClipDelete(t *testing.T) {
+	app, cleanup := setupTestApp(t)
+	defer cleanup()
+	tc := newTestThumbCache(t, app)
+	tc.dropDelay = 10 * time.Millisecond
+
+	id, hash := insertImageClip(t, app, encodeJPEG(t, noisyImage(1600, 1200, false)), "image/jpeg")
+	keep, keepHash := insertImageClip(t, app, encodeJPEG(t, noisyImage(1400, 1000, false)), "image/jpeg")
+	for _, c := range []struct {
+		id   int64
+		hash string
+	}{{id, hash}, {keep, keepHash}} {
+		if rec := serveThumb(t, tc, c.id, c.hash, nil); rec.Code != http.StatusOK {
+			t.Fatalf("serve %d: %d", c.id, rec.Code)
+		}
+	}
+	// A periodic prune just ran: only the delete hook can remove it in time.
+	if err := tc.Prune(true); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(tc.dir, hash+"-"+strconv.Itoa(thumbMaxEdge)+".jpg")
+	if _, err := os.Stat(file); err != nil {
+		t.Fatalf("thumbnail missing before delete: %v", err)
+	}
+
+	if err := app.DeleteClip(id); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if _, err := os.Stat(file); os.IsNotExist(err) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("deleted clip's thumbnail still on disk")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if _, ok := tc.lookup(keepHash); !ok {
+		t.Fatal("the sweep removed a live clip's thumbnail")
+	}
+}
+
+// Every REST clip shape carries content_hash, so a server-mode card built
+// from any of them gets an immutable, hash-named thumbnail URL.
+func TestRESTClipShapesCarryContentHash(t *testing.T) {
+	app, cleanup := setupTestApp(t)
+	defer cleanup()
+	manager := NewAPIManager(app)
+	if _, err := app.db.Exec(`INSERT INTO tags (id, name, color) VALUES (1, 'work', '#111111')`); err != nil {
+		t.Fatal(err)
+	}
+	id, hash := insertImageClip(t, app, encodePNG(t, noisyImage(10, 10, false)), "image/png")
+	if _, err := app.db.Exec(`INSERT INTO clip_tags (clip_id, tag_id) VALUES (?, 1)`, id); err != nil {
+		t.Fatal(err)
+	}
+	key := &apiKeyContext{KeyID: 1, Role: "viewer"}
+	sid := strconv.FormatInt(id, 10)
+
+	call := func(h http.HandlerFunc, target string, pathID string) string {
+		req := httptest.NewRequest(http.MethodGet, target, nil)
+		if pathID != "" {
+			req.SetPathValue("id", pathID)
+		}
+		rec := httptest.NewRecorder()
+		h(rec, withKey(req, key))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status %d %s", target, rec.Code, rec.Body.String())
+		}
+		return rec.Body.String()
+	}
+	for name, body := range map[string]string{
+		"get clip":     call(manager.handleGetClip, "/api/v1/clips/"+sid, sid),
+		"legacy list":  call(manager.handleListClips, "/api/v1/clips", ""),
+		"paged list":   call(manager.handleListClips, "/api/v1/clips?sort=created_at", ""),
+		"preview list": call(manager.handleListClips, "/api/v1/clips?search=pic", ""),
+		"tag clips":    call(manager.handleGetTagClips, "/api/v1/tags/1/clips", "1"),
+	} {
+		if !strings.Contains(body, `"content_hash":"`+hash+`"`) {
+			t.Errorf("%s: response lacks content_hash %s: %s", name, hash, body)
+		}
+	}
+}

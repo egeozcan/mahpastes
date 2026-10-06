@@ -58,6 +58,23 @@ test('server-mode image cards use thumbnail URLs and the lightbox the full image
     await expect.poll(() => full.evaluate((el: HTMLImageElement) => el.complete ? el.naturalWidth : 0)).toBe(1600);
 
     expect(await page.evaluate(() => (window as any).__fileReaderReads)).toBe(0);
+
+    // The 64 MB inline ceiling still applies to the URL path: past it the
+    // lightbox is told to offer a download rather than decode the image.
+    const tooLarge = await page.evaluate(async (id) => {
+      const card = document.querySelector(`#gallery > li[data-id="${id}"]`) as HTMLElement;
+      const saved = card.dataset.size;
+      card.dataset.size = String(65 * 1024 * 1024);
+      try {
+        await (window as any).getImageDataUrl(id);
+        return 'resolved';
+      } catch (e: any) {
+        return String(e?.message || e);
+      } finally {
+        card.dataset.size = saved;
+      }
+    }, clipID);
+    expect(tooLarge).toContain('download it instead');
   } finally {
     await server.stop();
   }

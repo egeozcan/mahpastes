@@ -237,4 +237,57 @@ test.describe('Image card thumbnails', () => {
       window.scrollTo(0, 0);
     });
   });
+  test('queued card media is dropped when its card is detached or the gallery is rebuilt', async ({ app }) => {
+    const ran = await app.page.evaluate(async () => {
+      const w = window as any;
+      const tick = () => new Promise(r => setTimeout(r, 50));
+      const until = async (cond: () => boolean) => {
+        for (let i = 0; i < 100 && !cond(); i++) await tick();
+        if (!cond()) throw new Error('timed out waiting for the scheduler');
+      };
+      const host = document.createElement('div');
+      host.id = 'sched-detach-host';
+      document.body.prepend(host);
+      const resolvers: Array<() => void> = [];
+      const ran: string[] = [];
+      const card = (name: string, hold: boolean) => {
+        const el = document.createElement('div');
+        el.style.cssText = 'width:10px;height:10px';
+        host.appendChild(el);
+        w.scheduleCardMedia(el, () => {
+          ran.push(name);
+          return hold ? new Promise<void>(r => resolvers.push(r)) : undefined;
+        });
+        return el;
+      };
+      // Fill every slot with work that has not finished.
+      for (let i = 0; i < 4; i++) card(`busy${i}`, true);
+      await until(() => w.__cardMediaStats().active === 4);
+
+      // Queued behind the full pool: one is detached before its slot opens.
+      const gone = card('detached', false);
+      card('kept', false);
+      await until(() => w.__cardMediaStats().queued === 2);
+      gone.remove();
+      resolvers.shift()!();
+      await until(() => ran.includes('kept'));
+
+      // A rebuild (clearRenderedClips) forgets everything still queued.
+      card('busy4', true);
+      await until(() => w.__cardMediaStats().active === 4);
+      card('rebuilt-away', false);
+      await until(() => w.__cardMediaStats().queued === 1);
+      w.clearRenderedClips();
+      const queuedAfterReset = w.__cardMediaStats().queued;
+      resolvers.splice(0).forEach(r => r());
+      await until(() => w.__cardMediaStats().active === 0);
+      await tick();
+      host.remove();
+      return { ran, queuedAfterReset };
+    });
+    expect(ran.ran).toContain('kept');
+    expect(ran.ran).not.toContain('detached');
+    expect(ran.ran).not.toContain('rebuilt-away');
+    expect(ran.queuedAfterReset).toBe(0);
+  });
 });

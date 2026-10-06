@@ -60,15 +60,23 @@ const (
 	// pixel buffer is allocated. Refused images pass through unchanged.
 	thumbMaxSourcePixels = 64_000_000
 	thumbMaxSourceBytes  = 64 << 20
-	thumbJPEGQuality     = 82
+	// thumbMaxDecodeBytes caps the decoded pixel buffer, estimated from the
+	// header's color model (decodeBytesPerPixel): a 16-bit PNG decodes to 8
+	// bytes a pixel, so the pixel cap alone would let one through at 512 MB.
+	thumbMaxDecodeBytes = 256 << 20
+	thumbJPEGQuality    = 82
 	// thumbGenerateConcurrency bounds how many decodes run at once, and with
-	// it peak memory (a 64 MP decode is up to 256 MB).
+	// it peak memory (each decode is at most thumbMaxDecodeBytes plus a
+	// downscaled copy a quarter that size or less).
 	thumbGenerateConcurrency = 2
 	// Cache size cap and prune throttle.
 	thumbCacheMaxBytes   = 256 << 20
 	thumbPruneInterval   = 10 * time.Minute
 	thumbTouchAfter      = 24 * time.Hour
 	thumbStaleTempMaxAge = time.Hour
+	// thumbDropOrphansDelay coalesces the orphan sweeps that deletes, edits
+	// and restores ask for (DropOrphansSoon) into one.
+	thumbDropOrphansDelay = 500 * time.Millisecond
 )
 
 // errThumbPassthrough means "serve the original bytes"; it is not a failure.
@@ -86,6 +94,11 @@ type ThumbnailCache struct {
 
 	pruneMu   sync.Mutex
 	lastPrune time.Time
+
+	// dropMu guards dropTimer, the one pending DropOrphansSoon sweep.
+	dropMu    sync.Mutex
+	dropTimer *time.Timer
+	dropDelay time.Duration
 }
 
 // thumbEntry is one cached decision for a content hash: a generated file, or
@@ -112,11 +125,12 @@ func NewThumbnailCache(db *sql.DB, store *TempClipStore, dir string) (*Thumbnail
 		return nil, fmt.Errorf("create thumbnail dir %q: %w", dir, err)
 	}
 	return &ThumbnailCache{
-		db:       db,
-		store:    store,
-		dir:      dir,
-		maxBytes: thumbCacheMaxBytes,
-		sem:      make(chan struct{}, thumbGenerateConcurrency),
+		db:        db,
+		store:     store,
+		dir:       dir,
+		maxBytes:  thumbCacheMaxBytes,
+		sem:       make(chan struct{}, thumbGenerateConcurrency),
+		dropDelay: thumbDropOrphansDelay,
 	}, nil
 }
 
@@ -285,7 +299,7 @@ func renderThumbnail(contentType string, data []byte) ([]byte, string, error) {
 	if err != nil || cfg.Width <= 0 || cfg.Height <= 0 {
 		return nil, "", errThumbPassthrough
 	}
-	if int64(cfg.Width)*int64(cfg.Height) > thumbMaxSourcePixels {
+	if !withinDecodeBudget(cfg) {
 		return nil, "", errThumbPassthrough
 	}
 	longest := max(cfg.Width, cfg.Height)
@@ -332,6 +346,32 @@ func renderThumbnail(contentType string, data []byte) ([]byte, string, error) {
 		return nil, "", errThumbPassthrough
 	}
 	return buf.Bytes(), outType, nil
+}
+
+// withinDecodeBudget reports whether decoding an image with this header stays
+// under both the pixel cap and the decoded-buffer byte cap.
+func withinDecodeBudget(cfg image.Config) bool {
+	pixels := int64(cfg.Width) * int64(cfg.Height)
+	return pixels <= thumbMaxSourcePixels && pixels*decodeBytesPerPixel(cfg.ColorModel) <= thumbMaxDecodeBytes
+}
+
+// decodeBytesPerPixel estimates the decoded buffer's bytes per pixel from a
+// header's color model. Unknown models count as 8, the widest standard one.
+func decodeBytesPerPixel(m color.Model) int64 {
+	switch m {
+	case color.GrayModel, color.AlphaModel:
+		return 1
+	case color.Gray16Model, color.Alpha16Model:
+		return 2
+	case color.RGBAModel, color.NRGBAModel, color.YCbCrModel, color.NYCbCrAModel, color.CMYKModel:
+		return 4
+	case color.RGBA64Model, color.NRGBA64Model:
+		return 8
+	}
+	if _, ok := m.(color.Palette); ok {
+		return 1
+	}
+	return 8
 }
 
 // scaleToFit returns src scaled so its longest side is edge pixels. A large
@@ -601,6 +641,29 @@ func etagListMatches(header, etag string) bool {
 		}
 	}
 	return false
+}
+
+// DropOrphansSoon schedules a forced Prune shortly after a clip delete, an
+// edit or a restore, so a thumbnail — a downscaled copy of library content —
+// does not outlive the clip by a whole prune interval. Calls within
+// thumbDropOrphansDelay share one sweep. Safe on a nil cache.
+func (c *ThumbnailCache) DropOrphansSoon() {
+	if c == nil {
+		return
+	}
+	c.dropMu.Lock()
+	defer c.dropMu.Unlock()
+	if c.dropTimer != nil {
+		return
+	}
+	c.dropTimer = time.AfterFunc(c.dropDelay, func() {
+		c.dropMu.Lock()
+		c.dropTimer = nil
+		c.dropMu.Unlock()
+		if err := c.Prune(true); err != nil && !strings.Contains(err.Error(), "database is closed") {
+			log.Printf("thumbnail: drop orphans: %v", err)
+		}
+	})
 }
 
 // Prune removes cache entries whose hash no clip holds any more, stale

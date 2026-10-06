@@ -1661,10 +1661,19 @@ async function getVideoMediaUrl(clipId) {
 // thumbnail failed). Desktop: a data URL over the bridge, kept in the bounded
 // imageCache. Server mode: the same-origin data URL itself — the browser
 // fetches and caches it, with no Blob -> FileReader -> base64 round trip.
+const SERVER_IMAGE_MAX_INLINE = 64 * 1024 * 1024; // matches rest-glue GetClipData
+
 async function getImageDataUrl(clipId) {
     const id = Number(clipId);
     const revision = mediaRevisions.get(id) || 0;
     if (window.mahpastesMode === 'server') {
+        // Same ceiling rest-glue's GetClipData applies: past it the browser is
+        // asked to decode an arbitrarily large image, so offer a download.
+        const card = gallery?.querySelector(`li[data-id="${id}"]`);
+        const size = Number(card?.dataset.size) || 0;
+        if (size > SERVER_IMAGE_MAX_INLINE) {
+            throw new Error(`clip is too large to preview in the browser (${Math.round(size / 1048576)} MB) — download it instead`);
+        }
         // The revision keeps the browser from reusing a response for bytes
         // that have since been overwritten.
         return revision ? `/api/v1/clips/${id}/data?rev=${revision}` : `/api/v1/clips/${id}/data`;
