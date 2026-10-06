@@ -589,7 +589,7 @@ async function handleClipTagToggle(clipId, tagId, add) {
     closeTagPopover();
     // Re-render the card's pills in place; reload when the change moved the
     // clip out of the view (or the view cannot be patched).
-    if (!(typeof refreshClipTagsInPlace === 'function' && await refreshClipTagsInPlace(clipId))) {
+    if (!(typeof refreshClipInPlace === 'function' && await refreshClipInPlace(clipId))) {
         loadClips();
     }
 }
@@ -643,7 +643,7 @@ if (createTagBtn) {
             if (tagPopoverMode === 'single' && currentTaggingClipId) {
                 const clipId = currentTaggingClipId;
                 await addTagToClip(clipId, tag.id);
-                if (!(typeof refreshClipTagsInPlace === 'function' && await refreshClipTagsInPlace(clipId))) {
+                if (!(typeof refreshClipInPlace === 'function' && await refreshClipInPlace(clipId))) {
                     loadClips();
                 }
             } else if (tagPopoverMode === 'bulk') {

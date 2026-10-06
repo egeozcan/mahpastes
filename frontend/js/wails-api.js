@@ -243,7 +243,8 @@ async function loadClips({ focusFirst = false } = {}) {
 
         // Cards whose clip is unchanged are kept, not rebuilt: a rebuild
         // refetches and re-decodes every thumbnail and recaptures every
-        // video frame. Everything else in the gallery goes.
+        // video frame. Everything else in the gallery goes, including a card
+        // whose media failed to load, so a reload retries it.
         const reusable = new Map();
         for (const el of Array.from(gallery.children)) {
             if (el.dataset && el.dataset.id && el._clip) reusable.set(Number(el.dataset.id), el);
@@ -251,7 +252,7 @@ async function loadClips({ focusFirst = false } = {}) {
         const keep = new Set();
         for (const clip of page.clips) {
             const old = reusable.get(Number(clip.id));
-            if (old && old._renderSig === clipCardSignature(clip)) keep.add(old);
+            if (old && !old._mediaFailed && old._renderSig === clipCardSignature(clip)) keep.add(old);
         }
         for (const el of Array.from(gallery.children)) {
             if (keep.has(el)) continue;
@@ -512,34 +513,6 @@ function removeClipCardInPlace(id) {
     return true;
 }
 
-// After a rename the card shows the new name. Not patched when the order
-// depends on the name, or when the name makes it Markdown (RenameClip changes
-// the content type of a .md/.markdown rename).
-function renameClipCardInPlace(id, filename) {
-    if (!galleryPatchable()) return false;
-    if (currentSortField === 'name') return false;
-    if (/\.(md|markdown)$/i.test(filename)) return false;
-    const card = galleryClipCard(id);
-    if (!card) return false;
-    card._clip.filename = filename;
-    renderCardFilename(card, card._clip);
-    card._renderSig = clipCardSignature(card._clip);
-    afterGalleryPatch();
-    return true;
-}
-
-// Set (an ISO timestamp) or clear (null) a card's expiry badge.
-function setClipExpiryInPlace(id, expiresAt) {
-    if (!galleryPatchable()) return false;
-    const card = galleryClipCard(id);
-    if (!card) return false;
-    card._clip.expires_at = expiresAt;
-    renderCardExpiry(card, card._clip);
-    card._renderSig = clipCardSignature(card._clip);
-    afterGalleryPatch();
-    return true;
-}
-
 // Would a clip carrying these tags still be listed in the view on screen?
 // Mirrors the listing: folder = exact tag, untagged = no tags, otherwise every
 // filter matched by the tag or a descendant and no hidden tag (or descendant)
@@ -563,21 +536,38 @@ function clipTagsFitView(tags) {
     return true;
 }
 
-// Re-read one clip's tags after a tag change on its card and re-render the
-// pills. False (reload) when the clip no longer belongs in the view.
-async function refreshClipTagsInPlace(id) {
+// Re-read one clip after a change made from its card (rename, expiry, a tag)
+// and patch the card from the stored row: the backend stamps expiry on its
+// own clock, RenameClip can change the content type, and a plugin handler can
+// retag or rename the clip inside the call. False (the caller reloads) when
+// the row no longer fits the card or the view: a new type or revision, an
+// archive flip, a rename while sorted by name, or tags that move it out.
+async function refreshClipInPlace(id) {
     if (!galleryPatchable() || !galleryClipCard(id)) return false;
-    let tags;
+    let row;
     try {
-        tags = (await window.go.main.App.GetClipTags(Number(id))) || [];
+        row = await window.go.main.App.GetClipPreview(Number(id));
     } catch (error) {
         return false;
     }
     const card = galleryClipCard(id);
-    if (!card || !galleryPatchable() || !clipTagsFitView(tags)) return false;
-    card._clip.tags = tags;
+    if (!row || !card || !galleryPatchable()) return false;
+    const clip = card._clip;
+    const tags = Array.isArray(row.tags) ? row.tags : [];
+    if (row.content_type !== clip.content_type) return false;
+    if ((row.content_hash || '') !== (clip.content_hash || '')) return false;
+    if (!!row.is_archived !== !!clip.is_archived) return false;
+    if (row.filename !== clip.filename && currentSortField === 'name') return false;
+    if (!clipTagsFitView(tags)) return false;
+
+    clip.filename = row.filename;
+    clip.tags = tags;
+    // Server-mode rows carry no expiry, like the server listing.
+    if ('expires_at' in row) clip.expires_at = row.expires_at;
+    renderCardFilename(card, clip);
+    renderCardExpiry(card, clip);
     renderCardTags(card, tags);
-    card._renderSig = clipCardSignature(card._clip);
+    card._renderSig = clipCardSignature(clip);
     afterGalleryPatch();
     return true;
 }
@@ -646,6 +636,8 @@ async function deleteClip(id) {
     showConfirmDialog('Delete Clip', 'Are you sure you want to delete this clip permanently?', async () => {
         try {
             await window.go.main.App.DeleteClip(id);
+            // The clip is gone: free its cached video frame now, not at eviction.
+            videoFrameCacheDelete(Number(id));
             showToast('Clip deleted.');
             // After the dialog has closed and handed focus back to the
             // card, so removing the card can pass focus to its neighbour.
@@ -665,7 +657,7 @@ function renameClip(id) {
         try {
             await window.go.main.App.RenameClip(id, newName.trim());
             showToast('Clip renamed.');
-            if (!renameClipCardInPlace(id, newName.trim())) loadClips();
+            if (!(await refreshClipInPlace(id))) loadClips();
         } catch (error) {
             console.error('Error renaming clip:', error);
             showToast('Failed to rename clip.', 'error');
@@ -756,6 +748,7 @@ async function bulkDelete() {
     showConfirmDialog('Bulk Delete', `Are you sure you want to delete ${selectedIds.size} clips permanently?`, async () => {
         try {
             await window.go.main.App.BulkDelete(Array.from(selectedIds));
+            selectedIds.forEach(id => videoFrameCacheDelete(Number(id)));
             showToast(`Deleted ${selectedIds.size} clips.`);
             selectedIds.clear();
             loadClips();
@@ -1183,9 +1176,7 @@ async function setExpiration(id, minutes) {
     try {
         await window.go.main.App.SetExpiration(id, minutes);
         showToast('Expiration set.');
-        // The backend stamps now + minutes; the badge only shows the rest
-        // rounded to minutes, so the local clock gives the same badge.
-        if (!setClipExpiryInPlace(id, new Date(Date.now() + minutes * 60000).toISOString())) loadClips();
+        if (!(await refreshClipInPlace(id))) loadClips();
     } catch (error) {
         console.error('Error setting expiration:', error);
         showToast('Failed to set expiration.', 'error');
@@ -1196,7 +1187,7 @@ async function cancelExpiration(id) {
     try {
         await window.go.main.App.CancelExpiration(id);
         showToast('Expiration canceled.');
-        if (!setClipExpiryInPlace(id, null)) loadClips();
+        if (!(await refreshClipInPlace(id))) loadClips();
     } catch (error) {
         console.error('Error canceling expiration:', error);
         showToast('Failed to cancel expiration.', 'error');

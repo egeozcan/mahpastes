@@ -47,6 +47,7 @@ type desktopCore interface {
 	GetChildTags(tagID int64) ([]coreapp.Tag, error)
 	GetClipData(id int64) (*coreapp.ClipData, error)
 	GetClipMetadata(clipID int64) (map[string]string, error)
+	GetClipPreview(id int64) (*coreapp.ClipPreview, error)
 	GetClipTags(clipID int64) ([]coreapp.Tag, error)
 	GetClips(archived bool, tagIDs []int64, hiddenTagIDs []int64, sortField string, sortDir string) ([]coreapp.ClipPreview, error)
 	GetClipsDirect(archived bool, tagIDs []int64, hiddenTagIDs []int64, sortField string, sortDir string) ([]coreapp.ClipPreview, error)

@@ -130,6 +130,10 @@ export function GetClipMetadata(arg1) {
   return window['go']['main']['App']['GetClipMetadata'](arg1);
 }
 
+export function GetClipPreview(arg1) {
+  return window['go']['main']['App']['GetClipPreview'](arg1);
+}
+
 export function GetClipTags(arg1) {
   return window['go']['main']['App']['GetClipTags'](arg1);
 }

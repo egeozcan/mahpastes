@@ -1,5 +1,6 @@
 import { test, expect } from '../../fixtures/test-fixtures';
 import { selectors } from '../../helpers/selectors';
+import { generateTestImage } from '../../helpers/test-data';
 
 /**
  * A change to one clip (delete, archive, rename, expiry, a tag on its card)
@@ -172,6 +173,144 @@ test.describe('Gallery in-place patches', () => {
     await app.page.locator(selectors.cardMenu.cancelExpiration).click();
     await expect(card.locator('.clip-expiration-badge')).toHaveCount(0);
     expect(await markedNames(app)).toEqual(['exp-a.txt', 'exp-b.txt']);
+  });
+
+  test('an expiry patched in place matches the listing, so a reload keeps the card', async ({ app }) => {
+    await seedTextClips(app, ['expr-a.txt', 'expr-b.txt']);
+    await app.expectClipCount(2);
+
+    await app.openCardMenu('expr-a.txt');
+    await app.page.locator(selectors.cardMenu.setExpiration).click();
+    await app.page.locator('.expiration-popover [role="menuitem"]', { hasText: '1h' }).click();
+    const card = app.page.locator(selectors.gallery.clipCardByName('expr-a.txt'));
+    await expect(card.locator('.clip-expiration-badge')).toContainText('Temp');
+    // The badge carries the backend's timestamp, not the browser's clock.
+    const stored = await app.page.evaluate(async () => {
+      // @ts-ignore
+      const clips = await window.go.main.App.GetClips(false, [], [], '', '');
+      return clips.find((c: any) => c.filename === 'expr-a.txt').expires_at;
+    });
+    await expect(card).toHaveAttribute('data-expires-at', stored);
+
+    await markCards(app);
+    await reload(app);
+    expect(await markedNames(app)).toEqual(['expr-a.txt', 'expr-b.txt']);
+  });
+
+  test('a rename patch shows what the backend stored, not what was typed', async ({ app }) => {
+    await seedTextClips(app, ['hook-a.txt', 'hook-b.txt']);
+    await app.expectClipCount(2);
+    await markCards(app);
+    // Stand-in for a clip:renamed plugin handler that renames the clip again
+    // from inside the call.
+    await app.page.evaluate(() => {
+      // @ts-ignore
+      const svc = window.go.main.App;
+      const original = svc.RenameClip;
+      (window as any).__origRenameClip = original;
+      svc.RenameClip = async (id: number, name: string) => {
+        await original(id, name);
+        await original(id, 'hook-' + name);
+      };
+    });
+    try {
+      await app.openCardMenu('hook-a.txt');
+      await app.page.locator(selectors.cardMenu.rename).click();
+      await app.page.locator(selectors.prompt.input).fill('typed.txt');
+      await app.page.locator(selectors.prompt.saveButton).click();
+
+      await app.expectClipVisible('hook-typed.txt');
+      await expect(app.page.locator(selectors.gallery.clipCardByName('typed.txt'))).toHaveCount(0);
+      expect(await markedNames(app)).toEqual(['hook-b.txt', 'hook-typed.txt']);
+    } finally {
+      await app.page.evaluate(() => {
+        // @ts-ignore
+        window.go.main.App.RenameClip = (window as any).__origRenameClip;
+      });
+    }
+  });
+
+  test('renaming to .md reloads the card with its new type', async ({ app }) => {
+    await seedTextClips(app, ['md-a.txt', 'md-b.txt']);
+    await app.expectClipCount(2);
+    await markCards(app);
+
+    await app.openCardMenu('md-a.txt');
+    await app.page.locator(selectors.cardMenu.rename).click();
+    await app.page.locator(selectors.prompt.input).fill('md-a.md');
+    await app.page.locator(selectors.prompt.saveButton).click();
+
+    await app.expectClipVisible('md-a.md');
+    const typed = await app.page.locator(selectors.gallery.clipCardByName('md-a.md'))
+      .evaluate((el: any) => el._clip.content_type);
+    expect(typed).toContain('markdown');
+    // The type change rebuilt that card only.
+    expect(await markedNames(app)).toEqual(['md-b.txt']);
+  });
+
+  test('unchecking a tag on a card patches it in place when it stays in view', async ({ app }) => {
+    await app.createTag('drop-tag');
+    await seedTextClips(app, ['untag-a.txt', 'untag-b.txt']);
+    await app.addTagToClip('untag-a.txt', 'drop-tag');
+    await app.addTagToClip('untag-b.txt', 'drop-tag');
+    await expect.poll(() => cardTagsFor(app, 'untag-a.txt')).toEqual(['drop-tag']);
+    await markCards(app);
+
+    await openTagPopoverFor(app, 'untag-a.txt');
+    await app.page.locator('[data-testid="tag-popover"] [data-testid="tag-checkbox-drop-tag"]').uncheck();
+
+    await expect.poll(() => cardTagsFor(app, 'untag-a.txt')).toEqual([]);
+    expect(await cardTagsFor(app, 'untag-b.txt')).toEqual(['drop-tag']);
+    expect(await markedNames(app)).toEqual(['untag-a.txt', 'untag-b.txt']);
+  });
+
+  test('unchecking the filtered tag on a card removes the card', async ({ app }) => {
+    await app.createTag('filt-tag');
+    await seedTextClips(app, ['ft-a.txt', 'ft-b.txt']);
+    await app.addTagToClip('ft-a.txt', 'filt-tag');
+    await app.addTagToClip('ft-b.txt', 'filt-tag');
+    await app.filterByTag('filt-tag');
+    await app.expectClipCount(2);
+    await markCards(app);
+
+    await openTagPopoverFor(app, 'ft-a.txt');
+    await app.page.locator('[data-testid="tag-popover"] [data-testid="tag-checkbox-filt-tag"]').uncheck();
+
+    await app.expectClipCount(1);
+    await expect(app.page.locator(selectors.gallery.clipCardByName('ft-a.txt'))).toHaveCount(0);
+    expect(await markedNames(app)).toEqual(['ft-b.txt']);
+  });
+
+  test('an image card keeps its <img> and thumbnail across a reload', async ({ app }) => {
+    const files = [
+      { name: 'img-a.png', data: generateTestImage(40, 40, [200, 10, 10]).toString('base64') },
+      { name: 'img-b.png', data: generateTestImage(40, 40, [10, 200, 10]).toString('base64') },
+    ];
+    await app.page.evaluate(async (files) => {
+      // @ts-ignore
+      await window.go.main.App.UploadFiles(files.map(f => ({ ...f, content_type: 'image/png' })), 0, 0);
+    }, files);
+    await reload(app);
+    const img = app.page.locator(selectors.gallery.clipCardByName('img-a.png')).locator('img[data-thumbnail="true"]');
+    await expect(img).toHaveAttribute('src', /.+/);
+    await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth > 0)).toBe(true);
+    const src = await img.getAttribute('src');
+    await img.evaluate((el: any) => { el.__imgMark = true; });
+
+    await reload(app);
+    await reload(app);
+    expect(await img.evaluate((el: any) => !!el.__imgMark)).toBe(true);
+    await expect(img).toHaveAttribute('src', src!);
+  });
+
+  test('a card whose media failed is rebuilt by the next reload', async ({ app }) => {
+    await seedTextClips(app, ['fail-a.txt', 'fail-b.txt']);
+    await app.expectClipCount(2);
+    await markCards(app);
+    await app.page.locator(selectors.gallery.clipCardByName('fail-a.txt')).evaluate((el: any) => { el._mediaFailed = true; });
+
+    await reload(app);
+    expect(await markedNames(app)).toEqual(['fail-b.txt']);
   });
 
   test('adding a tag on a card re-renders its pills in place', async ({ app }) => {

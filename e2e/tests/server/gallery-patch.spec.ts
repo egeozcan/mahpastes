@@ -2,7 +2,7 @@ import { expect, request, test } from '@playwright/test';
 import { authedRequestContext, spawnServer } from '../../fixtures/server-fixtures';
 
 // The web UI patches a card in place after a tag change, re-reading the clip's
-// tags through the REST shim's GetClipTags (GET /api/v1/clips/{id}). Deleting
+// row through the REST shim's GetClipPreview (GET /api/v1/clips/{id}). Deleting
 // a clip removes its card without rebuilding the others.
 test('server-mode gallery patches tag and delete changes in place', async ({ page }) => {
   const server = await spawnServer();

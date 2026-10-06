@@ -691,6 +691,41 @@ view keeps the number already loaded. Plain search still only filters the cards
 already loaded; select-all and bulk actions apply to loaded clips only. Pages
 are ordered like the unpaged listing functions (ties broken by id).
 
+**Gallery updates without rebuilds** (`frontend/js/wails-api.js`, `ui.js`):
+
+- A single-clip delete, archive/restore, rename, expiry change, or tag change
+  from a card's tag popover is patched into the DOM (`removeClipCardInPlace`,
+  `refreshClipInPlace`). Each returns false when the outcome is uncertain, and
+  the caller then calls `loadClips()`. That happens in a deep search, while a
+  load or "Load more" is in flight, when deleting/archiving a clip with
+  duplicates (the other copies' badges change), and when the re-read row no
+  longer fits the card or view (below). Bulk operations always reload. A patch
+  must leave everything else as a reload would: loaded/total, the count, Load
+  more, selection, the bulk toolbar, the empty state, the lightbox list, the
+  rover, focus, and `__galleryRenderSeq` (`afterGalleryPatch`).
+- Rename, expiry and tag patches never apply what the frontend asked for.
+  `refreshClipInPlace` re-reads the stored row (`App.GetClipPreview`; REST
+  `GET /api/v1/clips/{id}`, which like the server listing has no `expires_at`)
+  and patches from it, because the backend stamps expiry on its own clock,
+  RenameClip turns `.md` into Markdown, and a plugin handler can retag or rename
+  the clip from inside the call. It reloads instead on a new content type or
+  hash, an archive flip, a rename while sorted by name, or tags that take the
+  clip out of the view (`clipTagsFitView`). Patching from the row also keeps the
+  card's signature equal to the next listing's, so that reload reuses it.
+- A full `loadClips()` keeps every `<li>` whose `clipCardSignature` is
+  unchanged and only re-orders it (`reuseClipCard`). Anything a card bakes into
+  its markup must be part of that signature, or a reload will show the stale
+  card: the clip's fields, its media revision, folder mode, hidden dimming,
+  and drag-out availability. Card listeners close over `card._clip`. Patches
+  and reuse update that object; they never replace it. A card whose media
+  failed or fell back to a live `<video>` sets `_mediaFailed` and is rebuilt,
+  not reused, so a reload retries it.
+- Captured video frames are cached in `videoFrameCache`, keyed by clip id and
+  revision (content hash plus `mediaRevisions`). The cache holds up to 300
+  object URLs (`canvas.toBlob`). A URL is revoked when it is evicted, when
+  `invalidateClipMedia` runs, or when the clip is deleted. The frame is still only ever shown through
+  `img.video-thumb`.
+
 **Never read a clips column past the blob through the table.** `clips` stores
 `data` third; every later column (`filename`, `created_at`, `is_archived`,
 `expires_at`, `content_hash`, `metadata`) sits after it, and reading one walks

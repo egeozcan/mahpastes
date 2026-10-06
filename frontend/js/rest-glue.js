@@ -223,6 +223,9 @@
         // The clip's tags, as the desktop binding returns them (the gallery
         // re-renders a card's pills from this after a tag change on it).
         GetClipTags: async (clipID) => ((await fetchJSON(`${api}/clips/${clipID}`)) || {}).tags || [],
+        // One clip as the gallery shows it. The REST row carries no
+        // expires_at, matching the server listing, which has none either.
+        GetClipPreview: (clipID) => fetchJSON(`${api}/clips/${clipID}`),
         GetChildTags: (id) => fetchJSON(`${api}/tags/${id}/children`),
         // Tags with no existing ancestor, matching the desktop binding.
         GetTopLevelTags: async () => {

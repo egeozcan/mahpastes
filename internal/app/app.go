@@ -361,6 +361,16 @@ func clipPreviewExpr(prefix string) string {
 	return fmt.Sprintf("CASE WHEN substr(%[1]scontent_type, 1, 5) = 'text/' OR %[1]scontent_type = 'application/json' THEN SUBSTR(%[1]sdata, 1, 500) END", prefix)
 }
 
+// GetClipPreview returns one clip as a gallery listing row (DuplicateCount is
+// not computed). After a single-clip change the gallery re-reads the clip
+// through it and patches the card from the stored row, not from what the
+// frontend asked for: the backend stamps expiry on its own clock, RenameClip
+// can change the content type, and a plugin handler can retag or rename the
+// clip from inside the call.
+func (a *App) GetClipPreview(id int64) (*ClipPreview, error) {
+	return a.getClipPreview(id)
+}
+
 // getClipPreview fetches a single clip's preview data (private helper, not exported to frontend)
 func (a *App) getClipPreview(id int64) (*ClipPreview, error) {
 	var clip ClipPreview

@@ -81,4 +81,51 @@ test.describe('Video card frame cache', () => {
     expect(revoked).toBe(true);
     expect(await app.page.evaluate(() => (window as any).__videoFrameCacheStats().entries)).toBe(0);
   });
+
+  test('overwriting a video through upload captures a new frame and revokes the old one', async ({ app }) => {
+    const original = generateTestVideo();
+    const videoPath = await createTempFile(original, 'mp4');
+    const filename = path.basename(videoPath);
+    await app.uploadFile(videoPath);
+    const thumb = app.page.locator(selectors.gallery.clipCardByName(filename)).locator('img.video-thumb');
+    await expect(thumb).toHaveAttribute('src', /^blob:/);
+    const firstSrc = await thumb.getAttribute('src');
+
+    // New bytes, same picture: a trailing `free` box changes the content hash.
+    const free = Buffer.from([0, 0, 0, 8, 0x66, 0x72, 0x65, 0x65]);
+    const replaced = Buffer.concat([original, free]).toString('base64');
+    const uploading = app.page.evaluate(async ({ name, data }: { name: string; data: string }) => {
+      // @ts-ignore
+      await upload([{ name, content_type: 'video/mp4', data }]);
+    }, { name: filename, data: replaced });
+    await expect(app.page.locator(selectors.conflict.dialog)).not.toHaveAttribute('inert', '', { timeout: 5000 });
+    await app.page.locator(selectors.conflict.overwriteButton).click();
+    await uploading;
+
+    await expect(thumb).toHaveAttribute('src', /^blob:/);
+    await expect.poll(() => thumb.getAttribute('src')).not.toBe(firstSrc);
+    const oldRevoked = await app.page.evaluate(async (src) => {
+      try { await fetch(src!); return false; } catch { return true; }
+    }, firstSrc);
+    expect(oldRevoked).toBe(true);
+  });
+
+  test('deleting a video frees its cached frame', async ({ app }) => {
+    const videoPath = await createTempFile(generateTestVideo(), 'mp4');
+    const filename = path.basename(videoPath);
+    await app.uploadFile(videoPath);
+    const thumb = app.page.locator(selectors.gallery.clipCardByName(filename)).locator('img.video-thumb');
+    await expect(thumb).toHaveAttribute('src', /^blob:/);
+    const src = await thumb.getAttribute('src');
+    const id = Number(await app.page.locator(selectors.gallery.clipCardByName(filename)).getAttribute('data-id'));
+
+    await app.deleteClip(filename);
+    await app.expectClipCount(0);
+    // @ts-ignore - ui.js global; other tests on this worker may hold entries
+    expect(await app.page.evaluate((clipId) => videoFrameCache.has(clipId), id)).toBe(false);
+    const revoked = await app.page.evaluate(async (s) => {
+      try { await fetch(s!); return false; } catch { return true; }
+    }, src);
+    expect(revoked).toBe(true);
+  });
 });

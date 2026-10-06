@@ -1570,8 +1570,15 @@ function loadMediaForCard(clip, card) {
     }
 }
 
+// A card whose media failed (or fell back to a live video) is rebuilt by the
+// next reload rather than reused, so a transient failure is retried.
+function markCardMediaFailed(card) {
+    card._mediaFailed = true;
+}
+
 function showCardMediaError(clipId, card, error) {
     console.error(`Failed to load media for clip ${clipId}:`, error);
+    markCardMediaFailed(card);
     const spinner = card.querySelector('.loading-spinner');
     if (spinner) {
         spinner.innerHTML = '<span class="text-red-400 text-xs">Failed to load</span>';
@@ -1674,6 +1681,7 @@ async function loadVideoCard(clip, card) {
     const keepLiveVideo = () => {
         if (settled) return;
         settled = true;
+        markCardMediaFailed(card);
         video.classList.remove('hidden');
         showBadge();
         finish();
@@ -1716,8 +1724,9 @@ async function loadVideoCard(clip, card) {
                     thumb.src = url;
                     thumb.classList.remove('hidden');
                     showBadge();
-                } else if (spinner) {
-                    spinner.innerHTML = '<span class="text-red-400 text-xs">Failed to load</span>';
+                } else {
+                    markCardMediaFailed(card);
+                    if (spinner) spinner.innerHTML = '<span class="text-red-400 text-xs">Failed to load</span>';
                 }
                 finish();
             }, 'image/jpeg', 0.85);
@@ -1768,6 +1777,7 @@ async function loadVideoCard(clip, card) {
         video.removeAttribute('src');
         video.load();
         video.remove();
+        markCardMediaFailed(card);
         if (spinner) spinner.innerHTML = '<span class="text-red-400 text-xs">Failed to load</span>';
         finish();
     });
