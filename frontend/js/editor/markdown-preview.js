@@ -167,25 +167,55 @@ const MarkdownPreview = (() => {
     }
 
 
-    async function runPool(tasks, limit) {
-        let next = 0;
-        const lanes = Array.from({ length: Math.min(limit, tasks.length) }, async () => {
-            while (next < tasks.length) {
-                const task = tasks[next++];
-                try {
-                    await task();
-                } catch (error) {
-                    console.error('Markdown image load failed:', error);
-                }
-            }
+    // One image-load scheduler for the whole session, not one pool per render.
+    // A superseded render cannot cancel a GetLocalImage/ValidateEmbeddedImage
+    // call already in flight, so a per-render pool let every new render start
+    // IMAGE_LOAD_CONCURRENCY more reads on top of the ones still running.
+    // Here a slot is held until its task — and so the backend call it awaits —
+    // settles, whatever generation it belongs to; queued tasks of a
+    // superseded render are discarded without running.
+    let imageLoadQueue = [];
+    let imageLoadsRunning = 0;
+
+    function scheduleImageLoad(task, gen) {
+        return new Promise(resolve => {
+            imageLoadQueue.push({ task, gen, resolve });
+            pumpImageLoads();
         });
-        await Promise.all(lanes);
+    }
+
+    function pumpImageLoads() {
+        while (imageLoadsRunning < IMAGE_LOAD_CONCURRENCY && imageLoadQueue.length > 0) {
+            const item = imageLoadQueue.shift();
+            if (item.gen !== generation) {
+                item.resolve();
+                continue;
+            }
+            imageLoadsRunning++;
+            Promise.resolve()
+                .then(item.task)
+                .catch(error => console.error('Markdown image load failed:', error))
+                .finally(() => {
+                    imageLoadsRunning--;
+                    item.resolve();
+                    pumpImageLoads();
+                });
+        }
+    }
+
+    // Called after every generation bump: settles the waiting loads of the
+    // renders it superseded. Running ones keep their slots until they settle.
+    function discardStaleImageLoads() {
+        const stale = imageLoadQueue.filter(item => item.gen !== generation);
+        imageLoadQueue = imageLoadQueue.filter(item => item.gen === generation);
+        stale.forEach(item => item.resolve());
     }
 
     function open(clipID) {
         clearImageCache();
         sourceClipID = clipID;
         generation++;
+        discardStaleImageLoads();
         wakeBudgetWaiters();
         loadedImageBytes = 0;
         loadedImageDecodedBytes = 0;
@@ -194,6 +224,7 @@ const MarkdownPreview = (() => {
 
     function beginRender() {
         generation++;
+        discardStaleImageLoads();
         sweepImageCache();
         wakeBudgetWaiters();
         loadedImageBytes = 0;
@@ -207,6 +238,7 @@ const MarkdownPreview = (() => {
 
     function close() {
         generation++;
+        discardStaleImageLoads();
         wakeBudgetWaiters();
         sourceClipID = null;
         clearImageCache();
@@ -652,11 +684,11 @@ const MarkdownPreview = (() => {
             if (result) applyReferenceResult(link, result);
         });
 
-        // A pool rather than a serial await per image: each fetch is an IPC
+        // A bounded pool rather than a serial await per image: each fetch is an IPC
         // round trip plus Go-side validation, and they are independent — every
         // descriptor owns its placeholder.
         const tasks = descriptors.map(descriptor => () => enhanceImage(descriptor, gen, resultByReference));
-        await runPool(tasks, IMAGE_LOAD_CONCURRENCY);
+        await Promise.all(tasks.map(task => scheduleImageLoad(task, gen)));
         if (gen === generation) completedKeys = renderKeys;
     }
 
