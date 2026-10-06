@@ -172,13 +172,52 @@ func TestClipListingQueriesNeverReadPastBlob(t *testing.T) {
 			)
 		}
 	}
-	for _, l := range listings {
-		if past := clipsColumnsReadPastBlob(t, a.db, clipPageSQL(l.q, 0, 50), l.q.args...); len(past) > 0 {
-			t.Errorf("%s: page query reads %v through the clips table", l.name, past)
+	check := func(stage string) {
+		for _, l := range listings {
+			if past := clipsColumnsReadPastBlob(t, a.db, clipPageSQL(l.q, 0, 50), l.q.args...); len(past) > 0 {
+				t.Errorf("%s (%s): page query reads %v through the clips table", l.name, stage, past)
+			}
+			if past := clipsColumnsReadPastBlob(t, a.db, "SELECT COUNT(*) FROM clips c WHERE "+l.q.where, l.q.args...); len(past) > 0 {
+				t.Errorf("%s (%s): count reads %v through the clips table", l.name, stage, past)
+			}
 		}
-		if past := clipsColumnsReadPastBlob(t, a.db, "SELECT COUNT(*) FROM clips c WHERE "+l.q.where, l.q.args...); len(past) > 0 {
-			t.Errorf("%s: count reads %v through the clips table", l.name, past)
+	}
+	check("no statistics")
+	// Compact database (maintenance) runs ANALYZE, after which the planner
+	// costs plans from real statistics.
+	seedAndAnalyze(t, a, []int64{parent.ID, child.ID, hidden.ID})
+	check("after ANALYZE")
+}
+
+// seedAndAnalyze fills the library with clips of every kind, some tagged and
+// some expiring, then runs ANALYZE as the maintenance compaction does.
+func seedAndAnalyze(t *testing.T, a *App, tagIDs []int64) {
+	t.Helper()
+	tx, err := a.db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	blob := strings.Repeat("x", 20_000)
+	for i := 0; i < 300; i++ {
+		ct := []string{"text/plain", "image/png", "video/mp4", "application/json"}[i%4]
+		res, err := tx.Exec(`INSERT INTO clips (filename, content_type, data, is_archived, expires_at, content_hash)
+			VALUES (?, ?, ?, ?, CASE WHEN ? THEN datetime('now', '+1 day') END, ?)`,
+			fmt.Sprintf("f%03d", i), ct, []byte(blob), i%5 == 0, i%3 == 0, fmt.Sprintf("h%d", i%50))
+		if err != nil {
+			t.Fatal(err)
 		}
+		id, _ := res.LastInsertId()
+		if i%2 == 0 {
+			if _, err := tx.Exec(`INSERT INTO clip_tags (clip_id, tag_id) VALUES (?, ?)`, id, tagIDs[i%len(tagIDs)]); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.db.Exec("ANALYZE"); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -201,9 +240,22 @@ func TestClipSideQueriesNeverReadPastBlob(t *testing.T) {
 		{"markdown untagged", markdownUntaggedCandidatesSQL, []interface{}{"a.png", 9}},
 		{"markdown tagged", markdownTaggedCandidatesSQL, []interface{}{"docs", "a.png", 9}},
 	}
-	for _, q := range queries {
-		if past := clipsColumnsReadPastBlob(t, a.db, q.sql, q.args...); len(past) > 0 {
-			t.Errorf("%s reads %v through the clips table", q.name, past)
+	check := func(stage string) {
+		for _, q := range queries {
+			if past := clipsColumnsReadPastBlob(t, a.db, q.sql, q.args...); len(past) > 0 {
+				t.Errorf("%s (%s) reads %v through the clips table", q.name, stage, past)
+			}
 		}
 	}
+	check("no statistics")
+	var tagIDs []int64
+	for _, name := range []string{"docs", "docs/sub", "other"} {
+		tag, err := a.CreateTag(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tagIDs = append(tagIDs, tag.ID)
+	}
+	seedAndAnalyze(t, a, tagIDs)
+	check("after ANALYZE")
 }

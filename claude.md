@@ -786,8 +786,15 @@ then drop the clip's temp files (`UpdateClipData`, `writeJSONClip`);
 `publishSnapshot` re-checks the hash (and the row's existence) under the store
 mutex so an edit or delete racing a copy cannot leave a published copy of bytes
 the library no longer holds, and `PrepareClipFile` replaces temp files by
-rename (`replaceTempFile`) so a `/media/` playback reading the old copy is
-never truncated. Every deleter of `clips` rows must drop the clip's temp files
+rename (`publishPreparedLocked`) so a `/media/` playback reading the old copy is
+never truncated. `PrepareClipFile` copies outside the store mutex — one shared
+copy per clip (`prepFlights`), different clips concurrently (capped by
+`tempPrepareMaxConcurrent`) — and publishes only if no drop for that clip ran
+since it began reading (the flight's `dropped` flag, set under the mutex by
+`DeleteForClipIDs`/`DeleteAll`); otherwise it re-reads. That is why the drop
+must come *after* the write. `FindExistingClipFile` looks files up in the
+in-memory `leased` index (rebuilt by every prune), not by listing the
+directory. Every deleter of `clips` rows must drop the clip's temp files
 *after* the DELETE: the App delete paths do, the expiry reaper
 (`deleteExpiredClips`, `DELETE … RETURNING id`) does, and plugin
 `clips.delete`/`delete_many` report their ids through

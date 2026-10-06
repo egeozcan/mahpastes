@@ -2,8 +2,12 @@ package app
 
 import (
 	"database/sql"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -154,3 +158,282 @@ func TestPrune_RemovesStaleAndOrphanFiles(t *testing.T) {
 		t.Fatalf("expected stale unknown file to be removed, got err=%v", err)
 	}
 }
+
+func newConcurrencyTestStore(t *testing.T) (*TempClipStore, *sql.DB) {
+	t.Helper()
+	root := t.TempDir()
+	db := newTempStoreTestDB(t, root)
+	dir := filepath.Join(root, "temp")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	return NewTempClipStore(db, dir, time.Hour, time.Hour), db
+}
+
+func setTempPrepareAfterLoad(t *testing.T, fn func(clipID int64)) {
+	t.Helper()
+	tempPrepareAfterLoad = fn
+	t.Cleanup(func() { tempPrepareAfterLoad = nil })
+}
+
+// Concurrent requests for one clip share one copy out of the database.
+func TestPrepareClipFile_ConcurrentSameClipSharesOneCopy(t *testing.T) {
+	store, db := newConcurrencyTestStore(t)
+	if _, err := db.Exec(`INSERT INTO clips (id, content_type, data, filename) VALUES (1, 'video/mp4', ?, 'v.mp4')`, []byte("video bytes")); err != nil {
+		t.Fatal(err)
+	}
+
+	var loads atomic.Int32
+	release := make(chan struct{})
+	setTempPrepareAfterLoad(t, func(int64) {
+		loads.Add(1)
+		<-release
+	})
+
+	const n = 8
+	var wg sync.WaitGroup
+	errs := make(chan error, n)
+	paths := make(chan string, n)
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			res, err := store.PrepareClipFile(1)
+			if err != nil {
+				errs <- err
+				return
+			}
+			paths <- res.AbsPath
+		}()
+	}
+	// Let every caller arrive while the first copy is held open.
+	if !waitFor(t, 5*time.Second, func() bool { return loads.Load() == 1 }) {
+		t.Fatal("first copy never started")
+	}
+	time.Sleep(20 * time.Millisecond)
+	close(release)
+	wg.Wait()
+	close(errs)
+	close(paths)
+	for err := range errs {
+		t.Fatal(err)
+	}
+	if got := loads.Load(); got != 1 {
+		t.Fatalf("clip read %d times, want 1", got)
+	}
+	var first string
+	for p := range paths {
+		if first == "" {
+			first = p
+		} else if p != first {
+			t.Fatalf("callers got different files: %s vs %s", first, p)
+		}
+	}
+	if b, err := os.ReadFile(first); err != nil || string(b) != "video bytes" {
+		t.Fatalf("prepared file = %q, %v", b, err)
+	}
+}
+
+// Copies of different clips do not wait on one another, and a lookup of a
+// file already prepared does not wait behind a copy in progress.
+func TestPrepareClipFile_DifferentClipsCopyConcurrently(t *testing.T) {
+	store, db := newConcurrencyTestStore(t)
+	for id := 1; id <= 3; id++ {
+		if _, err := db.Exec(`INSERT INTO clips (id, content_type, data, filename) VALUES (?, 'video/mp4', ?, ?)`,
+			id, []byte(fmt.Sprintf("clip %d", id)), fmt.Sprintf("c%d.mp4", id)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := store.PrepareClipFile(3); err != nil {
+		t.Fatal(err)
+	}
+
+	bothLoaded := make(chan struct{})
+	var loaded sync.WaitGroup
+	loaded.Add(2)
+	go func() { loaded.Wait(); close(bothLoaded) }()
+	setTempPrepareAfterLoad(t, func(clipID int64) {
+		if clipID == 3 {
+			return
+		}
+		loaded.Done()
+		// Holds clip 1's copy open until clip 2's copy has also read its
+		// clip: impossible if copies were serialized.
+		select {
+		case <-bothLoaded:
+		case <-time.After(5 * time.Second):
+		}
+	})
+
+	done := make(chan error, 2)
+	for _, id := range []int64{1, 2} {
+		go func(id int64) {
+			_, err := store.PrepareClipFile(id)
+			done <- err
+		}(id)
+	}
+
+	select {
+	case <-bothLoaded:
+	case <-time.After(3 * time.Second):
+		t.Fatal("copies of different clips were serialized")
+	}
+
+	for i := 0; i < 2; i++ {
+		if err := <-done; err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestFindExistingClipFile_DoesNotWaitBehindACopy(t *testing.T) {
+	store, db := newConcurrencyTestStore(t)
+	for id := 1; id <= 2; id++ {
+		if _, err := db.Exec(`INSERT INTO clips (id, content_type, data, filename) VALUES (?, 'video/mp4', ?, ?)`,
+			id, []byte("x"), fmt.Sprintf("c%d.mp4", id)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := store.PrepareClipFile(2); err != nil {
+		t.Fatal(err)
+	}
+
+	inCopy := make(chan struct{})
+	release := make(chan struct{})
+	setTempPrepareAfterLoad(t, func(clipID int64) {
+		if clipID == 1 {
+			close(inCopy)
+			<-release
+		}
+	})
+	copyDone := make(chan error, 1)
+	go func() {
+		_, err := store.PrepareClipFile(1)
+		copyDone <- err
+	}()
+	<-inCopy
+
+	found := make(chan *tempPreparedFile, 1)
+	go func() {
+		res, err := store.FindExistingClipFile(2)
+		if err != nil {
+			t.Error(err)
+		}
+		found <- res
+	}()
+	select {
+	case res := <-found:
+		if res == nil || filepath.Base(res.AbsPath) != "2_c2.mp4" {
+			t.Fatalf("lookup = %+v, want the prepared file of clip 2", res)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("FindExistingClipFile waited behind another clip's copy")
+	}
+	close(release)
+	if err := <-copyDone; err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A clip edited (its temp files dropped) while a copy of it was being made
+// must not get the old bytes published: the copy is discarded and redone.
+func TestPrepareClipFile_DropDuringCopyRereads(t *testing.T) {
+	store, db := newConcurrencyTestStore(t)
+	if _, err := db.Exec(`INSERT INTO clips (id, content_type, data, filename) VALUES (1, 'text/plain', 'old', 'n.txt')`); err != nil {
+		t.Fatal(err)
+	}
+
+	var edited atomic.Bool
+	setTempPrepareAfterLoad(t, func(int64) {
+		if edited.CompareAndSwap(false, true) {
+			// A writer of clips.data: update, then drop the clip's files.
+			if _, err := db.Exec(`UPDATE clips SET data = 'new' WHERE id = 1`); err != nil {
+				t.Error(err)
+			}
+			if err := store.DeleteForClipIDs([]int64{1}); err != nil {
+				t.Error(err)
+			}
+		}
+	})
+
+	res, err := store.PrepareClipFile(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(res.AbsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(b) != "new" {
+		t.Fatalf("prepared file holds %q, want the edited bytes", b)
+	}
+
+	// A clip deleted mid-copy is reported missing and leaves no file behind.
+	edited.Store(false)
+	setTempPrepareAfterLoad(t, func(int64) {
+		if edited.CompareAndSwap(false, true) {
+			if _, err := db.Exec(`DELETE FROM clips WHERE id = 1`); err != nil {
+				t.Error(err)
+			}
+			if err := store.DeleteForClipIDs([]int64{1}); err != nil {
+				t.Error(err)
+			}
+		}
+	})
+	if _, err := store.PrepareClipFile(1); !errors.Is(err, ErrClipNotFound) {
+		t.Fatalf("prepare of a clip deleted mid-copy: err = %v, want ErrClipNotFound", err)
+	}
+	entries, _ := os.ReadDir(store.dir)
+	for _, e := range entries {
+		t.Errorf("file left behind: %s", e.Name())
+	}
+}
+
+// The leased-file index stays consistent with the directory: drops, files
+// removed behind the store's back, and DeleteAll.
+func TestFindExistingClipFile_IndexTracksDisk(t *testing.T) {
+	store, db := newConcurrencyTestStore(t)
+	if _, err := db.Exec(`INSERT INTO clips (id, content_type, data, filename) VALUES (1, 'text/plain', 'a', 'a.txt'), (2, 'text/plain', 'b', 'b.txt')`); err != nil {
+		t.Fatal(err)
+	}
+	// A file left by an earlier run is found without a prepare.
+	if err := os.WriteFile(filepath.Join(store.dir, "2_b.txt"), []byte("b"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if res, err := store.FindExistingClipFile(2); err != nil || res == nil {
+		t.Fatalf("file from an earlier run: %+v, %v", res, err)
+	}
+
+	res, err := store.PrepareClipFile(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := store.FindExistingClipFile(1); got == nil || got.AbsPath != res.AbsPath {
+		t.Fatalf("lookup after prepare = %+v", got)
+	}
+
+	if err := os.Remove(res.AbsPath); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := store.FindExistingClipFile(1); got != nil {
+		t.Fatalf("lookup of a file removed behind the store = %+v, want nil", got)
+	}
+
+	if _, err := store.PrepareClipFile(1); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.DeleteForClipIDs([]int64{1}); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := store.FindExistingClipFile(1); got != nil {
+		t.Fatalf("lookup after drop = %+v, want nil", got)
+	}
+
+	if err := store.DeleteAll(); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := store.FindExistingClipFile(2); got != nil {
+		t.Fatalf("lookup after DeleteAll = %+v, want nil", got)
+	}
+}
+

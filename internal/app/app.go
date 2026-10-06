@@ -1257,13 +1257,16 @@ func hiddenClipCountSQL(where string) string {
 	return fmt.Sprintf("SELECT COUNT(DISTINCT c.id) FROM clips c WHERE %s", where)
 }
 
+// hiddenClipTagsSQL names the hidden tags carried by the clips where selects.
+// The clips filter is an IN subquery so it runs off a covering listing index;
+// joined, the planner may look each clip up in the table, and expires_at is
+// stored after the data blob.
 func hiddenClipTagsSQL(where, hiddenIn string) string {
 	return fmt.Sprintf(`
 		SELECT DISTINCT t.name
-		FROM clips c
-		INNER JOIN clip_tags ct ON ct.clip_id = c.id
+		FROM clip_tags ct
 		INNER JOIN tags t ON t.id = ct.tag_id
-		WHERE %s
+		WHERE ct.clip_id IN (SELECT c.id FROM clips c WHERE %s)
 		  AND t.id IN (%s)
 		ORDER BY t.name`, where, hiddenIn)
 }
