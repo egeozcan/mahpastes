@@ -17,16 +17,26 @@ const MarkdownPreview = (() => {
     // object URL. Preview re-renders on every edit; without this each render
     // refetched (and re-validated, and re-shipped as base64) every image.
     // Keys: `local:<clipID>`, `remote:<url>`, or `data:<sha256 of the URL>`.
-    // Only successes stay cached. Bounded to what the preview still shows:
-    // beginRender sweeps (and revokes) every entry neither the render being
-    // replaced nor the last completed render used, so editing an embedded
-    // image or walking through many references cannot grow it without limit.
+    // Only successes stay cached, and only while something displays them:
+    // an entry is kept while the current render shows it, a load of the
+    // current render is still waiting on it, or the last completed render
+    // showed it. An entry no reference of the current render ended up
+    // displaying (e.g. refused by the preview budget) is dropped and revoked
+    // as soon as its last waiting load settles, so the cache never holds
+    // more than the budget lets two renders show plus the loads in flight —
+    // not every image a render fetched and refused. beginRender sweeps every
+    // entry neither the render being replaced nor the last completed render
+    // showed, except loads still in flight, which the next sweep handles.
     // `local:` entries are dropped whenever the library change counter has
     // moved (a referenced clip edited, deleted or restored over), and the
     // whole cache goes, URLs revoked, when the session ends.
     let imageCache = new Map();
+    // Keys an <img> of the current render (renderKeys) or the last
+    // completed one (completedKeys) displays.
     let renderKeys = new Set();
     let completedKeys = new Set();
+    // Key -> loads of the current render that may still display that entry.
+    let pendingUses = new Map();
     let localCacheVersion = null;
 
     function service() {
@@ -44,11 +54,30 @@ const MarkdownPreview = (() => {
         imageCache = new Map();
         renderKeys = new Set();
         completedKeys = new Set();
+        pendingUses = new Map();
         localCacheVersion = null;
     }
 
+    // A load of render `gen` is about to look the key up. Every useKey is
+    // paired with exactly one finishUse once that load has displayed (or
+    // given up on) the entry.
     function useKey(key, gen) {
-        if (gen === generation) renderKeys.add(key);
+        if (gen === generation) pendingUses.set(key, (pendingUses.get(key) || 0) + 1);
+    }
+
+    // A load of a superseded render leaves its entry to the next sweep: the
+    // render that replaced it may be about to reuse it.
+    function finishUse(key, gen, shown) {
+        if (gen !== generation) return;
+        const count = (pendingUses.get(key) || 0) - 1;
+        if (count > 0) pendingUses.set(key, count);
+        else pendingUses.delete(key);
+        if (shown) renderKeys.add(key);
+        if (renderKeys.has(key) || completedKeys.has(key) || pendingUses.has(key)) return;
+        const promise = imageCache.get(key);
+        if (!promise) return;
+        imageCache.delete(key);
+        revokeEntries([promise]);
     }
 
     // Runs when a new render replaces the DOM: anything the outgoing render
@@ -56,13 +85,16 @@ const MarkdownPreview = (() => {
     function sweepImageCache() {
         const dropped = [];
         for (const [key, promise] of imageCache) {
-            if (!renderKeys.has(key) && !completedKeys.has(key)) {
+            // A load the outgoing render still has in flight is kept for the
+            // new render to reuse; the next sweep drops it unless shown.
+            if (!renderKeys.has(key) && !completedKeys.has(key) && !pendingUses.has(key)) {
                 dropped.push(promise);
                 imageCache.delete(key);
             }
         }
         revokeEntries(dropped);
         renderKeys = new Set();
+        pendingUses = new Map();
     }
 
     function dropLocalImages() {
@@ -405,19 +437,28 @@ const MarkdownPreview = (() => {
         const gen = descriptor.generation ?? generation;
         const key = `remote:${descriptor.source}`;
         useKey(key, gen);
+        let shown = false;
+        try {
+            shown = await downloadRemoteImage(api, descriptor, gen, key);
+        } finally {
+            finishUse(key, gen, shown);
+        }
+    }
+
+    // Returns whether the cache entry under `key` ended up displayed.
+    async function downloadRemoteImage(api, descriptor, gen, key) {
         const placeholder = resetImagePlaceholder(descriptor);
         const hit = imageCache.get(key);
         if (hit) {
             // Another reference to the same URL already loaded it.
             try {
                 const entry = await hit;
-                if (gen === generation) displayImage(placeholder, entry, descriptor.alt, descriptor.title);
-                return;
+                return gen === generation && displayImage(placeholder, entry, descriptor.alt, descriptor.title);
             } catch (_) {
                 // A failed shared load falls through to a download of its own.
             }
         }
-        if (!(await reserveImageBudget(placeholder, gen))) return;
+        if (!(await reserveImageBudget(placeholder, gen))) return false;
         const requestID = crypto.randomUUID();
         placeholder.appendChild(externalLink(descriptor.source, descriptor.source));
         const progress = document.createElement('progress');
@@ -440,21 +481,22 @@ const MarkdownPreview = (() => {
             const result = await api.LoadRemoteImage(requestID, descriptor.source);
             const active = activeDownloads.get(requestID);
             releaseDownloadReservation(active);
-            if (!active || gen !== generation) return;
+            if (!active || gen !== generation) return false;
             // Keeps an entry another reference stored meanwhile (its URL may
             // already be on screen) rather than replacing and revoking it.
             const entry = await cachedImage(key, () => result);
-            if (gen !== generation) return;
-            displayImage(placeholder, entry, descriptor.alt, descriptor.title);
+            if (gen !== generation) return false;
+            return displayImage(placeholder, entry, descriptor.alt, descriptor.title);
         } catch (error) {
             const active = activeDownloads.get(requestID);
             releaseDownloadReservation(active);
-            if (!active || gen !== generation) return;
+            if (!active || gen !== generation) return false;
             addURLControls(descriptor, true);
             const note = document.createElement('span');
             note.className = 'markdown-image-note markdown-image-error';
             note.textContent = String(error?.message || error || 'Image load failed');
             descriptor.placeholder.appendChild(note);
+            return false;
         } finally {
             activeDownloads.delete(requestID);
         }
@@ -465,41 +507,51 @@ const MarkdownPreview = (() => {
         const api = service();
         const key = `remote:${descriptor.source}`;
         useKey(key, gen);
-        const cached = imageCache.has(key);
-        if (!api || (!cached && !(await reserveImageBudget(descriptor.placeholder, gen)))) return;
+        let shown = false;
         try {
-            const entry = await cachedImage(key, async () => {
-                const result = await api.GetCachedRemoteImage(descriptor.source);
-                // A miss is not an image; it must not be cached as one.
-                if (!result?.hit) throw new Error('not cached');
-                return result;
-            });
-            if (!cached) releaseImageBudget(gen);
-            if (gen !== generation) return;
-            displayImage(descriptor.placeholder, entry, descriptor.alt, descriptor.title);
-        } catch (_) {
-            if (!cached) releaseImageBudget(gen);
-            // A cache miss/failure leaves the explicit Load control intact.
+            const cached = imageCache.has(key);
+            if (!api || (!cached && !(await reserveImageBudget(descriptor.placeholder, gen)))) return;
+            try {
+                const entry = await cachedImage(key, async () => {
+                    const result = await api.GetCachedRemoteImage(descriptor.source);
+                    // A miss is not an image; it must not be cached as one.
+                    if (!result?.hit) throw new Error('not cached');
+                    return result;
+                });
+                if (!cached) releaseImageBudget(gen);
+                if (gen !== generation) return;
+                shown = displayImage(descriptor.placeholder, entry, descriptor.alt, descriptor.title);
+            } catch (_) {
+                if (!cached) releaseImageBudget(gen);
+                // A cache miss/failure leaves the explicit Load control intact.
+            }
+        } finally {
+            finishUse(key, gen, shown);
         }
     }
 
     async function loadLocalImage(placeholder, clipID, descriptor, gen = generation) {
         const key = `local:${clipID}`;
         useKey(key, gen);
-        const cached = imageCache.has(key);
-        if (!cached && !(await reserveImageBudget(placeholder, gen))) return;
+        let shown = false;
         try {
-            const entry = await cachedImage(key, () => service().GetLocalImage(clipID));
-            if (!cached) releaseImageBudget(gen);
-            if (gen !== generation) return;
-            displayImage(placeholder, entry, descriptor?.alt, descriptor?.title);
-        } catch (error) {
-            if (!cached) releaseImageBudget(gen);
-            if (gen !== generation) return;
-            const note = document.createElement('span');
-            note.className = 'markdown-image-note markdown-image-error';
-            note.textContent = String(error?.message || error || 'Image unavailable');
-            placeholder.appendChild(note);
+            const cached = imageCache.has(key);
+            if (!cached && !(await reserveImageBudget(placeholder, gen))) return;
+            try {
+                const entry = await cachedImage(key, () => service().GetLocalImage(clipID));
+                if (!cached) releaseImageBudget(gen);
+                if (gen !== generation) return;
+                shown = displayImage(placeholder, entry, descriptor?.alt, descriptor?.title);
+            } catch (error) {
+                if (!cached) releaseImageBudget(gen);
+                if (gen !== generation) return;
+                const note = document.createElement('span');
+                note.className = 'markdown-image-note markdown-image-error';
+                note.textContent = String(error?.message || error || 'Image unavailable');
+                placeholder.appendChild(note);
+            }
+        } finally {
+            finishUse(key, gen, shown);
         }
     }
 
@@ -512,18 +564,23 @@ const MarkdownPreview = (() => {
         const key = await embeddedImageKey(descriptor.source);
         if (gen !== generation) return;
         useKey(key, gen);
-        const cached = imageCache.has(key);
-        if (!cached && !(await reserveImageBudget(descriptor.placeholder, gen))) return;
+        let shown = false;
         try {
-            const entry = await cachedImage(key, () =>
-                service().ValidateEmbeddedImage(match[2].replace(/\s/g, ''), match[1].toLowerCase()));
-            if (!cached) releaseImageBudget(gen);
-            if (gen !== generation) return;
-            displayImage(descriptor.placeholder, entry, descriptor.alt, descriptor.title);
-        } catch (error) {
-            if (!cached) releaseImageBudget(gen);
-            if (gen !== generation) return;
-            resetImagePlaceholder(descriptor).append(String(error?.message || error || 'Embedded image unavailable'));
+            const cached = imageCache.has(key);
+            if (!cached && !(await reserveImageBudget(descriptor.placeholder, gen))) return;
+            try {
+                const entry = await cachedImage(key, () =>
+                    service().ValidateEmbeddedImage(match[2].replace(/\s/g, ''), match[1].toLowerCase()));
+                if (!cached) releaseImageBudget(gen);
+                if (gen !== generation) return;
+                shown = displayImage(descriptor.placeholder, entry, descriptor.alt, descriptor.title);
+            } catch (error) {
+                if (!cached) releaseImageBudget(gen);
+                if (gen !== generation) return;
+                resetImagePlaceholder(descriptor).append(String(error?.message || error || 'Embedded image unavailable'));
+            }
+        } finally {
+            finishUse(key, gen, shown);
         }
     }
 
