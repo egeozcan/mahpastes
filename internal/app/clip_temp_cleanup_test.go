@@ -40,7 +40,7 @@ func startTestCleanupJob(t *testing.T, app *App) (stop func()) {
 	t.Helper()
 	setForTest(t, &cleanupJobInterval, 10*time.Millisecond)
 	ctx, cancel := context.WithCancel(context.Background())
-	StartCleanupJob(ctx, app.db, app.tempStore)
+	StartCleanupJob(ctx, app.db, app.tempStore, nil)
 	return cancel
 }
 

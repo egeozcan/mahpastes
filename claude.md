@@ -212,6 +212,7 @@ mahpastes/
 ├── transfer_handler.go   # HTTP handler for drag-out file transfers
 ├── transfer_service.go   # Drag-out preparation and native drag initiation
 ├── transfer_types.go     # Transfer system type definitions
+├── thumbnail.go          # Image card thumbnails: generation, hash-keyed disk cache, serving (internal/app)
 ├── tag_hierarchy.go      # Tag tree helpers (parent, root, ancestor, descendant checks)
 ├── watcher.go            # Watch folder implementation
 ├── plugin/               # Lua plugin system
@@ -845,6 +846,57 @@ contract lives in `frontend/js/ui.js` (`getVisibleMediaClips`, card thumbnails,
 (`PrepareClipMediaItem`), `internal/app/transfer_handler.go` (`serveMedia`),
 `internal/app/clip_stream.go` + `clip_snapshot.go` (server-side clip streaming), and
 `internal/app/api_manager.go` (server ranges).
+
+## Image Card Thumbnails
+
+Image cards never load the original through `GetClipData`. They show a backend
+thumbnail (`internal/app/thumbnail.go`, `ThumbnailCache`): longest side
+`thumbMaxEdge` (512), JPEG, or PNG when the scaled image has any transparency,
+EXIF orientation applied (browsers rotate the original, so the thumbnail must
+match). `GetClipData` and the full image are for the lightbox, editor and
+comparison view only.
+
+- **Passthrough.** Anything a re-encode could make worse is served as the
+  original bytes: longest side ≤ 512, or ≤ 256 KB and ≤ 1024 px; GIF with more
+  than one frame, APNG, animated WebP; SVG and every type Go does not decode
+  (HEIC, TIFF, …); over the decode budget; or a result no smaller than the
+  original. The decision is cached as an empty `.orig` marker.
+- **Decode budget.** `image.DecodeConfig` runs first and anything over
+  `thumbMaxSourcePixels` (64 MP) or `thumbMaxSourceBytes` (64 MB, checked with
+  `octet_length` before the blob is read) passes through without decoding — a
+  small PNG declaring a 30000² canvas never allocates it. At most
+  `thumbGenerateConcurrency` (2) decodes run at once; one flight per clip+hash.
+- **Cache.** `{dataDir}/clip_thumbs/{content_hash}-512.{jpg,png,orig}`. Keyed by
+  the hash, so an edit is a miss by construction and writers of `clips.data`
+  need do nothing beyond the existing rule (set `content_hash` in the same
+  statement). `StartCleanupJob` calls `Prune` (throttled to 10 min): entries
+  whose hash no clip holds are removed, then least recently used (mtime,
+  refreshed on hits older than a day) over `thumbCacheMaxBytes` (256 MB).
+- **URLs carry the hash.** `ClipPreview.content_hash` (from the covering
+  listing index, so free) and the paged REST listing's `content_hash` feed the
+  URL. A request whose hash is current gets `Cache-Control: private,
+  max-age=31536000, immutable` and a strong ETag; a stale or missing hash gets
+  the current image with `no-cache`. Both carry nosniff and the CSP sandbox
+  (an SVG original passes through).
+- **Desktop:** `/thumb/{key}/{clipID}/{hash}` on the asset handler
+  (`TransferFileHandler.serveThumb`). The key is random per process and handed
+  out only by the bound `App.ThumbnailURLBase()` — reaching it already takes
+  WebView code that could call `GetClipData`. It is per process rather than per
+  clip like `/media/` so a page of cards costs one bridge call, not fifty.
+- **Server mode:** `GET /api/v1/clips/{id}/thumb?h={hash}`, viewer role,
+  `enforceTagScope` exactly like `/data`; non-image clips are 404. In server
+  mode `getImageDataUrl` returns the same-origin `/api/v1/clips/{id}/data` URL
+  instead of a FileReader-built data URL.
+- **Frontend** (`ui.js`): the card `<img>` has `loading="lazy"
+  decoding="async"` and starts `opacity-0`, never `hidden` — a `display:none`
+  lazy image is never fetched. On error the card falls back to the full image
+  once. Video frame capture and that fallback run through the card media
+  scheduler (`scheduleCardMedia`): an IntersectionObserver (rootMargin one
+  viewport) feeding a pool of `CARD_MEDIA_CONCURRENCY` (4); detached cards are
+  skipped and a gallery rebuild (`clearRenderedClips`) drops the queue. A video
+  task holds its slot until its frame is captured (15 s cap). `imageCache`
+  (full images for lightbox/compare) is an LRU bounded at 150 MB of data-URL
+  characters; use `imageCacheGet/Set/Delete`, never the Map directly.
 
 ## Import Folder Wizard
 

@@ -178,6 +178,8 @@ export function ShowRestoreBackupDialog():Promise<main.RestoreSelection>;
 
 export function StartImportSession(arg1:string,arg2:boolean):Promise<app.ImportScanResult>;
 
+export function ThumbnailURLBase():Promise<string>;
+
 export function ToggleArchive(arg1:number):Promise<void>;
 
 export function UpdateClipData(arg1:number,arg2:string,arg3:string,arg4:string):Promise<void>;

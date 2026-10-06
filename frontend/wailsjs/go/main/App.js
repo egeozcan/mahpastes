@@ -350,6 +350,10 @@ export function StartImportSession(arg1, arg2) {
   return window['go']['main']['App']['StartImportSession'](arg1, arg2);
 }
 
+export function ThumbnailURLBase() {
+  return window['go']['main']['App']['ThumbnailURLBase']();
+}
+
 export function ToggleArchive(arg1) {
   return window['go']['main']['App']['ToggleArchive'](arg1);
 }

@@ -93,6 +93,8 @@ type desktopCore interface {
 	SetHiddenTags(ids []int64) error
 	SetSetting(key string, value string) error
 	StartImportSession(root string, recursive bool) (*coreapp.ImportScanResult, error)
+	// ThumbnailURLBase is the prefix of gallery thumbnail URLs (thumbnail.go).
+	ThumbnailURLBase() (string, error)
 	ToggleArchive(id int64) error
 	UpdateClipData(id int64, contentType string, base64Data string, filename string) error
 	UpdateTag(id int64, name, color string) error

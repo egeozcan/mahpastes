@@ -783,7 +783,11 @@ var cleanupJobInterval = time.Minute
 // the store's own throttle. Nothing else prunes an idle headless server: there
 // every large download leaves a copy (clip_snapshot.go), and the other prunes
 // run only when a new file is made.
-func StartCleanupJob(ctx context.Context, db *sql.DB, store *TempClipStore) {
+//
+// thumbs (nil when the thumbnail cache failed to start) is pruned too, on its
+// own throttle: entries whose content hash no clip holds any more, then the
+// least recently used ones over its size cap.
+func StartCleanupJob(ctx context.Context, db *sql.DB, store *TempClipStore, thumbs *ThumbnailCache) {
 	ticker := time.NewTicker(cleanupJobInterval)
 	go func() {
 		defer ticker.Stop()
@@ -808,6 +812,11 @@ func StartCleanupJob(ctx context.Context, db *sql.DB, store *TempClipStore) {
 				if store != nil {
 					if err := store.Prune(false); err != nil {
 						log.Printf("Failed to prune temp clip files: %v\n", err)
+					}
+				}
+				if thumbs != nil {
+					if err := thumbs.Prune(false); err != nil {
+						log.Printf("Failed to prune thumbnails: %v\n", err)
 					}
 				}
 				// Garbage-collect expired share links. The view path already rejects

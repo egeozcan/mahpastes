@@ -14,7 +14,8 @@ function startUpload(app: any, name: string, contentType: string, data: Buffer) 
 
 async function cardImageSrc(app: any, filename: string): Promise<string> {
   const img = app.page.locator(`${selectors.gallery.clipCardByName(filename)} img:not(.video-thumb)`).first();
-  await expect(img).toHaveAttribute('src', /^data:/);
+  // Cards load a hash-keyed thumbnail URL (or a data URL on fallback).
+  await expect(img).toHaveAttribute('src', /^(data:|\/thumb\/)/);
   return (await img.getAttribute('src')) as string;
 }
 

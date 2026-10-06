@@ -278,6 +278,7 @@ export namespace app {
 	    tags: Tag[];
 	    size: number;
 	    duplicate_count: number;
+	    content_hash?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new ClipPreview(source);
@@ -295,6 +296,7 @@ export namespace app {
 	        this.tags = this.convertValues(source["tags"], Tag);
 	        this.size = source["size"];
 	        this.duplicate_count = source["duplicate_count"];
+	        this.content_hash = source["content_hash"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

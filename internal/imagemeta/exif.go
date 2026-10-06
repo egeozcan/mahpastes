@@ -142,3 +142,32 @@ func ExtractEXIFBytes(b []byte) (*EXIF, error) {
 	}
 	return ExtractEXIF(bytes.NewReader(b))
 }
+
+// Orientation returns the EXIF orientation tag (1–8) of a JPEG, or 1 when it
+// is absent or unreadable. Browsers rotate an <img> by this tag, so anything
+// that re-encodes a photo (gallery thumbnails) must apply it too or the
+// thumbnail comes out sideways next to a correctly rotated original.
+func Orientation(b []byte) int {
+	if len(b) == 0 {
+		return 1
+	}
+	// EXIF sits in APP1 at the head of the file; a bounded prefix avoids
+	// scanning a large file that has none.
+	const prefix = 256 << 10
+	if len(b) > prefix {
+		b = b[:prefix]
+	}
+	x, err := exif.Decode(bytes.NewReader(b))
+	if err != nil {
+		return 1
+	}
+	tag, err := x.Get(exif.Orientation)
+	if err != nil {
+		return 1
+	}
+	v, err := tag.Int(0)
+	if err != nil || v < 1 || v > 8 {
+		return 1
+	}
+	return v
+}

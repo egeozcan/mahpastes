@@ -53,6 +53,7 @@ type App struct {
 	db               *sql.DB
 	tempDir          string
 	tempStore        *TempClipStore
+	thumbCache       *ThumbnailCache
 	transferHandler  *TransferFileHandler
 	mu               sync.Mutex
 	watcherManager   *WatcherManager
@@ -204,6 +205,7 @@ func (a *App) WatcherManager() *WatcherManager { return a.watcherManager }
 func (a *App) APIManager() *APIManager         { return a.apiManager }
 func (a *App) TempStore() *TempClipStore       { return a.tempStore }
 func (a *App) TempDir() string                 { return a.tempDir }
+func (a *App) ThumbCache() *ThumbnailCache     { return a.thumbCache }
 
 func (a *App) PrepareClipTransferItem(id int64, source string) (*PreparedTransferItem, error) {
 	return a.prepareClipTransferItem(id, source)
@@ -262,6 +264,16 @@ func (a *App) PrepareClipMediaItem(id int64) (*PreparedTransferItem, error) {
 		ContentType:    metadata.contentType,
 		LeaseExpiresAt: prepared.LeaseExpiresAt,
 	}, nil
+}
+
+// ThumbnailURLBase returns the prefix of desktop gallery thumbnail URLs,
+// "/thumb/{key}/"; a card's URL is that plus "{clipID}/{contentHash}". See
+// TransferFileHandler.ThumbnailURLBase and thumbnail.go.
+func (a *App) ThumbnailURLBase() (string, error) {
+	if a.transferHandler == nil || a.thumbCache == nil {
+		return "", fmt.Errorf("thumbnails are not initialized")
+	}
+	return a.transferHandler.ThumbnailURLBase()
 }
 
 func (a *App) LookupPreparedClipTransferItem(id int64, source string) (*PreparedTransferItem, error) {
@@ -358,9 +370,9 @@ func (a *App) getClipPreview(id int64) (*ClipPreview, error) {
 	var isArchivedInt int
 
 	err := a.db.QueryRow(`
-		SELECT id, content_type, filename, created_at, expires_at, `+clipPreviewExpr("")+`, is_archived, LENGTH(data)
+		SELECT id, content_type, filename, created_at, expires_at, `+clipPreviewExpr("")+`, is_archived, LENGTH(data), COALESCE(content_hash, '')
 		FROM clips WHERE id = ?`, id).Scan(
-		&clip.ID, &clip.ContentType, &filename, &clip.CreatedAt, &expiresAt, &previewData, &isArchivedInt, &clip.Size)
+		&clip.ID, &clip.ContentType, &filename, &clip.CreatedAt, &expiresAt, &previewData, &isArchivedInt, &clip.Size, &clip.ContentHash)
 	if err != nil {
 		return nil, err
 	}
@@ -421,7 +433,13 @@ func (a *App) Bootstrap(ctx context.Context, opts BootstrapOptions) error {
 		log.Printf("Warning: Failed to prune temp clip files on startup: %v", err)
 	}
 
-	StartCleanupJob(ctx, a.db, a.tempStore)
+	if tc, err := NewThumbnailCache(a.db, a.tempStore, filepath.Join(opts.DataDir, "clip_thumbs")); err != nil {
+		log.Printf("Warning: Failed to initialize thumbnail cache: %v", err)
+	} else {
+		a.thumbCache = tc
+	}
+
+	StartCleanupJob(ctx, a.db, a.tempStore, a.thumbCache)
 
 	if opts.InitClipboard {
 		if err := clipboard.Init(); err != nil {
@@ -830,6 +848,10 @@ type ClipPreview struct {
 	Tags           []Tag      `json:"tags"`
 	Size           int64      `json:"size"`
 	DuplicateCount int        `json:"duplicate_count"`
+	// ContentHash names the revision of the clip's bytes. The gallery puts it
+	// in thumbnail URLs, so an edited clip gets a new URL and no cache can
+	// serve the old image under it.
+	ContentHash string `json:"content_hash,omitempty"`
 }
 
 // DuplicateGroup represents a set of clips sharing the same content hash
@@ -1524,7 +1546,7 @@ func clipPageSQL(q clipListQuery, offset, limit int) string {
 	return fmt.Sprintf(`
 		SELECT page.id, page.content_type, page.filename, page.created_at, page.expires_at, %s, page.is_archived, page.size,
 		       (SELECT COUNT(*) FROM clips c2 WHERE c2.content_hash = page.content_hash AND page.content_hash != '' AND c2.id != page.id),
-		       page.total
+		       page.total, COALESCE(page.content_hash, '')
 		FROM (
 			SELECT f.*, COUNT(*) OVER () AS total
 			FROM (
@@ -1587,7 +1609,7 @@ func (a *App) queryClipPreviewsCountedCtx(ctx context.Context, q clipListQuery, 
 		// One unreadable row is skipped rather than failing the whole page:
 		// the caller derives has_more from `consumed`, not the page length.
 		var rowTotal int
-		if err := rows.Scan(&clip.ID, &clip.ContentType, &filename, &clip.CreatedAt, &expiresAt, &previewData, &isArchivedInt, &clip.Size, &clip.DuplicateCount, &rowTotal); err != nil {
+		if err := rows.Scan(&clip.ID, &clip.ContentType, &filename, &clip.CreatedAt, &expiresAt, &previewData, &isArchivedInt, &clip.Size, &clip.DuplicateCount, &rowTotal, &clip.ContentHash); err != nil {
 			log.Printf("Skipping unreadable clip row: %v", err)
 			continue
 		}

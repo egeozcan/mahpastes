@@ -308,6 +308,7 @@ func (am *APIManager) Start(port int, bindAll bool) (APIStatus, error) {
 		mux.HandleFunc("GET /api/v1/clips/hidden-info", am.authMiddleware(am.requireRole("viewer", am.handleHiddenClipInfo)))
 		mux.HandleFunc("GET /api/v1/clips/{id}", am.authMiddleware(am.requireRole("viewer", am.handleGetClip)))
 		mux.HandleFunc("GET /api/v1/clips/{id}/data", am.authMiddleware(am.requireRole("viewer", am.handleGetClipData)))
+		mux.HandleFunc("GET /api/v1/clips/{id}/thumb", am.authMiddleware(am.requireRole("viewer", am.handleGetClipThumb)))
 		mux.HandleFunc("GET /api/v1/clips/{id}/text", am.authMiddleware(am.requireRole("viewer", am.handleGetClipText)))
 		mux.HandleFunc("POST /api/v1/clips", am.authMiddleware(am.requireRole("editor", am.handleCreateClip)))
 		mux.HandleFunc("DELETE /api/v1/clips/{id}", am.authMiddleware(am.requireRole("editor", am.handleDeleteClip)))
@@ -1091,6 +1092,9 @@ type apiClipResponse struct {
 	IsArchived  bool   `json:"is_archived"`
 	CreatedAt   string `json:"created_at"`
 	Tags        []Tag  `json:"tags"`
+	// ContentHash names the bytes' revision; the web UI puts it in thumbnail
+	// URLs (GET /api/v1/clips/{id}/thumb?h=). Set by the paged listing.
+	ContentHash string `json:"content_hash,omitempty"`
 }
 
 type apiClipListResponse struct {
@@ -1387,6 +1391,7 @@ func (am *APIManager) handleListClipsViaApp(w http.ResponseWriter, r *http.Reque
 				IsArchived:  p.IsArchived,
 				CreatedAt:   p.CreatedAt.Format(time.RFC3339),
 				Tags:        p.Tags,
+				ContentHash: p.ContentHash,
 			})
 		}
 		am.jsonOK(w, apiClipListResponse{Clips: clips, Total: page.Total, Limit: limit, Offset: page.Offset})
@@ -1518,6 +1523,30 @@ func (am *APIManager) handleGetClipData(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if !am.writeClipBytes(w, r, id) {
+		am.jsonError(w, http.StatusNotFound, "clip not found")
+	}
+}
+
+// handleGetClipThumb serves a gallery thumbnail (thumbnail.go). Same gate as
+// handleGetClipData — a thumbnail is a copy of the clip — and only for image
+// clips. ?h={content_hash} names the revision the caller expects: when it is
+// current the response is cached as immutable, otherwise it is the current
+// image with no-cache.
+func (am *APIManager) handleGetClipThumb(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+
+	id, err := parseIntParam(r.PathValue("id"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid clip id")
+		return
+	}
+
+	if err := am.enforceTagScope(keyCtx, id); err != nil {
+		am.jsonError(w, http.StatusForbidden, err.Error())
+		return
+	}
+
+	if am.app.thumbCache == nil || !am.app.thumbCache.Serve(w, r, id, r.URL.Query().Get("h")) {
 		am.jsonError(w, http.StatusNotFound, "clip not found")
 	}
 }
