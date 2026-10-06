@@ -108,13 +108,22 @@ func initDB() (*sql.DB, error) {
 	_, _ = db.Exec("ALTER TABLE clips ADD COLUMN metadata TEXT DEFAULT '{}'")
 	// Listing indexes. Every column but id and content_type is stored after
 	// the data blob, and reading a column past a blob walks its whole
-	// overflow chain, so without these a gallery page sorted the entire
-	// library by reading through every clip's bytes. They cover the listing's
-	// filter (is_archived, expires_at) and the created/name sort orders; type
-	// sorts are cheap already since content_type precedes data.
+	// overflow chain. Each index covers one sort order (created, name, type,
+	// size — LENGTH(data) comes from the record header) plus every non-blob
+	// column a gallery page shows, so the page query's filtering inner pass
+	// never touches the table and its outer join reads only content_type,
+	// LENGTH(data) and the text preview (queryClipPreviewsCounted). Changing a
+	// column list means a new name here and the old one in the drop list.
 	for _, stmt := range []string{
-		"CREATE INDEX IF NOT EXISTS idx_clips_list_created ON clips(is_archived, created_at, id, expires_at)",
-		"CREATE INDEX IF NOT EXISTS idx_clips_list_name ON clips(is_archived, filename, created_at, id, expires_at)",
+		"DROP INDEX IF EXISTS idx_clips_list_created",
+		"DROP INDEX IF EXISTS idx_clips_list_name",
+		"CREATE INDEX IF NOT EXISTS idx_clips_page_created ON clips(is_archived, created_at, id, expires_at, filename, content_type, content_hash)",
+		"CREATE INDEX IF NOT EXISTS idx_clips_page_name ON clips(is_archived, filename, created_at, id, expires_at, content_type, content_hash)",
+		"CREATE INDEX IF NOT EXISTS idx_clips_page_type ON clips(is_archived, content_type, created_at, id, expires_at, filename, content_hash)",
+		"CREATE INDEX IF NOT EXISTS idx_clips_page_size ON clips(is_archived, LENGTH(data), created_at, id, expires_at, filename, content_type, content_hash)",
+		// Markdown reference resolution looks clips up by exact filename and
+		// reads only these columns (findMarkdownReferenceCandidates).
+		"CREATE INDEX IF NOT EXISTS idx_clips_filename ON clips(filename, content_type, is_archived, expires_at)",
 	} {
 		if _, err := db.Exec(stmt); err != nil {
 			log.Printf("Warning: Failed to create clip listing index: %v", err)
@@ -167,6 +176,12 @@ func initDB() (*sql.DB, error) {
 		FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
 	)`); err != nil {
 		log.Printf("Warning: Failed to create clip_tags table: %v", err)
+	}
+	// The primary key leads with clip_id; every "clips under this tag" query
+	// (tag listings, folder counts, filters) needs tag_id first, or SQLite
+	// builds a throwaway automatic index on each call.
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_clip_tags_tag ON clip_tags(tag_id, clip_id)`); err != nil {
+		log.Printf("Warning: Failed to create clip_tags tag index: %v", err)
 	}
 
 	// Migrate: Add auto_tag_id column to watched_folders if it doesn't exist

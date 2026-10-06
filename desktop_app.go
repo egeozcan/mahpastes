@@ -52,6 +52,7 @@ type desktopCore interface {
 	GetClipsDirect(archived bool, tagIDs []int64, hiddenTagIDs []int64, sortField string, sortDir string) ([]coreapp.ClipPreview, error)
 	GetDatabaseSize() (int64, error)
 	GetDescendantClipCount(tagID int64, archived bool) (int, error)
+	GetDescendantClipCounts(tagIDs []int64, archived bool) (map[int64]int, error)
 	GetDuplicateGroups() ([]coreapp.DuplicateGroup, error)
 	GetFolderClips(archived bool, tagID int64, sortField string, sortDir string) ([]coreapp.ClipPreview, error)
 	GetGlobalWatchPaused() bool

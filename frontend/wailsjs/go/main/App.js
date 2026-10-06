@@ -158,6 +158,10 @@ export function GetDescendantClipCount(arg1, arg2) {
   return window['go']['main']['App']['GetDescendantClipCount'](arg1, arg2);
 }
 
+export function GetDescendantClipCounts(arg1, arg2) {
+  return window['go']['main']['App']['GetDescendantClipCounts'](arg1, arg2);
+}
+
 export function GetDuplicateGroups() {
   return window['go']['main']['App']['GetDuplicateGroups']();
 }

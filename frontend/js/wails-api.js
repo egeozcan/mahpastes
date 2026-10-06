@@ -905,6 +905,17 @@ async function getDescendantClipCount(tagId, archived) {
     }
 }
 
+// Clip counts for many folder cards in one call: { [tagId]: count }. A failure
+// reads as zero for every card, as getDescendantClipCount's does for one.
+async function getDescendantClipCounts(tagIds, archived) {
+    try {
+        return (await window.go.main.App.GetDescendantClipCounts(tagIds, !!archived)) || {};
+    } catch (error) {
+        console.error('Error getting descendant clip counts:', error);
+        return {};
+    }
+}
+
 // Note under the gallery for clips the tag filter matched but hidden tags withheld.
 // Bumped per render so a slow response from a superseded load cannot overwrite a newer note.
 let _hiddenNoteGen = 0;

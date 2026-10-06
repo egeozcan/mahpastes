@@ -136,6 +136,44 @@ test.describe('Folder Mode', () => {
     await app.setHiddenTags([]);
   });
 
+  test('folder cards fetch every count in one call', async ({ app }) => {
+    await app.createTag('alpha');
+    await app.createTag('beta');
+    await app.createTag('gamma');
+
+    const imagePath = await createTempFile(generateTestImage(60, 60, [0, 128, 0]), 'png');
+    const imageName = path.basename(imagePath);
+    await app.uploadFile(imagePath);
+    await app.addTagToClip(imageName, 'beta');
+
+    await app.page.evaluate(() => {
+      const api = (window as any).go.main.App;
+      const calls = { batch: [] as number[][], single: 0 };
+      (window as any).__countCalls = calls;
+      const batch = api.GetDescendantClipCounts;
+      api.GetDescendantClipCounts = (ids: number[], archived: boolean) => {
+        calls.batch.push([...ids]);
+        return batch(ids, archived);
+      };
+      const single = api.GetDescendantClipCount;
+      api.GetDescendantClipCount = (id: number, archived: boolean) => {
+        calls.single++;
+        return single(id, archived);
+      };
+    });
+
+    await app.toggleFolderMode();
+    await expect(app.page.locator(selectors.tags.folderCard('beta'))).toContainText('1 clip');
+    await expect(app.page.locator(selectors.tags.folderCard('alpha'))).toContainText('0 clips');
+    await expect(app.page.locator(selectors.tags.folderCard('gamma'))).toContainText('0 clips');
+
+    const calls = await app.page.evaluate(() => (window as any).__countCalls);
+    expect(calls.single).toBe(0);
+    expect(calls.batch.length).toBeGreaterThan(0);
+    // Each render asks for all of its cards at once.
+    expect(calls.batch.some((ids: number[]) => ids.length >= 3)).toBe(true);
+  });
+
   test('folder card count excludes archived clips', async ({ app }) => {
     await app.createTag('receipts');
 

@@ -348,6 +348,7 @@ func (am *APIManager) Start(port int, bindAll bool) (APIStatus, error) {
 		mux.HandleFunc("GET /api/v1/tags/{id}/children", am.authMiddleware(am.requireRole("viewer", am.handleGetChildTags)))
 		mux.HandleFunc("GET /api/v1/tags/{id}/clips", am.authMiddleware(am.requireRole("viewer", am.handleGetTagClips)))
 		mux.HandleFunc("GET /api/v1/tags/hidden", am.authMiddleware(am.requireRole("viewer", am.handleGetHiddenTags)))
+		mux.HandleFunc("GET /api/v1/tags/clip-counts", am.authMiddleware(am.requireRole("viewer", am.handleTagClipCounts)))
 		mux.HandleFunc("PUT /api/v1/tags/hidden", am.authMiddleware(am.requireRole("admin", am.handleSetHiddenTags)))
 		mux.HandleFunc("POST /api/v1/tags/{id}/merge-preview", am.authMiddleware(am.requireRole("admin", am.handlePreviewMergeTag)))
 
@@ -2984,6 +2985,56 @@ func (am *APIManager) handleGetChildTags(w http.ResponseWriter, r *http.Request)
 	}
 
 	am.jsonOK(w, children)
+}
+
+// maxTagClipCountIDs bounds one GET /api/v1/tags/clip-counts request.
+const maxTagClipCountIDs = 2000
+
+// handleTagClipCounts serves App.GetDescendantClipCounts: ?tag=<id> (repeated)
+// and ?archived=true|false → {"<tag id>": count}. A tag-scoped key gets 0 for
+// any tag outside its subtree, as handleGetChildTags returns no children there.
+func (am *APIManager) handleTagClipCounts(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+	q := r.URL.Query()
+	archived := q.Get("archived") == "true"
+
+	values := q["tag"]
+	if len(values) > maxTagClipCountIDs {
+		am.jsonError(w, http.StatusBadRequest, fmt.Sprintf("too many tags (max %d)", maxTagClipCountIDs))
+		return
+	}
+	tagIDs := make([]int64, 0, len(values))
+	for _, v := range values {
+		id, err := parseIntParam(v)
+		if err != nil {
+			am.jsonError(w, http.StatusBadRequest, "invalid tag id")
+			return
+		}
+		tagIDs = append(tagIDs, id)
+	}
+
+	allowed := tagIDs
+	if keyCtx.ScopedTagID > 0 {
+		allowed = make([]int64, 0, len(tagIDs))
+		for _, id := range tagIDs {
+			var name string
+			if err := am.app.db.QueryRow("SELECT name FROM tags WHERE id = ?", id).Scan(&name); err == nil && am.isTagInScope(name, keyCtx.ScopedTagID) {
+				allowed = append(allowed, id)
+			}
+		}
+	}
+
+	counts, err := am.app.GetDescendantClipCounts(allowed, archived)
+	if err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to count clips")
+		return
+	}
+	for _, id := range tagIDs {
+		if _, ok := counts[id]; !ok {
+			counts[id] = 0
+		}
+	}
+	am.jsonOK(w, counts)
 }
 
 func (am *APIManager) handleGetTagClips(w http.ResponseWriter, r *http.Request) {

@@ -1817,20 +1817,22 @@ async function buildFolderCards(isStale = () => false) {
     if (!folderTags || folderTags.length === 0) return [];
 
     const hidden = (typeof getHiddenTags === 'function') ? (getHiddenTags() || []) : [];
-    const counts = await Promise.all(folderTags.map(tag => getDescendantClipCount(tag.id, isViewingArchive)));
+    // One call for every card's count, not one bridge round trip per card.
+    const counts = await getDescendantClipCounts(folderTags.map(tag => tag.id), isViewingArchive);
     if (isStale()) return null;
 
-    const cards = [];
-    for (const [i, tag] of folderTags.entries()) {
-        const count = counts[i];
+    // Path relative to the folder being viewed: normally the leaf name, but a
+    // tag whose intermediate parent was deleted (a/b/c listed under a, or p/q
+    // at the root once p is gone) shows the rest of its path so it is not
+    // mistaken for a/c or q.
+    const viewedTag = activeTagFilters.length > 0
+        ? allTags.find(t => t.id === activeTagFilters[activeTagFilters.length - 1])
+        : null;
 
-        // Path relative to the folder being viewed: normally the leaf name,
-        // but a tag whose intermediate parent was deleted (a/b/c listed
-        // under a, or p/q at the root once p is gone) shows the rest of its
-        // path so it is not mistaken for a/c or q.
-        const viewedTag = activeTagFilters.length > 0
-            ? allTags.find(t => t.id === activeTagFilters[activeTagFilters.length - 1])
-            : null;
+    const cards = [];
+    for (const tag of folderTags) {
+        const count = Number(counts[tag.id]) || 0;
+
         let shortName = tag.name;
         if (viewedTag) {
             shortName = tag.name.startsWith(viewedTag.name + '/')

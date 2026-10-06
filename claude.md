@@ -673,6 +673,20 @@ view keeps the number already loaded. Plain search still only filters the cards
 already loaded; select-all and bulk actions apply to loaded clips only. Pages
 are ordered like the unpaged listing functions (ties broken by id).
 
+**Never read a clips column past the blob through the table.** `clips` stores
+`data` third; every later column (`filename`, `created_at`, `is_archived`,
+`expires_at`, `content_hash`, `metadata`) sits after it, and reading one walks
+that row's whole overflow chain. Listing queries get those columns from the
+covering `idx_clips_page_{created,name,type,size}` indexes (`database.go`):
+`clipPageSQL`'s inner derived table filters and sorts off the index and returns
+every non-blob column the page shows, and its outer join to `clips` is for the
+text preview alone. Folder card counts (`GetDescendantClipCounts`, one call per
+render, REST `GET /api/v1/tags/clip-counts`), the hidden-clip note and Markdown
+reference lookups (`idx_clips_filename`) follow the same rule.
+`clip_listing_index_test.go` checks the bytecode (`clipsColumnsReadPastBlob`):
+a new listing-style query belongs there. Changing an index's columns means a new
+index name and a `DROP INDEX` of the old one.
+
 **Key files**: `internal/app/app.go` (`SearchClips`, `clipSearchSpec`,
 `buildClipSearchClause`), `frontend/js/search-options.js` (state, popover,
 persistence), `frontend/js/ui.js` (`applySearchFilter`, debounce),

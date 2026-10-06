@@ -916,17 +916,27 @@ var tagColors = []string{
 	"#06B6D4", // cyan
 }
 
-func sortColumn(field string) string {
+// clipOrderBy renders a listing's ORDER BY over the page query's derived
+// columns (clipPageSQL), named by prefix: the inner pass sorts the filtered
+// rows, the outer pass re-sorts the page after its join.
+func clipOrderBy(field, sortDir, prefix string) string {
+	dir := "DESC"
+	if sortDir == "asc" {
+		dir = "ASC"
+	}
+	var primary string
 	switch field {
 	case "name":
-		return "c.filename"
+		primary = prefix + "filename"
 	case "size":
-		return "LENGTH(c.data)"
+		primary = prefix + "size"
 	case "type":
-		return "c.content_type"
+		primary = prefix + "content_type"
 	default:
-		return "c.created_at"
+		// Created order: ties broken by id in the same direction.
+		return fmt.Sprintf("ORDER BY %[1]screated_at %[2]s, %[1]sid %[2]s", prefix, dir)
 	}
+	return fmt.Sprintf("ORDER BY %[2]s %[3]s, %[1]screated_at DESC, %[1]sid DESC", prefix, primary, dir)
 }
 
 // GetClips retrieves a list of clips for the gallery, optionally filtered by tags
@@ -1176,9 +1186,7 @@ func (a *App) GetHiddenClipInfo(archived bool, tagIDs []int64, hiddenTagIDs []in
 
 	where := strings.Join(conditions, "\n\t\t  AND ")
 
-	if err := a.db.QueryRow(
-		fmt.Sprintf("SELECT COUNT(DISTINCT c.id) FROM clips c WHERE %s", where), args...,
-	).Scan(&info.Count); err != nil {
+	if err := a.db.QueryRow(hiddenClipCountSQL(where), args...).Scan(&info.Count); err != nil {
 		return info, fmt.Errorf("failed to count hidden clips: %w", err)
 	}
 	if info.Count == 0 {
@@ -1190,14 +1198,7 @@ func (a *App) GetHiddenClipInfo(archived bool, tagIDs []int64, hiddenTagIDs []in
 	for _, id := range scope.effectiveHidden {
 		nameArgs = append(nameArgs, id)
 	}
-	rows, err := a.db.Query(fmt.Sprintf(`
-		SELECT DISTINCT t.name
-		FROM clips c
-		INNER JOIN clip_tags ct ON ct.clip_id = c.id
-		INNER JOIN tags t ON t.id = ct.tag_id
-		WHERE %s
-		  AND t.id IN (%s)
-		ORDER BY t.name`, where, hiddenIn), nameArgs...)
+	rows, err := a.db.Query(hiddenClipTagsSQL(where, hiddenIn), nameArgs...)
 	if err != nil {
 		return info, fmt.Errorf("failed to list hidden tags: %w", err)
 	}
@@ -1210,6 +1211,21 @@ func (a *App) GetHiddenClipInfo(archived bool, tagIDs []int64, hiddenTagIDs []in
 		info.Tags = append(info.Tags, name)
 	}
 	return info, rows.Err()
+}
+
+func hiddenClipCountSQL(where string) string {
+	return fmt.Sprintf("SELECT COUNT(DISTINCT c.id) FROM clips c WHERE %s", where)
+}
+
+func hiddenClipTagsSQL(where, hiddenIn string) string {
+	return fmt.Sprintf(`
+		SELECT DISTINCT t.name
+		FROM clips c
+		INNER JOIN clip_tags ct ON ct.clip_id = c.id
+		INNER JOIN tags t ON t.id = ct.tag_id
+		WHERE %s
+		  AND t.id IN (%s)
+		ORDER BY t.name`, where, hiddenIn)
 }
 
 // tagFilterGroup is one active tag filter, expanded to the tag IDs that satisfy
@@ -1294,29 +1310,16 @@ func (a *App) getClipsInternal(archived bool, tagIDs []int64, hiddenTagIDs []int
 // clipListQuery is a gallery listing's WHERE clause, its arguments and its
 // ORDER BY, shared by the page query and the total count so both always agree.
 type clipListQuery struct {
-	where string
-	args  []interface{}
-	order string
+	where     string
+	args      []interface{}
+	order     string // over the page query's filtered rows (f.)
+	pageOrder string // over the page query's outer pass (page.)
 }
 
 func (a *App) buildClipListQuery(archived bool, tagIDs []int64, hiddenTagIDs []int64, sortField string, sortDir string, expandFilters bool, search *clipSearchSpec, wantUntagged bool) clipListQuery {
 	archivedInt := 0
 	if archived {
 		archivedInt = 1
-	}
-
-	col := sortColumn(sortField)
-	dir := "DESC"
-	if sortDir == "asc" {
-		dir = "ASC"
-	}
-	orderClause := fmt.Sprintf("ORDER BY %s %s", col, dir)
-	if col != "c.created_at" {
-		orderClause += ", c.created_at DESC, c.id DESC"
-	} else if dir == "DESC" {
-		orderClause += ", c.id DESC"
-	} else {
-		orderClause += ", c.id ASC"
 	}
 
 	scope := a.buildClipFilterScope(tagIDs, hiddenTagIDs, expandFilters)
@@ -1351,7 +1354,12 @@ func (a *App) buildClipListQuery(archived bool, tagIDs []int64, hiddenTagIDs []i
 	conds = append(conds, "c.is_archived = ?", "(c.expires_at IS NULL OR c.expires_at > CURRENT_TIMESTAMP)")
 	args = append(args, archivedInt)
 
-	return clipListQuery{where: strings.Join(conds, "\n\t\t  AND "), args: args, order: orderClause}
+	return clipListQuery{
+		where:     strings.Join(conds, "\n\t\t  AND "),
+		args:      args,
+		order:     clipOrderBy(sortField, sortDir, "f."),
+		pageOrder: clipOrderBy(sortField, sortDir, "page."),
+	}
 }
 
 func (a *App) countClips(q clipListQuery) (int, error) {
@@ -1367,29 +1375,51 @@ func (a *App) queryClipPreviews(q clipListQuery, offset, limit int) ([]ClipPrevi
 	return clips, err
 }
 
-// queryClipPreviewsCounted returns one page of previews plus the size of the
-// whole listing, in one pass. The filter (which for a content search scans
-// every text clip's bytes) runs once, in an inner query that keeps only ids and
-// the window count; the preview columns are read for the page's rows alone.
-// The total is 0 when the page is empty — the caller recounts if it needs to.
-func (a *App) queryClipPreviewsCounted(q clipListQuery, offset, limit int) ([]ClipPreview, int, int, error) {
-	selectCols := `c.id, c.content_type, c.filename, c.created_at, c.expires_at, ` + clipPreviewExpr("c.") + `, c.is_archived, LENGTH(c.data),
-		       (SELECT COUNT(*) FROM clips c2 WHERE c2.content_hash = c.content_hash AND c2.content_hash != '' AND c2.id != c.id),
-		       page.total`
-	query := fmt.Sprintf(`
-		SELECT %s
+// clipPageSQL is the page query run by queryClipPreviewsCounted.
+//
+// f is the filter, and reads clips only through a covering listing index
+// (idx_clips_page_*): every column it returns but id and content_type is
+// stored after the data blob, so a table read would walk the row's overflow
+// chain. It stays a separate derived table because SQLite will not match the
+// LENGTH(data) expression index once it is folded into the window query.
+// The outer join to clips is for the text preview alone.
+func clipPageSQL(q clipListQuery, offset, limit int) string {
+	return fmt.Sprintf(`
+		SELECT page.id, page.content_type, page.filename, page.created_at, page.expires_at, %s, page.is_archived, page.size,
+		       (SELECT COUNT(*) FROM clips c2 WHERE c2.content_hash = page.content_hash AND page.content_hash != '' AND c2.id != page.id),
+		       page.total
 		FROM (
-			SELECT c.id AS id, COUNT(*) OVER () AS total
-			FROM clips c
-			WHERE %s
+			SELECT f.*, COUNT(*) OVER () AS total
+			FROM (
+				SELECT c.id AS id, c.content_type AS content_type, c.filename AS filename, c.created_at AS created_at,
+				       c.expires_at AS expires_at, c.is_archived AS is_archived, c.content_hash AS content_hash,
+				       LENGTH(c.data) AS size
+				FROM clips c
+				WHERE %s
+			) f
 			%s
 			LIMIT %d OFFSET %d
 		) page
 		INNER JOIN clips c ON c.id = page.id
-		%s`, selectCols, q.where, q.order, limit, offset, q.order)
+		%s`, clipPreviewExpr("c."), q.where, q.order, limit, offset, q.pageOrder)
+}
+
+// queryClipPreviewsCounted returns one page of previews plus the size of the
+// whole listing, in one pass. The filter (which for a content search scans
+// every text clip's bytes) runs once, in an inner query that runs off a
+// covering listing index (idx_clips_page_*) and returns every non-blob column
+// the page needs plus the window count (see clipPageSQL); the outer join to
+// clips reads only the text preview.
+// The total is 0 when the page is empty — the caller recounts if it needs to.
+func (a *App) queryClipPreviewsCounted(q clipListQuery, offset, limit int) ([]ClipPreview, int, int, error) {
+	return a.queryClipPreviewsCountedCtx(context.Background(), q, offset, limit)
+}
+
+func (a *App) queryClipPreviewsCountedCtx(ctx context.Context, q clipListQuery, offset, limit int) ([]ClipPreview, int, int, error) {
+	query := clipPageSQL(q, offset, limit)
 	args := q.args
 
-	rows, err := a.db.Query(query, args...)
+	rows, err := a.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, 0, 0, fmt.Errorf("failed to query clips: %w", err)
 	}
@@ -3417,31 +3447,85 @@ func (a *App) getTopLevelTags() ([]Tag, error) {
 // given tag or any of its descendants, counting only clips that folder mode
 // would actually show: matching the archive view and not yet expired.
 func (a *App) getDescendantClipCount(tagID int64, archived bool) (int, error) {
-	var parentName string
-	err := a.db.QueryRow("SELECT name FROM tags WHERE id = ?", tagID).Scan(&parentName)
-	if err != nil {
+	var exists int
+	if err := a.db.QueryRow("SELECT 1 FROM tags WHERE id = ?", tagID).Scan(&exists); err != nil {
 		return 0, fmt.Errorf("failed to find tag %d: %w", tagID, err)
 	}
+	counts, err := a.getDescendantClipCounts([]int64{tagID}, archived)
+	if err != nil {
+		return 0, err
+	}
+	return counts[tagID], nil
+}
 
+// descendantClipCountsChunk bounds the tag IDs bound into one count query.
+const descendantClipCountsChunk = 500
+
+// descendantClipCountsSQL counts, for each of n parent tags, the distinct
+// clips tagged with the parent or anything under it that are live in the
+// requested archive state. The live set is an IN subquery so it is read from
+// a covering listing index once: a join would look each clip up in the table,
+// and expires_at — stored after the data blob — would walk the overflow chain
+// of every clip with an expiry.
+func descendantClipCountsSQL(n int) string {
+	return `
+		SELECT p.id, COUNT(DISTINCT ct.clip_id)
+		FROM tags p
+		INNER JOIN tags t ON (t.id = p.id OR ` + underTagColSQL("t.name", "p.name") + `)
+		INNER JOIN clip_tags ct ON ct.tag_id = t.id
+		WHERE p.id IN (` + strings.TrimSuffix(strings.Repeat("?,", n), ",") + `)
+		  AND ct.clip_id IN (
+			SELECT c.id FROM clips c
+			WHERE c.is_archived = ?
+			  AND (c.expires_at IS NULL OR c.expires_at > CURRENT_TIMESTAMP)
+		  )
+		GROUP BY p.id`
+}
+
+// getDescendantClipCounts is getDescendantClipCount for many tags in one
+// query per chunk. A tag that does not exist (or has no live clips) maps to 0.
+func (a *App) getDescendantClipCounts(tagIDs []int64, archived bool) (map[int64]int, error) {
 	archivedInt := 0
 	if archived {
 		archivedInt = 1
 	}
-
-	var count int
-	err = a.db.QueryRow(`
-		SELECT COUNT(DISTINCT ct.clip_id)
-		FROM clip_tags ct
-		INNER JOIN tags t ON ct.tag_id = t.id
-		INNER JOIN clips c ON c.id = ct.clip_id
-		WHERE (t.id = ? OR `+underTagSQL("t.name")+`)
-		  AND c.is_archived = ?
-		  AND (c.expires_at IS NULL OR c.expires_at > CURRENT_TIMESTAMP)
-	`, tagID, parentName, parentName, archivedInt).Scan(&count)
-	if err != nil {
-		return 0, fmt.Errorf("failed to count descendant clips: %w", err)
+	counts := make(map[int64]int, len(tagIDs))
+	seen := make(map[int64]bool, len(tagIDs))
+	unique := make([]int64, 0, len(tagIDs))
+	for _, id := range tagIDs {
+		if !seen[id] {
+			seen[id] = true
+			unique = append(unique, id)
+			counts[id] = 0
+		}
 	}
-	return count, nil
+	for start := 0; start < len(unique); start += descendantClipCountsChunk {
+		chunk := unique[start:min(start+descendantClipCountsChunk, len(unique))]
+		args := make([]interface{}, 0, len(chunk)+1)
+		for _, id := range chunk {
+			args = append(args, id)
+		}
+		args = append(args, archivedInt)
+		rows, err := a.db.Query(descendantClipCountsSQL(len(chunk)), args...)
+		if err != nil {
+			return nil, fmt.Errorf("failed to count descendant clips: %w", err)
+		}
+		for rows.Next() {
+			var id int64
+			var n int
+			if err := rows.Scan(&id, &n); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("failed to read descendant clip count: %w", err)
+			}
+			counts[id] = n
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return nil, fmt.Errorf("failed to count descendant clips: %w", err)
+		}
+	}
+	return counts, nil
 }
 
 // GetChildTags returns immediate child tags of the given tag (exported for Wails binding).
@@ -3457,6 +3541,14 @@ func (a *App) GetTopLevelTags() ([]Tag, error) {
 // GetDescendantClipCount returns total clip count for a tag and all descendants (exported for Wails binding).
 func (a *App) GetDescendantClipCount(tagID int64, archived bool) (int, error) {
 	return a.getDescendantClipCount(tagID, archived)
+}
+
+// GetDescendantClipCounts is GetDescendantClipCount for every folder card in
+// one call: tag ID → count of live clips under it (0 for a missing tag), with
+// the same archive and expiry filters as the folder listing, so a card's count
+// always matches what opening it shows.
+func (a *App) GetDescendantClipCounts(tagIDs []int64, archived bool) (map[int64]int, error) {
+	return a.getDescendantClipCounts(tagIDs, archived)
 }
 
 // BulkAddTag adds a tag to multiple clips

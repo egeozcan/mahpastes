@@ -82,6 +82,8 @@ export function GetDatabaseSize():Promise<number>;
 
 export function GetDescendantClipCount(arg1:number,arg2:boolean):Promise<number>;
 
+export function GetDescendantClipCounts(arg1:Array<number>,arg2:boolean):Promise<Record<number, number>>;
+
 export function GetDuplicateGroups():Promise<Array<app.DuplicateGroup>>;
 
 export function GetFolderClips(arg1:boolean,arg2:number,arg3:string,arg4:string):Promise<Array<app.ClipPreview>>;

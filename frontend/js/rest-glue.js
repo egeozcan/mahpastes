@@ -218,7 +218,16 @@
                 return true;
             });
         },
-        GetDescendantClipCount: async () => 0,
+        GetDescendantClipCount: async (tagId, archived) => {
+            const counts = await window.go.main.App.GetDescendantClipCounts([tagId], archived);
+            return Number(counts[tagId]) || 0;
+        },
+        GetDescendantClipCounts: async (tagIds, archived) => {
+            const params = new URLSearchParams();
+            params.set('archived', archived ? 'true' : 'false');
+            (tagIds || []).forEach((id) => params.append('tag', String(id)));
+            return (await fetchJSON(`${api}/tags/clip-counts?${params.toString()}`)) || {};
+        },
         GetHiddenClipInfo: async (archived, tagIds, hiddenIds) => {
             const params = new URLSearchParams();
             params.set('archived', archived ? 'true' : 'false');

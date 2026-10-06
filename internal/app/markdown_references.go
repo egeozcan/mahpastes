@@ -204,29 +204,36 @@ func (a *App) markdownReferenceBases(sourceClipID int64) ([]string, error) {
 	return bases, nil
 }
 
+// Reference lookups by exact filename. Both run off idx_clips_filename, which
+// covers every clips column they read: filename and the rest are stored after
+// the data blob, so a table scan would read the whole library per reference.
+const markdownUntaggedCandidatesSQL = `
+	SELECT c.id, c.filename, c.content_type, c.is_archived
+	FROM clips c
+	WHERE c.filename = ? COLLATE BINARY
+	  AND NOT EXISTS (SELECT 1 FROM clip_tags ct WHERE ct.clip_id = c.id)
+	  AND (c.expires_at IS NULL OR datetime(c.expires_at) > CURRENT_TIMESTAMP)
+	ORDER BY c.id
+	LIMIT ?`
+
+const markdownTaggedCandidatesSQL = `
+	SELECT c.id, c.filename, c.content_type, c.is_archived
+	FROM clips c
+	JOIN clip_tags ct ON ct.clip_id = c.id
+	JOIN tags t ON t.id = ct.tag_id
+	WHERE t.name = ? COLLATE BINARY
+	  AND c.filename = ? COLLATE BINARY
+	  AND (c.expires_at IS NULL OR datetime(c.expires_at) > CURRENT_TIMESTAMP)
+	ORDER BY c.id
+	LIMIT ?`
+
 func (a *App) findMarkdownReferenceCandidates(tagPath, filename string) ([]MarkdownReferenceCandidate, error) {
 	var rows *sql.Rows
 	var err error
 	if tagPath == "" {
-		rows, err = a.db.Query(`
-			SELECT c.id, c.filename, c.content_type, c.is_archived
-			FROM clips c
-			WHERE c.filename = ? COLLATE BINARY
-			  AND NOT EXISTS (SELECT 1 FROM clip_tags ct WHERE ct.clip_id = c.id)
-			  AND (c.expires_at IS NULL OR datetime(c.expires_at) > CURRENT_TIMESTAMP)
-			ORDER BY c.id
-			LIMIT ?`, filename, maxMarkdownReferenceCandidates+1)
+		rows, err = a.db.Query(markdownUntaggedCandidatesSQL, filename, maxMarkdownReferenceCandidates+1)
 	} else {
-		rows, err = a.db.Query(`
-			SELECT c.id, c.filename, c.content_type, c.is_archived
-			FROM clips c
-			JOIN clip_tags ct ON ct.clip_id = c.id
-			JOIN tags t ON t.id = ct.tag_id
-			WHERE t.name = ? COLLATE BINARY
-			  AND c.filename = ? COLLATE BINARY
-			  AND (c.expires_at IS NULL OR datetime(c.expires_at) > CURRENT_TIMESTAMP)
-			ORDER BY c.id
-			LIMIT ?`, tagPath, filename, maxMarkdownReferenceCandidates+1)
+		rows, err = a.db.Query(markdownTaggedCandidatesSQL, tagPath, filename, maxMarkdownReferenceCandidates+1)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("resolve Markdown reference: %w", err)
