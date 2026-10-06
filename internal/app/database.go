@@ -106,28 +106,9 @@ func initDB() (*sql.DB, error) {
 	_, _ = db.Exec("CREATE INDEX IF NOT EXISTS idx_clips_content_hash ON clips(content_hash)")
 	// Migrate: Add metadata column for key-value metadata (JSON)
 	_, _ = db.Exec("ALTER TABLE clips ADD COLUMN metadata TEXT DEFAULT '{}'")
-	// Listing indexes. Every column but id and content_type is stored after
-	// the data blob, and reading a column past a blob walks its whole
-	// overflow chain. Each index covers one sort order (created, name, type,
-	// size — LENGTH(data) comes from the record header) plus every non-blob
-	// column a gallery page shows, so the page query's filtering inner pass
-	// never touches the table and its outer join reads only content_type,
-	// LENGTH(data) and the text preview (queryClipPreviewsCounted). Changing a
-	// column list means a new name here and the old one in the drop list.
-	for _, stmt := range []string{
-		"DROP INDEX IF EXISTS idx_clips_list_created",
-		"DROP INDEX IF EXISTS idx_clips_list_name",
-		"CREATE INDEX IF NOT EXISTS idx_clips_page_created ON clips(is_archived, created_at, id, expires_at, filename, content_type, content_hash)",
-		"CREATE INDEX IF NOT EXISTS idx_clips_page_name ON clips(is_archived, filename, created_at, id, expires_at, content_type, content_hash)",
-		"CREATE INDEX IF NOT EXISTS idx_clips_page_type ON clips(is_archived, content_type, created_at, id, expires_at, filename, content_hash)",
-		"CREATE INDEX IF NOT EXISTS idx_clips_page_size ON clips(is_archived, LENGTH(data), created_at, id, expires_at, filename, content_type, content_hash)",
-		// Markdown reference resolution looks clips up by exact filename and
-		// reads only these columns (findMarkdownReferenceCandidates).
-		"CREATE INDEX IF NOT EXISTS idx_clips_filename ON clips(filename, content_type, is_archived, expires_at)",
-	} {
-		if _, err := db.Exec(stmt); err != nil {
-			log.Printf("Warning: Failed to create clip listing index: %v", err)
-		}
+	if err := ensureClipListingIndexes(db); err != nil {
+		db.Close()
+		return nil, err
 	}
 
 	// Create settings table
@@ -844,4 +825,63 @@ func StartCleanupJob(ctx context.Context, db *sql.DB, store *TempClipStore) {
 			}
 		}
 	}()
+}
+
+// clipListingIndex covers every non-blob column a gallery page shows. Every
+// clips column but id and content_type is stored after the data blob, and
+// reading a column past a blob walks the blob's whole overflow chain, so the
+// listing, its counts and the folder/hidden-note counts read clips only
+// through this index — named with INDEXED BY, because after ANALYZE on a
+// library where nearly every clip is unarchived the planner prefers a table
+// scan (it cannot see the blobs). LENGTH(data) is stored in the index too
+// (the record header holds it, but the table read would still be one page
+// per clip). One index serves every sort: the page query counts the whole
+// filtered set anyway (COUNT(*) OVER ()), so it scans every match whatever
+// the order and the sort is of small rows.
+const clipListingIndex = "idx_clips_listing"
+
+// clipFilenameIndex serves exact-filename lookups (Markdown references,
+// folder-drag matching) without touching the table.
+const clipFilenameIndex = "idx_clips_by_filename"
+
+// ensureClipListingIndexes creates the clip listing indexes. On an existing
+// library each new index is one full read of every clip (SQLite builds an
+// index by scanning the table), so the build is logged with its duration.
+// Changing a column list means a new name here and the old one in the drop
+// list. A missing listing index is fatal: listing queries name it.
+func ensureClipListingIndexes(db *sql.DB) error {
+	for _, old := range []string{
+		"idx_clips_list_created", "idx_clips_list_name",
+		"idx_clips_page_created", "idx_clips_page_name", "idx_clips_page_type", "idx_clips_page_size",
+		"idx_clips_filename",
+	} {
+		if _, err := db.Exec("DROP INDEX IF EXISTS " + old); err != nil {
+			log.Printf("Warning: Failed to drop old clip index %s: %v", old, err)
+		}
+	}
+	indexes := []struct{ name, sql string }{
+		{clipListingIndex, "CREATE INDEX IF NOT EXISTS " + clipListingIndex +
+			" ON clips(is_archived, created_at, id, expires_at, filename, content_type, content_hash, LENGTH(data))"},
+		{clipFilenameIndex, "CREATE INDEX IF NOT EXISTS " + clipFilenameIndex +
+			" ON clips(filename, content_type, is_archived, expires_at, content_hash)"},
+	}
+	for _, idx := range indexes {
+		var exists int
+		_ = db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = ?", idx.name).Scan(&exists)
+		var hasClips int
+		if exists == 0 {
+			_ = db.QueryRow("SELECT EXISTS (SELECT 1 FROM clips)").Scan(&hasClips)
+		}
+		start := time.Now()
+		if hasClips == 1 {
+			log.Printf("Building clip index %s (reads every clip once)...", idx.name)
+		}
+		if _, err := db.Exec(idx.sql); err != nil {
+			return fmt.Errorf("failed to create clip index %s: %w", idx.name, err)
+		}
+		if hasClips == 1 {
+			log.Printf("Built clip index %s in %v", idx.name, time.Since(start).Round(time.Millisecond))
+		}
+	}
+	return nil
 }

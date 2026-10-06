@@ -1041,6 +1041,38 @@ func (am *APIManager) enforceTagScope(keyCtx *apiKeyContext, clipID int64) error
 }
 
 // isTagInScope returns true if the given tag name is the scoped tag itself or a descendant of it.
+// tagIDsInScopeSQL selects which of n tag IDs are the scoped tag (the first
+// parameter) or under it — isTagInScope for a whole list in one query.
+func tagIDsInScopeSQL(n int) string {
+	return `SELECT t.id FROM tags t, tags s
+		WHERE s.id = ? AND t.id IN (` + strings.TrimSuffix(strings.Repeat("?,", n), ",") + `)
+		  AND (t.id = s.id OR ` + underTagColSQL("t.name", "s.name") + `)`
+}
+
+// tagIDsInScope returns the IDs among tagIDs that a key scoped to scopedTagID
+// may see. A missing tag is never in scope.
+func (am *APIManager) tagIDsInScope(tagIDs []int64, scopedTagID int64) ([]int64, error) {
+	args := make([]interface{}, 0, len(tagIDs)+1)
+	args = append(args, scopedTagID)
+	for _, id := range tagIDs {
+		args = append(args, id)
+	}
+	rows, err := am.app.db.Query(tagIDsInScopeSQL(len(tagIDs)), args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
 func (am *APIManager) isTagInScope(tagName string, scopedTagID int64) bool {
 	var scopedName string
 	if err := am.app.db.QueryRow("SELECT name FROM tags WHERE id = ?", scopedTagID).Scan(&scopedName); err != nil {
@@ -1140,73 +1172,29 @@ func (am *APIManager) handleListClips(w http.ResponseWriter, r *http.Request) {
 		args = append(args, pattern, pattern)
 	}
 
-	whereClause := ""
-	if len(conditions) > 0 {
-		whereClause = " AND " + strings.Join(conditions, " AND ")
-	}
-
-	var totalCount int
-	var rows *sql.Rows
-	var err error
-
+	// The tag filter is an IN subquery so the clips side runs off the
+	// listing index: joined, the planner may drive from clip_tags and read
+	// filename/created_at through the table, past each clip's blob.
 	if tagFilter > 0 {
 		// For scoped keys using their scoped tag as the filter, expand to include subtree
-		expandSubtree := keyCtx.ScopedTagID > 0 && tagFilter == keyCtx.ScopedTagID
-		if expandSubtree {
+		if keyCtx.ScopedTagID > 0 && tagFilter == keyCtx.ScopedTagID {
 			var scopedName string
 			am.app.db.QueryRow("SELECT name FROM tags WHERE id = ?", keyCtx.ScopedTagID).Scan(&scopedName)
-
-			// Count
-			countQuery := fmt.Sprintf(`SELECT COUNT(DISTINCT c.id) FROM clips c
-				JOIN clip_tags ct ON c.id = ct.clip_id
+			conditions = append([]string{`c.id IN (SELECT ct.clip_id FROM clip_tags ct
 				JOIN tags t ON ct.tag_id = t.id
-				WHERE (t.id = ? OR `+underTagSQL("t.name")+`)%s`, whereClause)
-			countArgs := append([]interface{}{tagFilter, scopedName, scopedName}, args...)
-			am.app.db.QueryRow(countQuery, countArgs...).Scan(&totalCount)
-
-			// Fetch
-			query := fmt.Sprintf(`SELECT DISTINCT c.id, c.content_type, c.filename, LENGTH(c.data), c.is_archived, c.created_at
-				FROM clips c
-				JOIN clip_tags ct ON c.id = ct.clip_id
-				JOIN tags t ON ct.tag_id = t.id
-				WHERE (t.id = ? OR `+underTagSQL("t.name")+`)%s
-				ORDER BY c.created_at DESC
-				LIMIT ? OFFSET ?`, whereClause)
-			fetchArgs := append([]interface{}{tagFilter, scopedName, scopedName}, args...)
-			fetchArgs = append(fetchArgs, limit, offset)
-			rows, err = am.app.db.Query(query, fetchArgs...)
+				WHERE t.id = ? OR ` + underTagSQL("t.name") + `)`}, conditions...)
+			args = append([]interface{}{tagFilter, scopedName, scopedName}, args...)
 		} else {
-			// Count
-			countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM clips c
-				JOIN clip_tags ct ON c.id = ct.clip_id
-				WHERE ct.tag_id = ?%s`, whereClause)
-			countArgs := append([]interface{}{tagFilter}, args...)
-			am.app.db.QueryRow(countQuery, countArgs...).Scan(&totalCount)
-
-			// Fetch
-			query := fmt.Sprintf(`SELECT c.id, c.content_type, c.filename, LENGTH(c.data), c.is_archived, c.created_at
-				FROM clips c
-				JOIN clip_tags ct ON c.id = ct.clip_id
-				WHERE ct.tag_id = ?%s
-				ORDER BY c.created_at DESC
-				LIMIT ? OFFSET ?`, whereClause)
-			fetchArgs := append([]interface{}{tagFilter}, args...)
-			fetchArgs = append(fetchArgs, limit, offset)
-			rows, err = am.app.db.Query(query, fetchArgs...)
+			conditions = append([]string{"c.id IN (SELECT ct.clip_id FROM clip_tags ct WHERE ct.tag_id = ?)"}, conditions...)
+			args = append([]interface{}{tagFilter}, args...)
 		}
-	} else {
-		// Count
-		countQuery := fmt.Sprintf("SELECT COUNT(*) FROM clips c WHERE 1=1%s", whereClause)
-		am.app.db.QueryRow(countQuery, args...).Scan(&totalCount)
-
-		// Fetch
-		query := fmt.Sprintf(`SELECT c.id, c.content_type, c.filename, LENGTH(c.data), c.is_archived, c.created_at
-			FROM clips c WHERE 1=1%s
-			ORDER BY c.created_at DESC
-			LIMIT ? OFFSET ?`, whereClause)
-		fetchArgs := append(args, limit, offset)
-		rows, err = am.app.db.Query(query, fetchArgs...)
 	}
+	countQuery, query := legacyClipListSQL(conditions)
+
+	var totalCount int
+	am.app.db.QueryRow(countQuery, args...).Scan(&totalCount)
+	fetchArgs := append(append([]interface{}{}, args...), limit, offset)
+	rows, err := am.app.db.Query(query, fetchArgs...)
 
 	if err != nil {
 		am.jsonError(w, http.StatusInternalServerError, "failed to query clips")
@@ -3014,13 +3002,11 @@ func (am *APIManager) handleTagClipCounts(w http.ResponseWriter, r *http.Request
 	}
 
 	allowed := tagIDs
-	if keyCtx.ScopedTagID > 0 {
-		allowed = make([]int64, 0, len(tagIDs))
-		for _, id := range tagIDs {
-			var name string
-			if err := am.app.db.QueryRow("SELECT name FROM tags WHERE id = ?", id).Scan(&name); err == nil && am.isTagInScope(name, keyCtx.ScopedTagID) {
-				allowed = append(allowed, id)
-			}
+	if keyCtx.ScopedTagID > 0 && len(tagIDs) > 0 {
+		var err error
+		if allowed, err = am.tagIDsInScope(tagIDs, keyCtx.ScopedTagID); err != nil {
+			am.jsonError(w, http.StatusInternalServerError, "failed to count clips")
+			return
 		}
 	}
 
@@ -3035,6 +3021,22 @@ func (am *APIManager) handleTagClipCounts(w http.ResponseWriter, r *http.Request
 		}
 	}
 	am.jsonOK(w, counts)
+}
+
+// legacyClipListSQL is the count and page query of the plain REST listings
+// (GET /api/v1/clips without the gallery's parameters, and
+// GET /api/v1/tags/{id}/clips). Every column they return but id and
+// content_type is stored after the data blob, so clips is read through the
+// covering listing index (see clipListingIndex).
+func legacyClipListSQL(conditions []string) (count, page string) {
+	where := "1=1"
+	if len(conditions) > 0 {
+		where = strings.Join(conditions, " AND ")
+	}
+	from := "FROM clips c INDEXED BY " + clipListingIndex + " WHERE " + where
+	return "SELECT COUNT(*) " + from,
+		"SELECT c.id, c.content_type, c.filename, LENGTH(c.data), c.is_archived, c.created_at " + from +
+			" ORDER BY c.created_at DESC, c.id DESC LIMIT ? OFFSET ?"
 }
 
 func (am *APIManager) handleGetTagClips(w http.ResponseWriter, r *http.Request) {
@@ -3073,21 +3075,10 @@ func (am *APIManager) handleGetTagClips(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	// Count
+	countQuery, query := legacyClipListSQL([]string{"c.id IN (SELECT ct.clip_id FROM clip_tags ct WHERE ct.tag_id = ?)"})
 	var totalCount int
-	am.app.db.QueryRow(`
-		SELECT COUNT(*) FROM clips c
-		JOIN clip_tags ct ON c.id = ct.clip_id
-		WHERE ct.tag_id = ?`, tagID).Scan(&totalCount)
-
-	// Fetch
-	rows, err := am.app.db.Query(`
-		SELECT c.id, c.content_type, c.filename, LENGTH(c.data), c.is_archived, c.created_at
-		FROM clips c
-		JOIN clip_tags ct ON c.id = ct.clip_id
-		WHERE ct.tag_id = ?
-		ORDER BY c.created_at DESC
-		LIMIT ? OFFSET ?`, tagID, limit, offset)
+	am.app.db.QueryRow(countQuery, tagID).Scan(&totalCount)
+	rows, err := am.app.db.Query(query, tagID, limit, offset)
 	if err != nil {
 		am.jsonError(w, http.StatusInternalServerError, "failed to query clips")
 		return

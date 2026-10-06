@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -12,6 +13,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"golang.org/x/sync/semaphore"
 )
 
 const (
@@ -92,13 +95,23 @@ func NewTempClipStore(db *sql.DB, dir string, leaseTTL, pruneInterval time.Durat
 	}
 }
 
-// tempPrepareMaxConcurrent bounds how many clips PrepareClipFile copies out
-// of the database at once. Each copy holds the whole blob in memory while it
-// is read and written, so a gallery page of video cards must not multiply
-// that by the page size.
-const tempPrepareMaxConcurrent = 3
+// tempPrepareByteBudget bounds the clip bytes PrepareClipFile holds in
+// memory at once, process-wide. Each copy holds its whole blob while it is
+// read and written, so copies are weighed by size: small clips copy side by
+// side, while a clip at or over the budget copies alone — a gallery page of
+// large video cards never holds more than one large blob, or a budget's
+// worth of smaller ones. Each copy weighs at least tempPrepareMinWeight.
+// Variables, not constants, so tests can shrink them.
+var (
+	tempPrepareByteBudget int64 = 256 << 20
+	tempPrepareMinWeight  int64 = 1 << 20
+	tempPrepareSem              = semaphore.NewWeighted(tempPrepareByteBudget)
+)
 
-var tempPrepareSem = make(chan struct{}, tempPrepareMaxConcurrent)
+// tempPrepareWeight is a copy's charge against tempPrepareByteBudget.
+func tempPrepareWeight(size int64) int64 {
+	return min(max(size, tempPrepareMinWeight), tempPrepareByteBudget)
+}
 
 // tempPrepareMaxAttempts bounds re-reads of a clip whose files were dropped
 // (an edit or a delete) while a copy of it was being made.
@@ -124,8 +137,8 @@ type tempPrepareFlight struct {
 // PrepareClipFile creates or refreshes the leased temp file for a clip.
 //
 // The copy is made outside s.mu: a request joins a copy of the same clip
-// already in progress, and copies of different clips run concurrently (up to
-// tempPrepareMaxConcurrent). The fresh file is renamed into place under s.mu
+// already in progress, and copies of different clips run concurrently (within
+// tempPrepareByteBudget). The fresh file is renamed into place under s.mu
 // only if no drop for the clip ran since the copy began reading — every writer
 // of clips.data and every deleter drops the clip's temp files after its
 // statement, so either the drop comes later and removes the new file, or the
@@ -179,8 +192,19 @@ func (s *TempClipStore) PrepareClipFile(clipID int64) (*tempPreparedFile, error)
 
 // prepareClipFile does one flight's copy. fl is registered in prepFlights.
 func (s *TempClipStore) prepareClipFile(clipID int64, fl *tempPrepareFlight) (*tempPreparedFile, error) {
-	tempPrepareSem <- struct{}{}
-	defer func() { <-tempPrepareSem }()
+	// LENGTH(data) comes from the record header; the blob is not read.
+	var size int64
+	if err := s.db.QueryRow("SELECT LENGTH(data) FROM clips WHERE id = ?", clipID).Scan(&size); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrClipNotFound
+		}
+		return nil, fmt.Errorf("failed to size clip %d: %w", clipID, err)
+	}
+	weight := tempPrepareWeight(size)
+	if err := tempPrepareSem.Acquire(context.Background(), weight); err != nil {
+		return nil, err
+	}
+	defer tempPrepareSem.Release(weight)
 
 	for attempt := 1; ; attempt++ {
 		data, filename, contentType, err := s.loadClipForPrepare(clipID)
@@ -537,7 +561,7 @@ func (s *TempClipStore) pruneLocked(force bool) error {
 	// The leased index is rebuilt from what this pass leaves on disk, so a
 	// file created or removed behind the store's back is picked up here.
 	kept := entries[:0:0]
-	for _, entry := range entries {
+	for i, entry := range entries {
 		if entry.IsDir() {
 			continue
 		}
@@ -581,7 +605,10 @@ func (s *TempClipStore) pruneLocked(force bool) error {
 			continue
 		}
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
-			s.rebuildLeasedIndexLocked(append(kept, entry))
+			// This entry and every one not yet examined are still on
+			// disk; leaving them out would make FindExistingClipFile miss
+			// valid leases until the next prune.
+			s.rebuildLeasedIndexLocked(append(kept, entries[i:]...))
 			return fmt.Errorf("failed to remove temp file %q: %w", fullPath, err)
 		}
 	}

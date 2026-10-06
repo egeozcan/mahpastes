@@ -160,12 +160,13 @@ type App struct {
 	// and the tag id — may now name restored rows.
 	restoreEpoch uint64
 
-	// galleryLoad is the context of the desktop gallery's current load
-	// (beginGalleryLoad). A newer load cancels it, so a superseded content
-	// search stops scanning instead of running to the end.
-	galleryLoadMu     sync.Mutex
-	galleryLoadCtx    context.Context
-	galleryLoadCancel context.CancelFunc
+	// galleryLoads holds each desktop gallery's current load
+	// (beginNumberedGalleryLoad, beginGalleryLoad). A newer load of the same
+	// gallery cancels it, so a superseded content search stops scanning
+	// instead of running to the end.
+	galleryLoadMu   sync.Mutex
+	galleryLoads    map[string]*galleryLoad // by page session; "" for unnumbered calls
+	galleryLoadTick uint64
 }
 
 // PluginsReady reports whether plugin loading has finished (successfully or
@@ -1030,13 +1031,88 @@ func (a *App) searchClips(ctx context.Context, archived bool, tagIDs []int64, hi
 func (a *App) beginGalleryLoad(supersede bool) context.Context {
 	a.galleryLoadMu.Lock()
 	defer a.galleryLoadMu.Unlock()
-	if supersede || a.galleryLoadCtx == nil {
-		if a.galleryLoadCancel != nil {
-			a.galleryLoadCancel()
-		}
-		a.galleryLoadCtx, a.galleryLoadCancel = context.WithCancel(context.Background())
+	gl := a.galleryLoadLocked("")
+	if supersede || gl.ctx == nil {
+		gl.restart()
 	}
-	return a.galleryLoadCtx
+	return gl.ctx
+}
+
+// beginNumberedGalleryLoad is beginGalleryLoad for a request that says which
+// load it belongs to: the page session it comes from and that page's load
+// generation. Wails runs each bound call on its own goroutine, so two loads
+// fired back to back can reach Go in either order — ordering by arrival would
+// let the older load cancel the newer one, and the gallery would show the
+// older load's error. So within a session a newer generation supersedes the
+// current load, the current generation joins it, and an older generation gets
+// an already-cancelled context (the frontend discards its result anyway).
+// Sessions never cancel one another: under `wails dev` the native window and
+// a browser tab are two galleries on one App, and a reloaded page is a new
+// session whose counter starts again.
+func (a *App) beginNumberedGalleryLoad(session string, gen int64) context.Context {
+	a.galleryLoadMu.Lock()
+	defer a.galleryLoadMu.Unlock()
+	gl := a.galleryLoadLocked(session)
+	switch {
+	case gl.ctx == nil || gen > gl.gen:
+		gl.gen = gen
+		gl.restart()
+	case gen < gl.gen:
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		return ctx
+	}
+	return gl.ctx
+}
+
+// maxGalleryLoadSessions bounds the per-session load records; the least
+// recently used one (in practice a page that has been reloaded) is dropped.
+const maxGalleryLoadSessions = 16
+
+// galleryLoad is one gallery's current load (see beginNumberedGalleryLoad).
+type galleryLoad struct {
+	ctx    context.Context
+	cancel context.CancelFunc
+	gen    int64
+	used   uint64
+}
+
+func (gl *galleryLoad) restart() {
+	if gl.cancel != nil {
+		gl.cancel()
+	}
+	gl.ctx, gl.cancel = context.WithCancel(context.Background())
+}
+
+// galleryLoadLocked returns session's load record, creating it (and dropping
+// the least recently used record past maxGalleryLoadSessions). Callers hold
+// galleryLoadMu.
+func (a *App) galleryLoadLocked(session string) *galleryLoad {
+	a.galleryLoadTick++
+	if a.galleryLoads == nil {
+		a.galleryLoads = make(map[string]*galleryLoad)
+	}
+	gl := a.galleryLoads[session]
+	if gl == nil {
+		if len(a.galleryLoads) >= maxGalleryLoadSessions {
+			var oldest string
+			var oldestUsed uint64
+			first := true
+			for k, v := range a.galleryLoads {
+				if first || v.used < oldestUsed {
+					oldest, oldestUsed, first = k, v.used, false
+				}
+			}
+			if old := a.galleryLoads[oldest]; old.cancel != nil {
+				old.cancel()
+			}
+			delete(a.galleryLoads, oldest)
+		}
+		gl = &galleryLoad{}
+		a.galleryLoads[session] = gl
+	}
+	gl.used = a.galleryLoadTick
+	return gl
 }
 
 // GetFolderClips returns clips tagged with the given tag but NOT tagged with any
@@ -1081,6 +1157,10 @@ type ClipListRequest struct {
 	SortDir       string  `json:"sort_dir"`
 	Offset        int     `json:"offset"`
 	Limit         int     `json:"limit"`
+	// LoadSession and LoadGen identify the desktop gallery load a request
+	// belongs to (see beginNumberedGalleryLoad); REST ignores them.
+	LoadSession string `json:"load_session,omitempty"`
+	LoadGen     int64  `json:"load_gen,omitempty"`
 }
 
 // ClipPage is one page of a listing plus the size of the whole listing, so
@@ -1099,10 +1179,19 @@ const maxClipPageLimit = 200
 // ordered exactly like the unpaged listing functions (ties broken by id), so
 // walking the offsets visits every clip once while the library is unchanged.
 //
-// A first page (offset 0) starts a new gallery load and cancels the previous
-// one's query (beginGalleryLoad); later pages join the load in progress.
+// A request carrying LoadSession/LoadGen (the desktop gallery) supersedes,
+// joins or is refused by the current gallery load by generation
+// (beginNumberedGalleryLoad). Without them, a first page (offset 0) starts a
+// new gallery load and cancels the previous one's query (beginGalleryLoad),
+// and later pages join the load in progress.
 func (a *App) ListClipsPage(req ClipListRequest) (ClipPage, error) {
-	return a.listClipsPage(a.beginGalleryLoad(req.Offset <= 0), req, "")
+	var ctx context.Context
+	if req.LoadSession != "" {
+		ctx = a.beginNumberedGalleryLoad(req.LoadSession, req.LoadGen)
+	} else {
+		ctx = a.beginGalleryLoad(req.Offset <= 0)
+	}
+	return a.listClipsPage(ctx, req, "")
 }
 
 // listClipsPage is ListClipsPage, optionally narrowed to one exact content
@@ -1254,7 +1343,7 @@ func (a *App) GetHiddenClipInfo(archived bool, tagIDs []int64, hiddenTagIDs []in
 }
 
 func hiddenClipCountSQL(where string) string {
-	return fmt.Sprintf("SELECT COUNT(DISTINCT c.id) FROM clips c WHERE %s", where)
+	return fmt.Sprintf("SELECT COUNT(DISTINCT c.id) FROM clips c INDEXED BY "+clipListingIndex+" WHERE %s", where)
 }
 
 // hiddenClipTagsSQL names the hidden tags carried by the clips where selects.
@@ -1266,7 +1355,7 @@ func hiddenClipTagsSQL(where, hiddenIn string) string {
 		SELECT DISTINCT t.name
 		FROM clip_tags ct
 		INNER JOIN tags t ON t.id = ct.tag_id
-		WHERE ct.clip_id IN (SELECT c.id FROM clips c WHERE %s)
+		WHERE ct.clip_id IN (SELECT c.id FROM clips c INDEXED BY `+clipListingIndex+` WHERE %s)
 		  AND t.id IN (%s)
 		ORDER BY t.name`, where, hiddenIn)
 }
@@ -1405,9 +1494,14 @@ func (a *App) buildClipListQuery(archived bool, tagIDs []int64, hiddenTagIDs []i
 	}
 }
 
+// countClipsSQL counts a listing's whole filtered set, off the listing index.
+func countClipsSQL(where string) string {
+	return "SELECT COUNT(*) FROM clips c INDEXED BY " + clipListingIndex + " WHERE " + where
+}
+
 func (a *App) countClips(ctx context.Context, q clipListQuery) (int, error) {
 	var n int
-	if err := a.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM clips c WHERE "+q.where, q.args...).Scan(&n); err != nil {
+	if err := a.db.QueryRowContext(ctx, countClipsSQL(q.where), q.args...).Scan(&n); err != nil {
 		return 0, fmt.Errorf("failed to count clips: %w", err)
 	}
 	return n, nil
@@ -1437,14 +1531,14 @@ func clipPageSQL(q clipListQuery, offset, limit int) string {
 				SELECT c.id AS id, c.content_type AS content_type, c.filename AS filename, c.created_at AS created_at,
 				       c.expires_at AS expires_at, c.is_archived AS is_archived, c.content_hash AS content_hash,
 				       LENGTH(c.data) AS size
-				FROM clips c
+				FROM clips c INDEXED BY %s
 				WHERE %s
 			) f
 			%s
 			LIMIT %d OFFSET %d
 		) page
 		INNER JOIN clips c ON c.id = page.id
-		%s`, clipPreviewExpr("c."), q.where, q.order, limit, offset, q.pageOrder)
+		%s`, clipPreviewExpr("c."), clipListingIndex, q.where, q.order, limit, offset, q.pageOrder)
 }
 
 // queryClipPreviewsCounted returns one page of previews plus the size of the
@@ -1458,6 +1552,10 @@ func (a *App) queryClipPreviewsCounted(q clipListQuery, offset, limit int) ([]Cl
 	return a.queryClipPreviewsCountedCtx(context.Background(), q, offset, limit)
 }
 
+// clipListingQueryHook, when set (tests only), runs once the page query has
+// started returning rows, before they are read.
+var clipListingQueryHook func(ctx context.Context)
+
 func (a *App) queryClipPreviewsCountedCtx(ctx context.Context, q clipListQuery, offset, limit int) ([]ClipPreview, int, int, error) {
 	query := clipPageSQL(q, offset, limit)
 	args := q.args
@@ -1470,6 +1568,9 @@ func (a *App) queryClipPreviewsCountedCtx(ctx context.Context, q clipListQuery, 
 		return nil, 0, 0, fmt.Errorf("failed to query clips: %w", err)
 	}
 	defer rows.Close()
+	if clipListingQueryHook != nil {
+		clipListingQueryHook(ctx)
+	}
 
 	var clips []ClipPreview
 	var clipIDs []int64
@@ -1516,6 +1617,12 @@ func (a *App) queryClipPreviewsCountedCtx(ctx context.Context, q clipListQuery, 
 			return nil, 0, 0, fmt.Errorf("clip listing superseded: %w", ctx.Err())
 		}
 		return nil, 0, 0, fmt.Errorf("failed to read clips: %w", err)
+	}
+	// A load superseded after its last row was read is still superseded:
+	// database/sql closes the rows on cancellation asynchronously, so the
+	// loop above may have ended normally.
+	if ctx.Err() != nil {
+		return nil, 0, 0, fmt.Errorf("clip listing superseded: %w", ctx.Err())
 	}
 
 	// Batch load tags for all clips (fixes N+1 query problem)
@@ -1816,6 +1923,29 @@ type ClipMatch struct {
 	ContentHash string `json:"content_hash"`
 }
 
+// findClipsByFilenameSQL is FindClipsByFilenameAndTag's lookup. It seeks the
+// filename index, which covers every column it reads; the tag is an IN
+// subquery rather than a join so the planner never drives from clip_tags and
+// looks each clip up in the table (filename is stored after the data blob).
+func findClipsByFilenameSQL(inClause string, tagged bool) string {
+	if tagged {
+		return fmt.Sprintf(`
+			SELECT c.id, c.filename, c.content_hash
+			FROM clips c INDEXED BY %s
+			WHERE c.id IN (SELECT ct.clip_id FROM clip_tags ct WHERE ct.tag_id = ?)
+			AND c.filename IN (%s)
+			AND c.is_archived = 0
+			ORDER BY c.id DESC`, clipFilenameIndex, inClause)
+	}
+	return fmt.Sprintf(`
+			SELECT c.id, c.filename, c.content_hash
+			FROM clips c INDEXED BY %s
+			WHERE c.filename IN (%s)
+			AND c.is_archived = 0
+			AND c.id NOT IN (SELECT clip_id FROM clip_tags)
+			ORDER BY c.id DESC`, clipFilenameIndex, inClause)
+}
+
 // FindClipsByFilenameAndTag returns clips matching any of the given filenames
 // within a specific tag. When tagID is 0, matches untagged clips only.
 func (a *App) FindClipsByFilenameAndTag(filenames []string, tagID int64) ([]ClipMatch, error) {
@@ -1832,24 +1962,9 @@ func (a *App) FindClipsByFilenameAndTag(filenames []string, tagID int64) ([]Clip
 	}
 	inClause := strings.Join(placeholders, ", ")
 
-	var query string
+	query := findClipsByFilenameSQL(inClause, tagID > 0)
 	if tagID > 0 {
-		query = fmt.Sprintf(`
-			SELECT c.id, c.filename, c.content_hash
-			FROM clips c
-			JOIN clip_tags ct ON c.id = ct.clip_id
-			WHERE ct.tag_id = ? AND c.filename IN (%s)
-			AND c.is_archived = 0
-			ORDER BY c.id DESC`, inClause)
 		args = append([]interface{}{tagID}, args...)
-	} else {
-		query = fmt.Sprintf(`
-			SELECT c.id, c.filename, c.content_hash
-			FROM clips c
-			WHERE c.filename IN (%s)
-			AND c.is_archived = 0
-			AND c.id NOT IN (SELECT clip_id FROM clip_tags)
-			ORDER BY c.id DESC`, inClause)
 	}
 
 	rows, err := a.db.Query(query, args...)
@@ -3524,7 +3639,7 @@ func descendantClipCountsSQL(n int) string {
 		INNER JOIN clip_tags ct ON ct.tag_id = t.id
 		WHERE p.id IN (` + strings.TrimSuffix(strings.Repeat("?,", n), ",") + `)
 		  AND ct.clip_id IN (
-			SELECT c.id FROM clips c
+			SELECT c.id FROM clips c INDEXED BY ` + clipListingIndex + `
 			WHERE c.is_archived = ?
 			  AND (c.expires_at IS NULL OR c.expires_at > CURRENT_TIMESTAMP)
 		  )

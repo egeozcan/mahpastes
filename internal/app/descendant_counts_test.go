@@ -107,7 +107,9 @@ func TestAPI_TagClipCounts_ScopedKey(t *testing.T) {
 	work, _ := a.CreateTag("work")
 	sub, _ := a.CreateTag("work/sub")
 	personal, _ := a.CreateTag("personal")
-	for _, tag := range []int64{work.ID, sub.ID, personal.ID} {
+	deep, _ := a.CreateTag("work/sub/deep")
+	lookalike, _ := a.CreateTag("work/subx") // shares a prefix, not the subtree
+	for _, tag := range []int64{work.ID, sub.ID, personal.ID, deep.ID, lookalike.ID} {
 		id := insertTestClip(t, a, fmt.Sprintf("c%d", tag), "text/plain", []byte("x"))
 		if _, err := a.db.Exec("INSERT INTO clip_tags (clip_id, tag_id) VALUES (?, ?)", id, tag); err != nil {
 			t.Fatal(err)
@@ -121,7 +123,8 @@ func TestAPI_TagClipCounts_ScopedKey(t *testing.T) {
 	mux.HandleFunc("GET /api/v1/tags/clip-counts", am.authMiddleware(am.requireRole("viewer", am.handleTagClipCounts)))
 	handler := am.corsMiddleware(mux)
 
-	url := fmt.Sprintf("/api/v1/tags/clip-counts?archived=false&tag=%d&tag=%d&tag=%d", work.ID, sub.ID, personal.ID)
+	url := fmt.Sprintf("/api/v1/tags/clip-counts?archived=false&tag=%d&tag=%d&tag=%d&tag=%d&tag=%d&tag=99999",
+		work.ID, sub.ID, personal.ID, deep.ID, lookalike.ID)
 	req := httptest.NewRequest("GET", url, nil)
 	req.Header.Set("Authorization", "Bearer "+scopedKey)
 	rec := httptest.NewRecorder()
@@ -134,9 +137,12 @@ func TestAPI_TagClipCounts_ScopedKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]int{
-		fmt.Sprint(work.ID):     0, // ancestor of the scope: outside it
-		fmt.Sprint(sub.ID):      1,
-		fmt.Sprint(personal.ID): 0,
+		fmt.Sprint(work.ID):      0, // ancestor of the scope: outside it
+		fmt.Sprint(sub.ID):       2, // its own clip and deep's
+		fmt.Sprint(personal.ID):  0,
+		fmt.Sprint(deep.ID):      1,
+		fmt.Sprint(lookalike.ID): 0,
+		"99999":                  0, // no such tag
 	}
 	for k, w := range want {
 		if got[k] != w {

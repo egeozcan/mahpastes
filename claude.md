@@ -508,7 +508,7 @@ Tags form hierarchical trees using `/` as separator (e.g., `work/client1/project
 
 **Folder mode**: Shows clips only at their exact tag level. `GetFolderClips` excludes descendants; `GetUntaggedClips` shows only clips with zero tags at root. The folder mode toggle uses the same `bg-stone-800` active style as the archive toggle.
 
-**Hidden tags in folder mode**: Hiding only dims folder cards (`data-hidden="true"`); it never filters folder contents. `GetFolderClips` takes no hidden-tag list, so a clip tagged `contacts` and `web/contacts` still appears in the `contacts` folder while `web` is hidden. Normal (non-folder) mode keeps the blanket anti-join — any hidden tag hides the clip. `GetDescendantClipCount(tagID, archived)` powers the folder card count and applies the same archive/expiry filters as the listing, so a card's count always matches what opening it shows.
+**Hidden tags in folder mode**: Hiding only dims folder cards (`data-hidden="true"`); it never filters folder contents. `GetFolderClips` takes no hidden-tag list, so a clip tagged `contacts` and `web/contacts` still appears in the `contacts` folder while `web` is hidden. Normal (non-folder) mode keeps the blanket anti-join — any hidden tag hides the clip. `GetDescendantClipCounts(tagIDs, archived)` (REST `GET /api/v1/tags/clip-counts`, tag-scoped keys get 0 outside their subtree) powers the folder card counts — one call per render — and applies the same archive/expiry filters as the listing, so a card's count always matches what opening it shows. The single-tag `GetDescendantClipCount` is a wrapper; both run `descendantClipCountsSQL`.
 
 **Hidden-clip note (normal mode)**: While tag filters are active, `#hidden-clips-note` under the gallery reads e.g. `2 clips hidden by other tags (web/contacts)`. It is fed by `GetHiddenClipInfo(archived, tagIDs, hiddenTagIDs)` (REST: `GET /api/v1/clips/hidden-info`), which runs the listing's filter expansion with the hidden anti-join flipped into a requirement. Both that counter and `getClipsInternal` resolve their tag scope through `buildClipFilterScope`, so the note cannot disagree with the list above it. The note is suppressed in folder mode and when no filter is active.
 
@@ -665,12 +665,20 @@ routes to `handleListClipsViaApp` → `SearchClips`. The *presence* of
 preview-only post-filter the `mp` CLI relies on. "Show hidden" needs no param —
 it is the absence of `hidden` ones.
 
-**Superseded loads are cancelled.** The desktop gallery has one load at a time:
-`App.SearchClips` and every first-page `App.ListClipsPage` (offset 0) start a new
-load (`beginGalleryLoad`) and cancel the previous one's context, so a content
-search still scanning for an older keystroke stops; later pages join the
-current load. A cancelled call fails with an error wrapping `context.Canceled`,
-which `loadClips`/`loadMoreClips` drop through their generation guard. REST runs
+**Superseded loads are cancelled.** Each desktop gallery has one load at a
+time, so a content search still scanning for an older keystroke stops. The
+gallery's `ListClipsPage` requests carry `load_session` (random per page load)
+and `load_gen` (`_clipLoadGen`), and `beginNumberedGalleryLoad` orders them by
+generation, never by arrival — Wails runs each bound call on its own goroutine,
+so a newer load's request can reach Go first, and arrival order once let an
+older load cancel the newer one and blank the gallery. Within a session a newer
+generation cancels the current load's context, the same generation (later
+pages) joins it, and an older one gets a cancelled context. Sessions never
+cancel each other (`wails dev` runs the native window and the browser tab on
+one App). Unnumbered calls (`App.SearchClips`, a `ListClipsPage` without a
+session) share their own slot, where a first page (offset 0) supersedes. A
+cancelled call fails with an error wrapping `context.Canceled`, which
+`loadClips`/`loadMoreClips` drop through their generation guard. REST runs
 these with the request's context instead (clients never cancel each other);
 `rest-glue.js` aborts the previous load's fetch to the same effect.
 
@@ -685,16 +693,25 @@ are ordered like the unpaged listing functions (ties broken by id).
 **Never read a clips column past the blob through the table.** `clips` stores
 `data` third; every later column (`filename`, `created_at`, `is_archived`,
 `expires_at`, `content_hash`, `metadata`) sits after it, and reading one walks
-that row's whole overflow chain. Listing queries get those columns from the
-covering `idx_clips_page_{created,name,type,size}` indexes (`database.go`):
-`clipPageSQL`'s inner derived table filters and sorts off the index and returns
-every non-blob column the page shows, and its outer join to `clips` is for the
-text preview alone. Folder card counts (`GetDescendantClipCounts`, one call per
-render, REST `GET /api/v1/tags/clip-counts`), the hidden-clip note and Markdown
-reference lookups (`idx_clips_filename`) follow the same rule.
-`clip_listing_index_test.go` checks the bytecode (`clipsColumnsReadPastBlob`):
+that row's whole overflow chain. Listing queries read clips through one
+covering index, `clipListingIndex` (`idx_clips_listing`, `database.go`), and
+name it with `INDEXED BY`: after `ANALYZE` (the Compact maintenance action) on
+a library where almost nothing is archived, the planner otherwise picks a table
+scan, since it cannot see the blobs. One index serves every sort order — the
+page query counts its whole filtered set (`COUNT(*) OVER ()`) anyway.
+`clipPageSQL`'s inner derived table filters off the index and returns every
+non-blob column the page shows (`LENGTH(data)` included); its outer join to
+`clips` is for the text preview alone. The counts (`countClipsSQL`), folder card
+counts (`descendantClipCountsSQL`), the hidden-clip note, the plain REST
+listings (`legacyClipListSQL`) and filename lookups (`clipFilenameIndex`:
+Markdown references, `findClipsByFilenameSQL`) follow the same rule; filter by
+tag with `c.id IN (SELECT … FROM clip_tags …)`, not a join, so clips stays on
+its index. `clip_listing_index_test.go` checks the bytecode
+(`clipsColumnsReadPastBlob`), including after `ANALYZE` on an all-live library:
 a new listing-style query belongs there. Changing an index's columns means a new
-index name and a `DROP INDEX` of the old one.
+index name and a `DROP INDEX` of the old one — and on an existing library each
+new index costs one full read of every clip at startup (logged), so add one
+only when a query cannot use the existing two.
 
 **Key files**: `internal/app/app.go` (`SearchClips`, `clipSearchSpec`,
 `buildClipSearchClause`), `frontend/js/search-options.js` (state, popover,
@@ -788,13 +805,14 @@ mutex so an edit or delete racing a copy cannot leave a published copy of bytes
 the library no longer holds, and `PrepareClipFile` replaces temp files by
 rename (`publishPreparedLocked`) so a `/media/` playback reading the old copy is
 never truncated. `PrepareClipFile` copies outside the store mutex — one shared
-copy per clip (`prepFlights`), different clips concurrently (capped by
-`tempPrepareMaxConcurrent`) — and publishes only if no drop for that clip ran
+copy per clip (`prepFlights`), different clips concurrently within a byte budget
+(`tempPrepareSem`, weighted by `LENGTH(data)`: a clip at or over
+`tempPrepareByteBudget` copies alone) — and publishes only if no drop for that clip ran
 since it began reading (the flight's `dropped` flag, set under the mutex by
 `DeleteForClipIDs`/`DeleteAll`); otherwise it re-reads. That is why the drop
 must come *after* the write. `FindExistingClipFile` looks files up in the
-in-memory `leased` index (rebuilt by every prune), not by listing the
-directory. Every deleter of `clips` rows must drop the clip's temp files
+in-memory `leased` index (rebuilt by every prune, including one that
+fails partway), not by listing the directory. Every deleter of `clips` rows must drop the clip's temp files
 *after* the DELETE: the App delete paths do, the expiry reaper
 (`deleteExpiredClips`, `DELETE … RETURNING id`) does, and plugin
 `clips.delete`/`delete_many` report their ids through

@@ -90,7 +90,8 @@ func newServerTestDB(t *testing.T) *sql.DB {
 			filename TEXT,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			is_archived INTEGER DEFAULT 0,
-			content_hash TEXT DEFAULT ''
+			content_hash TEXT DEFAULT '',
+			expires_at DATETIME
 		)`,
 		`CREATE TABLE tags (
 			id INTEGER PRIMARY KEY,
@@ -121,6 +122,10 @@ func newServerTestDB(t *testing.T) *sql.DB {
 		if _, err := db.Exec(stmt); err != nil {
 			t.Fatalf("failed to initialize schema: %v", err)
 		}
+	}
+	// Listing queries name the listing index (INDEXED BY).
+	if err := ensureClipListingIndexes(db); err != nil {
+		t.Fatal(err)
 	}
 
 	return db

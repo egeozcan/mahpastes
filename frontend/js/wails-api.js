@@ -9,6 +9,14 @@ let _pendingFocusAfterLoad = false;
 // the gallery with stale results. Each run captures its generation and bails as
 // soon as a newer one has started.
 let _clipLoadGen = 0;
+// The backend orders gallery loads by (session, generation), not by arrival:
+// Wails runs each call on its own goroutine, so a newer load's request can
+// reach Go first, and ordering by arrival would let the older load cancel it.
+// The session tells the backend this page's counter started again at 0.
+const _clipLoadSession = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+function clipLoadTag(gen) {
+    return { load_session: _clipLoadSession, load_gen: gen };
+}
 
 // Gallery listings are paged: the first CLIP_PAGE_SIZE clips render, and
 // "Load more" under the gallery appends the next page.
@@ -21,7 +29,7 @@ let _galleryView = { key: null, request: null, loaded: 0, total: 0, hasMore: fal
 // More than 200 takes several requests; rows that shift between them (an
 // upload, a delete) would otherwise render one clip twice, so each id is kept
 // once. The offset advances by rows fetched, not rows kept.
-async function fetchClipPages(request, want) {
+async function fetchClipPages(request, want, gen) {
     const clips = [];
     const seen = new Set();
     let fetched = 0;
@@ -30,6 +38,7 @@ async function fetchClipPages(request, want) {
     do {
         const page = await window.go.main.App.ListClipsPage({
             ...request,
+            ...clipLoadTag(gen),
             offset: fetched,
             limit: Math.min(200, want - fetched),
         });
@@ -206,7 +215,7 @@ async function loadClips({ focusFirst = false } = {}) {
         // Fetch the clips and the folder cards together, before touching the
         // gallery, so a reload never shows an empty frame.
         const [page, folderCards] = await Promise.all([
-            fetchClipPages(request, want),
+            fetchClipPages(request, want, myGen),
             isFolderMode() ? buildFolderCards(isStale) : Promise.resolve([]),
         ]);
         if (isStale() || folderCards === null) return;
@@ -342,6 +351,7 @@ async function loadMoreClips() {
     try {
         const page = await window.go.main.App.ListClipsPage({
             ...view.request,
+            ...clipLoadTag(myGen),
             offset: view.loaded,
             limit: CLIP_PAGE_SIZE,
         });

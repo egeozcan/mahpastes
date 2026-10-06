@@ -71,7 +71,7 @@ func clipsColumnsReadPastBlob(t *testing.T, db *sql.DB, query string, args ...in
 // Every clips column but id and content_type sits after the data blob, so a
 // listing that sorts or filters on them through the table reads every clip's
 // bytes. The page query's inner, filtering pass must run off a covering index
-// for every sort order.
+// for every sort order — one index serves them all.
 func TestClipListingUsesCoveringIndex(t *testing.T) {
 	a, cleanup := setupTestApp(t)
 	defer cleanup()
@@ -94,7 +94,7 @@ func TestClipListingUsesCoveringIndex(t *testing.T) {
 			}
 			rows.Close()
 			joined := strings.Join(plan, "\n")
-			if !strings.Contains(joined, "COVERING INDEX idx_clips_page_") {
+			if !strings.Contains(joined, "COVERING INDEX "+clipListingIndex) {
 				t.Errorf("sort %s %s: listing does not use a covering index:\n%s", sortField, dir, joined)
 			}
 		}
@@ -177,7 +177,7 @@ func TestClipListingQueriesNeverReadPastBlob(t *testing.T) {
 			if past := clipsColumnsReadPastBlob(t, a.db, clipPageSQL(l.q, 0, 50), l.q.args...); len(past) > 0 {
 				t.Errorf("%s (%s): page query reads %v through the clips table", l.name, stage, past)
 			}
-			if past := clipsColumnsReadPastBlob(t, a.db, "SELECT COUNT(*) FROM clips c WHERE "+l.q.where, l.q.args...); len(past) > 0 {
+			if past := clipsColumnsReadPastBlob(t, a.db, countClipsSQL(l.q.where), l.q.args...); len(past) > 0 {
 				t.Errorf("%s (%s): count reads %v through the clips table", l.name, stage, past)
 			}
 		}
@@ -187,6 +187,23 @@ func TestClipListingQueriesNeverReadPastBlob(t *testing.T) {
 	// costs plans from real statistics.
 	seedAndAnalyze(t, a, []int64{parent.ID, child.ID, hidden.ID})
 	check("after ANALYZE")
+	reanalyzeAllLive(t, a)
+	check("after ANALYZE, nothing archived or expiring")
+}
+
+// reanalyzeAllLive makes every clip unarchived and non-expiring — the usual
+// shape of a real library — and re-runs ANALYZE. With is_archived = ? matching
+// every row, the planner left to itself prefers a table scan over the
+// covering index (it cannot see the blobs), which is why the listing queries
+// name their index.
+func reanalyzeAllLive(t *testing.T, a *App) {
+	t.Helper()
+	if _, err := a.db.Exec("UPDATE clips SET is_archived = 0, expires_at = NULL"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.db.Exec("ANALYZE"); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // seedAndAnalyze fills the library with clips of every kind, some tagged and
@@ -239,6 +256,33 @@ func TestClipSideQueriesNeverReadPastBlob(t *testing.T) {
 		{"hidden tag names", hiddenClipTagsSQL(where, "?"), []interface{}{0, 3, 3}},
 		{"markdown untagged", markdownUntaggedCandidatesSQL, []interface{}{"a.png", 9}},
 		{"markdown tagged", markdownTaggedCandidatesSQL, []interface{}{"docs", "a.png", 9}},
+		{"filename match untagged", findClipsByFilenameSQL("?, ?", false), []interface{}{"a.png", "b.png"}},
+		{"filename match tagged", findClipsByFilenameSQL("?, ?", true), []interface{}{2, "a.png", "b.png"}},
+	}
+	// The plain REST listings (mp CLI): all clips, one tag, a scoped key's
+	// subtree, with the archived and content-type filters.
+	for _, l := range []struct {
+		name  string
+		conds []string
+		args  []interface{}
+	}{
+		{"rest list all", nil, nil},
+		{"rest list filtered", []string{"c.content_type = ?", "c.is_archived = 0"}, []interface{}{"image/png"}},
+		{"rest list tag", []string{"c.id IN (SELECT ct.clip_id FROM clip_tags ct WHERE ct.tag_id = ?)", "c.is_archived = 1"}, []interface{}{2}},
+		{"rest list subtree", []string{`c.id IN (SELECT ct.clip_id FROM clip_tags ct JOIN tags t ON ct.tag_id = t.id WHERE t.id = ? OR ` + underTagSQL("t.name") + `)`}, []interface{}{1, "docs", "docs"}},
+	} {
+		count, page := legacyClipListSQL(l.conds)
+		queries = append(queries,
+			struct {
+				name string
+				sql  string
+				args []interface{}
+			}{l.name + " count", count, l.args},
+			struct {
+				name string
+				sql  string
+				args []interface{}
+			}{l.name + " page", page, append(append([]interface{}{}, l.args...), 50, 0)})
 	}
 	check := func(stage string) {
 		for _, q := range queries {
@@ -258,4 +302,6 @@ func TestClipSideQueriesNeverReadPastBlob(t *testing.T) {
 	}
 	seedAndAnalyze(t, a, tagIDs)
 	check("after ANALYZE")
+	reanalyzeAllLive(t, a)
+	check("after ANALYZE, nothing archived or expiring")
 }

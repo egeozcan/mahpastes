@@ -176,6 +176,10 @@ func setupTestDBWithTags(t *testing.T) (*App, func()) {
 			t.Fatalf("failed to create table: %v", err)
 		}
 	}
+	// Listing queries name the listing index (INDEXED BY).
+	if err := ensureClipListingIndexes(db); err != nil {
+		t.Fatal(err)
+	}
 
 	app := &App{db: db}
 	cleanup := func() { db.Close() }

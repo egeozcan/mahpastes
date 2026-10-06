@@ -207,6 +207,8 @@ export namespace app {
 	    sort_dir: string;
 	    offset: number;
 	    limit: number;
+	    load_session?: string;
+	    load_gen?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new ClipListRequest(source);
@@ -225,6 +227,8 @@ export namespace app {
 	        this.sort_dir = source["sort_dir"];
 	        this.offset = source["offset"];
 	        this.limit = source["limit"];
+	        this.load_session = source["load_session"];
+	        this.load_gen = source["load_gen"];
 	    }
 	}
 	export class ClipMatch {

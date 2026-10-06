@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"golang.org/x/sync/semaphore"
 	_ "modernc.org/sqlite"
 )
 
@@ -434,5 +436,108 @@ func TestFindExistingClipFile_IndexTracksDisk(t *testing.T) {
 	}
 	if got, _ := store.FindExistingClipFile(2); got != nil {
 		t.Fatalf("lookup after DeleteAll = %+v, want nil", got)
+	}
+}
+
+func setTempPrepareBudget(t *testing.T, budget, minWeight int64) {
+	t.Helper()
+	oldBudget, oldMin, oldSem := tempPrepareByteBudget, tempPrepareMinWeight, tempPrepareSem
+	tempPrepareByteBudget, tempPrepareMinWeight = budget, minWeight
+	tempPrepareSem = semaphore.NewWeighted(budget)
+	t.Cleanup(func() {
+		tempPrepareByteBudget, tempPrepareMinWeight, tempPrepareSem = oldBudget, oldMin, oldSem
+	})
+}
+
+// Copies are weighed by size: two clips that together exceed the byte budget
+// never sit in memory at once, while small ones still copy side by side.
+func TestPrepareClipFile_LargeCopiesRunAlone(t *testing.T) {
+	setTempPrepareBudget(t, 1000, 10)
+	store, db := newConcurrencyTestStore(t)
+	for id := 1; id <= 4; id++ {
+		size := 800 // clips 1 and 2: over half the budget each
+		if id > 2 {
+			size = 100
+		}
+		if _, err := db.Exec(`INSERT INTO clips (id, content_type, data, filename) VALUES (?, 'video/mp4', ?, ?)`,
+			id, make([]byte, size), fmt.Sprintf("c%d.mp4", id)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var inFlight, peak atomic.Int32
+	setTempPrepareAfterLoad(t, func(int64) {
+		n := inFlight.Add(1)
+		for {
+			p := peak.Load()
+			if n <= p || peak.CompareAndSwap(p, n) {
+				break
+			}
+		}
+		time.Sleep(150 * time.Millisecond)
+		inFlight.Add(-1)
+	})
+	run := func(ids ...int64) {
+		var wg sync.WaitGroup
+		for _, id := range ids {
+			wg.Add(1)
+			go func(id int64) {
+				defer wg.Done()
+				if _, err := store.PrepareClipFile(id); err != nil {
+					t.Error(err)
+				}
+			}(id)
+		}
+		wg.Wait()
+	}
+
+	run(1, 2)
+	if got := peak.Load(); got != 1 {
+		t.Fatalf("two large clips held in memory at once (peak %d copies)", got)
+	}
+	peak.Store(0)
+	run(3, 4)
+	if got := peak.Load(); got != 2 {
+		t.Fatalf("small clips did not copy side by side (peak %d copies)", got)
+	}
+}
+
+// A prune that fails to remove one stale file must still index every leased
+// file it had not reached yet.
+func TestPrune_RemoveFailureKeepsIndexingLaterFiles(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("needs a read-only directory to make os.Remove fail")
+	}
+	store, db := newConcurrencyTestStore(t)
+	if _, err := db.Exec(`INSERT INTO clips (id, content_type, data, filename) VALUES (1, 'text/plain', 'a', 'a.txt'), (2, 'text/plain', 'b', 'b.txt')`); err != nil {
+		t.Fatal(err)
+	}
+	stale := filepath.Join(store.dir, "1_a.txt") // sorts first
+	fresh := filepath.Join(store.dir, "2_b.txt")
+	for _, f := range []string{stale, fresh} {
+		if err := os.WriteFile(f, []byte("x"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	old := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(stale, old, old); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.Chmod(store.dir, 0555); err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	err := store.pruneLocked(true)
+	store.mu.Unlock()
+	if err := os.Chmod(store.dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err == nil {
+		t.Fatal("prune of a read-only directory succeeded")
+	}
+
+	if got, err := store.FindExistingClipFile(2); err != nil || got == nil {
+		t.Fatalf("leased file after the failed removal was dropped from the index: %+v, %v", got, err)
 	}
 }
