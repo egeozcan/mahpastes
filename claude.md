@@ -961,7 +961,12 @@ comparison view only.
   scheduler (`scheduleCardMedia`): an IntersectionObserver (rootMargin one
   viewport) feeding a pool of `CARD_MEDIA_CONCURRENCY` (4); detached cards are
   skipped and a gallery rebuild (`clearRenderedClips`) drops the queue. A video
-  task holds its slot until its frame is captured (15 s cap). `imageCache`
+  task holds its slot until its frame is captured; one that stalls past
+  `VIDEO_CARD_SLOT_TIMEOUT_MS` (15 s) is cancelled — `src` released, card marked
+  failed — *before* its slot is freed, so stalled decoders never exceed the pool.
+  The scheduler only logs a rejected task: every card media task must settle its
+  own card on failure (`showCardMediaError` / `markCardMediaFailed`), or the card
+  keeps its spinner and is reused rather than retried. `imageCache`
   (full images for lightbox/compare) is an LRU bounded at 150 MB of data-URL
   characters; use `imageCacheGet/Set/Delete`, never the Map directly.
 

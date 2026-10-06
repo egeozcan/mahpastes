@@ -1600,9 +1600,16 @@ async function loadImageCard(clip, card) {
             return;
         }
         fellBack = true;
+        // The scheduler only logs a rejected task, so a failed fallback must
+        // mark the card itself: otherwise it keeps its spinner without
+        // _mediaFailed and an unchanged reload reuses it, never retrying.
         scheduleCardMedia(card, async () => {
-            const url = await getImageDataUrl(clipId);
-            if (card.isConnected) img.src = url;
+            try {
+                const url = await getImageDataUrl(clipId);
+                if (card.isConnected) img.src = url;
+            } catch (error) {
+                showCardMediaError(clipId, card, error);
+            }
         });
     };
     img.addEventListener('load', () => {
@@ -1622,6 +1629,12 @@ async function loadImageCard(clip, card) {
 }
 
 const VIDEO_CARD_SLOT_TIMEOUT_MS = 15000;
+
+// e2e can shorten the stall timeout; production always uses the constant.
+function videoCardSlotTimeoutMs() {
+    const override = Number(window.__testVideoCardSlotTimeoutMs);
+    return Number.isFinite(override) && override > 0 ? override : VIDEO_CARD_SLOT_TIMEOUT_MS;
+}
 
 // Capture a video card's frame. Video elements seek just past the start so
 // clips whose first frame is empty still get a useful thumbnail. Resolves when
@@ -1663,11 +1676,26 @@ async function loadVideoCard(clip, card) {
     let settled = false;
     // The scheduler slot is held until the frame is captured (or the
     // load gives up), so only a few decoders run at once. A stalled load
-    // releases its slot after VIDEO_CARD_SLOT_TIMEOUT_MS without being
-    // cancelled.
+    // is cancelled after VIDEO_CARD_SLOT_TIMEOUT_MS (stallTimer below):
+    // its source is released before the slot is, or the stalled fetch and
+    // decoder would outlive the slot and defeat the concurrency bound.
     let finish;
-    const done = new Promise(resolve => { finish = resolve; });
-    setTimeout(() => finish(), VIDEO_CARD_SLOT_TIMEOUT_MS);
+    let stallTimer = null;
+    const done = new Promise(resolve => {
+        finish = () => {
+            if (stallTimer !== null) {
+                clearTimeout(stallTimer);
+                stallTimer = null;
+            }
+            resolve();
+        };
+    });
+
+    const releaseVideo = () => {
+        video.removeAttribute('src');
+        video.load();
+        video.remove();
+    };
 
     const showBadge = () => {
         const badge = card.querySelector('.video-play-badge');
@@ -1739,9 +1767,7 @@ async function loadVideoCard(clip, card) {
         // fetch. A gallery page holds up to defaultClipLimit cards, and
         // a still frame has no business keeping a video pipeline alive.
         // The canvas already holds the frame.
-        video.removeAttribute('src');
-        video.load();
-        video.remove();
+        releaseVideo();
     };
 
     // `seeked` says the seek finished, not that a frame was presented.
@@ -1774,13 +1800,28 @@ async function loadVideoCard(clip, card) {
         settled = true;
         // Release the source on failure too, or the element sits in the
         // gallery holding a dead fetch for the life of the render.
-        video.removeAttribute('src');
-        video.load();
-        video.remove();
+        releaseVideo();
         markCardMediaFailed(card);
         if (spinner) spinner.innerHTML = '<span class="text-red-400 text-xs">Failed to load</span>';
         finish();
     });
+    // A load that never reaches a frame (stalled fetch, hung decoder) is
+    // given up: settle, release the source, mark the card failed so the
+    // next reload rebuilds it, and only then free the scheduler slot. A
+    // capture already in flight (settled, waiting on toBlob) has already
+    // released its source, so it only gives back the slot.
+    stallTimer = setTimeout(() => {
+        stallTimer = null;
+        if (settled) {
+            finish();
+            return;
+        }
+        settled = true;
+        releaseVideo();
+        markCardMediaFailed(card);
+        if (spinner) spinner.innerHTML = '<span class="text-red-400 text-xs">Failed to load</span>';
+        finish();
+    }, videoCardSlotTimeoutMs());
     video.src = mediaURL;
     video.load();
     return done;
