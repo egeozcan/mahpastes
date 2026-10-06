@@ -294,11 +294,13 @@ async function loadClips({ focusFirst = false } = {}) {
             restoreGalleryFocus(focusSnapshot);
         }
     } catch (error) {
-        console.error('Error loading clips:', error);
         // Same rule as the success path: a run that has been superseded must not
         // touch the gallery. Without this a slow search that fails late replaces
-        // the results of the newer search that already rendered.
+        // the results of the newer search that already rendered. A superseded
+        // run's query is cancelled by the newer load (App.ListClipsPage), so
+        // failing here is its normal ending, not worth logging.
         if (myGen === _clipLoadGen) {
+            console.error('Error loading clips:', error);
             gallery.innerHTML = '';
             clearRenderedClips();
             _galleryView = { key: null, request: null, loaded: 0, total: 0, hasMore: false };
@@ -374,6 +376,9 @@ async function loadMoreClips() {
             updateBulkToolbar();
         }
     } catch (error) {
+        // A newer load superseded this one (and may have cancelled its query
+        // on purpose): the gallery belongs to that load now.
+        if (myGen !== _clipLoadGen) return;
         console.error('Error loading more clips:', error);
         showToast('Failed to load more clips: ' + errText(error), 'error');
     } finally {

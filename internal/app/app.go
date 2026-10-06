@@ -49,6 +49,13 @@ type ClipboardCopier interface {
 // App struct holds the application state
 type App struct {
 	ctx              context.Context
+
+	// galleryLoad is the context of the desktop gallery's current load
+	// (beginGalleryLoad). A newer load cancels it, so a superseded content
+	// search stops scanning instead of running to the end.
+	galleryLoadMu     sync.Mutex
+	galleryLoadCtx    context.Context
+	galleryLoadCancel context.CancelFunc
 	bridge           bridgeiface.Bridge
 	db               *sql.DB
 	tempDir          string
@@ -997,9 +1004,39 @@ func buildClipSearchClause(search *clipSearchSpec) (string, []interface{}) {
 // archive and expiry rules as GetClips. Pass an empty hiddenTagIDs slice to let
 // clips carrying a hidden tag surface in the results — hiding is a browsing
 // convenience, and search is where a user goes when they know what they want.
+//
+// Bound for the desktop gallery: a call supersedes the gallery load in flight
+// (beginGalleryLoad), cancelling its query. A superseded call fails with an
+// error wrapping context.Canceled, which the frontend's generation guard
+// already discards. REST callers use searchClips with the request's context.
 func (a *App) SearchClips(archived bool, tagIDs []int64, hiddenTagIDs []int64, query string, searchContent bool, sortField string, sortDir string) ([]ClipPreview, error) {
-	return a.getClipsInternal(archived, tagIDs, hiddenTagIDs, sortField, sortDir, true,
-		&clipSearchSpec{Query: query, InContent: searchContent})
+	return a.searchClips(a.beginGalleryLoad(true), archived, tagIDs, hiddenTagIDs, query, searchContent, sortField, sortDir)
+}
+
+func (a *App) searchClips(ctx context.Context, archived bool, tagIDs []int64, hiddenTagIDs []int64, query string, searchContent bool, sortField string, sortDir string) ([]ClipPreview, error) {
+	q := a.buildClipListQuery(archived, tagIDs, hiddenTagIDs, sortField, sortDir, true,
+		&clipSearchSpec{Query: query, InContent: searchContent}, false)
+	clips, _, _, err := a.queryClipPreviewsCountedCtx(ctx, q, 0, defaultClipLimit)
+	return clips, err
+}
+
+// beginGalleryLoad returns the context a desktop gallery listing runs under.
+// supersede starts a new load: the previous load's context is cancelled, so a
+// content search still scanning for an older keystroke stops. Continuation
+// requests of a load (later pages) join the current context without
+// cancelling anything. The desktop app has one gallery, so "newer" is
+// unambiguous; REST requests never come through here (each has its own
+// request context, and clients must not cancel one another).
+func (a *App) beginGalleryLoad(supersede bool) context.Context {
+	a.galleryLoadMu.Lock()
+	defer a.galleryLoadMu.Unlock()
+	if supersede || a.galleryLoadCtx == nil {
+		if a.galleryLoadCancel != nil {
+			a.galleryLoadCancel()
+		}
+		a.galleryLoadCtx, a.galleryLoadCancel = context.WithCancel(context.Background())
+	}
+	return a.galleryLoadCtx
 }
 
 // GetFolderClips returns clips tagged with the given tag but NOT tagged with any
@@ -1061,14 +1098,17 @@ const maxClipPageLimit = 200
 // ListClipsPage returns one page of a gallery listing and its total. Pages are
 // ordered exactly like the unpaged listing functions (ties broken by id), so
 // walking the offsets visits every clip once while the library is unchanged.
+//
+// A first page (offset 0) starts a new gallery load and cancels the previous
+// one's query (beginGalleryLoad); later pages join the load in progress.
 func (a *App) ListClipsPage(req ClipListRequest) (ClipPage, error) {
-	return a.listClipsPage(req, "")
+	return a.listClipsPage(a.beginGalleryLoad(req.Offset <= 0), req, "")
 }
 
 // listClipsPage is ListClipsPage, optionally narrowed to one exact content
 // type (REST `content_type`). It is not a ClipListRequest field so the bound
 // type, and the frontend bindings generated from it, stay unchanged.
-func (a *App) listClipsPage(req ClipListRequest, contentType string) (ClipPage, error) {
+func (a *App) listClipsPage(ctx context.Context, req ClipListRequest, contentType string) (ClipPage, error) {
 	limit := req.Limit
 	if limit <= 0 {
 		limit = defaultClipLimit
@@ -1120,14 +1160,14 @@ func (a *App) listClipsPage(req ClipListRequest, contentType string) (ClipPage, 
 		q.args = append(q.args, contentType)
 	}
 
-	clips, total, consumed, err := a.queryClipPreviewsCounted(q, offset, limit)
+	clips, total, consumed, err := a.queryClipPreviewsCountedCtx(ctx, q, offset, limit)
 	if err != nil {
 		return ClipPage{}, err
 	}
 	if len(clips) == 0 && (offset > 0 || consumed > 0) {
 		// A page past the end, or one whose only rows were unreadable, has no
 		// row to carry the window count.
-		if total, err = a.countClips(q); err != nil {
+		if total, err = a.countClips(ctx, q); err != nil {
 			return ClipPage{}, err
 		}
 	}
@@ -1362,9 +1402,9 @@ func (a *App) buildClipListQuery(archived bool, tagIDs []int64, hiddenTagIDs []i
 	}
 }
 
-func (a *App) countClips(q clipListQuery) (int, error) {
+func (a *App) countClips(ctx context.Context, q clipListQuery) (int, error) {
 	var n int
-	if err := a.db.QueryRow("SELECT COUNT(*) FROM clips c WHERE "+q.where, q.args...).Scan(&n); err != nil {
+	if err := a.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM clips c WHERE "+q.where, q.args...).Scan(&n); err != nil {
 		return 0, fmt.Errorf("failed to count clips: %w", err)
 	}
 	return n, nil
@@ -1421,6 +1461,9 @@ func (a *App) queryClipPreviewsCountedCtx(ctx context.Context, q clipListQuery, 
 
 	rows, err := a.db.QueryContext(ctx, query, args...)
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, 0, 0, fmt.Errorf("clip listing superseded: %w", ctx.Err())
+		}
 		return nil, 0, 0, fmt.Errorf("failed to query clips: %w", err)
 	}
 	defer rows.Close()
@@ -1466,6 +1509,9 @@ func (a *App) queryClipPreviewsCountedCtx(ctx context.Context, q clipListQuery, 
 	// An error mid-iteration (a busy database, an I/O error) ends the loop
 	// like the last row does; without this check it read as a short page.
 	if err := rows.Err(); err != nil {
+		if ctx.Err() != nil {
+			return nil, 0, 0, fmt.Errorf("clip listing superseded: %w", ctx.Err())
+		}
 		return nil, 0, 0, fmt.Errorf("failed to read clips: %w", err)
 	}
 

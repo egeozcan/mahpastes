@@ -665,6 +665,15 @@ routes to `handleListClipsViaApp` → `SearchClips`. The *presence* of
 preview-only post-filter the `mp` CLI relies on. "Show hidden" needs no param —
 it is the absence of `hidden` ones.
 
+**Superseded loads are cancelled.** The desktop gallery has one load at a time:
+`App.SearchClips` and every first-page `App.ListClipsPage` (offset 0) start a new
+load (`beginGalleryLoad`) and cancel the previous one's context, so a content
+search still scanning for an older keystroke stops; later pages join the
+current load. A cancelled call fails with an error wrapping `context.Canceled`,
+which `loadClips`/`loadMoreClips` drop through their generation guard. REST runs
+these with the request's context instead (clients never cancel each other);
+`rest-glue.js` aborts the previous load's fetch to the same effect.
+
 **Paging**: the gallery loads through `App.ListClipsPage(ClipListRequest)` →
 `ClipPage{clips, total, offset, has_more}` (modes: all/folder/untagged/search),
 `defaultClipLimit` (50) per page. A "Load more" button under the gallery fetches

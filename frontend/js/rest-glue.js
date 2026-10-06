@@ -87,6 +87,19 @@
         return clip;
     }
 
+    // Mirrors the desktop binding's gallery-load supersession: a first page
+    // starts a new load and aborts the previous load's requests, so the
+    // server's request context cancels a content search still scanning for
+    // an older keystroke. Later pages join the current load.
+    let galleryLoadAbort = null;
+    function galleryLoadSignal(supersede) {
+        if (supersede || !galleryLoadAbort) {
+            if (galleryLoadAbort) galleryLoadAbort.abort();
+            galleryLoadAbort = new AbortController();
+        }
+        return galleryLoadAbort.signal;
+    }
+
     window.go = { main: {} };
     window.go.main.App = {
         GetClips: async (archived, tagIds, hiddenIds, sort, dir) => (await fetchJSON(`${api}/clips?${clipQuery(archived, tagIds, hiddenIds, sort, dir)}`)).clips || [],
@@ -122,7 +135,8 @@
             }
             q.set('offset', String(r.offset || 0));
             q.set('limit', String(r.limit || 50));
-            const body = await fetchJSON(`${api}/clips?${q.toString()}`);
+            const signal = galleryLoadSignal(!(r.offset > 0));
+            const body = await fetchJSON(`${api}/clips?${q.toString()}`, { signal });
             const clips = body.clips || [];
             const offset = body.offset || 0;
             const total = typeof body.total === 'number' ? body.total : clips.length;

@@ -1384,7 +1384,7 @@ func (am *APIManager) handleListClipsViaApp(w http.ResponseWriter, r *http.Reque
 		if q.Has("search_content") {
 			req.Query, req.SearchContent = q.Get("search"), q.Get("search_content") == "true"
 		}
-		page, err := am.app.listClipsPage(req, contentType)
+		page, err := am.app.listClipsPage(r.Context(), req, contentType)
 		if err != nil {
 			am.jsonError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -1435,7 +1435,7 @@ func (am *APIManager) handleListClipsViaApp(w http.ResponseWriter, r *http.Reque
 		// database-side search. `search` on its own keeps the older preview-only
 		// post-filter below, which the mp CLI relies on.
 		usedDBSearch = true
-		previews, err = am.app.SearchClips(archived, tagIDs, hiddenIDs, q.Get("search"), q.Get("search_content") == "true", sortField, sortDir)
+		previews, err = am.app.searchClips(r.Context(), archived, tagIDs, hiddenIDs, q.Get("search"), q.Get("search_content") == "true", sortField, sortDir)
 	} else {
 		previews, err = am.app.GetClips(archived, tagIDs, hiddenIDs, sortField, sortDir)
 	}

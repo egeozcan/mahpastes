@@ -212,4 +212,37 @@ test.describe('Gallery render cost', () => {
     expect(tabState.stops).toBe(1);
     expect(tabState.leakedInner).toBe(0);
   });
+
+  test('a Load more superseded by a newer load ends quietly', async ({ app }) => {
+    await seedTextClips(app, 70);
+    await reload(app);
+    await app.expectClipCount(50);
+
+    // A newer load cancels the query of the one it supersedes (the next
+    // keystroke of a deep search): the older request then fails, and that
+    // failure must not surface as an error.
+    await app.page.evaluate(() => {
+      const w = window as any;
+      w.__toasts = [];
+      const toast = w.showToast;
+      w.showToast = (msg: string, type: string) => { w.__toasts.push({ msg, type }); return toast(msg, type); };
+      const list = w.go.main.App.ListClipsPage;
+      w.go.main.App.ListClipsPage = async (req: any) => {
+        if (req.offset > 0 && !w.__superseded) {
+          w.__superseded = true;
+          w.__newerLoad = w.loadClips();
+          throw new Error('clip listing superseded: context canceled');
+        }
+        return list(req);
+      };
+    });
+
+    await app.page.locator(selectors.gallery.loadMoreButton).click();
+    await app.page.evaluate(async () => { await (window as any).__newerLoad; });
+
+    const toasts = await app.page.evaluate(() => (window as any).__toasts);
+    expect(toasts.filter((t: any) => t.type === 'error')).toEqual([]);
+    await app.expectClipCount(50);
+    await expect(app.page.locator(selectors.bottomBar.clipCount)).toHaveText('50 of 70 clips');
+  });
 });
