@@ -436,4 +436,3 @@ func TestFindExistingClipFile_IndexTracksDisk(t *testing.T) {
 		t.Fatalf("lookup after DeleteAll = %+v, want nil", got)
 	}
 }
-
