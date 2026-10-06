@@ -716,6 +716,12 @@ are ordered like the unpaged listing functions (ties broken by id).
   (`_clipPatchLatest`) and records `_clipLoadGen`; a response superseded by a
   newer patch of that clip or a reload begun since is dropped and returns true
   (callers finish their write before asking, so the newer read is fresher).
+- Archive/restore from a card (`toggleArchiveClip`) records `isViewingArchive`
+  and `_clipLoadGen` before `ToggleArchive`, reloads if either changed during
+  the call (a load begun mid-call may predate the write), and otherwise
+  removes the card only if the re-read row's `is_archived` actually flipped: a
+  `clip:archived`/`clip:unarchived` plugin handler runs inside the call and can
+  flip it straight back.
 - A full `loadClips()` keeps every `<li>` whose `clipCardSignature` is
   unchanged and only re-orders it (`reuseClipCard`). Anything a card bakes into
   its markup must be part of that signature, or a reload will show the stale

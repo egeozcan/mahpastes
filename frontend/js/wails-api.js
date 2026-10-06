@@ -784,16 +784,43 @@ function renameClip(id) {
     });
 }
 
+// The card is removed only when the clip certainly left the view it was
+// toggled from. ToggleArchive flips the stored flag, but a clip:archived /
+// clip:unarchived plugin handler runs inside the call and can flip it straight
+// back, so the stored state is re-read rather than assumed. And the view can
+// change while the call is in flight (the archive toggle, a filter): the card
+// with this id on screen then belongs to another listing, one whose load may
+// have read the library before the write landed. Either way, reload.
 async function toggleArchiveClip(id) {
+    id = Number(id);
+    const fromArchive = isViewingArchive;
+    const gen = _clipLoadGen;
     try {
         await window.go.main.App.ToggleArchive(id);
-        showToast(isViewingArchive ? 'Clip restored.' : 'Clip archived.');
-        // Archiving or restoring always moves the clip out of the view.
-        if (!removeClipCardInPlace(id)) loadClips();
     } catch (error) {
         console.error('Error toggling archive:', error);
         showToast('Failed to change archive status.', 'error');
+        return;
     }
+    showToast(fromArchive ? 'Clip restored.' : 'Clip archived.');
+    // A load begun while the toggle was in flight may predate the write.
+    if (gen !== _clipLoadGen || isViewingArchive !== fromArchive) {
+        loadClips();
+        return;
+    }
+    let row = null;
+    try {
+        row = await window.go.main.App.GetClipPreview(id);
+    } catch (error) {
+        row = null; // gone or unreadable: unsure, so reload below
+    }
+    // A load begun after the toggle returned reads the stored state itself.
+    if (gen !== _clipLoadGen) return;
+    if (!row || !!row.is_archived === fromArchive || isViewingArchive !== fromArchive) {
+        loadClips();
+        return;
+    }
+    if (!removeClipCardInPlace(id)) loadClips();
 }
 
 async function saveTempFile(id) {
