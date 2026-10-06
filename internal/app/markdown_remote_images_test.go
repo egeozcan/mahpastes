@@ -6,6 +6,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -203,5 +205,43 @@ func TestMarkdownRemoteImageLoaderHonorsNoStoreAndRejectsUnsafeURLs(t *testing.T
 	_, err := productionLoader.Load(context.Background(), "private", server.URL)
 	if err == nil || !strings.Contains(err.Error(), "private or local") {
 		t.Fatalf("private-address error = %v", err)
+	}
+}
+
+// A cache write failure (full disk, or on Windows a replace refused while a
+// concurrent hit holds the old file open) must not fail a download that was
+// already fetched and validated.
+func TestMarkdownRemoteImageLoaderServesImageWhenCacheWriteFails(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("needs a directory the test user cannot write")
+	}
+	pngData := encodeTestPNG(t, 2, 2)
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		w.Header().Set("Cache-Control", "max-age=3600")
+		w.Write(pngData)
+	}))
+	defer server.Close()
+
+	dir := t.TempDir()
+	cache, err := newMarkdownImageCache(dir, markdownImageCacheMaxBytes, time.Now)
+	if err != nil {
+		t.Fatalf("new cache: %v", err)
+	}
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	loader := newMarkdownRemoteImageLoader(cache, func(MarkdownImageProgress) {}, server.Client(), true)
+
+	result, err := loader.Load(context.Background(), "request-1", server.URL+"/image.png")
+	if err != nil {
+		t.Fatalf("Load with an unwritable cache: %v", err)
+	}
+	if result.Cached || result.Width != 2 || result.Data == "" {
+		t.Fatalf("result = %+v", result)
+	}
+	if stats, _ := cache.Stats(); stats.Entries != 0 {
+		t.Fatalf("failed Put left %d index entries", stats.Entries)
 	}
 }

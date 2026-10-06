@@ -249,6 +249,7 @@ test.describe('Markdown clips', () => {
 
     // An edit re-renders the preview; the images come from the session cache.
     await app.page.locator(selectors.textEditor.editTab).click();
+    await app.page.locator(selectors.textEditor.editor).click();
     await app.page.keyboard.press('ControlOrMeta+End');
     await app.page.keyboard.type('\n\nmore text');
     await app.page.locator(selectors.textEditor.previewTab).click();
@@ -256,6 +257,149 @@ test.describe('Markdown clips', () => {
     await expect(images).toHaveCount(6);
     const second = await app.page.evaluate(() => ({ ...(window as any).__imageStats }));
     expect(second.calls).toBe(6);
+    await app.cancelTextEditor();
+  });
+
+  // Uploads `count` small PNGs and one Markdown clip referencing them, all
+  // tagged into one folder, and returns the image and Markdown filenames.
+  async function uploadMarkdownWithImages(app: any, count: number, extra = '') {
+    const names: string[] = [];
+    for (let i = 0; i < count; i++) {
+      const imagePath = await createTempFile(generateTestImage(4 + i, 4), 'png');
+      names.push(path.basename(imagePath));
+      await app.uploadFile(imagePath);
+    }
+    const markdown = names.map((name, i) => `![Image ${i}](${name})`).join('\n\n') + extra;
+    const markdownPath = await createTempFile(markdown, 'md');
+    const markdownName = path.basename(markdownPath);
+    await app.uploadFile(markdownPath);
+    await app.createTag('pics');
+    for (const name of [...names, markdownName]) await app.addTagToClip(name, 'pics');
+    return { names, markdownName };
+  }
+
+  async function rerenderPreview(app: any, text: string) {
+    await app.page.locator(selectors.textEditor.editTab).click();
+    await app.page.locator(selectors.textEditor.editor).click();
+    await app.page.keyboard.press('ControlOrMeta+End');
+    await app.page.keyboard.type(text);
+    await app.page.locator(selectors.textEditor.previewTab).click();
+    await expect(app.page.locator(`${selectors.textEditor.previewContent} p`, { hasText: text.trim() })).toBeVisible();
+  }
+
+  test('waits for in-flight loads instead of refusing images that fit the preview budget', async ({ app }) => {
+    // Seven images declaring 14 MB each fit the 100 MB budget (98 MB). With
+    // four loads in flight each reserving the 15 MB worst case, the seventh
+    // reservation does not fit until one of them settles; it must wait, not
+    // be refused as over budget.
+    const { markdownName } = await uploadMarkdownWithImages(app, 7);
+    await app.page.evaluate(() => {
+      const service = (window as any).go.main.MarkdownService;
+      const original = service.GetLocalImage;
+      service.GetLocalImage = async (clipID: number) => {
+        await new Promise(resolve => setTimeout(resolve, 200));
+        const result = await original.call(service, clipID);
+        return { ...result, size: 14 * 1024 * 1024 };
+      };
+    });
+    const card = app.page.locator(selectors.gallery.clipCardByName(markdownName));
+    await card.locator(selectors.clipActions.view).click();
+    await expect(app.page.locator(`${selectors.textEditor.previewContent} img`)).toHaveCount(7);
+    await expect(app.page.locator(selectors.textEditor.previewContent)).not.toContainText('budget exceeded');
+    await app.cancelTextEditor();
+  });
+
+  test('drops cached images the preview no longer shows and revokes their URLs', async ({ app }) => {
+    const { markdownName } = await uploadMarkdownWithImages(app, 1);
+    await app.page.evaluate(() => {
+      const revoked: string[] = [];
+      (window as any).__revoked = revoked;
+      const original = URL.revokeObjectURL.bind(URL);
+      URL.revokeObjectURL = (url: string) => { revoked.push(url); original(url); };
+      const service = (window as any).go.main.MarkdownService;
+      const getLocal = service.GetLocalImage;
+      (window as any).__localCalls = 0;
+      service.GetLocalImage = async (clipID: number) => {
+        (window as any).__localCalls++;
+        return getLocal.call(service, clipID);
+      };
+    });
+    const card = app.page.locator(selectors.gallery.clipCardByName(markdownName));
+    await card.locator(selectors.clipActions.view).click();
+    const image = app.page.locator(`${selectors.textEditor.previewContent} img[alt="Image 0"]`);
+    await expect(image).toBeVisible();
+    const firstURL = await image.getAttribute('src');
+
+    // Remove the reference, then render twice more: the entry is no longer
+    // used by the outgoing render or the last completed one.
+    await app.page.locator(selectors.textEditor.editTab).click();
+    await app.page.locator(selectors.textEditor.editor).click();
+    await app.page.keyboard.press('ControlOrMeta+A');
+    await app.page.keyboard.type('no images here');
+    await app.page.locator(selectors.textEditor.previewTab).click();
+    await expect(app.page.locator(`${selectors.textEditor.previewContent} p`, { hasText: 'no images here' })).toBeVisible();
+    await rerenderPreview(app, ' one');
+    await rerenderPreview(app, ' two');
+    await expect.poll(() => app.page.evaluate(() => (window as any).__revoked)).toContain(firstURL);
+    expect(await app.page.evaluate(() => (window as any).__localCalls)).toBe(1);
+    await app.cancelTextEditor();
+  });
+
+  test('refetches local images after the library changes', async ({ app }) => {
+    const { markdownName } = await uploadMarkdownWithImages(app, 1);
+    await app.page.evaluate(() => {
+      const service = (window as any).go.main.MarkdownService;
+      const getLocal = service.GetLocalImage;
+      (window as any).__localCalls = 0;
+      service.GetLocalImage = async (clipID: number) => {
+        (window as any).__localCalls++;
+        return getLocal.call(service, clipID);
+      };
+    });
+    const card = app.page.locator(selectors.gallery.clipCardByName(markdownName));
+    await card.locator(selectors.clipActions.view).click();
+    const image = app.page.locator(`${selectors.textEditor.previewContent} img[alt="Image 0"]`);
+    await expect(image).toBeVisible();
+    // (A re-render of an unchanged library reusing the entry is covered by
+    // the concurrency test above; here a background write from the upload,
+    // e.g. a plugin tagging it, could legitimately move the counter.)
+
+    // Any library write (here a new tag) moves the change counter; the
+    // referenced clip may have been edited, deleted or restored over, so the
+    // next render fetches it again. (Not "exactly once": under load other
+    // background writes can move the counter between renders too.)
+    const before = await app.page.evaluate(() => (window as any).__localCalls);
+    await app.page.evaluate(() => (window as any).go.main.App.CreateTag('bumped'));
+    await rerenderPreview(app, '\n\nafter tag created');
+    await expect(image).toBeVisible();
+    expect(await app.page.evaluate(() => (window as any).__localCalls)).toBeGreaterThan(before);
+    await app.cancelTextEditor();
+  });
+
+  test('refetches remote cache hits after the image cache is cleared', async ({ app }) => {
+    const pngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+    const markdownPath = await createTempFile('![Cached](https://example.com/cached.png)', 'md');
+    const filename = path.basename(markdownPath);
+    await app.uploadFile(markdownPath);
+    await app.page.evaluate((data) => {
+      const service = (window as any).go.main.MarkdownService;
+      (window as any).__cachedCalls = 0;
+      service.GetCachedRemoteImage = async () => {
+        (window as any).__cachedCalls++;
+        return { hit: true, content_type: 'image/png', data, size: 68, width: 1, height: 1 };
+      };
+    }, pngBase64);
+
+    const card = app.page.locator(selectors.gallery.clipCardByName(filename));
+    await card.locator(selectors.clipActions.view).click();
+    const image = app.page.locator(`${selectors.textEditor.previewContent} img[alt="Cached"]`);
+    await expect(image).toBeVisible();
+    await rerenderPreview(app, '\n\nagain');
+    expect(await app.page.evaluate(() => (window as any).__cachedCalls)).toBe(1);
+
+    await app.page.evaluate(() => (window as any).go.main.MarkdownService.ClearImageCache());
+    await expect.poll(() => app.page.evaluate(() => (window as any).__cachedCalls)).toBe(2);
+    await expect(image).toBeVisible();
     await app.cancelTextEditor();
   });
 

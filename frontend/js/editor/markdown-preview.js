@@ -16,11 +16,18 @@ const MarkdownPreview = (() => {
     // Per editor session: image key -> Promise of a validated image held as an
     // object URL. Preview re-renders on every edit; without this each render
     // refetched (and re-validated, and re-shipped as base64) every image.
-    // Keys: `local:<clipID>`, `remote:<url>`, or the data: URL itself. Only
-    // successes stay cached. Cleared, and its URLs revoked, when the session
-    // ends: a session is one open clip, so a referenced image edited elsewhere
-    // is picked up the next time the editor opens.
+    // Keys: `local:<clipID>`, `remote:<url>`, or `data:<sha256 of the URL>`.
+    // Only successes stay cached. Bounded to what the preview still shows:
+    // beginRender sweeps (and revokes) every entry neither the render being
+    // replaced nor the last completed render used, so editing an embedded
+    // image or walking through many references cannot grow it without limit.
+    // `local:` entries are dropped whenever the library change counter has
+    // moved (a referenced clip edited, deleted or restored over), and the
+    // whole cache goes, URLs revoked, when the session ends.
     let imageCache = new Map();
+    let renderKeys = new Set();
+    let completedKeys = new Set();
+    let localCacheVersion = null;
 
     function service() {
         return window.go?.main?.MarkdownService || null;
@@ -35,6 +42,55 @@ const MarkdownPreview = (() => {
     function clearImageCache() {
         revokeEntries(imageCache.values());
         imageCache = new Map();
+        renderKeys = new Set();
+        completedKeys = new Set();
+        localCacheVersion = null;
+    }
+
+    function useKey(key, gen) {
+        if (gen === generation) renderKeys.add(key);
+    }
+
+    // Runs when a new render replaces the DOM: anything the outgoing render
+    // and the last completed one did not use is no longer on screen.
+    function sweepImageCache() {
+        const dropped = [];
+        for (const [key, promise] of imageCache) {
+            if (!renderKeys.has(key) && !completedKeys.has(key)) {
+                dropped.push(promise);
+                imageCache.delete(key);
+            }
+        }
+        revokeEntries(dropped);
+        renderKeys = new Set();
+    }
+
+    function dropLocalImages() {
+        const dropped = [];
+        for (const [key, promise] of imageCache) {
+            if (key.startsWith('local:')) {
+                dropped.push(promise);
+                imageCache.delete(key);
+            }
+        }
+        revokeEntries(dropped);
+    }
+
+    async function libraryVersion() {
+        try {
+            return await window.go.main.App.GetLibraryVersion();
+        } catch (_) {
+            return null;
+        }
+    }
+
+    async function embeddedImageKey(source) {
+        try {
+            const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(source));
+            return 'data:' + Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join('');
+        } catch (_) {
+            return source;
+        }
     }
 
     function dropRemoteImages() {
@@ -78,13 +134,6 @@ const MarkdownPreview = (() => {
         return promise;
     }
 
-    function rememberImage(key, result) {
-        const previous = imageCache.get(key);
-        if (previous) revokeEntries([previous]);
-        const entry = toImageEntry(result);
-        imageCache.set(key, Promise.resolve(entry));
-        return entry;
-    }
 
     async function runPool(tasks, limit) {
         let next = 0;
@@ -113,6 +162,7 @@ const MarkdownPreview = (() => {
 
     function beginRender() {
         generation++;
+        sweepImageCache();
         wakeBudgetWaiters();
         loadedImageBytes = 0;
         loadedImageDecodedBytes = 0;
@@ -353,7 +403,20 @@ const MarkdownPreview = (() => {
         const api = service();
         if (!api) return;
         const gen = descriptor.generation ?? generation;
+        const key = `remote:${descriptor.source}`;
+        useKey(key, gen);
         const placeholder = resetImagePlaceholder(descriptor);
+        const hit = imageCache.get(key);
+        if (hit) {
+            // Another reference to the same URL already loaded it.
+            try {
+                const entry = await hit;
+                if (gen === generation) displayImage(placeholder, entry, descriptor.alt, descriptor.title);
+                return;
+            } catch (_) {
+                // A failed shared load falls through to a download of its own.
+            }
+        }
         if (!(await reserveImageBudget(placeholder, gen))) return;
         const requestID = crypto.randomUUID();
         placeholder.appendChild(externalLink(descriptor.source, descriptor.source));
@@ -378,7 +441,10 @@ const MarkdownPreview = (() => {
             const active = activeDownloads.get(requestID);
             releaseDownloadReservation(active);
             if (!active || gen !== generation) return;
-            const entry = rememberImage(`remote:${descriptor.source}`, result);
+            // Keeps an entry another reference stored meanwhile (its URL may
+            // already be on screen) rather than replacing and revoking it.
+            const entry = await cachedImage(key, () => result);
+            if (gen !== generation) return;
             displayImage(placeholder, entry, descriptor.alt, descriptor.title);
         } catch (error) {
             const active = activeDownloads.get(requestID);
@@ -398,6 +464,7 @@ const MarkdownPreview = (() => {
         addURLControls(descriptor, true);
         const api = service();
         const key = `remote:${descriptor.source}`;
+        useKey(key, gen);
         const cached = imageCache.has(key);
         if (!api || (!cached && !(await reserveImageBudget(descriptor.placeholder, gen)))) return;
         try {
@@ -418,6 +485,7 @@ const MarkdownPreview = (() => {
 
     async function loadLocalImage(placeholder, clipID, descriptor, gen = generation) {
         const key = `local:${clipID}`;
+        useKey(key, gen);
         const cached = imageCache.has(key);
         if (!cached && !(await reserveImageBudget(placeholder, gen))) return;
         try {
@@ -441,7 +509,9 @@ const MarkdownPreview = (() => {
             resetImagePlaceholder(descriptor).append('Unsupported embedded image');
             return;
         }
-        const key = descriptor.source;
+        const key = await embeddedImageKey(descriptor.source);
+        if (gen !== generation) return;
+        useKey(key, gen);
         const cached = imageCache.has(key);
         if (!cached && !(await reserveImageBudget(descriptor.placeholder, gen))) return;
         try {
@@ -496,6 +566,11 @@ const MarkdownPreview = (() => {
 
         const uniqueReferences = [...new Set(localEntries.slice(0, MAX_LOCAL_REFERENCES).map(entry => entry.reference))];
         const resultByReference = new Map();
+        // Read before any image of this render is fetched, so an entry cached
+        // under this version holds bytes at least this new.
+        // Only a render with local images needs it: one without uses no
+        // `local:` entry, and the next beginRender sweeps them anyway.
+        const versionPromise = relativeImages.length > 0 ? libraryVersion() : Promise.resolve(localCacheVersion);
         if (uniqueReferences.length > 0) {
             try {
                 const results = await api.ResolveReferences(sourceClipID, uniqueReferences);
@@ -508,7 +583,12 @@ const MarkdownPreview = (() => {
                 });
             }
         }
+        const version = await versionPromise;
         if (gen !== generation) return;
+        if (version === null || version !== localCacheVersion) {
+            dropLocalImages();
+            localCacheVersion = version;
+        }
 
         relativeLinks.slice(0, MAX_LOCAL_REFERENCES).forEach(({ link, reference }) => {
             const result = resultByReference.get(reference);
@@ -520,6 +600,7 @@ const MarkdownPreview = (() => {
         // descriptor owns its placeholder.
         const tasks = descriptors.map(descriptor => () => enhanceImage(descriptor, gen, resultByReference));
         await runPool(tasks, IMAGE_LOAD_CONCURRENCY);
+        if (gen === generation) completedKeys = renderKeys;
     }
 
     async function enhanceImage(descriptor, gen, resultByReference) {
