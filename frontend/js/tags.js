@@ -745,7 +745,51 @@ function renderCardTags(card, tags) {
     }
 }
 
-window.handleTagReferenceEvent = async function(eventName, payload) {
+// tag:updated, tag:deleted and tag:merged arrive one per tag, so a bulk move
+// that empties N folders, or a subtree rename, fires a burst. Each used to
+// cost a tag reload plus a full gallery reload or navigation; now a burst is
+// queued on a short timer (like tag:created) and resolved with one loadTags
+// and one final gallery action. The returned promise settles once the batch
+// holding this event has been handled.
+const TAG_REF_DEBOUNCE_MS = 50;
+const TAG_REF_MAX_WAIT_MS = 500;
+let tagRefQueue = [];
+let tagRefTimer = null;
+let tagRefFirstAt = 0;
+let tagRefWaiters = [];
+
+window.handleTagReferenceEvent = function(eventName, payload) {
+    tagRefQueue.push({ eventName, payload });
+    const now = Date.now();
+    if (!tagRefFirstAt) tagRefFirstAt = now;
+    clearTimeout(tagRefTimer);
+    const wait = Math.min(TAG_REF_DEBOUNCE_MS, Math.max(0, tagRefFirstAt + TAG_REF_MAX_WAIT_MS - now));
+    tagRefTimer = setTimeout(flushTagReferenceEvents, wait);
+    return new Promise((resolve) => tagRefWaiters.push(resolve));
+};
+
+async function flushTagReferenceEvents() {
+    const events = tagRefQueue;
+    const waiters = tagRefWaiters;
+    tagRefQueue = [];
+    tagRefWaiters = [];
+    tagRefTimer = null;
+    tagRefFirstAt = 0;
+    try {
+        await applyTagReferenceEvents(events);
+    } catch (err) {
+        console.error('Failed to apply tag changes:', err);
+    } finally {
+        waiters.forEach(resolve => resolve());
+    }
+}
+
+// Resolve one burst of tag reference events, in arrival order, against the
+// tag list as it stands after all of them. Only the last gallery action
+// matters (each reload or navigation supersedes the one before), so the
+// events update where the viewer should end up and one action runs at the end.
+async function applyTagReferenceEvents(events) {
+    if (events.length === 0) return;
     // Always reload the tag list first so subsequent lookups use fresh data.
     if (typeof loadTags === 'function') {
         await loadTags();
@@ -760,12 +804,18 @@ window.handleTagReferenceEvent = async function(eventName, payload) {
         ? activeTagFilters[activeTagFilters.length - 1]
         : null;
 
-    // Build substitution map for merges: source_id -> dest_id.
+    // Build substitution map for merges: source_id -> dest_id. Chained merges
+    // (a into b, then b into c) resolve to the final destination.
     const substitutions = new Map();
-    if (eventName === 'tag:merged'
-        && payload && typeof payload.source_id === 'number'
-        && typeof payload.dest_id === 'number') {
-        substitutions.set(payload.source_id, payload.dest_id);
+    for (const { eventName, payload } of events) {
+        if (eventName === 'tag:merged'
+            && payload && typeof payload.source_id === 'number'
+            && typeof payload.dest_id === 'number') {
+            for (const [src, dst] of substitutions) {
+                if (dst === payload.source_id) substitutions.set(src, payload.dest_id);
+            }
+            substitutions.set(payload.source_id, payload.dest_id);
+        }
     }
 
     // (1) Normalize activeTagFilters in BOTH folder-mode and non-folder-mode.
@@ -778,8 +828,10 @@ window.handleTagReferenceEvent = async function(eventName, payload) {
         currentFolderTagID = substitutions.get(currentFolderTagID);
     }
 
+    const reload = () => { if (typeof loadClips === 'function') loadClips(); };
+
     if (currentFolderTagID == null) {
-        if (typeof loadClips === 'function') loadClips();
+        reload();
         return;
     }
 
@@ -797,18 +849,31 @@ window.handleTagReferenceEvent = async function(eventName, payload) {
     // can genuinely remove an ID — for rename/merge, an unresolvable ID is
     // stale state, not a deletion. Just reload so a rename doesn't
     // accidentally kick the user out of folder mode.
-    if (eventName !== 'tag:deleted') {
-        if (typeof loadClips === 'function') loadClips();
+    const deletes = events.filter(e => e.eventName === 'tag:deleted');
+    if (deletes.length === 0) {
+        reload();
         return;
     }
 
-    // Deletion recovery: try to navigate to parent, else exit folder mode.
+    // Deletion recovery. Prefer the event that deleted the viewed folder;
+    // without one (an id we cannot match), fall back to the first delete,
+    // which is what handling the events one at a time would have used. Walk
+    // up from its parent to the nearest ancestor still alive: with the whole
+    // burst applied, a parent deleted later in the same burst is already gone,
+    // and the one-at-a-time handling would have stepped through it anyway.
+    const deleted = deletes.find(e => e.payload && e.payload.id === currentFolderTagID) || deletes[0];
+    const payload = deleted.payload;
     const deletedName = payload && (payload.name || payload.old_name);
-    const parentName = deletedName ? getParentTagName(deletedName) : '';
-    const parent = parentName ? allTags.find(t => t.name === parentName) : null;
+    let parentName = deletedName ? getParentTagName(deletedName) : '';
+    let parent = null;
+    while (parentName && !parent) {
+        parent = allTags.find(t => t.name === parentName) || null;
+        if (!parent) parentName = getParentTagName(parentName);
+    }
+    const autoDeleted = !!(payload && payload.auto);
     if (parent && typeof navigateToFolder === 'function') {
         navigateToFolder(parent.id);
-    } else if (payload && payload.auto && typeof navigateToFolderRoot === 'function') {
+    } else if (autoDeleted && typeof navigateToFolderRoot === 'function') {
         // An emptied folder the backend cleaned up on its own (typically the
         // user just dragged its last clip to Home): the user is still working
         // in folder mode, so land on the folder root instead of leaving it.
@@ -817,6 +882,6 @@ window.handleTagReferenceEvent = async function(eventName, payload) {
         // Exit folder mode by toggling it off.
         toggleFolderMode();
     } else {
-        if (typeof loadClips === 'function') loadClips();
+        reload();
     }
-};
+}

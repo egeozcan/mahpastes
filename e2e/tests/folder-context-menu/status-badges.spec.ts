@@ -92,4 +92,66 @@ test.describe('Folder status badges', () => {
         const opacity = await card.evaluate(el => getComputedStyle(el).opacity);
         expect(parseFloat(opacity)).toBeLessThan(0.7);
     });
+    test('unchanged status leaves badge nodes alone across polls', async ({ app }) => {
+        const tagName = `steady-${Date.now()}`;
+        await app.createTag(tagName);
+        await app.enterFolderMode();
+        await app.page.evaluate(async (tag) => {
+            const tags = await window.go.main.App.GetTags();
+            const t = tags.find((x: any) => x.name === tag);
+            const port = await window.go.main.ServeService.GetRandomPort();
+            await window.go.main.ServeService.StartServing(t.id, port, false, 'none');
+        }, tagName);
+        const badge = app.page.locator(selectors.folderBadgeServedActive(tagName));
+        await expect(badge).toHaveCount(1, { timeout: 5000 });
+        await badge.evaluate((el: any) => { el.__steadyMark = true; });
+        // Two more polls (every 2 s) with the same status.
+        await app.page.waitForTimeout(4500);
+        expect(await badge.evaluate((el: any) => el.__steadyMark === true)).toBe(true);
+
+        await app.page.evaluate(async (tag) => {
+            const tags = await window.go.main.App.GetTags();
+            const t = tags.find((x: any) => x.name === tag);
+            await window.go.main.ServeService.StopServing(t.id);
+        }, tagName);
+        await expect(badge).toHaveCount(0, { timeout: 5000 });
+    });
+
+    test('poller pauses while the window is hidden and resumes on return', async ({ app }) => {
+        await app.createTag(`poll-${Date.now()}`);
+        await app.enterFolderMode();
+        await expect.poll(() => app.page.evaluate(() => (window as any).folderStatusPoller.isRunning())).toBe(true);
+
+        const setHidden = (hidden: boolean) => app.page.evaluate((h) => {
+            Object.defineProperty(document, 'hidden', { configurable: true, get: () => h });
+            Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => (h ? 'hidden' : 'visible') });
+            document.dispatchEvent(new Event('visibilitychange'));
+        }, hidden);
+
+        try {
+            await setHidden(true);
+            expect(await app.page.evaluate(() => (window as any).folderStatusPoller.isRunning())).toBe(false);
+            // Wrap the status call: nothing may poll while hidden.
+            await app.page.evaluate(() => {
+                const w = window as any;
+                w.__statusPolls = 0;
+                w.__origGetServeStatus = w.wailsGetServeStatus;
+                w.wailsGetServeStatus = (...a: unknown[]) => { w.__statusPolls++; return w.__origGetServeStatus(...a); };
+            });
+            await app.page.waitForTimeout(2500);
+            expect(await app.page.evaluate(() => (window as any).__statusPolls)).toBe(0);
+
+            await setHidden(false);
+            expect(await app.page.evaluate(() => (window as any).folderStatusPoller.isRunning())).toBe(true);
+            // Resuming polls at once rather than waiting out an interval.
+            expect(await app.page.evaluate(() => (window as any).__statusPolls)).toBeGreaterThanOrEqual(1);
+        } finally {
+            await app.page.evaluate(() => {
+                const w = window as any;
+                if (w.__origGetServeStatus) w.wailsGetServeStatus = w.__origGetServeStatus;
+                delete (document as any).hidden;
+                delete (document as any).visibilityState;
+            });
+        }
+    });
 });

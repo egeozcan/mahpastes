@@ -2083,9 +2083,19 @@ let _folderRenderGen = 0;
 // Keyed by tagID; values are { served, shared, servePaused, sharePaused, serveURL, serveRequests, shareFollowers }.
 const folderStatusMap = new Map();
 
+// The badge markup for one folder's status.
+function folderBadgesHTML(state) {
+    const badges = [];
+    if (state.served) badges.push(renderBadge('served', state));
+    if (state.shared) badges.push(renderBadge('shared', state));
+    return badges.join('');
+}
+
 // In-place badge update. Only mutates cards that already carry a .folder-status-badges
-// container, so it's a harmless no-op during Phase 2 (before renderFolderCards is updated
-// to emit the container in Phase 3). No focus/hover state disturbed.
+// container. No focus/hover state disturbed. The poller calls this every 2 s, and
+// the status rarely changes between polls, so each card's badges and label are
+// only written when they differ: rewriting identical innerHTML still tears down
+// and rebuilds the nodes (and any tooltip anchored to them).
 function updateFolderBadgesInPlace() {
     const containers = gallery.querySelectorAll('[data-folder] .folder-status-badges');
     containers.forEach(container => {
@@ -2093,13 +2103,17 @@ function updateFolderBadgesInPlace() {
         if (!card) return;
         const tagID = parseInt(card.getAttribute('data-folder'), 10);
         const state = folderStatusMap.get(tagID) || {};
-        const badges = [];
-        if (state.served) badges.push(renderBadge('served', state));
-        if (state.shared) badges.push(renderBadge('shared', state));
-        container.innerHTML = badges.join('');
+        const html = folderBadgesHTML(state);
+        // Compared against the markup last written, not innerHTML: the browser
+        // re-serializes markup, so the two strings need not match.
+        if (container._badgesHTML !== html) {
+            container.innerHTML = html;
+            container._badgesHTML = html;
+        }
         const path = card.getAttribute('data-folder-path') || card.querySelector('.text-xs')?.textContent || '';
         const countText = card.querySelector('.text-\\[10px\\]')?.textContent || '';
-        card.setAttribute('aria-label', buildFolderAriaLabel(path, countText, state, card.getAttribute('data-hidden') === 'true'));
+        const label = buildFolderAriaLabel(path, countText, state, card.getAttribute('data-hidden') === 'true');
+        if (card.getAttribute('aria-label') !== label) card.setAttribute('aria-label', label);
     });
 }
 
@@ -2249,10 +2263,8 @@ async function buildFolderCards(isStale = () => false) {
         if (isHidden) card.setAttribute('data-hidden', 'true');
         card.setAttribute('aria-label', buildFolderAriaLabel(tag.name, countText, state, isHidden));
 
-        const badgeBadges = [];
-        if (state.served) badgeBadges.push(renderBadge('served', state));
-        if (state.shared) badgeBadges.push(renderBadge('shared', state));
-        const badgesHTML = `<div class="folder-status-badges absolute top-2 right-2 flex gap-1">${badgeBadges.join('')}</div>`;
+        const badgeMarkup = folderBadgesHTML(state);
+        const badgesHTML = `<div class="folder-status-badges absolute top-2 right-2 flex gap-1">${badgeMarkup}</div>`;
 
         card.innerHTML = `
             ${badgesHTML}
@@ -2262,6 +2274,8 @@ async function buildFolderCards(isStale = () => false) {
             <span class="text-xs font-medium text-stone-700">${escapeHTML(shortName)}</span>
             <span class="text-[10px] text-stone-400 mt-0.5">${countText}</span>
         `;
+        // What updateFolderBadgesInPlace compares the next poll against.
+        card.querySelector('.folder-status-badges')._badgesHTML = badgeMarkup;
 
         card.addEventListener('click', () => {
             navigateToFolder(tag.id);

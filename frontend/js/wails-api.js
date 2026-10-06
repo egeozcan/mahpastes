@@ -145,6 +145,7 @@ function restoreGalleryFocus(snapshot) {
 
 async function loadClips({ focusFirst = false } = {}) {
     _pendingFocusAfterLoad = focusFirst;
+    _clipLoadStartedAt = Date.now();
     const myGen = ++_clipLoadGen;
     _clipLoadInFlight = myGen;
     // Any in-flight standalone folder-card render is superseded by this one.
@@ -512,6 +513,49 @@ function removeClipCardInPlace(id) {
     if (hadFocus && index >= 0) focusGalleryItem(index);
     return true;
 }
+
+// When the gallery's listing was last requested. A load reads the library
+// as of its start, so that is what staleness is measured from.
+let _clipLoadStartedAt = 0;
+
+// How old a listing may be before a refocus reloads it. Writes made through
+// the REST API, the mp CLI or a plugin reach the library without telling
+// this window, so this is the bound on how long such a change can go unseen
+// across a refocus. window.__refocusReloadStaleMs overrides it (tests).
+const REFOCUS_RELOAD_STALE_MS = 30 * 1000;
+
+// Bring the gallery up to date as the window becomes visible again (see the
+// visibilitychange listener in app.js). A listing older than the threshold is
+// reloaded; a fresher one only drops the cards whose expiry has passed, which
+// is all that can change in it without an event. Anything the patch cannot
+// express (a card that is not patchable, a duplicate group) falls back to a
+// reload. Returns 'reload', 'patched' or 'none', for tests.
+function refreshGalleryOnRefocus() {
+    if (_clipLoadInFlight) return 'none'; // a load already under way is fresh
+    const staleMs = Number(window.__refocusReloadStaleMs) || REFOCUS_RELOAD_STALE_MS;
+    if (!_galleryView.request || Date.now() - _clipLoadStartedAt > staleMs) {
+        loadClips();
+        return 'reload';
+    }
+    const now = Date.now();
+    const expired = Array.from(gallery.querySelectorAll(':scope > li[data-id][data-expires-at]'))
+        .filter(card => {
+            const at = Date.parse(card.dataset.expiresAt);
+            return Number.isFinite(at) && at <= now;
+        })
+        .map(card => Number(card.dataset.id));
+    if (expired.length === 0) return 'none';
+    for (const id of expired) {
+        // Removing the last loaded card starts a reload of the next page.
+        if (_clipLoadInFlight) return 'reload';
+        if (!removeClipCardInPlace(id)) {
+            loadClips();
+            return 'reload';
+        }
+    }
+    return 'patched';
+}
+window.refreshGalleryOnRefocus = refreshGalleryOnRefocus;
 
 // Would a clip carrying these tags still be listed in the view on screen?
 // Mirrors the listing: folder = exact tag, untagged = no tags, otherwise every

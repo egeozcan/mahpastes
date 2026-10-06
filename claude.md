@@ -755,6 +755,15 @@ persistence), `frontend/js/ui.js` (`applySearchFilter`, debounce),
 `frontend/js/wails-api.js` (`loadClips` deep-search branch),
 `internal/app/api_manager.go` + `frontend/js/rest-glue.js` (server mode).
 
+## Gallery Reload Triggers
+
+Every full `loadClips()` re-lists the page and re-checks every card, so event-driven reloads are coalesced:
+
+- `share:clip-received` (one per clip from a follow): 300 ms trailing debounce, 2 s max wait, one `refresh()` + one `loadClips()` + one summary toast per burst (`share.js`).
+- `tag:updated` / `tag:deleted` / `tag:merged`: `handleTagReferenceEvent` (`tags.js`) queues them (50 ms, 500 ms max wait) and resolves the burst with one `loadTags` and one final gallery action; it returns a promise that settles when that batch is handled. A deleted viewed folder lands on its nearest *live* ancestor, since later deletes in the burst are already applied.
+- Window refocus (`visibilitychange` → `refreshGalleryOnRefocus` in `wails-api.js`): reloads only if the listing is older than `REFOCUS_RELOAD_STALE_MS` (30 s); otherwise it just removes cards whose `data-expires-at` has passed via `removeClipCardInPlace`. REST, `mp` CLI and plugin writes emit **no** frontend event, so that staleness window is the only thing that surfaces them on refocus — add a backend change event before dropping it.
+- The folder status poller pauses while `document.hidden` (polls at once on return), and `updateFolderBadgesInPlace` writes a card's badges/label only when they changed (compared to the markup last written, `container._badgesHTML`, not `innerHTML`).
+
 ## Video Gallery and Lightbox
 
 Videos are first-class gallery media alongside images. `getVisibleMediaClips()`
