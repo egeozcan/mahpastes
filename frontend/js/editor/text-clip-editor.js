@@ -209,7 +209,10 @@ const TextClipEditor = (() => {
         return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
     }
 
-    // Per open; the original never changes within a session.
+    // Memo of hashText(originalValue). Every assignment to originalValue must
+    // reset it (open, close, and the post-save rebaseline): a stale hash makes
+    // every later draft for a >256K document carry the new length with the old
+    // hash, and restoreDraft then rejects and deletes it.
     let originalHashMemo = null;
     function originalHash() {
         if (originalHashMemo === null) originalHashMemo = hashText(originalValue);
@@ -1024,6 +1027,7 @@ const TextClipEditor = (() => {
         filename = '';
         contentType = '';
         originalValue = '';
+        originalHashMemo = null;
         textProfile = null;
         descriptor = null;
         unavailableReason = null;
@@ -1266,6 +1270,7 @@ const TextClipEditor = (() => {
         // or close the clip that happens to be open now.
         if (!snapshotStillTargets(snapshot)) return false;
         originalValue = snapshot.source;
+        originalHashMemo = null;
         const id = snapshot.descriptor ? snapshot.descriptor.id : null;
         baselinePromise = TextDiagnostics.validateCritical(snapshot.source, snapshot.descriptor, { apply: false })
             .then((result) => ({
@@ -1280,6 +1285,13 @@ const TextClipEditor = (() => {
                 unavailable: result.unavailable || null,
             }));
         const movedOn = getValue() !== snapshot.source;
+        if (movedOn) {
+            // The stored draft names the pre-save baseline, which is no longer
+            // what the clip holds, so reopening would reject it and drop the
+            // edits typed during the save. Re-key it to the new baseline now
+            // rather than waiting for the next keystroke.
+            persistDraft();
+        }
         updateSaveState();
         return movedOn;
     }
