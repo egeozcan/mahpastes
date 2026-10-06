@@ -122,6 +122,10 @@ const tempPrepareMaxAttempts = 3
 // window the dropped flag guards.
 var tempPrepareAfterLoad func(clipID int64)
 
+// tempPrepareAfterSize, when set (tests only), runs after an attempt has
+// sized a clip and before it reserves and reads it.
+var tempPrepareAfterSize func(clipID, size int64)
+
 // tempPrepareFlight is one in-progress PrepareClipFile copy, shared by every
 // concurrent request for that clip.
 type tempPrepareFlight struct {
@@ -191,61 +195,115 @@ func (s *TempClipStore) PrepareClipFile(clipID int64) (*tempPreparedFile, error)
 }
 
 // prepareClipFile does one flight's copy. fl is registered in prepFlights.
+//
+// Each attempt sizes the clip, reserves that size against
+// tempPrepareByteBudget, and reads the blob only if it still fits the
+// reservation — the size check and the read are one statement, so an edit
+// that grows the clip between sizing and reading (or while the attempt waited
+// for the semaphore) fails the read instead of loading more bytes than were
+// reserved. Such an attempt, like one whose copy was dropped, releases its
+// reservation and starts over with a fresh size.
 func (s *TempClipStore) prepareClipFile(clipID int64, fl *tempPrepareFlight) (*tempPreparedFile, error) {
-	// LENGTH(data) comes from the record header; the blob is not read.
-	var size int64
-	if err := s.db.QueryRow("SELECT LENGTH(data) FROM clips WHERE id = ?", clipID).Scan(&size); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, ErrClipNotFound
-		}
-		return nil, fmt.Errorf("failed to size clip %d: %w", clipID, err)
-	}
-	weight := tempPrepareWeight(size)
-	if err := tempPrepareSem.Acquire(context.Background(), weight); err != nil {
-		return nil, err
-	}
-	defer tempPrepareSem.Release(weight)
-
 	for attempt := 1; ; attempt++ {
-		data, filename, contentType, err := s.loadClipForPrepare(clipID)
-		if err != nil {
-			return nil, err
+		prepared, retry, err := s.prepareClipFileAttempt(clipID, fl)
+		if !retry {
+			return prepared, err
 		}
-		if tempPrepareAfterLoad != nil {
-			tempPrepareAfterLoad(clipID)
+		if attempt >= tempPrepareMaxAttempts {
+			return nil, fmt.Errorf("clip %d kept changing while it was being prepared", clipID)
 		}
-		safeName := tempFilenameForClip(clipID, filename, contentType)
-		tempPath := filepath.Join(s.dir, safeName)
-		tmp, err := writePrepareTemp(s.dir, data)
-		if err != nil {
-			return nil, fmt.Errorf("failed to write temp file: %w", err)
-		}
-
-		s.mu.Lock()
-		if fl.dropped {
-			fl.dropped = false
-			s.mu.Unlock()
-			_ = os.Remove(tmp)
-			if attempt >= tempPrepareMaxAttempts {
-				return nil, fmt.Errorf("clip %d kept changing while it was being prepared", clipID)
-			}
-			continue
-		}
-		prepared, err := s.publishPreparedLocked(clipID, tmp, tempPath, data, filename, contentType)
-		s.mu.Unlock()
-		return prepared, err
 	}
 }
 
-// loadClipForPrepare reads a clip's bytes and naming metadata.
-func (s *TempClipStore) loadClipForPrepare(clipID int64) ([]byte, sql.NullString, string, error) {
+// prepareClipFileAttempt is one sized, reserved read-copy-publish pass.
+// retry reports that the clip changed under the attempt (it outgrew its
+// reservation, or a drop ran) and nothing was published.
+func (s *TempClipStore) prepareClipFileAttempt(clipID int64, fl *tempPrepareFlight) (*tempPreparedFile, bool, error) {
+	size, err := s.sizeClipForPrepare(clipID)
+	if err != nil {
+		return nil, false, err
+	}
+	if tempPrepareAfterSize != nil {
+		tempPrepareAfterSize(clipID, size)
+	}
+	weight := tempPrepareWeight(size)
+	if err := tempPrepareSem.Acquire(context.Background(), weight); err != nil {
+		return nil, false, err
+	}
+	defer tempPrepareSem.Release(weight)
+
+	// A reservation of the whole budget already runs alone, so any size fits.
+	maxBytes := weight
+	if weight >= tempPrepareByteBudget {
+		maxBytes = -1
+	}
+	data, filename, contentType, err := s.loadClipForPrepare(clipID, maxBytes)
+	if errors.Is(err, errClipOutgrewReservation) {
+		if _, err := s.sizeClipForPrepare(clipID); err != nil {
+			return nil, false, err // deleted, not grown
+		}
+		return nil, true, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	if tempPrepareAfterLoad != nil {
+		tempPrepareAfterLoad(clipID)
+	}
+	safeName := tempFilenameForClip(clipID, filename, contentType)
+	tempPath := filepath.Join(s.dir, safeName)
+	tmp, err := writePrepareTemp(s.dir, data)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to write temp file: %w", err)
+	}
+
+	s.mu.Lock()
+	if fl.dropped {
+		fl.dropped = false
+		s.mu.Unlock()
+		_ = os.Remove(tmp)
+		return nil, true, nil
+	}
+	prepared, err := s.publishPreparedLocked(clipID, tmp, tempPath, data, filename, contentType)
+	s.mu.Unlock()
+	return prepared, false, err
+}
+
+// errClipOutgrewReservation reports that a clip's bytes no longer fit the
+// reservation an attempt sized them for (or the row went away; the next
+// sizing tells the two apart).
+var errClipOutgrewReservation = errors.New("clip outgrew its prepare reservation")
+
+// sizeClipForPrepare returns the clip's size in bytes. octet_length, not
+// LENGTH: LENGTH counts characters for a TEXT value (backup restore accepts
+// text literals for data), which undercounts multibyte text. For a BLOB, and
+// a TEXT value in the database encoding, the size comes from the record
+// header; the value is not read.
+func (s *TempClipStore) sizeClipForPrepare(clipID int64) (int64, error) {
+	var size int64
+	if err := s.db.QueryRow("SELECT octet_length(data) FROM clips WHERE id = ?", clipID).Scan(&size); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, ErrClipNotFound
+		}
+		return 0, fmt.Errorf("failed to size clip %d: %w", clipID, err)
+	}
+	return size, nil
+}
+
+// loadClipForPrepare reads a clip's bytes and naming metadata, but only if
+// they are at most maxBytes long (maxBytes < 0: any size). A clip that is
+// now larger — or gone — yields errClipOutgrewReservation, without reading
+// its bytes.
+func (s *TempClipStore) loadClipForPrepare(clipID, maxBytes int64) ([]byte, sql.NullString, string, error) {
 	var data []byte
 	var filename sql.NullString
 	var contentType string
-	row := s.db.QueryRow("SELECT data, filename, content_type FROM clips WHERE id = ?", clipID)
+	row := s.db.QueryRow(
+		"SELECT data, filename, content_type FROM clips WHERE id = ? AND (? < 0 OR octet_length(data) <= ?)",
+		clipID, maxBytes, maxBytes)
 	if err := row.Scan(&data, &filename, &contentType); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, filename, "", ErrClipNotFound
+			return nil, filename, "", errClipOutgrewReservation
 		}
 		return nil, filename, "", fmt.Errorf("failed to load clip %d: %w", clipID, err)
 	}

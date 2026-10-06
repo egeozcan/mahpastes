@@ -541,3 +541,105 @@ func TestPrune_RemoveFailureKeepsIndexingLaterFiles(t *testing.T) {
 		t.Fatalf("leased file after the failed removal was dropped from the index: %+v, %v", got, err)
 	}
 }
+
+// A clip that grows after PrepareClipFile sized it must not be read under the
+// smaller reservation: the attempt re-sizes and reserves the new size.
+func TestPrepareClipFile_GrowthAfterSizingReReserves(t *testing.T) {
+	setTempPrepareBudget(t, 1000, 10)
+	store, db := newConcurrencyTestStore(t)
+	if _, err := db.Exec(`INSERT INTO clips (id, content_type, data, filename) VALUES (1, 'video/mp4', ?, 'v.mp4')`, make([]byte, 20)); err != nil {
+		t.Fatal(err)
+	}
+	big := make([]byte, 800)
+	for i := range big {
+		big[i] = 'x'
+	}
+
+	var sizes []int64
+	tempPrepareAfterSize = func(_, size int64) {
+		sizes = append(sizes, size)
+		if len(sizes) == 1 {
+			if _, err := db.Exec(`UPDATE clips SET data = ? WHERE id = 1`, big); err != nil {
+				t.Error(err)
+			}
+		}
+	}
+	t.Cleanup(func() { tempPrepareAfterSize = nil })
+	heldEnough := false
+	setTempPrepareAfterLoad(t, func(int64) {
+		// The reservation in force while the blob is in memory must cover it.
+		if tempPrepareSem.TryAcquire(1000 - 800 + 1) {
+			tempPrepareSem.Release(1000 - 800 + 1)
+		} else {
+			heldEnough = true
+		}
+	})
+
+	got, err := store.PrepareClipFile(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sizes) != 2 || sizes[0] != 20 || sizes[1] != 800 {
+		t.Fatalf("sizes seen = %v, want [20 800]", sizes)
+	}
+	if !heldEnough {
+		t.Fatal("800-byte clip was read under a reservation smaller than its size")
+	}
+	b, err := os.ReadFile(got.AbsPath)
+	if err != nil || len(b) != 800 {
+		t.Fatalf("published file = %d bytes, %v; want 800", len(b), err)
+	}
+}
+
+// A clip deleted after sizing reports not found, not "kept changing".
+func TestPrepareClipFile_DeletedAfterSizingIsNotFound(t *testing.T) {
+	store, db := newConcurrencyTestStore(t)
+	if _, err := db.Exec(`INSERT INTO clips (id, content_type, data, filename) VALUES (1, 'text/plain', 'a', 'a.txt')`); err != nil {
+		t.Fatal(err)
+	}
+	tempPrepareAfterSize = func(int64, int64) {
+		if _, err := db.Exec(`DELETE FROM clips WHERE id = 1`); err != nil {
+			t.Error(err)
+		}
+	}
+	t.Cleanup(func() { tempPrepareAfterSize = nil })
+	if _, err := store.PrepareClipFile(1); !errors.Is(err, ErrClipNotFound) {
+		t.Fatalf("err = %v, want ErrClipNotFound", err)
+	}
+}
+
+// Multibyte TEXT data (backup restore accepts text literals) is weighed by
+// its bytes, not its characters.
+func TestPrepareClipFile_MultibyteTextWeighedInBytes(t *testing.T) {
+	store, db := newConcurrencyTestStore(t)
+	text := ""
+	for i := 0; i < 100; i++ {
+		text += "é世" // 2 chars, 5 UTF-8 bytes
+	}
+	if _, err := db.Exec(`INSERT INTO clips (id, content_type, data, filename) VALUES (1, 'text/plain', ?, 't.txt')`, text); err != nil {
+		t.Fatal(err)
+	}
+	var typ string
+	if err := db.QueryRow(`SELECT typeof(data) FROM clips WHERE id = 1`).Scan(&typ); err != nil || typ != "text" {
+		t.Fatalf("data stored as %q (%v), want text", typ, err)
+	}
+	size, err := store.sizeClipForPrepare(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if size != int64(len(text)) {
+		t.Fatalf("size = %d, want %d bytes (LENGTH would give %d chars)", size, len(text), 200)
+	}
+
+	// Under a budget between the char and byte counts the read still runs
+	// (as a whole-budget reservation) and publishes every byte.
+	setTempPrepareBudget(t, 300, 10)
+	got, err := store.PrepareClipFile(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(got.AbsPath)
+	if err != nil || string(b) != text {
+		t.Fatalf("published %d bytes, %v; want %d", len(b), err, len(text))
+	}
+}

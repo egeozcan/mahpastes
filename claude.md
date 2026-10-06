@@ -855,8 +855,12 @@ the library no longer holds, and `PrepareClipFile` replaces temp files by
 rename (`publishPreparedLocked`) so a `/media/` playback reading the old copy is
 never truncated. `PrepareClipFile` copies outside the store mutex — one shared
 copy per clip (`prepFlights`), different clips concurrently within a byte budget
-(`tempPrepareSem`, weighted by `LENGTH(data)`: a clip at or over
-`tempPrepareByteBudget` copies alone) — and publishes only if no drop for that clip ran
+(`tempPrepareSem`, weighted by `octet_length(data)` — never `LENGTH`, which counts
+characters for a TEXT value restored from a backup; a clip at or over
+`tempPrepareByteBudget` copies alone). Every attempt (including a retry) re-sizes
+and re-reserves, and the blob read is conditioned on `octet_length(data) <=
+reservation` in the same statement, so a clip that grew while a copy waited is
+re-sized rather than read under a stale, smaller reservation — and publishes only if no drop for that clip ran
 since it began reading (the flight's `dropped` flag, set under the mutex by
 `DeleteForClipIDs`/`DeleteAll`); otherwise it re-reads. That is why the drop
 must come *after* the write. `FindExistingClipFile` looks files up in the
