@@ -138,6 +138,10 @@ export function GetClipTags(arg1) {
   return window['go']['main']['App']['GetClipTags'](arg1);
 }
 
+export function GetClipText(arg1) {
+  return window['go']['main']['App']['GetClipText'](arg1);
+}
+
 export function GetClipboardImage() {
   return window['go']['main']['App']['GetClipboardImage']();
 }

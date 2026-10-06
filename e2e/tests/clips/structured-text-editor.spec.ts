@@ -588,6 +588,42 @@ test.describe('Byte-safety and size limits', () => {
     await expect(app.page.locator(selectors.textEditor.modal)).not.toHaveClass(/active/);
   });
 
+  test('an over-cap text clip is declined from its stored size, without shipping its bytes', async ({ app }) => {
+    // A real 17 MiB clip this time: the backend's size pre-check is what is under
+    // test. Before it, the whole clip crossed the bridge only to be refused.
+    const textPath = await createTempFile('x'.repeat(17 * 1024 * 1024), 'txt');
+    const filename = path.basename(textPath);
+    await app.uploadFile(textPath);
+
+    await app.page.evaluate(() => {
+      const App = (window as any).go.main.App;
+      const w = window as any;
+      w.__clipReads = { dataCalls: 0, textBytes: -1 };
+      const originalData = App.GetClipData;
+      App.GetClipData = async (id: number) => {
+        w.__clipReads.dataCalls++;
+        return originalData.call(App, id);
+      };
+      const originalText = App.GetClipText;
+      App.GetClipText = async (id: number) => {
+        const result = await originalText.call(App, id);
+        w.__clipReads.textBytes = (result.data || '').length;
+        w.__clipReads.tooLarge = result.too_large;
+        return result;
+      };
+    });
+
+    await app.openCardMenu(filename);
+    await app.page.locator(selectors.cardMenu.edit).click();
+    await app.waitForToast(/too large to edit \(17 MB\)/);
+    await expect(app.page.locator(selectors.textEditor.modal)).not.toHaveClass(/active/);
+
+    const reads = await app.page.evaluate(() => (window as any).__clipReads);
+    expect(reads.dataCalls).toBe(0);
+    expect(reads.tooLarge).toBe(true);
+    expect(reads.textBytes).toBe(0);
+  });
+
   test('a document over 2 MiB degrades to plain preview and editing', async ({ app }) => {
     // The existing 2 MiB Markdown source threshold is now the common
     // enhanced-assistance threshold for every format.

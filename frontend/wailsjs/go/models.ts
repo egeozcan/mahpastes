@@ -180,6 +180,8 @@ export namespace app {
 	    filename: string;
 	    valid_utf8: boolean;
 	    data_encoding: string;
+	    size?: number;
+	    too_large?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new ClipData(source);
@@ -193,6 +195,8 @@ export namespace app {
 	        this.filename = source["filename"];
 	        this.valid_utf8 = source["valid_utf8"];
 	        this.data_encoding = source["data_encoding"];
+	        this.size = source["size"];
+	        this.too_large = source["too_large"];
 	    }
 	}
 	export class ClipListRequest {

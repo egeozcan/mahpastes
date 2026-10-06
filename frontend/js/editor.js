@@ -215,11 +215,15 @@ async function openEditor(clipId, options = {}) {
             // back replacement-decoded text a save could write back. The visible
             // `value` excludes the BOM and uses LF; `profile` is what puts the
             // bytes back the way they were found.
-            const decoded = MahpastesTextEditor.TextCodec.decodeClipPayload({
-                data: clipData.data,
-                dataEncoding: clipData.data_encoding,
-                validUTF8: clipData.valid_utf8,
-            });
+            // GetClipText answers an over-cap clip from its stored length,
+            // without the bytes; report it exactly as the decoder would.
+            const decoded = clipData.too_large
+                ? { ok: false, reason: 'too-large', byteLength: clipData.size || 0 }
+                : MahpastesTextEditor.TextCodec.decodeClipPayload({
+                    data: clipData.data,
+                    dataEncoding: clipData.data_encoding,
+                    validUTF8: clipData.valid_utf8,
+                });
 
             // The 16 MiB cap is a decline to open at all, not a read-only state:
             // the editor path would otherwise materialize one document as a

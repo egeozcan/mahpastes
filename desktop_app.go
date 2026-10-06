@@ -46,6 +46,7 @@ type desktopCore interface {
 	FindClipsByFilenameAndTag(filenames []string, tagID int64) ([]coreapp.ClipMatch, error)
 	GetChildTags(tagID int64) ([]coreapp.Tag, error)
 	GetClipData(id int64) (*coreapp.ClipData, error)
+	GetClipText(id int64) (*coreapp.ClipData, error)
 	GetClipMetadata(clipID int64) (map[string]string, error)
 	GetClipPreview(id int64) (*coreapp.ClipPreview, error)
 	GetClipTags(clipID int64) ([]coreapp.Tag, error)

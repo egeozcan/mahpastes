@@ -881,6 +881,10 @@ type ClipData struct {
 	Filename     string `json:"filename"`
 	ValidUTF8    bool   `json:"valid_utf8"`
 	DataEncoding string `json:"data_encoding"` // "utf8" or "base64"
+	// Set only by GetClipText: the stored byte length, and whether the clip is
+	// over the text editor's cap. A too-large payload carries no data at all.
+	Size     int64 `json:"size,omitempty"`
+	TooLarge bool  `json:"too_large,omitempty"`
 }
 
 // DiffResult returned by GetImageDiff
@@ -1772,6 +1776,57 @@ func (a *App) GetClipData(id int64) (*ClipData, error) {
 		clip.Data = base64.StdEncoding.EncodeToString(data)
 	}
 
+	return clip, nil
+}
+
+// maxEditableTextBytes mirrors TextCodec.MAX_EDITABLE_BYTES
+// (frontend/src/text-editor/text-codec.js), which remains the authority: the
+// frontend still refuses an oversized decode. This copy exists only so the
+// size can be checked before the bytes are read and shipped — opening a 200 MB
+// log used to serialize the whole clip over IPC just to show "too large".
+// TestMaxEditableTextBytesMatchesTextCodec keeps the two in step.
+const maxEditableTextBytes = 16 * 1024 * 1024
+
+// textEditCapApplies reports whether the editor opens a clip of this type as
+// text (and so applies the 16 MiB cap). It matches editor.js isImageType: every
+// image/* type goes to the image editor, everything else to the text editor.
+func textEditCapApplies(contentType string) bool {
+	return !strings.HasPrefix(contentType, "image/")
+}
+
+// GetClipText is the editor's read. It is GetClipData, except that a text clip
+// over maxEditableTextBytes comes back as {too_large, size} without its bytes,
+// decided from octet_length(data) — answered from the record header, never by
+// loading the blob.
+func (a *App) GetClipText(id int64) (*ClipData, error) {
+	var contentType string
+	var filename sql.NullString
+	var size int64
+	err := a.db.QueryRow("SELECT content_type, filename, octet_length(data) FROM clips WHERE id = ?", id).
+		Scan(&contentType, &filename, &size)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("clip not found")
+		}
+		return nil, fmt.Errorf("failed to get clip: %w", err)
+	}
+	if textEditCapApplies(contentType) && size > maxEditableTextBytes {
+		return &ClipData{
+			ID:           id,
+			ContentType:  contentType,
+			Filename:     filename.String,
+			DataEncoding: "base64",
+			Size:         size,
+			TooLarge:     true,
+		}, nil
+	}
+	// The full read is its own single-row scan, so filename, type and bytes
+	// still come from one revision. If the clip grew past the cap in between,
+	// TextCodec's own check declines it.
+	clip, err := a.GetClipData(id)
+	if err != nil {
+		return nil, err
+	}
 	return clip, nil
 }
 

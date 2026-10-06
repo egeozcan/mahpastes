@@ -72,6 +72,8 @@ export function GetClipPreview(arg1:number):Promise<app.ClipPreview>;
 
 export function GetClipTags(arg1:number):Promise<Array<app.Tag>>;
 
+export function GetClipText(arg1:number):Promise<app.ClipData>;
+
 export function GetClipboardImage():Promise<main.ClipboardImage>;
 
 export function GetClipboardText():Promise<string>;

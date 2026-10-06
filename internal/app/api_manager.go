@@ -1584,16 +1584,20 @@ type apiClipTextResponse struct {
 	// ClipData field-for-field.
 	DataEncoding string `json:"data_encoding"`
 	Size         int    `json:"size"`
+	// TooLarge mirrors desktop GetClipText: a text clip over the editor's
+	// 16 MiB cap comes back without its bytes, so the browser can decline to
+	// open it without downloading it first.
+	TooLarge bool `json:"too_large,omitempty"`
 }
 
 // maxInlineTextBytes is an out-of-memory guard, NOT the editable cap. It matches
 // the 64 MiB inline ceiling server mode already applied in rest-glue.js, so this
 // endpoint is never more restrictive than the path it replaces.
 //
-// The real editable cap — 16 MiB — deliberately lives in one place, TextCodec, so
-// desktop and served mode enforce it identically. Putting it here as well would
-// make the server stricter than the desktop binding and split one rule across two
-// languages.
+// The real editable cap — 16 MiB — is enforced by TextCodec, identically in
+// desktop and served mode. maxEditableTextBytes is a pre-check copy of it, shared
+// with desktop GetClipText, that only spares the transfer of a clip TextCodec
+// would refuse anyway.
 const maxInlineTextBytes = 64 * 1024 * 1024
 
 // handleGetClipText returns filename, content type, bytes, and UTF-8 validity in
@@ -1618,9 +1622,35 @@ func (am *APIManager) handleGetClipText(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	var data []byte
+	// Size first, from octet_length (the record header, not the blob), so
+	// neither an over-cap text clip nor an over-limit one is read just to be
+	// refused.
 	var contentType string
 	var filename sql.NullString
+	var size int64
+	if err := am.app.db.QueryRow("SELECT content_type, filename, octet_length(data) FROM clips WHERE id = ?", id).
+		Scan(&contentType, &filename, &size); err != nil {
+		am.jsonError(w, http.StatusNotFound, "clip not found")
+		return
+	}
+	if textEditCapApplies(contentType) && size > maxEditableTextBytes {
+		am.jsonOK(w, apiClipTextResponse{
+			ID:           id,
+			Filename:     filename.String,
+			ContentType:  contentType,
+			DataEncoding: "base64",
+			Size:         int(size),
+			TooLarge:     true,
+		})
+		return
+	}
+	if size > maxInlineTextBytes {
+		am.jsonError(w, http.StatusRequestEntityTooLarge,
+			fmt.Sprintf("clip is too large to load inline (%d bytes, limit %d) — download it instead", size, maxInlineTextBytes))
+		return
+	}
+
+	var data []byte
 	if err := am.app.db.QueryRow("SELECT data, content_type, filename FROM clips WHERE id = ?", id).
 		Scan(&data, &contentType, &filename); err != nil {
 		am.jsonError(w, http.StatusNotFound, "clip not found")

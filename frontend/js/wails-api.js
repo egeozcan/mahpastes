@@ -997,12 +997,13 @@ async function getClipData(id) {
 // Get a clip for the text editor: filename, content type, bytes, and UTF-8
 // validity, all from one read.
 //
-// Desktop GetClipData already reads all three columns in a single row scan and
-// reports valid_utf8/data_encoding, so it satisfies the contract as-is. Server
-// mode needs the dedicated /text endpoint: GetClipData there returns raw base64
-// with an empty filename, and composing metadata and bytes from two requests
-// would let a concurrent update pair one clip's metadata with another revision's
-// bytes.
+// Both surfaces expose GetClipText: desktop's binding and server mode's /text
+// endpoint read filename, type and bytes in one row scan, and answer a text clip
+// over the 16 MiB edit cap with {too_large, size} and no bytes, decided from the
+// stored length — so opening a huge log never ships it just to refuse it.
+// Composing metadata and bytes from two requests would let a concurrent update
+// pair one clip's metadata with another revision's bytes. The GetClipData
+// fallback only serves test doubles that patch it alone.
 async function getClipText(id) {
     try {
         if (typeof window.go?.main?.App?.GetClipText === 'function') {
