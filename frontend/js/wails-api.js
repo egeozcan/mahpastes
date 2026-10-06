@@ -542,7 +542,38 @@ async function readLibraryVersion() {
 // passed, which is all that can change in it without a write. Anything the
 // patch cannot express (a card that is not patchable, a duplicate group)
 // falls back to a reload. Resolves to 'reload', 'patched' or 'none', for tests.
+//
+// Expiry also changes what the gallery summarises beyond its cards: a clip on
+// a page not loaded yet, inside a subfolder (folder card counts), or behind a
+// hidden tag (the hidden-clips note) leaves the listing the moment it expires,
+// yet the counter only moves when the expiry reaper deletes it, up to one
+// cleanup interval (a minute) later. A refocus that finds the counter
+// unchanged therefore checks it once more after that interval: whatever had
+// expired by the refocus has been reaped by then, so a moved counter reloads.
+const REFOCUS_EXPIRY_RECHECK_MS = 65 * 1000;
+let _refocusRecheckTimer = null;
+
+function scheduleRefocusExpiryRecheck() {
+    if (_refocusRecheckTimer) clearTimeout(_refocusRecheckTimer);
+    const delay = typeof window.__refocusRecheckMs === 'number' ? window.__refocusRecheckMs : REFOCUS_EXPIRY_RECHECK_MS;
+    _refocusRecheckTimer = setTimeout(async () => {
+        _refocusRecheckTimer = null;
+        // Hidden again: the next refocus does this check itself.
+        if (document.hidden || _clipLoadInFlight || _galleryLibraryVersion == null) return;
+        const gen = _clipLoadGen;
+        const version = await readLibraryVersion();
+        if (gen !== _clipLoadGen || _clipLoadInFlight) return;
+        if (version != null && version !== _galleryLibraryVersion) loadClips();
+    }, delay);
+}
+
 async function refreshGalleryOnRefocus() {
+    const outcome = await refocusGallery();
+    if (outcome !== 'reload') scheduleRefocusExpiryRecheck();
+    return outcome;
+}
+
+async function refocusGallery() {
     if (_clipLoadInFlight) return 'none'; // a load already under way is fresh
     if (!_galleryView.request || _galleryLibraryVersion == null) {
         loadClips();
@@ -605,23 +636,48 @@ function clipTagsFitView(tags) {
 // retag or rename the clip inside the call. False (the caller reloads) when
 // the row no longer fits the card or the view: a new type or revision, an
 // archive flip, a rename while sorted by name, or tags that move it out.
+//
+// Responses are applied newest-first only. Every caller has finished its
+// write before asking, so a later patch of the same clip, or a reload started
+// after this one was asked, reads a state at least as new: when either has
+// happened this response is stale and is dropped (true: nothing for the
+// caller to reload). Without that, cancelling an expiry while the "set"
+// preview is still in flight let the older row put the badge back, and a
+// response arriving after a reload repainted the card with older data.
+const _clipPatchLatest = new Map(); // clip id -> sequence of its newest patch
+let _clipPatchSeq = 0;
+
 async function refreshClipInPlace(id) {
-    if (!galleryPatchable() || !galleryClipCard(id)) return false;
+    id = Number(id);
+    const startCard = galleryClipCard(id);
+    if (!galleryPatchable() || !startCard) return false;
+    const gen = _clipLoadGen;
+    const seq = ++_clipPatchSeq;
+    _clipPatchLatest.set(id, seq);
+    // Superseded by a newer patch of this clip, or by a reload begun since.
+    const superseded = () => _clipPatchLatest.get(id) !== seq || gen !== _clipLoadGen;
+    const finish = (result) => {
+        if (_clipPatchLatest.get(id) === seq) _clipPatchLatest.delete(id);
+        return result;
+    };
     let row;
     try {
-        row = await window.go.main.App.GetClipPreview(Number(id));
+        row = await window.go.main.App.GetClipPreview(id);
     } catch (error) {
-        return false;
+        return finish(superseded());
     }
+    if (superseded()) return finish(true);
     const card = galleryClipCard(id);
-    if (!row || !card || !galleryPatchable()) return false;
+    // The card can only be swapped for another by a reload, which moves the
+    // generation (checked above); a missing card means it left the view.
+    if (!row || !card || card !== startCard || !galleryPatchable()) return finish(false);
     const clip = card._clip;
     const tags = Array.isArray(row.tags) ? row.tags : [];
-    if (row.content_type !== clip.content_type) return false;
-    if ((row.content_hash || '') !== (clip.content_hash || '')) return false;
-    if (!!row.is_archived !== !!clip.is_archived) return false;
-    if (row.filename !== clip.filename && currentSortField === 'name') return false;
-    if (!clipTagsFitView(tags)) return false;
+    if (row.content_type !== clip.content_type) return finish(false);
+    if ((row.content_hash || '') !== (clip.content_hash || '')) return finish(false);
+    if (!!row.is_archived !== !!clip.is_archived) return finish(false);
+    if (row.filename !== clip.filename && currentSortField === 'name') return finish(false);
+    if (!clipTagsFitView(tags)) return finish(false);
 
     clip.filename = row.filename;
     clip.tags = tags;
@@ -632,7 +688,7 @@ async function refreshClipInPlace(id) {
     renderCardTags(card, tags);
     card._renderSig = clipCardSignature(clip);
     afterGalleryPatch();
-    return true;
+    return finish(true);
 }
 
 function focusGalleryItem(index) {
