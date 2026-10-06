@@ -49,13 +49,6 @@ type ClipboardCopier interface {
 // App struct holds the application state
 type App struct {
 	ctx              context.Context
-
-	// galleryLoad is the context of the desktop gallery's current load
-	// (beginGalleryLoad). A newer load cancels it, so a superseded content
-	// search stops scanning instead of running to the end.
-	galleryLoadMu     sync.Mutex
-	galleryLoadCtx    context.Context
-	galleryLoadCancel context.CancelFunc
 	bridge           bridgeiface.Bridge
 	db               *sql.DB
 	tempDir          string
@@ -166,6 +159,13 @@ type App struct {
 	// to addTagToNewClip: a restore in between deleted that clip, and its id —
 	// and the tag id — may now name restored rows.
 	restoreEpoch uint64
+
+	// galleryLoad is the context of the desktop gallery's current load
+	// (beginGalleryLoad). A newer load cancels it, so a superseded content
+	// search stops scanning instead of running to the end.
+	galleryLoadMu     sync.Mutex
+	galleryLoadCtx    context.Context
+	galleryLoadCancel context.CancelFunc
 }
 
 // PluginsReady reports whether plugin loading has finished (successfully or
