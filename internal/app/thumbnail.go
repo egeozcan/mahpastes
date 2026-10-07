@@ -648,6 +648,18 @@ func applyEXIFOrientation(img *image.RGBA, o int) *image.RGBA {
 // for the current bytes with no-cache. It returns false, having written
 // nothing, when there is no such image clip. It performs no authorization.
 func (c *ThumbnailCache) Serve(w http.ResponseWriter, r *http.Request, clipID int64, wantHash string) bool {
+	return c.ServeCapped(w, r, clipID, wantHash, 0)
+}
+
+// ServeCapped is Serve with a ceiling on the original bytes it will pass
+// through. A thumbnail is only ever a bounded copy when one was generated;
+// every passthrough (an image over the decode budget, an animation, SVG, a
+// failed generation) hands the browser the whole original to decode inline.
+// When maxOriginal > 0 and the revision actually served is larger, it answers
+// 413 instead — the caller's preview ceiling, enforced on the server against
+// the bytes read, not a size the client remembered. 0 means no ceiling (the
+// desktop WebView, whose GetClipData has none either).
+func (c *ThumbnailCache) ServeCapped(w http.ResponseWriter, r *http.Request, clipID int64, wantHash string, maxOriginal int64) bool {
 	ctx := r.Context()
 	var contentType, hash string
 	matched := false
@@ -672,7 +684,7 @@ func (c *ThumbnailCache) Serve(w http.ResponseWriter, r *http.Request, clipID in
 		return false
 	}
 	if !isContentHash(hash) {
-		return c.serveOriginal(w, r, clipID, "", false)
+		return c.serveOriginal(w, r, clipID, "", false, maxOriginal)
 	}
 
 	entry, gotHash, err := c.ensure(ctx, clipID, hash)
@@ -686,24 +698,24 @@ func (c *ThumbnailCache) Serve(w http.ResponseWriter, r *http.Request, clipID in
 		// Any other failure: the original still renders the card. After
 		// errThumbHashGone the clip was deleted (serveOriginal finds no row)
 		// or edited (it serves the new bytes, not immutable).
-		return c.serveOriginal(w, r, clipID, "", false)
+		return c.serveOriginal(w, r, clipID, "", false, maxOriginal)
 	}
 	if gotHash != hash {
 		matched = false
 	}
 	if entry.original {
-		return c.serveOriginal(w, r, clipID, gotHash, matched)
+		return c.serveOriginal(w, r, clipID, gotHash, matched, maxOriginal)
 	}
 
 	f, err := os.Open(entry.path)
 	if err != nil {
 		// Pruned between lookup and open: the original is always right.
-		return c.serveOriginal(w, r, clipID, "", false)
+		return c.serveOriginal(w, r, clipID, "", false, maxOriginal)
 	}
 	defer f.Close()
 	info, err := f.Stat()
 	if err != nil {
-		return c.serveOriginal(w, r, clipID, "", false)
+		return c.serveOriginal(w, r, clipID, "", false, maxOriginal)
 	}
 	etag := fmt.Sprintf(`"t%d-%s"`, thumbMaxEdge, gotHash)
 	writeThumbBody(w, r, f, info.Size(), entry.contentType, etag, matched)
@@ -712,7 +724,23 @@ func (c *ThumbnailCache) Serve(w http.ResponseWriter, r *http.Request, clipID in
 
 // serveOriginal serves the clip's own bytes as its thumbnail. immutable is
 // honoured only when the bytes read are the revision expected.
-func (c *ThumbnailCache) serveOriginal(w http.ResponseWriter, r *http.Request, clipID int64, expectHash string, immutable bool) bool {
+// Over maxOriginal (when > 0) it writes 413 and serves nothing.
+func (c *ThumbnailCache) serveOriginal(w http.ResponseWriter, r *http.Request, clipID int64, expectHash string, immutable bool, maxOriginal int64) bool {
+	if maxOriginal > 0 {
+		// Measured first so an over-cap clip is refused without being copied
+		// out to a stream snapshot just to be turned away.
+		meta, _, err := loadClipBodyMetadata(r.Context(), c.db, clipID)
+		if err != nil {
+			return false
+		}
+		if !strings.HasPrefix(meta.contentType, "image/") {
+			return false
+		}
+		if meta.size > maxOriginal {
+			writeThumbTooLarge(w, meta.size, maxOriginal)
+			return true
+		}
+	}
 	body, err := openClipBody(r.Context(), c.db, c.store, clipID, r.Method == http.MethodHead)
 	if err != nil {
 		return false
@@ -720,6 +748,12 @@ func (c *ThumbnailCache) serveOriginal(w http.ResponseWriter, r *http.Request, c
 	defer body.Close()
 	if !strings.HasPrefix(body.contentType, "image/") {
 		return false
+	}
+	// Checked again on the revision actually opened: an overwrite landing
+	// after the measurement must not get a larger original through.
+	if maxOriginal > 0 && body.size > maxOriginal {
+		writeThumbTooLarge(w, body.size, maxOriginal)
+		return true
 	}
 	if body.hash == "" || body.hash != expectHash {
 		immutable = false
@@ -734,6 +768,15 @@ func (c *ThumbnailCache) serveOriginal(w http.ResponseWriter, r *http.Request, c
 	}
 	writeThumbBody(w, r, src, body.size, body.contentType, etag, immutable)
 	return true
+}
+
+// writeThumbTooLarge answers a capped thumbnail request whose original would
+// have been passed through whole. Not cached: an edit can bring it under.
+func writeThumbTooLarge(w http.ResponseWriter, size, limit int64) {
+	h := w.Header()
+	h.Set("Cache-Control", "private, no-cache")
+	h.Set("X-Content-Type-Options", "nosniff")
+	http.Error(w, fmt.Sprintf("image is too large to preview inline (%d bytes, limit %d)", size, limit), http.StatusRequestEntityTooLarge)
 }
 
 // writeThumbBody writes a thumbnail response. The headers are the same

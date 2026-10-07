@@ -1902,7 +1902,7 @@ async function getVideoMediaUrl(clipId) {
 // thumbnail failed). Desktop: a data URL over the bridge, kept in the bounded
 // imageCache. Server mode: the same-origin data URL itself — the browser
 // fetches and caches it, with no Blob -> FileReader -> base64 round trip.
-const SERVER_IMAGE_MAX_INLINE = 64 * 1024 * 1024; // matches rest-glue GetClipData
+const SERVER_IMAGE_MAX_INLINE = 64 * 1024 * 1024; // matches serverInlinePreviewMaxBytes (api_manager.go)
 
 // The clip's stored size, for the inline-preview ceiling. A loaded gallery card
 // carries it; an image opened from elsewhere (a Markdown reference, a clip on a
@@ -1935,9 +1935,13 @@ async function getImageDataUrl(clipId) {
         if (size > SERVER_IMAGE_MAX_INLINE) {
             throw new Error(`clip is too large to preview in the browser (${Math.round(size / 1048576)} MB) — download it instead`);
         }
-        // The revision keeps the browser from reusing a response for bytes
-        // that have since been overwritten.
-        return revision ? `/api/v1/clips/${id}/data?rev=${revision}` : `/api/v1/clips/${id}/data`;
+        // The size above can be stale (a card rendered before the clip was
+        // overwritten with a larger image), so it only spares a request:
+        // preview=1 makes the server enforce the same ceiling against the
+        // revision it actually serves, answering 413 past it. The revision
+        // keeps the browser from reusing a response for bytes that have since
+        // been overwritten.
+        return `/api/v1/clips/${id}/data?preview=1${revision ? `&rev=${revision}` : ''}`;
     }
 
     const cached = imageCacheGet(id);

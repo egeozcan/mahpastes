@@ -933,6 +933,8 @@ forever. The API server runs with `WriteTimeout` 0 (for SSE), so
 `copyClipBody` sets a sliding per-chunk write deadline
 (`clipStreamWriteTimeout`, 30 s per 64 KB).
 
+**Server inline-preview ceiling.** Anything the web UI decodes inline is capped server-side at `serverInlinePreviewMaxBytes` (64 MiB, `api_manager.go`), measured on the revision actually served — never a size the client remembers. `GET /api/v1/clips/{id}/thumb` uses `ThumbnailCache.ServeCapped`, so a passthrough original (over the decode budget, animated, SVG, failed generation) past the cap is a 413, not the whole blob; desktop `/thumb/{key}` uses uncapped `Serve`. Inline uses of `/data` (`getImageDataUrl`, rest-glue `GetClipData`) pass `?preview=1`, which pre-measures and then backstops with `previewCapWriter` (judges the declared Content-Length / Content-Range total). Plain `/data` (downloads, `mp`, video playback) stays unrestricted; the client-side check in `serverClipSizeForPreview` only saves a request.
+
 Playback depends on codecs supported by the platform WebView/browser. The media
 contract lives in `frontend/js/ui.js` (`getVisibleMediaClips`, card thumbnails,
 `getVideoMediaUrl`), `frontend/js/lightbox.js` (mixed-media state and playback),

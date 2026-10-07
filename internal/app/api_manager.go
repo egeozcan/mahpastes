@@ -1559,9 +1559,134 @@ func (am *APIManager) handleGetClipData(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// ?preview=1 marks an inline use — an <img> the browser decodes, or
+	// rest-glue's base64 GetClipData — rather than a download. Those carry the
+	// server preview ceiling, enforced against the revision actually served.
+	// Explicit downloads (no param) stay unrestricted.
+	if r.URL.Query().Get("preview") == "1" {
+		am.writePreviewClipBytes(w, r, id)
+		return
+	}
+
 	if !am.writeClipBytes(w, r, id) {
 		am.jsonError(w, http.StatusNotFound, "clip not found")
 	}
+}
+
+// serverInlinePreviewMaxBytes is the largest clip the web UI is handed for
+// inline decoding: an image card's passthrough thumbnail, the lightbox's full
+// image, rest-glue's GetClipData. Past it the browser is asked to decode (or
+// base64 and hold) an arbitrarily large blob, so the server refuses with 413
+// and the UI offers a download. A var only so tests can lower it.
+var serverInlinePreviewMaxBytes int64 = 64 << 20
+
+// writePreviewClipBytes serves a clip for inline preview, refusing (413) a
+// revision over serverInlinePreviewMaxBytes. The size is measured first so an
+// over-cap clip is not snapshotted just to be refused; previewCapWriter then
+// re-checks the size serveStoredClip actually declares, so a clip enlarged
+// between the two still cannot get through.
+func (am *APIManager) writePreviewClipBytes(w http.ResponseWriter, r *http.Request, id int64) {
+	limit := serverInlinePreviewMaxBytes
+	meta, _, err := loadClipBodyMetadata(r.Context(), am.app.db, id)
+	if err != nil {
+		am.jsonError(w, http.StatusNotFound, "clip not found")
+		return
+	}
+	if meta.size > limit {
+		am.previewTooLarge(w, meta.size, limit)
+		return
+	}
+	pw := &previewCapWriter{ResponseWriter: w, limit: limit, refuse: func(size int64) {
+		am.previewTooLarge(w, size, limit)
+	}}
+	if !serveStoredClip(pw, r, am.app.db, am.app.tempStore, id, "attachment", true) {
+		am.jsonError(w, http.StatusNotFound, "clip not found")
+		return
+	}
+	pw.finish()
+}
+
+func (am *APIManager) previewTooLarge(w http.ResponseWriter, size, limit int64) {
+	h := w.Header()
+	for _, k := range []string{"Content-Length", "Content-Range", "Content-Disposition", "Accept-Ranges", "Content-Type", "Content-Security-Policy"} {
+		h.Del(k)
+	}
+	h.Set("Cache-Control", "no-store")
+	am.jsonError(w, http.StatusRequestEntityTooLarge,
+		fmt.Sprintf("clip is too large to preview in the browser (%d bytes, limit %d) — download it instead", size, limit))
+}
+
+// errPreviewTooLarge stops serveStoredClip's copy once the response has been
+// replaced by a 413.
+var errPreviewTooLarge = errors.New("clip over the inline preview ceiling")
+
+// previewCapWriter passes a clip response through only when the full size it
+// declares — Content-Range's total on a 206, Content-Length on a 200 — is
+// within limit. The size comes from the body serveStoredClip opened, i.e. the
+// revision actually being sent. An undeterminable size is refused.
+type previewCapWriter struct {
+	http.ResponseWriter
+	limit   int64
+	refuse  func(size int64)
+	decided bool
+	refused bool
+}
+
+func (p *previewCapWriter) Unwrap() http.ResponseWriter { return p.ResponseWriter }
+
+func (p *previewCapWriter) declaredTotal() int64 {
+	h := p.ResponseWriter.Header()
+	if cr := h.Get("Content-Range"); cr != "" {
+		if i := strings.LastIndexByte(cr, '/'); i >= 0 {
+			if n, err := strconv.ParseInt(cr[i+1:], 10, 64); err == nil {
+				return n
+			}
+		}
+		return -1
+	}
+	if n, err := strconv.ParseInt(h.Get("Content-Length"), 10, 64); err == nil {
+		return n
+	}
+	return -1
+}
+
+// decide runs once, before the first header reaches the client.
+func (p *previewCapWriter) decide(status int) {
+	if p.decided {
+		return
+	}
+	p.decided = true
+	if status != http.StatusOK && status != http.StatusPartialContent {
+		return
+	}
+	if total := p.declaredTotal(); total < 0 || total > p.limit {
+		p.refused = true
+		p.refuse(total)
+	}
+}
+
+func (p *previewCapWriter) WriteHeader(status int) {
+	p.decide(status)
+	if p.refused {
+		return
+	}
+	p.ResponseWriter.WriteHeader(status)
+}
+
+func (p *previewCapWriter) Write(b []byte) (int, error) {
+	if !p.decided {
+		p.WriteHeader(http.StatusOK)
+	}
+	if p.refused {
+		return 0, errPreviewTooLarge
+	}
+	return p.ResponseWriter.Write(b)
+}
+
+// finish covers a response that set its headers and returned without writing
+// (HEAD, an empty body): net/http would send them as a 200 on its own.
+func (p *previewCapWriter) finish() {
+	p.decide(http.StatusOK)
 }
 
 // handleGetClipThumb serves a gallery thumbnail (thumbnail.go). Same gate as
@@ -1583,7 +1708,9 @@ func (am *APIManager) handleGetClipThumb(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if am.app.thumbCache == nil || !am.app.thumbCache.Serve(w, r, id, r.URL.Query().Get("h")) {
+	// Capped: a passthrough original is the whole clip, decoded inline by
+	// the browser, so it carries the same ceiling as a ?preview=1 data read.
+	if am.app.thumbCache == nil || !am.app.thumbCache.ServeCapped(w, r, id, r.URL.Query().Get("h"), serverInlinePreviewMaxBytes) {
 		am.jsonError(w, http.StatusNotFound, "clip not found")
 	}
 }

@@ -54,7 +54,7 @@ test('server-mode image cards use thumbnail URLs and the lightbox the full image
 
     await page.locator(`#gallery > li[data-id="${clipID}"] [data-action="open-lightbox"]`).click();
     const full = page.locator('#lightbox-img');
-    await expect(full).toHaveAttribute('src', `/api/v1/clips/${clipID}/data`);
+    await expect(full).toHaveAttribute('src', `/api/v1/clips/${clipID}/data?preview=1`);
     await expect.poll(() => full.evaluate((el: HTMLImageElement) => el.complete ? el.naturalWidth : 0)).toBe(1600);
 
     expect(await page.evaluate(() => (window as any).__fileReaderReads)).toBe(0);

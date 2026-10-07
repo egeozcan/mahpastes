@@ -143,8 +143,14 @@
             return { clips, total, offset, has_more: offset + clips.length < total };
         },
         GetClipData: async (id) => {
-            const res = await fetch(`${api}/clips/${id}/data`, { credentials: 'same-origin' });
+            // preview=1: the server refuses (413) a clip over the inline
+            // ceiling before sending it, measured on the revision it would serve.
+            const res = await fetch(`${api}/clips/${id}/data?preview=1`, { credentials: 'same-origin' });
             if (res.status === 401) window.location = '/login.html';
+            if (res.status === 413) {
+                const body = await res.json().catch(() => null);
+                throw new Error(body?.error || 'clip is too large to preview in the browser — download it instead');
+            }
             if (!res.ok) throw new Error(res.statusText);
             const blob = await res.blob();
             // The desktop API returns base64; we mimic that shape. base64 inflates
