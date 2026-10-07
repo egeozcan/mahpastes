@@ -734,6 +734,10 @@ are ordered like the unpaged listing functions (ties broken by id).
   `pluginChangedLibrarySinceLoad()` says it moved or cannot be read (fail
   closed, so tag-scoped server sessions always reload). Deferred deliveries,
   which run after the call returns, are not covered.
+- A rename patch goes through `renderCardFilename`, which must update every
+  element whose text derives from the filename — footer `.clip-type-label`, the
+  generic-file preview's centre `.clip-preview-type-label`, alt text, aria
+  labels — or the card goes stale while `_renderSig` says it is current.
 - A full `loadClips()` keeps every `<li>` whose `clipCardSignature` is
   unchanged and only re-orders it (`reuseClipCard`). Anything a card bakes into
   its markup must be part of that signature, or a reload will show the stale
@@ -990,8 +994,11 @@ comparison view only.
   clip shape (single clip, legacy, paged and tag listings) carries
   `content_hash`. In server mode `getImageDataUrl` returns the same-origin
   `/api/v1/clips/{id}/data` URL instead of a FileReader-built data URL, still
-  refusing a card over 64 MB (`SERVER_IMAGE_MAX_INLINE`, matching rest-glue's
-  `GetClipData`) with the "download it instead" error.
+  refusing a clip over 64 MB (`SERVER_IMAGE_MAX_INLINE`, matching rest-glue's
+  `GetClipData`) with the "download it instead" error. `serverClipSizeForPreview`
+  takes the size from the loaded card, else from `GET /api/v1/clips/{id}` (an
+  image opened from a Markdown reference has no card), and fails closed — an
+  unknown size throws, never counts as 0 (`frontend/server_image_guard_test.go`).
 - **Frontend** (`ui.js`): the card `<img>` has `loading="lazy"
   decoding="async"` and starts `opacity-0`, never `hidden` — a `display:none`
   lazy image is never fetched. On error the card falls back to the full image

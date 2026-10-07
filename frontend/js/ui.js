@@ -1321,7 +1321,7 @@ async function createClipCard(clip, options = {}) {
         previewHTML = `
         <div class="preview-container aspect-square w-full flex flex-col items-center justify-center bg-stone-50 text-stone-400">
             <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
-            <span class="mt-2 text-[9px] font-medium uppercase tracking-wider">${escapeHTML(getFriendlyFileType(clip.content_type, clip.filename))}</span>
+            <span class="clip-preview-type-label mt-2 text-[9px] font-medium uppercase tracking-wider">${escapeHTML(getFriendlyFileType(clip.content_type, clip.filename))}</span>
         </div>`;
     }
 
@@ -1555,8 +1555,10 @@ function renderCardFilename(card, clip) {
         label.innerHTML = escapeHTML(name) || '<span class="text-stone-400 font-normal">Pasted</span>';
     }
     card.querySelector('.clip-checkbox')?.setAttribute('aria-label', `Select clip ${name || 'Pasted Content'}`);
-    const type = card.querySelector('.clip-type-label');
-    if (type) type.textContent = getFriendlyFileType(clip.content_type, clip.filename);
+    // Both type labels derive from the filename: the footer's and, on a
+    // generic-file card, the one in the centre of the preview.
+    const typeText = getFriendlyFileType(clip.content_type, clip.filename);
+    card.querySelectorAll('.clip-type-label, .clip-preview-type-label').forEach(el => { el.textContent = typeText; });
     const isVideo = (clip.content_type || '').startsWith('video/');
     card.querySelectorAll('img[data-clip-id]').forEach(img => {
         img.setAttribute('alt', name || (isVideo ? 'Uploaded video' : 'Uploaded image'));
@@ -1902,14 +1904,34 @@ async function getVideoMediaUrl(clipId) {
 // fetches and caches it, with no Blob -> FileReader -> base64 round trip.
 const SERVER_IMAGE_MAX_INLINE = 64 * 1024 * 1024; // matches rest-glue GetClipData
 
+// The clip's stored size, for the inline-preview ceiling. A loaded gallery card
+// carries it; an image opened from elsewhere (a Markdown reference, a clip on a
+// page not yet loaded) has no card, so ask the server. Fails closed: a size that
+// cannot be established is an error, never "zero bytes".
+async function serverClipSizeForPreview(id) {
+    const card = gallery?.querySelector(`li[data-id="${id}"]`);
+    if (card && card.dataset.size !== undefined && card.dataset.size !== '') {
+        const size = Number(card.dataset.size);
+        if (Number.isFinite(size) && size >= 0) return size;
+    }
+    const res = await fetch(`/api/v1/clips/${id}`, { credentials: 'same-origin' });
+    if (res.status === 401) window.location = '/login.html';
+    if (!res.ok) throw new Error(`could not read clip ${id} (${res.status})`);
+    const meta = await res.json();
+    const size = Number(meta?.size);
+    if (meta?.size === undefined || meta?.size === null || !Number.isFinite(size) || size < 0) {
+        throw new Error(`clip ${id} has no known size; refusing to preview it inline`);
+    }
+    return size;
+}
+
 async function getImageDataUrl(clipId) {
     const id = Number(clipId);
     const revision = mediaRevisions.get(id) || 0;
     if (window.mahpastesMode === 'server') {
         // Same ceiling rest-glue's GetClipData applies: past it the browser is
         // asked to decode an arbitrarily large image, so offer a download.
-        const card = gallery?.querySelector(`li[data-id="${id}"]`);
-        const size = Number(card?.dataset.size) || 0;
+        const size = await serverClipSizeForPreview(id);
         if (size > SERVER_IMAGE_MAX_INLINE) {
             throw new Error(`clip is too large to preview in the browser (${Math.round(size / 1048576)} MB) — download it instead`);
         }
