@@ -22,6 +22,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -363,6 +364,9 @@ func renderThumbnail(contentType string, data []byte) ([]byte, string, error) {
 	if err != nil || cfg.Width <= 0 || cfg.Height <= 0 {
 		return nil, "", errThumbPassthrough
 	}
+	if format == "png" {
+		cfg.ColorModel = pngDecodedModel(cfg.ColorModel, data)
+	}
 	if !withinDecodeBudget(cfg) {
 		return nil, "", errThumbPassthrough
 	}
@@ -439,6 +443,49 @@ func decodeBytesPerPixel(m color.Model) int64 {
 		return 1
 	}
 	return 8
+}
+
+// pngDecodedModel corrects a PNG header's color model for transparency.
+// png.DecodeConfig reports Gray/Gray16 for grayscale PNGs without looking for
+// a tRNS chunk, but with one image/png decodes them to NRGBA/NRGBA64 — 4x the
+// bytes the header model implies (an 8000x8000 16-bit gray PNG: 512 MB, not
+// 128). Truecolor+tRNS (RGBA->NRGBA, RGBA64->NRGBA64) and paletted+tRNS keep
+// their size, so only grayscale needs widening. A chunk walk that cannot reach
+// IDAT counts as transparent.
+func pngDecodedModel(m color.Model, data []byte) color.Model {
+	if m != color.GrayModel && m != color.Gray16Model {
+		return m
+	}
+	if !pngMayHaveTRNS(data) {
+		return m
+	}
+	if m == color.Gray16Model {
+		return color.NRGBA64Model
+	}
+	return color.NRGBAModel
+}
+
+// pngMayHaveTRNS reports whether a tRNS chunk precedes the first IDAT (the
+// decoder sizes its buffer at IDAT, so a later one cannot widen it), or the
+// chunks could not be walked that far.
+func pngMayHaveTRNS(data []byte) bool {
+	if len(data) < 8 || !bytes.Equal(data[:8], []byte{137, 80, 78, 71, 13, 10, 26, 10}) {
+		return true
+	}
+	for pos := 8; pos+12 <= len(data); {
+		length := int64(binary.BigEndian.Uint32(data[pos : pos+4]))
+		if int64(pos)+12+length > int64(len(data)) {
+			return true
+		}
+		switch string(data[pos+4 : pos+8]) {
+		case "tRNS":
+			return true
+		case "IDAT":
+			return false
+		}
+		pos += 12 + int(length)
+	}
+	return true
 }
 
 // scaleToFit returns src scaled so its longest side is edge pixels. A large

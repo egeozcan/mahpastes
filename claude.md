@@ -953,7 +953,12 @@ comparison view only.
 - **Decode budget.** `image.DecodeConfig` runs first and anything over
   `thumbMaxSourcePixels` (64 MP), over `thumbMaxDecodeBytes` (256 MB of decoded
   buffer, estimated from the header's color model by `decodeBytesPerPixel` — a
-  16-bit PNG is 8 bytes a pixel), or over `thumbMaxSourceBytes` (64 MB, checked
+  16-bit PNG is 8 bytes a pixel; `png.DecodeConfig` reports Gray/Gray16
+  without looking at tRNS, yet grayscale+tRNS decodes to NRGBA/NRGBA64 — 4x
+  the bytes — so `renderThumbnail` first widens a PNG's model through
+  `pngDecodedModel` when a tRNS precedes the first IDAT or the chunks cannot
+  be walked that far; any new path budgeting from `DecodeConfig` must do the
+  same), or over `thumbMaxSourceBytes` (64 MB, checked
   with `octet_length` before the blob is read) passes through without decoding
   — a small PNG declaring a 30000² canvas never allocates it. Either side over
   `thumbMaxSourceEdge` (65535) also passes through: some costs grow with one
