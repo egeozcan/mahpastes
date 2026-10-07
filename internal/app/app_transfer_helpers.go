@@ -84,7 +84,10 @@ func (a *App) lookupPreparedClipTransferItem(clipID int64, channel string) (*Pre
 	}, nil
 }
 
+// deleteTempFilesForClipIDs runs after every App delete and data edit, so it
+// also asks the thumbnail cache to drop entries whose hash no clip holds now.
 func (a *App) deleteTempFilesForClipIDs(ids []int64) error {
+	a.thumbCache.DropOrphansSoon()
 	if a.tempStore == nil {
 		return nil
 	}

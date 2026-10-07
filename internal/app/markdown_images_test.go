@@ -9,6 +9,7 @@ import (
 	"image/color"
 	"image/gif"
 	"image/png"
+	"strings"
 	"testing"
 )
 
@@ -137,5 +138,37 @@ func TestGetMarkdownImageRejectsDimensionsAndGIFFrameCount(t *testing.T) {
 	cumulativeID := insertMarkdownImageTestClip(t, app, "cumulative.gif", "image/gif", gifData.Bytes())
 	if _, err := app.GetMarkdownImage(cumulativeID); err == nil {
 		t.Fatal("expected cumulative GIF pixel-cost rejection")
+	}
+}
+
+// An over-limit clip is refused from its stored length, before the blob is
+// selected; a clip exactly at the limit still reaches full validation.
+func TestGetMarkdownImageRefusesOverLimitClipFromItsLength(t *testing.T) {
+	app, cleanup := setupTestApp(t)
+	defer cleanup()
+
+	// A real PNG header padded past the limit, so only the size can refuse it.
+	big := append(encodeTestPNG(t, 2, 2), make([]byte, maxMarkdownImageBytes)...)
+	id := insertMarkdownImageTestClip(t, app, "big.png", "image/png", big)
+	if _, err := app.GetMarkdownImage(id); err == nil || !strings.Contains(err.Error(), "byte limit") {
+		t.Fatalf("over-limit image error = %v, want the byte-limit refusal", err)
+	}
+
+	// Stored as TEXT: octet_length still counts bytes, not characters.
+	if _, err := app.db.Exec(`INSERT INTO clips (id, filename, content_type, data) VALUES (900, 'wide.png', 'image/png', ?)`,
+		strings.Repeat("é", maxMarkdownImageBytes/2+1)); err != nil {
+		t.Fatalf("insert text clip: %v", err)
+	}
+	if _, err := app.GetMarkdownImage(900); err == nil || !strings.Contains(err.Error(), "byte limit") {
+		t.Fatalf("multi-byte text clip error = %v, want the byte-limit refusal", err)
+	}
+
+	if _, err := app.GetMarkdownImage(424242); err == nil {
+		t.Fatal("missing clip returned no error")
+	}
+
+	ok := insertMarkdownImageTestClip(t, app, "ok.png", "image/png", encodeTestPNG(t, 4, 4))
+	if _, err := app.GetMarkdownImage(ok); err != nil {
+		t.Fatalf("in-limit image: %v", err)
 	}
 }

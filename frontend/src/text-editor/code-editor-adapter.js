@@ -106,6 +106,47 @@ const matchHighlightField = StateField.define({
     provide: (field) => EditorView.decorations.from(field),
 });
 
+// Per-unit UTF-8 cost of a UTF-16 code unit, with every surrogate half
+// counted 3 — what TextEncoder writes for a lone one (U+FFFD). A well-formed
+// pair is 4 bytes, not 6, so the exact length is this sum minus 2 per pair;
+// both terms are additive over ranges, which is what lets them be maintained
+// per change.
+function utf8Units(text, from = 0, to = text.length) {
+    let bytes = 0;
+    for (let i = from; i < to; i++) {
+        const c = text.charCodeAt(i);
+        bytes += c < 0x80 ? 1 : c < 0x800 ? 2 : 3;
+    }
+    return bytes;
+}
+
+// Surrogate pairs (high followed by low) wholly inside text. Code points are
+// length minus pairs, which is what Array.from(text).length counts.
+function surrogatePairs(text) {
+    let pairs = 0;
+    for (let i = 0; i + 1 < text.length; i++) {
+        const c = text.charCodeAt(i);
+        if (c >= 0xd800 && c <= 0xdbff) {
+            const d = text.charCodeAt(i + 1);
+            if (d >= 0xdc00 && d <= 0xdfff) {
+                pairs++;
+                i++;
+            }
+        }
+    }
+    return pairs;
+}
+
+// Pairs that start at an index in [from - 1, to - 1] — every pair that has a
+// unit inside [from, to) or straddles either edge. Replacing [from, to) can
+// make or break exactly these, so counting them before and after a change is
+// the whole delta.
+function pairsAround(doc, from, to) {
+    const start = Math.max(0, from - 1);
+    const end = Math.min(doc.length, to + 1);
+    return surrogatePairs(doc.sliceString(start, end));
+}
+
 /**
  * Creates the adapter. Nothing is mounted until mount() is called.
  */
@@ -123,6 +164,48 @@ export function createCodeEditorAdapter(options = {}) {
     let lastMatches = [];
     let lastActiveIndex = -1;
     let lastTruncated = false;
+    // The document as a string, built on demand and kept until the document
+    // changes: one toString per revision however many callers ask. Dropped on
+    // change so a superseded copy is not held.
+    let memoDoc = null;
+    let memoString = '';
+    // utf8Units and surrogate pairs of the current document, maintained per
+    // change from the changed ranges only, so measuring a 16 MiB document on a
+    // keystroke or a cursor move costs the size of the edit, not the document.
+    let byteCount = 0;
+    let pairCount = 0;
+
+    function measureAll(doc) {
+        byteCount = 0;
+        pairCount = 0;
+        // Chunk by chunk, never as one whole-document string; the pending high
+        // surrogate carries a pair across a chunk edge.
+        let pendingHigh = false;
+        for (const iter = doc.iter(); !iter.next().done;) {
+            const chunk = iter.value;
+            byteCount += utf8Units(chunk);
+            for (let i = 0; i < chunk.length; i++) {
+                const c = chunk.charCodeAt(i);
+                if (pendingHigh && c >= 0xdc00 && c <= 0xdfff) {
+                    pairCount++;
+                    pendingHigh = false;
+                } else {
+                    pendingHigh = c >= 0xd800 && c <= 0xdbff;
+                }
+            }
+        }
+    }
+
+    function measureChanges(update) {
+        const before = update.startState.doc;
+        const after = update.state.doc;
+        // iterChanges merges touching changes, so the windows around separate
+        // changes never count the same pair twice.
+        update.changes.iterChanges((fromA, toA, fromB, toB) => {
+            byteCount += utf8Units(after.sliceString(fromB, toB)) - utf8Units(before.sliceString(fromA, toA));
+            pairCount += pairsAround(after, fromB, toB) - pairsAround(before, fromA, toA);
+        });
+    }
 
     function requireView() {
         if (!view) throw new Error('CodeEditorAdapter is not mounted');
@@ -130,6 +213,11 @@ export function createCodeEditorAdapter(options = {}) {
     }
 
     function notifyChange(update) {
+        if (update.docChanged) {
+            memoDoc = null;
+            memoString = '';
+            measureChanges(update);
+        }
         if (update.docChanged && callbacks.onChange) callbacks.onChange();
         if ((update.docChanged || update.selectionSet) && callbacks.onSelectionChange) {
             callbacks.onSelectionChange();
@@ -211,6 +299,7 @@ export function createCodeEditorAdapter(options = {}) {
             state: EditorState.create({ doc: config.value || '', extensions }),
             parent: container,
         });
+        measureAll(view.state.doc);
         setWrap(config.wrap !== false);
         setLanguage(config.language || null);
         if (config.diagnostics) setDiagnostics(config.diagnostics);
@@ -224,6 +313,10 @@ export function createCodeEditorAdapter(options = {}) {
         }
         callbacks = {};
         container = null;
+        memoDoc = null;
+        memoString = '';
+        byteCount = 0;
+        pairCount = 0;
         lastMatches = [];
         lastActiveIndex = -1;
         lastTruncated = false;
@@ -234,7 +327,29 @@ export function createCodeEditorAdapter(options = {}) {
     }
 
     function getValue() {
-        return view ? view.state.doc.toString() : '';
+        if (!view) return '';
+        const doc = view.state.doc;
+        if (memoDoc !== doc) {
+            memoString = doc.toString();
+            memoDoc = doc;
+        }
+        return memoString;
+    }
+
+    // UTF-16 length: what String.length of getValue() would be, without it.
+    function getLength() {
+        return view ? view.state.doc.length : 0;
+    }
+
+    // Exact UTF-8 byte length of getValue() (TextEncoder's), maintained
+    // incrementally.
+    function getByteLength() {
+        return view ? byteCount - 2 * pairCount : 0;
+    }
+
+    // Code points, matching Array.from(getValue()).length, maintained incrementally.
+    function getCharacterCount() {
+        return view ? view.state.doc.length - pairCount : 0;
     }
 
     function setValue(value, { undoable = true } = {}) {
@@ -508,6 +623,9 @@ export function createCodeEditorAdapter(options = {}) {
         destroy,
         isMounted,
         getValue,
+        getLength,
+        getByteLength,
+        getCharacterCount,
         setValue,
         focus,
         hasFocus,

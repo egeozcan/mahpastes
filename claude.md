@@ -109,6 +109,7 @@ test('should upload and delete a clip', async ({ app }) => {
 - Use `app.expectClipVisible()`, `app.expectClipCount()` for assertions
 - Clean up is automatic via the fixture's `afterEach`
 - Tests run in parallel - each worker gets its own app instance
+- A stub that holds a bound method's promise must queue every intercepted call and release them all, and let calls after the release pass straight through: background refreshes (e.g. `tag:created` → `GetTags`) call the same method, and a single resolver slot gets overwritten, leaving the awaited call hanging
 
 ## Design System
 
@@ -212,6 +213,7 @@ mahpastes/
 ├── transfer_handler.go   # HTTP handler for drag-out file transfers
 ├── transfer_service.go   # Drag-out preparation and native drag initiation
 ├── transfer_types.go     # Transfer system type definitions
+├── thumbnail.go          # Image card thumbnails: generation, hash-keyed disk cache, serving (internal/app)
 ├── tag_hierarchy.go      # Tag tree helpers (parent, root, ancestor, descendant checks)
 ├── watcher.go            # Watch folder implementation
 ├── plugin/               # Lua plugin system
@@ -508,7 +510,7 @@ Tags form hierarchical trees using `/` as separator (e.g., `work/client1/project
 
 **Folder mode**: Shows clips only at their exact tag level. `GetFolderClips` excludes descendants; `GetUntaggedClips` shows only clips with zero tags at root. The folder mode toggle uses the same `bg-stone-800` active style as the archive toggle.
 
-**Hidden tags in folder mode**: Hiding only dims folder cards (`data-hidden="true"`); it never filters folder contents. `GetFolderClips` takes no hidden-tag list, so a clip tagged `contacts` and `web/contacts` still appears in the `contacts` folder while `web` is hidden. Normal (non-folder) mode keeps the blanket anti-join — any hidden tag hides the clip. `GetDescendantClipCount(tagID, archived)` powers the folder card count and applies the same archive/expiry filters as the listing, so a card's count always matches what opening it shows.
+**Hidden tags in folder mode**: Hiding only dims folder cards (`data-hidden="true"`); it never filters folder contents. `GetFolderClips` takes no hidden-tag list, so a clip tagged `contacts` and `web/contacts` still appears in the `contacts` folder while `web` is hidden. Normal (non-folder) mode keeps the blanket anti-join — any hidden tag hides the clip. `GetDescendantClipCounts(tagIDs, archived)` (REST `GET /api/v1/tags/clip-counts`, tag-scoped keys get 0 outside their subtree) powers the folder card counts — one call per render — and applies the same archive/expiry filters as the listing, so a card's count always matches what opening it shows. The single-tag `GetDescendantClipCount` is a wrapper; both run `descendantClipCountsSQL`.
 
 **Hidden-clip note (normal mode)**: While tag filters are active, `#hidden-clips-note` under the gallery reads e.g. `2 clips hidden by other tags (web/contacts)`. It is fed by `GetHiddenClipInfo(archived, tagIDs, hiddenTagIDs)` (REST: `GET /api/v1/clips/hidden-info`), which runs the listing's filter expansion with the hidden anti-join flipped into a requirement. Both that counter and `getClipsInternal` resolve their tag scope through `buildClipFilterScope`, so the note cannot disagree with the list above it. The note is suppressed in folder mode and when no filter is active.
 
@@ -665,6 +667,23 @@ routes to `handleListClipsViaApp` → `SearchClips`. The *presence* of
 preview-only post-filter the `mp` CLI relies on. "Show hidden" needs no param —
 it is the absence of `hidden` ones.
 
+**Superseded loads are cancelled.** Each desktop gallery has one load at a
+time, so a content search still scanning for an older keystroke stops. The
+gallery's `ListClipsPage` requests carry `load_session` (random per page load)
+and `load_gen` (`_clipLoadGen`), and `beginNumberedGalleryLoad` orders them by
+generation, never by arrival — Wails runs each bound call on its own goroutine,
+so a newer load's request can reach Go first, and arrival order once let an
+older load cancel the newer one and blank the gallery. Within a session a newer
+generation cancels the current load's context, the same generation (later
+pages) joins it, and an older one gets a cancelled context. Sessions never
+cancel each other (`wails dev` runs the native window and the browser tab on
+one App). Unnumbered calls (`App.SearchClips`, a `ListClipsPage` without a
+session) share their own slot, where a first page (offset 0) supersedes. A
+cancelled call fails with an error wrapping `context.Canceled`, which
+`loadClips`/`loadMoreClips` drop through their generation guard. REST runs
+these with the request's context instead (clients never cancel each other);
+`rest-glue.js` aborts the previous load's fetch to the same effect.
+
 **Paging**: the gallery loads through `App.ListClipsPage(ClipListRequest)` →
 `ClipPage{clips, total, offset, has_more}` (modes: all/folder/untagged/search),
 `defaultClipLimit` (50) per page. A "Load more" button under the gallery fetches
@@ -673,11 +692,123 @@ view keeps the number already loaded. Plain search still only filters the cards
 already loaded; select-all and bulk actions apply to loaded clips only. Pages
 are ordered like the unpaged listing functions (ties broken by id).
 
+**Gallery updates without rebuilds** (`frontend/js/wails-api.js`, `ui.js`):
+
+- A single-clip delete, archive/restore, rename, expiry change, or tag change
+  from a card's tag popover is patched into the DOM (`removeClipCardInPlace`,
+  `refreshClipInPlace`). Each returns false when the outcome is uncertain, and
+  the caller then calls `loadClips()`. That happens in a deep search, while a
+  load or "Load more" is in flight, when deleting/archiving a clip with
+  duplicates (the other copies' badges change), and when the re-read row no
+  longer fits the card or view (below). Bulk operations always reload. A patch
+  must leave everything else as a reload would: loaded/total, the count, Load
+  more, selection, the bulk toolbar, the empty state, the lightbox list, the
+  rover, focus, and `__galleryRenderSeq` (`afterGalleryPatch`).
+- Rename, expiry and tag patches never apply what the frontend asked for.
+  `refreshClipInPlace` re-reads the stored row (`App.GetClipPreview`; REST
+  `GET /api/v1/clips/{id}`, which like the server listing has no `expires_at`)
+  and patches from it, because the backend stamps expiry on its own clock,
+  RenameClip turns `.md` into Markdown, and a plugin handler can retag or rename
+  the clip from inside the call. It reloads instead on a new content type or
+  hash, an archive flip, a rename while sorted by name, or tags that take the
+  clip out of the view (`clipTagsFitView`). Patching from the row also keeps the
+  card's signature equal to the next listing's, so that reload reuses it.
+  Only the newest response applies: each call takes a per-clip sequence
+  (`_clipPatchLatest`) and records `_clipLoadGen`; a response superseded by a
+  newer patch of that clip or a reload begun since is dropped and returns true
+  (callers finish their write before asking, so the newer read is fresher).
+- Archive/restore from a card (`toggleArchiveClip`) records `isViewingArchive`
+  and `_clipLoadGen` before `ToggleArchive`, reloads if either changed during
+  the call (a load begun mid-call may predate the write), and otherwise
+  removes the card only if the re-read row's `is_archived` actually flipped: a
+  `clip:archived`/`clip:unarchived` plugin handler runs inside the call and can
+  flip it straight back.
+- Plugin handlers run inside the App call that emits their event, so one that
+  archives or retags *another* clip has finished before the mutation returns,
+  and a patch only knows its own clip. Every plugin event goes through
+  `App.emitPluginEvent` — never call `pluginManager.EmitEvent` directly — which
+  reads the library version on both sides of the dispatch and bumps
+  `pluginLibraryWrites` if it moved (`GetPluginLibraryWrites`; REST
+  `GET /api/v1/library/plugin-writes`, refused for tag-scoped keys). `loadClips`
+  records it before the listing (`_galleryPluginWrites`); `refreshClipInPlace`,
+  `toggleArchiveClip` and `deleteClip` reload instead of patching when
+  `pluginChangedLibrarySinceLoad()` says it moved or cannot be read (fail
+  closed, so tag-scoped server sessions always reload). Deferred deliveries,
+  which run after the call returns, are not covered.
+- A rename patch goes through `renderCardFilename`, which must update every
+  element whose text derives from the filename — footer `.clip-type-label`, the
+  generic-file preview's centre `.clip-preview-type-label`, alt text, aria
+  labels — or the card goes stale while `_renderSig` says it is current.
+- A full `loadClips()` keeps every `<li>` whose `clipCardSignature` is
+  unchanged and only re-orders it (`reuseClipCard`). Anything a card bakes into
+  its markup must be part of that signature, or a reload will show the stale
+  card: the clip's fields, its media revision, folder mode, hidden dimming,
+  and drag-out availability. Card listeners close over `card._clip`. Patches
+  and reuse update that object; they never replace it. A card whose media
+  failed or fell back to a live `<video>` sets `_mediaFailed` and is rebuilt,
+  not reused, so a reload retries it.
+- Captured video frames are cached in `videoFrameCache`, keyed by clip id and
+  revision (content hash + `mediaRevisions` + `videoFrameGenerations`). The
+  cache holds up to 300 object URLs (`canvas.toBlob`). A capture records its
+  revision before encoding and publishes only if it still matches when
+  `toBlob` calls back. `videoFrameCacheDelete` is the clip-deleted path: it
+  drops the entry *and* bumps the clip's generation, so an encode pending at
+  delete time cannot resurrect it. Plain removal (LRU, stale revision, replace,
+  `invalidateClipMedia`) is `videoFrameCacheEvict`, which must not cancel a
+  capture in flight. The frame is still only ever shown through
+  `img.video-thumb`.
+
+**Never read a clips column past the blob through the table.** `clips` stores
+`data` third; every later column (`filename`, `created_at`, `is_archived`,
+`expires_at`, `content_hash`, `metadata`) sits after it, and reading one walks
+that row's whole overflow chain. Listing queries read clips through one
+covering index, `clipListingIndex` (`idx_clips_listing`, `database.go`), and
+name it with `INDEXED BY`: after `ANALYZE` (the Compact maintenance action) on
+a library where almost nothing is archived, the planner otherwise picks a table
+scan, since it cannot see the blobs. One index serves every sort order — the
+page query counts its whole filtered set (`COUNT(*) OVER ()`) anyway.
+`clipPageSQL`'s inner derived table filters off the index and returns every
+non-blob column the page shows (`LENGTH(data)` included); its outer join to
+`clips` is for the text preview alone. The counts (`countClipsSQL`), folder card
+counts (`descendantClipCountsSQL`), the hidden-clip note, the plain REST
+listings (`legacyClipListSQL`) and filename lookups (`clipFilenameIndex`:
+Markdown references, `findClipsByFilenameSQL`) follow the same rule; filter by
+tag with `c.id IN (SELECT … FROM clip_tags …)`, not a join, so clips stays on
+its index. Filename lookups name `clipFilenameIndex` with `INDEXED BY` too (the
+Markdown tagged lookup still joins `clip_tags`): after `ANALYZE` on a library of
+one repeated, fully tagged filename the planner otherwise drives it from
+`clip_tags` and reads each clip by rowid
+(`TestMarkdownReferenceQueriesKeepFilenameIndexOnRepeatedNames`).
+`clip_listing_index_test.go` checks the bytecode
+(`clipsColumnsReadPastBlob`), including after `ANALYZE` on an all-live library:
+a new listing-style query belongs there. Changing an index's columns means a new
+index name and a `DROP INDEX` of the old one — and on an existing library each
+new index costs one full read of every clip at startup (logged), so add one
+only when a query cannot use the existing two.
+
+**Size-checked blob reads.** A pre-check of `octet_length(data)` is only a
+hint: the read that follows is a separate statement. A read meant to stay under
+a limit repeats it in its own `WHERE` (`AND octet_length(data) <= ?`); if that
+finds no row, measure again and decide afresh, up to `guardedBlobReadAttempts`
+(3). `GetClipText` (`clipTextGuardSQL`), `handleGetClipText`,
+`GetMarkdownImage`, `ThumbnailCache.generate` and
+`TempClipStore.loadClipForPrepare` do; `guarded_blob_reads_test.go` grows a
+clip between the statements and fails if any over-limit blob is returned.
+
 **Key files**: `internal/app/app.go` (`SearchClips`, `clipSearchSpec`,
 `buildClipSearchClause`), `frontend/js/search-options.js` (state, popover,
 persistence), `frontend/js/ui.js` (`applySearchFilter`, debounce),
 `frontend/js/wails-api.js` (`loadClips` deep-search branch),
 `internal/app/api_manager.go` + `frontend/js/rest-glue.js` (server mode).
+
+## Gallery Reload Triggers
+
+Every full `loadClips()` re-lists the page and re-checks every card, so event-driven reloads are coalesced:
+
+- `share:clip-received` (one per clip from a follow): 300 ms trailing debounce, 2 s max wait, one `refresh()` + one `loadClips()` + one summary toast per burst (`share.js`).
+- `tag:updated` / `tag:deleted` / `tag:merged`: `handleTagReferenceEvent` (`tags.js`) queues them (50 ms, 500 ms max wait) and resolves the burst with one `loadTags` and one final gallery action; it returns a promise that settles when that batch is handled. A deleted viewed folder lands on its nearest *live* ancestor, since later deletes in the burst are already applied. Batches never overlap (`tagRefRunning`): events that arrive while a batch reads the tags are taken into it and the tags re-read, so a batch is always resolved against a tag list that reflects every event in it — two batches side by side would each see the other's deletes and lose the viewed folder.
+- Window refocus (`visibilitychange` → `refreshGalleryOnRefocus` in `wails-api.js`): reloads only if the **library change counter** moved since the listing was read; otherwise it just removes cards whose `data-expires-at` has passed via `removeClipCardInPlace`, then calls `refreshExpiryBadges()` so surviving cards' `Temp · Nm` badges (text fixed at render time, from `card._clip.expires_at`) show the current time — any new refocus fast path must do the same — and checks the counter once more `REFOCUS_EXPIRY_RECHECK_MS` (65 s, past the reaper's 1-minute interval) later — clips that expired off screen (unloaded pages, subfolders, behind hidden tags) change totals and folder counts but move the counter only when the reaper deletes them. The counter (`library_version`, one row) is bumped by SQLite triggers on every insert/update/delete of `clips`, `clip_tags` and `tags` (`ensureLibraryVersion` in `database.go`), so REST, `mp` CLI, plugin, watch, share and reaper writes all move it without telling the window. `loadClips` reads it (`GetLibraryVersion`, REST `GET /api/v1/library/version`) *before* the listing, so a write in between costs a reload, never a miss. A table whose rows the gallery shows belongs in `libraryVersionTables`. The route refuses tag-scoped keys (the counter reveals out-of-scope activity); an unreadable counter means "reload". The table is not in `backupTables`. In-place gallery patches don't update the recorded version, so the first refocus after a local edit reloads once.
+- The folder status poller pauses while `document.hidden` (polls at once on return), and `updateFolderBadgesInPlace` writes a card's badges/label only when they changed (compared to the markup last written, `container._badgesHTML`, not `innerHTML`).
 
 ## Video Gallery and Lightbox
 
@@ -763,8 +894,20 @@ then drop the clip's temp files (`UpdateClipData`, `writeJSONClip`);
 `publishSnapshot` re-checks the hash (and the row's existence) under the store
 mutex so an edit or delete racing a copy cannot leave a published copy of bytes
 the library no longer holds, and `PrepareClipFile` replaces temp files by
-rename (`replaceTempFile`) so a `/media/` playback reading the old copy is
-never truncated. Every deleter of `clips` rows must drop the clip's temp files
+rename (`publishPreparedLocked`) so a `/media/` playback reading the old copy is
+never truncated. `PrepareClipFile` copies outside the store mutex — one shared
+copy per clip (`prepFlights`), different clips concurrently within a byte budget
+(`tempPrepareSem`, weighted by `octet_length(data)` — never `LENGTH`, which counts
+characters for a TEXT value restored from a backup; a clip at or over
+`tempPrepareByteBudget` copies alone). Every attempt (including a retry) re-sizes
+and re-reserves, and the blob read is conditioned on `octet_length(data) <=
+reservation` in the same statement, so a clip that grew while a copy waited is
+re-sized rather than read under a stale, smaller reservation — and publishes only if no drop for that clip ran
+since it began reading (the flight's `dropped` flag, set under the mutex by
+`DeleteForClipIDs`/`DeleteAll`); otherwise it re-reads. That is why the drop
+must come *after* the write. `FindExistingClipFile` looks files up in the
+in-memory `leased` index (rebuilt by every prune, including one that
+fails partway), not by listing the directory. Every deleter of `clips` rows must drop the clip's temp files
 *after* the DELETE: the App delete paths do, the expiry reaper
 (`deleteExpiredClips`, `DELETE … RETURNING id`) does, and plugin
 `clips.delete`/`delete_many` report their ids through
@@ -790,6 +933,8 @@ forever. The API server runs with `WriteTimeout` 0 (for SSE), so
 `copyClipBody` sets a sliding per-chunk write deadline
 (`clipStreamWriteTimeout`, 30 s per 64 KB).
 
+**Server inline-preview ceiling.** Anything the web UI decodes inline is capped server-side at `serverInlinePreviewMaxBytes` (64 MiB, `api_manager.go`), measured on the revision actually served — never a size the client remembers. `GET /api/v1/clips/{id}/thumb` uses `ThumbnailCache.ServeCapped`, so a passthrough original (over the decode budget, animated, SVG, failed generation) past the cap is a 413, not the whole blob; desktop `/thumb/{key}` uses uncapped `Serve`. Inline uses of `/data` (`getImageDataUrl`, rest-glue `GetClipData`) pass `?preview=1`, which pre-measures and then backstops with `previewCapWriter` (judges the declared Content-Length / Content-Range total). Plain `/data` (downloads, `mp`, video playback) stays unrestricted; the client-side check in `serverClipSizeForPreview` only saves a request.
+
 Playback depends on codecs supported by the platform WebView/browser. The media
 contract lives in `frontend/js/ui.js` (`getVisibleMediaClips`, card thumbnails,
 `getVideoMediaUrl`), `frontend/js/lightbox.js` (mixed-media state and playback),
@@ -797,6 +942,100 @@ contract lives in `frontend/js/ui.js` (`getVisibleMediaClips`, card thumbnails,
 (`PrepareClipMediaItem`), `internal/app/transfer_handler.go` (`serveMedia`),
 `internal/app/clip_stream.go` + `clip_snapshot.go` (server-side clip streaming), and
 `internal/app/api_manager.go` (server ranges).
+
+## Image Card Thumbnails
+
+Image cards never load the original through `GetClipData`. They show a backend
+thumbnail (`internal/app/thumbnail.go`, `ThumbnailCache`): longest side
+`thumbMaxEdge` (512), JPEG, or PNG when the scaled image has any transparency,
+EXIF orientation applied (browsers rotate the original, so the thumbnail must
+match). `GetClipData` and the full image are for the lightbox, editor and
+comparison view only.
+
+- **Passthrough.** Anything a re-encode could make worse is served as the
+  original bytes: longest side ≤ 512, or ≤ 256 KB and ≤ 1024 px; GIF with more
+  than one frame, APNG, animated WebP; SVG and every type Go does not decode
+  (HEIC, TIFF, …); over the decode budget; or a result no smaller than the
+  original. The decision is cached as an empty `.orig` marker.
+- **Decode budget.** `image.DecodeConfig` runs first and anything over
+  `thumbMaxSourcePixels` (64 MP), over `thumbMaxDecodeBytes` (256 MB of decoded
+  buffer, estimated from the header's color model by `decodeBytesPerPixel` — a
+  16-bit PNG is 8 bytes a pixel; `png.DecodeConfig` reports Gray/Gray16
+  without looking at tRNS, yet grayscale+tRNS decodes to NRGBA/NRGBA64 — 4x
+  the bytes — so `renderThumbnail` first widens a PNG's model through
+  `pngDecodedModel` when a tRNS precedes the first IDAT or the chunks cannot
+  be walked that far; any new path budgeting from `DecodeConfig` must do the
+  same), or over `thumbMaxSourceBytes` (64 MB, checked
+  with `octet_length` before the blob is read) passes through without decoding
+  — a small PNG declaring a 30000² canvas never allocates it. Either side over
+  `thumbMaxSourceEdge` (65535) also passes through: some costs grow with one
+  side, not the area (Go's PNG decoder keeps two full-width rows, so a
+  64,000,000×1 PNG fits the area caps but doubles its cost). Resize scratch must
+  not grow with source width either: `boxShrink` reads rows in `boxShrinkChunk`
+  pieces and keeps only per-destination-column sums — never add a
+  `make(..., sourceWidth)` in the resize path. At most
+  `thumbGenerateConcurrency` (2) decodes run at once; one flight per clip+hash.
+- **Cache.** `{dataDir}/clip_thumbs/{content_hash}-512.{jpg,png,orig}`. Keyed by
+  the hash, so an edit is a miss by construction and writers of `clips.data`
+  need do nothing beyond the existing rule (set `content_hash` in the same
+  statement). `StartCleanupJob` calls `Prune` (throttled to 10 min): entries
+  whose hash no clip holds are removed, then least recently used (mtime,
+  refreshed on hits older than a day) over `thumbCacheMaxBytes` (256 MB).
+  Thumbnails are downscaled copies of library content, so a delete must not
+  leave them for a whole prune interval: `deleteTempFilesForClipIDs` (every App
+  delete/edit path and the plugin `SetClipsDeletedFunc` callback),
+  `DeleteAllTempFiles` (after a restore) and the expiry reaper call
+  `ThumbnailCache.DropOrphansSoon`, which runs one forced orphan sweep ~0.5 s
+  later (calls coalesce). A new clip-row deleter must reach one of those.
+  A generation that read a clip before a delete/edit can finish after that
+  sweep, so entries are installed only through `ThumbnailCache.publish`, which
+  renames under `pruneMu` after re-checking `hashLive`; a dead hash is discarded
+  (`errThumbHashGone`). Never write a cache entry any other way.
+- **URLs carry the hash.** `ClipPreview.content_hash` (from the covering
+  listing index, so free) and the paged REST listing's `content_hash` feed the
+  URL. A request whose hash is current gets `Cache-Control: private,
+  max-age=31536000, immutable` and a strong ETag; a stale or missing hash gets
+  the current image with `no-cache`. Both carry nosniff and the CSP sandbox
+  (an SVG original passes through).
+- **Desktop:** `/thumb/{key}/{clipID}/{hash}` on the asset handler
+  (`TransferFileHandler.serveThumb`). The key is random per process and handed
+  out only by the bound `App.ThumbnailURLBase()` — reaching it already takes
+  WebView code that could call `GetClipData`. It is per process rather than per
+  clip like `/media/` so a page of cards costs one bridge call, not fifty.
+- **Server mode:** `GET /api/v1/clips/{id}/thumb?h={hash}`, viewer role,
+  `enforceTagScope` exactly like `/data`; non-image clips are 404. Every REST
+  clip shape (single clip, legacy, paged and tag listings) carries
+  `content_hash`. In server mode `getImageDataUrl` returns the same-origin
+  `/api/v1/clips/{id}/data` URL instead of a FileReader-built data URL, still
+  refusing a clip over 64 MB (`SERVER_IMAGE_MAX_INLINE`, matching rest-glue's
+  `GetClipData`) with the "download it instead" error. `serverClipSizeForPreview`
+  takes the size from the loaded card, else from `GET /api/v1/clips/{id}` (an
+  image opened from a Markdown reference has no card), and fails closed — an
+  unknown size throws, never counts as 0 (`frontend/server_image_guard_test.go`).
+- **Frontend** (`ui.js`): the card `<img>` has `loading="lazy"
+  decoding="async"` and starts `opacity-0`, never `hidden` — a `display:none`
+  lazy image is never fetched. On error the card falls back to the full image
+  once. Video frame capture and that fallback run through the card media
+  scheduler (`scheduleCardMedia`): an IntersectionObserver (rootMargin one
+  viewport) feeding a pool of `CARD_MEDIA_CONCURRENCY` (4); detached cards are
+  skipped and a gallery rebuild (`clearRenderedClips`) drops the queue. A video
+  task holds its slot until its frame is captured; one that stalls past
+  `VIDEO_CARD_SLOT_TIMEOUT_MS` (15 s) is cancelled — `src` released, card marked
+  failed — *before* its slot is freed, so stalled decoders never exceed the pool.
+  The scheduler only logs a rejected task: every card media task must settle its
+  own card on failure (`showCardMediaError` / `markCardMediaFailed`), or the card
+  keeps its spinner and is reused rather than retried. `imageCache`
+  (full images for lightbox/compare) is an LRU bounded at 150 MB of data-URL
+  characters; use `imageCacheGet/Set/Delete`, never the Map directly.
+
+## Text Editor and Markdown Preview
+
+- **Open size pre-check.** The editor reads through `GetClipText` (desktop binding; server mode's `GET /api/v1/clips/{id}/text`), never `GetClipData`. A non-image clip over the 16 MiB edit cap comes back as `{too_large, size}` with no bytes, decided from `octet_length(data)` before the blob is read. `maxEditableTextBytes` (Go) is a pre-check copy of `TextCodec.MAX_EDITABLE_BYTES`, which stays the authority; `TestMaxEditableTextBytesMatchesTextCodec` keeps them equal, so change both together.
+- **No whole-document work per keystroke.** `code-editor-adapter.js` memoizes `getValue()` per document revision and keeps `getLength()`, `getByteLength()` (exact UTF-8) and `getCharacterCount()` (code points) updated from each change's ranges. Use these in change, cursor and dirty-check paths. Do not use `TextEncoder`, `Array.from(value)` or repeated `getValue()` there. `frontend/src/` is bundled into the committed `frontend/dist/text-editor.bundle.js` (`npm --prefix frontend run build:text-editor`), so rebuild and commit it with any `src` change.
+- **Drafts.** A draft of an original over 256K chars stores `originalLength` + `originalHash` instead of `originalText`. Drafts over ~2M chars are not written. Recovery accepts either form. Every assignment to `originalValue` (open, close, the post-save rebaseline in `commitSavedBaseline`) must reset `originalHashMemo`, and a save that leaves the editor dirty re-persists the draft against the new baseline at once — otherwise reopening rejects the draft as another revision's and deletes it.
+- **Validator worker.** Requests go to the worker one at a time. A newer generation rejects older work as `stale` immediately. A queued request is dropped without being sent; the one already running finishes and its result is discarded. The worker is terminated only by a deadline, and a superseded run that blows its deadline has the live requests behind it replayed on a fresh thread. Do not reintroduce kill-on-supersede. The cost: a newer request — including `format()` and the pre-save `validateCritical` — can wait up to one deadline (1500 ms default) behind a stuck superseded run before it is even sent, so its worst-case latency is about twice the deadline.
+- **Preview images.** `markdown-preview.js` loads images through one session-wide scheduler (`scheduleImageLoad`) of `IMAGE_LOAD_CONCURRENCY` (4), never a pool per render: a superseded render cannot cancel a backend read already in flight, so a slot is freed only when that call settles, and a superseded render's queued loads are dropped unrun (`discardStaleImageLoads` after every `generation++`). `frontend/markdown_preview_pool_test.go` (Node harness in `frontend/testdata/`) pins the bound across renders. A reservation that does not fit the 100 MB preview budget waits for in-flight loads to settle and is refused only when none is outstanding. Each validated image is cached as an object URL for the editor session, keyed `local:<clipID>`, `remote:<url>`, or `data:<sha256 of the data URL>` (never the URL itself as the key). The cache is bounded to what is on screen: an entry is kept only while the current render shows it (`renderKeys`), the last completed render showed it (`completedKeys`), or a load of the current render still waits on it (`pendingUses`). Every `useKey` is paired with exactly one `finishUse(key, gen, shown)` (in a `finally`) in every load path: an entry nothing displayed — e.g. refused by the decoded budget in `displayImage` — is revoked as soon as its last waiting load settles, so fetched-but-refused images never sit outside the budget. `beginRender` sweeps, and revokes, every entry neither shown by the outgoing or last completed render nor still loading. `local:` entries are dropped whenever `GetLibraryVersion` has moved since they were cached (a referenced clip edited, deleted or restored over; an unreadable counter drops them too), `remote:` entries on `markdown:image-cache-cleared`, and everything on `open`/`close`. Never replace a successful entry: its URL may be on screen (`loadRemoteImage` reuses a hit and keeps an entry stored meanwhile). Every image still comes through Go validation (`GetMarkdownImage` checks `octet_length(data)` against the 15 MB limit before selecting the blob — `blob_precheck_driver_test.go` pins that no `data` select runs — then the sniffed type, `DecodeConfig` dimensions and decode budget). Never swap this for raw `/media/` URLs. User-triggered reads go through the scheduler too: the "Choose Image" chooser for an ambiguous reference schedules its `loadLocalImage` under the generation of the render that drew it, so a pick cannot exceed `IMAGE_LOAD_CONCURRENCY` and a pick on a superseded render starts no read (`frontend/markdown_chooser_pool_test.go`).
+- **Remote image disk cache** (`markdown_image_cache.go`) keeps an in-memory index built by one directory scan at startup. `Put` prunes from the index without rescanning. A hit reads the data file outside the mutex, records its access in the index and as the data file's mtime, and never rewrites or fsyncs metadata. The startup scan folds that mtime back into the LRU order. Caching is best-effort: a failed `Put` leaves no index entry and the loader still returns the validated image (on Windows a replace, or a `Clear`, can fail while a concurrent hit holds the old file open, since Go opens files without `FILE_SHARE_DELETE`; `Clear` then reports the error). `Get` trusts its unlocked read only if `c.index[key]` is still the same entry pointer afterwards (`Put` drops the old entry before renaming files and inserts a new pointer); a mismatch is retried up to `markdownImageCacheGetAttempts`, then a miss — a size check alone would pair a same-length replacement's bytes with the old content type. Every eviction goes through `evictLocked`/`discardKeyLocked`: a delete that fails puts the key in `stale`, its bytes still count against `maxBytes` and in `Stats`, and every `pruneLocked` retries it. Never `os.Remove` cache files directly. `Clear` follows the same rule: it deletes file by file through the `remove` seam, never `os.RemoveAll`, and a key whose file survives stays in `stale` (counted and retried) — never reset the index or stale accounting before knowing which files actually went away.
 
 ## Import Folder Wizard
 
@@ -913,6 +1152,8 @@ Five separate Wails-bound services (`ClipboardService`, `TransferService`, `Plug
 2. On `dragstart`, sets `DataTransfer` types via platform strategy adapter AND calls native drag
 3. Temp files have 60-min leases, pruned every 10 min
 4. Platform-specific: macOS uses CGo/NSPasteboard for clipboard, NSView.dragFile for drag
+
+**Prepared drag cache**: `transfer.js` caches one prepared item per clip (`preparedDragItems`); its `filename` becomes the `DownloadURL` payload. A gallery reload clears it (`clearPreparedDragState`); an in-place card patch does not, so `refreshClipInPlace` calls `invalidatePreparedDragItem(id)` when the filename changes. Both bump an epoch: a `prepareDrag` in flight across it prepares again, and a `lookupPreparedDrag` reports nothing cached — neither writes its stale result. Any new in-place patch that changes a clip's filename or content must invalidate its drag item the same way.
 
 ### Platform Support
 

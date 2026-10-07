@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"log"
 	"mime"
 	"net"
 	"net/http"
@@ -179,7 +180,11 @@ func (l *markdownRemoteImageLoader) Load(parent context.Context, requestID, rawU
 			err := l.cache.Put(rawURL, data, contentType, ttl)
 			l.cacheCommit.RUnlock()
 			if err != nil {
-				return MarkdownRemoteImageResult{}, err
+				// Caching is best-effort: the image is already downloaded and
+				// validated. Put leaves no index entry behind on failure. On
+				// Windows a replace can fail while a concurrent cache hit has
+				// the old file open (no FILE_SHARE_DELETE).
+				log.Printf("Markdown image cache: %v", err)
 			}
 		}
 	}

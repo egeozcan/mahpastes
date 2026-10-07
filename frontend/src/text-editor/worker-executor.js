@@ -39,18 +39,24 @@ export function createWorkerExecutor(options = {}) {
     let nextRequestID = 1;
     let highestGeneration = -Infinity;
     let restartCount = 0;
-    const pending = new Map();
 
-    function rejectAll(code, message) {
-        const entries = [...pending.values()];
-        pending.clear();
-        for (const entry of entries) {
-            clearTimeout(entry.timer);
-            entry.reject(new ExecutorError(code, message));
-        }
+    // One request on the thread at a time. The worker runs requests serially
+    // anyway; sending them one by one is what lets a request that is superseded
+    // while still waiting be dropped without ever being parsed, and lets each
+    // deadline measure the request's own run rather than its time in the queue.
+    //
+    // An entry is { id, resolve, reject, timer, deadline, generation,
+    // superseded, message }. A superseded entry has already been rejected as
+    // stale; while it is on the thread it stays as `current` only so its
+    // deadline can still interrupt a run that never returns.
+    let current = null;
+    const queue = [];
+
+    function settleError(entry, code, message) {
+        if (!entry.superseded) entry.reject(new ExecutorError(code, message));
     }
 
-    function killWorker(code, message) {
+    function terminateWorker() {
         if (worker) {
             worker.onmessage = null;
             worker.onerror = null;
@@ -58,23 +64,79 @@ export function createWorkerExecutor(options = {}) {
             worker.terminate();
             worker = null;
         }
-        rejectAll(code, message);
+    }
+
+    function killWorker(code, message) {
+        terminateWorker();
+        const entries = current ? [current, ...queue] : [...queue];
+        if (current) clearTimeout(current.timer);
+        current = null;
+        queue.length = 0;
+        for (const entry of entries) settleError(entry, code, message);
+    }
+
+    function onDeadline(entry) {
+        if (current !== entry) return;
+        // Terminating is the interruption boundary: a synchronous parser
+        // mid-call cannot be asked to stop, only killed. The next request lazily
+        // constructs a fresh worker.
+        restartCount++;
+        if (!entry.superseded) {
+            // The caller's own request blew its deadline: everything waiting
+            // shares the verdict, as before.
+            killWorker(ERR_TIMEOUT, `no response within ${entry.deadline}ms`);
+            return;
+        }
+        // A superseded run outlived its deadline. Nobody wants its result, but
+        // the live requests behind it do: they go to a fresh thread.
+        terminateWorker();
+        current = null;
+        pump();
+    }
+
+    // Sends the next queued request when the thread is free.
+    function pump() {
+        while (!current && queue.length > 0) {
+            const entry = queue.shift();
+            let target;
+            try {
+                target = ensureWorker();
+            } catch (err) {
+                entry.reject(err);
+                continue;
+            }
+            current = entry;
+            entry.timer = setTimeout(() => onDeadline(entry), entry.deadline);
+            try {
+                target.postMessage(entry.message);
+            } catch (err) {
+                clearTimeout(entry.timer);
+                current = null;
+                entry.reject(new ExecutorError(ERR_FAILED, `postMessage failed: ${String((err && err.message) || err)}`));
+            }
+        }
     }
 
     function handleMessage(event) {
         const response = event.data;
         if (!isResponse(response)) return;
-        const entry = pending.get(response.id);
-        if (!entry) return;
-        pending.delete(response.id);
+        const entry = current;
+        if (!entry || entry.id !== response.id) return;
         clearTimeout(entry.timer);
-        // A result for a superseded generation is dropped rather than applied.
-        if (Number.isFinite(response.generation) && response.generation < highestGeneration) {
-            entry.reject(new ExecutorError(ERR_STALE, `result for generation ${response.generation} superseded by ${highestGeneration}`));
-            return;
+        current = null;
+        // Already rejected as stale when it was superseded; the late result is
+        // simply dropped.
+        if (!entry.superseded) {
+            if (Number.isFinite(response.generation) && response.generation < highestGeneration) {
+                // A result for a superseded generation is dropped rather than applied.
+                entry.reject(new ExecutorError(ERR_STALE, `result for generation ${response.generation} superseded by ${highestGeneration}`));
+            } else if (response.ok) {
+                entry.resolve(response.result);
+            } else {
+                entry.reject(new ExecutorError((response.error && response.error.code) || ERR_FAILED, response.error && response.error.message));
+            }
         }
-        if (response.ok) entry.resolve(response.result);
-        else entry.reject(new ExecutorError((response.error && response.error.code) || ERR_FAILED, response.error && response.error.message));
+        pump();
     }
 
     function ensureWorker() {
@@ -99,6 +161,26 @@ export function createWorkerExecutor(options = {}) {
         return worker;
     }
 
+    function supersede(generation) {
+        // Superseded work is not killed: re-spawning the thread (and re-loading
+        // its parsers) on every edit past a slow parse cost more than letting
+        // it finish. Its callers are told now; a queued request is dropped
+        // unsent, and the one on the thread finishes into the void — or is
+        // killed by its own deadline.
+        const message = `superseded by generation ${generation}`;
+        if (current && Number.isFinite(current.generation) && current.generation < generation && !current.superseded) {
+            current.superseded = true;
+            current.reject(new ExecutorError(ERR_STALE, message));
+        }
+        for (let i = queue.length - 1; i >= 0; i--) {
+            const entry = queue[i];
+            if (Number.isFinite(entry.generation) && entry.generation < generation) {
+                queue.splice(i, 1);
+                entry.reject(new ExecutorError(ERR_STALE, message));
+            }
+        }
+    }
+
     function post({ op, payload, generation, sourceBytes, timeoutMs }) {
         if (disposed) return Promise.reject(new ExecutorError(ERR_UNAVAILABLE, 'executor disposed'));
 
@@ -108,9 +190,7 @@ export function createWorkerExecutor(options = {}) {
             }
             if (generation > highestGeneration) {
                 highestGeneration = generation;
-                // Everything in flight belongs to an older generation, so kill the
-                // thread rather than waiting for work whose result will be discarded.
-                if (pending.size > 0) killWorker(ERR_TERMINATED, 'superseded by a newer generation');
+                supersede(generation);
             }
         }
 
@@ -124,9 +204,10 @@ export function createWorkerExecutor(options = {}) {
             return Promise.reject(new ExecutorError(ERR_TOO_LARGE, `source of ${effectiveBytes} bytes exceeds the ${limits.maxSourceBytes}-byte executor ceiling`));
         }
 
-        let target;
+        // Surface an unusable worker synchronously, as before, rather than
+        // after the request has been queued.
         try {
-            target = ensureWorker();
+            ensureWorker();
         } catch (err) {
             return Promise.reject(err);
         }
@@ -134,21 +215,17 @@ export function createWorkerExecutor(options = {}) {
         const id = nextRequestID++;
         const deadline = Number.isFinite(timeoutMs) ? timeoutMs : limits.deadlineMs;
         return new Promise((resolve, reject) => {
-            const timer = setTimeout(() => {
-                // Terminating is the interruption boundary: a synchronous parser
-                // mid-call cannot be asked to stop, only killed. The next request
-                // lazily constructs a fresh worker.
-                restartCount++;
-                killWorker(ERR_TIMEOUT, `no response within ${deadline}ms`);
-            }, deadline);
-            pending.set(id, { resolve, reject, timer, generation });
-            try {
-                target.postMessage(makeRequest({ id, generation, op, payload: pinned }));
-            } catch (err) {
-                pending.delete(id);
-                clearTimeout(timer);
-                reject(new ExecutorError(ERR_FAILED, `postMessage failed: ${String((err && err.message) || err)}`));
-            }
+            queue.push({
+                id,
+                resolve,
+                reject,
+                timer: null,
+                deadline,
+                generation,
+                superseded: false,
+                message: makeRequest({ id, generation, op, payload: pinned }),
+            });
+            pump();
         });
     }
 
@@ -159,7 +236,7 @@ export function createWorkerExecutor(options = {}) {
         run: (request) => post(request),
         get generation() { return highestGeneration; },
         get restartCount() { return restartCount; },
-        get inFlight() { return pending.size; },
+        get inFlight() { return (current && !current.superseded ? 1 : 0) + queue.length; },
         get alive() { return !!worker; },
         dispose() {
             disposed = true;

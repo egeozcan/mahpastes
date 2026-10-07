@@ -180,6 +180,8 @@ export namespace app {
 	    filename: string;
 	    valid_utf8: boolean;
 	    data_encoding: string;
+	    size?: number;
+	    too_large?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new ClipData(source);
@@ -193,6 +195,8 @@ export namespace app {
 	        this.filename = source["filename"];
 	        this.valid_utf8 = source["valid_utf8"];
 	        this.data_encoding = source["data_encoding"];
+	        this.size = source["size"];
+	        this.too_large = source["too_large"];
 	    }
 	}
 	export class ClipListRequest {
@@ -207,6 +211,8 @@ export namespace app {
 	    sort_dir: string;
 	    offset: number;
 	    limit: number;
+	    load_session?: string;
+	    load_gen?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new ClipListRequest(source);
@@ -225,6 +231,8 @@ export namespace app {
 	        this.sort_dir = source["sort_dir"];
 	        this.offset = source["offset"];
 	        this.limit = source["limit"];
+	        this.load_session = source["load_session"];
+	        this.load_gen = source["load_gen"];
 	    }
 	}
 	export class ClipMatch {
@@ -274,6 +282,7 @@ export namespace app {
 	    tags: Tag[];
 	    size: number;
 	    duplicate_count: number;
+	    content_hash?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new ClipPreview(source);
@@ -291,6 +300,7 @@ export namespace app {
 	        this.tags = this.convertValues(source["tags"], Tag);
 	        this.size = source["size"];
 	        this.duplicate_count = source["duplicate_count"];
+	        this.content_hash = source["content_hash"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

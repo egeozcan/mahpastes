@@ -46,18 +46,23 @@ type desktopCore interface {
 	FindClipsByFilenameAndTag(filenames []string, tagID int64) ([]coreapp.ClipMatch, error)
 	GetChildTags(tagID int64) ([]coreapp.Tag, error)
 	GetClipData(id int64) (*coreapp.ClipData, error)
+	GetClipText(id int64) (*coreapp.ClipData, error)
 	GetClipMetadata(clipID int64) (map[string]string, error)
+	GetClipPreview(id int64) (*coreapp.ClipPreview, error)
 	GetClipTags(clipID int64) ([]coreapp.Tag, error)
 	GetClips(archived bool, tagIDs []int64, hiddenTagIDs []int64, sortField string, sortDir string) ([]coreapp.ClipPreview, error)
 	GetClipsDirect(archived bool, tagIDs []int64, hiddenTagIDs []int64, sortField string, sortDir string) ([]coreapp.ClipPreview, error)
 	GetDatabaseSize() (int64, error)
 	GetDescendantClipCount(tagID int64, archived bool) (int, error)
+	GetDescendantClipCounts(tagIDs []int64, archived bool) (map[int64]int, error)
 	GetDuplicateGroups() ([]coreapp.DuplicateGroup, error)
 	GetFolderClips(archived bool, tagID int64, sortField string, sortDir string) ([]coreapp.ClipPreview, error)
 	GetGlobalWatchPaused() bool
 	GetHiddenClipInfo(archived bool, tagIDs []int64, hiddenTagIDs []int64) (coreapp.HiddenClipInfo, error)
 	GetHiddenTags() ([]int64, error)
 	GetImageDiff(clipIdA, clipIdB int64, threshold int) (*coreapp.DiffResult, error)
+	GetLibraryVersion() (int64, error)
+	GetPluginLibraryWrites() (int64, error)
 	GetOrphanDBRows() (coreapp.OrphanReport, error)
 	GetRemovableEmptyTags() ([]coreapp.Tag, error)
 	GetSetting(key string) (string, error)
@@ -92,6 +97,8 @@ type desktopCore interface {
 	SetHiddenTags(ids []int64) error
 	SetSetting(key string, value string) error
 	StartImportSession(root string, recursive bool) (*coreapp.ImportScanResult, error)
+	// ThumbnailURLBase is the prefix of gallery thumbnail URLs (thumbnail.go).
+	ThumbnailURLBase() (string, error)
 	ToggleArchive(id int64) error
 	UpdateClipData(id int64, contentType string, base64Data string, filename string) error
 	UpdateTag(id int64, name, color string) error

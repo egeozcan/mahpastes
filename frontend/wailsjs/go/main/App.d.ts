@@ -68,7 +68,11 @@ export function GetClipData(arg1:number):Promise<app.ClipData>;
 
 export function GetClipMetadata(arg1:number):Promise<Record<string, string>>;
 
+export function GetClipPreview(arg1:number):Promise<app.ClipPreview>;
+
 export function GetClipTags(arg1:number):Promise<Array<app.Tag>>;
+
+export function GetClipText(arg1:number):Promise<app.ClipData>;
 
 export function GetClipboardImage():Promise<main.ClipboardImage>;
 
@@ -82,6 +86,8 @@ export function GetDatabaseSize():Promise<number>;
 
 export function GetDescendantClipCount(arg1:number,arg2:boolean):Promise<number>;
 
+export function GetDescendantClipCounts(arg1:Array<number>,arg2:boolean):Promise<Record<number, number>>;
+
 export function GetDuplicateGroups():Promise<Array<app.DuplicateGroup>>;
 
 export function GetFolderClips(arg1:boolean,arg2:number,arg3:string,arg4:string):Promise<Array<app.ClipPreview>>;
@@ -94,7 +100,11 @@ export function GetHiddenTags():Promise<Array<number>>;
 
 export function GetImageDiff(arg1:number,arg2:number,arg3:number):Promise<app.DiffResult>;
 
+export function GetLibraryVersion():Promise<number>;
+
 export function GetOrphanDBRows():Promise<app.OrphanReport>;
+
+export function GetPluginLibraryWrites():Promise<number>;
 
 export function GetRemovableEmptyTags():Promise<Array<app.Tag>>;
 
@@ -175,6 +185,8 @@ export function ShowCreateBackupDialog():Promise<string>;
 export function ShowRestoreBackupDialog():Promise<main.RestoreSelection>;
 
 export function StartImportSession(arg1:string,arg2:boolean):Promise<app.ImportScanResult>;
+
+export function ThumbnailURLBase():Promise<string>;
 
 export function ToggleArchive(arg1:number):Promise<void>;
 

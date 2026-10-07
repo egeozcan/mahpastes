@@ -161,3 +161,88 @@ test.describe('Gallery paging', () => {
     await expect(app.page.locator(selectors.bottomBar.clipCount)).toHaveText('0 clips');
   });
 });
+
+test.describe('Gallery render cost', () => {
+  // The roving-tabindex update lays out the whole grid and walks every card.
+  // It used to run after each appended card, making a render quadratic in
+  // the number of clips; a batch render must re-index once.
+  test('a render re-indexes keyboard navigation once, not per card', async ({ app }) => {
+    await seedTextClips(app, 70);
+    await reload(app);
+    await app.expectClipCount(50);
+
+    const countUpdates = () => app.page.evaluate(() => {
+      const w = window as any;
+      const rover = w.__galleryRover;
+      w.__roverUpdates = 0;
+      if (!w.__roverOriginalUpdate) w.__roverOriginalUpdate = rover.update;
+      rover.update = function (...args: any[]) {
+        w.__roverUpdates++;
+        return w.__roverOriginalUpdate.apply(this, args);
+      };
+    });
+    const readUpdates = () => app.page.evaluate(() => (window as any).__roverUpdates as number);
+
+    // Load more appends 20 cards.
+    await countUpdates();
+    await app.page.locator(selectors.gallery.loadMoreButton).click();
+    await app.expectClipCount(70);
+    expect(await readUpdates()).toBeLessThanOrEqual(2);
+
+    // A same-view reload re-renders all 70.
+    await countUpdates();
+    await reload(app);
+    await app.expectClipCount(70);
+    expect(await readUpdates()).toBeLessThanOrEqual(2);
+
+    await app.page.evaluate(() => {
+      const w = window as any;
+      w.__galleryRover.update = w.__roverOriginalUpdate;
+      delete w.__roverOriginalUpdate;
+      delete w.__roverUpdates;
+    });
+
+    // Keyboard navigation still sees every card: exactly one tab stop, and
+    // no card's inner controls are in the sequential tab order.
+    const tabState = await app.page.locator(selectors.gallery.clipCard).evaluateAll((cards: Element[]) => ({
+      stops: cards.filter(c => c.getAttribute('tabindex') === '0').length,
+      leakedInner: cards.flatMap(c => Array.from(c.querySelectorAll('button, [href], input, select, textarea')))
+        .filter(el => el.getAttribute('tabindex') !== '-1').length,
+    }));
+    expect(tabState.stops).toBe(1);
+    expect(tabState.leakedInner).toBe(0);
+  });
+
+  test('a Load more superseded by a newer load ends quietly', async ({ app }) => {
+    await seedTextClips(app, 70);
+    await reload(app);
+    await app.expectClipCount(50);
+
+    // A newer load cancels the query of the one it supersedes (the next
+    // keystroke of a deep search): the older request then fails, and that
+    // failure must not surface as an error.
+    await app.page.evaluate(() => {
+      const w = window as any;
+      w.__toasts = [];
+      const toast = w.showToast;
+      w.showToast = (msg: string, type: string) => { w.__toasts.push({ msg, type }); return toast(msg, type); };
+      const list = w.go.main.App.ListClipsPage;
+      w.go.main.App.ListClipsPage = async (req: any) => {
+        if (req.offset > 0 && !w.__superseded) {
+          w.__superseded = true;
+          w.__newerLoad = w.loadClips();
+          throw new Error('clip listing superseded: context canceled');
+        }
+        return list(req);
+      };
+    });
+
+    await app.page.locator(selectors.gallery.loadMoreButton).click();
+    await app.page.evaluate(async () => { await (window as any).__newerLoad; });
+
+    const toasts = await app.page.evaluate(() => (window as any).__toasts);
+    expect(toasts.filter((t: any) => t.type === 'error')).toEqual([]);
+    await app.expectClipCount(50);
+    await expect(app.page.locator(selectors.bottomBar.clipCount)).toHaveText('50 of 70 clips');
+  });
+});

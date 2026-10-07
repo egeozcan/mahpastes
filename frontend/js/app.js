@@ -314,6 +314,8 @@ let folderMode = false;
 const folderStatusPoller = (() => {
     let intervalID = null;
     let generation = 0;
+    // Wanted on (folder view showing), whether or not paused while hidden.
+    let started = false;
 
     async function pollOnce() {
         const myGen = generation;
@@ -336,18 +338,32 @@ const folderStatusPoller = (() => {
         return view === 'clips' && folderMode === true;
     }
 
+    // A hidden window does not poll: nobody sees the badges, and each poll
+    // is two IPC round trips. Becoming visible polls at once and resumes.
+    function suspended() {
+        return typeof document !== 'undefined' && document.hidden;
+    }
+
     function start() {
-        if (intervalID !== null) return;
+        started = true;
+        if (intervalID !== null || suspended()) return;
         generation++;
         pollOnce();
         intervalID = setInterval(pollOnce, 2000);
     }
 
-    function stop() {
+    // Halt polling but keep the last statuses on the cards.
+    function pause() {
         if (intervalID === null) return;
         clearInterval(intervalID);
         intervalID = null;
         generation++;
+    }
+
+    function stop() {
+        if (!started) return;
+        started = false;
+        pause();
         if (typeof window.folderStatusMap?.clear === 'function') {
             window.folderStatusMap.clear();
             if (typeof window.updateFolderBadgesInPlace === 'function') {
@@ -360,7 +376,12 @@ const folderStatusPoller = (() => {
         if (isActive()) start(); else stop();
     }
 
-    return { start, stop, evaluate, isActive };
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) pause();
+        else if (started && isActive()) start();
+    });
+
+    return { start, stop, evaluate, isActive, isRunning: () => intervalID !== null };
 })();
 
 window.folderStatusPoller = folderStatusPoller;
@@ -1933,6 +1954,7 @@ window.addEventListener('load', async () => {
 
         // Re-resolve folder-view and tag-filter state on any tag change.
         // tag:updated (rename), tag:deleted, tag:merged — all dispatched by Go.
+        // handleTagReferenceEvent (tags.js) coalesces a burst into one reload.
         window.runtime.EventsOn('tag:updated', (payload) => {
             window.handleTagReferenceEvent('tag:updated', payload);
         });
@@ -1964,10 +1986,16 @@ window.addEventListener('load', async () => {
         });
     }
 
-    // Auto-refresh clips when window regains focus (clears stale expired clips)
+    // On refocus, bring the gallery up to date without paying a full reload
+    // for every Cmd-Tab. Changes this app hears about (watch imports, shared
+    // clips, tag events) reload the gallery when they arrive, hidden or not.
+    // Writes made through the REST API, the mp CLI or a plugin emit no
+    // frontend event, but they move the library change counter, so the
+    // gallery reloads only when that counter has moved since its listing;
+    // otherwise it just sheds the cards whose expiry has passed, in place.
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible' && window.__appReady) {
-            loadClips();
+            refreshGalleryOnRefocus();
         }
     });
 });

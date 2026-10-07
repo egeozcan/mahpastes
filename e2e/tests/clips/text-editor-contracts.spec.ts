@@ -268,24 +268,87 @@ test.describe('Validator worker deadline, termination and restart', () => {
     expect(result.aliveAfterRestart).toBe(true);
   });
 
-  test('a newer generation terminates superseded in-flight work', async ({ app }) => {
+  test('a newer generation drops superseded in-flight work without killing the worker', async ({ app }) => {
+    // Killing the thread on every superseding edit re-spawned it (and re-loaded
+    // its parsers) per keystroke past a slow parse. The caller is told at once;
+    // the run finishes into the void.
+    const result = await app.page.evaluate(async () => {
+      const api = (window as any).MahpastesTextEditor;
+      const { executor } = await api.probeWorkerSupport();
+      if (!executor) return { skipped: true };
+      const started = performance.now();
+      let staleAfter = -1;
+      const stale = executor
+        .run({ op: api.OP_SELFTEST, generation: 1, payload: { units: 1, spinMsPerUnit: 600 } })
+        .then(() => 'resolved', (err: any) => {
+          staleAfter = performance.now() - started;
+          return err.code;
+        });
+      const fresh = await executor.run({ op: api.OP_HANDSHAKE, generation: 2 });
+      const staleCode = await stale;
+      const report = { skipped: false, staleCode, staleAfter, fresh, restartCount: executor.restartCount, alive: executor.alive };
+      executor.dispose();
+      return report;
+    });
+
+    expect(result.skipped).toBe(false);
+    expect(result.staleCode).toBe('stale');
+    // Told when superseded, not when the 600 ms run ends.
+    expect(result.staleAfter).toBeLessThan(300);
+    expect(result.fresh).toEqual({ handshake: 'mahpastes:text-validator:v1', protocol: 1 });
+    expect(result.restartCount).toBe(0);
+    expect(result.alive).toBe(true);
+  });
+
+  test('a superseded run that outlives its own deadline is killed and the newer request still answers', async ({ app }) => {
     const result = await app.page.evaluate(async () => {
       const api = (window as any).MahpastesTextEditor;
       const { executor } = await api.probeWorkerSupport();
       if (!executor) return { skipped: true };
       const stale = executor
-        .run({ op: api.OP_SELFTEST, generation: 1, payload: { units: 1, spinMsPerUnit: 600 } })
+        .run({ op: api.OP_SELFTEST, generation: 1, payload: { units: 1, spinMsPerUnit: 5000 }, timeoutMs: 200 })
         .then(() => 'resolved', (err: any) => err.code);
-      // Do not merely wait for the superseded parse — kill it.
+      const started = performance.now();
       const fresh = await executor.run({ op: api.OP_HANDSHAKE, generation: 2 });
-      const staleCode = await stale;
+      const elapsed = performance.now() - started;
+      const report = { skipped: false, staleCode: await stale, fresh, elapsed, restartCount: executor.restartCount };
       executor.dispose();
-      return { skipped: false, staleCode, fresh };
+      return report;
     });
 
     expect(result.skipped).toBe(false);
-    expect(result.staleCode).toBe('terminated');
+    expect(result.staleCode).toBe('stale');
     expect(result.fresh).toEqual({ handshake: 'mahpastes:text-validator:v1', protocol: 1 });
+    // Interrupted at the superseded run's 200 ms deadline, not after its 5 s spin.
+    expect(result.elapsed).toBeLessThan(2500);
+    expect(result.restartCount).toBe(1);
+  });
+
+  test('a request superseded while still queued is never run', async ({ app }) => {
+    const result = await app.page.evaluate(async () => {
+      const api = (window as any).MahpastesTextEditor;
+      const { executor } = await api.probeWorkerSupport();
+      if (!executor) return { skipped: true };
+      const started = performance.now();
+      const first = executor
+        .run({ op: api.OP_SELFTEST, generation: 1, payload: { units: 1, spinMsPerUnit: 600 } })
+        .catch((err: any) => err.code);
+      const queued = executor
+        .run({ op: api.OP_SELFTEST, generation: 2, payload: { units: 1, spinMsPerUnit: 600 } })
+        .catch((err: any) => err.code);
+      const fresh = await executor.run({ op: api.OP_HANDSHAKE, generation: 3 });
+      const elapsed = performance.now() - started;
+      const report = { skipped: false, first: await first, queued: await queued, fresh, elapsed };
+      executor.dispose();
+      return report;
+    });
+
+    expect(result.skipped).toBe(false);
+    expect(result.first).toBe('stale');
+    expect(result.queued).toBe('stale');
+    expect(result.fresh).toEqual({ handshake: 'mahpastes:text-validator:v1', protocol: 1 });
+    // Only the first 600 ms run occupied the thread; the queued one was dropped unsent.
+    expect(result.elapsed).toBeLessThan(1100);
   });
 });
 
@@ -1483,6 +1546,71 @@ test.describe('Language modes', () => {
     expect(result.value).toBe('typed after the failure');
     expect(result.tokens).toBe(0);
     expect(result.logged).toBe(true);
+  });
+
+  test('incremental length, byte and character counts track every kind of edit', async ({ app }) => {
+    // The editor no longer re-encodes or Array.from()s the whole document per
+    // keystroke and cursor move; the adapter keeps the counts from each change's
+    // ranges. They must agree with the whole-document answers they replaced,
+    // including when an edit makes or breaks a surrogate pair at its edges.
+    const result = await app.page.evaluate(() => {
+      const api = (window as any).MahpastesTextEditor;
+      const host = document.createElement('div');
+      document.body.appendChild(host);
+      const adapter = api.createCodeEditorAdapter({});
+      const mismatches: string[] = [];
+      const check = (label: string) => {
+        const value = adapter.getValue();
+        const want = {
+          length: value.length,
+          bytes: new TextEncoder().encode(value).length,
+          chars: Array.from(value).length,
+        };
+        const got = {
+          length: adapter.getLength(),
+          bytes: adapter.getByteLength(),
+          chars: adapter.getCharacterCount(),
+        };
+        if (JSON.stringify(want) !== JSON.stringify(got)) {
+          mismatches.push(`${label}: want ${JSON.stringify(want)} got ${JSON.stringify(got)}`);
+        }
+      };
+      try {
+        const big = 'é😀 line\n'.repeat(5000);
+        adapter.mount({ container: host, value: `a😀b€c\n${big}`, wrap: true });
+        check('mount');
+        const view = adapter.view;
+        const edits: Array<[number, number, string]> = [
+          [0, 0, 'x'],
+          [2, 3, ''],               // delete the high half of 😀: a lone low remains
+          [2, 2, '\uD83D'],         // re-insert it: the pair is whole again
+          [1, 5, '日本'],
+          [3, 3, '😀😀'],
+          [view.state.doc.length, view.state.doc.length, '\uD83D'], // trailing lone high
+          [view.state.doc.length, view.state.doc.length, '\uDE00'], // completes it
+          [10, 2000, ''],
+          [0, view.state.doc.length, 'plain'],
+        ];
+        for (const [from, to, insert] of edits) {
+          const len = adapter.view.state.doc.length;
+          adapter.view.dispatch({ changes: { from: Math.min(from, len), to: Math.min(to, len), insert } });
+          check(`edit ${from}-${to} ${JSON.stringify(insert)}`);
+        }
+        // Two separate changes in one transaction.
+        adapter.setValue('ab😀cd😀ef', { undoable: true });
+        adapter.view.dispatch({ changes: [{ from: 2, to: 3, insert: '' }, { from: 7, to: 8, insert: 'Z' }] });
+        check('multi-change');
+        // The memoized string is invalidated on change.
+        const before = adapter.getValue();
+        adapter.view.dispatch({ changes: { from: 0, insert: 'Q' } });
+        if (adapter.getValue() !== `Q${before}`) mismatches.push('stale memoized value');
+        return mismatches;
+      } finally {
+        adapter.destroy();
+        host.remove();
+      }
+    });
+    expect(result).toEqual([]);
   });
 
   test('setLanguage(null) strips highlighting from a mounted editor', async ({ app }) => {

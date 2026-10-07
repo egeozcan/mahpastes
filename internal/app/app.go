@@ -53,6 +53,7 @@ type App struct {
 	db               *sql.DB
 	tempDir          string
 	tempStore        *TempClipStore
+	thumbCache       *ThumbnailCache
 	transferHandler  *TransferFileHandler
 	mu               sync.Mutex
 	watcherManager   *WatcherManager
@@ -83,6 +84,10 @@ type App struct {
 	// to tell the two apart without polling. Set regardless of whether plugin
 	// init succeeded, since a failed init is also a final answer.
 	pluginsReady atomic.Bool
+
+	// pluginLibraryWrites counts plugin event dispatches during which the
+	// library changed (emitPluginEvent, GetPluginLibraryWrites).
+	pluginLibraryWrites atomic.Int64
 
 	// shareHookWG tracks the async share-publication goroutines spawned by
 	// the tagging paths so callers (tests, shutdown) can wait for a tag
@@ -163,6 +168,14 @@ type App struct {
 	// projectionMount holds the file manager mount roots (see
 	// SetProjectionMount).
 	projectionMount atomic.Pointer[[]string]
+
+	// galleryLoads holds each desktop gallery's current load
+	// (beginNumberedGalleryLoad, beginGalleryLoad). A newer load of the same
+	// gallery cancels it, so a superseded content search stops scanning
+	// instead of running to the end.
+	galleryLoadMu   sync.Mutex
+	galleryLoads    map[string]*galleryLoad // by page session; "" for unnumbered calls
+	galleryLoadTick uint64
 }
 
 // PluginsReady reports whether plugin loading has finished (successfully or
@@ -200,6 +213,7 @@ func (a *App) WatcherManager() *WatcherManager { return a.watcherManager }
 func (a *App) APIManager() *APIManager         { return a.apiManager }
 func (a *App) TempStore() *TempClipStore       { return a.tempStore }
 func (a *App) TempDir() string                 { return a.tempDir }
+func (a *App) ThumbCache() *ThumbnailCache     { return a.thumbCache }
 
 func (a *App) PrepareClipTransferItem(id int64, source string) (*PreparedTransferItem, error) {
 	return a.prepareClipTransferItem(id, source)
@@ -260,6 +274,16 @@ func (a *App) PrepareClipMediaItem(id int64) (*PreparedTransferItem, error) {
 	}, nil
 }
 
+// ThumbnailURLBase returns the prefix of desktop gallery thumbnail URLs,
+// "/thumb/{key}/"; a card's URL is that plus "{clipID}/{contentHash}". See
+// TransferFileHandler.ThumbnailURLBase and thumbnail.go.
+func (a *App) ThumbnailURLBase() (string, error) {
+	if a.transferHandler == nil || a.thumbCache == nil {
+		return "", fmt.Errorf("thumbnails are not initialized")
+	}
+	return a.transferHandler.ThumbnailURLBase()
+}
+
 func (a *App) LookupPreparedClipTransferItem(id int64, source string) (*PreparedTransferItem, error) {
 	return a.lookupPreparedClipTransferItem(id, source)
 }
@@ -312,10 +336,39 @@ func (a *App) emitEvent(event string, data ...interface{}) {
 }
 
 // emitPluginEvent dispatches a plugin event, guarded for nil pluginManager.
-func (a *App) emitPluginEvent(name string, data map[string]interface{}) {
-	if a.pluginManager != nil {
-		a.pluginManager.EmitEvent(name, data)
+// Every plugin event the App emits goes through here, because handlers run
+// synchronously inside EmitEvent (unless the sandbox is parked in a host
+// call) and can write anywhere in the library: a clip:archived handler that
+// archives a different clip has done so before the App call returns. The
+// library change counter is read on both sides of the dispatch, and a move
+// bumps pluginLibraryWrites (GetPluginLibraryWrites), which the gallery checks
+// before patching a card in place instead of reloading. A concurrent writer
+// landing during the dispatch bumps it too; that only costs a reload.
+func (a *App) emitPluginEvent(name string, data interface{}) {
+	if a.pluginManager == nil {
+		return
 	}
+	before, berr := a.libraryVersionForPluginDispatch()
+	a.pluginManager.EmitEvent(name, data)
+	after, aerr := a.libraryVersionForPluginDispatch()
+	if berr != nil || aerr != nil || before != after {
+		a.pluginLibraryWrites.Add(1)
+	}
+}
+
+func (a *App) libraryVersionForPluginDispatch() (int64, error) {
+	if a.db == nil {
+		return 0, fmt.Errorf("no database")
+	}
+	return a.GetLibraryVersion()
+}
+
+// GetPluginLibraryWrites returns how many plugin event dispatches have changed
+// the library since the app started (see emitPluginEvent). The gallery reads
+// it with each load and again before an in-place patch: a move means a plugin
+// handler changed something the patch knows nothing about, so it reloads.
+func (a *App) GetPluginLibraryWrites() (int64, error) {
+	return a.pluginLibraryWrites.Load(), nil
 }
 
 // emitWatchError sends an error event to the frontend
@@ -337,6 +390,24 @@ func (a *App) emitWatchImport(clip ClipPreview) {
 	a.bridge.Emit("watch:import", clip)
 }
 
+// clipPreviewExpr selects a card's 500-byte preview for text-like clips only.
+// SUBSTR on a blob loads the whole value, so running it unconditionally read
+// every image and video on a page in full just to throw the result away.
+// The type test must match the one that keeps Preview in Go.
+func clipPreviewExpr(prefix string) string {
+	return fmt.Sprintf("CASE WHEN substr(%[1]scontent_type, 1, 5) = 'text/' OR %[1]scontent_type = 'application/json' THEN SUBSTR(%[1]sdata, 1, 500) END", prefix)
+}
+
+// GetClipPreview returns one clip as a gallery listing row (DuplicateCount is
+// not computed). After a single-clip change the gallery re-reads the clip
+// through it and patches the card from the stored row, not from what the
+// frontend asked for: the backend stamps expiry on its own clock, RenameClip
+// can change the content type, and a plugin handler can retag or rename the
+// clip from inside the call.
+func (a *App) GetClipPreview(id int64) (*ClipPreview, error) {
+	return a.getClipPreview(id)
+}
+
 // getClipPreview fetches a single clip's preview data (private helper, not exported to frontend)
 func (a *App) getClipPreview(id int64) (*ClipPreview, error) {
 	var clip ClipPreview
@@ -346,9 +417,9 @@ func (a *App) getClipPreview(id int64) (*ClipPreview, error) {
 	var isArchivedInt int
 
 	err := a.db.QueryRow(`
-		SELECT id, content_type, filename, created_at, expires_at, SUBSTR(data, 1, 500), is_archived, LENGTH(data)
+		SELECT id, content_type, filename, created_at, expires_at, `+clipPreviewExpr("")+`, is_archived, LENGTH(data), COALESCE(content_hash, '')
 		FROM clips WHERE id = ?`, id).Scan(
-		&clip.ID, &clip.ContentType, &filename, &clip.CreatedAt, &expiresAt, &previewData, &isArchivedInt, &clip.Size)
+		&clip.ID, &clip.ContentType, &filename, &clip.CreatedAt, &expiresAt, &previewData, &isArchivedInt, &clip.Size, &clip.ContentHash)
 	if err != nil {
 		return nil, err
 	}
@@ -409,7 +480,13 @@ func (a *App) Bootstrap(ctx context.Context, opts BootstrapOptions) error {
 		log.Printf("Warning: Failed to prune temp clip files on startup: %v", err)
 	}
 
-	StartCleanupJob(ctx, a.db, a.tempStore)
+	if tc, err := NewThumbnailCache(a.db, a.tempStore, filepath.Join(opts.DataDir, "clip_thumbs")); err != nil {
+		log.Printf("Warning: Failed to initialize thumbnail cache: %v", err)
+	} else {
+		a.thumbCache = tc
+	}
+
+	StartCleanupJob(ctx, a.db, a.tempStore, a.thumbCache)
 
 	if opts.InitClipboard {
 		if err := clipboard.Init(); err != nil {
@@ -818,6 +895,10 @@ type ClipPreview struct {
 	Tags           []Tag      `json:"tags"`
 	Size           int64      `json:"size"`
 	DuplicateCount int        `json:"duplicate_count"`
+	// ContentHash names the revision of the clip's bytes. The gallery puts it
+	// in thumbnail URLs, so an edited clip gets a new URL and no cache can
+	// serve the old image under it.
+	ContentHash string `json:"content_hash,omitempty"`
 }
 
 // DuplicateGroup represents a set of clips sharing the same content hash
@@ -837,6 +918,10 @@ type ClipData struct {
 	Filename     string `json:"filename"`
 	ValidUTF8    bool   `json:"valid_utf8"`
 	DataEncoding string `json:"data_encoding"` // "utf8" or "base64"
+	// Set only by GetClipText: the stored byte length, and whether the clip is
+	// over the text editor's cap. A too-large payload carries no data at all.
+	Size     int64 `json:"size,omitempty"`
+	TooLarge bool  `json:"too_large,omitempty"`
 }
 
 // DiffResult returned by GetImageDiff
@@ -912,17 +997,27 @@ var tagColors = []string{
 	"#06B6D4", // cyan
 }
 
-func sortColumn(field string) string {
+// clipOrderBy renders a listing's ORDER BY over the page query's derived
+// columns (clipPageSQL), named by prefix: the inner pass sorts the filtered
+// rows, the outer pass re-sorts the page after its join.
+func clipOrderBy(field, sortDir, prefix string) string {
+	dir := "DESC"
+	if sortDir == "asc" {
+		dir = "ASC"
+	}
+	var primary string
 	switch field {
 	case "name":
-		return "c.filename"
+		primary = prefix + "filename"
 	case "size":
-		return "LENGTH(c.data)"
+		primary = prefix + "size"
 	case "type":
-		return "c.content_type"
+		primary = prefix + "content_type"
 	default:
-		return "c.created_at"
+		// Created order: ties broken by id in the same direction.
+		return fmt.Sprintf("ORDER BY %[1]screated_at %[2]s, %[1]sid %[2]s", prefix, dir)
 	}
+	return fmt.Sprintf("ORDER BY %[2]s %[3]s, %[1]screated_at DESC, %[1]sid DESC", prefix, primary, dir)
 }
 
 // GetClips retrieves a list of clips for the gallery, optionally filtered by tags
@@ -983,9 +1078,114 @@ func buildClipSearchClause(search *clipSearchSpec) (string, []interface{}) {
 // archive and expiry rules as GetClips. Pass an empty hiddenTagIDs slice to let
 // clips carrying a hidden tag surface in the results — hiding is a browsing
 // convenience, and search is where a user goes when they know what they want.
+//
+// Bound for the desktop gallery: a call supersedes the gallery load in flight
+// (beginGalleryLoad), cancelling its query. A superseded call fails with an
+// error wrapping context.Canceled, which the frontend's generation guard
+// already discards. REST callers use searchClips with the request's context.
 func (a *App) SearchClips(archived bool, tagIDs []int64, hiddenTagIDs []int64, query string, searchContent bool, sortField string, sortDir string) ([]ClipPreview, error) {
-	return a.getClipsInternal(archived, tagIDs, hiddenTagIDs, sortField, sortDir, true,
-		&clipSearchSpec{Query: query, InContent: searchContent})
+	return a.searchClips(a.beginGalleryLoad(true), archived, tagIDs, hiddenTagIDs, query, searchContent, sortField, sortDir)
+}
+
+func (a *App) searchClips(ctx context.Context, archived bool, tagIDs []int64, hiddenTagIDs []int64, query string, searchContent bool, sortField string, sortDir string) ([]ClipPreview, error) {
+	q := a.buildClipListQuery(archived, tagIDs, hiddenTagIDs, sortField, sortDir, true,
+		&clipSearchSpec{Query: query, InContent: searchContent}, false)
+	clips, _, _, err := a.queryClipPreviewsCountedCtx(ctx, q, 0, defaultClipLimit)
+	return clips, err
+}
+
+// beginGalleryLoad returns the context a desktop gallery listing runs under.
+// supersede starts a new load: the previous load's context is cancelled, so a
+// content search still scanning for an older keystroke stops. Continuation
+// requests of a load (later pages) join the current context without
+// cancelling anything. The desktop app has one gallery, so "newer" is
+// unambiguous; REST requests never come through here (each has its own
+// request context, and clients must not cancel one another).
+func (a *App) beginGalleryLoad(supersede bool) context.Context {
+	a.galleryLoadMu.Lock()
+	defer a.galleryLoadMu.Unlock()
+	gl := a.galleryLoadLocked("")
+	if supersede || gl.ctx == nil {
+		gl.restart()
+	}
+	return gl.ctx
+}
+
+// beginNumberedGalleryLoad is beginGalleryLoad for a request that says which
+// load it belongs to: the page session it comes from and that page's load
+// generation. Wails runs each bound call on its own goroutine, so two loads
+// fired back to back can reach Go in either order — ordering by arrival would
+// let the older load cancel the newer one, and the gallery would show the
+// older load's error. So within a session a newer generation supersedes the
+// current load, the current generation joins it, and an older generation gets
+// an already-cancelled context (the frontend discards its result anyway).
+// Sessions never cancel one another: under `wails dev` the native window and
+// a browser tab are two galleries on one App, and a reloaded page is a new
+// session whose counter starts again.
+func (a *App) beginNumberedGalleryLoad(session string, gen int64) context.Context {
+	a.galleryLoadMu.Lock()
+	defer a.galleryLoadMu.Unlock()
+	gl := a.galleryLoadLocked(session)
+	switch {
+	case gl.ctx == nil || gen > gl.gen:
+		gl.gen = gen
+		gl.restart()
+	case gen < gl.gen:
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		return ctx
+	}
+	return gl.ctx
+}
+
+// maxGalleryLoadSessions bounds the per-session load records; the least
+// recently used one (in practice a page that has been reloaded) is dropped.
+const maxGalleryLoadSessions = 16
+
+// galleryLoad is one gallery's current load (see beginNumberedGalleryLoad).
+type galleryLoad struct {
+	ctx    context.Context
+	cancel context.CancelFunc
+	gen    int64
+	used   uint64
+}
+
+func (gl *galleryLoad) restart() {
+	if gl.cancel != nil {
+		gl.cancel()
+	}
+	gl.ctx, gl.cancel = context.WithCancel(context.Background())
+}
+
+// galleryLoadLocked returns session's load record, creating it (and dropping
+// the least recently used record past maxGalleryLoadSessions). Callers hold
+// galleryLoadMu.
+func (a *App) galleryLoadLocked(session string) *galleryLoad {
+	a.galleryLoadTick++
+	if a.galleryLoads == nil {
+		a.galleryLoads = make(map[string]*galleryLoad)
+	}
+	gl := a.galleryLoads[session]
+	if gl == nil {
+		if len(a.galleryLoads) >= maxGalleryLoadSessions {
+			var oldest string
+			var oldestUsed uint64
+			first := true
+			for k, v := range a.galleryLoads {
+				if first || v.used < oldestUsed {
+					oldest, oldestUsed, first = k, v.used, false
+				}
+			}
+			if old := a.galleryLoads[oldest]; old.cancel != nil {
+				old.cancel()
+			}
+			delete(a.galleryLoads, oldest)
+		}
+		gl = &galleryLoad{}
+		a.galleryLoads[session] = gl
+	}
+	gl.used = a.galleryLoadTick
+	return gl
 }
 
 // GetFolderClips returns clips tagged with the given tag but NOT tagged with any
@@ -1030,6 +1230,10 @@ type ClipListRequest struct {
 	SortDir       string  `json:"sort_dir"`
 	Offset        int     `json:"offset"`
 	Limit         int     `json:"limit"`
+	// LoadSession and LoadGen identify the desktop gallery load a request
+	// belongs to (see beginNumberedGalleryLoad); REST ignores them.
+	LoadSession string `json:"load_session,omitempty"`
+	LoadGen     int64  `json:"load_gen,omitempty"`
 }
 
 // ClipPage is one page of a listing plus the size of the whole listing, so
@@ -1041,20 +1245,44 @@ type ClipPage struct {
 	HasMore bool          `json:"has_more"`
 }
 
+// GetLibraryVersion returns the library change counter, which every write to
+// clips, clip_tags or tags bumps (ensureLibraryVersion), whoever makes it. The
+// gallery compares it with the value it read before its last load to decide
+// whether a refocus needs a reload. It only ever grows within one database.
+func (a *App) GetLibraryVersion() (int64, error) {
+	var v int64
+	if err := a.db.QueryRow(`SELECT version FROM library_version WHERE id = 1`).Scan(&v); err != nil {
+		return 0, fmt.Errorf("failed to read library version: %w", err)
+	}
+	return v, nil
+}
+
 // maxClipPageLimit bounds a single page; the gallery asks for defaultClipLimit.
 const maxClipPageLimit = 200
 
 // ListClipsPage returns one page of a gallery listing and its total. Pages are
 // ordered exactly like the unpaged listing functions (ties broken by id), so
 // walking the offsets visits every clip once while the library is unchanged.
+//
+// A request carrying LoadSession/LoadGen (the desktop gallery) supersedes,
+// joins or is refused by the current gallery load by generation
+// (beginNumberedGalleryLoad). Without them, a first page (offset 0) starts a
+// new gallery load and cancels the previous one's query (beginGalleryLoad),
+// and later pages join the load in progress.
 func (a *App) ListClipsPage(req ClipListRequest) (ClipPage, error) {
-	return a.listClipsPage(req, "")
+	var ctx context.Context
+	if req.LoadSession != "" {
+		ctx = a.beginNumberedGalleryLoad(req.LoadSession, req.LoadGen)
+	} else {
+		ctx = a.beginGalleryLoad(req.Offset <= 0)
+	}
+	return a.listClipsPage(ctx, req, "")
 }
 
 // listClipsPage is ListClipsPage, optionally narrowed to one exact content
 // type (REST `content_type`). It is not a ClipListRequest field so the bound
 // type, and the frontend bindings generated from it, stay unchanged.
-func (a *App) listClipsPage(req ClipListRequest, contentType string) (ClipPage, error) {
+func (a *App) listClipsPage(ctx context.Context, req ClipListRequest, contentType string) (ClipPage, error) {
 	limit := req.Limit
 	if limit <= 0 {
 		limit = defaultClipLimit
@@ -1106,14 +1334,14 @@ func (a *App) listClipsPage(req ClipListRequest, contentType string) (ClipPage, 
 		q.args = append(q.args, contentType)
 	}
 
-	clips, total, consumed, err := a.queryClipPreviewsCounted(q, offset, limit)
+	clips, total, consumed, err := a.queryClipPreviewsCountedCtx(ctx, q, offset, limit)
 	if err != nil {
 		return ClipPage{}, err
 	}
 	if len(clips) == 0 && (offset > 0 || consumed > 0) {
 		// A page past the end, or one whose only rows were unreadable, has no
 		// row to carry the window count.
-		if total, err = a.countClips(q); err != nil {
+		if total, err = a.countClips(ctx, q); err != nil {
 			return ClipPage{}, err
 		}
 	}
@@ -1172,9 +1400,7 @@ func (a *App) GetHiddenClipInfo(archived bool, tagIDs []int64, hiddenTagIDs []in
 
 	where := strings.Join(conditions, "\n\t\t  AND ")
 
-	if err := a.db.QueryRow(
-		fmt.Sprintf("SELECT COUNT(DISTINCT c.id) FROM clips c WHERE %s", where), args...,
-	).Scan(&info.Count); err != nil {
+	if err := a.db.QueryRow(hiddenClipCountSQL(where), args...).Scan(&info.Count); err != nil {
 		return info, fmt.Errorf("failed to count hidden clips: %w", err)
 	}
 	if info.Count == 0 {
@@ -1186,14 +1412,7 @@ func (a *App) GetHiddenClipInfo(archived bool, tagIDs []int64, hiddenTagIDs []in
 	for _, id := range scope.effectiveHidden {
 		nameArgs = append(nameArgs, id)
 	}
-	rows, err := a.db.Query(fmt.Sprintf(`
-		SELECT DISTINCT t.name
-		FROM clips c
-		INNER JOIN clip_tags ct ON ct.clip_id = c.id
-		INNER JOIN tags t ON t.id = ct.tag_id
-		WHERE %s
-		  AND t.id IN (%s)
-		ORDER BY t.name`, where, hiddenIn), nameArgs...)
+	rows, err := a.db.Query(hiddenClipTagsSQL(where, hiddenIn), nameArgs...)
 	if err != nil {
 		return info, fmt.Errorf("failed to list hidden tags: %w", err)
 	}
@@ -1206,6 +1425,24 @@ func (a *App) GetHiddenClipInfo(archived bool, tagIDs []int64, hiddenTagIDs []in
 		info.Tags = append(info.Tags, name)
 	}
 	return info, rows.Err()
+}
+
+func hiddenClipCountSQL(where string) string {
+	return fmt.Sprintf("SELECT COUNT(DISTINCT c.id) FROM clips c INDEXED BY "+clipListingIndex+" WHERE %s", where)
+}
+
+// hiddenClipTagsSQL names the hidden tags carried by the clips where selects.
+// The clips filter is an IN subquery so it runs off a covering listing index;
+// joined, the planner may look each clip up in the table, and expires_at is
+// stored after the data blob.
+func hiddenClipTagsSQL(where, hiddenIn string) string {
+	return fmt.Sprintf(`
+		SELECT DISTINCT t.name
+		FROM clip_tags ct
+		INNER JOIN tags t ON t.id = ct.tag_id
+		WHERE ct.clip_id IN (SELECT c.id FROM clips c INDEXED BY `+clipListingIndex+` WHERE %s)
+		  AND t.id IN (%s)
+		ORDER BY t.name`, where, hiddenIn)
 }
 
 // tagFilterGroup is one active tag filter, expanded to the tag IDs that satisfy
@@ -1290,29 +1527,16 @@ func (a *App) getClipsInternal(archived bool, tagIDs []int64, hiddenTagIDs []int
 // clipListQuery is a gallery listing's WHERE clause, its arguments and its
 // ORDER BY, shared by the page query and the total count so both always agree.
 type clipListQuery struct {
-	where string
-	args  []interface{}
-	order string
+	where     string
+	args      []interface{}
+	order     string // over the page query's filtered rows (f.)
+	pageOrder string // over the page query's outer pass (page.)
 }
 
 func (a *App) buildClipListQuery(archived bool, tagIDs []int64, hiddenTagIDs []int64, sortField string, sortDir string, expandFilters bool, search *clipSearchSpec, wantUntagged bool) clipListQuery {
 	archivedInt := 0
 	if archived {
 		archivedInt = 1
-	}
-
-	col := sortColumn(sortField)
-	dir := "DESC"
-	if sortDir == "asc" {
-		dir = "ASC"
-	}
-	orderClause := fmt.Sprintf("ORDER BY %s %s", col, dir)
-	if col != "c.created_at" {
-		orderClause += ", c.created_at DESC, c.id DESC"
-	} else if dir == "DESC" {
-		orderClause += ", c.id DESC"
-	} else {
-		orderClause += ", c.id ASC"
 	}
 
 	scope := a.buildClipFilterScope(tagIDs, hiddenTagIDs, expandFilters)
@@ -1347,12 +1571,22 @@ func (a *App) buildClipListQuery(archived bool, tagIDs []int64, hiddenTagIDs []i
 	conds = append(conds, "c.is_archived = ?", "(c.expires_at IS NULL OR c.expires_at > CURRENT_TIMESTAMP)")
 	args = append(args, archivedInt)
 
-	return clipListQuery{where: strings.Join(conds, "\n\t\t  AND "), args: args, order: orderClause}
+	return clipListQuery{
+		where:     strings.Join(conds, "\n\t\t  AND "),
+		args:      args,
+		order:     clipOrderBy(sortField, sortDir, "f."),
+		pageOrder: clipOrderBy(sortField, sortDir, "page."),
+	}
 }
 
-func (a *App) countClips(q clipListQuery) (int, error) {
+// countClipsSQL counts a listing's whole filtered set, off the listing index.
+func countClipsSQL(where string) string {
+	return "SELECT COUNT(*) FROM clips c INDEXED BY " + clipListingIndex + " WHERE " + where
+}
+
+func (a *App) countClips(ctx context.Context, q clipListQuery) (int, error) {
 	var n int
-	if err := a.db.QueryRow("SELECT COUNT(*) FROM clips c WHERE "+q.where, q.args...).Scan(&n); err != nil {
+	if err := a.db.QueryRowContext(ctx, countClipsSQL(q.where), q.args...).Scan(&n); err != nil {
 		return 0, fmt.Errorf("failed to count clips: %w", err)
 	}
 	return n, nil
@@ -1363,33 +1597,65 @@ func (a *App) queryClipPreviews(q clipListQuery, offset, limit int) ([]ClipPrevi
 	return clips, err
 }
 
-// queryClipPreviewsCounted returns one page of previews plus the size of the
-// whole listing, in one pass. The filter (which for a content search scans
-// every text clip's bytes) runs once, in an inner query that keeps only ids and
-// the window count; the preview columns are read for the page's rows alone.
-// The total is 0 when the page is empty — the caller recounts if it needs to.
-func (a *App) queryClipPreviewsCounted(q clipListQuery, offset, limit int) ([]ClipPreview, int, int, error) {
-	selectCols := `c.id, c.content_type, c.filename, c.created_at, c.expires_at, SUBSTR(c.data, 1, 500), c.is_archived, LENGTH(c.data),
-		       (SELECT COUNT(*) FROM clips c2 WHERE c2.content_hash = c.content_hash AND c2.content_hash != '' AND c2.id != c.id),
-		       page.total`
-	query := fmt.Sprintf(`
-		SELECT %s
+// clipPageSQL is the page query run by queryClipPreviewsCounted.
+//
+// f is the filter, and reads clips only through a covering listing index
+// (idx_clips_page_*): every column it returns but id and content_type is
+// stored after the data blob, so a table read would walk the row's overflow
+// chain. It stays a separate derived table because SQLite will not match the
+// LENGTH(data) expression index once it is folded into the window query.
+// The outer join to clips is for the text preview alone.
+func clipPageSQL(q clipListQuery, offset, limit int) string {
+	return fmt.Sprintf(`
+		SELECT page.id, page.content_type, page.filename, page.created_at, page.expires_at, %s, page.is_archived, page.size,
+		       (SELECT COUNT(*) FROM clips c2 WHERE c2.content_hash = page.content_hash AND page.content_hash != '' AND c2.id != page.id),
+		       page.total, COALESCE(page.content_hash, '')
 		FROM (
-			SELECT c.id AS id, COUNT(*) OVER () AS total
-			FROM clips c
-			WHERE %s
+			SELECT f.*, COUNT(*) OVER () AS total
+			FROM (
+				SELECT c.id AS id, c.content_type AS content_type, c.filename AS filename, c.created_at AS created_at,
+				       c.expires_at AS expires_at, c.is_archived AS is_archived, c.content_hash AS content_hash,
+				       LENGTH(c.data) AS size
+				FROM clips c INDEXED BY %s
+				WHERE %s
+			) f
 			%s
 			LIMIT %d OFFSET %d
 		) page
 		INNER JOIN clips c ON c.id = page.id
-		%s`, selectCols, q.where, q.order, limit, offset, q.order)
+		%s`, clipPreviewExpr("c."), clipListingIndex, q.where, q.order, limit, offset, q.pageOrder)
+}
+
+// queryClipPreviewsCounted returns one page of previews plus the size of the
+// whole listing, in one pass. The filter (which for a content search scans
+// every text clip's bytes) runs once, in an inner query that runs off a
+// covering listing index (idx_clips_page_*) and returns every non-blob column
+// the page needs plus the window count (see clipPageSQL); the outer join to
+// clips reads only the text preview.
+// The total is 0 when the page is empty — the caller recounts if it needs to.
+func (a *App) queryClipPreviewsCounted(q clipListQuery, offset, limit int) ([]ClipPreview, int, int, error) {
+	return a.queryClipPreviewsCountedCtx(context.Background(), q, offset, limit)
+}
+
+// clipListingQueryHook, when set (tests only), runs once the page query has
+// started returning rows, before they are read.
+var clipListingQueryHook func(ctx context.Context)
+
+func (a *App) queryClipPreviewsCountedCtx(ctx context.Context, q clipListQuery, offset, limit int) ([]ClipPreview, int, int, error) {
+	query := clipPageSQL(q, offset, limit)
 	args := q.args
 
-	rows, err := a.db.Query(query, args...)
+	rows, err := a.db.QueryContext(ctx, query, args...)
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, 0, 0, fmt.Errorf("clip listing superseded: %w", ctx.Err())
+		}
 		return nil, 0, 0, fmt.Errorf("failed to query clips: %w", err)
 	}
 	defer rows.Close()
+	if clipListingQueryHook != nil {
+		clipListingQueryHook(ctx)
+	}
 
 	var clips []ClipPreview
 	var clipIDs []int64
@@ -1406,7 +1672,7 @@ func (a *App) queryClipPreviewsCounted(q clipListQuery, offset, limit int) ([]Cl
 		// One unreadable row is skipped rather than failing the whole page:
 		// the caller derives has_more from `consumed`, not the page length.
 		var rowTotal int
-		if err := rows.Scan(&clip.ID, &clip.ContentType, &filename, &clip.CreatedAt, &expiresAt, &previewData, &isArchivedInt, &clip.Size, &clip.DuplicateCount, &rowTotal); err != nil {
+		if err := rows.Scan(&clip.ID, &clip.ContentType, &filename, &clip.CreatedAt, &expiresAt, &previewData, &isArchivedInt, &clip.Size, &clip.DuplicateCount, &rowTotal, &clip.ContentHash); err != nil {
 			log.Printf("Skipping unreadable clip row: %v", err)
 			continue
 		}
@@ -1432,7 +1698,16 @@ func (a *App) queryClipPreviewsCounted(q clipListQuery, offset, limit int) ([]Cl
 	// An error mid-iteration (a busy database, an I/O error) ends the loop
 	// like the last row does; without this check it read as a short page.
 	if err := rows.Err(); err != nil {
+		if ctx.Err() != nil {
+			return nil, 0, 0, fmt.Errorf("clip listing superseded: %w", ctx.Err())
+		}
 		return nil, 0, 0, fmt.Errorf("failed to read clips: %w", err)
+	}
+	// A load superseded after its last row was read is still superseded:
+	// database/sql closes the rows on cancellation asynchronously, so the
+	// loop above may have ended normally.
+	if ctx.Err() != nil {
+		return nil, 0, 0, fmt.Errorf("clip listing superseded: %w", ctx.Err())
 	}
 
 	// Batch load tags for all clips (fixes N+1 query problem)
@@ -1510,10 +1785,15 @@ func (a *App) GetClipData(id int64) (*ClipData, error) {
 		return nil, fmt.Errorf("failed to get clip: %w", err)
 	}
 
+	return encodeClipData(id, contentType, filename.String, data), nil
+}
+
+// encodeClipData builds the bridge payload for one clip revision's bytes.
+func encodeClipData(id int64, contentType, filename string, data []byte) *ClipData {
 	clip := &ClipData{
 		ID:           id,
 		ContentType:  contentType,
-		Filename:     filename.String,
+		Filename:     filename,
 		ValidUTF8:    utf8.Valid(data),
 		DataEncoding: "base64",
 	}
@@ -1538,8 +1818,81 @@ func (a *App) GetClipData(id int64) (*ClipData, error) {
 		clip.Data = base64.StdEncoding.EncodeToString(data)
 	}
 
-	return clip, nil
+	return clip
 }
+
+// maxEditableTextBytes mirrors TextCodec.MAX_EDITABLE_BYTES
+// (frontend/src/text-editor/text-codec.js), which remains the authority: the
+// frontend still refuses an oversized decode. This copy exists only so the
+// size can be checked before the bytes are read and shipped — opening a 200 MB
+// log used to serialize the whole clip over IPC just to show "too large".
+// TestMaxEditableTextBytesMatchesTextCodec keeps the two in step.
+const maxEditableTextBytes = 16 * 1024 * 1024
+
+// textEditCapApplies reports whether the editor opens a clip of this type as
+// text (and so applies the 16 MiB cap). It matches editor.js isImageType: every
+// image/* type goes to the image editor, everything else to the text editor.
+func textEditCapApplies(contentType string) bool {
+	return !strings.HasPrefix(contentType, "image/")
+}
+
+// GetClipText is the editor's read. It is GetClipData, except that a text clip
+// over maxEditableTextBytes comes back as {too_large, size} without its bytes,
+// decided from octet_length(data) — answered from the record header, never by
+// loading the blob.
+//
+// The measure and the read are separate statements, so the read carries the
+// cap itself (clipTextGuardSQL): an overwrite landing between them cannot get
+// an over-cap blob selected. A guarded read that finds no row means the clip
+// changed (grew, was retyped, or went away); measure again and decide afresh.
+func (a *App) GetClipText(id int64) (*ClipData, error) {
+	for attempt := 0; attempt < guardedBlobReadAttempts; attempt++ {
+		var contentType string
+		var filename sql.NullString
+		var size int64
+		err := a.db.QueryRow("SELECT content_type, filename, octet_length(data) FROM clips WHERE id = ?", id).
+			Scan(&contentType, &filename, &size)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				return nil, fmt.Errorf("clip not found")
+			}
+			return nil, fmt.Errorf("failed to get clip: %w", err)
+		}
+		if textEditCapApplies(contentType) && size > maxEditableTextBytes {
+			return &ClipData{
+				ID:           id,
+				ContentType:  contentType,
+				Filename:     filename.String,
+				DataEncoding: "base64",
+				Size:         size,
+				TooLarge:     true,
+			}, nil
+		}
+
+		var data []byte
+		err = a.db.QueryRow("SELECT content_type, data, filename FROM clips WHERE id = ? AND "+clipTextGuardSQL, id, maxEditableTextBytes).
+			Scan(&contentType, &data, &filename)
+		if err == sql.ErrNoRows {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to get clip: %w", err)
+		}
+		return encodeClipData(id, contentType, filename.String, data), nil
+	}
+	return nil, fmt.Errorf("clip %d kept changing while it was read", id)
+}
+
+// guardedBlobReadAttempts bounds the measure/guarded-read retries of a
+// size-checked blob read. A miss needs a concurrent write each time, so this
+// is only ever exhausted by a clip being rewritten continuously.
+const guardedBlobReadAttempts = 3
+
+// clipTextGuardSQL is the text editor's cap as a WHERE condition, binding
+// maxEditableTextBytes once: image types (which the image editor opens, with
+// no cap) pass, anything else only while its blob is within the cap. It
+// matches textEditCapApplies — a case-sensitive "image/" prefix.
+const clipTextGuardSQL = "(substr(content_type, 1, 6) = 'image/' OR octet_length(data) <= ?)"
 
 // UploadFileAndGetID uploads a single file and returns the clip ID
 func (a *App) UploadFileAndGetID(file FileData) (int64, error) {
@@ -1659,7 +2012,7 @@ func (a *App) UploadFiles(files []FileData, expirationMinutes int, autoTagID int
 
 		// Emit plugin event
 		if a.pluginManager != nil {
-			a.pluginManager.EmitEvent("clip:created", map[string]interface{}{
+			a.emitPluginEvent("clip:created", map[string]interface{}{
 				"id":           clipID,
 				"content_type": contentType,
 				"filename":     file.Name,
@@ -1733,6 +2086,29 @@ type ClipMatch struct {
 	ContentHash string `json:"content_hash"`
 }
 
+// findClipsByFilenameSQL is FindClipsByFilenameAndTag's lookup. It seeks the
+// filename index, which covers every column it reads; the tag is an IN
+// subquery rather than a join so the planner never drives from clip_tags and
+// looks each clip up in the table (filename is stored after the data blob).
+func findClipsByFilenameSQL(inClause string, tagged bool) string {
+	if tagged {
+		return fmt.Sprintf(`
+			SELECT c.id, c.filename, c.content_hash
+			FROM clips c INDEXED BY %s
+			WHERE c.id IN (SELECT ct.clip_id FROM clip_tags ct WHERE ct.tag_id = ?)
+			AND c.filename IN (%s)
+			AND c.is_archived = 0
+			ORDER BY c.id DESC`, clipFilenameIndex, inClause)
+	}
+	return fmt.Sprintf(`
+			SELECT c.id, c.filename, c.content_hash
+			FROM clips c INDEXED BY %s
+			WHERE c.filename IN (%s)
+			AND c.is_archived = 0
+			AND c.id NOT IN (SELECT clip_id FROM clip_tags)
+			ORDER BY c.id DESC`, clipFilenameIndex, inClause)
+}
+
 // FindClipsByFilenameAndTag returns clips matching any of the given filenames
 // within a specific tag. When tagID is 0, matches untagged clips only.
 func (a *App) FindClipsByFilenameAndTag(filenames []string, tagID int64) ([]ClipMatch, error) {
@@ -1749,24 +2125,9 @@ func (a *App) FindClipsByFilenameAndTag(filenames []string, tagID int64) ([]Clip
 	}
 	inClause := strings.Join(placeholders, ", ")
 
-	var query string
+	query := findClipsByFilenameSQL(inClause, tagID > 0)
 	if tagID > 0 {
-		query = fmt.Sprintf(`
-			SELECT c.id, c.filename, c.content_hash
-			FROM clips c
-			JOIN clip_tags ct ON c.id = ct.clip_id
-			WHERE ct.tag_id = ? AND c.filename IN (%s)
-			AND c.is_archived = 0
-			ORDER BY c.id DESC`, inClause)
 		args = append([]interface{}{tagID}, args...)
-	} else {
-		query = fmt.Sprintf(`
-			SELECT c.id, c.filename, c.content_hash
-			FROM clips c
-			WHERE c.filename IN (%s)
-			AND c.is_archived = 0
-			AND c.id NOT IN (SELECT clip_id FROM clip_tags)
-			ORDER BY c.id DESC`, inClause)
 	}
 
 	rows, err := a.db.Query(query, args...)
@@ -1867,7 +2228,7 @@ func (a *App) DeleteClip(id int64) error {
 
 	// Emit plugin event
 	if a.pluginManager != nil {
-		a.pluginManager.EmitEvent("clip:deleted", id)
+		a.emitPluginEvent("clip:deleted", id)
 	}
 	return nil
 }
@@ -1983,7 +2344,7 @@ func (a *App) MergeDuplicates(clipID int64) error {
 	// Emit plugin events
 	if a.pluginManager != nil {
 		for _, dupID := range duplicateIDs {
-			a.pluginManager.EmitEvent("clip:deleted", dupID)
+			a.emitPluginEvent("clip:deleted", dupID)
 		}
 	}
 
@@ -2055,11 +2416,11 @@ func (a *App) ToggleArchive(id int64) error {
 		var isArchived int
 		a.db.QueryRow("SELECT is_archived FROM clips WHERE id = ?", id).Scan(&isArchived)
 		if isArchived == 1 {
-			a.pluginManager.EmitEvent("clip:archived", map[string]interface{}{
+			a.emitPluginEvent("clip:archived", map[string]interface{}{
 				"id": id,
 			})
 		} else {
-			a.pluginManager.EmitEvent("clip:unarchived", map[string]interface{}{
+			a.emitPluginEvent("clip:unarchived", map[string]interface{}{
 				"id": id,
 			})
 		}
@@ -2453,7 +2814,7 @@ func (a *App) DeleteTag(id int64) error {
 
 	// Emit plugin event (unchanged name, existing handler)
 	if a.pluginManager != nil {
-		a.pluginManager.EmitEvent("tag:deleted", id)
+		a.emitPluginEvent("tag:deleted", id)
 	}
 	// Emit Wails runtime event so the frontend can re-resolve folder view.
 	a.emitEvent("tag:deleted", map[string]any{"id": id, "name": name})
@@ -2722,7 +3083,7 @@ func (a *App) MergeTag(sourceID, destID int64) error {
 
 	// Emit events.
 	if a.pluginManager != nil {
-		a.pluginManager.EmitEvent("tag:merged", map[string]interface{}{
+		a.emitPluginEvent("tag:merged", map[string]interface{}{
 			"source_id": sourceID, "dest_id": destID,
 			"source_name": srcName, "dest_name": dstName,
 		})
@@ -3034,7 +3395,7 @@ func (a *App) addTagToClip(clipID, tagID int64, yieldToPlacement bool, epoch *ui
 	// triggers itself forever. The exclusivity removals above never announced
 	// themselves, so a move within a tree remains one added event.
 	if newlyTagged && a.pluginManager != nil {
-		a.pluginManager.EmitEvent("tag:added_to_clip", map[string]interface{}{
+		a.emitPluginEvent("tag:added_to_clip", map[string]interface{}{
 			"tag_id":  tagID,
 			"clip_id": clipID,
 		})
@@ -3084,7 +3445,7 @@ func (a *App) RemoveTagFromClip(clipID, tagID int64) error {
 	// a handler re-removing the tag on tag:removed_from_clip would otherwise
 	// trigger itself forever.
 	if n, rerr := res.RowsAffected(); rerr == nil && n > 0 && a.pluginManager != nil {
-		a.pluginManager.EmitEvent("tag:removed_from_clip", map[string]interface{}{
+		a.emitPluginEvent("tag:removed_from_clip", map[string]interface{}{
 			"tag_id":  tagID,
 			"clip_id": clipID,
 		})
@@ -3165,7 +3526,7 @@ func (a *App) announceClipTagRemovals(removed []clipTagRemoval) {
 		return
 	}
 	for _, r := range removed {
-		a.pluginManager.EmitEvent("tag:removed_from_clip", map[string]interface{}{
+		a.emitPluginEvent("tag:removed_from_clip", map[string]interface{}{
 			"tag_id":  r.tagID,
 			"clip_id": r.clipID,
 		})
@@ -3413,31 +3774,85 @@ func (a *App) getTopLevelTags() ([]Tag, error) {
 // given tag or any of its descendants, counting only clips that folder mode
 // would actually show: matching the archive view and not yet expired.
 func (a *App) getDescendantClipCount(tagID int64, archived bool) (int, error) {
-	var parentName string
-	err := a.db.QueryRow("SELECT name FROM tags WHERE id = ?", tagID).Scan(&parentName)
-	if err != nil {
+	var exists int
+	if err := a.db.QueryRow("SELECT 1 FROM tags WHERE id = ?", tagID).Scan(&exists); err != nil {
 		return 0, fmt.Errorf("failed to find tag %d: %w", tagID, err)
 	}
+	counts, err := a.getDescendantClipCounts([]int64{tagID}, archived)
+	if err != nil {
+		return 0, err
+	}
+	return counts[tagID], nil
+}
 
+// descendantClipCountsChunk bounds the tag IDs bound into one count query.
+const descendantClipCountsChunk = 500
+
+// descendantClipCountsSQL counts, for each of n parent tags, the distinct
+// clips tagged with the parent or anything under it that are live in the
+// requested archive state. The live set is an IN subquery so it is read from
+// a covering listing index once: a join would look each clip up in the table,
+// and expires_at — stored after the data blob — would walk the overflow chain
+// of every clip with an expiry.
+func descendantClipCountsSQL(n int) string {
+	return `
+		SELECT p.id, COUNT(DISTINCT ct.clip_id)
+		FROM tags p
+		INNER JOIN tags t ON (t.id = p.id OR ` + underTagColSQL("t.name", "p.name") + `)
+		INNER JOIN clip_tags ct ON ct.tag_id = t.id
+		WHERE p.id IN (` + strings.TrimSuffix(strings.Repeat("?,", n), ",") + `)
+		  AND ct.clip_id IN (
+			SELECT c.id FROM clips c INDEXED BY ` + clipListingIndex + `
+			WHERE c.is_archived = ?
+			  AND (c.expires_at IS NULL OR c.expires_at > CURRENT_TIMESTAMP)
+		  )
+		GROUP BY p.id`
+}
+
+// getDescendantClipCounts is getDescendantClipCount for many tags in one
+// query per chunk. A tag that does not exist (or has no live clips) maps to 0.
+func (a *App) getDescendantClipCounts(tagIDs []int64, archived bool) (map[int64]int, error) {
 	archivedInt := 0
 	if archived {
 		archivedInt = 1
 	}
-
-	var count int
-	err = a.db.QueryRow(`
-		SELECT COUNT(DISTINCT ct.clip_id)
-		FROM clip_tags ct
-		INNER JOIN tags t ON ct.tag_id = t.id
-		INNER JOIN clips c ON c.id = ct.clip_id
-		WHERE (t.id = ? OR `+underTagSQL("t.name")+`)
-		  AND c.is_archived = ?
-		  AND (c.expires_at IS NULL OR c.expires_at > CURRENT_TIMESTAMP)
-	`, tagID, parentName, parentName, archivedInt).Scan(&count)
-	if err != nil {
-		return 0, fmt.Errorf("failed to count descendant clips: %w", err)
+	counts := make(map[int64]int, len(tagIDs))
+	seen := make(map[int64]bool, len(tagIDs))
+	unique := make([]int64, 0, len(tagIDs))
+	for _, id := range tagIDs {
+		if !seen[id] {
+			seen[id] = true
+			unique = append(unique, id)
+			counts[id] = 0
+		}
 	}
-	return count, nil
+	for start := 0; start < len(unique); start += descendantClipCountsChunk {
+		chunk := unique[start:min(start+descendantClipCountsChunk, len(unique))]
+		args := make([]interface{}, 0, len(chunk)+1)
+		for _, id := range chunk {
+			args = append(args, id)
+		}
+		args = append(args, archivedInt)
+		rows, err := a.db.Query(descendantClipCountsSQL(len(chunk)), args...)
+		if err != nil {
+			return nil, fmt.Errorf("failed to count descendant clips: %w", err)
+		}
+		for rows.Next() {
+			var id int64
+			var n int
+			if err := rows.Scan(&id, &n); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("failed to read descendant clip count: %w", err)
+			}
+			counts[id] = n
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return nil, fmt.Errorf("failed to count descendant clips: %w", err)
+		}
+	}
+	return counts, nil
 }
 
 // GetChildTags returns immediate child tags of the given tag (exported for Wails binding).
@@ -3453,6 +3868,14 @@ func (a *App) GetTopLevelTags() ([]Tag, error) {
 // GetDescendantClipCount returns total clip count for a tag and all descendants (exported for Wails binding).
 func (a *App) GetDescendantClipCount(tagID int64, archived bool) (int, error) {
 	return a.getDescendantClipCount(tagID, archived)
+}
+
+// GetDescendantClipCounts is GetDescendantClipCount for every folder card in
+// one call: tag ID → count of live clips under it (0 for a missing tag), with
+// the same archive and expiry filters as the folder listing, so a card's count
+// always matches what opening it shows.
+func (a *App) GetDescendantClipCounts(tagIDs []int64, archived bool) (map[int64]int, error) {
+	return a.getDescendantClipCounts(tagIDs, archived)
 }
 
 // BulkAddTag adds a tag to multiple clips
@@ -3585,7 +4008,7 @@ func (a *App) BulkAddTag(clipIDs []int64, tagID int64) error {
 	// already had it changed nothing and is not announced.
 	if a.pluginManager != nil {
 		for _, clipID := range newlyTagged {
-			a.pluginManager.EmitEvent("tag:added_to_clip", map[string]interface{}{
+			a.emitPluginEvent("tag:added_to_clip", map[string]interface{}{
 				"tag_id":  tagID,
 				"clip_id": clipID,
 			})
@@ -3645,7 +4068,7 @@ func (a *App) BulkRemoveTag(clipIDs []int64, tagID int64) error {
 				continue
 			}
 			delete(removed, clipID)
-			a.pluginManager.EmitEvent("tag:removed_from_clip", map[string]interface{}{
+			a.emitPluginEvent("tag:removed_from_clip", map[string]interface{}{
 				"tag_id":  tagID,
 				"clip_id": clipID,
 			})
@@ -3838,8 +4261,11 @@ func (a *App) CreateTempFile(id int64) (string, error) {
 	return item.AbsPath, nil
 }
 
-// DeleteAllTempFiles deletes all files from the temp directory
+// DeleteAllTempFiles deletes all files from the temp directory. A restore
+// calls it after replacing the library, so it also sweeps thumbnails whose
+// hash the restored library no longer holds.
 func (a *App) DeleteAllTempFiles() error {
+	a.thumbCache.DropOrphansSoon()
 	if a.tempStore == nil {
 		return nil
 	}

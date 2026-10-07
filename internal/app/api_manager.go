@@ -305,9 +305,12 @@ func (am *APIManager) Start(port int, bindAll bool) (APIStatus, error) {
 	if !am.routesRegistered {
 		mux := am.mux
 		mux.HandleFunc("GET /api/v1/clips", am.authMiddleware(am.requireRole("viewer", am.handleListClips)))
+		mux.HandleFunc("GET /api/v1/library/version", am.authMiddleware(am.requireRole("viewer", am.handleLibraryVersion)))
+		mux.HandleFunc("GET /api/v1/library/plugin-writes", am.authMiddleware(am.requireRole("viewer", am.handlePluginLibraryWrites)))
 		mux.HandleFunc("GET /api/v1/clips/hidden-info", am.authMiddleware(am.requireRole("viewer", am.handleHiddenClipInfo)))
 		mux.HandleFunc("GET /api/v1/clips/{id}", am.authMiddleware(am.requireRole("viewer", am.handleGetClip)))
 		mux.HandleFunc("GET /api/v1/clips/{id}/data", am.authMiddleware(am.requireRole("viewer", am.handleGetClipData)))
+		mux.HandleFunc("GET /api/v1/clips/{id}/thumb", am.authMiddleware(am.requireRole("viewer", am.handleGetClipThumb)))
 		mux.HandleFunc("GET /api/v1/clips/{id}/text", am.authMiddleware(am.requireRole("viewer", am.handleGetClipText)))
 		mux.HandleFunc("POST /api/v1/clips", am.authMiddleware(am.requireRole("editor", am.handleCreateClip)))
 		mux.HandleFunc("DELETE /api/v1/clips/{id}", am.authMiddleware(am.requireRole("editor", am.handleDeleteClip)))
@@ -348,6 +351,7 @@ func (am *APIManager) Start(port int, bindAll bool) (APIStatus, error) {
 		mux.HandleFunc("GET /api/v1/tags/{id}/children", am.authMiddleware(am.requireRole("viewer", am.handleGetChildTags)))
 		mux.HandleFunc("GET /api/v1/tags/{id}/clips", am.authMiddleware(am.requireRole("viewer", am.handleGetTagClips)))
 		mux.HandleFunc("GET /api/v1/tags/hidden", am.authMiddleware(am.requireRole("viewer", am.handleGetHiddenTags)))
+		mux.HandleFunc("GET /api/v1/tags/clip-counts", am.authMiddleware(am.requireRole("viewer", am.handleTagClipCounts)))
 		mux.HandleFunc("PUT /api/v1/tags/hidden", am.authMiddleware(am.requireRole("admin", am.handleSetHiddenTags)))
 		mux.HandleFunc("POST /api/v1/tags/{id}/merge-preview", am.authMiddleware(am.requireRole("admin", am.handlePreviewMergeTag)))
 
@@ -1040,6 +1044,38 @@ func (am *APIManager) enforceTagScope(keyCtx *apiKeyContext, clipID int64) error
 }
 
 // isTagInScope returns true if the given tag name is the scoped tag itself or a descendant of it.
+// tagIDsInScopeSQL selects which of n tag IDs are the scoped tag (the first
+// parameter) or under it — isTagInScope for a whole list in one query.
+func tagIDsInScopeSQL(n int) string {
+	return `SELECT t.id FROM tags t, tags s
+		WHERE s.id = ? AND t.id IN (` + strings.TrimSuffix(strings.Repeat("?,", n), ",") + `)
+		  AND (t.id = s.id OR ` + underTagColSQL("t.name", "s.name") + `)`
+}
+
+// tagIDsInScope returns the IDs among tagIDs that a key scoped to scopedTagID
+// may see. A missing tag is never in scope.
+func (am *APIManager) tagIDsInScope(tagIDs []int64, scopedTagID int64) ([]int64, error) {
+	args := make([]interface{}, 0, len(tagIDs)+1)
+	args = append(args, scopedTagID)
+	for _, id := range tagIDs {
+		args = append(args, id)
+	}
+	rows, err := am.app.db.Query(tagIDsInScopeSQL(len(tagIDs)), args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
 func (am *APIManager) isTagInScope(tagName string, scopedTagID int64) bool {
 	var scopedName string
 	if err := am.app.db.QueryRow("SELECT name FROM tags WHERE id = ?", scopedTagID).Scan(&scopedName); err != nil {
@@ -1058,6 +1094,9 @@ type apiClipResponse struct {
 	IsArchived  bool   `json:"is_archived"`
 	CreatedAt   string `json:"created_at"`
 	Tags        []Tag  `json:"tags"`
+	// ContentHash names the bytes' revision; the web UI puts it in thumbnail
+	// URLs (GET /api/v1/clips/{id}/thumb?h=). Set by the paged listing.
+	ContentHash string `json:"content_hash,omitempty"`
 }
 
 type apiClipListResponse struct {
@@ -1139,73 +1178,29 @@ func (am *APIManager) handleListClips(w http.ResponseWriter, r *http.Request) {
 		args = append(args, pattern, pattern)
 	}
 
-	whereClause := ""
-	if len(conditions) > 0 {
-		whereClause = " AND " + strings.Join(conditions, " AND ")
-	}
-
-	var totalCount int
-	var rows *sql.Rows
-	var err error
-
+	// The tag filter is an IN subquery so the clips side runs off the
+	// listing index: joined, the planner may drive from clip_tags and read
+	// filename/created_at through the table, past each clip's blob.
 	if tagFilter > 0 {
 		// For scoped keys using their scoped tag as the filter, expand to include subtree
-		expandSubtree := keyCtx.ScopedTagID > 0 && tagFilter == keyCtx.ScopedTagID
-		if expandSubtree {
+		if keyCtx.ScopedTagID > 0 && tagFilter == keyCtx.ScopedTagID {
 			var scopedName string
 			am.app.db.QueryRow("SELECT name FROM tags WHERE id = ?", keyCtx.ScopedTagID).Scan(&scopedName)
-
-			// Count
-			countQuery := fmt.Sprintf(`SELECT COUNT(DISTINCT c.id) FROM clips c
-				JOIN clip_tags ct ON c.id = ct.clip_id
+			conditions = append([]string{`c.id IN (SELECT ct.clip_id FROM clip_tags ct
 				JOIN tags t ON ct.tag_id = t.id
-				WHERE (t.id = ? OR `+underTagSQL("t.name")+`)%s`, whereClause)
-			countArgs := append([]interface{}{tagFilter, scopedName, scopedName}, args...)
-			am.app.db.QueryRow(countQuery, countArgs...).Scan(&totalCount)
-
-			// Fetch
-			query := fmt.Sprintf(`SELECT DISTINCT c.id, c.content_type, c.filename, LENGTH(c.data), c.is_archived, c.created_at
-				FROM clips c
-				JOIN clip_tags ct ON c.id = ct.clip_id
-				JOIN tags t ON ct.tag_id = t.id
-				WHERE (t.id = ? OR `+underTagSQL("t.name")+`)%s
-				ORDER BY c.created_at DESC
-				LIMIT ? OFFSET ?`, whereClause)
-			fetchArgs := append([]interface{}{tagFilter, scopedName, scopedName}, args...)
-			fetchArgs = append(fetchArgs, limit, offset)
-			rows, err = am.app.db.Query(query, fetchArgs...)
+				WHERE t.id = ? OR ` + underTagSQL("t.name") + `)`}, conditions...)
+			args = append([]interface{}{tagFilter, scopedName, scopedName}, args...)
 		} else {
-			// Count
-			countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM clips c
-				JOIN clip_tags ct ON c.id = ct.clip_id
-				WHERE ct.tag_id = ?%s`, whereClause)
-			countArgs := append([]interface{}{tagFilter}, args...)
-			am.app.db.QueryRow(countQuery, countArgs...).Scan(&totalCount)
-
-			// Fetch
-			query := fmt.Sprintf(`SELECT c.id, c.content_type, c.filename, LENGTH(c.data), c.is_archived, c.created_at
-				FROM clips c
-				JOIN clip_tags ct ON c.id = ct.clip_id
-				WHERE ct.tag_id = ?%s
-				ORDER BY c.created_at DESC
-				LIMIT ? OFFSET ?`, whereClause)
-			fetchArgs := append([]interface{}{tagFilter}, args...)
-			fetchArgs = append(fetchArgs, limit, offset)
-			rows, err = am.app.db.Query(query, fetchArgs...)
+			conditions = append([]string{"c.id IN (SELECT ct.clip_id FROM clip_tags ct WHERE ct.tag_id = ?)"}, conditions...)
+			args = append([]interface{}{tagFilter}, args...)
 		}
-	} else {
-		// Count
-		countQuery := fmt.Sprintf("SELECT COUNT(*) FROM clips c WHERE 1=1%s", whereClause)
-		am.app.db.QueryRow(countQuery, args...).Scan(&totalCount)
-
-		// Fetch
-		query := fmt.Sprintf(`SELECT c.id, c.content_type, c.filename, LENGTH(c.data), c.is_archived, c.created_at
-			FROM clips c WHERE 1=1%s
-			ORDER BY c.created_at DESC
-			LIMIT ? OFFSET ?`, whereClause)
-		fetchArgs := append(args, limit, offset)
-		rows, err = am.app.db.Query(query, fetchArgs...)
 	}
+	countQuery, query := legacyClipListSQL(conditions)
+
+	var totalCount int
+	am.app.db.QueryRow(countQuery, args...).Scan(&totalCount)
+	fetchArgs := append(append([]interface{}{}, args...), limit, offset)
+	rows, err := am.app.db.Query(query, fetchArgs...)
 
 	if err != nil {
 		am.jsonError(w, http.StatusInternalServerError, "failed to query clips")
@@ -1219,7 +1214,7 @@ func (am *APIManager) handleListClips(w http.ResponseWriter, r *http.Request) {
 		var filename sql.NullString
 		var isArchived int
 
-		if err := rows.Scan(&c.ID, &c.ContentType, &filename, &c.Size, &isArchived, &c.CreatedAt); err != nil {
+		if err := rows.Scan(&c.ID, &c.ContentType, &filename, &c.Size, &isArchived, &c.CreatedAt, &c.ContentHash); err != nil {
 			continue
 		}
 		c.Filename = filename.String
@@ -1242,6 +1237,40 @@ func (am *APIManager) handleListClips(w http.ResponseWriter, r *http.Request) {
 
 // handleHiddenClipInfo reports how many clips the given filters would match if
 // no tags were hidden, so a client can tell the user what it is withholding.
+// handleLibraryVersion returns the library change counter (GetLibraryVersion).
+// It moves on any write anywhere in the library, so it would tell a tag-scoped
+// key about activity outside its subtree: scoped keys are refused, and the web
+// UI treats the refusal as "unknown" and reloads, as it did before the counter.
+func (am *APIManager) handleLibraryVersion(w http.ResponseWriter, r *http.Request) {
+	if getKeyContext(r).ScopedTagID != 0 {
+		am.jsonError(w, http.StatusForbidden, "the library version is not available for tag-scoped keys")
+		return
+	}
+	v, err := am.app.GetLibraryVersion()
+	if err != nil {
+		am.jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	am.jsonOK(w, map[string]int64{"version": v})
+}
+
+// handlePluginLibraryWrites returns GetPluginLibraryWrites: how many plugin
+// event dispatches changed the library. Like the library version it reveals
+// activity outside a tag-scoped key's subtree, so scoped keys are refused and
+// the web UI treats the refusal as "unknown" and reloads instead of patching.
+func (am *APIManager) handlePluginLibraryWrites(w http.ResponseWriter, r *http.Request) {
+	if getKeyContext(r).ScopedTagID != 0 {
+		am.jsonError(w, http.StatusForbidden, "plugin write counts are not available for tag-scoped keys")
+		return
+	}
+	n, err := am.app.GetPluginLibraryWrites()
+	if err != nil {
+		am.jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	am.jsonOK(w, map[string]int64{"count": n})
+}
+
 func (am *APIManager) handleHiddenClipInfo(w http.ResponseWriter, r *http.Request) {
 	keyCtx := getKeyContext(r)
 	q := r.URL.Query()
@@ -1383,7 +1412,7 @@ func (am *APIManager) handleListClipsViaApp(w http.ResponseWriter, r *http.Reque
 		if q.Has("search_content") {
 			req.Query, req.SearchContent = q.Get("search"), q.Get("search_content") == "true"
 		}
-		page, err := am.app.listClipsPage(req, contentType)
+		page, err := am.app.listClipsPage(r.Context(), req, contentType)
 		if err != nil {
 			am.jsonError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -1398,6 +1427,7 @@ func (am *APIManager) handleListClipsViaApp(w http.ResponseWriter, r *http.Reque
 				IsArchived:  p.IsArchived,
 				CreatedAt:   p.CreatedAt.Format(time.RFC3339),
 				Tags:        p.Tags,
+				ContentHash: p.ContentHash,
 			})
 		}
 		am.jsonOK(w, apiClipListResponse{Clips: clips, Total: page.Total, Limit: limit, Offset: page.Offset})
@@ -1434,7 +1464,7 @@ func (am *APIManager) handleListClipsViaApp(w http.ResponseWriter, r *http.Reque
 		// database-side search. `search` on its own keeps the older preview-only
 		// post-filter below, which the mp CLI relies on.
 		usedDBSearch = true
-		previews, err = am.app.SearchClips(archived, tagIDs, hiddenIDs, q.Get("search"), q.Get("search_content") == "true", sortField, sortDir)
+		previews, err = am.app.searchClips(r.Context(), archived, tagIDs, hiddenIDs, q.Get("search"), q.Get("search_content") == "true", sortField, sortDir)
 	} else {
 		previews, err = am.app.GetClips(archived, tagIDs, hiddenIDs, sortField, sortDir)
 	}
@@ -1465,6 +1495,7 @@ func (am *APIManager) handleListClipsViaApp(w http.ResponseWriter, r *http.Reque
 			IsArchived:  p.IsArchived,
 			CreatedAt:   p.CreatedAt.Format(time.RFC3339),
 			Tags:        p.Tags,
+			ContentHash: p.ContentHash,
 		})
 	}
 	total := len(clips)
@@ -1497,8 +1528,8 @@ func (am *APIManager) handleGetClip(w http.ResponseWriter, r *http.Request) {
 	var isArchived int
 
 	err = am.app.db.QueryRow(
-		"SELECT id, content_type, filename, LENGTH(data), is_archived, created_at FROM clips WHERE id = ?", id,
-	).Scan(&c.ID, &c.ContentType, &filename, &c.Size, &isArchived, &c.CreatedAt)
+		"SELECT id, content_type, filename, LENGTH(data), is_archived, created_at, COALESCE(content_hash, '') FROM clips WHERE id = ?", id,
+	).Scan(&c.ID, &c.ContentType, &filename, &c.Size, &isArchived, &c.CreatedAt, &c.ContentHash)
 	if err != nil {
 		am.jsonError(w, http.StatusNotFound, "clip not found")
 		return
@@ -1528,7 +1559,158 @@ func (am *APIManager) handleGetClipData(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// ?preview=1 marks an inline use — an <img> the browser decodes, or
+	// rest-glue's base64 GetClipData — rather than a download. Those carry the
+	// server preview ceiling, enforced against the revision actually served.
+	// Explicit downloads (no param) stay unrestricted.
+	if r.URL.Query().Get("preview") == "1" {
+		am.writePreviewClipBytes(w, r, id)
+		return
+	}
+
 	if !am.writeClipBytes(w, r, id) {
+		am.jsonError(w, http.StatusNotFound, "clip not found")
+	}
+}
+
+// serverInlinePreviewMaxBytes is the largest clip the web UI is handed for
+// inline decoding: an image card's passthrough thumbnail, the lightbox's full
+// image, rest-glue's GetClipData. Past it the browser is asked to decode (or
+// base64 and hold) an arbitrarily large blob, so the server refuses with 413
+// and the UI offers a download. A var only so tests can lower it.
+var serverInlinePreviewMaxBytes int64 = 64 << 20
+
+// writePreviewClipBytes serves a clip for inline preview, refusing (413) a
+// revision over serverInlinePreviewMaxBytes. The size is measured first so an
+// over-cap clip is not snapshotted just to be refused; previewCapWriter then
+// re-checks the size serveStoredClip actually declares, so a clip enlarged
+// between the two still cannot get through.
+func (am *APIManager) writePreviewClipBytes(w http.ResponseWriter, r *http.Request, id int64) {
+	limit := serverInlinePreviewMaxBytes
+	meta, _, err := loadClipBodyMetadata(r.Context(), am.app.db, id)
+	if err != nil {
+		am.jsonError(w, http.StatusNotFound, "clip not found")
+		return
+	}
+	if meta.size > limit {
+		am.previewTooLarge(w, meta.size, limit)
+		return
+	}
+	pw := &previewCapWriter{ResponseWriter: w, limit: limit, refuse: func(size int64) {
+		am.previewTooLarge(w, size, limit)
+	}}
+	if !serveStoredClip(pw, r, am.app.db, am.app.tempStore, id, "attachment", true) {
+		am.jsonError(w, http.StatusNotFound, "clip not found")
+		return
+	}
+	pw.finish()
+}
+
+func (am *APIManager) previewTooLarge(w http.ResponseWriter, size, limit int64) {
+	h := w.Header()
+	for _, k := range []string{"Content-Length", "Content-Range", "Content-Disposition", "Accept-Ranges", "Content-Type", "Content-Security-Policy"} {
+		h.Del(k)
+	}
+	h.Set("Cache-Control", "no-store")
+	am.jsonError(w, http.StatusRequestEntityTooLarge,
+		fmt.Sprintf("clip is too large to preview in the browser (%d bytes, limit %d) — download it instead", size, limit))
+}
+
+// errPreviewTooLarge stops serveStoredClip's copy once the response has been
+// replaced by a 413.
+var errPreviewTooLarge = errors.New("clip over the inline preview ceiling")
+
+// previewCapWriter passes a clip response through only when the full size it
+// declares — Content-Range's total on a 206, Content-Length on a 200 — is
+// within limit. The size comes from the body serveStoredClip opened, i.e. the
+// revision actually being sent. An undeterminable size is refused.
+type previewCapWriter struct {
+	http.ResponseWriter
+	limit   int64
+	refuse  func(size int64)
+	decided bool
+	refused bool
+}
+
+func (p *previewCapWriter) Unwrap() http.ResponseWriter { return p.ResponseWriter }
+
+func (p *previewCapWriter) declaredTotal() int64 {
+	h := p.ResponseWriter.Header()
+	if cr := h.Get("Content-Range"); cr != "" {
+		if i := strings.LastIndexByte(cr, '/'); i >= 0 {
+			if n, err := strconv.ParseInt(cr[i+1:], 10, 64); err == nil {
+				return n
+			}
+		}
+		return -1
+	}
+	if n, err := strconv.ParseInt(h.Get("Content-Length"), 10, 64); err == nil {
+		return n
+	}
+	return -1
+}
+
+// decide runs once, before the first header reaches the client.
+func (p *previewCapWriter) decide(status int) {
+	if p.decided {
+		return
+	}
+	p.decided = true
+	if status != http.StatusOK && status != http.StatusPartialContent {
+		return
+	}
+	if total := p.declaredTotal(); total < 0 || total > p.limit {
+		p.refused = true
+		p.refuse(total)
+	}
+}
+
+func (p *previewCapWriter) WriteHeader(status int) {
+	p.decide(status)
+	if p.refused {
+		return
+	}
+	p.ResponseWriter.WriteHeader(status)
+}
+
+func (p *previewCapWriter) Write(b []byte) (int, error) {
+	if !p.decided {
+		p.WriteHeader(http.StatusOK)
+	}
+	if p.refused {
+		return 0, errPreviewTooLarge
+	}
+	return p.ResponseWriter.Write(b)
+}
+
+// finish covers a response that set its headers and returned without writing
+// (HEAD, an empty body): net/http would send them as a 200 on its own.
+func (p *previewCapWriter) finish() {
+	p.decide(http.StatusOK)
+}
+
+// handleGetClipThumb serves a gallery thumbnail (thumbnail.go). Same gate as
+// handleGetClipData — a thumbnail is a copy of the clip — and only for image
+// clips. ?h={content_hash} names the revision the caller expects: when it is
+// current the response is cached as immutable, otherwise it is the current
+// image with no-cache.
+func (am *APIManager) handleGetClipThumb(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+
+	id, err := parseIntParam(r.PathValue("id"))
+	if err != nil {
+		am.jsonError(w, http.StatusBadRequest, "invalid clip id")
+		return
+	}
+
+	if err := am.enforceTagScope(keyCtx, id); err != nil {
+		am.jsonError(w, http.StatusForbidden, err.Error())
+		return
+	}
+
+	// Capped: a passthrough original is the whole clip, decoded inline by
+	// the browser, so it carries the same ceiling as a ?preview=1 data read.
+	if am.app.thumbCache == nil || !am.app.thumbCache.ServeCapped(w, r, id, r.URL.Query().Get("h"), serverInlinePreviewMaxBytes) {
 		am.jsonError(w, http.StatusNotFound, "clip not found")
 	}
 }
@@ -1547,16 +1729,20 @@ type apiClipTextResponse struct {
 	// ClipData field-for-field.
 	DataEncoding string `json:"data_encoding"`
 	Size         int    `json:"size"`
+	// TooLarge mirrors desktop GetClipText: a text clip over the editor's
+	// 16 MiB cap comes back without its bytes, so the browser can decline to
+	// open it without downloading it first.
+	TooLarge bool `json:"too_large,omitempty"`
 }
 
 // maxInlineTextBytes is an out-of-memory guard, NOT the editable cap. It matches
 // the 64 MiB inline ceiling server mode already applied in rest-glue.js, so this
 // endpoint is never more restrictive than the path it replaces.
 //
-// The real editable cap — 16 MiB — deliberately lives in one place, TextCodec, so
-// desktop and served mode enforce it identically. Putting it here as well would
-// make the server stricter than the desktop binding and split one rule across two
-// languages.
+// The real editable cap — 16 MiB — is enforced by TextCodec, identically in
+// desktop and served mode. maxEditableTextBytes is a pre-check copy of it, shared
+// with desktop GetClipText, that only spares the transfer of a clip TextCodec
+// would refuse anyway.
 const maxInlineTextBytes = 64 * 1024 * 1024
 
 // handleGetClipText returns filename, content type, bytes, and UTF-8 validity in
@@ -1581,18 +1767,56 @@ func (am *APIManager) handleGetClipText(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	var data []byte
+	// Size first, from octet_length (the record header, not the blob), so
+	// neither an over-cap text clip nor an over-limit one is read just to be
+	// refused. The read that follows is a separate statement, so it carries
+	// both limits in its WHERE clause: an overwrite landing in between cannot
+	// get an oversize blob selected. A guarded read that finds no row means the
+	// clip changed; measure again and decide afresh.
 	var contentType string
 	var filename sql.NullString
-	if err := am.app.db.QueryRow("SELECT data, content_type, filename FROM clips WHERE id = ?", id).
-		Scan(&data, &contentType, &filename); err != nil {
-		am.jsonError(w, http.StatusNotFound, "clip not found")
-		return
-	}
+	var data []byte
+	read := false
+	for attempt := 0; attempt < guardedBlobReadAttempts && !read; attempt++ {
+		var size int64
+		if err := am.app.db.QueryRow("SELECT content_type, filename, octet_length(data) FROM clips WHERE id = ?", id).
+			Scan(&contentType, &filename, &size); err != nil {
+			am.jsonError(w, http.StatusNotFound, "clip not found")
+			return
+		}
+		if textEditCapApplies(contentType) && size > maxEditableTextBytes {
+			am.jsonOK(w, apiClipTextResponse{
+				ID:           id,
+				Filename:     filename.String,
+				ContentType:  contentType,
+				DataEncoding: "base64",
+				Size:         int(size),
+				TooLarge:     true,
+			})
+			return
+		}
+		if size > maxInlineTextBytes {
+			am.jsonError(w, http.StatusRequestEntityTooLarge,
+				fmt.Sprintf("clip is too large to load inline (%d bytes, limit %d) — download it instead", size, maxInlineTextBytes))
+			return
+		}
 
-	if len(data) > maxInlineTextBytes {
-		am.jsonError(w, http.StatusRequestEntityTooLarge,
-			fmt.Sprintf("clip is too large to load inline (%d bytes, limit %d) — download it instead", len(data), maxInlineTextBytes))
+		err := am.app.db.QueryRow(
+			"SELECT data, content_type, filename FROM clips WHERE id = ? AND octet_length(data) <= ? AND "+clipTextGuardSQL,
+			id, maxInlineTextBytes, maxEditableTextBytes,
+		).Scan(&data, &contentType, &filename)
+		switch {
+		case err == nil:
+			read = true
+		case errors.Is(err, sql.ErrNoRows):
+			// Changed since it was measured: measure again.
+		default:
+			am.jsonError(w, http.StatusInternalServerError, "failed to read clip")
+			return
+		}
+	}
+	if !read {
+		am.jsonError(w, http.StatusConflict, "clip kept changing while it was read")
 		return
 	}
 
@@ -1620,8 +1844,9 @@ func (am *APIManager) handleGetClipText(w http.ResponseWriter, r *http.Request) 
 //   - nosniff: stop content-type sniffing into an executable type.
 //   - Content-Disposition: attachment (always, even with an empty filename):
 //     direct navigation downloads instead of rendering inline. The web UI
-//     reads clip bytes via fetch()+Blob, which ignores this header, so image
-//     previews/editor are unaffected.
+//     reads clip bytes via fetch()+Blob or loads this URL straight into an
+//     <img> (lightbox, comparison, a card whose thumbnail failed); both ignore
+//     this header, so image previews/editor are unaffected.
 //   - CSP sandbox: even if a browser were coerced into rendering this
 //     response, it runs in an opaque origin with scripts disabled.
 //
@@ -1778,7 +2003,7 @@ func (am *APIManager) handleCreateClip(w http.ResponseWriter, r *http.Request) {
 
 		// Emit plugin event
 		if am.app.pluginManager != nil {
-			am.app.pluginManager.EmitEvent("clip:created", map[string]interface{}{
+			am.app.emitPluginEvent("clip:created", map[string]interface{}{
 				"id":           preview.ID,
 				"content_type": preview.ContentType,
 				"filename":     preview.Filename,
@@ -1799,8 +2024,8 @@ func (am *APIManager) handleGetClipByID(w http.ResponseWriter, id int64) {
 	var isArchived int
 
 	err := am.app.db.QueryRow(
-		"SELECT id, content_type, filename, LENGTH(data), is_archived, created_at FROM clips WHERE id = ?", id,
-	).Scan(&c.ID, &c.ContentType, &filename, &c.Size, &isArchived, &c.CreatedAt)
+		"SELECT id, content_type, filename, LENGTH(data), is_archived, created_at, COALESCE(content_hash, '') FROM clips WHERE id = ?", id,
+	).Scan(&c.ID, &c.ContentType, &filename, &c.Size, &isArchived, &c.CreatedAt, &c.ContentHash)
 	if err != nil {
 		return
 	}
@@ -1858,7 +2083,7 @@ func (am *APIManager) handleArchiveClip(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if am.app.pluginManager != nil {
-		am.app.pluginManager.EmitEvent("clip:archived", map[string]interface{}{"id": id})
+		am.app.emitPluginEvent("clip:archived", map[string]interface{}{"id": id})
 	}
 
 	w.WriteHeader(http.StatusNoContent)
@@ -1885,7 +2110,7 @@ func (am *APIManager) handleUnarchiveClip(w http.ResponseWriter, r *http.Request
 	}
 
 	if am.app.pluginManager != nil {
-		am.app.pluginManager.EmitEvent("clip:unarchived", map[string]interface{}{"id": id})
+		am.app.emitPluginEvent("clip:unarchived", map[string]interface{}{"id": id})
 	}
 
 	w.WriteHeader(http.StatusNoContent)
@@ -2986,6 +3211,70 @@ func (am *APIManager) handleGetChildTags(w http.ResponseWriter, r *http.Request)
 	am.jsonOK(w, children)
 }
 
+// maxTagClipCountIDs bounds one GET /api/v1/tags/clip-counts request.
+const maxTagClipCountIDs = 2000
+
+// handleTagClipCounts serves App.GetDescendantClipCounts: ?tag=<id> (repeated)
+// and ?archived=true|false → {"<tag id>": count}. A tag-scoped key gets 0 for
+// any tag outside its subtree, as handleGetChildTags returns no children there.
+func (am *APIManager) handleTagClipCounts(w http.ResponseWriter, r *http.Request) {
+	keyCtx := getKeyContext(r)
+	q := r.URL.Query()
+	archived := q.Get("archived") == "true"
+
+	values := q["tag"]
+	if len(values) > maxTagClipCountIDs {
+		am.jsonError(w, http.StatusBadRequest, fmt.Sprintf("too many tags (max %d)", maxTagClipCountIDs))
+		return
+	}
+	tagIDs := make([]int64, 0, len(values))
+	for _, v := range values {
+		id, err := parseIntParam(v)
+		if err != nil {
+			am.jsonError(w, http.StatusBadRequest, "invalid tag id")
+			return
+		}
+		tagIDs = append(tagIDs, id)
+	}
+
+	allowed := tagIDs
+	if keyCtx.ScopedTagID > 0 && len(tagIDs) > 0 {
+		var err error
+		if allowed, err = am.tagIDsInScope(tagIDs, keyCtx.ScopedTagID); err != nil {
+			am.jsonError(w, http.StatusInternalServerError, "failed to count clips")
+			return
+		}
+	}
+
+	counts, err := am.app.GetDescendantClipCounts(allowed, archived)
+	if err != nil {
+		am.jsonError(w, http.StatusInternalServerError, "failed to count clips")
+		return
+	}
+	for _, id := range tagIDs {
+		if _, ok := counts[id]; !ok {
+			counts[id] = 0
+		}
+	}
+	am.jsonOK(w, counts)
+}
+
+// legacyClipListSQL is the count and page query of the plain REST listings
+// (GET /api/v1/clips without the gallery's parameters, and
+// GET /api/v1/tags/{id}/clips). Every column they return but id and
+// content_type is stored after the data blob, so clips is read through the
+// covering listing index (see clipListingIndex).
+func legacyClipListSQL(conditions []string) (count, page string) {
+	where := "1=1"
+	if len(conditions) > 0 {
+		where = strings.Join(conditions, " AND ")
+	}
+	from := "FROM clips c INDEXED BY " + clipListingIndex + " WHERE " + where
+	return "SELECT COUNT(*) " + from,
+		"SELECT c.id, c.content_type, c.filename, LENGTH(c.data), c.is_archived, c.created_at, COALESCE(c.content_hash, '') " + from +
+			" ORDER BY c.created_at DESC, c.id DESC LIMIT ? OFFSET ?"
+}
+
 func (am *APIManager) handleGetTagClips(w http.ResponseWriter, r *http.Request) {
 	keyCtx := getKeyContext(r)
 
@@ -3022,21 +3311,10 @@ func (am *APIManager) handleGetTagClips(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	// Count
+	countQuery, query := legacyClipListSQL([]string{"c.id IN (SELECT ct.clip_id FROM clip_tags ct WHERE ct.tag_id = ?)"})
 	var totalCount int
-	am.app.db.QueryRow(`
-		SELECT COUNT(*) FROM clips c
-		JOIN clip_tags ct ON c.id = ct.clip_id
-		WHERE ct.tag_id = ?`, tagID).Scan(&totalCount)
-
-	// Fetch
-	rows, err := am.app.db.Query(`
-		SELECT c.id, c.content_type, c.filename, LENGTH(c.data), c.is_archived, c.created_at
-		FROM clips c
-		JOIN clip_tags ct ON c.id = ct.clip_id
-		WHERE ct.tag_id = ?
-		ORDER BY c.created_at DESC
-		LIMIT ? OFFSET ?`, tagID, limit, offset)
+	am.app.db.QueryRow(countQuery, tagID).Scan(&totalCount)
+	rows, err := am.app.db.Query(query, tagID, limit, offset)
 	if err != nil {
 		am.jsonError(w, http.StatusInternalServerError, "failed to query clips")
 		return
@@ -3049,7 +3327,7 @@ func (am *APIManager) handleGetTagClips(w http.ResponseWriter, r *http.Request) 
 		var filename sql.NullString
 		var isArchived int
 
-		if err := rows.Scan(&c.ID, &c.ContentType, &filename, &c.Size, &isArchived, &c.CreatedAt); err != nil {
+		if err := rows.Scan(&c.ID, &c.ContentType, &filename, &c.Size, &isArchived, &c.CreatedAt, &c.ContentHash); err != nil {
 			continue
 		}
 		c.Filename = filename.String

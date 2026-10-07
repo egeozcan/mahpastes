@@ -87,6 +87,19 @@
         return clip;
     }
 
+    // Mirrors the desktop binding's gallery-load supersession: a first page
+    // starts a new load and aborts the previous load's requests, so the
+    // server's request context cancels a content search still scanning for
+    // an older keystroke. Later pages join the current load.
+    let galleryLoadAbort = null;
+    function galleryLoadSignal(supersede) {
+        if (supersede || !galleryLoadAbort) {
+            if (galleryLoadAbort) galleryLoadAbort.abort();
+            galleryLoadAbort = new AbortController();
+        }
+        return galleryLoadAbort.signal;
+    }
+
     window.go = { main: {} };
     window.go.main.App = {
         GetClips: async (archived, tagIds, hiddenIds, sort, dir) => (await fetchJSON(`${api}/clips?${clipQuery(archived, tagIds, hiddenIds, sort, dir)}`)).clips || [],
@@ -122,15 +135,22 @@
             }
             q.set('offset', String(r.offset || 0));
             q.set('limit', String(r.limit || 50));
-            const body = await fetchJSON(`${api}/clips?${q.toString()}`);
+            const signal = galleryLoadSignal(!(r.offset > 0));
+            const body = await fetchJSON(`${api}/clips?${q.toString()}`, { signal });
             const clips = body.clips || [];
             const offset = body.offset || 0;
             const total = typeof body.total === 'number' ? body.total : clips.length;
             return { clips, total, offset, has_more: offset + clips.length < total };
         },
         GetClipData: async (id) => {
-            const res = await fetch(`${api}/clips/${id}/data`, { credentials: 'same-origin' });
+            // preview=1: the server refuses (413) a clip over the inline
+            // ceiling before sending it, measured on the revision it would serve.
+            const res = await fetch(`${api}/clips/${id}/data?preview=1`, { credentials: 'same-origin' });
             if (res.status === 401) window.location = '/login.html';
+            if (res.status === 413) {
+                const body = await res.json().catch(() => null);
+                throw new Error(body?.error || 'clip is too large to preview in the browser — download it instead');
+            }
             if (!res.ok) throw new Error(res.statusText);
             const blob = await res.blob();
             // The desktop API returns base64; we mimic that shape. base64 inflates
@@ -206,6 +226,12 @@
         PreviewMergeTag: (sourceID, destID) => postJSON(`${api}/tags/${sourceID}/merge-preview`, { dest_id: destID }),
         AddTagToClip: (clipID, tagID) => putJSON(`${api}/clips/${clipID}/tags/${tagID}`, {}),
         RemoveTagFromClip: (clipID, tagID) => del(`${api}/clips/${clipID}/tags/${tagID}`),
+        // The clip's tags, as the desktop binding returns them (the gallery
+        // re-renders a card's pills from this after a tag change on it).
+        GetClipTags: async (clipID) => ((await fetchJSON(`${api}/clips/${clipID}`)) || {}).tags || [],
+        // One clip as the gallery shows it. The REST row carries no
+        // expires_at, matching the server listing, which has none either.
+        GetClipPreview: (clipID) => fetchJSON(`${api}/clips/${clipID}`),
         GetChildTags: (id) => fetchJSON(`${api}/tags/${id}/children`),
         // Tags with no existing ancestor, matching the desktop binding.
         GetTopLevelTags: async () => {
@@ -218,7 +244,16 @@
                 return true;
             });
         },
-        GetDescendantClipCount: async () => 0,
+        GetDescendantClipCount: async (tagId, archived) => {
+            const counts = await window.go.main.App.GetDescendantClipCounts([tagId], archived);
+            return Number(counts[tagId]) || 0;
+        },
+        GetDescendantClipCounts: async (tagIds, archived) => {
+            const params = new URLSearchParams();
+            params.set('archived', archived ? 'true' : 'false');
+            (tagIds || []).forEach((id) => params.append('tag', String(id)));
+            return (await fetchJSON(`${api}/tags/clip-counts?${params.toString()}`)) || {};
+        },
         GetHiddenClipInfo: async (archived, tagIds, hiddenIds) => {
             const params = new URLSearchParams();
             params.set('archived', archived ? 'true' : 'false');
@@ -226,6 +261,10 @@
             (hiddenIds || []).forEach((id) => params.append('hidden', String(id)));
             return await fetchJSON(`${api}/clips/hidden-info?${params.toString()}`);
         },
+        // Library change counter (refocus reload check). Refused (403) for
+        // tag-scoped keys; the caller treats any failure as "reload".
+        GetLibraryVersion: async () => (await fetchJSON(`${api}/library/version`)).version,
+        GetPluginLibraryWrites: async () => (await fetchJSON(`${api}/library/plugin-writes`)).count,
         GetHiddenTags: async () => (await fetchJSON(`${api}/tags/hidden`)).ids || [],
         SetHiddenTags: (ids) => putJSON(`${api}/tags/hidden`, { ids }),
         GetClipMetadata: (id) => fetchJSON(`${api}/clips/${id}/metadata`),

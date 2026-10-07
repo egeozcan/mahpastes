@@ -2,11 +2,13 @@ package app
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -18,8 +20,18 @@ import (
 type TransferFileHandler struct {
 	app         *App
 	mu          sync.RWMutex
-	tokens      map[string]string // transfer token → filename
+	tokens      map[string]transferToken
 	mediaTokens map[string]mediaToken
+	thumbKey    string           // see ThumbnailURLBase; set once, guarded by mu
+	now         func() time.Time // tests only; nil means time.Now
+}
+
+// transferToken authorizes one temp file for drag-out (DownloadURL) reads.
+// It expires with the file's lease: every hover and drag mints one, so an
+// unexpiring map grew for the life of the process.
+type transferToken struct {
+	filename  string
+	expiresAt time.Time
 }
 
 type mediaToken struct {
@@ -33,14 +45,28 @@ func NewTransferFileHandler(app *App) *TransferFileHandler {
 	return &TransferFileHandler{app: app}
 }
 
-// RegisterToken stores a one-time token that authorizes access to a specific temp file.
+// RegisterToken stores a token that authorizes access to a specific temp file
+// for the length of a temp file lease. Expired tokens are dropped here.
 func (h *TransferFileHandler) RegisterToken(token, filename string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.tokens == nil {
-		h.tokens = make(map[string]string)
+		h.tokens = make(map[string]transferToken)
 	}
-	h.tokens[token] = filename
+	now := h.clock()
+	for existing, item := range h.tokens {
+		if !item.expiresAt.After(now) {
+			delete(h.tokens, existing)
+		}
+	}
+	h.tokens[token] = transferToken{filename: filename, expiresAt: now.Add(defaultTempLeaseTTL)}
+}
+
+func (h *TransferFileHandler) clock() time.Time {
+	if h.now != nil {
+		return h.now()
+	}
+	return time.Now()
 }
 
 // RegisterMediaToken authorizes range-based reads of one leased temp file for
@@ -79,6 +105,10 @@ func (h *TransferFileHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		h.serveMedia(w, r)
 		return
 	}
+	if strings.HasPrefix(r.URL.Path, "/thumb/") {
+		h.serveThumb(w, r)
+		return
+	}
 
 	const prefix = "/transfer/"
 	if !strings.HasPrefix(r.URL.Path, prefix) {
@@ -107,7 +137,7 @@ func (h *TransferFileHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	h.mu.RLock()
 	authorized, ok := h.tokens[token]
 	h.mu.RUnlock()
-	if !ok || authorized != filename {
+	if !ok || authorized.filename != filename || !authorized.expiresAt.After(h.clock()) {
 		http.NotFound(w, r)
 		return
 	}
@@ -234,5 +264,54 @@ func (h *TransferFileHandler) touchMediaLease(token string, item mediaToken, mod
 	defer h.mu.Unlock()
 	if current, ok := h.mediaTokens[token]; ok && current.absPath == item.absPath {
 		h.mediaTokens[token] = item
+	}
+}
+
+// ThumbnailURLBase returns the prefix of gallery thumbnail URLs,
+// "/thumb/{key}/", to which the frontend appends "{clipID}/{contentHash}".
+//
+// The key is random per process and handed out only through a bound method,
+// so reaching a thumbnail takes the same thing as calling GetClipData: code
+// running in the app's WebView. Unlike /media/ it is not minted per clip — a
+// gallery page would otherwise make one bridge call per card just to learn a
+// URL, which is the round trip thumbnails exist to remove.
+func (h *TransferFileHandler) ThumbnailURLBase() (string, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.thumbKey == "" {
+		key, err := generateTransferToken()
+		if err != nil {
+			return "", err
+		}
+		h.thumbKey = key
+	}
+	return "/thumb/" + h.thumbKey + "/", nil
+}
+
+// serveThumb serves /thumb/{key}/{clipID}[/{contentHash}].
+func (h *TransferFileHandler) serveThumb(w http.ResponseWriter, r *http.Request) {
+	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/thumb/"), "/")
+	if len(parts) < 2 || len(parts) > 3 {
+		http.NotFound(w, r)
+		return
+	}
+	h.mu.RLock()
+	key := h.thumbKey
+	h.mu.RUnlock()
+	if key == "" || subtle.ConstantTimeCompare([]byte(parts[0]), []byte(key)) != 1 {
+		http.NotFound(w, r)
+		return
+	}
+	id, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil || id <= 0 {
+		http.NotFound(w, r)
+		return
+	}
+	hash := ""
+	if len(parts) == 3 {
+		hash = parts[2]
+	}
+	if h.app == nil || h.app.thumbCache == nil || !h.app.thumbCache.Serve(w, r, id, hash) {
+		http.NotFound(w, r)
 	}
 }

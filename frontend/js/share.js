@@ -771,14 +771,40 @@
     window.runtime.EventsOn('share:follow-removed', refresh);
 
     // A clip arrived from a followed share — refresh both the share
-    // view (bumps clips_received on the follow row) and the clips
-    // gallery so the new clip shows up without a manual reload. The
-    // refresh re-fetches in-place; current scroll position and focus
-    // are preserved by loadClips's implementation.
-    window.runtime.EventsOn('share:clip-received', () => {
+    // view (bumps clips_received on the follow row, and the nav
+    // indicator, so this is not gated on the view being open) and the
+    // clips gallery so the new clip shows up without a manual reload.
+    //
+    // The backend emits once per clip, so a follow catching up on a
+    // backlog fires hundreds of these back to back. Coalesce a burst
+    // into one refresh, one gallery reload and one summary toast: a
+    // trailing debounce, capped so a steady trickle still lands at
+    // least every SHARE_RECEIVED_MAX_WAIT_MS.
+    const SHARE_RECEIVED_DEBOUNCE_MS = 300;
+    const SHARE_RECEIVED_MAX_WAIT_MS = 2000;
+    let shareReceivedTimer = null;
+    let shareReceivedFirstAt = 0;
+    let shareReceivedCount = 0;
+    const flushShareReceived = () => {
+      clearTimeout(shareReceivedTimer);
+      shareReceivedTimer = null;
+      shareReceivedFirstAt = 0;
+      const count = shareReceivedCount;
+      shareReceivedCount = 0;
+      if (count === 0) return;
       refresh();
       if (typeof loadClips === 'function') loadClips();
-      if (typeof showToast === 'function') showToast('Received shared clip');
+      if (typeof showToast === 'function') {
+        showToast(count === 1 ? 'Received shared clip' : `Received ${count} shared clips`);
+      }
+    };
+    window.runtime.EventsOn('share:clip-received', () => {
+      shareReceivedCount++;
+      const now = Date.now();
+      if (!shareReceivedFirstAt) shareReceivedFirstAt = now;
+      clearTimeout(shareReceivedTimer);
+      const wait = Math.min(SHARE_RECEIVED_DEBOUNCE_MS, Math.max(0, shareReceivedFirstAt + SHARE_RECEIVED_MAX_WAIT_MS - now));
+      shareReceivedTimer = setTimeout(flushShareReceived, wait);
     });
   }
 

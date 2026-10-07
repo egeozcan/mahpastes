@@ -106,6 +106,10 @@ func initDB() (*sql.DB, error) {
 	_, _ = db.Exec("CREATE INDEX IF NOT EXISTS idx_clips_content_hash ON clips(content_hash)")
 	// Migrate: Add metadata column for key-value metadata (JSON)
 	_, _ = db.Exec("ALTER TABLE clips ADD COLUMN metadata TEXT DEFAULT '{}'")
+	if err := ensureClipListingIndexes(db); err != nil {
+		db.Close()
+		return nil, err
+	}
 
 	// Create settings table
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS settings (
@@ -153,6 +157,12 @@ func initDB() (*sql.DB, error) {
 		FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
 	)`); err != nil {
 		log.Printf("Warning: Failed to create clip_tags table: %v", err)
+	}
+	// The primary key leads with clip_id; every "clips under this tag" query
+	// (tag listings, folder counts, filters) needs tag_id first, or SQLite
+	// builds a throwaway automatic index on each call.
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_clip_tags_tag ON clip_tags(tag_id, clip_id)`); err != nil {
+		log.Printf("Warning: Failed to create clip_tags tag index: %v", err)
 	}
 
 	// Migrate: Add auto_tag_id column to watched_folders if it doesn't exist
@@ -361,6 +371,10 @@ func initDB() (*sql.DB, error) {
 	}
 	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_share_links_clip ON share_links(clip_id)`); err != nil {
 		log.Printf("Warning: Failed to create idx_share_links_clip: %v", err)
+	}
+
+	if err := ensureLibraryVersion(db); err != nil {
+		log.Printf("Warning: library version counter unavailable: %v", err)
 	}
 
 	// Promote legacy Markdown clips whose MIME type was supplied inconsistently
@@ -773,7 +787,11 @@ var cleanupJobInterval = time.Minute
 // the store's own throttle. Nothing else prunes an idle headless server: there
 // every large download leaves a copy (clip_snapshot.go), and the other prunes
 // run only when a new file is made.
-func StartCleanupJob(ctx context.Context, db *sql.DB, store *TempClipStore) {
+//
+// thumbs (nil when the thumbnail cache failed to start) is pruned too, on its
+// own throttle: entries whose content hash no clip holds any more, then the
+// least recently used ones over its size cap.
+func StartCleanupJob(ctx context.Context, db *sql.DB, store *TempClipStore, thumbs *ThumbnailCache) {
 	ticker := time.NewTicker(cleanupJobInterval)
 	go func() {
 		defer ticker.Stop()
@@ -794,10 +812,16 @@ func StartCleanupJob(ctx context.Context, db *sql.DB, store *TempClipStore) {
 					log.Printf("Failed to delete expired clips: %v\n", err)
 				} else if rows > 0 {
 					log.Printf("Cleaned up %d expired clips\n", rows)
+					thumbs.DropOrphansSoon()
 				}
 				if store != nil {
 					if err := store.Prune(false); err != nil {
 						log.Printf("Failed to prune temp clip files: %v\n", err)
+					}
+				}
+				if thumbs != nil {
+					if err := thumbs.Prune(false); err != nil {
+						log.Printf("Failed to prune thumbnails: %v\n", err)
 					}
 				}
 				// Garbage-collect expired share links. The view path already rejects
@@ -815,4 +839,101 @@ func StartCleanupJob(ctx context.Context, db *sql.DB, store *TempClipStore) {
 			}
 		}
 	}()
+}
+
+// clipListingIndex covers every non-blob column a gallery page shows. Every
+// clips column but id and content_type is stored after the data blob, and
+// reading a column past a blob walks the blob's whole overflow chain, so the
+// listing, its counts and the folder/hidden-note counts read clips only
+// through this index — named with INDEXED BY, because after ANALYZE on a
+// library where nearly every clip is unarchived the planner prefers a table
+// scan (it cannot see the blobs). LENGTH(data) is stored in the index too
+// (the record header holds it, but the table read would still be one page
+// per clip). One index serves every sort: the page query counts the whole
+// filtered set anyway (COUNT(*) OVER ()), so it scans every match whatever
+// the order and the sort is of small rows.
+const clipListingIndex = "idx_clips_listing"
+
+// clipFilenameIndex serves exact-filename lookups (Markdown references,
+// folder-drag matching) without touching the table.
+const clipFilenameIndex = "idx_clips_by_filename"
+
+// ensureClipListingIndexes creates the clip listing indexes. On an existing
+// library each new index is one full read of every clip (SQLite builds an
+// index by scanning the table), so the build is logged with its duration.
+// Changing a column list means a new name here and the old one in the drop
+// list. A missing listing index is fatal: listing queries name it.
+func ensureClipListingIndexes(db *sql.DB) error {
+	for _, old := range []string{
+		"idx_clips_list_created", "idx_clips_list_name",
+		"idx_clips_page_created", "idx_clips_page_name", "idx_clips_page_type", "idx_clips_page_size",
+		"idx_clips_filename",
+	} {
+		if _, err := db.Exec("DROP INDEX IF EXISTS " + old); err != nil {
+			log.Printf("Warning: Failed to drop old clip index %s: %v", old, err)
+		}
+	}
+	indexes := []struct{ name, sql string }{
+		{clipListingIndex, "CREATE INDEX IF NOT EXISTS " + clipListingIndex +
+			" ON clips(is_archived, created_at, id, expires_at, filename, content_type, content_hash, LENGTH(data))"},
+		{clipFilenameIndex, "CREATE INDEX IF NOT EXISTS " + clipFilenameIndex +
+			" ON clips(filename, content_type, is_archived, expires_at, content_hash)"},
+	}
+	for _, idx := range indexes {
+		var exists int
+		_ = db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = ?", idx.name).Scan(&exists)
+		var hasClips int
+		if exists == 0 {
+			_ = db.QueryRow("SELECT EXISTS (SELECT 1 FROM clips)").Scan(&hasClips)
+		}
+		start := time.Now()
+		if hasClips == 1 {
+			log.Printf("Building clip index %s (reads every clip once)...", idx.name)
+		}
+		if _, err := db.Exec(idx.sql); err != nil {
+			return fmt.Errorf("failed to create clip index %s: %w", idx.name, err)
+		}
+		if hasClips == 1 {
+			log.Printf("Built clip index %s in %v", idx.name, time.Since(start).Round(time.Millisecond))
+		}
+	}
+	return nil
+}
+
+// libraryVersionTables are the tables whose rows a gallery shows: clips,
+// their tags and the tags themselves (names and colors on the pills).
+var libraryVersionTables = []string{"clips", "clip_tags", "tags"}
+
+// ensureLibraryVersion installs the library change counter: a one-row table
+// whose version every insert, update or delete on libraryVersionTables bumps,
+// by trigger, inside the writer's own statement. Triggers rather than calls at
+// each write site, because the writers are many (the app, the REST API and so
+// the mp CLI, plugins, watch imports, followed shares, the expiry reaper,
+// restore) and most of them tell the window nothing. The gallery records the
+// version when it loads and, on refocus, reloads only if it has moved
+// (GetLibraryVersion). The table is deliberately not in backupTables: it
+// describes this database, not the library's content.
+func ensureLibraryVersion(db *sql.DB) error {
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS library_version (
+		id      INTEGER PRIMARY KEY CHECK (id = 1),
+		version INTEGER NOT NULL
+	)`); err != nil {
+		return fmt.Errorf("create library_version: %w", err)
+	}
+	if _, err := db.Exec(`INSERT OR IGNORE INTO library_version (id, version) VALUES (1, 0)`); err != nil {
+		return fmt.Errorf("seed library_version: %w", err)
+	}
+	for _, table := range libraryVersionTables {
+		for _, op := range []string{"INSERT", "UPDATE", "DELETE"} {
+			name := "library_version_" + table + "_" + strings.ToLower(op)
+			stmt := fmt.Sprintf(`CREATE TRIGGER IF NOT EXISTS %s AFTER %s ON %s
+				BEGIN
+					UPDATE library_version SET version = version + 1 WHERE id = 1;
+				END`, name, op, table)
+			if _, err := db.Exec(stmt); err != nil {
+				return fmt.Errorf("create trigger %s: %w", name, err)
+			}
+		}
+	}
+	return nil
 }

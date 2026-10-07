@@ -130,8 +130,16 @@ export function GetClipMetadata(arg1) {
   return window['go']['main']['App']['GetClipMetadata'](arg1);
 }
 
+export function GetClipPreview(arg1) {
+  return window['go']['main']['App']['GetClipPreview'](arg1);
+}
+
 export function GetClipTags(arg1) {
   return window['go']['main']['App']['GetClipTags'](arg1);
+}
+
+export function GetClipText(arg1) {
+  return window['go']['main']['App']['GetClipText'](arg1);
 }
 
 export function GetClipboardImage() {
@@ -158,6 +166,10 @@ export function GetDescendantClipCount(arg1, arg2) {
   return window['go']['main']['App']['GetDescendantClipCount'](arg1, arg2);
 }
 
+export function GetDescendantClipCounts(arg1, arg2) {
+  return window['go']['main']['App']['GetDescendantClipCounts'](arg1, arg2);
+}
+
 export function GetDuplicateGroups() {
   return window['go']['main']['App']['GetDuplicateGroups']();
 }
@@ -182,8 +194,16 @@ export function GetImageDiff(arg1, arg2, arg3) {
   return window['go']['main']['App']['GetImageDiff'](arg1, arg2, arg3);
 }
 
+export function GetLibraryVersion() {
+  return window['go']['main']['App']['GetLibraryVersion']();
+}
+
 export function GetOrphanDBRows() {
   return window['go']['main']['App']['GetOrphanDBRows']();
+}
+
+export function GetPluginLibraryWrites() {
+  return window['go']['main']['App']['GetPluginLibraryWrites']();
 }
 
 export function GetRemovableEmptyTags() {
@@ -344,6 +364,10 @@ export function ShowRestoreBackupDialog() {
 
 export function StartImportSession(arg1, arg2) {
   return window['go']['main']['App']['StartImportSession'](arg1, arg2);
+}
+
+export function ThumbnailURLBase() {
+  return window['go']['main']['App']['ThumbnailURLBase']();
 }
 
 export function ToggleArchive(arg1) {

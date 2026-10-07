@@ -1133,6 +1133,10 @@ export class AppHelper {
         (element: HTMLVideoElement) => element.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && element.videoWidth > 0,
       )).toBe(true);
     } else {
+      // The <img> may still hold the previous clip's image (complete, with a
+      // natural size) while this one loads; aria-busy clears only once the
+      // lightbox has committed the new image and its zoom.
+      await expect(this.page.locator(selectors.lightbox.viewport)).toHaveAttribute('aria-busy', 'false');
       await expect.poll(async () => {
         const image = this.page.locator(selectors.lightbox.image);
         return image.evaluate((element: HTMLImageElement) => element.complete && element.naturalWidth > 0);

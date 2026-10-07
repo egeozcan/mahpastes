@@ -1,7 +1,43 @@
-// Images are small enough to keep as data URLs. Videos must never enter this
-// cache: they use range-capable HTTP URLs so the browser can fetch only the
-// bytes needed for a thumbnail or playback.
-const imageCache = new Map();
+// Full-size images for the lightbox and comparison view, as data URLs
+// (desktop) or same-origin URLs (server mode). Cards never use it: they load
+// URL-served thumbnails the browser caches itself. Bounded by bytes and evicted
+// least recently used first, so viewing a large library in the lightbox cannot
+// keep every image resident for the rest of the session. Videos must never
+// enter this cache: they use range-capable HTTP URLs so the browser can fetch
+// only the bytes needed for a thumbnail or playback.
+const IMAGE_CACHE_MAX_BYTES = 150 * 1024 * 1024;
+const imageCache = new Map(); // id -> { url, bytes }, oldest use first
+let imageCacheBytes = 0;
+
+function imageCacheGet(id) {
+    const entry = imageCache.get(id);
+    if (!entry) return undefined;
+    imageCache.delete(id);
+    imageCache.set(id, entry);
+    return entry.url;
+}
+
+function imageCacheDelete(id) {
+    const entry = imageCache.get(id);
+    if (!entry) return;
+    imageCache.delete(id);
+    imageCacheBytes -= entry.bytes;
+}
+
+function imageCacheSet(id, url) {
+    imageCacheDelete(id);
+    // A JS string of a data URL costs about one byte per character.
+    const bytes = url.length;
+    if (bytes > IMAGE_CACHE_MAX_BYTES) return;
+    imageCache.set(id, { url, bytes });
+    imageCacheBytes += bytes;
+    for (const [oldId, entry] of imageCache) {
+        if (imageCacheBytes <= IMAGE_CACHE_MAX_BYTES) break;
+        imageCache.delete(oldId);
+        imageCacheBytes -= entry.bytes;
+    }
+}
+window.__imageCacheStats = () => ({ entries: imageCache.size, bytes: imageCacheBytes, maxBytes: IMAGE_CACHE_MAX_BYTES });
 // Longest edge of a captured video-card thumbnail, in CSS pixels.
 const THUMBNAIL_MAX_EDGE = 640;
 // Furthest into a clip the thumbnail sampler will seek.
@@ -14,10 +50,71 @@ const renderedClipsById = new Map();
 // the change cannot repopulate a cache entry with the previous revision.
 const mediaRevisions = new Map();
 
+// Captured video-card frames, so a card rebuilt for a clip whose bytes have
+// not changed (another view, a folder visited again) shows the frame at once
+// instead of leasing a temp file, range-fetching, seeking and re-encoding.
+// Keyed by clip id; each entry remembers the revision it was captured from and
+// is used only while that revision is current. The frame is an object URL
+// (canvas.toBlob), revoked when the entry is evicted or invalidated. It is
+// only ever shown through img.video-thumb, never video.poster (WebKit paints a
+// source-less video black and ignores its poster).
+const VIDEO_FRAME_CACHE_MAX = 300;
+const videoFrameCache = new Map(); // id -> { revision, url }, oldest use first
+// Bumped by videoFrameCacheDelete (a clip was deleted). It is part of the
+// revision, so a capture still encoding (canvas.toBlob) when its clip was
+// deleted finds its revision stale and never publishes an entry.
+const videoFrameGenerations = new Map(); // id -> deletions seen
+
+function videoFrameRevision(clip) {
+    const id = Number(clip.id);
+    return `${clip.content_hash || ''}:${mediaRevisions.get(id) || 0}:${videoFrameGenerations.get(id) || 0}`;
+}
+
+function videoFrameCacheGet(clip) {
+    const id = Number(clip.id);
+    const entry = videoFrameCache.get(id);
+    if (!entry) return null;
+    if (entry.revision !== videoFrameRevision(clip)) {
+        videoFrameCacheEvict(id);
+        return null;
+    }
+    videoFrameCache.delete(id);
+    videoFrameCache.set(id, entry);
+    return entry.url;
+}
+
+// Drop one entry and revoke its object URL (eviction, stale revision).
+function videoFrameCacheEvict(id) {
+    const entry = videoFrameCache.get(id);
+    if (!entry) return;
+    videoFrameCache.delete(id);
+    if (entry.url.startsWith('blob:')) URL.revokeObjectURL(entry.url);
+}
+
+// The clip was deleted: drop its entry and invalidate any capture of it still
+// in flight, which would otherwise install a fresh entry for a clip that no
+// longer exists once its toBlob callback ran.
+function videoFrameCacheDelete(id) {
+    const key = Number(id);
+    videoFrameCacheEvict(key);
+    videoFrameGenerations.set(key, (videoFrameGenerations.get(key) || 0) + 1);
+}
+
+function videoFrameCacheSet(id, revision, url) {
+    videoFrameCacheEvict(id);
+    videoFrameCache.set(id, { revision, url });
+    while (videoFrameCache.size > VIDEO_FRAME_CACHE_MAX) {
+        videoFrameCacheEvict(videoFrameCache.keys().next().value);
+    }
+}
+window.__videoFrameCacheStats = () => ({ entries: videoFrameCache.size, max: VIDEO_FRAME_CACHE_MAX });
+
 function clearMediaCaches() {
     imageCache.clear();
+    imageCacheBytes = 0;
     videoMediaURLCache.clear();
     pendingVideoMediaURLs.clear();
+    // Captured frames stay: each is checked against its clip's revision.
 }
 
 // Forget everything cached for one clip after its bytes were replaced in place
@@ -26,10 +123,10 @@ function clearMediaCaches() {
 // and an overwritten video keeps pointing at a leased file the backend dropped.
 function invalidateClipMedia(clipId) {
     const id = Number(clipId);
-    imageCache.delete(id);
-    imageCache.delete(String(clipId));
+    imageCacheDelete(id);
     videoMediaURLCache.delete(id);
     pendingVideoMediaURLs.delete(id);
+    videoFrameCacheEvict(id);
     mediaRevisions.set(id, (mediaRevisions.get(id) || 0) + 1);
 }
 window.invalidateClipMedia = invalidateClipMedia;
@@ -40,6 +137,108 @@ function rememberRenderedClip(clip) {
 
 function clearRenderedClips() {
     renderedClipsById.clear();
+    resetCardMediaScheduler();
+}
+
+// Card media work that costs a bridge call or a decoder — video frame
+// capture, and the full-image fallback when a thumbnail fails — starts only
+// when the card comes within about a screen of the viewport, and at most
+// CARD_MEDIA_CONCURRENCY at a time, so the first visible row is not queued
+// behind fifty offscreen cards. Image thumbnails need none of this: they are
+// plain URLs on <img loading="lazy">, which the browser already schedules.
+const CARD_MEDIA_CONCURRENCY = 4;
+const cardMediaQueue = [];
+const cardMediaTasks = new WeakMap();
+let cardMediaActive = 0;
+let cardMediaObserver = null;
+
+function scheduleCardMedia(card, task) {
+    if (typeof IntersectionObserver !== 'function') {
+        enqueueCardMedia(card, task);
+        return;
+    }
+    if (!cardMediaObserver) {
+        cardMediaObserver = new IntersectionObserver((entries) => {
+            for (const entry of entries) {
+                if (!entry.isIntersecting) continue;
+                cardMediaObserver.unobserve(entry.target);
+                const pending = cardMediaTasks.get(entry.target);
+                cardMediaTasks.delete(entry.target);
+                if (pending) enqueueCardMedia(entry.target, pending);
+            }
+        }, { rootMargin: '100% 0px' });
+    }
+    cardMediaTasks.set(card, task);
+    cardMediaObserver.observe(card);
+}
+
+function enqueueCardMedia(card, task) {
+    cardMediaQueue.push({ card, task });
+    pumpCardMedia();
+}
+
+function pumpCardMedia() {
+    while (cardMediaActive < CARD_MEDIA_CONCURRENCY && cardMediaQueue.length > 0) {
+        const { card, task } = cardMediaQueue.shift();
+        // The gallery may have been rebuilt since this was queued; loading a
+        // detached card opens a fetch and a decoder nothing will release.
+        if (!card.isConnected) continue;
+        cardMediaActive++;
+        Promise.resolve()
+            .then(task)
+            .catch(error => console.error('Card media load failed:', error))
+            .finally(() => {
+                cardMediaActive--;
+                pumpCardMedia();
+            });
+    }
+}
+
+// A gallery rebuild drops the previous render's cards: stop watching them
+// and forget their queued work (tasks already running finish on their own).
+function resetCardMediaScheduler() {
+    cardMediaQueue.length = 0;
+    if (cardMediaObserver) {
+        cardMediaObserver.disconnect();
+        cardMediaObserver = null;
+    }
+}
+window.__cardMediaStats = () => ({ active: cardMediaActive, queued: cardMediaQueue.length });
+
+// Desktop thumbnails are served by the app's asset handler under a per-run key
+// (App.ThumbnailURLBase); server mode has an authenticated REST route. Either
+// way the URL names the content hash, so an edited clip gets a new URL.
+let thumbnailBasePromise = null;
+
+function getThumbnailBase() {
+    if (!thumbnailBasePromise) {
+        const fn = window.go?.main?.App?.ThumbnailURLBase;
+        thumbnailBasePromise = typeof fn === 'function'
+            ? Promise.resolve().then(() => fn()).catch(() => null)
+            : Promise.resolve(null);
+        // A failure is not remembered: the next render may try again.
+        thumbnailBasePromise.then(base => { if (!base) thumbnailBasePromise = null; });
+    }
+    return thumbnailBasePromise;
+}
+
+async function getThumbnailUrl(clip) {
+    const id = Number(clip.id);
+    const hash = typeof clip.content_hash === 'string' && /^[0-9a-f]{64}$/.test(clip.content_hash)
+        ? clip.content_hash : '';
+    const revision = mediaRevisions.get(id) || 0;
+    if (window.mahpastesMode === 'server') {
+        const params = new URLSearchParams();
+        if (hash) params.set('h', hash);
+        if (revision) params.set('rev', String(revision));
+        const query = params.toString();
+        return `/api/v1/clips/${id}/thumb${query ? `?${query}` : ''}`;
+    }
+    const base = await getThumbnailBase();
+    if (!base) return null;
+    // The revision keeps a card rendered from a listing older than an edit
+    // from reusing the cached response for its stale hash.
+    return `${base}${id}${hash ? `/${hash}` : ''}${revision ? `?rev=${revision}` : ''}`;
 }
 
 function getVisibleMediaClips() {
@@ -1051,6 +1250,10 @@ async function createClipCard(clip, options = {}) {
     card.dataset.type = (clip.content_type || '').toLowerCase();
     card.dataset.size = clip.size || 0;
     card.dataset.createdAt = clip.created_at || '';
+    // The clip object the card's listeners close over; in-place patches and
+    // card reuse (reuseClipCard) update this object rather than replacing it.
+    card._clip = clip;
+    card._renderSig = clipCardSignature(clip);
     rememberRenderedClip(clip);
     if (clip.expires_at) {
         card.dataset.expiresAt = clip.expires_at;
@@ -1078,9 +1281,11 @@ async function createClipCard(clip, options = {}) {
 
     if (clip.content_type.startsWith('image/')) {
         // For images, show loading placeholder initially
-        previewHTML = `<div class="preview-container overflow-hidden aspect-square w-full bg-stone-100 flex items-center justify-center">
-            <img data-clip-id="${clip.id}" alt="${escapeHTML(clip.filename) || 'Uploaded image'}" class="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.02] hidden">
-            <div class="loading-spinner text-stone-400">
+        // The <img> stays in layout (transparent until loaded) rather than
+        // display:none, which would stop loading="lazy" from ever fetching it.
+        previewHTML = `<div class="preview-container overflow-hidden aspect-square w-full bg-stone-100 flex items-center justify-center relative">
+            <img data-clip-id="${clip.id}" alt="${escapeHTML(clip.filename) || 'Uploaded image'}" loading="lazy" decoding="async" class="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.02] opacity-0">
+            <div class="loading-spinner absolute inset-0 flex items-center justify-center text-stone-400">
                 <svg class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle>
                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
@@ -1116,17 +1321,11 @@ async function createClipCard(clip, options = {}) {
         previewHTML = `
         <div class="preview-container aspect-square w-full flex flex-col items-center justify-center bg-stone-50 text-stone-400">
             <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
-            <span class="mt-2 text-[9px] font-medium uppercase tracking-wider">${escapeHTML(getFriendlyFileType(clip.content_type, clip.filename))}</span>
+            <span class="clip-preview-type-label mt-2 text-[9px] font-medium uppercase tracking-wider">${escapeHTML(getFriendlyFileType(clip.content_type, clip.filename))}</span>
         </div>`;
     }
 
-    let expirationBadge = '';
-    if (clip.expires_at) {
-        const remaining = formatTimeRemaining(clip.expires_at);
-        expirationBadge = `<div class="absolute top-2 left-2 bg-stone-700 text-white text-[8px] font-semibold px-1.5 py-0.5 rounded z-20 uppercase tracking-wide">
-            Temp · ${remaining}
-        </div>`;
-    }
+    const expirationBadge = expirationBadgeHTML(clip);
     const dragHandleHTML = renderDragHandle(clip.id);
 
     card.innerHTML = `
@@ -1138,11 +1337,11 @@ async function createClipCard(clip, options = {}) {
 
         <!-- Minimal footer -->
         <div class="p-2.5 flex flex-col gap-1.5 border-t border-stone-100">
-            <p class="text-[11px] font-medium text-stone-700 truncate" title="${escapeHTML(clip.filename) || 'Pasted Content'}">
+            <p class="clip-filename text-[11px] font-medium text-stone-700 truncate" title="${escapeHTML(clip.filename) || 'Pasted Content'}">
                 ${escapeHTML(clip.filename) || '<span class="text-stone-400 font-normal">Pasted</span>'}
             </p>
             <div class="flex justify-between items-center">
-                <div class="flex items-center gap-1.5"><span class="text-[9px] font-medium text-stone-400 uppercase tracking-wide">${escapeHTML(getFriendlyFileType(clip.content_type, clip.filename))}</span>${clip.duplicate_count > 0 ? `<span class="dedup-badge text-[9px] font-medium text-stone-400 bg-stone-100 border border-stone-200 rounded px-1">${clip.duplicate_count + 1} copies</span>` : ''}</div>
+                <div class="flex items-center gap-1.5"><span class="clip-type-label text-[9px] font-medium text-stone-400 uppercase tracking-wide">${escapeHTML(getFriendlyFileType(clip.content_type, clip.filename))}</span>${clip.duplicate_count > 0 ? `<span class="dedup-badge text-[9px] font-medium text-stone-400 bg-stone-100 border border-stone-200 rounded px-1">${clip.duplicate_count + 1} copies</span>` : ''}</div>
                 <div class="flex items-center gap-1">
                     ${dragHandleHTML}
                     <button class="card-menu-trigger p-1 text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded transition-colors"
@@ -1197,8 +1396,7 @@ async function createClipCard(clip, options = {}) {
     // result never looks like an ordinary listing that leaked something. Only
     // then: inside a hidden tag's folder, or filtering by it, the clip is an
     // ordinary result and must not look withheld.
-    if (galleryWaivedHiddenTags.length > 0 && Array.isArray(clip.tags)
-        && clip.tags.some(tag => galleryWaivedHiddenTags.some(h => tag.name === h || tag.name.startsWith(h + '/')))) {
+    if (clipShownDespiteHiddenTag(clip)) {
         card.dataset.hidden = 'true';
     }
     if (selectedIds.has(Number(clip.id))) card.classList.add('has-checked');
@@ -1261,7 +1459,7 @@ async function createClipCard(clip, options = {}) {
         });
 
         // Load the image or a representative video frame asynchronously.
-        loadMediaForCard(clip.id, card);
+        loadMediaForCard(clip, card);
     } else {
         // For non-media clips, clicking opens the editor or shows content. This
         // sits inside the non-media branch, so the text-only check is right —
@@ -1276,135 +1474,373 @@ async function createClipCard(clip, options = {}) {
     if (options.prepend) {
         gallery.prepend(card);
         window.LightboxController?.setClips(getVisibleMediaClips());
+        if (window.__galleryRover) window.__galleryRover.update();
     } else {
+        // Batch renders (loadClips, loadMoreClips) update the rover once when
+        // done: update() lays out the whole grid and walks every card, so
+        // calling it per append made a render quadratic.
         gallery.appendChild(card);
     }
 
-    if (window.__galleryRover) window.__galleryRover.update();
     return card;
 }
 
-// Load image/video data for a card. Video elements seek just past the start so
-// clips whose first frame is empty still get a useful thumbnail.
-async function loadMediaForCard(clipId, card) {
-    try {
-        const img = card.querySelector(`img[data-clip-id="${clipId}"]:not(.video-thumb)`);
-        const video = card.querySelector(`video[data-clip-id="${clipId}"]`);
-        const spinner = card.querySelector('.loading-spinner');
+function clipShownDespiteHiddenTag(clip) {
+    return galleryWaivedHiddenTags.length > 0 && Array.isArray(clip.tags)
+        && clip.tags.some(tag => galleryWaivedHiddenTags.some(h => tag.name === h || tag.name.startsWith(h + '/')));
+}
 
-        if (img) {
-            const dataUrl = await getImageDataUrl(clipId);
-            img.src = dataUrl;
-            img.classList.remove('hidden');
-            spinner?.remove();
-        }
-        if (video) {
-            const thumb = card.querySelector(`img.video-thumb[data-clip-id="${clipId}"]`);
-            const mediaURL = await getVideoMediaUrl(clipId);
-            // Preparing the URL is a round-trip, and the gallery may have been
-            // rebuilt underneath us in the meantime (a search keystroke is
-            // enough). Loading a detached element would open a range fetch and
-            // a decoder that nothing will ever release.
-            if (!card.isConnected) return;
-            let thumbnailSeekPending = false;
-            let settled = false;
+// Everything a card's markup is built from. A full reload keeps a card whose
+// signature is unchanged (reuseClipCard) instead of rebuilding it, which would
+// refetch and re-decode its thumbnail or recapture its video frame. Besides the
+// clip's own fields it covers the render context a card bakes in: folder mode
+// (draggable), the hidden-tag dimming of a search that included hidden clips,
+// and whether drag-out is available (the drag handle).
+function clipCardSignature(clip) {
+    const id = Number(clip.id);
+    const tags = Array.isArray(clip.tags) ? clip.tags.map(t => [t.id, t.name, t.color]) : [];
+    return JSON.stringify([
+        clip.filename || '', Number(clip.size) || 0, clip.content_type || '', clip.created_at || '',
+        clip.expires_at || '', !!clip.is_archived, Number(clip.duplicate_count) || 0,
+        clip.content_hash || '', clip.preview || '', tags, mediaRevisions.get(id) || 0,
+        typeof isFolderMode === 'function' && isFolderMode(), clipShownDespiteHiddenTag(clip),
+        typeof canDragOut === 'function' && canDragOut(),
+    ]);
+}
 
-            const showBadge = () => {
-                const badge = card.querySelector('.video-play-badge');
-                badge?.classList.remove('hidden');
-                badge?.classList.add('flex');
-                spinner?.remove();
-            };
+// Take a card from the previous render into this one. The listeners close over
+// card._clip, so the fresh listing row is copied into that object rather than
+// swapped for it. Selection is re-read (a bulk action clears it before its
+// reload) and the expiry countdown is re-rendered, as a rebuild would have.
+function reuseClipCard(card, clip) {
+    const kept = card._clip;
+    Object.assign(kept, clip);
+    rememberRenderedClip(kept);
+    renderCardExpiry(card, kept);
+    const selected = selectedIds.has(Number(kept.id));
+    const checkbox = card.querySelector('.clip-checkbox');
+    if (checkbox) checkbox.checked = selected;
+    card.classList.toggle('has-checked', selected);
+    card._renderSig = clipCardSignature(kept);
+    return card;
+}
 
-            // Fall back to the live element. It renders correctly everywhere;
-            // it just costs a decoder and keeps a range fetch open.
-            const keepLiveVideo = () => {
-                if (settled) return;
-                settled = true;
-                video.classList.remove('hidden');
-                showBadge();
-            };
+function expirationBadgeHTML(clip) {
+    if (!clip.expires_at) return '';
+    const remaining = formatTimeRemaining(clip.expires_at);
+    return `<div class="clip-expiration-badge absolute top-2 left-2 bg-stone-700 text-white text-[8px] font-semibold px-1.5 py-0.5 rounded z-20 uppercase tracking-wide">
+            Temp · ${escapeHTML(remaining)}
+        </div>`;
+}
 
-            // Hand the frame to an <img> and drop the video element entirely.
-            //
-            // The frame cannot be carried by the video's own `poster`: WebKit —
-            // the WebView this app ships in — paints a video whose `src` has
-            // been removed as an empty black box and ignores the poster, while
-            // Chromium honours it, so the e2e suite cannot see the difference.
-            // An <img> renders the same frame correctly in both. Verified by
-            // snapshotting a real WKWebView; see docs in CLAUDE.md.
-            const freezeToImage = () => {
-                if (settled || !thumb) return keepLiveVideo();
-                try {
-                    const width = video.videoWidth;
-                    const height = video.videoHeight;
-                    if (!width || !height) return keepLiveVideo();
-                    const scale = Math.min(1, THUMBNAIL_MAX_EDGE / Math.max(width, height));
-                    const canvas = document.createElement('canvas');
-                    canvas.width = Math.max(1, Math.round(width * scale));
-                    canvas.height = Math.max(1, Math.round(height * scale));
-                    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
-                    thumb.src = canvas.toDataURL('image/jpeg', 0.85);
-                } catch (error) {
-                    console.warn(`Could not capture thumbnail for clip ${clipId}:`, error);
-                    return keepLiveVideo();
-                }
-                settled = true;
-                thumb.classList.remove('hidden');
-                // Releasing the source frees the decoder and ends the range
-                // fetch. A gallery page holds up to defaultClipLimit cards, and
-                // a still frame has no business keeping a video pipeline alive.
-                video.removeAttribute('src');
-                video.load();
-                video.remove();
-                showBadge();
-            };
-
-            // `seeked` says the seek finished, not that a frame was presented.
-            const freezeWhenPainted = () => {
-                if (settled) return;
-                if (typeof video.requestVideoFrameCallback === 'function') {
-                    let fired = false;
-                    video.requestVideoFrameCallback(() => { fired = true; freezeToImage(); });
-                    setTimeout(() => { if (!fired) freezeToImage(); }, 1000);
-                    return;
-                }
-                requestAnimationFrame(() => requestAnimationFrame(freezeToImage));
-            };
-
-            video.addEventListener('loadedmetadata', () => {
-                if (Number.isFinite(video.duration) && video.duration > 0.1) {
-                    thumbnailSeekPending = true;
-                    video.currentTime = thumbnailSeekTime(video.duration);
-                }
-            }, { once: true });
-            video.addEventListener('loadeddata', () => {
-                if (!thumbnailSeekPending) freezeWhenPainted();
-            }, { once: true });
-            video.addEventListener('seeked', () => {
-                thumbnailSeekPending = false;
-                freezeWhenPainted();
-            }, { once: true });
-            video.addEventListener('error', () => {
-                if (settled) return;
-                settled = true;
-                // Release the source on failure too, or the element sits in the
-                // gallery holding a dead fetch for the life of the render.
-                video.removeAttribute('src');
-                video.load();
-                video.remove();
-                if (spinner) spinner.innerHTML = '<span class="text-red-400 text-xs">Failed to load</span>';
-            });
-            video.src = mediaURL;
-            video.load();
-        }
-    } catch (error) {
-        console.error(`Failed to load media for clip ${clipId}:`, error);
-        const spinner = card.querySelector('.loading-spinner');
-        if (spinner) {
-            spinner.innerHTML = '<span class="text-red-400 text-xs">Failed to load</span>';
-        }
+// Re-render a card's expiry badge from clip.expires_at.
+function renderCardExpiry(card, clip) {
+    card.querySelector('.clip-expiration-badge')?.remove();
+    if (clip.expires_at) {
+        card.dataset.expiresAt = clip.expires_at;
+        card.querySelector('[data-action="open-lightbox"]')?.insertAdjacentHTML('afterbegin', expirationBadgeHTML(clip));
+    } else {
+        delete card.dataset.expiresAt;
     }
+}
+
+// Re-render everything on a card that shows the clip's filename.
+function renderCardFilename(card, clip) {
+    const name = clip.filename || '';
+    card.dataset.filename = name.toLowerCase();
+    card.setAttribute('aria-label', `Clip: ${name || 'Pasted Content'}`);
+    const label = card.querySelector('.clip-filename');
+    if (label) {
+        label.setAttribute('title', name || 'Pasted Content');
+        label.innerHTML = escapeHTML(name) || '<span class="text-stone-400 font-normal">Pasted</span>';
+    }
+    card.querySelector('.clip-checkbox')?.setAttribute('aria-label', `Select clip ${name || 'Pasted Content'}`);
+    // Both type labels derive from the filename: the footer's and, on a
+    // generic-file card, the one in the centre of the preview.
+    const typeText = getFriendlyFileType(clip.content_type, clip.filename);
+    card.querySelectorAll('.clip-type-label, .clip-preview-type-label').forEach(el => { el.textContent = typeText; });
+    const isVideo = (clip.content_type || '').startsWith('video/');
+    card.querySelectorAll('img[data-clip-id]').forEach(img => {
+        img.setAttribute('alt', name || (isVideo ? 'Uploaded video' : 'Uploaded image'));
+    });
+    card.querySelector('video[data-clip-id]')?.setAttribute('aria-label', name || 'Uploaded video');
+}
+
+// A card leaving the gallery: stop watching it for media work.
+function forgetCardMedia(card) {
+    cardMediaTasks.delete(card);
+    if (cardMediaObserver) cardMediaObserver.unobserve(card);
+}
+
+// Load a card's media. Images get a URL-served thumbnail straight away (the
+// browser lazy-loads it); videos capture a representative frame, through the
+// card media scheduler.
+function loadMediaForCard(clip, card) {
+    const clipId = clip.id;
+    if (card.querySelector(`img[data-clip-id="${clipId}"]:not(.video-thumb)`)) {
+        loadImageCard(clip, card).catch(error => showCardMediaError(clipId, card, error));
+    } else if (card.querySelector(`video[data-clip-id="${clipId}"]`)) {
+        // A frame already captured for this revision needs no decoder at all.
+        if (showCachedVideoFrame(clip, card)) return;
+        scheduleCardMedia(card, () => loadVideoCard(clip, card).catch(error => showCardMediaError(clipId, card, error)));
+    }
+}
+
+// A card whose media failed (or fell back to a live video) is rebuilt by the
+// next reload rather than reused, so a transient failure is retried.
+function markCardMediaFailed(card) {
+    card._mediaFailed = true;
+}
+
+function showCardMediaError(clipId, card, error) {
+    console.error(`Failed to load media for clip ${clipId}:`, error);
+    markCardMediaFailed(card);
+    const spinner = card.querySelector('.loading-spinner');
+    if (spinner) {
+        spinner.innerHTML = '<span class="text-red-400 text-xs">Failed to load</span>';
+    }
+}
+
+// Image cards show the backend thumbnail (thumbnail.go) — a bounded copy
+// served over HTTP — never the full original through GetClipData. If the
+// thumbnail fails, the card falls back to the full image, once.
+async function loadImageCard(clip, card) {
+    const clipId = clip.id;
+    const img = card.querySelector(`img[data-clip-id="${clipId}"]:not(.video-thumb)`);
+    const spinner = card.querySelector('.loading-spinner');
+    let fellBack = false;
+
+    const fallback = () => {
+        if (fellBack) {
+            showCardMediaError(clipId, card, new Error('image failed to load'));
+            return;
+        }
+        fellBack = true;
+        // The scheduler only logs a rejected task, so a failed fallback must
+        // mark the card itself: otherwise it keeps its spinner without
+        // _mediaFailed and an unchanged reload reuses it, never retrying.
+        scheduleCardMedia(card, async () => {
+            try {
+                const url = await getImageDataUrl(clipId);
+                if (card.isConnected) img.src = url;
+            } catch (error) {
+                showCardMediaError(clipId, card, error);
+            }
+        });
+    };
+    img.addEventListener('load', () => {
+        img.classList.remove('opacity-0');
+        spinner?.remove();
+    }, { once: true });
+    img.addEventListener('error', fallback);
+
+    const url = await getThumbnailUrl(clip);
+    if (!card.isConnected) return;
+    if (url) {
+        img.dataset.thumbnail = 'true';
+        img.src = url;
+    } else {
+        fallback();
+    }
+}
+
+const VIDEO_CARD_SLOT_TIMEOUT_MS = 15000;
+
+// e2e can shorten the stall timeout; production always uses the constant.
+function videoCardSlotTimeoutMs() {
+    const override = Number(window.__testVideoCardSlotTimeoutMs);
+    return Number.isFinite(override) && override > 0 ? override : VIDEO_CARD_SLOT_TIMEOUT_MS;
+}
+
+// Capture a video card's frame. Video elements seek just past the start so
+// clips whose first frame is empty still get a useful thumbnail. Resolves when
+// the card has settled on a frame, the live element or an error.
+// Show a cached frame (videoFrameCache) on a video card: the same end state
+// freezeToImage reaches, without loading the video. False when nothing is cached.
+function showCachedVideoFrame(clip, card) {
+    const clipId = clip.id;
+    const url = videoFrameCacheGet(clip);
+    const thumb = card.querySelector(`img.video-thumb[data-clip-id="${clipId}"]`);
+    if (!url || !thumb) return false;
+    thumb.src = url;
+    thumb.dataset.frameCached = 'true';
+    thumb.classList.remove('hidden');
+    card.querySelector(`video[data-clip-id="${clipId}"]`)?.remove();
+    const badge = card.querySelector('.video-play-badge');
+    badge?.classList.remove('hidden');
+    badge?.classList.add('flex');
+    card.querySelector('.loading-spinner')?.remove();
+    return true;
+}
+
+async function loadVideoCard(clip, card) {
+    const clipId = clip.id;
+    // Captured now, so a frame from bytes replaced mid-capture is not cached
+    // under the new revision.
+    const frameRevision = videoFrameRevision(clip);
+    if (showCachedVideoFrame(clip, card)) return;
+    const video = card.querySelector(`video[data-clip-id="${clipId}"]`);
+    const thumb = card.querySelector(`img.video-thumb[data-clip-id="${clipId}"]`);
+    const spinner = card.querySelector('.loading-spinner');
+    const mediaURL = await getVideoMediaUrl(clipId);
+    // Preparing the URL is a round-trip, and the gallery may have been
+    // rebuilt underneath us in the meantime (a search keystroke is
+    // enough). Loading a detached element would open a range fetch and
+    // a decoder that nothing will ever release.
+    if (!card.isConnected) return;
+    let thumbnailSeekPending = false;
+    let settled = false;
+    // The scheduler slot is held until the frame is captured (or the
+    // load gives up), so only a few decoders run at once. A stalled load
+    // is cancelled after VIDEO_CARD_SLOT_TIMEOUT_MS (stallTimer below):
+    // its source is released before the slot is, or the stalled fetch and
+    // decoder would outlive the slot and defeat the concurrency bound.
+    let finish;
+    let stallTimer = null;
+    const done = new Promise(resolve => {
+        finish = () => {
+            if (stallTimer !== null) {
+                clearTimeout(stallTimer);
+                stallTimer = null;
+            }
+            resolve();
+        };
+    });
+
+    const releaseVideo = () => {
+        video.removeAttribute('src');
+        video.load();
+        video.remove();
+    };
+
+    const showBadge = () => {
+        const badge = card.querySelector('.video-play-badge');
+        badge?.classList.remove('hidden');
+        badge?.classList.add('flex');
+        spinner?.remove();
+    };
+
+    // Fall back to the live element. It renders correctly everywhere;
+    // it just costs a decoder and keeps a range fetch open.
+    const keepLiveVideo = () => {
+        if (settled) return;
+        settled = true;
+        markCardMediaFailed(card);
+        video.classList.remove('hidden');
+        showBadge();
+        finish();
+    };
+
+    // Hand the frame to an <img> and drop the video element entirely.
+    //
+    // The frame cannot be carried by the video's own `poster`: WebKit —
+    // the WebView this app ships in — paints a video whose `src` has
+    // been removed as an empty black box and ignores the poster, while
+    // Chromium honours it, so the e2e suite cannot see the difference.
+    // An <img> renders the same frame correctly in both. Verified by
+    // snapshotting a real WKWebView; see docs in CLAUDE.md.
+    const freezeToImage = () => {
+        if (settled || !thumb) return keepLiveVideo();
+        let canvas;
+        try {
+            const width = video.videoWidth;
+            const height = video.videoHeight;
+            if (!width || !height) return keepLiveVideo();
+            const scale = Math.min(1, THUMBNAIL_MAX_EDGE / Math.max(width, height));
+            canvas = document.createElement('canvas');
+            canvas.width = Math.max(1, Math.round(width * scale));
+            canvas.height = Math.max(1, Math.round(height * scale));
+            canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+            // A tainted canvas throws here, synchronously, so the live-video
+            // fallback still applies. The JPEG becomes an object URL kept in
+            // videoFrameCache, so a rebuilt card never captures it again.
+            canvas.toBlob((blob) => {
+                let url = null;
+                if (blob && videoFrameRevision(clip) === frameRevision) {
+                    url = URL.createObjectURL(blob);
+                    videoFrameCacheSet(Number(clipId), frameRevision, url);
+                } else {
+                    // No blob, or the clip's bytes changed while encoding:
+                    // show this frame without caching it under the new revision.
+                    try { url = canvas.toDataURL('image/jpeg', 0.85); } catch { url = null; }
+                }
+                if (url) {
+                    thumb.src = url;
+                    thumb.classList.remove('hidden');
+                    showBadge();
+                } else {
+                    markCardMediaFailed(card);
+                    if (spinner) spinner.innerHTML = '<span class="text-red-400 text-xs">Failed to load</span>';
+                }
+                finish();
+            }, 'image/jpeg', 0.85);
+        } catch (error) {
+            console.warn(`Could not capture thumbnail for clip ${clipId}:`, error);
+            return keepLiveVideo();
+        }
+        settled = true;
+        // Releasing the source frees the decoder and ends the range
+        // fetch. A gallery page holds up to defaultClipLimit cards, and
+        // a still frame has no business keeping a video pipeline alive.
+        // The canvas already holds the frame.
+        releaseVideo();
+    };
+
+    // `seeked` says the seek finished, not that a frame was presented.
+    const freezeWhenPainted = () => {
+        if (settled) return;
+        if (typeof video.requestVideoFrameCallback === 'function') {
+            let fired = false;
+            video.requestVideoFrameCallback(() => { fired = true; freezeToImage(); });
+            setTimeout(() => { if (!fired) freezeToImage(); }, 1000);
+            return;
+        }
+        requestAnimationFrame(() => requestAnimationFrame(freezeToImage));
+    };
+
+    video.addEventListener('loadedmetadata', () => {
+        if (Number.isFinite(video.duration) && video.duration > 0.1) {
+            thumbnailSeekPending = true;
+            video.currentTime = thumbnailSeekTime(video.duration);
+        }
+    }, { once: true });
+    video.addEventListener('loadeddata', () => {
+        if (!thumbnailSeekPending) freezeWhenPainted();
+    }, { once: true });
+    video.addEventListener('seeked', () => {
+        thumbnailSeekPending = false;
+        freezeWhenPainted();
+    }, { once: true });
+    video.addEventListener('error', () => {
+        if (settled) return;
+        settled = true;
+        // Release the source on failure too, or the element sits in the
+        // gallery holding a dead fetch for the life of the render.
+        releaseVideo();
+        markCardMediaFailed(card);
+        if (spinner) spinner.innerHTML = '<span class="text-red-400 text-xs">Failed to load</span>';
+        finish();
+    });
+    // A load that never reaches a frame (stalled fetch, hung decoder) is
+    // given up: settle, release the source, mark the card failed so the
+    // next reload rebuilds it, and only then free the scheduler slot. A
+    // capture already in flight (settled, waiting on toBlob) has already
+    // released its source, so it only gives back the slot.
+    stallTimer = setTimeout(() => {
+        stallTimer = null;
+        if (settled) {
+            finish();
+            return;
+        }
+        settled = true;
+        releaseVideo();
+        markCardMediaFailed(card);
+        if (spinner) spinner.innerHTML = '<span class="text-red-400 text-xs">Failed to load</span>';
+        finish();
+    }, videoCardSlotTimeoutMs());
+    video.src = mediaURL;
+    video.load();
+    return done;
 }
 
 // Where to sample a video for its card thumbnail. Not the opening frame: real
@@ -1462,17 +1898,58 @@ async function getVideoMediaUrl(clipId) {
     }
 }
 
-// Get cached or load image data URL
+// The full-size image for the lightbox and comparison view (and a card whose
+// thumbnail failed). Desktop: a data URL over the bridge, kept in the bounded
+// imageCache. Server mode: the same-origin data URL itself — the browser
+// fetches and caches it, with no Blob -> FileReader -> base64 round trip.
+const SERVER_IMAGE_MAX_INLINE = 64 * 1024 * 1024; // matches serverInlinePreviewMaxBytes (api_manager.go)
+
+// The clip's stored size, for the inline-preview ceiling. A loaded gallery card
+// carries it; an image opened from elsewhere (a Markdown reference, a clip on a
+// page not yet loaded) has no card, so ask the server. Fails closed: a size that
+// cannot be established is an error, never "zero bytes".
+async function serverClipSizeForPreview(id) {
+    const card = gallery?.querySelector(`li[data-id="${id}"]`);
+    if (card && card.dataset.size !== undefined && card.dataset.size !== '') {
+        const size = Number(card.dataset.size);
+        if (Number.isFinite(size) && size >= 0) return size;
+    }
+    const res = await fetch(`/api/v1/clips/${id}`, { credentials: 'same-origin' });
+    if (res.status === 401) window.location = '/login.html';
+    if (!res.ok) throw new Error(`could not read clip ${id} (${res.status})`);
+    const meta = await res.json();
+    const size = Number(meta?.size);
+    if (meta?.size === undefined || meta?.size === null || !Number.isFinite(size) || size < 0) {
+        throw new Error(`clip ${id} has no known size; refusing to preview it inline`);
+    }
+    return size;
+}
+
 async function getImageDataUrl(clipId) {
     const id = Number(clipId);
-    if (imageCache.has(id)) {
-        return imageCache.get(id);
+    const revision = mediaRevisions.get(id) || 0;
+    if (window.mahpastesMode === 'server') {
+        // Same ceiling rest-glue's GetClipData applies: past it the browser is
+        // asked to decode an arbitrarily large image, so offer a download.
+        const size = await serverClipSizeForPreview(id);
+        if (size > SERVER_IMAGE_MAX_INLINE) {
+            throw new Error(`clip is too large to preview in the browser (${Math.round(size / 1048576)} MB) — download it instead`);
+        }
+        // The size above can be stale (a card rendered before the clip was
+        // overwritten with a larger image), so it only spares a request:
+        // preview=1 makes the server enforce the same ceiling against the
+        // revision it actually serves, answering 413 past it. The revision
+        // keeps the browser from reusing a response for bytes that have since
+        // been overwritten.
+        return `/api/v1/clips/${id}/data?preview=1${revision ? `&rev=${revision}` : ''}`;
     }
 
-    const revision = mediaRevisions.get(id) || 0;
+    const cached = imageCacheGet(id);
+    if (cached !== undefined) return cached;
+
     const clipData = await getClipData(id);
     const dataUrl = `data:${clipData.content_type};base64,${clipData.data}`;
-    if ((mediaRevisions.get(id) || 0) === revision) imageCache.set(id, dataUrl);
+    if ((mediaRevisions.get(id) || 0) === revision) imageCacheSet(id, dataUrl);
     return dataUrl;
 }
 
@@ -1687,9 +2164,19 @@ let _folderRenderGen = 0;
 // Keyed by tagID; values are { served, shared, servePaused, sharePaused, serveURL, serveRequests, shareFollowers }.
 const folderStatusMap = new Map();
 
+// The badge markup for one folder's status.
+function folderBadgesHTML(state) {
+    const badges = [];
+    if (state.served) badges.push(renderBadge('served', state));
+    if (state.shared) badges.push(renderBadge('shared', state));
+    return badges.join('');
+}
+
 // In-place badge update. Only mutates cards that already carry a .folder-status-badges
-// container, so it's a harmless no-op during Phase 2 (before renderFolderCards is updated
-// to emit the container in Phase 3). No focus/hover state disturbed.
+// container. No focus/hover state disturbed. The poller calls this every 2 s, and
+// the status rarely changes between polls, so each card's badges and label are
+// only written when they differ: rewriting identical innerHTML still tears down
+// and rebuilds the nodes (and any tooltip anchored to them).
 function updateFolderBadgesInPlace() {
     const containers = gallery.querySelectorAll('[data-folder] .folder-status-badges');
     containers.forEach(container => {
@@ -1697,13 +2184,17 @@ function updateFolderBadgesInPlace() {
         if (!card) return;
         const tagID = parseInt(card.getAttribute('data-folder'), 10);
         const state = folderStatusMap.get(tagID) || {};
-        const badges = [];
-        if (state.served) badges.push(renderBadge('served', state));
-        if (state.shared) badges.push(renderBadge('shared', state));
-        container.innerHTML = badges.join('');
+        const html = folderBadgesHTML(state);
+        // Compared against the markup last written, not innerHTML: the browser
+        // re-serializes markup, so the two strings need not match.
+        if (container._badgesHTML !== html) {
+            container.innerHTML = html;
+            container._badgesHTML = html;
+        }
         const path = card.getAttribute('data-folder-path') || card.querySelector('.text-xs')?.textContent || '';
         const countText = card.querySelector('.text-\\[10px\\]')?.textContent || '';
-        card.setAttribute('aria-label', buildFolderAriaLabel(path, countText, state, card.getAttribute('data-hidden') === 'true'));
+        const label = buildFolderAriaLabel(path, countText, state, card.getAttribute('data-hidden') === 'true');
+        if (card.getAttribute('aria-label') !== label) card.setAttribute('aria-label', label);
     });
 }
 
@@ -1814,20 +2305,22 @@ async function buildFolderCards(isStale = () => false) {
     if (!folderTags || folderTags.length === 0) return [];
 
     const hidden = (typeof getHiddenTags === 'function') ? (getHiddenTags() || []) : [];
-    const counts = await Promise.all(folderTags.map(tag => getDescendantClipCount(tag.id, isViewingArchive)));
+    // One call for every card's count, not one bridge round trip per card.
+    const counts = await getDescendantClipCounts(folderTags.map(tag => tag.id), isViewingArchive);
     if (isStale()) return null;
 
-    const cards = [];
-    for (const [i, tag] of folderTags.entries()) {
-        const count = counts[i];
+    // Path relative to the folder being viewed: normally the leaf name, but a
+    // tag whose intermediate parent was deleted (a/b/c listed under a, or p/q
+    // at the root once p is gone) shows the rest of its path so it is not
+    // mistaken for a/c or q.
+    const viewedTag = activeTagFilters.length > 0
+        ? allTags.find(t => t.id === activeTagFilters[activeTagFilters.length - 1])
+        : null;
 
-        // Path relative to the folder being viewed: normally the leaf name,
-        // but a tag whose intermediate parent was deleted (a/b/c listed
-        // under a, or p/q at the root once p is gone) shows the rest of its
-        // path so it is not mistaken for a/c or q.
-        const viewedTag = activeTagFilters.length > 0
-            ? allTags.find(t => t.id === activeTagFilters[activeTagFilters.length - 1])
-            : null;
+    const cards = [];
+    for (const tag of folderTags) {
+        const count = Number(counts[tag.id]) || 0;
+
         let shortName = tag.name;
         if (viewedTag) {
             shortName = tag.name.startsWith(viewedTag.name + '/')
@@ -1851,10 +2344,8 @@ async function buildFolderCards(isStale = () => false) {
         if (isHidden) card.setAttribute('data-hidden', 'true');
         card.setAttribute('aria-label', buildFolderAriaLabel(tag.name, countText, state, isHidden));
 
-        const badgeBadges = [];
-        if (state.served) badgeBadges.push(renderBadge('served', state));
-        if (state.shared) badgeBadges.push(renderBadge('shared', state));
-        const badgesHTML = `<div class="folder-status-badges absolute top-2 right-2 flex gap-1">${badgeBadges.join('')}</div>`;
+        const badgeMarkup = folderBadgesHTML(state);
+        const badgesHTML = `<div class="folder-status-badges absolute top-2 right-2 flex gap-1">${badgeMarkup}</div>`;
 
         card.innerHTML = `
             ${badgesHTML}
@@ -1864,6 +2355,8 @@ async function buildFolderCards(isStale = () => false) {
             <span class="text-xs font-medium text-stone-700">${escapeHTML(shortName)}</span>
             <span class="text-[10px] text-stone-400 mt-0.5">${countText}</span>
         `;
+        // What updateFolderBadgesInPlace compares the next poll against.
+        card.querySelector('.folder-status-badges')._badgesHTML = badgeMarkup;
 
         card.addEventListener('click', () => {
             navigateToFolder(tag.id);
