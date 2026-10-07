@@ -342,7 +342,12 @@ const MarkdownPreview = (() => {
         link.title = result.status === 'invalid' ? result.error : 'Local clip unavailable';
     }
 
-    function showCandidateChooser(anchor, candidates, fragment, imageMode) {
+    // In image mode, `descriptor` and `gen` are the image placeholder's and
+    // the render that created it: the chosen image loads through the shared
+    // scheduler under that render, so a click cannot add a backend read on
+    // top of the IMAGE_LOAD_CONCURRENCY the render's own loads already hold,
+    // and a click on a superseded render's placeholder starts no read at all.
+    function showCandidateChooser(anchor, candidates, fragment, imageMode, descriptor = null, gen = generation) {
         const existing = anchor.parentElement?.querySelector(':scope > .markdown-reference-chooser');
         if (existing) {
             existing.remove();
@@ -352,6 +357,7 @@ const MarkdownPreview = (() => {
         chooser.className = 'markdown-reference-chooser';
         chooser.setAttribute('role', 'group');
         chooser.setAttribute('aria-label', 'Choose matching clip');
+        let picked = false;
         candidates.forEach(candidate => {
             const button = document.createElement('button');
             button.type = 'button';
@@ -359,7 +365,10 @@ const MarkdownPreview = (() => {
             button.textContent = `${candidate.filename} · ${paths}`;
             button.addEventListener('click', async () => {
                 if (imageMode) {
-                    await loadLocalImage(anchor, candidate.clip_id);
+                    // One pick per chooser: a second click must not queue another read.
+                    if (picked) return;
+                    picked = true;
+                    await scheduleImageLoad(() => loadLocalImage(anchor, candidate.clip_id, descriptor, gen), gen);
                 } else if (typeof openMarkdownReferenceCandidate === 'function') {
                     openMarkdownReferenceCandidate(candidate, fragment);
                 }
@@ -724,7 +733,7 @@ const MarkdownPreview = (() => {
             const button = document.createElement('button');
             button.type = 'button';
             button.textContent = 'Choose Image';
-            button.addEventListener('click', () => showCandidateChooser(placeholder, result.candidates, '', true));
+            button.addEventListener('click', () => showCandidateChooser(placeholder, result.candidates, '', true, descriptor, gen));
             placeholder.appendChild(button);
         } else {
             const note = document.createElement('span');
