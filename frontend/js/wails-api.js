@@ -623,7 +623,6 @@ async function refocusGallery() {
             return Number.isFinite(at) && at <= now;
         })
         .map(card => Number(card.dataset.id));
-    if (expired.length === 0) return 'none';
     for (const id of expired) {
         // Removing the last loaded card starts a reload of the next page.
         if (_clipLoadInFlight) return 'reload';
@@ -632,7 +631,18 @@ async function refocusGallery() {
             return 'reload';
         }
     }
-    return 'patched';
+    // The cards that survive still count down: their badges were rendered
+    // when the listing was, so a window hidden for five minutes would come
+    // back still reading 'Temp · 10m'. A reload re-renders them itself.
+    refreshExpiryBadges();
+    return expired.length === 0 ? 'none' : 'patched';
+}
+
+// Re-render the remaining-time badge of every loaded card that carries one.
+function refreshExpiryBadges() {
+    for (const card of gallery.querySelectorAll(':scope > li[data-id][data-expires-at]')) {
+        if (card._clip) renderCardExpiry(card, card._clip);
+    }
 }
 window.refreshGalleryOnRefocus = refreshGalleryOnRefocus;
 
