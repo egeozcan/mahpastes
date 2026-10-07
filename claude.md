@@ -774,7 +774,12 @@ counts (`descendantClipCountsSQL`), the hidden-clip note, the plain REST
 listings (`legacyClipListSQL`) and filename lookups (`clipFilenameIndex`:
 Markdown references, `findClipsByFilenameSQL`) follow the same rule; filter by
 tag with `c.id IN (SELECT … FROM clip_tags …)`, not a join, so clips stays on
-its index. `clip_listing_index_test.go` checks the bytecode
+its index. Filename lookups name `clipFilenameIndex` with `INDEXED BY` too (the
+Markdown tagged lookup still joins `clip_tags`): after `ANALYZE` on a library of
+one repeated, fully tagged filename the planner otherwise drives it from
+`clip_tags` and reads each clip by rowid
+(`TestMarkdownReferenceQueriesKeepFilenameIndexOnRepeatedNames`).
+`clip_listing_index_test.go` checks the bytecode
 (`clipsColumnsReadPastBlob`), including after `ANALYZE` on an all-live library:
 a new listing-style query belongs there. Changing an index's columns means a new
 index name and a `DROP INDEX` of the old one — and on an existing library each

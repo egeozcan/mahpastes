@@ -204,12 +204,15 @@ func (a *App) markdownReferenceBases(sourceClipID int64) ([]string, error) {
 	return bases, nil
 }
 
-// Reference lookups by exact filename. Both run off idx_clips_filename, which
-// covers every clips column they read: filename and the rest are stored after
-// the data blob, so a table scan would read the whole library per reference.
+// Reference lookups by exact filename. Both read clips only through
+// clipFilenameIndex, which covers every clips column they use: filename and
+// the rest are stored after the data blob, so any table read walks the blob.
+// The index is named with INDEXED BY because after ANALYZE on a library of
+// repeated filenames (every capture "screenshot.png") the planner otherwise
+// drives a tagged lookup from clip_tags and reads each clip by rowid.
 const markdownUntaggedCandidatesSQL = `
 	SELECT c.id, c.filename, c.content_type, c.is_archived
-	FROM clips c
+	FROM clips c INDEXED BY ` + clipFilenameIndex + `
 	WHERE c.filename = ? COLLATE BINARY
 	  AND NOT EXISTS (SELECT 1 FROM clip_tags ct WHERE ct.clip_id = c.id)
 	  AND (c.expires_at IS NULL OR datetime(c.expires_at) > CURRENT_TIMESTAMP)
@@ -218,7 +221,7 @@ const markdownUntaggedCandidatesSQL = `
 
 const markdownTaggedCandidatesSQL = `
 	SELECT c.id, c.filename, c.content_type, c.is_archived
-	FROM clips c
+	FROM clips c INDEXED BY ` + clipFilenameIndex + `
 	JOIN clip_tags ct ON ct.clip_id = c.id
 	JOIN tags t ON t.id = ct.tag_id
 	WHERE t.name = ? COLLATE BINARY
