@@ -715,6 +715,7 @@ async function refreshClipInPlace(id) {
     if (row.filename !== clip.filename && currentSortField === 'name') return finish(false);
     if (!clipTagsFitView(tags)) return finish(false);
 
+    const renamed = row.filename !== clip.filename;
     clip.filename = row.filename;
     clip.tags = tags;
     // Server-mode rows carry no expiry, like the server listing.
@@ -723,6 +724,13 @@ async function refreshClipInPlace(id) {
     renderCardExpiry(card, clip);
     renderCardTags(card, tags);
     card._renderSig = clipCardSignature(clip);
+    // A prepared drag-out item carries the filename it was prepared under
+    // (the DownloadURL payload names the file). The reload this patch
+    // replaces cleared it; drop this clip's copy so the next drag prepares
+    // under the new name.
+    if (renamed && typeof invalidatePreparedDragItem === 'function') {
+        invalidatePreparedDragItem(id);
+    }
     afterGalleryPatch();
     return finish(true);
 }

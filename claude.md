@@ -1151,6 +1151,8 @@ Five separate Wails-bound services (`ClipboardService`, `TransferService`, `Plug
 3. Temp files have 60-min leases, pruned every 10 min
 4. Platform-specific: macOS uses CGo/NSPasteboard for clipboard, NSView.dragFile for drag
 
+**Prepared drag cache**: `transfer.js` caches one prepared item per clip (`preparedDragItems`); its `filename` becomes the `DownloadURL` payload. A gallery reload clears it (`clearPreparedDragState`); an in-place card patch does not, so `refreshClipInPlace` calls `invalidatePreparedDragItem(id)` when the filename changes. Both bump an epoch: a `prepareDrag` in flight across it prepares again, and a `lookupPreparedDrag` reports nothing cached — neither writes its stale result. Any new in-place patch that changes a clip's filename or content must invalidate its drag item the same way.
+
 ### Platform Support
 
 | Operation | macOS | Windows | Linux |

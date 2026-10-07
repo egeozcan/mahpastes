@@ -12,6 +12,15 @@ let transferCapabilitiesOverride = null;
 const preparedDragItems = new Map();
 const pendingDragPrep = new Map();
 const pendingDragLookup = new Map();
+// Bumped whenever cached drag state is thrown away (per clip, or all at
+// once). A prepare or lookup already in flight captured the old value and
+// must not write its now-stale result back into the cache.
+const dragItemEpochs = new Map();
+let dragGlobalEpoch = 0;
+
+function dragEpochFor(id) {
+    return `${dragGlobalEpoch}:${dragItemEpochs.get(id) || 0}`;
+}
 
 function parseLeaseExpiry(item) {
     if (!item || !item.lease_expires_at) {
@@ -96,9 +105,28 @@ function getPreparedDragItem(clipId) {
 }
 
 function clearPreparedDragState() {
+    dragGlobalEpoch++;
+    dragItemEpochs.clear();
     preparedDragItems.clear();
     pendingDragPrep.clear();
     pendingDragLookup.clear();
+    if (typeof resetDragHandleStates === 'function') {
+        resetDragHandleStates();
+    }
+}
+
+// Forgets one clip's prepared drag item (its filename, transfer URL) after
+// the clip changed in place — a rename patched into its card, say — without
+// the gallery reload that would otherwise have cleared everything.
+function invalidatePreparedDragItem(clipId) {
+    const id = Number(clipId);
+    if (!Number.isFinite(id) || id <= 0) {
+        return;
+    }
+    dragItemEpochs.set(id, (dragItemEpochs.get(id) || 0) + 1);
+    preparedDragItems.delete(id);
+    pendingDragPrep.delete(id);
+    pendingDragLookup.delete(id);
     if (typeof resetDragHandleStates === 'function') {
         resetDragHandleStates();
     }
@@ -143,6 +171,7 @@ async function lookupPreparedDrag(clipId) {
         return pending;
     }
 
+    const epoch = dragEpochFor(id);
     const lookupPromise = (async () => {
         const service = window.go?.main?.TransferService;
         if (!service || typeof service.GetExistingPreparedClipForTransfer !== 'function') {
@@ -154,6 +183,11 @@ async function lookupPreparedDrag(clipId) {
             channel: 'drag_out'
         });
 
+        if (dragEpochFor(id) !== epoch) {
+            // Invalidated while in flight: the answer describes the clip as
+            // it was. Report nothing cached; a prepare fetches it afresh.
+            return null;
+        }
         if (prepared && prepared.abs_path) {
             preparedDragItems.set(id, prepared);
             return prepared;
@@ -167,7 +201,9 @@ async function lookupPreparedDrag(clipId) {
     try {
         return await lookupPromise;
     } finally {
-        pendingDragLookup.delete(id);
+        if (pendingDragLookup.get(id) === lookupPromise) {
+            pendingDragLookup.delete(id);
+        }
     }
 }
 
@@ -187,6 +223,7 @@ async function prepareDrag(clipId) {
         return pending;
     }
 
+    const epoch = dragEpochFor(id);
     const prepPromise = (async () => {
         const service = window.go?.main?.TransferService;
         if (!service || typeof service.PrepareClipForTransfer !== 'function') {
@@ -198,6 +235,12 @@ async function prepareDrag(clipId) {
             channel: 'drag_out'
         });
 
+        if (dragEpochFor(id) !== epoch) {
+            // Invalidated while in flight (the clip was renamed, say): this
+            // result may carry the old filename. Prepare again rather than
+            // hand a waiting drag, or the cache, a stale item.
+            return prepareDrag(id);
+        }
         preparedDragItems.set(id, prepared);
         return prepared;
     })();
@@ -207,7 +250,9 @@ async function prepareDrag(clipId) {
     try {
         return await prepPromise;
     } finally {
-        pendingDragPrep.delete(id);
+        if (pendingDragPrep.get(id) === prepPromise) {
+            pendingDragPrep.delete(id);
+        }
     }
 }
 
@@ -224,6 +269,7 @@ Object.assign(window.__testHelpers, {
     getPreparedDragItemForTest: (clipId) => getPreparedDragItem(clipId),
     startNativeDragForTest: (clipId, preparedItem) => startNativeDrag(clipId, preparedItem),
     clearPreparedDragStateForTest: () => clearPreparedDragState(),
+    invalidatePreparedDragItemForTest: (clipId) => invalidatePreparedDragItem(clipId),
     getTransferCapabilitiesForTest: () => JSON.parse(JSON.stringify(getEffectiveTransferCapabilities())),
     setTransferCapabilitiesForTest: (caps) => {
         transferCapabilitiesOverride = caps;
