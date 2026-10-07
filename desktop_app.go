@@ -62,6 +62,7 @@ type desktopCore interface {
 	GetHiddenTags() ([]int64, error)
 	GetImageDiff(clipIdA, clipIdB int64, threshold int) (*coreapp.DiffResult, error)
 	GetLibraryVersion() (int64, error)
+	GetPluginLibraryWrites() (int64, error)
 	GetOrphanDBRows() (coreapp.OrphanReport, error)
 	GetRemovableEmptyTags() ([]coreapp.Tag, error)
 	GetSetting(key string) (string, error)

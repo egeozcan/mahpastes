@@ -306,6 +306,7 @@ func (am *APIManager) Start(port int, bindAll bool) (APIStatus, error) {
 		mux := am.mux
 		mux.HandleFunc("GET /api/v1/clips", am.authMiddleware(am.requireRole("viewer", am.handleListClips)))
 		mux.HandleFunc("GET /api/v1/library/version", am.authMiddleware(am.requireRole("viewer", am.handleLibraryVersion)))
+		mux.HandleFunc("GET /api/v1/library/plugin-writes", am.authMiddleware(am.requireRole("viewer", am.handlePluginLibraryWrites)))
 		mux.HandleFunc("GET /api/v1/clips/hidden-info", am.authMiddleware(am.requireRole("viewer", am.handleHiddenClipInfo)))
 		mux.HandleFunc("GET /api/v1/clips/{id}", am.authMiddleware(am.requireRole("viewer", am.handleGetClip)))
 		mux.HandleFunc("GET /api/v1/clips/{id}/data", am.authMiddleware(am.requireRole("viewer", am.handleGetClipData)))
@@ -1253,6 +1254,23 @@ func (am *APIManager) handleLibraryVersion(w http.ResponseWriter, r *http.Reques
 	am.jsonOK(w, map[string]int64{"version": v})
 }
 
+// handlePluginLibraryWrites returns GetPluginLibraryWrites: how many plugin
+// event dispatches changed the library. Like the library version it reveals
+// activity outside a tag-scoped key's subtree, so scoped keys are refused and
+// the web UI treats the refusal as "unknown" and reloads instead of patching.
+func (am *APIManager) handlePluginLibraryWrites(w http.ResponseWriter, r *http.Request) {
+	if getKeyContext(r).ScopedTagID != 0 {
+		am.jsonError(w, http.StatusForbidden, "plugin write counts are not available for tag-scoped keys")
+		return
+	}
+	n, err := am.app.GetPluginLibraryWrites()
+	if err != nil {
+		am.jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	am.jsonOK(w, map[string]int64{"count": n})
+}
+
 func (am *APIManager) handleHiddenClipInfo(w http.ResponseWriter, r *http.Request) {
 	keyCtx := getKeyContext(r)
 	q := r.URL.Query()
@@ -1858,7 +1876,7 @@ func (am *APIManager) handleCreateClip(w http.ResponseWriter, r *http.Request) {
 
 		// Emit plugin event
 		if am.app.pluginManager != nil {
-			am.app.pluginManager.EmitEvent("clip:created", map[string]interface{}{
+			am.app.emitPluginEvent("clip:created", map[string]interface{}{
 				"id":           preview.ID,
 				"content_type": preview.ContentType,
 				"filename":     preview.Filename,
@@ -1938,7 +1956,7 @@ func (am *APIManager) handleArchiveClip(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if am.app.pluginManager != nil {
-		am.app.pluginManager.EmitEvent("clip:archived", map[string]interface{}{"id": id})
+		am.app.emitPluginEvent("clip:archived", map[string]interface{}{"id": id})
 	}
 
 	w.WriteHeader(http.StatusNoContent)
@@ -1965,7 +1983,7 @@ func (am *APIManager) handleUnarchiveClip(w http.ResponseWriter, r *http.Request
 	}
 
 	if am.app.pluginManager != nil {
-		am.app.pluginManager.EmitEvent("clip:unarchived", map[string]interface{}{"id": id})
+		am.app.emitPluginEvent("clip:unarchived", map[string]interface{}{"id": id})
 	}
 
 	w.WriteHeader(http.StatusNoContent)

@@ -221,7 +221,7 @@ async function loadClips({ focusFirst = false } = {}) {
         // The library version this listing reflects at least: read before the
         // listing, so a write landing in between makes the next refocus
         // reload rather than be missed (see refreshGalleryOnRefocus).
-        const libraryVersion = await readLibraryVersion();
+        const [libraryVersion, pluginWrites] = await Promise.all([readLibraryVersion(), readPluginLibraryWrites()]);
         if (isStale()) return;
 
         // Fetch the clips and the folder cards together, before touching the
@@ -232,6 +232,7 @@ async function loadClips({ focusFirst = false } = {}) {
         ]);
         if (isStale() || folderCards === null) return;
         _galleryLibraryVersion = libraryVersion;
+        _galleryPluginWrites = pluginWrites;
 
         // Where focus is now, just before the gallery is cleared: a delete
         // confirmed in a dialog starts the reload while focus is still on the
@@ -526,6 +527,34 @@ function removeClipCardInPlace(id) {
 // the REST API, the mp CLI and plugins, which tell this window nothing.
 let _galleryLibraryVersion = null;
 
+// The plugin write counter (GetPluginLibraryWrites) as read just before the
+// gallery's current listing; null when it could not be read. It moves when a
+// plugin event handler changed the library. Handlers run inside the App call
+// that emitted the event, so a clip:archived handler that archives another
+// clip, or a tag:added_to_clip handler that retags several, has finished by the
+// time ToggleArchive / AddTagToClip returns — and an in-place patch, which
+// only knows about the clip it was asked about, would leave those other cards
+// stale. pluginChangedLibrarySinceLoad() is checked before every patch.
+let _galleryPluginWrites = null;
+
+async function readPluginLibraryWrites() {
+    try {
+        const n = await window.go.main.App.GetPluginLibraryWrites();
+        return typeof n === 'number' ? n : null;
+    } catch (err) {
+        return null; // unknown (e.g. a tag-scoped server session): reload
+    }
+}
+
+// True when a plugin handler may have changed the library since the listing
+// on screen was read, or when that cannot be told: the caller reloads rather
+// than patches. Unknown counts as changed (fail closed).
+async function pluginChangedLibrarySinceLoad() {
+    if (_galleryPluginWrites == null) return true;
+    const n = await readPluginLibraryWrites();
+    return n == null || n !== _galleryPluginWrites;
+}
+
 async function readLibraryVersion() {
     try {
         const v = await window.go.main.App.GetLibraryVersion();
@@ -661,12 +690,19 @@ async function refreshClipInPlace(id) {
         return result;
     };
     let row;
+    let pluginChanged;
     try {
-        row = await window.go.main.App.GetClipPreview(id);
+        [row, pluginChanged] = await Promise.all([
+            window.go.main.App.GetClipPreview(id),
+            pluginChangedLibrarySinceLoad(),
+        ]);
     } catch (error) {
         return finish(superseded());
     }
     if (superseded()) return finish(true);
+    // A plugin handler changed the library inside the caller's write (or
+    // since the listing): other cards may be stale too.
+    if (pluginChanged) return finish(false);
     const card = galleryClipCard(id);
     // The card can only be swapped for another by a reload, which moves the
     // generation (checked above); a missing card means it left the view.
@@ -760,7 +796,13 @@ async function deleteClip(id) {
             showToast('Clip deleted.');
             // After the dialog has closed and handed focus back to the
             // card, so removing the card can pass focus to its neighbour.
-            setTimeout(() => { if (!removeClipCardInPlace(id)) loadClips(); }, 0);
+            // A clip:deleted handler can have changed other clips: reload.
+            setTimeout(async () => {
+                const gen = _clipLoadGen;
+                const pluginChanged = await pluginChangedLibrarySinceLoad();
+                if (gen !== _clipLoadGen) return; // a reload begun since reads the library itself
+                if (pluginChanged || !removeClipCardInPlace(id)) loadClips();
+            }, 0);
         } catch (error) {
             console.error('Error deleting clip:', error);
             showToast('Failed to delete clip.', 'error');
@@ -809,14 +851,20 @@ async function toggleArchiveClip(id) {
         return;
     }
     let row = null;
+    let pluginChanged = true;
     try {
-        row = await window.go.main.App.GetClipPreview(id);
+        [row, pluginChanged] = await Promise.all([
+            window.go.main.App.GetClipPreview(id),
+            pluginChangedLibrarySinceLoad(),
+        ]);
     } catch (error) {
         row = null; // gone or unreadable: unsure, so reload below
     }
     // A load begun after the toggle returned reads the stored state itself.
     if (gen !== _clipLoadGen) return;
-    if (!row || !!row.is_archived === fromArchive || isViewingArchive !== fromArchive) {
+    // A clip:archived handler that changed other clips (archived another,
+    // retagged one) did so inside ToggleArchive: only a reload shows it.
+    if (!row || pluginChanged || !!row.is_archived === fromArchive || isViewingArchive !== fromArchive) {
         loadClips();
         return;
     }

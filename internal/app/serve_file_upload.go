@@ -181,7 +181,7 @@ func (sm *ServeManager) handleFileUpload(w http.ResponseWriter, r *http.Request,
 
 	// Emit plugin event.
 	if sm.app.pluginManager != nil {
-		sm.app.pluginManager.EmitEvent("clip:created", map[string]interface{}{
+		sm.app.emitPluginEvent("clip:created", map[string]interface{}{
 			"id":           clipID,
 			"content_type": contentType,
 			"filename":     filename,

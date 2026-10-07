@@ -288,7 +288,7 @@ func (w *WatcherManager) importFile(filePath string, folder *WatchedFolder) (int
 
 	// Emit watch:file_detected event before import
 	if w.app.pluginManager != nil {
-		w.app.pluginManager.EmitEvent("watch:file_detected", map[string]interface{}{
+		w.app.emitPluginEvent("watch:file_detected", map[string]interface{}{
 			"path":      filePath,
 			"folder_id": folder.ID,
 		})
@@ -329,7 +329,7 @@ func (w *WatcherManager) importFile(filePath string, folder *WatchedFolder) (int
 
 	// Emit watch:import_complete event
 	if w.app.pluginManager != nil {
-		w.app.pluginManager.EmitEvent("watch:import_complete", map[string]interface{}{
+		w.app.emitPluginEvent("watch:import_complete", map[string]interface{}{
 			"clip_id":     clipID,
 			"source_path": filePath,
 			"folder_id":   folder.ID,

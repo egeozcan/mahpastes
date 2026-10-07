@@ -258,6 +258,7 @@
         // Library change counter (refocus reload check). Refused (403) for
         // tag-scoped keys; the caller treats any failure as "reload".
         GetLibraryVersion: async () => (await fetchJSON(`${api}/library/version`)).version,
+        GetPluginLibraryWrites: async () => (await fetchJSON(`${api}/library/plugin-writes`)).count,
         GetHiddenTags: async () => (await fetchJSON(`${api}/tags/hidden`)).ids || [],
         SetHiddenTags: (ids) => putJSON(`${api}/tags/hidden`, { ids }),
         GetClipMetadata: (id) => fetchJSON(`${api}/clips/${id}/metadata`),

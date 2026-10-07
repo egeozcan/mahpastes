@@ -85,6 +85,10 @@ type App struct {
 	// init succeeded, since a failed init is also a final answer.
 	pluginsReady atomic.Bool
 
+	// pluginLibraryWrites counts plugin event dispatches during which the
+	// library changed (emitPluginEvent, GetPluginLibraryWrites).
+	pluginLibraryWrites atomic.Int64
+
 	// shareHookWG tracks the async share-publication goroutines spawned by
 	// the tagging paths so callers (tests, shutdown) can wait for a tag
 	// operation's fan-out to finish. shareHookMu guards shareHookClosed and
@@ -328,10 +332,39 @@ func (a *App) emitEvent(event string, data ...interface{}) {
 }
 
 // emitPluginEvent dispatches a plugin event, guarded for nil pluginManager.
-func (a *App) emitPluginEvent(name string, data map[string]interface{}) {
-	if a.pluginManager != nil {
-		a.pluginManager.EmitEvent(name, data)
+// Every plugin event the App emits goes through here, because handlers run
+// synchronously inside EmitEvent (unless the sandbox is parked in a host
+// call) and can write anywhere in the library: a clip:archived handler that
+// archives a different clip has done so before the App call returns. The
+// library change counter is read on both sides of the dispatch, and a move
+// bumps pluginLibraryWrites (GetPluginLibraryWrites), which the gallery checks
+// before patching a card in place instead of reloading. A concurrent writer
+// landing during the dispatch bumps it too; that only costs a reload.
+func (a *App) emitPluginEvent(name string, data interface{}) {
+	if a.pluginManager == nil {
+		return
 	}
+	before, berr := a.libraryVersionForPluginDispatch()
+	a.pluginManager.EmitEvent(name, data)
+	after, aerr := a.libraryVersionForPluginDispatch()
+	if berr != nil || aerr != nil || before != after {
+		a.pluginLibraryWrites.Add(1)
+	}
+}
+
+func (a *App) libraryVersionForPluginDispatch() (int64, error) {
+	if a.db == nil {
+		return 0, fmt.Errorf("no database")
+	}
+	return a.GetLibraryVersion()
+}
+
+// GetPluginLibraryWrites returns how many plugin event dispatches have changed
+// the library since the app started (see emitPluginEvent). The gallery reads
+// it with each load and again before an in-place patch: a move means a plugin
+// handler changed something the patch knows nothing about, so it reloads.
+func (a *App) GetPluginLibraryWrites() (int64, error) {
+	return a.pluginLibraryWrites.Load(), nil
 }
 
 // emitWatchError sends an error event to the frontend
@@ -1975,7 +2008,7 @@ func (a *App) UploadFiles(files []FileData, expirationMinutes int, autoTagID int
 
 		// Emit plugin event
 		if a.pluginManager != nil {
-			a.pluginManager.EmitEvent("clip:created", map[string]interface{}{
+			a.emitPluginEvent("clip:created", map[string]interface{}{
 				"id":           clipID,
 				"content_type": contentType,
 				"filename":     file.Name,
@@ -2191,7 +2224,7 @@ func (a *App) DeleteClip(id int64) error {
 
 	// Emit plugin event
 	if a.pluginManager != nil {
-		a.pluginManager.EmitEvent("clip:deleted", id)
+		a.emitPluginEvent("clip:deleted", id)
 	}
 	return nil
 }
@@ -2307,7 +2340,7 @@ func (a *App) MergeDuplicates(clipID int64) error {
 	// Emit plugin events
 	if a.pluginManager != nil {
 		for _, dupID := range duplicateIDs {
-			a.pluginManager.EmitEvent("clip:deleted", dupID)
+			a.emitPluginEvent("clip:deleted", dupID)
 		}
 	}
 
@@ -2379,11 +2412,11 @@ func (a *App) ToggleArchive(id int64) error {
 		var isArchived int
 		a.db.QueryRow("SELECT is_archived FROM clips WHERE id = ?", id).Scan(&isArchived)
 		if isArchived == 1 {
-			a.pluginManager.EmitEvent("clip:archived", map[string]interface{}{
+			a.emitPluginEvent("clip:archived", map[string]interface{}{
 				"id": id,
 			})
 		} else {
-			a.pluginManager.EmitEvent("clip:unarchived", map[string]interface{}{
+			a.emitPluginEvent("clip:unarchived", map[string]interface{}{
 				"id": id,
 			})
 		}
@@ -2777,7 +2810,7 @@ func (a *App) DeleteTag(id int64) error {
 
 	// Emit plugin event (unchanged name, existing handler)
 	if a.pluginManager != nil {
-		a.pluginManager.EmitEvent("tag:deleted", id)
+		a.emitPluginEvent("tag:deleted", id)
 	}
 	// Emit Wails runtime event so the frontend can re-resolve folder view.
 	a.emitEvent("tag:deleted", map[string]any{"id": id, "name": name})
@@ -3046,7 +3079,7 @@ func (a *App) MergeTag(sourceID, destID int64) error {
 
 	// Emit events.
 	if a.pluginManager != nil {
-		a.pluginManager.EmitEvent("tag:merged", map[string]interface{}{
+		a.emitPluginEvent("tag:merged", map[string]interface{}{
 			"source_id": sourceID, "dest_id": destID,
 			"source_name": srcName, "dest_name": dstName,
 		})
@@ -3358,7 +3391,7 @@ func (a *App) addTagToClip(clipID, tagID int64, yieldToPlacement bool, epoch *ui
 	// triggers itself forever. The exclusivity removals above never announced
 	// themselves, so a move within a tree remains one added event.
 	if newlyTagged && a.pluginManager != nil {
-		a.pluginManager.EmitEvent("tag:added_to_clip", map[string]interface{}{
+		a.emitPluginEvent("tag:added_to_clip", map[string]interface{}{
 			"tag_id":  tagID,
 			"clip_id": clipID,
 		})
@@ -3408,7 +3441,7 @@ func (a *App) RemoveTagFromClip(clipID, tagID int64) error {
 	// a handler re-removing the tag on tag:removed_from_clip would otherwise
 	// trigger itself forever.
 	if n, rerr := res.RowsAffected(); rerr == nil && n > 0 && a.pluginManager != nil {
-		a.pluginManager.EmitEvent("tag:removed_from_clip", map[string]interface{}{
+		a.emitPluginEvent("tag:removed_from_clip", map[string]interface{}{
 			"tag_id":  tagID,
 			"clip_id": clipID,
 		})
@@ -3489,7 +3522,7 @@ func (a *App) announceClipTagRemovals(removed []clipTagRemoval) {
 		return
 	}
 	for _, r := range removed {
-		a.pluginManager.EmitEvent("tag:removed_from_clip", map[string]interface{}{
+		a.emitPluginEvent("tag:removed_from_clip", map[string]interface{}{
 			"tag_id":  r.tagID,
 			"clip_id": r.clipID,
 		})
@@ -3971,7 +4004,7 @@ func (a *App) BulkAddTag(clipIDs []int64, tagID int64) error {
 	// already had it changed nothing and is not announced.
 	if a.pluginManager != nil {
 		for _, clipID := range newlyTagged {
-			a.pluginManager.EmitEvent("tag:added_to_clip", map[string]interface{}{
+			a.emitPluginEvent("tag:added_to_clip", map[string]interface{}{
 				"tag_id":  tagID,
 				"clip_id": clipID,
 			})
@@ -4031,7 +4064,7 @@ func (a *App) BulkRemoveTag(clipIDs []int64, tagID int64) error {
 				continue
 			}
 			delete(removed, clipID)
-			a.pluginManager.EmitEvent("tag:removed_from_clip", map[string]interface{}{
+			a.emitPluginEvent("tag:removed_from_clip", map[string]interface{}{
 				"tag_id":  tagID,
 				"clip_id": clipID,
 			})

@@ -202,6 +202,10 @@ export function GetOrphanDBRows() {
   return window['go']['main']['App']['GetOrphanDBRows']();
 }
 
+export function GetPluginLibraryWrites() {
+  return window['go']['main']['App']['GetPluginLibraryWrites']();
+}
+
 export function GetRemovableEmptyTags() {
   return window['go']['main']['App']['GetRemovableEmptyTags']();
 }

@@ -722,6 +722,18 @@ are ordered like the unpaged listing functions (ties broken by id).
   removes the card only if the re-read row's `is_archived` actually flipped: a
   `clip:archived`/`clip:unarchived` plugin handler runs inside the call and can
   flip it straight back.
+- Plugin handlers run inside the App call that emits their event, so one that
+  archives or retags *another* clip has finished before the mutation returns,
+  and a patch only knows its own clip. Every plugin event goes through
+  `App.emitPluginEvent` — never call `pluginManager.EmitEvent` directly — which
+  reads the library version on both sides of the dispatch and bumps
+  `pluginLibraryWrites` if it moved (`GetPluginLibraryWrites`; REST
+  `GET /api/v1/library/plugin-writes`, refused for tag-scoped keys). `loadClips`
+  records it before the listing (`_galleryPluginWrites`); `refreshClipInPlace`,
+  `toggleArchiveClip` and `deleteClip` reload instead of patching when
+  `pluginChangedLibrarySinceLoad()` says it moved or cannot be read (fail
+  closed, so tag-scoped server sessions always reload). Deferred deliveries,
+  which run after the call returns, are not covered.
 - A full `loadClips()` keeps every `<li>` whose `clipCardSignature` is
   unchanged and only re-orders it (`reuseClipCard`). Anything a card bakes into
   its markup must be part of that signature, or a reload will show the stale

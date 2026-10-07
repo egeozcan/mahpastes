@@ -104,6 +104,8 @@ export function GetLibraryVersion():Promise<number>;
 
 export function GetOrphanDBRows():Promise<app.OrphanReport>;
 
+export function GetPluginLibraryWrites():Promise<number>;
+
 export function GetRemovableEmptyTags():Promise<Array<app.Tag>>;
 
 export function GetSetting(arg1:string):Promise<string>;
