@@ -109,6 +109,7 @@ test('should upload and delete a clip', async ({ app }) => {
 - Use `app.expectClipVisible()`, `app.expectClipCount()` for assertions
 - Clean up is automatic via the fixture's `afterEach`
 - Tests run in parallel - each worker gets its own app instance
+- A stub that holds a bound method's promise must queue every intercepted call and release them all, and let calls after the release pass straight through: background refreshes (e.g. `tag:created` → `GetTags`) call the same method, and a single resolver slot gets overwritten, leaving the awaited call hanging
 
 ## Design System
 

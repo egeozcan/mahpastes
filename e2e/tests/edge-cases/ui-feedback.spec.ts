@@ -246,7 +246,15 @@ test.describe('UI feedback and double-submit guards', () => {
       const api = w.go.main.App;
       const original = api.GetTags;
       w.__restoreStub = () => { api.GetTags = original; };
-      api.GetTags = () => new Promise(resolve => { w.__releaseTags = () => resolve(original()); });
+      // Hold every GetTags call until released: a pending tag:created
+      // refresh can call it too, so a single resolver slot would be
+      // overwritten and the slow navigation's call left hanging forever.
+      const held: Array<() => void> = [];
+      let released = false;
+      api.GetTags = () => released
+        ? original()
+        : new Promise(resolve => { held.push(() => resolve(original())); });
+      w.__releaseTags = () => { released = true; held.splice(0).forEach(r => r()); };
       w.__slowNav = w.navigateToFolder(slow);
       w.navigateToFolder(fast);
     }, { slow, fast });
