@@ -64,7 +64,13 @@ const (
 	// header's color model (decodeBytesPerPixel): a 16-bit PNG decodes to 8
 	// bytes a pixel, so the pixel cap alone would let one through at 512 MB.
 	thumbMaxDecodeBytes = 256 << 20
-	thumbJPEGQuality    = 82
+	// thumbMaxSourceEdge caps either side, independent of area. Working
+	// memory that scales with one side (the PNG decoder keeps two full-width
+	// rows; a 64,000,000 x 1 image costs 2x its pixels again in those) stays
+	// negligible below it. 65535 is JPEG's own limit and above WebP's, so
+	// only absurd aspect ratios are refused, and they pass through.
+	thumbMaxSourceEdge = 65535
+	thumbJPEGQuality   = 82
 	// thumbGenerateConcurrency bounds how many decodes run at once, and with
 	// it peak memory (each decode is at most thumbMaxDecodeBytes plus a
 	// downscaled copy a quarter that size or less).
@@ -407,8 +413,11 @@ func renderThumbnail(contentType string, data []byte) ([]byte, string, error) {
 }
 
 // withinDecodeBudget reports whether decoding an image with this header stays
-// under both the pixel cap and the decoded-buffer byte cap.
+// under the edge cap, the pixel cap and the decoded-buffer byte cap.
 func withinDecodeBudget(cfg image.Config) bool {
+	if cfg.Width > thumbMaxSourceEdge || cfg.Height > thumbMaxSourceEdge {
+		return false
+	}
 	pixels := int64(cfg.Width) * int64(cfg.Height)
 	return pixels <= thumbMaxSourcePixels && pixels*decodeBytesPerPixel(cfg.ColorModel) <= thumbMaxDecodeBytes
 }
@@ -449,8 +458,16 @@ func scaleToFit(src image.Image, edge int) *image.RGBA {
 	return dst
 }
 
+// boxShrinkChunk is how many source pixels boxShrink reads at a time. Its
+// workspace is this chunk plus per-destination-column sums, never anything
+// proportional to the source width: an extreme aspect ratio (a 64,000,000 x 1
+// PNG passes the decode budget) would otherwise allocate hundreds of MB of
+// scratch on top of the decoded pixels.
+const boxShrinkChunk = 4096
+
 // boxShrink averages blocks of about factor x factor pixels into one, reading
-// the source a row at a time through fast paths for the decoders' own types.
+// the source a chunk of a row at a time through fast paths for the decoders'
+// own types. Source column x lands in destination column x*dw/sw.
 func boxShrink(src image.Image, factor int) *image.RGBA {
 	b := src.Bounds()
 	sw, sh := b.Dx(), b.Dy()
@@ -458,32 +475,38 @@ func boxShrink(src image.Image, factor int) *image.RGBA {
 	dh := max(1, (sh+factor-1)/factor)
 	dst := image.NewRGBA(image.Rect(0, 0, dw, dh))
 
-	colOf := make([]int, sw)
-	colCount := make([]uint32, dw)
-	for x := 0; x < sw; x++ {
-		dx := x * dw / sw
-		colOf[x] = dx
-		colCount[dx]++
+	// colStart[dx] is the first source column of destination column dx: the
+	// least x with x*dw >= dx*sw.
+	colStart := make([]int, dw+1)
+	for dx := 0; dx <= dw; dx++ {
+		colStart[dx] = int((int64(dx)*int64(sw) + int64(dw) - 1) / int64(dw))
 	}
-	row := make([]uint8, sw*4)
+	chunk := make([]uint8, min(sw, boxShrinkChunk)*4)
 	sums := make([]uint32, dw*4)
 	for dy := 0; dy < dh; dy++ {
 		y0, y1 := dy*sh/dh, (dy+1)*sh/dh
 		clear(sums)
 		for y := y0; y < y1; y++ {
-			readRowRGBA(src, b.Min.Y+y, row)
-			for x := 0; x < sw; x++ {
-				o, s := x*4, colOf[x]*4
-				sums[s] += uint32(row[o])
-				sums[s+1] += uint32(row[o+1])
-				sums[s+2] += uint32(row[o+2])
-				sums[s+3] += uint32(row[o+3])
+			dx := 0
+			for x0 := 0; x0 < sw; x0 += boxShrinkChunk {
+				n := min(boxShrinkChunk, sw-x0)
+				readRowRGBA(src, b.Min.X+x0, b.Min.Y+y, chunk[:n*4])
+				for i := 0; i < n; i++ {
+					for x0+i >= colStart[dx+1] {
+						dx++
+					}
+					o, s := i*4, dx*4
+					sums[s] += uint32(chunk[o])
+					sums[s+1] += uint32(chunk[o+1])
+					sums[s+2] += uint32(chunk[o+2])
+					sums[s+3] += uint32(chunk[o+3])
+				}
 			}
 		}
 		rows := uint32(y1 - y0)
 		off := dst.PixOffset(0, dy)
 		for dx := 0; dx < dw; dx++ {
-			n := colCount[dx] * rows
+			n := uint32(colStart[dx+1]-colStart[dx]) * rows
 			if n == 0 {
 				continue
 			}
@@ -495,16 +518,16 @@ func boxShrink(src image.Image, factor int) *image.RGBA {
 	return dst
 }
 
-// readRowRGBA writes row y of src into buf as premultiplied 8-bit RGBA.
-func readRowRGBA(src image.Image, y int, buf []uint8) {
-	b := src.Bounds()
-	w := b.Dx()
+// readRowRGBA writes len(buf)/4 pixels of row y of src, starting at column
+// x0 (absolute, within src.Bounds()), into buf as premultiplied 8-bit RGBA.
+func readRowRGBA(src image.Image, x0, y int, buf []uint8) {
+	w := len(buf) / 4
 	switch m := src.(type) {
 	case *image.RGBA:
-		off := m.PixOffset(b.Min.X, y)
+		off := m.PixOffset(x0, y)
 		copy(buf, m.Pix[off:off+w*4])
 	case *image.NRGBA:
-		off := m.PixOffset(b.Min.X, y)
+		off := m.PixOffset(x0, y)
 		for x := 0; x < w; x++ {
 			p := m.Pix[off+x*4 : off+x*4+4]
 			a := uint32(p[3])
@@ -515,20 +538,20 @@ func readRowRGBA(src image.Image, y int, buf []uint8) {
 		}
 	case *image.YCbCr:
 		for x := 0; x < w; x++ {
-			yi := m.YOffset(b.Min.X+x, y)
-			ci := m.COffset(b.Min.X+x, y)
+			yi := m.YOffset(x0+x, y)
+			ci := m.COffset(x0+x, y)
 			r, g, bl := color.YCbCrToRGB(m.Y[yi], m.Cb[ci], m.Cr[ci])
 			buf[x*4], buf[x*4+1], buf[x*4+2], buf[x*4+3] = r, g, bl, 255
 		}
 	case *image.Gray:
-		off := m.PixOffset(b.Min.X, y)
+		off := m.PixOffset(x0, y)
 		for x := 0; x < w; x++ {
 			v := m.Pix[off+x]
 			buf[x*4], buf[x*4+1], buf[x*4+2], buf[x*4+3] = v, v, v, 255
 		}
 	default:
 		for x := 0; x < w; x++ {
-			r, g, bl, a := src.At(b.Min.X+x, y).RGBA()
+			r, g, bl, a := src.At(x0+x, y).RGBA()
 			buf[x*4], buf[x*4+1], buf[x*4+2], buf[x*4+3] = uint8(r>>8), uint8(g>>8), uint8(bl>>8), uint8(a>>8)
 		}
 	}

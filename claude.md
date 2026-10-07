@@ -938,7 +938,13 @@ comparison view only.
   buffer, estimated from the header's color model by `decodeBytesPerPixel` — a
   16-bit PNG is 8 bytes a pixel), or over `thumbMaxSourceBytes` (64 MB, checked
   with `octet_length` before the blob is read) passes through without decoding
-  — a small PNG declaring a 30000² canvas never allocates it. At most
+  — a small PNG declaring a 30000² canvas never allocates it. Either side over
+  `thumbMaxSourceEdge` (65535) also passes through: some costs grow with one
+  side, not the area (Go's PNG decoder keeps two full-width rows, so a
+  64,000,000×1 PNG fits the area caps but doubles its cost). Resize scratch must
+  not grow with source width either: `boxShrink` reads rows in `boxShrinkChunk`
+  pieces and keeps only per-destination-column sums — never add a
+  `make(..., sourceWidth)` in the resize path. At most
   `thumbGenerateConcurrency` (2) decodes run at once; one flight per clip+hash.
 - **Cache.** `{dataDir}/clip_thumbs/{content_hash}-512.{jpg,png,orig}`. Keyed by
   the hash, so an edit is a miss by construction and writers of `clips.data`
