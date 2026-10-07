@@ -236,20 +236,93 @@ func (c *markdownImageCache) Stats() (MarkdownImageCacheStats, error) {
 	return MarkdownImageCacheStats{Entries: len(c.index), Bytes: c.total + c.staleBytes}, nil
 }
 
+// Clear deletes every cache file. It deletes file by file through c.remove
+// rather than os.RemoveAll, so a file that cannot be deleted (Windows refuses
+// while a concurrent Get's unlocked read has it open) is known by key: its
+// bytes stay accounted in `stale` and every later prune retries the delete,
+// exactly as for a failed eviction. Forgetting them would let surviving files
+// escape statistics, expiry and the byte budget until the next restart.
 func (c *markdownImageCache) Clear() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	// Bytes each key is known to hold, before the index forgets it.
+	known := map[string]int64{}
+	for key, size := range c.stale {
+		known[key] = size
+	}
+	for key, entry := range c.index {
+		if entry.size > known[key] {
+			known[key] = entry.size
+		}
+	}
 	c.index = map[string]*markdownImageIndexEntry{}
 	c.total = 0
-	c.stale = map[string]int64{}
-	c.staleBytes = 0
-	if err := os.RemoveAll(c.dir); err != nil {
+
+	files, err := os.ReadDir(c.dir)
+	if err != nil && !os.IsNotExist(err) {
+		// Nothing could be enumerated, so nothing was deleted: every known
+		// key's files are still there and stay accounted (and retried).
+		for key, size := range known {
+			c.markStaleLocked(key, size)
+		}
 		return fmt.Errorf("clear Markdown image cache: %w", err)
 	}
-	if err := os.MkdirAll(c.dir, 0o700); err != nil {
-		return fmt.Errorf("recreate Markdown image cache: %w", err)
+	var firstErr error
+	failed := map[string]bool{}
+	for _, file := range files {
+		path := filepath.Join(c.dir, file.Name())
+		var removeErr error
+		if file.IsDir() {
+			removeErr = os.RemoveAll(path)
+		} else {
+			removeErr = c.remove(path)
+		}
+		if removeErr == nil || os.IsNotExist(removeErr) {
+			continue
+		}
+		if firstErr == nil {
+			firstErr = removeErr
+		}
+		key, ok := markdownImageCacheFileKey(file.Name())
+		if !ok {
+			continue // temp/foreign file: startup's scan sweeps leftovers
+		}
+		failed[key] = true
+		if file.Name() == key+".bin" {
+			if info, statErr := file.Info(); statErr == nil && info.Size() > known[key] {
+				known[key] = info.Size()
+			}
+		}
+	}
+	// Keys fully deleted are no longer stale; keys with a survivor are.
+	for key := range c.stale {
+		if !failed[key] {
+			c.clearStaleLocked(key)
+		}
+	}
+	for key := range failed {
+		c.markStaleLocked(key, known[key])
+	}
+	if mkErr := os.MkdirAll(c.dir, 0o700); mkErr != nil && firstErr == nil {
+		return fmt.Errorf("recreate Markdown image cache: %w", mkErr)
+	}
+	if firstErr != nil {
+		return fmt.Errorf("clear Markdown image cache: %w", firstErr)
 	}
 	return nil
+}
+
+// markdownImageCacheFileKey maps a cache file name (<key>.bin / <key>.json)
+// to its key.
+func markdownImageCacheFileKey(name string) (string, bool) {
+	for _, ext := range []string{".bin", ".json"} {
+		if strings.HasSuffix(name, ext) {
+			key := strings.TrimSuffix(name, ext)
+			return key, key != "" && !strings.Contains(key, ".")
+		}
+	}
+	return "", false
 }
 
 type cacheMetadataEntry struct {
@@ -284,6 +357,12 @@ func (c *markdownImageCache) discardKeyLocked(key string, size int64) {
 		c.clearStaleLocked(key)
 		return
 	}
+	c.markStaleLocked(key, size)
+}
+
+// markStaleLocked records key's files as undeleted, holding at least size
+// bytes (never less than already recorded for it).
+func (c *markdownImageCache) markStaleLocked(key string, size int64) {
 	if prev, ok := c.stale[key]; ok {
 		if size < prev {
 			size = prev
