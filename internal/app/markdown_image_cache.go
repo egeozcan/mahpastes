@@ -42,15 +42,30 @@ type markdownImageCacheMetadata struct {
 // metadata file. A hit records its access time in the index and, best-effort,
 // as the data file's mtime (no rewrite, no fsync), which the next startup's
 // scan folds back into the LRU order. A hit reads the data file outside the
-// mutex: files are only ever replaced by rename, and a size mismatch with the
-// index is treated as a miss.
+// mutex: files are only ever replaced by rename while Put holds the mutex and
+// has already taken the old entry out of the index, so a read is trusted only
+// if the index still holds the very entry it started from afterwards (else
+// it retries); a size mismatch is a miss.
+//
+// Evicting an entry can fail to delete its files — Windows refuses to delete a
+// file another handle (an unlocked Get's read) has open. Such keys stay in
+// `stale` with their bytes still counted against maxBytes, and every prune
+// retries them, so a failed delete is never forgotten until the next restart.
 type markdownImageCache struct {
 	mu       sync.Mutex
 	dir      string
 	maxBytes int64
 	now      func() time.Time
 	index    map[string]*markdownImageIndexEntry
-	total    int64
+	total    int64 // bytes of live index entries
+
+	stale      map[string]int64 // key -> bytes of files whose delete failed
+	staleBytes int64
+
+	// Test seams: remove deletes a cache file (os.Remove); beforeRead runs
+	// between Get's index snapshot and its unlocked read.
+	remove     func(string) error
+	beforeRead func()
 }
 
 type markdownImageIndexEntry struct {
@@ -68,7 +83,13 @@ func newMarkdownImageCache(dir string, maxBytes int64, now func() time.Time) (*m
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("create Markdown image cache: %w", err)
 	}
-	cache := &markdownImageCache{dir: dir, maxBytes: maxBytes, now: now}
+	cache := &markdownImageCache{
+		dir:      dir,
+		maxBytes: maxBytes,
+		now:      now,
+		stale:    map[string]int64{},
+		remove:   os.Remove,
+	}
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 	if err := cache.rebuildIndexLocked(); err != nil {
@@ -116,13 +137,20 @@ func (c *markdownImageCache) Put(rawURL string, data []byte, contentType string,
 	}
 	// The old entry is gone from the index before its files are replaced, so
 	// a failed write never leaves the index describing bytes that are not there.
+	// A pending stale delete of this key is superseded by the replacement; if
+	// the write fails, whatever is left on disk is discarded (and retried) again.
+	oldSize := c.staleSizeLocked(key)
+	if entry := c.index[key]; entry != nil && entry.size > oldSize {
+		oldSize = entry.size
+	}
 	c.dropLocked(key)
+	c.clearStaleLocked(key)
 	if err := writeAtomicFile(dataPath, data, 0o600); err != nil {
-		_ = os.Remove(metadataPath)
+		c.discardKeyLocked(key, oldSize)
 		return err
 	}
 	if err := writeAtomicFile(metadataPath, encodedMetadata, 0o600); err != nil {
-		_ = os.Remove(dataPath)
+		c.discardKeyLocked(key, metadata.Size)
 		return err
 	}
 	c.index[key] = &markdownImageIndexEntry{
@@ -137,57 +165,75 @@ func (c *markdownImageCache) Put(rawURL string, data []byte, contentType string,
 	return nil
 }
 
+// markdownImageCacheGetAttempts bounds Get's retries when a concurrent Put
+// replaces the entry mid-read; past it the read is reported as a miss.
+const markdownImageCacheGetAttempts = 3
+
 func (c *markdownImageCache) Get(rawURL string) (markdownImageCacheEntry, bool, error) {
 	key := markdownImageCacheKey(rawURL)
+	for attempt := 0; attempt < markdownImageCacheGetAttempts; attempt++ {
+		result, hit, replaced, err := c.getOnce(key)
+		if !replaced {
+			return result, hit, err
+		}
+	}
+	return markdownImageCacheEntry{}, false, nil
+}
+
+// getOnce reports replaced when the index entry the read started from was no
+// longer the indexed one once the read finished: the bytes may belong to a
+// different revision than the content type snapshotted with the entry (a Put
+// of an equally sized JPEG over a PNG), so they are not returned.
+func (c *markdownImageCache) getOnce(key string) (result markdownImageCacheEntry, hit, replaced bool, err error) {
 	dataPath, _ := c.keyPaths(key)
 
 	c.mu.Lock()
 	entry := c.index[key]
 	if entry == nil {
 		c.mu.Unlock()
-		return markdownImageCacheEntry{}, false, nil
+		return markdownImageCacheEntry{}, false, false, nil
 	}
 	if !c.now().UTC().Before(entry.expiresAt) {
-		c.dropLocked(key)
-		c.removeKeyFilesLocked(key)
+		c.evictLocked(key)
 		c.mu.Unlock()
-		return markdownImageCacheEntry{}, false, nil
+		return markdownImageCacheEntry{}, false, false, nil
 	}
 	want := *entry
 	c.mu.Unlock()
 
-	data, err := os.ReadFile(dataPath)
-	if err != nil || int64(len(data)) != want.size {
-		c.mu.Lock()
-		// Only if the entry is still the one this read was checked against: a
-		// concurrent Put may have just replaced it with a good one.
-		if c.index[key] == entry {
-			c.dropLocked(key)
-			c.removeKeyFilesLocked(key)
-		}
-		c.mu.Unlock()
-		if err != nil && !os.IsNotExist(err) {
-			return markdownImageCacheEntry{}, false, fmt.Errorf("read cached image: %w", err)
-		}
-		return markdownImageCacheEntry{}, false, nil
+	if c.beforeRead != nil {
+		c.beforeRead()
 	}
+	data, readErr := os.ReadFile(dataPath)
 
 	now := c.now().UTC()
 	c.mu.Lock()
-	if c.index[key] == entry {
-		entry.lastAccess = now
+	if c.index[key] != entry {
+		// Replaced, evicted or cleared during the read: whatever was read
+		// cannot be paired with want's content type.
+		c.mu.Unlock()
+		return markdownImageCacheEntry{}, false, true, nil
 	}
+	if readErr != nil || int64(len(data)) != want.size {
+		c.evictLocked(key)
+		c.mu.Unlock()
+		if readErr != nil && !os.IsNotExist(readErr) {
+			return markdownImageCacheEntry{}, false, false, fmt.Errorf("read cached image: %w", readErr)
+		}
+		return markdownImageCacheEntry{}, false, false, nil
+	}
+	entry.lastAccess = now
 	c.mu.Unlock()
 	// Persists the access for the next startup's LRU order; best-effort.
 	_ = os.Chtimes(dataPath, now, now)
-	return markdownImageCacheEntry{Data: data, ContentType: want.contentType}, true, nil
+	return markdownImageCacheEntry{Data: data, ContentType: want.contentType}, true, false, nil
 }
 
 func (c *markdownImageCache) Stats() (MarkdownImageCacheStats, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.pruneLocked()
-	return MarkdownImageCacheStats{Entries: len(c.index), Bytes: c.total}, nil
+	return MarkdownImageCacheStats{Entries: len(c.index), Bytes: c.total + c.staleBytes}, nil
 }
 
 func (c *markdownImageCache) Clear() error {
@@ -195,6 +241,8 @@ func (c *markdownImageCache) Clear() error {
 	defer c.mu.Unlock()
 	c.index = map[string]*markdownImageIndexEntry{}
 	c.total = 0
+	c.stale = map[string]int64{}
+	c.staleBytes = 0
 	if err := os.RemoveAll(c.dir); err != nil {
 		return fmt.Errorf("clear Markdown image cache: %w", err)
 	}
@@ -217,9 +265,60 @@ func (c *markdownImageCache) dropLocked(key string) {
 	}
 }
 
-func (c *markdownImageCache) removeKeyFilesLocked(key string) {
+// evictLocked drops a live entry from the index and deletes its files,
+// keeping its bytes accounted as stale if the delete fails.
+func (c *markdownImageCache) evictLocked(key string) {
+	var size int64
+	if entry := c.index[key]; entry != nil {
+		size = entry.size
+	}
+	c.dropLocked(key)
+	c.discardKeyLocked(key, size)
+}
+
+// discardKeyLocked deletes key's files. If either delete fails for any reason
+// other than the file being absent, the key is recorded as stale with size
+// bytes, so the budget still counts them and pruning retries the delete.
+func (c *markdownImageCache) discardKeyLocked(key string, size int64) {
+	if c.removeKeyFilesLocked(key) {
+		c.clearStaleLocked(key)
+		return
+	}
+	if prev, ok := c.stale[key]; ok {
+		if size < prev {
+			size = prev
+		}
+		c.staleBytes -= prev
+	}
+	c.stale[key] = size
+	c.staleBytes += size
+}
+
+func (c *markdownImageCache) staleSizeLocked(key string) int64 {
+	return c.stale[key]
+}
+
+func (c *markdownImageCache) clearStaleLocked(key string) {
+	if size, ok := c.stale[key]; ok {
+		c.staleBytes -= size
+		delete(c.stale, key)
+	}
+}
+
+// retryStaleLocked re-attempts every delete that failed earlier.
+func (c *markdownImageCache) retryStaleLocked() {
+	for key := range c.stale {
+		if c.removeKeyFilesLocked(key) {
+			c.clearStaleLocked(key)
+		}
+	}
+}
+
+// removeKeyFilesLocked deletes key's data and metadata files and reports
+// whether neither is left behind.
+func (c *markdownImageCache) removeKeyFilesLocked(key string) bool {
 	dataPath, metadataPath := c.keyPaths(key)
-	c.removeEntryLocked(dataPath, metadataPath)
+	return c.removeEntryLocked(dataPath, metadataPath)
 }
 
 // rebuildIndexLocked scans the directory: the only full scan, done at
@@ -259,14 +358,14 @@ func (c *markdownImageCache) rebuildIndexLocked() error {
 // pruneLocked drops expired entries, then the least recently used until the
 // cache fits maxBytes — from the index alone.
 func (c *markdownImageCache) pruneLocked() {
+	c.retryStaleLocked()
 	now := c.now().UTC()
 	for key, entry := range c.index {
 		if !now.Before(entry.expiresAt) {
-			c.dropLocked(key)
-			c.removeKeyFilesLocked(key)
+			c.evictLocked(key)
 		}
 	}
-	if c.maxBytes <= 0 || c.total <= c.maxBytes {
+	if c.maxBytes <= 0 || c.total+c.staleBytes <= c.maxBytes {
 		return
 	}
 	retained := make([]*markdownImageIndexEntry, 0, len(c.index))
@@ -277,11 +376,10 @@ func (c *markdownImageCache) pruneLocked() {
 		return retained[i].lastAccess.Before(retained[j].lastAccess)
 	})
 	for _, entry := range retained {
-		if c.total <= c.maxBytes {
+		if c.total+c.staleBytes <= c.maxBytes {
 			break
 		}
-		c.dropLocked(entry.key)
-		c.removeKeyFilesLocked(entry.key)
+		c.evictLocked(entry.key)
 	}
 }
 
@@ -345,9 +443,14 @@ func readMarkdownImageCacheMetadata(path string) (markdownImageCacheMetadata, er
 	return metadata, nil
 }
 
-func (c *markdownImageCache) removeEntryLocked(dataPath, metadataPath string) {
-	_ = os.Remove(dataPath)
-	_ = os.Remove(metadataPath)
+func (c *markdownImageCache) removeEntryLocked(dataPath, metadataPath string) bool {
+	ok := true
+	for _, path := range []string{dataPath, metadataPath} {
+		if err := c.remove(path); err != nil && !os.IsNotExist(err) {
+			ok = false
+		}
+	}
+	return ok
 }
 
 func writeAtomicFile(path string, data []byte, mode os.FileMode) error {
