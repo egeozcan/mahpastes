@@ -176,6 +176,9 @@ func main() {
 				signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
 				go quitOnSignal(sigs, desktopApp.signalQuit, os.Exit, signalQuitGrace)
 			}
+			if !generatingBindings && !selfTestWorker {
+				go logLoginEntryProblems()
+			}
 			desktopApp.attachOpenRequests(bridge)
 			pluginService.setBridge(bridge)
 			if selfTest != nil {

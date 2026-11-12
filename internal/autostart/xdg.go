@@ -55,7 +55,9 @@ func (b xdgBackend) remove() error {
 	return err
 }
 
-// desktopEntry renders the autostart .desktop file.
+// desktopEntry renders the autostart .desktop file. It sets no NoDisplay:
+// desktops' startup-apps settings (GNOME's among them) hide such entries,
+// and the user must be able to switch this one off there.
 func desktopEntry(e Entry) (string, error) {
 	execArg, err := desktopExecQuote(e.Executable)
 	if err != nil {
@@ -73,7 +75,6 @@ func desktopEntry(e Entry) (string, error) {
 	sb.WriteString("Exec=" + desktopEscapeValue(exec) + "\n")
 	sb.WriteString("Icon=mahpastes\n")
 	sb.WriteString("Terminal=false\n")
-	sb.WriteString("NoDisplay=true\n")
 	sb.WriteString("X-GNOME-Autostart-enabled=true\n")
 	return sb.String(), nil
 }

@@ -107,8 +107,9 @@ func (d *App) QuitApp() {
 // close button (unless the window hides on close), for Cmd+Q and the Dock's
 // Quit on macOS, and for every runtime Quit; returning true cancels the quit.
 //
-// The app must stay quittable: only an explicit "keep editing" answer
-// cancels. A dialog that cannot be shown lets the quit go ahead, as does a
+// The app must stay quittable: only an answer to the question cancels
+// ("Keep Editing", or dismissing the dialog, which keeps the unsaved work).
+// A dialog that cannot be shown lets the quit go ahead, as does a
 // signal-initiated quit, and a second quit request while the question is up
 // is dropped rather than stacking another dialog.
 func (d *App) beforeClose(ctx context.Context) (prevent bool) {
@@ -161,9 +162,11 @@ func quitOnSignal(sigs <-chan os.Signal, quit func(), exit func(int), grace time
 		return
 	}
 	log.Printf("received %v; quitting", sig)
-	quit()
+	// The deadline runs from the signal and quit runs on its own goroutine:
+	// a quit that blocks must not keep the deadline from firing.
 	timer := time.NewTimer(grace)
 	defer timer.Stop()
+	go quit()
 	select {
 	case sig = <-sigs:
 		log.Printf("received %v again; exiting without finishing shutdown", sig)
@@ -171,6 +174,24 @@ func quitOnSignal(sigs <-chan os.Signal, quit func(), exit func(int), grace time
 		log.Printf("shutdown did not finish within %v; exiting", grace)
 	}
 	exit(1)
+}
+
+// logLoginEntryProblems checks the launch at login entry once at startup: one
+// that starts a missing or different copy of the app is reported in the log
+// (and in Settings), never rewritten behind the user's back.
+func logLoginEntryProblems() {
+	st, err := autostart.Get()
+	if err != nil {
+		log.Printf("launch at login: could not read the entry: %v", err)
+		return
+	}
+	switch {
+	case !st.Enabled:
+	case st.TargetMissing:
+		log.Printf("launch at login: the entry at %s starts %q, which does not exist; turn the setting off and on again", st.Location, st.Target)
+	case st.OtherCopy:
+		log.Printf("launch at login: the entry at %s starts another copy of mahpastes (%s), not this one (%s)", st.Location, st.Target, st.Current)
+	}
 }
 
 // signalQuit is the quit quitOnSignal runs: no prompt, then a runtime Quit.

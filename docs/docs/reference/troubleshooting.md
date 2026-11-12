@@ -93,8 +93,8 @@ under **Settings > Background & Startup** (takes effect after a restart). See
 
 ### mahpastes starts without a window at login
 
-**Launch at login** with **Start hidden** is on. Launch mahpastes again (or click its Dock icon on
-macOS) to show the window, or turn **Start hidden** off under **Settings > Background & Startup**.
+**Launch at login** with **Start in the background** is on. Launch mahpastes again (or click its Dock icon on
+macOS) to show the window, or turn **Start in the background** off under **Settings > Background & Startup**.
 
 ### High Memory Usage
 

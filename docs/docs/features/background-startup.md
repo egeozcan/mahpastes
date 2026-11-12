@@ -37,7 +37,7 @@ time mahpastes starts.** until you restart.
 | Windows | The `mahpastes` value under `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run` |
 | macOS | `~/Library/LaunchAgents/io.github.egeozcan.mahpastes.login.plist` |
 
-**Start hidden** (on by default) starts mahpastes at login without showing its window. On macOS click
+**Start in the background** (on by default) starts mahpastes at login without showing its window. On macOS click
 the Dock icon to show it; elsewhere launch mahpastes again. A login start that finds mahpastes already
 running does nothing visible.
 
@@ -60,8 +60,9 @@ Uninstalling with `make uninstall` (or `scripts/linux/install.sh --uninstall`) r
 
 :::note macOS
 macOS may list mahpastes under **System Settings > General > Login Items** as a background item. The
-entry is an ordinary per-user LaunchAgent; removing it there or turning the setting off in mahpastes
-are equivalent.
+entry is an ordinary per-user LaunchAgent. Switching it off there keeps the file in place, so mahpastes
+cannot tell and still shows **Launch at login** as on; to stop it starting at login, turn the setting
+off in mahpastes, which removes the entry. The entry takes effect from your next login.
 :::
 
 ## Quitting With Unsaved Changes

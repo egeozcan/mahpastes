@@ -176,8 +176,29 @@ func TestQuitOnSignalQuitsThenExitsAfterGrace(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("a stuck shutdown must end in exit after the grace period")
 	}
+	// quit runs on its own goroutine, so it may land just after exit.
+	deadline := time.Now().Add(2 * time.Second)
+	for quits.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
 	if quits.Load() != 1 {
 		t.Fatalf("quit ran %d times, want 1", quits.Load())
+	}
+}
+
+// A quit that never returns (a wedged UI thread) must not keep the deadline
+// from ending the process.
+func TestQuitOnSignalExitsWhenQuitBlocks(t *testing.T) {
+	sigs := make(chan os.Signal, 2)
+	block := make(chan struct{})
+	defer close(block)
+	exited := make(chan int, 1)
+	go quitOnSignal(sigs, func() { <-block }, func(code int) { exited <- code }, 50*time.Millisecond)
+	sigs <- syscall.SIGTERM
+	select {
+	case <-exited:
+	case <-time.After(2 * time.Second):
+		t.Fatal("a blocked quit must not stop the grace period from ending the process")
 	}
 }
 
@@ -210,6 +231,11 @@ func TestQuitOnSignalClosedChannel(t *testing.T) {
 }
 
 func TestKeepRunningSettingIsStoredForNextLaunch(t *testing.T) {
+	// GetDesktopLifecycle also reads the launch at login entry: point every
+	// place it looks at an empty temp dir instead of the real home.
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("APPIMAGE", "")
 	d, _, _ := newLifecycleTestApp(t, false, nil)
 	d.lifecycle.keepRunningActive = false
 	if err := d.SetKeepRunningWhenClosed(true); err != nil {

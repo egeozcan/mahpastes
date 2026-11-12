@@ -62,6 +62,11 @@ func TestDesktopExecEscapingMatchesSpec(t *testing.T) {
 			t.Errorf("entry lacks %q", line)
 		}
 	}
+	// Startup-apps settings (GNOME's) hide NoDisplay entries, and the user
+	// must be able to switch this one off there.
+	if strings.Contains(content, "NoDisplay") {
+		t.Errorf("entry must not set NoDisplay:\n%s", content)
+	}
 }
 
 func TestDesktopExecRefusesControlCharacters(t *testing.T) {

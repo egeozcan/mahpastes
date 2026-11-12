@@ -107,7 +107,22 @@ func update(dataDir string, apply func(map[string]json.RawMessage) error) error 
 
 func readRaw(dataDir string) (map[string]json.RawMessage, error) {
 	raw := map[string]json.RawMessage{}
-	f, err := os.Open(Path(dataDir))
+	path := Path(dataDir)
+	// Check the type before opening: opening a FIFO for reading blocks until
+	// a writer appears, which would hang the app before its window exists.
+	info, err := os.Stat(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return raw, nil
+	}
+	if err != nil {
+		return raw, err
+	}
+	if !info.Mode().IsRegular() || info.Size() > maxFileSize {
+		return raw, fmt.Errorf("%s is not a small regular file", FileName)
+	}
+	// openFlags adds O_NONBLOCK on Unix, so a file swapped for a FIFO between
+	// the Stat and the Open cannot block either; the check below catches it.
+	f, err := os.OpenFile(path, openFlags, 0)
 	if errors.Is(err, fs.ErrNotExist) {
 		return raw, nil
 	}
@@ -115,7 +130,7 @@ func readRaw(dataDir string) (map[string]json.RawMessage, error) {
 		return raw, err
 	}
 	defer f.Close()
-	info, err := f.Stat()
+	info, err = f.Stat()
 	if err != nil {
 		return raw, err
 	}
