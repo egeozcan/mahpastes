@@ -11,7 +11,7 @@ Drag clips directly from mahpastes into other applications on your system.
 mahpastes supports dragging clips out of the app and dropping them into other programs. This works like dragging a file from Finder or Explorer -- the receiving app gets a real file it can open, attach, or process.
 
 Supported drop targets include:
-- **Finder / Explorer** -- drop to save as a file
+- **Finder / Explorer / Dolphin / Nautilus** -- drop to save as a file
 - **Mail / Outlook** -- drop to attach
 - **Slack / Discord** -- drop to share
 - **Any app** that accepts file drops
@@ -61,7 +61,7 @@ On Windows, drag-out uses Chromium's `DownloadURL` DataTransfer type. Because Ch
 
 ### Linux
 
-On Linux, drag-out uses a standard HTML5 drag. The app sets a `file://` URI (`text/uri-list`) and the plain path on the drag, and WebKitGTK exports it as a GTK drag target, so file managers such as Nautilus and Dolphin and most GTK/Qt apps accept the drop as a file. Drags within the app window are not treated as imports. Support can vary with the compositor and the receiving app.
+On Linux, drag-out uses a standard HTML5 drag. The app sets a `file://` URI (`text/uri-list`) and the plain path on the drag, and WebKitGTK exports it as a GTK drag target, so file managers such as Nautilus and Dolphin and most GTK/Qt apps accept the drop as a file. Dropping a clip back onto the mahpastes window does not import it again. Support can vary with the compositor and the receiving app.
 
 ## Temporary Files
 

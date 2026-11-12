@@ -71,6 +71,9 @@ func TestBuildTransferCapabilitiesMatrix(t *testing.T) {
 			if tc.expectReason && caps.DragOut.Reason == "" {
 				t.Fatalf("expected non-empty reason for %s", tc.goos)
 			}
+			if !tc.expectReason && caps.DragOut.Reason != "" {
+				t.Fatalf("expected no reason for %s, got %q", tc.goos, caps.DragOut.Reason)
+			}
 			if caps.DragOut.NativeDrag != tc.nativeDrag {
 				t.Fatalf("native_drag mismatch: got %v want %v", caps.DragOut.NativeDrag, tc.nativeDrag)
 			}

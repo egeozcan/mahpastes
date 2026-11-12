@@ -227,7 +227,7 @@ If using Apple Silicon (M-series):
 **Symptoms:** Can't drag clips out of mahpastes into other apps.
 
 **Solutions:**
-1. Drag-out is supported on macOS and Windows. Linux support is planned.
+1. Drag-out is supported on macOS, Windows and Linux. On Linux the drop target must accept a `text/uri-list` file drop (Dolphin, Nautilus and most GTK/Qt apps do); results can vary by compositor and receiving app. See [Drag and Drop](../features/drag-and-drop.md#linux).
 2. Hover the grip handle on the clip card for at least 1 second to arm the drag.
 3. Wait for the handle to finish the preparation animation before dragging.
 4. If the handle shows a spinner, the temp file is still being prepared. Wait until it returns to the grip icon.

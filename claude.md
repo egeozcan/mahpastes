@@ -1162,7 +1162,7 @@ Five separate Wails-bound services (`ClipboardService`, `TransferService`, `Plug
 |-----------|-------|---------|-------|
 | Copy as file | NSPasteboard (CGo) | PowerShell SetFileDropList | `text/uri-list` (`x-special/gnome-copied-files` on Cinnamon/MATE/Xfce/Budgie/Pantheon) via golang.design/x/clipboard |
 | Copy raw content | golang.design/x/clipboard | Same | Same |
-| Drag out | NSView.dragFile + file-uri-v1 | DataTransfer file-uri-v1 | Planned |
+| Drag out | NSView.dragFile + file-uri-v1 | DataTransfer file-uri-v1 | DataTransfer file-uri-v1 (`text/uri-list`, exported by WebKitGTK) |
 
 ## Common Tasks
 
