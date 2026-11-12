@@ -3,15 +3,11 @@
 package main
 
 import (
-	"syscall"
-
 	"golang.org/x/sys/windows"
 )
 
-var (
-	modUser32                    = syscall.NewLazyDLL("user32.dll")
-	procAllowSetForegroundWindow = modUser32.NewProc("AllowSetForegroundWindow")
-)
+// modUser32 is shared with window_position_windows.go.
+var procAllowSetForegroundWindow = modUser32.NewProc("AllowSetForegroundWindow")
 
 // asfwAny lets any process take the foreground (ASFW_ANY), used when the lock
 // file did not name the holder.
