@@ -65,6 +65,7 @@ Connected to mahpastes API at http://localhost:44557
 |----------|----------|---------|-------------|
 | `MP_API_KEY` | Yes | -- | API key starting with `mp_` |
 | `MP_API_URL` | No | `http://localhost:44557` | API base URL |
+| `MP_TIMEOUT` | No | `30s` | Connection and response-header timeout (e.g. `10s` or `10`). Does not limit transfer time of large uploads or downloads |
 
 ## Uploading Files
 

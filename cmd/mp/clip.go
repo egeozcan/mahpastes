@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -59,10 +60,10 @@ var (
 
 func init() {
 	clipListCmd.Flags().StringVar(&clipListTag, "tag", "", "Filter by tag name or ID")
-	clipListCmd.Flags().BoolVar(&clipListArchived, "archived", false, "Include archived clips")
+	clipListCmd.Flags().BoolVar(&clipListArchived, "archived", false, "List archived clips only")
 	clipListCmd.Flags().IntVar(&clipListLimit, "limit", 50, "Maximum number of results (1-200)")
 	clipListCmd.Flags().IntVar(&clipListOffset, "offset", 0, "Pagination offset")
-	clipListCmd.Flags().StringVar(&clipListSearch, "search", "", "Filter by filename substring")
+	clipListCmd.Flags().StringVar(&clipListSearch, "search", "", "Filter by filename or text content substring")
 	clipListCmd.Flags().StringVar(&clipListContentType, "content-type", "", "Filter by MIME type")
 }
 
@@ -72,32 +73,28 @@ func runClipList(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	params := []string{
-		fmt.Sprintf("limit=%d", clipListLimit),
-		fmt.Sprintf("offset=%d", clipListOffset),
-	}
+	params := url.Values{}
+	params.Set("limit", strconv.Itoa(clipListLimit))
+	params.Set("offset", strconv.Itoa(clipListOffset))
 
 	if clipListTag != "" {
 		tagID, err := c.ResolveTagID(clipListTag)
 		if err != nil {
 			return err
 		}
-		params = append(params, fmt.Sprintf("tag=%d", tagID))
+		params.Set("tag", strconv.FormatInt(tagID, 10))
 	}
-
 	if clipListArchived {
-		params = append(params, "archived=true")
+		params.Set("archived", "true")
 	}
-
 	if clipListSearch != "" {
-		params = append(params, "search="+clipListSearch)
+		params.Set("search", clipListSearch)
 	}
-
 	if clipListContentType != "" {
-		params = append(params, "content_type="+clipListContentType)
+		params.Set("content_type", clipListContentType)
 	}
 
-	path := "/api/v1/clips?" + strings.Join(params, "&")
+	path := "/api/v1/clips?" + params.Encode()
 
 	var result struct {
 		Clips []struct {
@@ -860,9 +857,9 @@ func postRaw(c *client.Client, path string, body io.Reader) (io.ReadCloser, erro
 // --- clip open ---
 
 var clipOpenCmd = &cobra.Command{
-	Use:   "open <id>",
-	Short: "Open a clip (desktop app only)",
-	Long:  `Open a clip in the desktop app. This command requires the mahpastes desktop application.`,
+	Use:     "open <id>",
+	Short:   "Open a clip (desktop app only)",
+	Long:    `Open a clip in the desktop app. This command requires the mahpastes desktop application.`,
 	Example: `  mp clip open 42`,
 	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -879,9 +876,9 @@ var clipMetadataCmd = &cobra.Command{
 }
 
 var clipMetadataListCmd = &cobra.Command{
-	Use:   "list <id>",
-	Short: "List all metadata for a clip",
-	Long:  `Display all metadata key-value pairs for a clip.`,
+	Use:     "list <id>",
+	Short:   "List all metadata for a clip",
+	Long:    `Display all metadata key-value pairs for a clip.`,
 	Example: `  mp clip metadata list 42`,
 	Args:    cobra.ExactArgs(1),
 	RunE:    runClipMetadataList,
@@ -923,9 +920,9 @@ func runClipMetadataList(cmd *cobra.Command, args []string) error {
 }
 
 var clipMetadataGetCmd = &cobra.Command{
-	Use:   "get <id> <key>",
-	Short: "Get a metadata value",
-	Long:  `Get the value of a specific metadata key for a clip.`,
+	Use:     "get <id> <key>",
+	Short:   "Get a metadata value",
+	Long:    `Get the value of a specific metadata key for a clip.`,
 	Example: `  mp clip metadata get 42 author`,
 	Args:    cobra.ExactArgs(2),
 	RunE:    runClipMetadataGet,
@@ -987,7 +984,7 @@ func runClipMetadataSet(cmd *cobra.Command, args []string) error {
 	key := args[1]
 	value := args[2]
 
-	if err := c.PutJSON(fmt.Sprintf("/api/v1/clips/%d/metadata/%s", id, key), map[string]string{"value": value}, nil); err != nil {
+	if err := c.PutJSON(fmt.Sprintf("/api/v1/clips/%d/metadata/%s", id, url.PathEscape(key)), map[string]string{"value": value}, nil); err != nil {
 		return err
 	}
 
@@ -1001,9 +998,9 @@ func runClipMetadataSet(cmd *cobra.Command, args []string) error {
 }
 
 var clipMetadataDeleteCmd = &cobra.Command{
-	Use:   "delete <id> <key>",
-	Short: "Delete a metadata key",
-	Long:  `Remove a metadata key-value pair from a clip.`,
+	Use:     "delete <id> <key>",
+	Short:   "Delete a metadata key",
+	Long:    `Remove a metadata key-value pair from a clip.`,
 	Example: `  mp clip metadata delete 42 author`,
 	Args:    cobra.ExactArgs(2),
 	RunE:    runClipMetadataDelete,
@@ -1022,7 +1019,7 @@ func runClipMetadataDelete(cmd *cobra.Command, args []string) error {
 
 	key := args[1]
 
-	if err := c.Delete(fmt.Sprintf("/api/v1/clips/%d/metadata/%s", id, key)); err != nil {
+	if err := c.Delete(fmt.Sprintf("/api/v1/clips/%d/metadata/%s", id, url.PathEscape(key))); err != nil {
 		return err
 	}
 

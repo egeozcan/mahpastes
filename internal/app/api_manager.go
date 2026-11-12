@@ -1895,6 +1895,31 @@ func attachmentDisposition(name string) string {
 	return fmt.Sprintf("attachment; filename=%q", name)
 }
 
+// maxMultipartFieldBytes caps a plain form field read ahead of the file part.
+const maxMultipartFieldBytes = 4096
+
+// nextFilePart advances a multipart reader to the file part, skipping (and
+// collecting) any plain form fields sent before it, so field-first bodies work
+// the same as file-first ones. The file part is the one named "file" or any
+// part carrying a filename. Collected fields are keyed by form name.
+func nextFilePart(reader *multipart.Reader) (*multipart.Part, map[string]string, error) {
+	fields := map[string]string{}
+	for {
+		part, err := reader.NextPart()
+		if err != nil {
+			return nil, nil, err
+		}
+		if part.FormName() == "file" || part.FileName() != "" {
+			return part, fields, nil
+		}
+		if name := part.FormName(); name != "" {
+			v, _ := io.ReadAll(io.LimitReader(part, maxMultipartFieldBytes))
+			fields[name] = string(v)
+		}
+		part.Close()
+	}
+}
+
 func (am *APIManager) handleCreateClip(w http.ResponseWriter, r *http.Request) {
 	keyCtx := getKeyContext(r)
 
@@ -1919,7 +1944,7 @@ func (am *APIManager) handleCreateClip(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxClipUploadBytes+multipartOverheadBytes)
 
 	reader := multipart.NewReader(r.Body, params["boundary"])
-	part, err := reader.NextPart()
+	part, fields, err := nextFilePart(reader)
 	if err != nil {
 		am.jsonError(w, http.StatusBadRequest, "failed to read multipart data")
 		return
@@ -1938,6 +1963,9 @@ func (am *APIManager) handleCreateClip(w http.ResponseWriter, r *http.Request) {
 
 	// Detect content type
 	partContentType := part.Header.Get("Content-Type")
+	if override := strings.TrimSpace(fields["content_type"]); override != "" {
+		partContentType = override
+	}
 	if partContentType == "" || partContentType == "application/octet-stream" {
 		partContentType = mime.TypeByExtension(filepath.Ext(filename))
 		if partContentType == "" {
@@ -4068,7 +4096,7 @@ func (am *APIManager) handleUploadPlugin(w http.ResponseWriter, r *http.Request)
 	r.Body = http.MaxBytesReader(w, r.Body, maxPluginUploadBytes+multipartOverheadBytes)
 
 	reader := multipart.NewReader(r.Body, params["boundary"])
-	part, err := reader.NextPart()
+	part, _, err := nextFilePart(reader)
 	if err != nil {
 		am.jsonError(w, http.StatusBadRequest, "failed to read multipart data")
 		return
@@ -4195,7 +4223,7 @@ func (am *APIManager) handleRestoreBackup(w http.ResponseWriter, r *http.Request
 	}
 
 	reader := multipart.NewReader(r.Body, params["boundary"])
-	part, err := reader.NextPart()
+	part, _, err := nextFilePart(reader)
 	if err != nil {
 		am.jsonError(w, http.StatusBadRequest, "failed to read multipart data")
 		return

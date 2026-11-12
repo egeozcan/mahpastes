@@ -6,11 +6,14 @@ import (
 	"fmt"
 	"io"
 	"mime/multipart"
+	"net"
 	"net/http"
+	"net/textproto"
 	"net/url"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Exit codes used by the CLI.
@@ -73,9 +76,43 @@ func New() (*Client, error) {
 	return &Client{
 		BaseURL:    baseURL,
 		APIKey:     apiKey,
-		HTTPClient: &http.Client{},
+		HTTPClient: &http.Client{Transport: newTransport(timeoutFromEnv())},
 	}, nil
 }
+
+// defaultTimeout bounds connection setup and the wait for response headers.
+const defaultTimeout = 30 * time.Second
+
+// timeoutFromEnv returns MP_TIMEOUT (a Go duration such as "10s", or plain
+// seconds such as "10") or defaultTimeout when unset or invalid.
+func timeoutFromEnv() time.Duration {
+	v := strings.TrimSpace(os.Getenv("MP_TIMEOUT"))
+	if v == "" {
+		return defaultTimeout
+	}
+	if d, err := time.ParseDuration(v); err == nil && d > 0 {
+		return d
+	}
+	if n, err := strconv.ParseFloat(v, 64); err == nil && n > 0 {
+		return time.Duration(n * float64(time.Second))
+	}
+	return defaultTimeout
+}
+
+// newTransport builds a transport with dial, TLS and response-header
+// deadlines. There is deliberately no whole-request timeout so that large
+// uploads and downloads are not cut off while data is flowing.
+func newTransport(timeout time.Duration) *http.Transport {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.DialContext = (&net.Dialer{Timeout: timeout, KeepAlive: 30 * time.Second}).DialContext
+	t.TLSHandshakeTimeout = timeout
+	t.ResponseHeaderTimeout = timeout
+	return t
+}
+
+var quoteEscaper = strings.NewReplacer("\\", "\\\\", `"`, "\\\"")
+
+func escapeQuotes(s string) string { return quoteEscaper.Replace(s) }
 
 // do executes an HTTP request with auth headers and handles common errors.
 func (c *Client) do(req *http.Request) (*http.Response, error) {
@@ -225,13 +262,25 @@ func (c *Client) UploadFile(path string, filename string, reader io.Reader, extr
 		defer pw.Close()
 
 		for k, v := range extraFields {
+			if k == "content_type" {
+				continue // carried by the file part's own header below
+			}
 			if err := w.WriteField(k, v); err != nil {
 				writeErr = fmt.Errorf("write field %s: %w", k, err)
 				return
 			}
 		}
 
-		part, err := w.CreateFormFile("file", filename)
+		// The file part carries the caller's content type in its own header
+		// (the server honours it); the file part must not be a mere field.
+		h := make(textproto.MIMEHeader)
+		h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="file"; filename="%s"`, escapeQuotes(filename)))
+		ctype := "application/octet-stream"
+		if ct := extraFields["content_type"]; ct != "" {
+			ctype = ct
+		}
+		h.Set("Content-Type", ctype)
+		part, err := w.CreatePart(h)
 		if err != nil {
 			writeErr = fmt.Errorf("create form file: %w", err)
 			return

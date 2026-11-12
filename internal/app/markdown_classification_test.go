@@ -289,3 +289,55 @@ func TestInitDBPromotesExistingMarkdownRows(t *testing.T) {
 		t.Fatalf("legacy.txt type = %q, want text/plain", got["legacy.txt"])
 	}
 }
+
+func postMultipart(t *testing.T, build func(w *multipart.Writer)) *httptest.ResponseRecorder {
+	t.Helper()
+	app := &App{db: newServerTestDB(t)}
+	manager := NewAPIManager(app)
+	var body bytes.Buffer
+	w := multipart.NewWriter(&body)
+	build(w)
+	w.Close()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/clips", &body)
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	req = req.WithContext(context.WithValue(req.Context(), apiKeyContextKey, &apiKeyContext{KeyID: 1, Role: "editor"}))
+	rec := httptest.NewRecorder()
+	manager.handleCreateClip(rec, req)
+	return rec
+}
+
+func TestCreateClipFieldFirstBody(t *testing.T) {
+	rec := postMultipart(t, func(w *multipart.Writer) {
+		w.WriteField("content_type", "text/plain")
+		fw, _ := w.CreateFormFile("file", "hello.txt")
+		fw.Write([]byte("hello world"))
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d; %s", rec.Code, rec.Body.String())
+	}
+	var clip apiClipResponse
+	json.Unmarshal(rec.Body.Bytes(), &clip)
+	if clip.Filename != "hello.txt" || clip.Size != 11 || clip.ContentType != "text/plain" {
+		t.Fatalf("clip = %+v", clip)
+	}
+}
+
+func TestCreateClipContentTypeFieldOverrides(t *testing.T) {
+	rec := postMultipart(t, func(w *multipart.Writer) {
+		w.WriteField("content_type", "application/x-custom")
+		fw, _ := w.CreateFormFile("file", "blob.bin")
+		fw.Write([]byte("zz"))
+	})
+	var clip apiClipResponse
+	json.Unmarshal(rec.Body.Bytes(), &clip)
+	if rec.Code != http.StatusCreated || clip.ContentType != "application/x-custom" {
+		t.Fatalf("status %d clip %+v", rec.Code, clip)
+	}
+}
+
+func TestCreateClipNoFilePartIsBadRequest(t *testing.T) {
+	rec := postMultipart(t, func(w *multipart.Writer) { w.WriteField("a", "b") })
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d", rec.Code)
+	}
+}
