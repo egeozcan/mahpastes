@@ -7,6 +7,21 @@ import * as path from 'path';
 // image budget: an image the budget refuses to display may not stay cached
 // (its object URL holding the blob alive) just because it was fetched.
 test.describe('Markdown preview: session cache respects the image budget', () => {
+  // The test wraps URL object-URL functions and MarkdownService.GetLocalImage
+  // on the worker-scoped page; restore them for whatever runs next.
+  test.afterEach(async ({ app }) => {
+    await app.page.evaluate(() => {
+      const w = window as any;
+      if (w.__mdOriginals) {
+        URL.createObjectURL = w.__mdOriginals.create;
+        URL.revokeObjectURL = w.__mdOriginals.revoke;
+        w.go.main.MarkdownService.GetLocalImage = w.__mdOriginals.getLocalImage;
+        delete w.__mdOriginals;
+      }
+      w.__mdTrack = false;
+    });
+  });
+
   test('drops and revokes images the budget refused to display', async ({ app }) => {
     const count = 5;
     const names: string[] = [];
@@ -29,6 +44,11 @@ test.describe('Markdown preview: session cache respects the image budget', () =>
       w.__mdCreated = created;
       w.__mdRevoked = revoked;
       w.__mdLocalCalls = 0;
+      w.__mdOriginals = {
+        create: URL.createObjectURL,
+        revoke: URL.revokeObjectURL,
+        getLocalImage: w.go.main.MarkdownService.GetLocalImage,
+      };
       const create = URL.createObjectURL.bind(URL);
       const revoke = URL.revokeObjectURL.bind(URL);
       URL.createObjectURL = (obj: any) => {
