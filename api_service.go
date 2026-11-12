@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"log"
-	"strconv"
 
 	coreapp "go-clipboard/internal/app"
 )
@@ -27,38 +26,38 @@ func (s *APIService) StartAPI(port int, bindAll bool) (APIStatus, error) {
 	if err == nil {
 		// Remember the port for "Start on launch". bind_all is deliberately
 		// never persisted: an autostarted listener is always loopback-only.
-		_ = s.app.SetSetting(coreapp.SettingAPIPort, strconv.Itoa(port))
+		if err := s.app.RememberAPIPort(status.Port); err != nil {
+			log.Printf("api: could not remember port %d: %v", status.Port, err)
+		}
 	}
 	return status, err
 }
 
 // GetAPIAutostart reports whether the API server starts when the app launches.
 func (s *APIService) GetAPIAutostart() bool {
-	v, _ := s.app.GetSetting(coreapp.SettingAPIAutostart)
-	return v == "true"
+	enabled, _ := s.app.APILaunchSettings()
+	return enabled
 }
 
-// SetAPIAutostart persists the "Start on launch" choice.
-func (s *APIService) SetAPIAutostart(enabled bool) error {
-	return s.app.SetSetting(coreapp.SettingAPIAutostart, strconv.FormatBool(enabled))
+// GetAPIPort returns the port "Start on launch" uses: the one the server was
+// last started on, or the default.
+func (s *APIService) GetAPIPort() int {
+	_, port := s.app.APILaunchSettings()
+	return port
+}
+
+// SetAPIAutostart persists the "Start on launch" choice; enabling it also
+// records port as the port to listen on.
+func (s *APIService) SetAPIAutostart(enabled bool, port int) error {
+	return s.app.SetAPILaunchSettings(enabled, port)
 }
 
 // startOnLaunch starts the API server at desktop startup when the user opted
-// in. It lives here, not in the shared Bootstrap, because mahpastesd starts its
-// own listener. Failures (e.g. port in use) are logged and never fatal.
+// in. It runs from OnStartup, not the shared Bootstrap, because mahpastesd
+// starts its own listener. Failures (e.g. port in use) are logged, never fatal.
 func (s *APIService) startOnLaunch() {
-	am := s.app.APIManager()
-	if am == nil {
-		return
-	}
-	enabled, _ := s.app.GetSetting(coreapp.SettingAPIAutostart)
-	port, _ := s.app.GetSetting(coreapp.SettingAPIPort)
-	p, ok := coreapp.ParseAutostart(enabled, port)
-	if !ok {
-		return
-	}
-	if _, err := am.Start(p, false); err != nil {
-		log.Printf("api autostart on port %d failed: %v", p, err)
+	if _, err := s.app.StartAPIOnLaunch(); err != nil {
+		log.Printf("api: start on launch failed: %v", err)
 	}
 }
 

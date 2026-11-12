@@ -2195,9 +2195,14 @@
                             <span class="text-[10px] font-medium text-stone-500">Network</span>
                         </div>
                     </div>
-                    <label class="flex items-center gap-2 mb-3 text-xs text-stone-600 cursor-pointer">
-                        <input type="checkbox" id="api-autostart-toggle" class="rounded border-stone-300" data-testid="api-autostart-toggle">
-                        Start on launch <span class="text-[10px] text-stone-400">(this computer only, uses the port above)</span>
+                    <label class="flex items-center gap-2 mb-3 cursor-pointer" data-testid="api-autostart-label"
+                        title="Start the server on 127.0.0.1 each time mahpastes opens">
+                        <div class="relative inline-flex items-center">
+                            <input type="checkbox" id="api-autostart-toggle" class="sr-only peer" data-testid="api-autostart-toggle">
+                            <div class="w-9 h-5 bg-stone-300 peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-stone-400 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-stone-800"></div>
+                        </div>
+                        <span class="text-[10px] font-medium text-stone-500">Start on launch</span>
+                        <span class="text-[10px] text-stone-400">127.0.0.1 only, on the port above</span>
                     </label>
                     <div class="flex items-center gap-3">
                         <button id="api-toggle-btn" data-testid="api-toggle-btn"

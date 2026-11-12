@@ -142,7 +142,7 @@ export MP_API_KEY=mp_your_key_here
 Add the export to your shell profile (`~/.zshrc`, `~/.bashrc`) so it persists across sessions.
 :::
 
-The CLI connects to `http://localhost:44557` by default. Override with `MP_API_URL` if needed.
+To read the key from a file instead, set `MP_API_KEY_FILE` to its path. The CLI connects to `http://localhost:44557` by default. Override with `MP_API_URL` if needed. Turn on **Start on launch** in the API modal so the server starts with the app.
 
 Verify connectivity:
 

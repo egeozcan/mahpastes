@@ -175,7 +175,11 @@ func main() {
 				fatalStartup(bridge, headless, logWriter != nil, dataDir, "Could not start mahpastes", err)
 			}
 			if !generatingBindings {
-				apiService.startOnLaunch()
+				// "Start on launch" belongs to the desktop app; the headless
+				// worker self-test must not open the user's API listener.
+				if selfTest == nil {
+					apiService.startOnLaunch()
+				}
 				fileProviderService.start(ctx, db, dataDir)
 			}
 		},

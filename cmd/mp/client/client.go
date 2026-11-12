@@ -69,18 +69,15 @@ func New() (*Client, error) {
 	apiKey := os.Getenv("MP_API_KEY")
 	if apiKey == "" {
 		if path := os.Getenv("MP_API_KEY_FILE"); path != "" {
-			data, err := os.ReadFile(path)
+			key, err := readKeyFile(path)
 			if err != nil {
-				return nil, fmt.Errorf("cannot read MP_API_KEY_FILE: %w", err)
+				return nil, err
 			}
-			apiKey = strings.TrimSpace(string(data))
-			if apiKey == "" {
-				return nil, fmt.Errorf("MP_API_KEY_FILE %s is empty", path)
-			}
+			apiKey = key
 		}
 	}
 	if apiKey == "" {
-		return nil, fmt.Errorf("MP_API_KEY environment variable (or MP_API_KEY_FILE) is required.\n\nTo get started:\n  1. Open mahpastes Settings > API\n  2. Create an API key\n  3. export MP_API_KEY=<your-key>")
+		return nil, fmt.Errorf("MP_API_KEY environment variable (or MP_API_KEY_FILE) is required.\n\nTo get started:\n  1. Open mahpastes Settings > API\n  2. Create an API key\n  3. export MP_API_KEY=<your-key>\n     (or save it to a file and export MP_API_KEY_FILE=<path>)")
 	}
 
 	return &Client{
@@ -88,6 +85,36 @@ func New() (*Client, error) {
 		APIKey:     apiKey,
 		HTTPClient: &http.Client{},
 	}, nil
+}
+
+// maxKeyFileSize bounds how much of MP_API_KEY_FILE is read, so pointing it
+// at a large file or an endless device fails fast instead of eating memory.
+const maxKeyFileSize = 4096
+
+// readKeyFile reads the API key from path (MP_API_KEY_FILE). The file holds
+// just the key; surrounding whitespace, such as a trailing newline, is
+// ignored. Pipes work too, e.g. MP_API_KEY_FILE=<(pass show mahpastes).
+func readKeyFile(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", fmt.Errorf("cannot read MP_API_KEY_FILE: %w", err)
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, maxKeyFileSize+1))
+	if err != nil {
+		return "", fmt.Errorf("cannot read MP_API_KEY_FILE: %w", err)
+	}
+	if len(data) > maxKeyFileSize {
+		return "", fmt.Errorf("MP_API_KEY_FILE %q is too large to hold an API key", path)
+	}
+	key := strings.TrimSpace(string(data))
+	if key == "" {
+		return "", fmt.Errorf("MP_API_KEY_FILE %q is empty", path)
+	}
+	if strings.IndexFunc(key, func(r rune) bool { return r <= ' ' || r == 0x7f }) >= 0 {
+		return "", fmt.Errorf("MP_API_KEY_FILE %q must contain only the API key", path)
+	}
+	return key, nil
 }
 
 // do executes an HTTP request with auth headers and handles common errors.
@@ -121,7 +148,7 @@ func checkResponse(resp *http.Response) error {
 
 	switch resp.StatusCode {
 	case http.StatusUnauthorized:
-		return &APIError{StatusCode: 401, Message: "Authentication failed. Check MP_API_KEY."}
+		return &APIError{StatusCode: 401, Message: "Authentication failed. Check MP_API_KEY (or MP_API_KEY_FILE)."}
 	case http.StatusForbidden:
 		return &APIError{StatusCode: 403, Message: "Insufficient permissions."}
 	}

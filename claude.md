@@ -304,7 +304,7 @@ The `mp` binary is a stateless CLI for mahpastes, talking to the REST API (`/api
 
 ```bash
 make mp                              # Build
-export MP_API_KEY=mp_your_key_here   # Required
+export MP_API_KEY=mp_your_key_here   # Required (or MP_API_KEY_FILE=<path to a file holding the key>)
 export MP_API_URL=http://localhost:44557  # Optional, this is the default
 ```
 
@@ -329,7 +329,7 @@ export MP_API_URL=http://localhost:44557  # Optional, this is the default
 - `--stdin` flag on bulk commands reads IDs from stdin
 - Tags can be referenced by name or ID
 - `mp clip data <id> > file.png` outputs raw content to stdout
-- Auth via `MP_API_KEY` env var (Bearer token), no config files
+- Auth via `MP_API_KEY` env var (Bearer token), or `MP_API_KEY_FILE` naming a file that holds just the key (`MP_API_KEY` wins; read capped at 4 KiB). Env vars only, no config files
 - Exit codes: 0 success, 1 general error, 2 connection error, 3 auth error
 
 ### Architecture
@@ -360,7 +360,8 @@ The app exposes a REST API via `api_manager.go` that the `mp` CLI and external t
 ### Key Files
 
 - `api_manager.go` - HTTP server with ~40+ endpoints, auth middleware, CORS
-- `api_service.go` - Wails-bound `APIService` struct for frontend control (start/stop API, manage keys)
+- `api_service.go` - Wails-bound `APIService` struct for frontend control (start/stop API, manage keys, "Start on launch")
+- `internal/app/api_autostart.go` - "Start on launch": `api_autostart` + `api_port` settings. `StartAPIOnLaunch` runs from main.go `OnStartup` (not the shared `Bootstrap`, since mahpastesd starts its own listener), always loopback-only (`bind_all` is never persisted). Both keys are excluded from backups (`sensitiveSettingPatterns`) and refused by `PUT /api/v1/settings/{key}`
 
 ### Authentication
 

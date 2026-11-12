@@ -604,6 +604,16 @@ export const selectors = {
     openLogsButton: '#maintenance-open-logs-btn',
   },
 
+  // REST API modal
+  api: {
+    openButton: '#open-api-btn',
+    modal: '[data-testid="api-modal"]',
+    closeButton: '#api-modal-close',
+    portInput: '[data-testid="api-port-input"]',
+    autostartToggle: '[data-testid="api-autostart-toggle"]',
+    autostartLabel: '[data-testid="api-autostart-label"]',
+  },
+
   // Import Folder wizard
   importWizard: {
     drawerButton: '[data-testid="open-import-btn"]',

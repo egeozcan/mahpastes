@@ -59,13 +59,11 @@ apiModal.addEventListener('click', (e) => {
 });
 
 apiToggleBtn.addEventListener('click', toggleAPIServer);
-apiAutostartToggle.addEventListener('change', async () => {
-    try {
-        await window.go.main.APIService.SetAPIAutostart(apiAutostartToggle.checked);
-    } catch (err) {
-        apiAutostartToggle.checked = !apiAutostartToggle.checked;
-        showToast('Error: ' + errText(err), 'error');
-    }
+apiAutostartToggle.addEventListener('change', () => saveAPILaunchSettings(true));
+// "Start on launch" uses the port shown above, so a port edited while it is on
+// is saved too (the server itself only picks it up on the next Start).
+apiPortInput.addEventListener('change', () => {
+    if (apiAutostartToggle.checked) saveAPILaunchSettings(false);
 });
 apiShowCreateBtn.addEventListener('click', showCreateKeyForm);
 apiCancelCreateBtn.addEventListener('click', hideCreateKeyForm);
@@ -80,7 +78,6 @@ async function loadAPIStatus() {
     try {
         const status = await window.go.main.APIService.GetAPIStatus();
         apiServerRunning = status.running;
-        apiAutostartToggle.checked = await window.go.main.APIService.GetAPIAutostart();
         if (status.running) {
             apiToggleBtn.textContent = 'Stop Server';
             apiToggleBtn.classList.remove('bg-stone-800', 'hover:bg-stone-700');
@@ -96,8 +93,36 @@ async function loadAPIStatus() {
             apiPortInput.disabled = false;
             apiBindToggle.disabled = false;
         }
+        await loadAPILaunchSettings(status);
     } catch (err) {
         console.error('Failed to load API status:', err);
+    }
+}
+
+// Shows the "Start on launch" choice, and in the port field the port the
+// server runs on (or, while stopped, the one it starts on next).
+async function loadAPILaunchSettings(status) {
+    try {
+        const svc = window.go.main.APIService;
+        apiAutostartToggle.checked = await svc.GetAPIAutostart();
+        apiPortInput.value = status.running ? status.port : await svc.GetAPIPort();
+    } catch (err) {
+        console.error('Failed to load API launch settings:', err);
+    }
+}
+
+// revertToggle: a failed save from the checkbox itself flips it back.
+async function saveAPILaunchSettings(revertToggle) {
+    const enabled = apiAutostartToggle.checked;
+    const port = parseInt(apiPortInput.value, 10) || 44557;
+    apiAutostartToggle.disabled = true;
+    try {
+        await window.go.main.APIService.SetAPIAutostart(enabled, port);
+    } catch (err) {
+        if (revertToggle) apiAutostartToggle.checked = !enabled;
+        showToast('Error: ' + errText(err), 'error');
+    } finally {
+        apiAutostartToggle.disabled = false;
     }
 }
 

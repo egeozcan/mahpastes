@@ -18,8 +18,10 @@ and other resources from your terminal.
 
 Getting started:
   1. Open mahpastes and enable the API in Settings > API
+     (turn on "Start on launch" to keep it running across restarts)
   2. Create an API key in Settings > API
   3. Export your key:  export MP_API_KEY=<your-key>
+     (or keep it in a file:  export MP_API_KEY_FILE=<path>)
   4. (Optional) Set a custom URL:  export MP_API_URL=http://host:port
 
 By default, mp connects to http://localhost:44557.`,

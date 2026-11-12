@@ -418,6 +418,10 @@
         RevokeAPIKey: (id) => del(`${api}/keys/${id}`),
         StartAPI: async () => { throw new Error('the headless server owns the API listener'); },
         StopAPI: async () => { throw new Error('the headless server owns the API listener'); },
+        // "Start on launch" is a desktop setting; the Server section is hidden.
+        GetAPIAutostart: async () => false,
+        GetAPIPort: async () => 44557,
+        SetAPIAutostart: async () => { throw new Error('the headless server owns the API listener'); },
     };
     // Clipboard copy targets the host's clipboard, which is meaningless for a
     // remote browser user — desktop-only, like drag-out transfers. The UI
