@@ -31,10 +31,15 @@ Every app archive also contains the `mp` CLI, the bundled plugins and examples.
 2. Drag `mahpastes.app` from the extracted folder to your Applications folder
 3. Launch it like any other app
 
-The app is signed and notarized by Apple, so it opens without Gatekeeper
-warnings and includes [Finder integration](https://github.com/egeozcan/mahpastes/blob/master/docs/FILE_PROVIDER.md). To use
-`mp`, copy it from the extracted folder to a directory on your `PATH`, for
-example `~/.local/bin`.
+Release builds are signed with an Apple Developer ID and notarized by Apple,
+so they open without a Gatekeeper override. The app includes
+[Finder integration](https://github.com/egeozcan/mahpastes/blob/master/docs/FILE_PROVIDER.md).
+An unsigned build, such as one you compiled yourself, is blocked on first
+launch; see [Troubleshooting](../reference/troubleshooting.md#macos-app-is-damaged-or-security-warning)
+for how to allow it.
+
+To use `mp`, copy it from the extracted folder to a directory on your `PATH`,
+for example `~/.local/bin`.
 
 ### Windows
 
@@ -54,12 +59,13 @@ a folder of your choice and run `mahpastes.exe`.
 scoop install https://github.com/egeozcan/mahpastes/releases/latest/download/mahpastes.json
 ```
 
-The Windows build is not code-signed, so SmartScreen may warn on first launch;
-choose **More info**, then **Run anyway**. mahpastes uses the Microsoft Edge
-WebView2 runtime, which Windows 10 and 11 normally include; if it is missing,
-the app offers to install it. With the installer or the zip, `mp.exe` sits next
-to the app; add that folder to your `PATH` to run `mp` from any terminal (Scoop
-does this for you).
+The Windows builds are not code-signed, so SmartScreen may warn on first
+launch; choose **More info**, then **Run anyway**. mahpastes uses the Microsoft
+Edge WebView2 runtime, which Windows 10 and 11 normally include. The installer
+installs it when it is missing; the portable zip does not, so install it from
+Microsoft if the app will not start. With the installer or the zip, `mp.exe`
+sits next to the app; add that folder to your `PATH` to run `mp` from any
+terminal (Scoop does this for you).
 
 ### Homebrew
 
@@ -85,8 +91,15 @@ cd mahpastes-linux-amd64
 `install.sh` installs for the current user without root: the app and `mp` go
 to `~/.local/bin`, a desktop entry and icons to `~/.local/share`, and the
 bundled plugins to `~/.config/mahpastes/plugins`. Set `PREFIX` to install
-somewhere else. `./install.sh --uninstall` removes the app, `mp`, the desktop
-entry and the icons again and keeps your data.
+somewhere else. If `~/.local/bin` is not on your `PATH`, the script says so;
+add it in your shell profile. `./install.sh --uninstall` removes the app, `mp`,
+the desktop entry and the icons again and keeps your data.
+
+The app itself needs only the GTK 3 and WebKitGTK 4.1 libraries, which desktop
+systems normally ship. To browse clips in your file manager (**File manager
+access** in Settings), also install the `fuse3` package (`sudo apt install fuse3`,
+`sudo dnf install fuse3`, `sudo pacman -S fuse3`). See
+[File manager access on Linux](https://github.com/egeozcan/mahpastes/blob/master/docs/FILE_PROVIDER.md#linux-file-manager-access).
 
 ### Standalone CLI and server
 
@@ -182,6 +195,7 @@ make install
 
 # Or manually
 cp -R build/bin/mahpastes.app /Applications/
+# Only needed for an unsigned local build that carries a download quarantine
 xattr -cr /Applications/mahpastes.app
 # Copy bundled plugins
 mkdir -p ~/Library/Application\ Support/mahpastes/plugins
