@@ -589,6 +589,7 @@ echo "Backup saved: $FILENAME"
 
 ## Related
 
+- [Integration Recipes](integration-recipes.md) -- wire `mp` into fzf, tmux, vim, git, file managers and macOS Quick Actions
 - [Clipboard Management](../features/clipboard-management.md) -- feature reference
 - [Watch Folders](../features/watch-folders.md) -- watch folder details
 - [Troubleshooting](../reference/troubleshooting.md) -- CLI error solutions

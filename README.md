@@ -22,7 +22,10 @@ Documentation: https://egeozcan.github.io/mahpastes/
 - **Search** — Filter clips by filename or type
 - **Watch Folders** — Auto-import files from monitored directories
 - **Plugin System** — Install and manage Lua plugins from the dedicated Plugins modal
-- **CLI, REST API & Headless Server** — Script clips with the `mp` CLI, the local REST API, and `mahpastesd`; see the [integration recipes](docs/docs/tutorials/integration-recipes.md) for shell, fzf, tmux, vim, git and file-manager snippets
+- **`mp` CLI** — Upload, search, tag, pipe and back up clips from the terminal ([CLI workflow](docs/docs/tutorials/cli-workflow.md)); see the [integration recipes](docs/docs/tutorials/integration-recipes.md) for shell, fzf, tmux, vim, git, file-manager and macOS Quick Action snippets
+- **REST API** — Local, key-authenticated HTTP API with viewer/editor/admin roles and tag-scoped keys ([REST API](docs/docs/features/rest-api.md))
+- **Headless Server** — `mahpastesd` runs the same API and a web UI without the desktop app ([setup](docs/docs/tutorials/integration-recipes.md#without-the-desktop-app-mahpastesd))
+- **Claude Code Plugin** — Lets Claude Code store artifacts, host sites and search clips through the API ([skill](skills/mahpastes/SKILL.md), [commands](commands/); run `/mahpastes:setup` to connect)
 - **Backup & Restore** — Export and import all data as a ZIP archive
 - **Copy Path** — Create a temp file and copy its path to clipboard
 - **Export** — Save individual clips or download multiple as a ZIP
