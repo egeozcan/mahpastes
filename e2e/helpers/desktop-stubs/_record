@@ -1,0 +1,13 @@
+#!/bin/sh
+# Shared body of the e2e desktop stand-ins in this directory (see
+# helpers/instance-env.ts). Appends one line per call to the instance's
+# launch log so a spec can assert what the app tried to open, then reports
+# success as a desktop handler would. Never launches anything.
+log="${MAHPASTES_E2E_LAUNCH_LOG:-/dev/null}"
+{
+	printf '%s' "$1"
+	shift
+	for a in "$@"; do printf '\t%s' "$a"; done
+	printf '\n'
+} >>"$log"
+exit 0

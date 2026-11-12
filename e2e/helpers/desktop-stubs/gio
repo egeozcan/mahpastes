@@ -1,0 +1,14 @@
+#!/bin/sh
+# gio open/launch would start real desktop applications: record them instead.
+# Every other subcommand (gio trash, gio info, ...) runs the real gio.
+here="$(cd "$(dirname "$0")" && pwd)"
+case "$1" in
+open | launch) exec "$here/_record" gio "$@" ;;
+esac
+IFS=:
+for d in $PATH; do
+	[ "$d" = "$here" ] && continue
+	[ -x "$d/gio" ] && exec "$d/gio" "$@"
+done
+echo "gio: not found" >&2
+exit 127
