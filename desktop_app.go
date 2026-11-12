@@ -16,6 +16,7 @@ import (
 	coreapp "go-clipboard/internal/app"
 	"go-clipboard/internal/cliputil"
 	"go-clipboard/internal/logfile"
+	"go-clipboard/internal/openrequest"
 	"go-clipboard/internal/wailsbridge"
 
 	"golang.design/x/clipboard"
@@ -117,11 +118,21 @@ type App struct {
 	desktopCore
 	core   *coreapp.App
 	bridge *wailsbridge.Bridge
+	// openRequests holds files and URLs the OS or a second launch asked this
+	// window to open, until the frontend takes them (open_request.go).
+	openRequests *openrequest.Queue
+	// lifecycle is quit, close and start behaviour (desktop_lifecycle.go).
+	lifecycle *desktopLifecycle
 }
 
 func NewApp() *App {
 	core := coreapp.NewApp()
-	return &App{desktopCore: core, core: core}
+	return &App{
+		desktopCore:  core,
+		core:         core,
+		openRequests: openrequest.NewQueue(openrequest.DefaultNotifyDelay),
+		lifecycle:    &desktopLifecycle{},
+	}
 }
 
 // OpenLogFolder reveals the log directory in the system file manager.

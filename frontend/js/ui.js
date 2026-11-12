@@ -612,6 +612,7 @@ const cardMenuTooltips = {
     'copy-file': 'Place file on clipboard for pasting into other apps',
     'copy-contents': 'Copy the raw text or data to clipboard',
     'copy-rich-text': 'Copy as formatted text for Mail, Notes or Pages',
+    'copy-link': 'Copy a mahpastes:// link that shows this clip in the app',
     'save-file': 'Save a copy to a file',
     'edit': 'Open in the built-in image editor for annotation',
     'tags': 'Add or remove tags',
@@ -703,6 +704,11 @@ function buildMenuItemList(clip) {
     // HTML as formatted text, next to Contents (which copies the source).
     if (!isServerMode && isHTMLContentType(ct) && typeof canCopyRichText === 'function' && canCopyRichText()) {
         copyChildren.push({ id: 'copy-rich-text', label: 'Rich Text', iconHtml: getMenuIcon('copy-rich-text'), tooltip: cardMenuTooltips['copy-rich-text'] });
+    }
+    // mahpastes:// links reach the desktop app through the OS, never the
+    // server's web page.
+    if (!isServerMode) {
+        copyChildren.push({ id: 'copy-link', label: 'Link', iconHtml: getMenuIcon('copy-public-link'), tooltip: cardMenuTooltips['copy-link'] });
     }
     items.push({ type: 'submenu', label: 'Copy', iconHtml: getMenuIcon('copy'), submenuId: 'copy', children: copyChildren });
 
@@ -868,6 +874,9 @@ async function handleCardAction(action, clipId, triggerButton) {
             break;
         case 'copy-rich-text':
             copyClipAsRichText(id);
+            break;
+        case 'copy-link':
+            copyClipLink(id);
             break;
         case 'save-file':
             saveClipToFile(id);

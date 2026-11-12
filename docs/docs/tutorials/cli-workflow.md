@@ -211,6 +211,37 @@ Download multiple clips as a ZIP:
 mp clip download 1 2 3 -o clips.zip
 ```
 
+## Opening Clips
+
+Open a clip in the application your system uses for its file type:
+
+```bash
+mp clip open 42
+```
+
+Or name the application (`open -a` on macOS; on Linux and Windows the program is run with the file):
+
+```bash
+mp clip open 42 --app Preview
+mp clip open 42 --app gimp
+```
+
+`mp clip open` downloads the clip into a private folder under your user cache directory
+(`mahpastes/mp-open`, for example `~/.cache/mahpastes/mp-open` on Linux) and opens that copy. The copy
+is left there because the application reads it after `mp` has exited; delete the folder whenever you
+like. Editing the copy does not change the clip. This works against the desktop app and against
+`mahpastesd`, as long as the clip's data can be downloaded to this computer.
+
+Programs, scripts and installers (`.exe`, `.bat`, `.ps1`, `.py`, `.sh`, `.msi`, `.command`, `.pkg`,
+`.desktop` and similar) are not opened with the default application, since that could run them; use
+`mp clip download` instead, or name a program with `--app`.
+
+To show the clip in the mahpastes window instead, use its [clip link](../features/deep-links.md):
+
+```bash
+mp clip open 42 --in-app
+```
+
 ## Bulk Operations
 
 Delete multiple clips by ID:

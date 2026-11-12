@@ -1029,19 +1029,6 @@ func postRaw(c *client.Client, path string, body io.Reader) (io.ReadCloser, erro
 	return resp.Body, nil
 }
 
-// --- clip open ---
-
-var clipOpenCmd = &cobra.Command{
-	Use:     "open <id>",
-	Short:   "Open a clip (desktop app only)",
-	Long:    `Open a clip in the desktop app. This command requires the mahpastes desktop application.`,
-	Example: `  mp clip open 42`,
-	Args:    cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return fmt.Errorf("open requires the mahpastes desktop app")
-	},
-}
-
 // --- clip metadata ---
 
 var clipMetadataCmd = &cobra.Command{

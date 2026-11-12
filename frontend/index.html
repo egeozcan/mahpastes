@@ -262,6 +262,17 @@
             <div id="drawer-plugin-actions" class="hidden">
                 <div class="my-1 border-t border-stone-100"></div>
             </div>
+            <div id="drawer-quit" class="hidden" data-testid="drawer-quit">
+                <div class="my-1 border-t border-stone-100"></div>
+                <button id="quit-app-btn" data-testid="quit-app-btn"
+                    class="desktop-only border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-500 text-xs font-medium py-2.5 px-3 rounded-md transition-colors flex items-center w-full"
+                    data-tooltip="Quit mahpastes and stop everything it runs in the background">
+                    <svg class="w-4 h-4 mr-2 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5.636 5.636a9 9 0 1012.728 0M12 3v9" />
+                    </svg>
+                    Quit mahpastes
+                </button>
+            </div>
         </nav>
     </aside>
 
@@ -1544,6 +1555,49 @@
                     </div>
                     <p id="file-provider-note" class="text-[11px] text-stone-500 mt-3">Disabling removes the Finder location and asks macOS to keep downloaded files in a recovery folder.</p>
                 </div>
+                <!-- Background & Startup (desktop app only; shown when the bindings exist) -->
+                <div id="desktop-lifecycle-settings" class="hidden pt-4 border-t border-stone-100" data-testid="desktop-lifecycle-settings">
+                    <h3 class="text-xs font-semibold text-stone-600 uppercase tracking-wider mb-3 flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5.636 5.636a9 9 0 1012.728 0M12 3v9"/>
+                        </svg>
+                        Background &amp; Startup
+                    </h3>
+                    <p class="text-[11px] text-stone-500 mb-3">
+                        Watch folders, tag servers, the API, sharing and file manager access only work while mahpastes is running.
+                    </p>
+                    <div class="space-y-3">
+                        <div>
+                            <label class="flex items-center gap-3 cursor-pointer" data-testid="keep-running-label">
+                                <div class="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" id="keep-running-toggle" data-testid="keep-running-toggle" class="sr-only peer" aria-describedby="keep-running-note keep-running-restart">
+                                    <div class="w-9 h-5 bg-stone-300 peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-stone-400 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-stone-800"></div>
+                                </div>
+                                <span class="text-xs font-medium text-stone-700">Keep running when the window is closed</span>
+                            </label>
+                            <p id="keep-running-note" class="text-[11px] text-stone-500 mt-2 pl-12" data-testid="keep-running-note"></p>
+                            <p id="keep-running-restart" class="hidden text-[11px] text-amber-700 mt-1 pl-12" data-testid="keep-running-restart">Takes effect the next time mahpastes starts.</p>
+                        </div>
+                        <div id="launch-at-login-block" data-testid="launch-at-login-block">
+                            <label class="flex items-center gap-3 cursor-pointer" data-testid="launch-at-login-label">
+                                <div class="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" id="launch-at-login-toggle" data-testid="launch-at-login-toggle" class="sr-only peer" aria-describedby="launch-at-login-status">
+                                    <div class="w-9 h-5 bg-stone-300 peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-stone-400 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-stone-800"></div>
+                                </div>
+                                <span class="text-xs font-medium text-stone-700">Launch at login</span>
+                            </label>
+                            <label id="launch-hidden-label" class="flex items-center gap-3 cursor-pointer mt-2 pl-12" data-testid="launch-hidden-label">
+                                <div class="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" id="launch-hidden-toggle" data-testid="launch-hidden-toggle" class="sr-only peer" checked aria-describedby="launch-hidden-note">
+                                    <div class="w-9 h-5 bg-stone-300 peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-stone-400 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-stone-800"></div>
+                                </div>
+                                <span class="text-xs font-medium text-stone-700">Start in the background</span>
+                            </label>
+                            <p id="launch-hidden-note" class="text-[11px] text-stone-500 mt-2 pl-12" data-testid="launch-hidden-note"></p>
+                            <p id="launch-at-login-status" class="text-[11px] text-stone-500 mt-1 pl-12 break-all" role="status" aria-live="polite" data-testid="launch-at-login-status"></p>
+                        </div>
+                    </div>
+                </div>
                 <!-- Backup & Restore -->
                 <div class="pt-4 border-t border-stone-100">
                     <h3 class="text-xs font-semibold text-stone-600 uppercase tracking-wider mb-3 flex items-center gap-2">
@@ -2615,6 +2669,7 @@
     <script src="js/file-provider-settings.js"></script>
     <script src="js/os-notifications.js"></script>
     <script src="js/app-info.js"></script>
+    <script src="js/desktop-lifecycle-settings.js"></script>
     <script src="js/settings.js"></script>
     <script src="js/maintenance.js"></script>
     <script src="js/import-wizard.js"></script>
@@ -2625,6 +2680,7 @@
     <script src="js/metadata.js"></script>
     <script src="js/tags.js"></script>
     <script src="js/api-settings.js"></script>
+    <script src="js/open-requests.js"></script>
     <script src="js/app.js"></script>
     <script src="js/sort.js"></script>
     <script src="js/search-options.js"></script>

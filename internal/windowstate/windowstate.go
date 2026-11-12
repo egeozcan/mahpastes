@@ -1,16 +1,13 @@
 // Package windowstate persists the main window's size, position and maximised
-// state across launches. It is pure logic plus a small JSON file in the data
-// directory; the Wails runtime calls live in internal/wailsbridge.
+// state across launches. It is pure logic plus one entry in the desktop prefs
+// file (internal/desktopprefs), which is read before wails.Run; the Wails
+// runtime calls live in internal/wailsbridge.
 package windowstate
 
-import (
-	"encoding/json"
-	"os"
-	"path/filepath"
-)
+import "go-clipboard/internal/desktopprefs"
 
-// FileName is the state file inside the data directory.
-const FileName = "window.json"
+// PrefsKey is the key the state is stored under in desktopprefs' file.
+const PrefsKey = "window"
 
 // Default and minimum window size, matching options.App in main.go.
 const (
@@ -61,11 +58,11 @@ func validSize(w, h int) bool {
 	return w >= MinWidth && h >= MinHeight && w <= MaxDimension && h <= MaxDimension
 }
 
-// Load reads the state file. ok is false when it is missing, unreadable or
+// Load reads the saved state. ok is false when it is missing, unreadable or
 // holds an unusable size.
 func Load(dataDir string) (s State, ok bool) {
-	b, err := os.ReadFile(filepath.Join(dataDir, FileName))
-	if err != nil || json.Unmarshal(b, &s) != nil {
+	found, err := desktopprefs.Get(dataDir, PrefsKey, &s)
+	if err != nil || !found {
 		return State{}, false
 	}
 	if !validSize(s.Width, s.Height) {
@@ -74,22 +71,9 @@ func Load(dataDir string) (s State, ok bool) {
 	return s, true
 }
 
-// Save writes the state atomically.
+// Save stores the state atomically, keeping the other desktop prefs.
 func Save(dataDir string, s State) error {
-	b, err := json.Marshal(s)
-	if err != nil {
-		return err
-	}
-	path := filepath.Join(dataDir, FileName)
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
-	return nil
+	return desktopprefs.Set(dataDir, PrefsKey, s)
 }
 
 // Merge combines a freshly read geometry with the previously saved state and

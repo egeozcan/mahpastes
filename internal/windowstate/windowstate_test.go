@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"go-clipboard/internal/desktopprefs"
 )
 
 func TestSaveLoadRoundTrip(t *testing.T) {
@@ -16,8 +18,8 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	if !ok || got != want {
 		t.Fatalf("got %+v ok=%v", got, ok)
 	}
-	if _, err := os.Stat(filepath.Join(dir, FileName+".tmp")); !os.IsNotExist(err) {
-		t.Fatalf("temp file left behind: %v", err)
+	if leftovers, _ := filepath.Glob(filepath.Join(dir, "*.tmp")); len(leftovers) != 0 {
+		t.Fatalf("temp files left behind: %v", leftovers)
 	}
 	// Saving again replaces the existing file.
 	want.Width = 1100
@@ -29,16 +31,44 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	}
 }
 
+// The window state shares the desktop prefs file: saving one must keep the
+// other.
+func TestSaveKeepsOtherDesktopPrefs(t *testing.T) {
+	dir := t.TempDir()
+	if err := desktopprefs.SetKeepRunningWhenClosed(dir, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := Save(dir, State{Width: 1000, Height: 700}); err != nil {
+		t.Fatal(err)
+	}
+	p, err := desktopprefs.Load(dir)
+	if err != nil || p.KeepRunningWhenClosed == nil || !*p.KeepRunningWhenClosed {
+		t.Fatalf("keep-running lost after a window save: %+v, %v", p, err)
+	}
+	if err := desktopprefs.SetKeepRunningWhenClosed(dir, false); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := Load(dir); !ok || got.Width != 1000 {
+		t.Fatalf("window state lost after a prefs save: %+v ok=%v", got, ok)
+	}
+}
+
 func TestLoadRejectsMissingCorruptAndOutOfRange(t *testing.T) {
 	dir := t.TempDir()
 	if _, ok := Load(dir); ok {
 		t.Fatal("missing file should not load")
 	}
-	if err := os.WriteFile(filepath.Join(dir, FileName), []byte("{not json"), 0o600); err != nil {
+	if err := os.WriteFile(desktopprefs.Path(dir), []byte("{not json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := Load(dir); ok {
 		t.Fatal("corrupt file should not load")
+	}
+	if err := os.WriteFile(desktopprefs.Path(dir), []byte(`{"window": "not an object"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := Load(dir); ok {
+		t.Fatal("corrupt window entry should not load")
 	}
 	for _, s := range []State{
 		{Width: 10, Height: 10},

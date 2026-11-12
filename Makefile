@@ -29,17 +29,20 @@ else
     MP_INSTALL_DIR ?= $(if $(GO_BIN),$(GO_BIN),$(HOME)/.local/bin)
 endif
 
-# Version stamped into every binary (see internal/buildinfo). Override with
-# `make build VERSION=v1.6.0`; falls back to "dev" outside a git checkout.
+# Version stamped into every binary (see internal/buildinfo and
+# scripts/version.sh): "1.5.0" on a release tag, "1.5.0-12-gabc1234" between
+# releases, "dev" outside a git checkout. Override with
+# `make build VERSION=1.6.0`; a leading "v" is dropped.
 ifeq ($(OS),Windows_NT)
-    VERSION ?= $(strip $(shell git describe --tags --always --dirty 2>NUL))
-    COMMIT ?= $(strip $(shell git rev-parse --short HEAD 2>NUL))
+    VERSION ?= $(strip $(shell git describe --tags --match "v[0-9]*" 2>NUL))
+    COMMIT ?= $(strip $(shell git rev-parse --short=12 HEAD 2>NUL))
 else
-    VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null)
-    COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null)
+    VERSION ?= $(shell bash scripts/version.sh --full 2>/dev/null)
+    COMMIT ?= $(shell bash scripts/version.sh --commit 2>/dev/null)
 endif
+override VERSION := $(patsubst v%,%,$(VERSION))
 ifeq ($(VERSION),)
-    VERSION := dev
+    override VERSION := dev
 endif
 LDFLAGS := -X go-clipboard/internal/buildinfo.Version=$(VERSION) -X go-clipboard/internal/buildinfo.Commit=$(COMMIT)
 export MAHPASTES_LDFLAGS := $(LDFLAGS)
@@ -125,6 +128,7 @@ uninstall: ## Remove installed app (keeps data)
 	if exist "$(INSTALL_DIR)" rd /s /q "$(INSTALL_DIR)"
 	-if exist "$(START_MENU_LINK)" del /F /Q "$(START_MENU_LINK)"
 	-if exist "$(DATA_DIR)\$(APP_NAME).exe" del /F /Q "$(DATA_DIR)\$(APP_NAME).exe"
+	-reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v $(APP_NAME) /f 2>nul
 	@echo Removed $(APP_NAME) from $(INSTALL_DIR); clips and settings in $(DATA_DIR) are kept
 else ifeq ($(HOST_OS),Linux)
 install: build ## Build and install the app and mp (with completions) to ~/.local (kills running instance)
@@ -223,6 +227,7 @@ install-bundle:
 uninstall: ## Remove installed app
 	@pkill -f "$(APP_NAME).app/Contents/MacOS/$(APP_NAME)" 2>/dev/null || true
 	rm -rf $(INSTALL_DIR)/$(APP_NAME).app
+	rm -f "$(HOME)/Library/LaunchAgents/io.github.egeozcan.mahpastes.login.plist"
 	@echo "Removed $(APP_NAME) from $(INSTALL_DIR)"
 endif
 

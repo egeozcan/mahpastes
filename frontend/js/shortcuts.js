@@ -234,7 +234,7 @@ const ShortcutManager = (() => {
     // --- Registration ---
 
     function register(def) {
-        // def: { id, label, category, defaultKey, context, callback }
+        // def: { id, label, category, defaultKey, context, callback, firesInInputs? }
         actions.set(def.id, { ...def });
     }
 
@@ -275,6 +275,19 @@ const ShortcutManager = (() => {
 
     // --- Dispatch ---
 
+    // An action registered with firesInInputs (Quit) keeps working while a
+    // text field or the text editor has focus. Only modifier combos qualify:
+    // a plain key there is always typing.
+    function firesInInputs(e) {
+        if (!e.ctrlKey && !e.metaKey && !e.altKey) return false;
+        const combo = eventToCombo(e);
+        if (!combo) return false;
+        for (const [id, action] of actions) {
+            if (action.firesInInputs && getEffectiveCombo(id) === combo) return true;
+        }
+        return false;
+    }
+
     function handleKeydown(e) {
         if (!initialized) return;
 
@@ -287,7 +300,7 @@ const ShortcutManager = (() => {
         const tag = e.target.tagName;
         const isEditable = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable;
         const handlesEscapeLocally = e.target.matches?.('#editor-filename, #text-editor-find, #text-editor-replace, #canvas-text-input');
-        if (isEditable && (e.key !== 'Escape' || handlesEscapeLocally)) return;
+        if (isEditable && (e.key !== 'Escape' || handlesEscapeLocally) && !firesInInputs(e)) return;
 
         // Escape inside something that dismisses itself — an autocomplete with
         // its suggestions showing, or a picker marked data-owns-escape — is

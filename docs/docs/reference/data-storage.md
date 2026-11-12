@@ -29,6 +29,18 @@ The desktop app, the `mahpastesd` server and `scripts/linux/install.sh` all use 
 
 The data directory can be overridden with the `MAHPASTES_DATA_DIR` environment variable. This is used for testing.
 
+Only one process may use a data directory at a time. The desktop app and `mahpastesd` hold an advisory
+lock on `instance.lock` in the data directory while they run. The desktop app also listens on
+`instance.sock` there (a Unix domain socket readable only by your user; on a very long data directory path
+it is created in your per-user runtime or temp directory instead), which is how a second launch hands its
+files to the running window. Both files are safe to delete while mahpastes is not running.
+
+`desktop-prefs.json` in the data directory holds the desktop settings mahpastes needs before its
+database opens: **Keep running when the window is closed** (see
+[Background & Startup](../features/background-startup.md)) and the [window state](#window-state). It is
+not part of a backup; deleting it restores the platform default and the default window placement. The **Launch at login** entry lives where your system keeps login items,
+not in the data directory.
+
 The database uses WAL journal mode, a 5-second busy timeout, and foreign keys enabled. These pragmas are set via the DSN string for connection-pool safety.
 
 ### Temporary Files
@@ -45,7 +57,7 @@ Temp files have a 60-minute lease. A prune job runs every 10 minutes to remove s
 
 ### Window State
 
-The main window's size, position and maximised state are saved to `window.json` in the data directory (next to `clips.db`) when the app closes, and read back at the next launch. It is not part of backups. Delete it while mahpastes is closed to reset the window to its default size and placement.
+The main window's size, position and maximised state are saved under the `window` key of `desktop-prefs.json` in the data directory (next to `clips.db`) when the app quits, and read back at the next launch. With **Keep running when the window is closed**, closing the window only hides it, so the placement is saved when the app finally quits. It is not part of backups. To reset the window to its default size and placement, quit mahpastes and remove the `window` entry (or delete `desktop-prefs.json`, which also resets the keep-running choice).
 
 ### Log Files
 

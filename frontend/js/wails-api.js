@@ -913,6 +913,18 @@ async function copyFileToClipboard(id) {
     }
 }
 
+// Copies the clip's mahpastes:// link (mahpastes://clip/<id>). Opening the link
+// brings this window forward and shows the clip.
+async function copyClipLink(id) {
+    try {
+        await window.go.main.App.CopyToClipboard(`mahpastes://clip/${Number(id)}`);
+        showToast('Link copied to clipboard!');
+    } catch (error) {
+        console.error('Error copying clip link:', error);
+        showToast('Failed to copy link.', 'error');
+    }
+}
+
 async function copyClipContents(id) {
     try {
         await window.go.main.ClipboardService.CopyClipContents(id);

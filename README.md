@@ -28,6 +28,7 @@ Documentation: https://egeozcan.github.io/mahpastes/
 - **Headless Server** — `mahpastesd` runs the same API and a web UI without the desktop app ([setup](docs/docs/tutorials/integration-recipes.md#without-the-desktop-app-mahpastesd))
 - **Claude Code Plugin** — Lets Claude Code store artifacts, host sites and search clips through the API ([skill](skills/mahpastes/SKILL.md), [commands](commands/); run `/mahpastes:setup` to connect)
 - **Backup & Restore** — Export and import all data as a ZIP archive
+- **Background & Startup** — Keep running when the window is closed and launch at login, optionally hidden ([docs](docs/docs/features/background-startup.md))
 - **Copy Path** — Create a temp file and copy its path to clipboard
 - **Export** — Save individual clips or download multiple as a ZIP
 - **Auto-Delete Engine** — Backend expiration support is implemented; per-clip expiration controls are being surfaced in UI
@@ -93,6 +94,14 @@ After building, copy to Applications:
 cp -R build/bin/mahpastes.app /Applications/
 ```
 
+Every build uses the bundle identifier `io.github.egeozcan.mahpastes` (from
+the committed `build/darwin/Info.plist`). Builds made before it was committed
+were `com.wails.mahpastes` unless they included Finder integration, so after
+upgrading from one of those macOS asks once more for folder and network
+permissions; your clips are not affected. The installed app appears under
+Finder's **Open With**, accepts files dropped on its Dock icon and handles
+[`mahpastes://` clip links](docs/docs/features/deep-links.md).
+
 ### Install on Linux
 
 `make install` builds and installs for the current user, without root:
@@ -100,8 +109,13 @@ the app goes to `~/.local/bin/mahpastes` and the `mp` CLI to `~/.local/bin/mp`
 (when Go is available on the host), with a desktop entry, icons, `mp` shell
 completions (bash, zsh, and fish when installed) and `mp` man pages under
 `~/.local/share`. Set `PREFIX` to install elsewhere. `make uninstall` removes
-them again and keeps your data. On other systems, `make mp-install` installs
+them again (and the launch-at-login entry, if it starts that copy) and keeps
+your data. On other systems, `make mp-install` installs
 just `mp` with its completions and man pages, and `make mp-uninstall` removes them.
+The desktop entry lists mahpastes under
+**Open With** for common file types (never as the default), handles
+[`mahpastes://` clip links](docs/docs/features/deep-links.md), and has a
+**Save Clipboard as Clip** action you can bind to a global shortcut.
 
 Build dependencies:
 
@@ -225,6 +239,7 @@ Shortcuts are configurable from **Settings > Shortcuts**.
 | `W` | Open watch view |
 | `/` | Focus search |
 | `Cmd/Ctrl + V` | Paste from clipboard |
+| `Cmd/Ctrl + Q` | Quit (desktop app) |
 | `Escape` | Close modal, drawer, or cheatsheet |
 
 ### Image Editor

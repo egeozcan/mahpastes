@@ -4,10 +4,28 @@ import { getBaseURL, spawnSecondaryInstance, restartWailsInstance } from '../hel
 import { createTempDir, cleanup, Point } from '../helpers/test-data.js';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import * as net from 'net';
+import * as os from 'os';
+import { createHash } from 'crypto';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+/**
+ * Where the app owning `dataDir` listens for open requests. Mirrors
+ * SocketPath in internal/openrequest/ipc.go: inside the data dir, or a hashed
+ * name in the per-user runtime/temp dir when that path is too long for a
+ * socket address.
+ */
+function instanceSocketPath(dataDir: string): string {
+  const inDataDir = path.join(dataDir, 'instance.sock');
+  const max = process.platform === 'darwin' ? 103 : 107;
+  if (Buffer.byteLength(inDataDir) <= max) return inDataDir;
+  const sum = createHash('sha256').update(path.resolve(dataDir)).digest('hex').slice(0, 16);
+  const dir = process.platform === 'linux' && process.env.XDG_RUNTIME_DIR ? process.env.XDG_RUNTIME_DIR : os.tmpdir();
+  return path.join(dir, `mahpastes-${sum}.sock`);
+}
 
 // State file path
 const STATE_FILE = path.resolve(__dirname, '../.test-state.json');
@@ -175,6 +193,32 @@ export class AppHelper {
       if (typeof loadClips === 'function') await loadClips();
     });
     await this.page.waitForFunction(() => (window as any).__appReady === true, { timeout: 10000 });
+  }
+
+  /**
+   * Sends an open request over the running app's instance socket, exactly as
+   * a second launch of the app does (internal/openrequest/ipc.go): one JSON
+   * line out, one JSON ack back. Pass `activate: false` so the hidden test
+   * window is not brought on screen.
+   *
+   * Requires `dataDir` (set for the worker's primary instance). Not on
+   * Windows, where Node's `net` speaks named pipes rather than AF_UNIX.
+   */
+  async sendOpenRequest(req: { files?: string[]; urls?: string[]; activate?: boolean }): Promise<{ ok: boolean; error?: string }> {
+    if (!this.dataDir) throw new Error('sendOpenRequest: dataDir not available on this AppHelper');
+    const socketPath = instanceSocketPath(this.dataDir);
+    const line = JSON.stringify({ v: 1, files: req.files ?? [], urls: req.urls ?? [], activate: req.activate ?? false }) + '\n';
+    return new Promise((resolve, reject) => {
+      const conn = net.createConnection(socketPath);
+      let reply = '';
+      conn.setTimeout(5000, () => { conn.destroy(); reject(new Error('instance socket timed out')); });
+      conn.on('connect', () => conn.write(line));
+      conn.on('data', (chunk) => { reply += chunk.toString(); });
+      conn.on('error', reject);
+      conn.on('end', () => {
+        try { resolve(JSON.parse(reply.trim())); } catch (e) { reject(new Error(`bad instance socket reply: ${reply}`)); }
+      });
+    });
   }
 
   async getClipCountFromDB(archived: boolean = false): Promise<number> {

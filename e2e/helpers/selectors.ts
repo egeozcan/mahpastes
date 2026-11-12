@@ -94,6 +94,7 @@ export const selectors = {
     copyFile: '.card-menu-submenu [data-action="copy-file"]',
     copyContents: '.card-menu-submenu [data-action="copy-contents"]',
     copyRichText: '.card-menu-submenu [data-action="copy-rich-text"]',
+    copyLink: '.card-menu-submenu [data-action="copy-link"]',
     save: '.card-menu-dropdown [data-action="save-file"]',
     edit: '.card-menu-dropdown [data-action="edit"]',
     tags: '.card-menu-dropdown [data-action="tags"]',

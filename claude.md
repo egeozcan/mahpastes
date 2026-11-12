@@ -198,6 +198,7 @@ mahpastes/
 ├── clipboard_windows.go  # Windows clipboard via PowerShell
 ├── clipboard_other.go    # Unsupported platform stub
 ├── database.go           # SQLite operations
+├── desktop_lifecycle.go  # Quit prompt, SIGTERM/SIGINT quit, keep running, launch at login bindings
 ├── main.go               # Entry point
 ├── native_drag_darwin.go # macOS native file drag via CGo
 ├── native_drag_windows.go # Windows native drag via DataTransfer
@@ -217,7 +218,7 @@ mahpastes/
 ├── transfer_handler.go   # HTTP handler for drag-out file transfers
 ├── transfer_service.go   # Drag-out preparation and native drag initiation
 ├── transfer_types.go     # Transfer system type definitions
-├── window_geometry.go    # Save/restore window size, position, maximised (internal/windowstate, window.json)
+├── window_geometry.go    # Save/restore window size, position, maximised (internal/windowstate, stored under "window" in desktop-prefs.json via internal/desktopprefs)
 ├── internal/logfile/     # Size-capped <dataDir>/logs/mahpastes.log (+ .1); also receives Go crash traces. Only the instance holding the lock rotates it
 ├── notification_service.go # System Notifications setting (NotificationService binding); wires internal/osnotify into main.go
 ├── internal/osnotify/    # Native OS notifications for background events: coalescing, rate limits, focus gating, one worker goroutine for all backend calls
@@ -254,6 +255,7 @@ mahpastes/
 │   │   ├── app.js        # Main app initialization, event handlers
 │   │   ├── api-settings.js # API settings management UI
 │   │   ├── context-menu.js # Context menu functionality
+│   │   ├── desktop-lifecycle-settings.js # Background & Startup settings, drawer Quit
 │   │   ├── editor/       # Modular image editor
 │   │   │   ├── editor-core.js   # Core editor canvas logic
 │   │   │   ├── tool-anonymize.js # Anonymize/blur tool
@@ -270,6 +272,7 @@ mahpastes/
 │   │   ├── metadata.js   # Clip metadata handling
 │   │   ├── modal-renderer.js # Plugin result modal rendering
 │   │   ├── modals.js     # All modal/lightbox/editor logic
+│   │   ├── open-requests.js # Files/links handed over by the OS or a second launch
 │   │   ├── plugin-icons.js # Plugin icon rendering
 │   │   ├── plugin-review.js # Plugin permission review UI
 │   │   ├── plugins.js    # Plugin management UI
@@ -1213,6 +1216,28 @@ Five separate Wails-bound services (`ClipboardService`, `TransferService`, `Plug
 | Copy as rich text (HTML clips) | NSPasteboardItem: `public.html` + rendered plain text (`ClipboardService.CopyClipAsRichText`) | — | — |
 | Open With list | `App.ListOpenWithApps`: NSWorkspace via `osascript -l JavaScript` against an empty probe file, cached per extension (`open_with_apps.go`, `open_darwin.go`) | native chooser (`OpenClipWithDialog`) | file picker |
 | Drag out | NSView.dragFile + file-uri-v1 | DataTransfer file-uri-v1 | DataTransfer file-uri-v1 (`text/uri-list`, exported by WebKitGTK) |
+
+## Single Instance and Open Requests
+
+One desktop process per data directory. `main.go` takes the flock (`internal/app/instance_lock.go`) **before** `wails.Run`; a launch that loses it calls `acquireInstanceOrHandOff` (`instance_handoff.go`), which sends its argv to the lock holder over the instance socket and exits 0 without creating a window. It keeps retrying the lock between connection attempts, so a launch while the holder is shutting down (`OnShutdown` closes the socket first) takes the lock once it is freed. Only when nothing accepts (the holder is `mahpastesd`, or it is still starting/hung, after `handoffTimeout`) or the holder refuses the request does it fail with the old lock error (a `MessageBox` on Windows, since the GUI binary has no console). Wails' own `SingleInstanceLock` is deliberately not used: our flock runs first and would pre-empt it, and on Linux Wails starts `OnStartup` before its D-Bus check. The worker self-test never hands off (its exit code is a CI verdict) and the bindings build skips the lock and argv entirely.
+
+- `internal/openrequest`: `Request{Files, URLs, Activate, PasteClipboard}` is the one entry point for "the OS asked us to open something". `FromArgs` classifies argv (flags skipped except `--paste-clipboard` and `--hidden`, which clears `Activate` so a login launch that hands off does not raise the window; `--` honoured, `file://` → path, `mahpastes:` → URL, relative paths resolved against the sender's cwd); `main.go` then removes the app's own flags from `os.Args` (`StripOwnFlags`) because Wails dev/bindings builds reject unknown flags. `link.go` is the `mahpastes://` grammar (`ParseLink`: `show`/`activate`/empty → `LinkShow`, `clip/<id>` → `LinkClip`; anything else unsupported). Links only navigate: never add a link that creates, changes, copies or opens a clip in another app (any web page can fire one); mutating launch actions are flags (`--paste-clipboard`, the Linux desktop action). `ipc.go` is the socket protocol: `<dataDir>/instance.sock` (hashed name in `$XDG_RUNTIME_DIR`/temp when the path exceeds `sockaddr_un`), one JSON line each way, `{"v":1,...}` → `{"ok":true}`, size/item caps, entries re-sanitized server side. `Queue` buffers until the frontend takes it, dedupes pending files, activates at once, and notifies after a 150 ms debounce.
+- Sources: launch argv (`launchRequest`), the socket server, and on macOS `mac.Options.OnFileOpen`/`OnUrlOpen` (these fire before `OnStartup` on a cold launch, hence the queue). All go through `App.submitOpenRequest`. New link kinds go in `openrequest.ParseLink` (with tests) and `handleOpenRequests` in `frontend/js/open-requests.js`.
+- Delivery is pull-based: Go emits `app:open-request` (no payload); the frontend calls the bound `App.TakeOpenRequests()`, which vets files with `core.ProbeOpenedFiles` (regular, not our temp dir, no paste heuristics, no 32-path cap) plus an open-for-read check and returns `{files, skipped, links, unsupported_links, paste_clipboard}` (links parsed by `ParseLink`). A clip link opens the lightbox (media), the editor (text) or focuses the card (anything else, never `OpenClipWithDefaultApp`); `paste_clipboard` reads `GetClipboardImage`/`GetClipboardText` and goes through the normal paste path. `initOpenRequests()` runs at the end of app.js startup and drains once, so requests queued before the page loaded are not lost, and with several frontends attached (wails dev: native window + browser) each file is imported once. Files go through `uploadFilesFromPaths`, 32 at a time. On Unix the client refuses a socket owned by another user (the long-path fallback can sit in a shared temp dir).
+- OS registration: macOS `build/darwin/Info.plist` (+ `Info.dev.plist` for `wails dev`; both committed Wails templates, `TestInfo*` in `info_plist_test.go` renders and checks them) declares bundle ID `io.github.egeozcan.mahpastes` (must match `FP_BUNDLE_ID` in `scripts/macos/build-file-provider.sh`), a catch-all `CFBundleDocumentTypes` with `LSHandlerRank Alternate`, the `mahpastes` URL scheme and the privacy usage strings. Linux: the desktop entry in `scripts/linux/install.sh` (`Exec=... %U`, short `MimeType` list + `x-scheme-handler/mahpastes`, `Save Clipboard as Clip` action). Windows: nothing is registered by the zip; Send To is a manual shortcut (docs), the installer belongs to the release work.
+- Versions: `wails.json` `info.productVersion` feeds Info.plist and the Windows version resource; `internal/buildinfo` (`Version`, `Commit`) is stamped via `-ldflags` from `scripts/version.sh --ldflags` (Makefile, build-file-provider.sh, CI). CI runs `scripts/version.sh --stamp` to write the tag into `wails.json` first.
+- Raising: `Bridge.ShowWindow` (WindowShow, plus WindowUnminimise except on Windows where it would un-maximise). The second process calls `AllowSetForegroundWindow(holderPID)` on Windows first. On Wayland a raise may only produce an attention hint.
+
+## App Lifetime (`desktop_lifecycle.go`)
+
+The rule: the app must never become impossible to quit. Wails v2 routes the close button (unless `HideWindowOnClose`), Cmd+Q, the Dock's Quit and every `runtime.Quit` through `OnBeforeClose`.
+
+- `OnBeforeClose` = `App.beforeClose`: prompts only when the frontend reported unsaved editor changes (`App.SetUnsavedChanges`, sent by `reportUnsavedEditorChanges` in editor.js / text-clip-editor.js, only on change; `OnDomReady` resets it). Only an answer cancels (**Keep Editing**, or dismissing the dialog); a dialog error quits (fail open), a signal quit skips the prompt (`forceQuit`), and a quit while the prompt is up is dropped (`prompting` CAS) instead of stacking dialogs. The dialog is `Bridge.ConfirmDialog` (macOS needs explicit Buttons; Linux/Windows return "Yes"/"No"). Never make `OnBeforeClose` hide the window instead of quitting: Cmd+Q would then never quit.
+- Keep running when closed: Wails' static `HideWindowOnClose`, read once at startup from `<dataDir>/desktop-prefs.json` (`internal/desktopprefs`; the DB is not open before `wails.Run`). Default on for macOS (Dock click re-shows), opt-in elsewhere, where only a second launch over the instance socket can show the window again, so `main.go` forces it off when the socket server failed. A changed setting applies on next start (`keep_running_active` vs `keep_running_when_closed`).
+- Quit: there is no app menu on macOS (Menu is nil), so Cmd/Ctrl+Q is the `quit-app` shortcut (`firesInInputs: true`, so it works in the editor) and the drawer's **Quit mahpastes**, both calling `App.QuitApp` → `Bridge.Quit` (goroutine; it re-enters `OnBeforeClose`). The Dock's Quit goes through Wails directly.
+- Signals: Wails installs no handler. `OnStartup` does `signal.Notify(SIGINT, SIGTERM)` → `quitOnSignal`: first signal → `signalQuit` (forceQuit + `Bridge.Quit`, so `OnShutdown` runs), then `os.Exit(1)` after `signalQuitGrace` (10 s, counted from the signal; the quit runs on its own goroutine so it cannot hold the deadline off) or a second signal.
+- Launch at login: `internal/autostart` (pure Go). Linux/BSD: XDG `~/.config/autostart/mahpastes.desktop` (`Hidden=true`/`X-GNOME-Autostart-enabled=false` read as switched off). Windows: HKCU `...\CurrentVersion\Run` value `mahpastes` (+ `Explorer\StartupApproved\Run` for "disabled in Task Manager", cleared on write). macOS: `~/Library/LaunchAgents/io.github.egeozcan.mahpastes.login.plist` (RunAtLoad, Aqua, no KeepAlive, `AssociatedBundleIdentifiers`; never `launchctl load`ed, it takes effect at next login). `Set` refuses relative, temp-dir and AppTranslocation executables; on Linux `$APPIMAGE` is preferred. Stale entries (other copy, missing target, switched off by the system) are reported in Settings (and logged at startup by `logLoginEntryProblems`), never silently rewritten. The XDG entry sets no `NoDisplay` (GNOME's startup-apps list would hide it). macOS 13+ Login Items switch-offs live in the background-items database, not the plist, so they are not visible to `Get`. Uninstall paths (install.sh, Makefile) remove the entry.
+- Hidden start: the entry passes `--hidden` (`openrequest.StartHiddenFlag`, stripped before `wails.Run`). Linux/Windows use `StartHidden` (only with a working instance socket); macOS hides the app after DOM ready (`Bridge.HideApp`, once) because a window never shown does not come back on a Dock click.
 
 ## Common Tasks
 

@@ -1483,6 +1483,17 @@ window.addEventListener('load', async () => {
             }
         });
 
+        // Quit (desktop only). There is no menu bar with a Quit item, and with
+        // "keep running when the window is closed" the close button only hides
+        // the window. Unsaved editor changes are asked about natively first.
+        if (typeof window.go?.main?.App?.QuitApp === 'function') {
+            ShortcutManager.register({
+                id: 'quit-app', label: 'Quit mahpastes', category: 'system',
+                defaultKey: 'mod+q', context: 'global', firesInInputs: true,
+                callback: () => window.quitApp?.()
+            });
+        }
+
         // Navigation
         ShortcutManager.register({
             id: 'focus-search', label: 'Focus Search', category: 'navigation',
@@ -2016,6 +2027,12 @@ window.addEventListener('load', async () => {
             if (direction === 'forward') handleMouseNavForward();
             else handleMouseNavBack();
         });
+    }
+
+    // Files and links the OS (or a second launch) asked this window to open.
+    // Taken only now, once the gallery and settings are loaded (open-requests.js).
+    if (typeof initOpenRequests === 'function') {
+        initOpenRequests();
     }
 
     // On refocus, bring the gallery up to date without paying a full reload

@@ -425,7 +425,7 @@ Create, view, modify, and delete clips stored in mahpastes.
 * [mp clip get](#mp-clip-get)	 - Show clip metadata
 * [mp clip list](#mp-clip-list)	 - List clips with optional filtering
 * [mp clip metadata](#mp-clip-metadata)	 - Manage clip metadata key-value pairs
-* [mp clip open](#mp-clip-open)	 - Open a clip (desktop app only)
+* [mp clip open](#mp-clip-open)	 - Open a clip in its default application
 * [mp clip rename](#mp-clip-rename)	 - Rename a clip
 * [mp clip unarchive](#mp-clip-unarchive)	 - Unarchive one or more clips
 * [mp clip upload](#mp-clip-upload)	 - Upload files as clips
@@ -954,11 +954,25 @@ mp clip metadata set <id> <key> <value> [flags]
 
 ## mp clip open
 
-Open a clip (desktop app only)
+Open a clip in its default application
 
 ### Synopsis
 
-Open a clip in the desktop app. This command requires the mahpastes desktop application.
+Download a clip to a private folder and open it with the application the
+operating system uses for that file type, or with --app.
+
+The copy stays in mp's cache folder (mahpastes/mp-open under your user cache
+directory) because the application reads it after mp has exited; delete that
+folder whenever you like. Editing the copy does not change the clip.
+
+Programs, scripts and installers (.exe, .bat, .py, .sh, .command, .pkg,
+.desktop and similar) are not opened by default; use "mp clip download" for
+those.
+
+--in-app instead brings the running mahpastes window forward and shows the clip,
+through its mahpastes:// link. That needs the desktop app on this computer
+with the link handler registered (macOS, and Linux after scripts/linux/install.sh);
+it does not use the API.
 
 ```
 mp clip open <id> [flags]
@@ -967,13 +981,23 @@ mp clip open <id> [flags]
 ### Examples
 
 ```
+  # Open in the default application
   mp clip open 42
+
+  # Open with a specific application
+  mp clip open 42 --app "Preview"        # macOS: an application name or path
+  mp clip open 42 --app gimp             # Linux/Windows: a program to run
+
+  # Show the clip in the mahpastes window
+  mp clip open 42 --in-app
 ```
 
 ### Options
 
 ```
-  -h, --help   help for open
+      --app string   Application to open the clip with
+  -h, --help         help for open
+      --in-app       Show the clip in the mahpastes desktop app instead
 ```
 
 ### Options inherited from parent commands

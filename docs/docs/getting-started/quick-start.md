@@ -192,7 +192,7 @@ mahpastes remembers the window's size, position and maximised state when you clo
 - On Linux (X11) with several monitors, the position is only restored reliably when the window opens on the monitor at the top-left of the desktop layout; otherwise it opens centred or on the monitor it opened on.
 - On Wayland the compositor decides where windows go, so only the size and maximised state are restored.
 
-The state is kept in `window.json` in the [data directory](../reference/data-storage#window-state). Delete that file while mahpastes is closed to go back to the default size and placement.
+The state is kept under the `window` key of `desktop-prefs.json` in the [data directory](../reference/data-storage#window-state). Remove that entry (or the whole file) while mahpastes is closed to go back to the default size and placement.
 
 ## What's Next?
 

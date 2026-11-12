@@ -34,6 +34,8 @@ const sidebars = {
         'features/tag-serve',
         'features/rest-api',
         'features/headless-server',
+        'features/deep-links',
+        'features/background-startup',
       ],
     },
     {

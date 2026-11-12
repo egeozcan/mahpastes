@@ -40,12 +40,8 @@ else
     # never compile the extension or enable the fileprovider tag.
     "$wails_bin" generate module
     # Stamp the version like the Makefile does (internal/buildinfo); `make`
-    # exports MAHPASTES_LDFLAGS, a direct run computes it from git.
-    ldflags="${MAHPASTES_LDFLAGS:-}"
-    if [[ -z "$ldflags" ]]; then
-        ldflags="-X go-clipboard/internal/buildinfo.Version=$(git describe --tags --always --dirty 2>/dev/null || echo dev)"
-        ldflags="$ldflags -X go-clipboard/internal/buildinfo.Commit=$(git rev-parse --short HEAD 2>/dev/null || true)"
-    fi
+    # and CI export MAHPASTES_LDFLAGS, a direct run asks scripts/version.sh.
+    ldflags="${MAHPASTES_LDFLAGS:-$(bash scripts/version.sh --ldflags)}"
     MACOSX_DEPLOYMENT_TARGET=13.0 "$wails_bin" build -platform darwin/universal -tags fileprovider -skipbindings -ldflags "$ldflags"
     # An app extension is an executable with NSExtensionMain as its entry point.
     # Command Line Tools provide the compiler, SDK and linker for both slices;
@@ -79,9 +75,12 @@ group = os.environ['FP_APP_GROUP']
 keychain = os.environ['FP_KEYCHAIN_GROUP']
 info = root / 'Contents/Info.plist'
 with info.open('rb') as f:
-    # Wails emits XML starting with DOCTYPE, without an XML declaration.
-    # plistlib's format sniffing rejects that valid shape unless told XML.
+    # Wails' own default template starts with DOCTYPE and no XML declaration,
+    # which plistlib's format sniffing rejects; build/darwin/Info.plist has a
+    # declaration, but saying XML keeps this working for either.
     data = plistlib.load(f, fmt=plistlib.FMT_XML)
+# build/darwin/Info.plist already carries the default identifier; FP_BUNDLE_ID
+# may name another one for a different signing team, so it is applied here.
 data.update(CFBundleIdentifier=bundle, MahpastesAppGroup=group,
             MahpastesKeychainGroup=keychain, LSMinimumSystemVersion='13.0')
 with info.open('wb') as f:

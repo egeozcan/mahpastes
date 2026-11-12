@@ -15,7 +15,7 @@ func TestNotificationMethodsWithoutRuntime(t *testing.T) {
 			t.Errorf("%s bridge: SendNotification = %v, want ErrNotificationsInactive", name, err)
 		}
 		b.CleanupNotifications()
-		b.raiseForNotification()
+		b.ShowWindow()
 	}
 }
 

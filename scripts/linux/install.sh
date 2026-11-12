@@ -101,6 +101,14 @@ if [[ "${1:-}" == --uninstall ]]; then
         rm -f "$cli"
     fi
     rm -f "$icon_root"/*/apps/"$APP_NAME".png
+    # Launch at login (Settings > Background & Startup), when it starts this copy.
+    # The entry holds the resolved path (os.Executable), so also match it
+    # through a symlinked home such as /home -> /var/home.
+    autostart="${XDG_CONFIG_HOME:-$HOME/.config}/autostart/$APP_NAME.desktop"
+    resolved="$(readlink -f "$(dirname "$binary")" 2>/dev/null || true)/$(basename "$binary")"
+    if [[ -f "$autostart" ]] && grep -qF -e "\"$binary\"" -e "\"$resolved\"" "$autostart"; then
+        rm -f "$autostart"
+    fi
     refresh_desktop_caches
     echo "Removed $APP_NAME from $PREFIX (data in $DATA_DIR was kept)"
     exit 0
@@ -111,8 +119,10 @@ if [[ ! -f "$app_src" ]]; then
     exit 1
 fi
 
-# The app keeps a single-instance lock; a relaunch while the old process is
-# still exiting would just focus the stale window.
+# The app is single-instance per data directory: a launch while an old process
+# still holds the lock hands its arguments to that process (raising its window)
+# and exits. Stop the old process first so the launch at the end of this script
+# starts the newly installed binary instead of focusing the stale one.
 stop_app
 
 # install(1) writes a new inode, so a still-mapped old binary is never modified.
@@ -156,6 +166,16 @@ done
 # Exec uses an absolute path: desktop sessions (notably Ubuntu's) do not always
 # have ~/.local/bin on PATH. StartupWMClass matches the GTK program name, which
 # links the running window to this entry on X11 and Wayland.
+#
+# %U passes files the user opens with mahpastes ("Open With", a drop on the
+# launcher) as file:// URLs and mahpastes:// links as they are; a launch while
+# the app runs hands them to the open window. MimeType lists a few common
+# types so mahpastes shows up under "Open With" for them, plus the mahpastes:
+# URL scheme. Nothing is made a default handler for files (no xdg-mime
+# default), and the app is the only handler for its own scheme.
+#
+# The desktop actions appear in the launcher's right-click menu, and KDE lists
+# them under System Settings > Shortcuts so they can get a global shortcut.
 mkdir -p "$(dirname "$desktop")"
 cat >"$desktop" <<EOF
 [Desktop Entry]
@@ -163,13 +183,24 @@ Type=Application
 Name=mahpastes
 GenericName=Clipboard Manager
 Comment=Clipboard and paste manager
-Exec="$binary"
+Exec="$binary" %U
 Icon=$APP_NAME
 Terminal=false
 Categories=Utility;
 Keywords=clipboard;paste;snippets;
+MimeType=text/plain;text/markdown;image/png;image/jpeg;image/gif;image/webp;application/pdf;application/json;x-scheme-handler/mahpastes;
 StartupNotify=true
 StartupWMClass=$APP_NAME
+SingleMainWindow=true
+Actions=paste-clipboard;show;
+
+[Desktop Action paste-clipboard]
+Name=Save Clipboard as Clip
+Exec="$binary" --paste-clipboard
+
+[Desktop Action show]
+Name=Show mahpastes
+Exec="$binary"
 EOF
 chmod 644 "$desktop"
 refresh_desktop_caches

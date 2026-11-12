@@ -11,8 +11,9 @@ import (
 // calls OnBeforeClose for the close button, Cmd+Q / the app menu's Quit and
 // runtime Quit on every platform, so this runs on each way the app exits while
 // the window getters still work (they are disabled once shutdown starts).
-// With options.App.HideWindowOnClose the close button hides the window without
-// reaching OnBeforeClose, so a hide path must call this too.
+// With options.App.HideWindowOnClose (keep running when closed) the close
+// button hides the window without reaching OnBeforeClose; the geometry is then
+// saved by the quit that eventually ends the app.
 func saveWindowGeometry(b *wailsbridge.Bridge, dataDir string) {
 	g, ok := b.WindowGeometry()
 	if !ok {

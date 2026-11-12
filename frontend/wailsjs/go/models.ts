@@ -1359,6 +1359,39 @@ export namespace app {
 
 }
 
+export namespace autostart {
+	
+	export class Status {
+	    supported: boolean;
+	    enabled: boolean;
+	    hidden: boolean;
+	    target: string;
+	    current: string;
+	    target_missing: boolean;
+	    other_copy: boolean;
+	    disabled_by_system: boolean;
+	    location: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Status(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.supported = source["supported"];
+	        this.enabled = source["enabled"];
+	        this.hidden = source["hidden"];
+	        this.target = source["target"];
+	        this.current = source["current"];
+	        this.target_missing = source["target_missing"];
+	        this.other_copy = source["other_copy"];
+	        this.disabled_by_system = source["disabled_by_system"];
+	        this.location = source["location"];
+	    }
+	}
+
+}
+
 export namespace imagemeta {
 	
 	export class GPS {
@@ -1476,6 +1509,44 @@ export namespace main {
 	        this.content_type = source["content_type"];
 	    }
 	}
+	export class DesktopLifecycle {
+	    platform: string;
+	    keep_running_when_closed: boolean;
+	    keep_running_active: boolean;
+	    launch_at_login: autostart.Status;
+	    launch_at_login_error: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DesktopLifecycle(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.platform = source["platform"];
+	        this.keep_running_when_closed = source["keep_running_when_closed"];
+	        this.keep_running_active = source["keep_running_active"];
+	        this.launch_at_login = this.convertValues(source["launch_at_login"], autostart.Status);
+	        this.launch_at_login_error = source["launch_at_login_error"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class FileProviderStatus {
 	    supported: boolean;
 	    enabled: boolean;
@@ -1519,6 +1590,44 @@ export namespace main {
 	        this.error = source["error"];
 	        this.platform = source["platform"];
 	    }
+	}
+	export class OpenRequests {
+	    files: string[];
+	    skipped: string[];
+	    links: openrequest.Link[];
+	    unsupported_links: string[];
+	    paste_clipboard: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new OpenRequests(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.files = source["files"];
+	        this.skipped = source["skipped"];
+	        this.links = this.convertValues(source["links"], openrequest.Link);
+	        this.unsupported_links = source["unsupported_links"];
+	        this.paste_clipboard = source["paste_clipboard"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class OpenWithApp {
 	    name: string;
@@ -1767,6 +1876,27 @@ export namespace main {
 		    }
 		    return a;
 		}
+	}
+
+}
+
+export namespace openrequest {
+	
+	export class Link {
+	    kind: string;
+	    clip_id?: number;
+	    url: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Link(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.kind = source["kind"];
+	        this.clip_id = source["clip_id"];
+	        this.url = source["url"];
+	    }
 	}
 
 }

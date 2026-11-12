@@ -20,6 +20,7 @@ On macOS the menu bar mirrors the most common actions: **File** (Import Files wi
 | <span className="keyboard-key">Esc</span> | Close current modal, drawer, or cheatsheet |
 | <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">V</span> | Paste from system clipboard |
 | <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">C</span> | Copy (context-dependent, see below) |
+| <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">Q</span> | Quit mahpastes (desktop app; asks first when the editor has unsaved changes) |
 
 ### Cmd+C Behavior
 
@@ -233,3 +234,18 @@ Customize shortcuts from **Menu Drawer → Settings → Keyboard Shortcuts**:
 5. Use **Reset All to Defaults** to revert all custom bindings
 
 ![Keyboard shortcut settings](/img/screenshots/shortcuts-settings.png)
+
+## Global Shortcuts (Linux)
+
+The shortcuts above work while the mahpastes window has focus. mahpastes has no system-wide hotkey of
+its own, but on Linux its desktop entry (installed by `make install`) offers actions your desktop can
+bind to a global key:
+
+- **Save Clipboard as Clip** saves the current clipboard as a new clip, like pasting into the window.
+- **Show mahpastes** brings the window forward.
+
+On KDE Plasma, open System Settings > Keyboard > Shortcuts, choose **Add New > Application...**, pick
+mahpastes and assign keys to its actions. On GNOME and other desktops, add a custom shortcut that runs
+`~/.local/bin/mahpastes --paste-clipboard` (or just `~/.local/bin/mahpastes` to show the window). See
+[Save the Clipboard from a Global Shortcut](../features/clipboard-management.md#save-the-clipboard-from-a-global-shortcut-linux)
+for details.

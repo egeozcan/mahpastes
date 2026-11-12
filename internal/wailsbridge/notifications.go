@@ -46,7 +46,10 @@ func (b *Bridge) InitNotifications() (err error) {
 			log.Printf("notifications: response: %v", result.Error)
 			return
 		}
-		b.raiseForNotification()
+		// Clicking a notification brings the window back, the same way a
+		// second launch or a mahpastes:// link does (it may be hidden by
+		// keep-running, or minimised).
+		b.ShowWindow()
 	})
 	return nil
 }
@@ -106,19 +109,6 @@ func (b *Bridge) CleanupNotifications() {
 	}
 	defer recoverNotificationPanic(nil)
 	rt.CleanupNotifications(b.ctx)
-}
-
-// raiseForNotification shows, unminimises and focuses the window after a
-// notification click. Windows' WindowShow already restores a minimised
-// window, and its WindowUnminimise would un-maximise a maximised one.
-func (b *Bridge) raiseForNotification() {
-	if !b.active() {
-		return
-	}
-	rt.WindowShow(b.ctx)
-	if goruntime.GOOS != "windows" {
-		rt.WindowUnminimise(b.ctx)
-	}
 }
 
 // recoverNotificationPanic turns a panic in a platform backend into an error,

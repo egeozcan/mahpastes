@@ -95,6 +95,36 @@ exists.
    rm ~/Library/Application\ Support/mahpastes/clips.db-shm
    ```
 
+### "Another mahpastes instance is already running"
+
+**Symptoms:** Launching mahpastes shows this error (in a dialog on Windows, on the terminal elsewhere) instead
+of opening a window.
+
+A second launch normally just brings the running window to the front. You see this error only when the
+process holding the data directory is not a desktop window that can take over, usually:
+
+1. The headless server `mahpastesd` is running against the same data directory -- stop it, or give one of
+   them a different `MAHPASTES_DATA_DIR`
+2. The running instance is still starting up or is hanging -- wait a moment, or end the process named in the
+   message
+
+### Closing the window does not quit mahpastes
+
+**Symptoms:** After closing the window, watch folders still import, or mahpastes does not appear to
+start again.
+
+**Keep running when the window is closed** is on (the default on macOS), so mahpastes is still running
+without its window. Launching it again (or clicking its Dock icon on macOS) shows the window. To quit,
+use <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> +
+<span className="keyboard-key">Q</span> or **Quit mahpastes** in the menu drawer, or turn the setting off
+under **Settings > Background & Startup** (takes effect after a restart). See
+[Background & Startup](../features/background-startup.md).
+
+### mahpastes starts without a window at login
+
+**Launch at login** with **Start in the background** is on. Launch mahpastes again (or click its Dock icon on
+macOS) to show the window, or turn **Start in the background** off under **Settings > Background & Startup**.
+
 ### High Memory Usage
 
 **Symptoms:** App uses excessive memory.
@@ -277,7 +307,7 @@ exists.
 
 **Issue:** After changing monitors or display scaling, the window opens somewhere awkward.
 
-**Solution:** Quit mahpastes, delete `window.json` from the [data directory](./data-storage#window-state), and start it again. The window opens centred at its default size, and the new placement is remembered from then on.
+**Solution:** Quit mahpastes, remove the `window` entry from `desktop-prefs.json` in the [data directory](./data-storage#window-state) (or delete the file, which also resets **Keep running when the window is closed**), and start it again. The window opens centred at its default size, and the new placement is remembered from then on.
 
 ### System Notifications Do Not Appear
 
