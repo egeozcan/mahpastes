@@ -127,7 +127,7 @@ func runPluginInstall(cmd *cobra.Command, args []string) error {
 		Name string `json:"name"`
 	}
 
-	if err := c.PostJSON("/api/v1/plugins", body, &result); err != nil {
+	if err := c.Long().PostJSON("/api/v1/plugins", body, &result); err != nil {
 		return err
 	}
 
@@ -311,7 +311,7 @@ func runPluginRun(cmd *cobra.Command, args []string) error {
 
 	var result map[string]interface{}
 
-	if err := c.PostJSON(fmt.Sprintf("/api/v1/plugins/%d/actions/%s", pluginID, url.PathEscape(actionID)), body, &result); err != nil {
+	if err := c.Long().PostJSON(fmt.Sprintf("/api/v1/plugins/%d/actions/%s", pluginID, url.PathEscape(actionID)), body, &result); err != nil {
 		return err
 	}
 
@@ -513,7 +513,7 @@ func runPluginUpdate(cmd *cobra.Command, args []string) error {
 			} `json:"updates"`
 		}
 
-		if err := c.PostJSON("/api/v1/plugins/check-updates", nil, &envelope); err != nil {
+		if err := c.Long().PostJSON("/api/v1/plugins/check-updates", nil, &envelope); err != nil {
 			return err
 		}
 
@@ -567,7 +567,7 @@ func runPluginUpdate(cmd *cobra.Command, args []string) error {
 		} `json:"plugin_info,omitempty"`
 	}
 
-	if err := c.PostJSON(fmt.Sprintf("/api/v1/plugins/%d/update", pluginID), nil, &result); err != nil {
+	if err := c.Long().PostJSON(fmt.Sprintf("/api/v1/plugins/%d/update", pluginID), nil, &result); err != nil {
 		return err
 	}
 

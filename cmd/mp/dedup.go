@@ -158,7 +158,7 @@ func runDedupAll(cmd *cobra.Command, args []string) error {
 		Removed int `json:"removed"`
 	}
 
-	if err := c.PostJSON("/api/v1/dedup/all", nil, &result); err != nil {
+	if err := c.Long().PostJSON("/api/v1/dedup/all", nil, &result); err != nil {
 		return err
 	}
 

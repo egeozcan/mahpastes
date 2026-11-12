@@ -27,3 +27,24 @@ func TestClipListEncodesQuery(t *testing.T) {
 		t.Fatalf("query = %v", got)
 	}
 }
+
+func TestClipMetadataKeyIsPathEscaped(t *testing.T) {
+	var gotKey string
+	mux := http.NewServeMux()
+	mux.HandleFunc("PUT /api/v1/clips/{id}/metadata/{key}", func(w http.ResponseWriter, r *http.Request) {
+		gotKey = r.PathValue("key")
+		w.Write([]byte("{}"))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	t.Setenv("MP_API_URL", srv.URL)
+	t.Setenv("MP_API_KEY", "k")
+
+	key := "a/b c?d#e"
+	if err := runClipMetadataSet(clipMetadataSetCmd, []string{"7", key, "v"}); err != nil {
+		t.Fatal(err)
+	}
+	if gotKey != key {
+		t.Fatalf("server saw key %q, want %q", gotKey, key)
+	}
+}

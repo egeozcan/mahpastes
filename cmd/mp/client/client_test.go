@@ -1,6 +1,7 @@
 package client
 
 import (
+	"errors"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -47,13 +48,125 @@ func TestTimeoutFromEnv(t *testing.T) {
 	}
 }
 
-func TestResponseHeaderTimeout(t *testing.T) {
+// exitCodeOf returns the CLI exit code main() would use for err.
+func exitCodeOf(err error) int {
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
+		return apiErr.ExitCode()
+	}
+	return ExitError
+}
+
+func TestResponseHeaderTimeoutExitsWithConnectionCode(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(500 * time.Millisecond)
 	}))
 	defer srv.Close()
 	c := &Client{BaseURL: srv.URL, APIKey: "k", HTTPClient: &http.Client{Transport: newTransport(50 * time.Millisecond)}}
-	if _, err := c.Get("/"); err == nil {
+	_, err := c.Get("/")
+	if err == nil {
 		t.Fatal("expected timeout error")
+	}
+	if code := exitCodeOf(err); code != ExitConnection {
+		t.Fatalf("exit code = %d (%v), want %d", code, err, ExitConnection)
+	}
+	if !strings.Contains(err.Error(), "MP_TIMEOUT") {
+		t.Fatalf("timeout message should mention MP_TIMEOUT: %v", err)
+	}
+}
+
+func TestLongClientHasNoResponseHeaderTimeout(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(200 * time.Millisecond)
+		w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+	tr := newTransport(50 * time.Millisecond)
+	c := &Client{BaseURL: srv.URL, APIKey: "k", HTTPClient: &http.Client{Transport: tr}}
+
+	var out struct{ OK bool }
+	if err := c.Long().GetJSON("/", &out); err != nil || !out.OK {
+		t.Fatalf("long request: ok=%v err=%v", out.OK, err)
+	}
+	lt := c.Long().HTTPClient.Transport.(*http.Transport)
+	if lt.ResponseHeaderTimeout != 0 || lt.TLSHandshakeTimeout != tr.TLSHandshakeTimeout || lt.DialContext == nil {
+		t.Fatalf("long transport = %+v", lt)
+	}
+	if tr.ResponseHeaderTimeout != 50*time.Millisecond {
+		t.Fatal("Long() must not modify the original transport")
+	}
+}
+
+func TestConnectionRefusedExitsWithConnectionCode(t *testing.T) {
+	srv := httptest.NewServer(http.NotFoundHandler())
+	url := srv.URL
+	srv.Close()
+	c := &Client{BaseURL: url, APIKey: "k", HTTPClient: &http.Client{Transport: newTransport(time.Second)}}
+	_, err := c.Get("/")
+	if code := exitCodeOf(err); code != ExitConnection {
+		t.Fatalf("exit code = %d (%v), want %d", code, err, ExitConnection)
+	}
+}
+
+func TestNewWithoutAPIKeyExitsWithAuthCode(t *testing.T) {
+	t.Setenv("MP_API_KEY", "")
+	_, err := New()
+	if code := exitCodeOf(err); code != ExitAuth {
+		t.Fatalf("exit code = %d (%v), want %d", code, err, ExitAuth)
+	}
+	if !strings.Contains(err.Error(), "MP_API_KEY") {
+		t.Fatalf("message = %q", err)
+	}
+}
+
+func TestUploadFileReportsServerRejection(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Reject without reading the body, like MaxBytesReader on a huge upload.
+		w.Header().Set("Connection", "close")
+		w.WriteHeader(http.StatusRequestEntityTooLarge)
+		w.Write([]byte(`{"error":"file too large"}`))
+	}))
+	defer srv.Close()
+	c := &Client{BaseURL: srv.URL, APIKey: "k", HTTPClient: srv.Client()}
+	big := strings.NewReader(strings.Repeat("x", 8<<20))
+	err := c.UploadFile("/x", "big.bin", big, nil, nil)
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusRequestEntityTooLarge || apiErr.Message != "file too large" {
+		t.Fatalf("err = %v, want the server's 413 message", err)
+	}
+}
+
+type failingReader struct{}
+
+func (failingReader) Read([]byte) (int, error) { return 0, errors.New("disk on fire") }
+
+func TestUploadFileReportsLocalReadError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.Copy(io.Discard, r.Body)
+		w.Write([]byte("{}"))
+	}))
+	defer srv.Close()
+	c := &Client{BaseURL: srv.URL, APIKey: "k", HTTPClient: srv.Client()}
+	err := c.UploadFile("/x", "f.bin", failingReader{}, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "disk on fire") {
+		t.Fatalf("err = %v, want the local read error", err)
+	}
+}
+
+func TestDoReturnsAPIErrorAndSetsHeaders(t *testing.T) {
+	var auth, ua string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth, ua = r.Header.Get("Authorization"), r.Header.Get("User-Agent")
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+	c := &Client{BaseURL: srv.URL, APIKey: "k", HTTPClient: srv.Client()}
+	req, _ := http.NewRequest("POST", srv.URL+"/x", strings.NewReader("{}"))
+	_, err := c.Do(req)
+	if code := exitCodeOf(err); code != ExitAuth {
+		t.Fatalf("exit code = %d (%v), want %d", code, err, ExitAuth)
+	}
+	if auth != "Bearer k" || ua == "" {
+		t.Fatalf("headers: auth=%q ua=%q", auth, ua)
 	}
 }

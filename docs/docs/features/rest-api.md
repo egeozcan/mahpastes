@@ -1076,7 +1076,7 @@ The one unauthenticated endpoint, for liveness checks:
 { "running": true, "port": 44557, "bind_all": false, "url": "http://127.0.0.1:44557", "request_count": 128 }
 ```
 
-It exposes no clip, tag, or key data. Note that `mp api status` does not use this route — it makes an authenticated `GET /clips?limit=1` so that it also validates the key.
+It exposes no clip, tag, or key data. `mp api status` calls this route first to check that the API is reachable (exit code 2 if not), then makes an authenticated `GET /clips?limit=1` to validate the key (exit code 3 if it is rejected).
 
 ## Error Responses
 

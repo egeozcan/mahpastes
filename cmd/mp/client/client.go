@@ -2,7 +2,9 @@ package client
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -70,7 +72,12 @@ func New() (*Client, error) {
 
 	apiKey := os.Getenv("MP_API_KEY")
 	if apiKey == "" {
-		return nil, fmt.Errorf("MP_API_KEY environment variable is required.\n\nTo get started:\n  1. Open mahpastes Settings > API\n  2. Create an API key\n  3. export MP_API_KEY=<your-key>")
+		// A missing key is an authentication problem: exit with ExitAuth like
+		// an invalid or revoked key, as documented.
+		return nil, &APIError{
+			StatusCode: http.StatusUnauthorized,
+			Message:    "MP_API_KEY environment variable is required.\n\nTo get started:\n  1. Open mahpastes Settings > API\n  2. Create an API key\n  3. export MP_API_KEY=<your-key>",
+		}
 	}
 
 	return &Client{
@@ -110,6 +117,28 @@ func newTransport(timeout time.Duration) *http.Transport {
 	return t
 }
 
+// Long returns a client for requests whose server handler does all of its
+// work (building a backup, restoring one, vacuuming, running a plugin action)
+// before it writes any response header. It keeps the dial and TLS deadlines
+// but drops the response-header deadline, so a slow but healthy operation is
+// not reported as a timeout.
+func (c *Client) Long() *Client {
+	if c.HTTPClient == nil {
+		return c
+	}
+	t, ok := c.HTTPClient.Transport.(*http.Transport)
+	if !ok || t.ResponseHeaderTimeout == 0 {
+		return c
+	}
+	lt := t.Clone()
+	lt.ResponseHeaderTimeout = 0
+	hc := *c.HTTPClient
+	hc.Transport = lt
+	cp := *c
+	cp.HTTPClient = &hc
+	return &cp
+}
+
 var quoteEscaper = strings.NewReplacer("\\", "\\\\", `"`, "\\\"")
 
 func escapeQuotes(s string) string { return quoteEscaper.Replace(s) }
@@ -123,15 +152,35 @@ func (c *Client) do(req *http.Request) (*http.Response, error) {
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
-		if isConnectionRefused(err) {
+		if isConnectionRefused(err) || isDialError(err) {
 			return nil, &APIError{
 				StatusCode: 0,
 				Message:    "Cannot connect to mahpastes. Is the app running with the API enabled?",
 			}
 		}
+		if isTimeout(err) {
+			return nil, &APIError{
+				StatusCode: 0,
+				Message:    fmt.Sprintf("Timed out waiting for mahpastes at %s (raise MP_TIMEOUT for slow connections).", c.BaseURL),
+			}
+		}
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
 
+	return resp, nil
+}
+
+// Do sends a prepared request with the client's auth header, User-Agent and
+// error classification, and returns an APIError for non-2xx responses. The
+// caller must close the response body.
+func (c *Client) Do(req *http.Request) (*http.Response, error) {
+	resp, err := c.do(req)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkResponse(resp); err != nil {
+		return nil, err
+	}
 	return resp, nil
 }
 
@@ -256,64 +305,85 @@ func (c *Client) UploadFile(path string, filename string, reader io.Reader, extr
 	pr, pw := io.Pipe()
 	w := multipart.NewWriter(pw)
 
-	// Write multipart body in a goroutine so it streams into the request
+	// Write multipart body in a goroutine so it streams into the request.
+	// writeErr is only read after done is closed.
 	var writeErr error
+	done := make(chan struct{})
 	go func() {
-		defer pw.Close()
-
-		for k, v := range extraFields {
-			if k == "content_type" {
-				continue // carried by the file part's own header below
-			}
-			if err := w.WriteField(k, v); err != nil {
-				writeErr = fmt.Errorf("write field %s: %w", k, err)
-				return
-			}
-		}
-
-		// The file part carries the caller's content type in its own header
-		// (the server honours it); the file part must not be a mere field.
-		h := make(textproto.MIMEHeader)
-		h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="file"; filename="%s"`, escapeQuotes(filename)))
-		ctype := "application/octet-stream"
-		if ct := extraFields["content_type"]; ct != "" {
-			ctype = ct
-		}
-		h.Set("Content-Type", ctype)
-		part, err := w.CreatePart(h)
-		if err != nil {
-			writeErr = fmt.Errorf("create form file: %w", err)
-			return
-		}
-		if _, err := io.Copy(part, reader); err != nil {
-			writeErr = fmt.Errorf("copy file data: %w", err)
-			return
-		}
-		if err := w.Close(); err != nil {
-			writeErr = fmt.Errorf("close multipart writer: %w", err)
-			return
-		}
+		defer close(done)
+		writeErr = writeMultipart(w, filename, reader, extraFields)
+		// CloseWithError(nil) is a plain Close; a write failure aborts the
+		// request instead of sending a silently truncated body.
+		pw.CloseWithError(writeErr)
 	}()
 
 	req, err := http.NewRequest("POST", c.BaseURL+path, pr)
 	if err != nil {
+		pr.Close()
+		<-done
 		return err
 	}
 	req.Header.Set("Content-Type", w.FormDataContentType())
 
 	resp, err := c.do(req)
 	if err != nil {
+		// Unblock the writer in case the transport stopped reading.
+		pr.Close()
+		<-done
+		if writeErr != nil && !errors.Is(writeErr, io.ErrClosedPipe) {
+			return writeErr // e.g. a local read error that aborted the request
+		}
 		return err
 	}
 	defer resp.Body.Close()
+	if err := checkResponse(resp); err != nil {
+		// The server rejected the upload, possibly before consuming it; its
+		// message explains more than the writer's closed-pipe error would.
+		pr.Close()
+		<-done
+		return err
+	}
+	// On success the transport finishes sending (or closes) the body, which
+	// lets the writer return.
+	<-done
 	if writeErr != nil {
 		return writeErr
 	}
-	if err := checkResponse(resp); err != nil {
-		return err
-	}
 	if result != nil {
 		return json.NewDecoder(resp.Body).Decode(result)
+	}
+	return nil
+}
+
+// writeMultipart writes extraFields followed by the file part. The file part
+// carries the caller's content type ("content_type" in extraFields) in its own
+// header, which the server honours, instead of a separate form field.
+func writeMultipart(w *multipart.Writer, filename string, reader io.Reader, extraFields map[string]string) error {
+	for k, v := range extraFields {
+		if k == "content_type" {
+			continue
+		}
+		if err := w.WriteField(k, v); err != nil {
+			return fmt.Errorf("write field %s: %w", k, err)
+		}
+	}
+
+	h := make(textproto.MIMEHeader)
+	h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="file"; filename="%s"`, escapeQuotes(filename)))
+	ctype := "application/octet-stream"
+	if ct := extraFields["content_type"]; ct != "" {
+		ctype = ct
+	}
+	h.Set("Content-Type", ctype)
+	part, err := w.CreatePart(h)
+	if err != nil {
+		return fmt.Errorf("create form file: %w", err)
+	}
+	if _, err := io.Copy(part, reader); err != nil {
+		return fmt.Errorf("copy file data: %w", err)
+	}
+	if err := w.Close(); err != nil {
+		return fmt.Errorf("close multipart writer: %w", err)
 	}
 	return nil
 }
@@ -370,6 +440,28 @@ func (c *Client) jsonRequest(method, path string, body interface{}, result inter
 		return json.NewDecoder(resp.Body).Decode(result)
 	}
 	return nil
+}
+
+// isDialError reports whether err happened while establishing the connection
+// (unreachable host, unknown host, dial timeout), so the CLI exits with
+// ExitConnection rather than a generic error.
+func isDialError(err error) bool {
+	var opErr *net.OpError
+	if errors.As(err, &opErr) && opErr.Op == "dial" {
+		return true
+	}
+	var dnsErr *net.DNSError
+	return errors.As(err, &dnsErr)
+}
+
+// isTimeout reports whether err is a transport deadline (dial, TLS handshake
+// or response header) expiring.
+func isTimeout(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
 }
 
 // isConnectionRefused checks whether an error is a connection refused error.

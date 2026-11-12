@@ -292,7 +292,7 @@ If using Apple Silicon (M-series):
 
 ### "MP_API_KEY environment variable is required"
 
-**Symptoms:** Any `mp` command fails immediately.
+**Symptoms:** Any `mp` command fails immediately with exit code 3.
 
 **Solution:** Export your API key before running commands:
 ```bash
@@ -313,6 +313,16 @@ Add this line to your shell profile (`~/.zshrc` or `~/.bashrc`) for persistence.
    export MP_API_URL=http://localhost:44557
    mp api status
    ```
+
+### "Timed out waiting for mahpastes"
+
+**Symptoms:** A command fails with exit code 2 after about 30 seconds.
+
+**Cause:** `mp` could not connect, or the server accepted the connection but did not start responding within `MP_TIMEOUT` (default `30s`). This usually means `MP_API_URL` points at an unreachable host or the app is hung.
+
+**Solutions:**
+1. Check `MP_API_URL` and that the app is responsive
+2. On a slow network link, raise the limit, for example `export MP_TIMEOUT=2m`
 
 ### "Authentication failed. Check MP_API_KEY."
 

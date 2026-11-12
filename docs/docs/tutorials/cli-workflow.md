@@ -47,7 +47,7 @@ Add this line to your shell profile (`~/.zshrc` or `~/.bashrc`) so it persists a
 
 ### Verify
 
-Confirm the CLI can reach the API:
+Confirm the CLI can reach the API and that your key is accepted:
 
 ```bash
 mp api status
@@ -65,7 +65,7 @@ Connected to mahpastes API at http://localhost:44557
 |----------|----------|---------|-------------|
 | `MP_API_KEY` | Yes | -- | API key starting with `mp_` |
 | `MP_API_URL` | No | `http://localhost:44557` | API base URL |
-| `MP_TIMEOUT` | No | `30s` | Connection and response-header timeout (e.g. `10s` or `10`). Does not limit transfer time of large uploads or downloads |
+| `MP_TIMEOUT` | No | `30s` | How long to wait for the connection and for the server to start responding (e.g. `10s` or `10`). It never limits the transfer itself, so large uploads and downloads are not cut off, and commands that wait on long server-side work only use it for the connection (`backup create`/`restore`, `maintenance`, `dedup all`, `plugin install`/`update`/`run`, `watch process`, `clip download` of several clips). On expiry `mp` exits with code 2 |
 
 ## Uploading Files
 
@@ -523,16 +523,19 @@ mp clip get 42 --json | jq '.filename'
 |------|---------|
 | 0 | Success |
 | 1 | General error |
-| 2 | Connection error (API unreachable) |
-| 3 | Authentication error (invalid or revoked key) |
+| 2 | Connection error (API unreachable or not responding within `MP_TIMEOUT`) |
+| 3 | Authentication error (missing, invalid or revoked key) |
 
 Use exit codes in scripts:
 
 ```bash
 mp api status > /dev/null 2>&1
-if [ $? -ne 0 ]; then
-  echo "mahpastes is not reachable or key is invalid"
-fi
+case $? in
+  0) ;;
+  2) echo "mahpastes is not running or its API is disabled" ;;
+  3) echo "MP_API_KEY is missing, invalid or revoked" ;;
+  *) echo "mp api status failed" ;;
+esac
 ```
 
 ## Example: Daily Backup Script

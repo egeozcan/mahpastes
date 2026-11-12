@@ -832,25 +832,20 @@ func downloadBulkClips(c *client.Client, ids []int64, outputPath string) error {
 
 // postRaw performs a POST with a JSON body and returns the raw response body.
 // This is needed for endpoints that return binary data (e.g. ZIP downloads).
+// It goes through the client so auth, User-Agent, exit codes and API error
+// messages match every other request; the bulk ZIP is assembled while the
+// response is written, so it uses the long-running client.
 func postRaw(c *client.Client, path string, body io.Reader) (io.ReadCloser, error) {
 	req, err := http.NewRequest("POST", c.BaseURL+path, body)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.APIKey)
-	req.Header.Set("User-Agent", "mp-cli/1.0")
 
-	resp, err := c.HTTPClient.Do(req)
+	resp, err := c.Long().Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
+		return nil, err
 	}
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		resp.Body.Close()
-		return nil, fmt.Errorf("API error: %s", resp.Status)
-	}
-
 	return resp.Body, nil
 }
 
