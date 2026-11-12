@@ -96,6 +96,8 @@ test.describe('Watch Folder Robustness', () => {
     // otherwise by the periodic re-arm (30 s).
     await expect(card.locator(selectors.watchFolder.missingBadge)).toBeVisible({ timeout: 40000 });
     await expect(app.page.locator(selectors.drawer.watchIndicator)).toHaveAttribute('data-state', 'unavailable');
+    // The menu button's dot (visible with the drawer closed) turns amber too.
+    await expect(app.page.locator(selectors.drawer.activityIndicator)).toHaveAttribute('data-state', 'unavailable');
 
     // The folder comes back; a refresh (or the periodic re-arm) watches it again.
     await fs.mkdir(watched);

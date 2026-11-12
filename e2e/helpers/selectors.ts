@@ -33,6 +33,7 @@ export const selectors = {
     closeButton: '#drawer-close-btn',
     watchButton: '#view-tab-watch',
     watchIndicator: '#watch-indicator',
+    activityIndicator: '#drawer-activity-indicator',
     archiveButton: '#toggle-archive-view-btn',
     clearAllButton: '#delete-all-temp-btn',
     settingsButton: '#open-settings-btn',

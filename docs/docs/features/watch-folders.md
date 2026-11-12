@@ -123,9 +123,9 @@ The folder is no longer watched. Existing imported clips remain.
 
 ## Watch Status
 
-The dot on the **Watch** tab is green while folders are being watched and turns amber when a folder that should be watched is not (it is missing, its volume is unmounted, or the operating system refused to watch it). `mp watch status` reports the same counts as **Active** and **Unavailable**.
+The dot on the **Watch** tab, and the dot on the menu button, are green while folders are being watched and turn amber when a folder that should be watched is not (it is missing, its volume is unmounted, or the operating system refused to watch it). `mp watch status` reports the same counts as **Active** and **Unavailable**.
 
-A folder that disappears while it is watched (deleted, moved, or on a drive that was unplugged) is reported with a notification. mahpastes checks every 30 seconds and starts watching it again as soon as it is back, with a "Watching … again" notification; there is no need to restart the app. Files that arrived in the folder while it was not watched are not imported automatically; use **Process existing files** (`mp watch process <id>`) if you want them.
+A folder that disappears while it is watched (deleted, moved, or on a drive that was unplugged) is reported with a notification. mahpastes checks every 30 seconds and starts watching it again as soon as it is back, with a "Watching … again" notification; there is no need to restart the app. Files that arrived in the folder while it was not watched are not imported automatically; run `mp watch process <id>` (or `POST /api/v1/watch/{id}/process`) if you want them.
 
 ### Folder Status Indicators
 
@@ -197,7 +197,7 @@ Videos are imported and archived for later review.
 5. Empty (zero-byte) files are skipped
 6. The file is read and stored as a clip
 7. If auto-archive or auto-tag is configured, those are applied to the new clip
-8. The original file is deleted from the watched folder after successful import, unless it changed while it was being read
+8. The original file is deleted from the watched folder after successful import, unless it changed while it was being read or a backup restore replaced the library in the meantime
 
 :::note Source File Removal
 Imported files are automatically removed from the watched folder after they are successfully stored in mahpastes. The file is only deleted once the database commit is confirmed. This prevents duplicate imports and keeps the watched folder clean.

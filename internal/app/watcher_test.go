@@ -62,7 +62,9 @@ func shrinkWatchTimings(t *testing.T, rearm time.Duration) {
 	})
 }
 
-// startTestWatcher wires a started WatcherManager into a test app.
+// startTestWatcher wires a started WatcherManager into a test app. Tests
+// register the app's cleanup with t.Cleanup before calling it, so the watcher
+// is stopped (LIFO) before the database closes.
 func startTestWatcher(t *testing.T, a *App) (*WatcherManager, *watchEventRecorder) {
 	t.Helper()
 	rec := &watchEventRecorder{}
@@ -144,7 +146,7 @@ func expectLeftAlone(t *testing.T, a *App, path string, wantClips int) {
 func TestWatcherImportsAndRemovesNewFile(t *testing.T) {
 	shrinkWatchTimings(t, 0)
 	a, cleanup := setupTestApp(t)
-	defer cleanup()
+	t.Cleanup(cleanup)
 	startTestWatcher(t, a)
 
 	dir := t.TempDir()
@@ -159,7 +161,7 @@ func TestWatcherImportsAndRemovesNewFile(t *testing.T) {
 func TestWatcherKeepsWatchingAcrossStopStart(t *testing.T) {
 	shrinkWatchTimings(t, 0)
 	a, cleanup := setupTestApp(t)
-	defer cleanup()
+	t.Cleanup(cleanup)
 	wm, _ := startTestWatcher(t, a)
 
 	dir := t.TempDir()
@@ -180,7 +182,7 @@ func TestWatcherKeepsWatchingAcrossStopStart(t *testing.T) {
 func TestWatcherWatchesAgainAfterBackupRestore(t *testing.T) {
 	shrinkWatchTimings(t, 0)
 	a, cleanup := setupTestApp(t)
-	defer cleanup()
+	t.Cleanup(cleanup)
 	dataDir := os.Getenv("MAHPASTES_DATA_DIR")
 	if err := os.MkdirAll(filepath.Join(dataDir, "plugins"), 0o755); err != nil {
 		t.Fatal(err)
@@ -212,7 +214,7 @@ func TestWatcherWatchesAgainAfterBackupRestore(t *testing.T) {
 func TestWatcherSkipsInProgressDownloads(t *testing.T) {
 	shrinkWatchTimings(t, 0)
 	a, cleanup := setupTestApp(t)
-	defer cleanup()
+	t.Cleanup(cleanup)
 	startTestWatcher(t, a)
 
 	dir := t.TempDir()
@@ -245,7 +247,7 @@ func TestWatcherSkipsInProgressDownloads(t *testing.T) {
 func TestWatcherSkipsEmptyPlaceholderUntilItHasContent(t *testing.T) {
 	shrinkWatchTimings(t, 0)
 	a, cleanup := setupTestApp(t)
-	defer cleanup()
+	t.Cleanup(cleanup)
 	startTestWatcher(t, a)
 
 	dir := t.TempDir()
@@ -275,7 +277,7 @@ func TestWatcherSkipsEmptyPlaceholderUntilItHasContent(t *testing.T) {
 func TestWatcherWaitsForFileToStopChanging(t *testing.T) {
 	shrinkWatchTimings(t, 0)
 	a, cleanup := setupTestApp(t)
-	defer cleanup()
+	t.Cleanup(cleanup)
 	wm, _ := startTestWatcher(t, a)
 
 	// The file exists before the folder is watched, so no fsnotify event
@@ -321,7 +323,7 @@ func TestWatcherWaitsForFileToStopChanging(t *testing.T) {
 func TestWatcherRearmsDeletedAndRecreatedFolder(t *testing.T) {
 	shrinkWatchTimings(t, 0)
 	a, cleanup := setupTestApp(t)
-	defer cleanup()
+	t.Cleanup(cleanup)
 	_, rec := startTestWatcher(t, a)
 
 	dir := filepath.Join(t.TempDir(), "inbox")
@@ -378,7 +380,7 @@ func TestWatcherRearmsDeletedAndRecreatedFolder(t *testing.T) {
 func TestWatcherRearmLoopPicksUpFolderThatAppears(t *testing.T) {
 	shrinkWatchTimings(t, 100*time.Millisecond)
 	a, cleanup := setupTestApp(t)
-	defer cleanup()
+	t.Cleanup(cleanup)
 	_, _ = startTestWatcher(t, a)
 
 	dir := filepath.Join(t.TempDir(), "volume")
@@ -412,7 +414,7 @@ func TestWatcherRearmLoopPicksUpFolderThatAppears(t *testing.T) {
 func TestWatcherRearmsReplacedDirectory(t *testing.T) {
 	shrinkWatchTimings(t, 0)
 	a, cleanup := setupTestApp(t)
-	defer cleanup()
+	t.Cleanup(cleanup)
 	wm, _ := startTestWatcher(t, a)
 
 	dir := t.TempDir()
@@ -446,7 +448,7 @@ func TestWatcherRearmsReplacedDirectory(t *testing.T) {
 func TestWatcherRefreshAfterStopIsHarmless(t *testing.T) {
 	shrinkWatchTimings(t, 0)
 	a, cleanup := setupTestApp(t)
-	defer cleanup()
+	t.Cleanup(cleanup)
 	wm, _ := startTestWatcher(t, a)
 	addWatchDir(t, a, t.TempDir())
 
@@ -466,7 +468,7 @@ func TestWatcherStopCancelsPendingImports(t *testing.T) {
 	shrinkWatchTimings(t, 0)
 	watchDebounceDelay = 300 * time.Millisecond
 	a, cleanup := setupTestApp(t)
-	defer cleanup()
+	t.Cleanup(cleanup)
 	wm, _ := startTestWatcher(t, a)
 
 	dir := t.TempDir()
@@ -487,7 +489,7 @@ func TestWatcherStopCancelsPendingImports(t *testing.T) {
 func TestProcessExistingFilesSkipsPartialAndEmptyFiles(t *testing.T) {
 	shrinkWatchTimings(t, 0)
 	a, cleanup := setupTestApp(t)
-	defer cleanup()
+	t.Cleanup(cleanup)
 	wm, _ := startTestWatcher(t, a)
 
 	dir := t.TempDir()
@@ -525,6 +527,53 @@ func TestProcessExistingFilesSkipsPartialAndEmptyFiles(t *testing.T) {
 	}
 }
 
+// A restore stops the watcher without waiting for an import already running.
+// If it lands after that import stored its clip, the clip is gone with the old
+// library, so the source file must stay: it is the only copy left.
+func TestRemoveImportedSourceKeepsFileAfterRestore(t *testing.T) {
+	a, cleanup := setupTestApp(t)
+	t.Cleanup(cleanup)
+
+	dir := t.TempDir()
+	write := func(name string) (string, os.FileInfo) {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte("data of "+name), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		info, err := os.Stat(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p, pinFileIdentity(info)
+	}
+
+	epoch := a.currentRestoreEpoch()
+	kept, keptInfo := write("imported-before-restore.txt")
+	a.backupRestoreMu.Lock()
+	a.restoreEpoch++ // what a committed RestoreBackup does
+	a.backupRestoreMu.Unlock()
+	a.removeImportedSource(kept, keptInfo, epoch)
+	if _, err := os.Stat(kept); err != nil {
+		t.Fatalf("source removed although a restore replaced its clip: %v", err)
+	}
+
+	removed, removedInfo := write("imported-after-restore.txt")
+	a.removeImportedSource(removed, removedInfo, a.currentRestoreEpoch())
+	if _, err := os.Stat(removed); !os.IsNotExist(err) {
+		t.Fatalf("source not removed after an import with no restore in between: %v", err)
+	}
+
+	// A file that changed after it was read stays too.
+	changed, changedInfo := write("changed.txt")
+	if err := os.WriteFile(changed, []byte("longer data written after the read"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a.removeImportedSource(changed, changedInfo, a.currentRestoreEpoch())
+	if _, err := os.Stat(changed); err != nil {
+		t.Fatalf("source removed although it changed during the import: %v", err)
+	}
+}
+
 func TestIsInProgressName(t *testing.T) {
 	for name, want := range map[string]bool{
 		"report.pdf.crdownload":       true,
@@ -550,7 +599,7 @@ func TestIsInProgressName(t *testing.T) {
 // Keep the recorder honest: the payload shape the frontend reads.
 func TestWatchStatusEventPayload(t *testing.T) {
 	a, cleanup := setupTestApp(t)
-	defer cleanup()
+	t.Cleanup(cleanup)
 	rec := &watchEventRecorder{}
 	a.SetBridge(rec)
 	a.emitWatchStatus(nil, "boom")
@@ -576,7 +625,7 @@ func TestWatcherStopDoesNotWaitForStuckRearm(t *testing.T) {
 	watchStopRearmWait = 100 * time.Millisecond
 	t.Cleanup(func() { watchStopRearmWait = oldWait })
 	a, cleanup := setupTestApp(t)
-	defer cleanup()
+	t.Cleanup(cleanup)
 	wm, _ := startTestWatcher(t, a)
 	addWatchDir(t, a, t.TempDir())
 
@@ -614,7 +663,7 @@ func TestWatcherRestartAfterStuckRearmStillRearms(t *testing.T) {
 	watchStopRearmWait = 50 * time.Millisecond
 	t.Cleanup(func() { watchStopRearmWait = oldWait })
 	a, cleanup := setupTestApp(t)
-	defer cleanup()
+	t.Cleanup(cleanup)
 	wm, _ := startTestWatcher(t, a)
 	dir := filepath.Join(t.TempDir(), "inbox")
 	if err := os.Mkdir(dir, 0o755); err != nil {

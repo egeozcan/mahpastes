@@ -670,9 +670,24 @@ func (w *WatcherManager) settleFile(gen uint64, path string, p *pendingFile) {
 }
 
 // removeImportedSource deletes a watched file once it is safely stored,
-// unless it changed while it was being imported: the stored clip would then
-// be a partial copy, and deleting the file would lose the rest.
-func removeImportedSource(filePath string, before os.FileInfo) {
+// unless it changed while it was being imported (the stored clip would then be
+// a partial copy, and deleting the file would lose the rest) or a backup
+// restore replaced the library since the clip was stored (epoch is the
+// restore epoch read before the upload): the clip is gone, and the file is
+// then the only copy. A restore stops the watcher but does not wait for
+// imports already running, so this is reachable.
+//
+// Holding backupRestoreMu's read side across the check and the removal keeps a
+// restore from landing in between. Nothing here may take that lock again (a
+// second RLock can deadlock behind a waiting restore), so restoreEpoch is
+// read directly rather than through currentRestoreEpoch.
+func (a *App) removeImportedSource(filePath string, before os.FileInfo, epoch uint64) {
+	a.backupRestoreMu.RLock()
+	defer a.backupRestoreMu.RUnlock()
+	if a.restoreEpoch != epoch {
+		log.Printf("A backup restore replaced the library while %s was imported; leaving it in place", filePath)
+		return
+	}
 	after, err := os.Stat(filePath)
 	if err != nil || !sameFileState(before, after) {
 		log.Printf("File changed while it was imported; leaving it in place: %s", filePath)
@@ -728,7 +743,7 @@ func (w *WatcherManager) processFile(gen uint64, filePath string, info os.FileIn
 	}
 
 	// Import the file and get the clip ID
-	clipID, err := w.importFile(filePath, folder)
+	clipID, epoch, err := w.importFile(filePath, folder)
 	if err != nil {
 		log.Printf("Failed to import file %s: %v", filePath, err)
 		// Emit event to frontend for toast notification
@@ -744,7 +759,7 @@ func (w *WatcherManager) processFile(gen uint64, filePath string, info os.FileIn
 	}
 
 	// Delete original file only after confirmed DB commit
-	removeImportedSource(filePath, info)
+	w.app.removeImportedSource(filePath, info, epoch)
 
 	log.Printf("Successfully imported (clip ID %d): %s", clipID, filePath)
 }
@@ -785,11 +800,13 @@ func (w *WatcherManager) matchesFilter(filePath string, folder *WatchedFolder) b
 	}
 }
 
-// importFile reads a file and imports it as a clip, returns the clip ID
-func (w *WatcherManager) importFile(filePath string, folder *WatchedFolder) (int64, error) {
+// importFile reads a file and imports it as a clip. It returns the clip ID and
+// the restore epoch read before the clip was inserted (see
+// removeImportedSource).
+func (w *WatcherManager) importFile(filePath string, folder *WatchedFolder) (int64, uint64, error) {
 	fileData, err := w.app.ReadFileFromPath(filePath)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 
 	// Emit watch:file_detected event before import
@@ -804,7 +821,7 @@ func (w *WatcherManager) importFile(filePath string, folder *WatchedFolder) (int
 	epoch := w.app.currentRestoreEpoch()
 	clipID, err := w.app.UploadFileAndGetID(*fileData)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 
 	// Auto-archive if configured - must happen BEFORE emitting event
@@ -820,7 +837,7 @@ func (w *WatcherManager) importFile(filePath string, folder *WatchedFolder) (int
 		if err := w.app.addTagToNewClip(clipID, *folder.AutoTagID, epoch); err != nil {
 			log.Printf("Failed to auto-tag clip %d with tag %d: %v", clipID, *folder.AutoTagID, err)
 			if errors.Is(err, errRestoredSinceInsert) {
-				return 0, err
+				return 0, 0, err
 			}
 		}
 	}
@@ -842,7 +859,7 @@ func (w *WatcherManager) importFile(filePath string, folder *WatchedFolder) (int
 		})
 	}
 
-	return clipID, nil
+	return clipID, epoch, nil
 }
 
 // ProcessExistingFiles imports all existing files in a watched folder. Hidden
@@ -896,7 +913,7 @@ func (w *WatcherManager) ProcessExistingFiles(folderID int64) error {
 		}
 		pinFileIdentity(info)
 
-		clipID, err := w.importFile(filePath, folder)
+		clipID, epoch, err := w.importFile(filePath, folder)
 		if err != nil {
 			log.Printf("Failed to import existing file %s: %v", filePath, err)
 			w.app.emitWatchError(filePath, err.Error())
@@ -909,7 +926,7 @@ func (w *WatcherManager) ProcessExistingFiles(folderID int64) error {
 			continue
 		}
 
-		removeImportedSource(filePath, info)
+		w.app.removeImportedSource(filePath, info, epoch)
 	}
 
 	return nil
