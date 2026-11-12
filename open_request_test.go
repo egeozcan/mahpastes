@@ -230,9 +230,15 @@ func TestSecondLaunchRefusedFailsAtOnce(t *testing.T) {
 	go srv.Serve(func(openrequest.Request) {})
 	defer srv.Close()
 
-	tooMany := make([]string, 20000)
+	// Over the item cap but far under the size cap, so the server reads the
+	// whole request and answers with a refusal on every OS.
+	short := string(filepath.Separator) + "f"
+	if runtime.GOOS == "windows" {
+		short = `C:\f`
+	}
+	tooMany := make([]string, 10001)
 	for i := range tooMany {
-		tooMany[i] = filepath.Join(dataDir, "f")
+		tooMany[i] = short
 	}
 	start := time.Now()
 	second, handedOff, err := acquireInstanceOrHandOff(dataDir, openrequest.Request{Files: tooMany, Activate: true}, true)
