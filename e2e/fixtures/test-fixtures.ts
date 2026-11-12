@@ -653,11 +653,41 @@ export class AppHelper {
   }
 
   /**
+   * Put back every global function and Wails binding that differs from the
+   * snapshot PRISTINE_GLOBALS_SNAPSHOT took when the page became ready, and
+   * return their names. The page is shared by every test on a worker, so a
+   * stub a test leaves behind would answer whichever test runs next on that
+   * worker — failing far from its cause, and only in some worker orders.
+   * fastReset calls this before and after every test, so tests may replace
+   * these functions without restoring them.
+   */
+  async restoreLeakedStubs(): Promise<string[]> {
+    return this.page.evaluate(() => {
+      const pristine = (window as any).__e2ePristine as Array<[any, string, unknown, string]> | undefined;
+      if (!pristine) return [];
+      const leaked: string[] = [];
+      for (const [owner, key, original, label] of pristine) {
+        let current: unknown;
+        try { current = owner[key]; } catch { continue; }
+        if (current === original) continue;
+        try {
+          owner[key] = original;
+          leaked.push(label);
+        } catch {}
+      }
+      return leaked;
+    });
+  }
+
+  /**
    * Fast state reset using a single page.evaluate call.
    * Used with worker-scoped page to avoid per-test page navigation.
    * Eliminates ~15 browser round-trips per reset.
    */
   async fastReset(): Promise<void> {
+    // Undo any stub a test left behind, first, since the reset itself calls
+    // the bindings.
+    await this.restoreLeakedStubs().catch(() => {});
     await this.page.evaluate(async () => {
       // @ts-ignore - Wails runtime
       const App = window.go?.main?.App;
@@ -684,13 +714,16 @@ export class AppHelper {
 
       // The tempDir fixture is torn down before the app, so a test's watched
       // folder can vanish while still watched and raise a "Not watching …"
-      // toast; don't let it carry into the next test.
+      // toast; don't let it carry into the next test. Clear its text and
+      // action too: a hidden toast keeps both, and its text alone must not
+      // satisfy the next test's toast assertion.
       try {
         // @ts-ignore
         clearTimeout(window.toastTimeout);
         const toast = document.getElementById('toast');
         toast?.classList.remove('translate-x-0', 'opacity-100');
         toast?.classList.add('translate-x-full', 'opacity-0');
+        if (toast) toast.textContent = '';
       } catch {}
 
       try {
@@ -1741,19 +1774,24 @@ export class AppHelper {
     await this.page.waitForSelector(`${selectors.confirm.dialog}.opacity-0`);
   }
 
+  // A hidden toast keeps its text, and Playwright counts the faded-out,
+  // off-screen toast as visible (opacity 0 and a translate still have a box),
+  // so toast assertions match only the shown state (opacity-100).
   async expectToast(message: string): Promise<void> {
-    const toast = this.page.locator(selectors.toast.message).filter({ hasText: message });
+    const toast = this.page.locator(`${selectors.toast.message}.opacity-100`).filter({ hasText: message });
     await expect(toast).toBeVisible({ timeout: 5000 });
   }
 
   async waitForToast(pattern: RegExp): Promise<string> {
-    const toastLocator = this.page.locator(selectors.toast.message);
     let toastText = '';
     let attempts = 0;
     const maxAttempts = 50; // ~5s with 100ms polling
 
     while (attempts < maxAttempts) {
-      toastText = await toastLocator.textContent() || '';
+      toastText = await this.page.evaluate((sel) => {
+        const toast = document.querySelector(sel);
+        return toast?.classList.contains('opacity-100') ? toast.textContent || '' : '';
+      }, selectors.toast.message);
       if (toastText && pattern.test(toastText)) {
         return toastText;
       }
@@ -3880,6 +3918,62 @@ type TestFixtures = {
   tempDir: string;
 };
 
+/**
+ * Init script for every page of the worker context. When the app first sets
+ * `__appReady = true` it records, as [owner, key, value, label] entries:
+ * every function-valued global (showToast, loadClips, fetch …), the function
+ * members of plain-object globals (app controllers, the Wails runtime), each
+ * window.go namespace, service and bound method, and URL's object-URL
+ * functions. AppHelper.restoreLeakedStubs compares against it.
+ */
+function PRISTINE_GLOBALS_SNAPSHOT(): void {
+  if (window.top !== window) return;
+  const w = window as any;
+  let ready: unknown;
+  Object.defineProperty(w, '__appReady', {
+    configurable: true,
+    get: () => ready,
+    set: (value) => {
+      ready = value;
+      if (value === true && !w.__e2ePristine) w.__e2ePristine = snapshot();
+    },
+  });
+
+  function snapshot(): Array<[any, string, unknown, string]> {
+    const entries: Array<[any, string, unknown, string]> = [];
+    const methods = (owner: any, prefix: string) => {
+      for (const key of Object.keys(owner)) {
+        try {
+          if (typeof owner[key] === 'function') entries.push([owner, key, owner[key], `${prefix}.${key}`]);
+        } catch {}
+      }
+    };
+    for (const key of Object.getOwnPropertyNames(w)) {
+      if (key.startsWith('__') || key === 'go') continue;
+      let value: any;
+      try { value = w[key]; } catch { continue; }
+      if (typeof value === 'function') {
+        entries.push([w, key, value, key]);
+      } else if (value && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype) {
+        methods(value, key);
+      }
+    }
+    const go = w.go;
+    if (go && typeof go === 'object') {
+      entries.push([w, 'go', go, 'go']);
+      for (const ns of Object.keys(go)) {
+        entries.push([go, ns, go[ns], `go.${ns}`]);
+        for (const service of Object.keys(go[ns] || {})) {
+          entries.push([go[ns], service, go[ns][service], `go.${ns}.${service}`]);
+          methods(go[ns][service] || {}, `go.${ns}.${service}`);
+        }
+      }
+    }
+    for (const key of ['createObjectURL', 'revokeObjectURL']) entries.push([URL, key, (URL as any)[key], `URL.${key}`]);
+    return entries;
+  }
+}
+
 // Read state file to get instance info
 async function getTestState(): Promise<TestState> {
   const content = await fs.readFile(STATE_FILE, 'utf-8');
@@ -3892,6 +3986,7 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     const context = await browser.newContext({
       viewport: { width: 1280, height: 800 },
     });
+    await context.addInitScript(PRISTINE_GLOBALS_SNAPSHOT);
     await use(context);
     await context.close();
   }, { scope: 'worker' }],
@@ -4000,7 +4095,7 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
       }
     }
 
-    // Fast reset after test. Skip if page is closed — next test will heal.
+    // Fast reset after test (it also restores stubbed globals and bindings). Skip if page is closed — next test will heal.
     if (!app.page.isClosed()) {
       try {
         await app.fastReset();
