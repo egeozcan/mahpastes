@@ -111,19 +111,26 @@ async function loadAPILaunchSettings(status) {
     }
 }
 
-// revertToggle: a failed save from the checkbox itself flips it back.
-async function saveAPILaunchSettings(revertToggle) {
+// Saves run one after another, each with the values from when it was made, so
+// a port edit followed at once by a click on the switch (the blur fires the
+// port save first) cannot land out of order.
+let apiLaunchSaveChain = Promise.resolve();
+
+// revertToggle: a failed save from the switch itself flips it back.
+function saveAPILaunchSettings(revertToggle) {
     const enabled = apiAutostartToggle.checked;
     const port = parseInt(apiPortInput.value, 10) || 44557;
-    apiAutostartToggle.disabled = true;
-    try {
-        await window.go.main.APIService.SetAPIAutostart(enabled, port);
-    } catch (err) {
-        if (revertToggle) apiAutostartToggle.checked = !enabled;
-        showToast('Error: ' + errText(err), 'error');
-    } finally {
-        apiAutostartToggle.disabled = false;
-    }
+    apiLaunchSaveChain = apiLaunchSaveChain.then(async () => {
+        try {
+            await window.go.main.APIService.SetAPIAutostart(enabled, port);
+        } catch (err) {
+            if (revertToggle && apiAutostartToggle.checked === enabled) {
+                apiAutostartToggle.checked = !enabled;
+            }
+            showToast('Error: ' + errText(err), 'error');
+        }
+    });
+    return apiLaunchSaveChain;
 }
 
 // Start/Stop and Create Key each ignore clicks while their call is in flight:
