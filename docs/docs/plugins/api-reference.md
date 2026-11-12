@@ -1066,7 +1066,7 @@ Writes text to the system clipboard.
 |------|------|----------|-------------|
 | text | string | Yes | Text to copy |
 
-**Returns:** `true` on success, or `nil, error_message` if clipboard access is not permitted
+**Returns:** `true` on success, or `nil, error_message` if clipboard access is not permitted or the clipboard could not be written (for example, a Linux session with no reachable clipboard, or a headless server with no display)
 
 :::warning
 Requires `clipboard = true` in the plugin manifest.

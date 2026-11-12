@@ -132,6 +132,8 @@ export function IsDirectory(arg1:string):Promise<boolean>;
 
 export function ListClipsPage(arg1:app.ClipListRequest):Promise<app.ClipPage>;
 
+export function ListOpenWithApps(arg1:number):Promise<Array<main.OpenWithApp>>;
+
 export function MergeDuplicates(arg1:number):Promise<void>;
 
 export function MergeTag(arg1:number,arg2:number):Promise<void>;
@@ -139,6 +141,8 @@ export function MergeTag(arg1:number,arg2:number):Promise<void>;
 export function OpenClipWithApp(arg1:number,arg2:string):Promise<void>;
 
 export function OpenClipWithDefaultApp(arg1:number):Promise<void>;
+
+export function OpenClipWithDialog(arg1:number):Promise<void>;
 
 export function PreviewMergeTag(arg1:number,arg2:number):Promise<app.MergeTagPreview>;
 
@@ -159,6 +163,8 @@ export function RemoveWatchedFolder(arg1:number):Promise<void>;
 export function RenameClip(arg1:number,arg2:string):Promise<void>;
 
 export function RestoreBackup(arg1:string,arg2:string):Promise<void>;
+
+export function RevealInFileManager(arg1:string):Promise<void>;
 
 export function SaveClipToFile(arg1:number):Promise<string>;
 
@@ -185,6 +191,8 @@ export function ShowCreateBackupDialog():Promise<string>;
 export function ShowRestoreBackupDialog():Promise<main.RestoreSelection>;
 
 export function StartImportSession(arg1:string,arg2:boolean):Promise<app.ImportScanResult>;
+
+export function SupportsNativeOpenWith():Promise<boolean>;
 
 export function ThumbnailURLBase():Promise<string>;
 

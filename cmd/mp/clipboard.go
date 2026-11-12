@@ -72,7 +72,7 @@ var clipboardCopyFileCmd = &cobra.Command{
 	Long: `Copy a clip as a file reference to the system clipboard.
 
 This places a file reference on the clipboard so you can paste the clip
-as a file into Finder or other applications. The mahpastes desktop app
+as a file into Finder, Explorer, a Linux file manager or other applications. The mahpastes desktop app
 performs the actual clipboard operation.`,
 	Example: `  # Copy clip as file reference
   mp clipboard copy-file 42

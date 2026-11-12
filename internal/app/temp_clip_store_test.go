@@ -42,6 +42,32 @@ func newTempStoreTestDB(t *testing.T, dir string) *sql.DB {
 	return db
 }
 
+func TestTransferFileExtensionMatchesTransferFile(t *testing.T) {
+	cases := []struct {
+		filename    sql.NullString
+		contentType string
+	}{
+		{sql.NullString{String: "photo.JPG", Valid: true}, "image/jpeg"},
+		{sql.NullString{String: "notes", Valid: true}, "text/plain"},
+		{sql.NullString{String: "archive.tar.gz", Valid: true}, "application/gzip"},
+		{sql.NullString{}, "image/png"},
+		{sql.NullString{String: "  ", Valid: true}, "application/pdf"},
+		{sql.NullString{}, "application/x-unknown-type"},
+	}
+	for _, tc := range cases {
+		want := filepath.Ext(tempFilenameForClip(42, tc.filename, tc.contentType))
+		if got := TransferFileExtension(tc.filename, tc.contentType); got != want {
+			t.Errorf("TransferFileExtension(%q, %q) = %q, want %q", tc.filename.String, tc.contentType, got, want)
+		}
+	}
+	if got := TransferFileExtension(sql.NullString{}, "image/png"); got != ".png" {
+		t.Errorf("unnamed PNG: got %q, want .png", got)
+	}
+	if got := TransferFileExtension(sql.NullString{String: "photo.JPG", Valid: true}, "image/jpeg"); got != ".JPG" {
+		t.Errorf("named JPEG: got %q, want .JPG", got)
+	}
+}
+
 func TestParseClipIDFromTempFilename(t *testing.T) {
 	tests := []struct {
 		name     string

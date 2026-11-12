@@ -36,6 +36,7 @@ The backend is written in Go using the Wails framework. It handles data storage,
 ├── native_drag_other.go     Fallback native drag stub
 ├── open_darwin.go           macOS open-with-default-app
 ├── open_windows.go          Windows open-with-default-app
+├── open_linux.go            Linux open-with-default-app (xdg-open, gio)
 ├── open_other.go            Fallback open-with-default-app stub
 ├── tag_hierarchy.go         Tag tree helpers (parent, root, ancestor, descendant checks)
 ├── plugin/                  Lua plugin system

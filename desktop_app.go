@@ -10,9 +10,11 @@ import (
 	"log"
 	"mime"
 	"os"
+	"path/filepath"
 	"time"
 
 	coreapp "go-clipboard/internal/app"
+	"go-clipboard/internal/cliputil"
 	"go-clipboard/internal/wailsbridge"
 
 	"golang.design/x/clipboard"
@@ -241,13 +243,68 @@ func (d *App) OpenClipWithApp(id int64, appPath string) error {
 	return openFileWithApp(item.AbsPath, appPath)
 }
 
+// OpenClipWithDialog opens a clip through the platform's native "Open with"
+// chooser (Windows only; see SupportsNativeOpenWith). It returns once the
+// dialog is dismissed.
+func (d *App) OpenClipWithDialog(id int64) error {
+	if !supportsNativeOpenWith() {
+		return fmt.Errorf("native open-with dialog is not available on this platform")
+	}
+	item, err := d.core.PrepareClipTransferItem(id, "open_with")
+	if err != nil {
+		return err
+	}
+	return openWithDialog(item.AbsPath)
+}
+
+// ListOpenWithApps lists the applications the system offers for the clip's
+// file type, default first, for the Open With submenu (macOS; see
+// TransferCapabilities.OpenWithApps). Opening one goes through
+// OpenClipWithApp with its path.
+func (d *App) ListOpenWithApps(id int64) ([]OpenWithApp, error) {
+	if openWithAppLister == nil {
+		return nil, fmt.Errorf("listing applications is not supported on this platform")
+	}
+	var filename sql.NullString
+	var contentType string
+	err := d.core.DB().QueryRow("SELECT filename, content_type FROM clips WHERE id = ?", id).Scan(&filename, &contentType)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("clip not found")
+		}
+		return nil, fmt.Errorf("failed to get clip: %w", err)
+	}
+	return lookupOpenWithApps(coreapp.TransferFileExtension(filename, contentType))
+}
+
+// SupportsNativeOpenWith reports whether OpenClipWithDialog is available.
+func (d *App) SupportsNativeOpenWith() bool {
+	return supportsNativeOpenWith()
+}
+
+// RevealInFileManager shows a file (such as one just saved) selected in the
+// platform file manager.
+func (d *App) RevealInFileManager(path string) error {
+	if path == "" {
+		return fmt.Errorf("path is required")
+	}
+	// Only absolute paths: the platform helpers pass it to open, explorer
+	// and xdg-open, where a relative "-x" would read as an option.
+	if !filepath.IsAbs(path) {
+		return fmt.Errorf("path must be absolute: %s", path)
+	}
+	if _, err := os.Stat(path); err != nil {
+		return fmt.Errorf("file not found: %w", err)
+	}
+	return revealInFileManager(path)
+}
+
 func (d *App) ChooseApplication() (string, error) {
 	return chooseApplicationDialog(d.bridge)
 }
 
 func (d *App) CopyToClipboard(text string) error {
-	clipboard.Write(clipboard.FmtText, []byte(text))
-	return nil
+	return cliputil.WriteText(text)
 }
 
 func (d *App) GetClipboardText() (string, error) {

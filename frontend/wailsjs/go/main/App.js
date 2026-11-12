@@ -258,6 +258,10 @@ export function ListClipsPage(arg1) {
   return window['go']['main']['App']['ListClipsPage'](arg1);
 }
 
+export function ListOpenWithApps(arg1) {
+  return window['go']['main']['App']['ListOpenWithApps'](arg1);
+}
+
 export function MergeDuplicates(arg1) {
   return window['go']['main']['App']['MergeDuplicates'](arg1);
 }
@@ -272,6 +276,10 @@ export function OpenClipWithApp(arg1, arg2) {
 
 export function OpenClipWithDefaultApp(arg1) {
   return window['go']['main']['App']['OpenClipWithDefaultApp'](arg1);
+}
+
+export function OpenClipWithDialog(arg1) {
+  return window['go']['main']['App']['OpenClipWithDialog'](arg1);
 }
 
 export function PreviewMergeTag(arg1, arg2) {
@@ -312,6 +320,10 @@ export function RenameClip(arg1, arg2) {
 
 export function RestoreBackup(arg1, arg2) {
   return window['go']['main']['App']['RestoreBackup'](arg1, arg2);
+}
+
+export function RevealInFileManager(arg1) {
+  return window['go']['main']['App']['RevealInFileManager'](arg1);
 }
 
 export function SaveClipToFile(arg1) {
@@ -364,6 +376,10 @@ export function ShowRestoreBackupDialog() {
 
 export function StartImportSession(arg1, arg2) {
   return window['go']['main']['App']['StartImportSession'](arg1, arg2);
+}
+
+export function SupportsNativeOpenWith() {
+  return window['go']['main']['App']['SupportsNativeOpenWith']();
 }
 
 export function ThumbnailURLBase() {

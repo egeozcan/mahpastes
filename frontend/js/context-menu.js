@@ -14,6 +14,9 @@ const ContextMenu = (() => {
 
     // Maps submenu trigger elements to their children data
     const submenuChildrenMap = new WeakMap();
+    // Submenus whose children come from an async source (item.loadChildren):
+    // trigger element -> the pending promise, or the loader before it starts.
+    const submenuLoaderMap = new WeakMap();
 
     // --- DOM Creation ---
 
@@ -28,6 +31,17 @@ const ContextMenu = (() => {
             return createSubmenuTrigger(item);
         }
 
+        // Non-interactive status row, e.g. "Loading…" while a submenu fills.
+        if (item.type === 'status') {
+            const row = document.createElement('div');
+            row.className = 'card-menu-item card-menu-status';
+            row.setAttribute('role', 'menuitem');
+            row.setAttribute('aria-disabled', 'true');
+            row.setAttribute('tabindex', '-1');
+            row.innerHTML = `<span>${item.label}</span>`;
+            return row;
+        }
+
         // Regular menu item
         const btn = document.createElement('button');
         btn.className = 'card-menu-item' + (item.danger ? ' card-menu-item-danger' : '');
@@ -40,6 +54,9 @@ const ContextMenu = (() => {
         if (item.pluginId) btn.dataset.pluginId = item.pluginId;
         if (item.actionId) btn.dataset.actionId = item.actionId;
         if (item.hasOptions !== undefined) btn.dataset.hasOptions = item.hasOptions;
+        if (item.data) {
+            for (const [key, value] of Object.entries(item.data)) btn.dataset[key] = value;
+        }
 
         const iconPart = item.iconHtml || '';
         const labelPart = `<span>${item.label}</span>`;
@@ -63,8 +80,52 @@ const ContextMenu = (() => {
         btn.innerHTML = iconPart + labelPart + arrowPart;
 
         submenuChildrenMap.set(btn, item.children || []);
+        if (typeof item.loadChildren === 'function') {
+            submenuLoaderMap.set(btn, item.loadChildren);
+        }
 
         return btn;
+    }
+
+    // Starts (once per trigger) the async load of a submenu's children. When
+    // it settles the children replace the placeholder, and the open panel is
+    // refilled if it still belongs to this trigger.
+    function loadSubmenuChildren(triggerEl) {
+        const entry = submenuLoaderMap.get(triggerEl);
+        if (!entry) return null;
+        if (typeof entry !== 'function') return entry; // already loading
+        const pending = Promise.resolve()
+            .then(() => entry())
+            .catch((err) => {
+                console.error('Failed to load submenu:', err);
+                return [];
+            })
+            .then((children) => {
+                submenuLoaderMap.delete(triggerEl);
+                submenuChildrenMap.set(triggerEl, Array.isArray(children) ? children : []);
+                if (activeSubmenuTrigger === triggerEl && activeSubmenu) {
+                    refillSubmenu(triggerEl);
+                }
+            });
+        submenuLoaderMap.set(triggerEl, pending);
+        return pending;
+    }
+
+    function refillSubmenu(triggerEl) {
+        const panel = activeSubmenu;
+        const hadFocus = panel.contains(document.activeElement);
+        const children = submenuChildrenMap.get(triggerEl) || [];
+        if (children.length === 0) {
+            closeSubmenu();
+            if (hadFocus) triggerEl.focus();
+            return;
+        }
+        panel.replaceChildren(...children.map(child => createMenuItem(child)));
+        positionSubmenu(panel, triggerEl);
+        if (hadFocus) {
+            const subItems = getMenuItems(panel);
+            if (subItems.length > 0) subItems[0].focus();
+        }
     }
 
     function createSubmenuPanel(children) {
@@ -141,8 +202,13 @@ const ContextMenu = (() => {
         const vw = window.innerWidth;
         const vh = window.innerHeight;
 
-        // Temporarily add to DOM to measure
+        // Temporarily add to DOM to measure. A refilled panel is measured
+        // afresh, without the position and height cap of its previous fill.
         panel.style.visibility = 'hidden';
+        panel.style.top = '0px';
+        panel.style.left = '0px';
+        panel.style.maxHeight = '';
+        panel.style.overflowY = '';
         activePortalRoot.appendChild(panel);
         const panelRect = panel.getBoundingClientRect();
 
@@ -162,13 +228,16 @@ const ContextMenu = (() => {
                 : pad;
         }
 
-        // Top-align to trigger, clamp vertically
+        // Top-align to trigger, clamp vertically. A panel taller than the
+        // viewport (a long application list) scrolls instead.
         let top = triggerRect.top;
         if (top + panelRect.height > vh - pad) {
             top = vh - panelRect.height - pad;
         }
         if (top < pad) {
             top = pad;
+            panel.style.maxHeight = `${vh - 2 * pad}px`;
+            panel.style.overflowY = 'auto';
         }
 
         panel.style.top = `${top}px`;
@@ -183,7 +252,11 @@ const ContextMenu = (() => {
 
         closeSubmenu();
 
-        const children = submenuChildrenMap.get(triggerEl);
+        let children = submenuChildrenMap.get(triggerEl);
+        if (submenuLoaderMap.has(triggerEl)) {
+            loadSubmenuChildren(triggerEl);
+            children = [{ type: 'status', label: 'Loading\u2026' }];
+        }
         if (!children || children.length === 0) return;
 
         const panel = createSubmenuPanel(children);
@@ -210,6 +283,7 @@ const ContextMenu = (() => {
             const item = e.target.closest('[role="menuitem"]');
             if (!item) return;
             e.stopPropagation();
+            if (item.getAttribute('aria-disabled') === 'true') return;
             runAction(item);
         });
 
@@ -258,6 +332,10 @@ const ContextMenu = (() => {
                 if (activeSubmenuTrigger && activeSubmenuTrigger !== trigger) {
                     closeSubmenu();
                 }
+
+                // Start an async submenu's load now, so the delay below
+                // hides some of its latency.
+                loadSubmenuChildren(trigger);
 
                 // Open after delay to prevent flicker
                 clearTimeout(submenuOpenTimer);
@@ -500,6 +578,7 @@ const ContextMenu = (() => {
             // Don't handle clicks on submenu triggers — they open submenus
             if (item.classList.contains('card-menu-submenu-trigger')) return;
             e.stopPropagation();
+            if (item.getAttribute('aria-disabled') === 'true') return;
             runAction(item);
         });
 

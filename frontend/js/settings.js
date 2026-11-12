@@ -18,6 +18,7 @@ function openSettings() {
     loadTooltipToggle();
     loadLightboxBackdropToggle();
     loadPastePathBehaviorSelect();
+    loadPasteHtmlBehaviorSelect();
     loadFileProviderSettings();
     settingsModal.removeAttribute('inert');
     settingsModal.classList.remove('opacity-0', 'pointer-events-none');
@@ -591,5 +592,26 @@ if (pastePathBehaviorSelect) {
         if (typeof window.setPastePathBehavior !== 'function') return;
         await window.setPastePathBehavior(pastePathBehaviorSelect.value);
         showToast('Pasted path behavior saved.');
+    });
+}
+
+// --- Rich Text Paste ---
+const pasteHtmlBehaviorSelect = document.getElementById('paste-html-behavior-select');
+
+function loadPasteHtmlBehaviorSelect() {
+    if (!pasteHtmlBehaviorSelect) return;
+    pasteHtmlBehaviorSelect.value = typeof window.getPasteHtmlBehavior === 'function'
+        ? window.getPasteHtmlBehavior()
+        : 'text';
+}
+
+if (pasteHtmlBehaviorSelect) {
+    pasteHtmlBehaviorSelect.addEventListener('change', async () => {
+        if (typeof window.setPasteHtmlBehavior !== 'function') return;
+        if (await window.setPasteHtmlBehavior(pasteHtmlBehaviorSelect.value)) {
+            showToast('Rich text paste setting saved.');
+        } else {
+            showToast('Failed to save rich text paste setting.', 'error');
+        }
     });
 }

@@ -1,16 +1,14 @@
 package main
 
 import (
-	"bytes"
 	"database/sql"
 	"fmt"
-	"image"
 	_ "image/gif"
 	_ "image/jpeg"
-	"image/png"
 	"strings"
 
 	coreapp "go-clipboard/internal/app"
+	"go-clipboard/internal/cliputil"
 
 	"golang.design/x/clipboard"
 	_ "golang.org/x/image/webp"
@@ -66,24 +64,43 @@ func (s *ClipboardService) CopyClipContents(id int64) error {
 	}
 
 	if strings.HasPrefix(contentType, "text/") || contentType == "application/json" {
-		clipboard.Write(clipboard.FmtText, data)
-		return nil
+		return cliputil.Write(clipboard.FmtText, data)
 	}
 
 	if strings.HasPrefix(contentType, "image/") {
-		if contentType == "image/png" {
-			return copyImageToClipboard(data)
-		}
-		img, _, err := image.Decode(bytes.NewReader(data))
-		if err != nil {
-			return fmt.Errorf("failed to decode image: %w", err)
-		}
-		var buf bytes.Buffer
-		if err := png.Encode(&buf, img); err != nil {
-			return fmt.Errorf("failed to encode image as PNG: %w", err)
-		}
-		return copyImageToClipboard(buf.Bytes())
+		return copyImageContents(contentType, data)
 	}
 
 	return fmt.Errorf("unsupported content type for clipboard copy: %s", contentType)
+}
+
+// CopyClipAsRichText copies an HTML clip as formatted text: the HTML flavour
+// plus its rendered text as the plain-text fallback, so Mail, Notes or Pages
+// paste the formatting while plain-text fields still get readable text.
+// "Copy Contents" keeps copying the HTML source as plain text.
+func (s *ClipboardService) CopyClipAsRichText(id int64) error {
+	if richTextWriter == nil {
+		return fmt.Errorf("copy as rich text is not supported on this platform")
+	}
+	var data []byte
+	var contentType string
+	row := s.app.DB().QueryRow("SELECT data, content_type FROM clips WHERE id = ?", id)
+	if err := row.Scan(&data, &contentType); err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("clip not found")
+		}
+		return fmt.Errorf("failed to get clip: %w", err)
+	}
+	if !isHTMLContentType(contentType) {
+		return fmt.Errorf("only HTML clips can be copied as rich text, not %s", contentType)
+	}
+	doc := richTextHTML(data)
+	return richTextWriter(doc, htmlPlainText(doc))
+}
+
+// isHTMLContentType reports whether a clip's content type is text/html,
+// ignoring parameters such as charset.
+func isHTMLContentType(contentType string) bool {
+	mediaType, _, _ := strings.Cut(contentType, ";")
+	return strings.EqualFold(strings.TrimSpace(mediaType), "text/html")
 }

@@ -101,6 +101,7 @@ mahpastes/
 ├── native_drag_other.go     # Unsupported platform stub
 ├── open_darwin.go           # Open file with default app (macOS)
 ├── open_windows.go          # Open file with default app (Windows)
+├── open_linux.go            # Open file with default app (Linux)
 ├── open_other.go            # Unsupported platform stub
 ├── plugin_service.go        # Plugin frontend API (Wails-bound)
 ├── plugins.go               # Plugin install/uninstall helpers

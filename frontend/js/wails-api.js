@@ -923,6 +923,16 @@ async function copyClipContents(id) {
     }
 }
 
+async function copyClipAsRichText(id) {
+    try {
+        await window.go.main.ClipboardService.CopyClipAsRichText(id);
+        showToast('Rich text copied to clipboard!');
+    } catch (error) {
+        console.error('Error copying rich text:', error);
+        showToast('Failed to copy rich text.', 'error');
+    }
+}
+
 // Mints a revocable public share link for a clip and copies the full URL to the
 // clipboard. The link is unauthenticated and downloadable by anyone holding it;
 // revoke it from the CLI (`mp link revoke <id>`) or LinkService at any time.
@@ -1169,7 +1179,16 @@ async function getClipText(id) {
 async function saveClipToFile(id) {
     try {
         // Resolves to the path written, or "" when the dialog was cancelled.
-        await window.go.main.App.SaveClipToFile(id);
+        const savedPath = await window.go.main.App.SaveClipToFile(id);
+        // Desktop only: in server mode the browser saved a download (the
+        // glue resolves to its name), which the host file manager can't show.
+        if (savedPath && window.mahpastesMode !== 'server') {
+            showToast('Saved clip to file', 'success', {
+                label: 'Show in folder',
+                onClick: () => window.go.main.App.RevealInFileManager(savedPath).catch(
+                    (e) => showToast('Failed to show file: ' + errText(e), 'error')),
+            });
+        }
     } catch (error) {
         console.error('Error saving clip to file:', error);
         showToast('Failed to save file: ' + errText(error), 'error');

@@ -44,8 +44,8 @@ Open the clip context menu (three dots on each card) to access actions:
 | Button | Action |
 |--------|--------|
 | **Open** | Open with your default application |
-| **Open With...** | Choose an application to open this clip |
-| **Copy** | Submenu with **Path** (temp file path), **File** (file to clipboard), and **Contents** (for text, JSON, and images) |
+| **Open With...** | Choose an application to open this clip (on macOS, a list of the applications for its type; on Windows, the native "Open with" dialog) |
+| **Copy** | Submenu with **Path** (temp file path), **File** (file to clipboard), **Contents** (for text, JSON, and images), and, for HTML clips on macOS, **Rich Text** (formatted text for Mail, Notes or Pages) |
 | **Save** | Open the native save dialog and export a copy to disk |
 | **Edit** | Open supported image, text, or JSON clips in the built-in editor |
 | **Tags** | Add or remove tags |

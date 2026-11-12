@@ -82,12 +82,18 @@ export const selectors = {
     dropdown: '.card-menu-dropdown',
     open: '.card-menu-dropdown [data-action="open"]',
     openWith: '.card-menu-dropdown [data-action="open-with"]',
+    // macOS: Open With is a submenu of the system's applications plus "Other…"
+    openWithTrigger: '[data-submenu="open-with"]',
+    openWithApp: '.card-menu-submenu [data-action="open-with-app"]',
+    openWithOther: '.card-menu-submenu [data-action="open-with"]',
+    submenuStatus: '.card-menu-submenu .card-menu-status',
     copyTrigger: '[data-submenu="copy"]',
     pluginsTrigger: '[data-submenu="plugins"]',
     submenu: '.card-menu-submenu',
     copyPath: '.card-menu-submenu [data-action="copy-path"]',
     copyFile: '.card-menu-submenu [data-action="copy-file"]',
     copyContents: '.card-menu-submenu [data-action="copy-contents"]',
+    copyRichText: '.card-menu-submenu [data-action="copy-rich-text"]',
     save: '.card-menu-dropdown [data-action="save-file"]',
     edit: '.card-menu-dropdown [data-action="edit"]',
     tags: '.card-menu-dropdown [data-action="tags"]',
@@ -353,6 +359,7 @@ export const selectors = {
   toast: {
     container: '#toast',
     message: '#toast', // Toast text is set directly on the container
+    action: '#toast [data-testid="toast-action"]',
   },
 
   // Text editor
@@ -560,6 +567,8 @@ export const selectors = {
     lightboxBackdropLabel: '[data-testid="lightbox-backdrop-close-label"]',
     pastePathSection: '[data-testid="settings-paste-path-section"]',
     pastePathSelect: '[data-testid="paste-path-behavior-select"]',
+    pasteHtmlSection: '[data-testid="settings-paste-html-section"]',
+    pasteHtmlSelect: '[data-testid="paste-html-behavior-select"]',
   },
 
   // Settings - update interval

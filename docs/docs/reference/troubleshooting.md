@@ -256,19 +256,20 @@ exists.
 **Symptoms:** Can't drag clips out of mahpastes into other apps.
 
 **Solutions:**
-1. Drag-out is supported on macOS and Windows. Linux support is planned.
+1. Drag-out is supported on macOS, Windows and Linux. On Linux the drop target must accept a `text/uri-list` file drop (Dolphin, Nautilus and most GTK/Qt apps do); results can vary by compositor and receiving app. See [Drag and Drop](../features/drag-and-drop.md#linux).
 2. Hover the grip handle on the clip card for at least 1 second to arm the drag.
 3. Wait for the handle to finish the preparation animation before dragging.
 4. If the handle shows a spinner, the temp file is still being prepared. Wait until it returns to the grip icon.
 
 ### Copy File Not Working
 
-**Symptoms:** "Copy File" from the card menu doesn't paste a file in Finder (macOS) or Explorer (Windows).
+**Symptoms:** "Copy File" from the card menu doesn't paste a file in Finder (macOS), Explorer (Windows) or the Linux file manager.
 
 **Solutions:**
-1. Copy File is supported on macOS (NSPasteboard) and Windows (PowerShell). Not supported on Linux.
-2. On Windows, ensure no policy blocks PowerShell clipboard access.
-3. Try "Copy Contents" instead if you only need the raw data (text or image).
+1. Copy File is supported on macOS (NSPasteboard), Windows (PowerShell) and Linux. If the copy itself fails, for example in a Linux session where no clipboard is reachable, mahpastes shows "Failed to copy file." instead of a success message.
+2. On Linux the file is offered as one clipboard type only, picked from `XDG_CURRENT_DESKTOP`: `x-special/gnome-copied-files` on Cinnamon, MATE, Xfce, Budgie and Pantheon (Nemo, Caja, Thunar and elementary Files read only that type), `text/uri-list` everywhere else (Dolphin, Nautilus 43 and later, PCManFM, browsers and chat apps). Pasting into an app that wants the other type, or into a terminal, pastes nothing. Paste before quitting mahpastes: the clipboard offer ends when the app exits.
+3. On Windows, ensure no policy blocks PowerShell clipboard access.
+4. Try "Copy Contents" instead if you only need the raw data (text or image).
 
 ## Platform-Specific Issues
 

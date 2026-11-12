@@ -1210,6 +1210,8 @@ export namespace app {
 	export class TransferCapabilities {
 	    drag_out: DragCapability;
 	    clipboard_file: boolean;
+	    clipboard_rich_text: boolean;
+	    open_with_apps: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new TransferCapabilities(source);
@@ -1219,6 +1221,8 @@ export namespace app {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.drag_out = this.convertValues(source["drag_out"], DragCapability);
 	        this.clipboard_file = source["clipboard_file"];
+	        this.clipboard_rich_text = source["clipboard_rich_text"];
+	        this.open_with_apps = source["open_with_apps"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -1442,6 +1446,22 @@ export namespace main {
 	        this.recoveryPath = source["recoveryPath"];
 	        this.location = source["location"];
 	        this.path = source["path"];
+	    }
+	}
+	export class OpenWithApp {
+	    name: string;
+	    path: string;
+	    is_default: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new OpenWithApp(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.path = source["path"];
+	        this.is_default = source["is_default"];
 	    }
 	}
 	export class PluginInfo {

@@ -475,6 +475,7 @@ Object.assign(window.__testHelpers, {
   handleFolderDrop: (folderFiles, looseFiles, dirPaths) => handleFolderDrop(folderFiles, looseFiles, dirPaths),
   handlePastedFiles: (files) => handlePastedFiles(files),
   handleText: (text) => handleText(text),
+  handlePastedText: (text, html) => handlePastedText(text, html),
   pastedImageName: (fileData) => pastedImageName(fileData),
   confirmFolderDrop: (fileCount, maxDepth) => confirmFolderDrop(fileCount, maxDepth),
   parseGitignore: (content) => parseGitignore(content),
@@ -562,9 +563,12 @@ document.addEventListener('paste', e => {
     if (e.clipboardData.files.length > 0) {
         handlePastedFiles(e.clipboardData.files);
     } else {
+        // clipboardData is readable only while the event is dispatched, so
+        // both flavours are taken now and the choice is made afterwards.
         const text = e.clipboardData.getData('text/plain');
-        if (text) {
-            handleText(text);
+        const html = e.clipboardData.getData('text/html');
+        if (text || html) {
+            handlePastedText(text, html);
         }
     }
 });
@@ -1336,6 +1340,34 @@ async function handleText(text) {
         data: base64
     };
 
+    return enqueuePaste(() => upload([fileData]));
+}
+
+// A text paste: the HTML flavour becomes an .html clip when Settings → Rich
+// Text Paste asks for it, otherwise the plain text goes through handleText as
+// it always has (including pasted-path disambiguation).
+async function handlePastedText(text, html) {
+    let behavior = 'text';
+    if (window.whenPasteHtmlBehaviorReady) {
+        behavior = await window.whenPasteHtmlBehaviorReady();
+    }
+    const flavor = pasteFlavor(text, html, behavior);
+    if (flavor === 'html') return handleHtml(html);
+    if (flavor === 'text') return handleText(text);
+}
+
+async function handleHtml(html) {
+    if (isViewingArchive) {
+        showToast('Switch to Active view to upload.');
+        return;
+    }
+    const doc = pastedHtmlDocument(html);
+    if (!doc) return;
+    const fileData = {
+        name: `pasted_html_${Date.now()}.html`,
+        content_type: 'text/html',
+        data: btoa(unescape(encodeURIComponent(doc))),
+    };
     return enqueuePaste(() => upload([fileData]));
 }
 

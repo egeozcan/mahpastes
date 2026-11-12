@@ -415,7 +415,7 @@ Most bulk operations return a JSON object with the count of affected items:
 | `bulk/tag` | `{ "tagged": 3 }` |
 | `bulk/untag` | `{ "untagged": 3 }` |
 | `bulk/download` | Binary ZIP file |
-| `bulk/copy` | `204 No Content` |
+| `bulk/copy` | `204 No Content`, or `500` with the reason when the clipboard could not be written |
 
 ---
 
@@ -963,7 +963,7 @@ Content-Type: application/json
 { "clip_id": 1 }
 ```
 
-Copies the clip's raw content (text or image data) to the system clipboard. Returns `204 No Content`.
+Copies the clip's raw content (text or image data) to the system clipboard. Returns `204 No Content`, or `500` with the reason when the clipboard could not be written (for example, a Linux session with no reachable clipboard).
 
 #### Copy as file
 
@@ -976,7 +976,7 @@ Content-Type: application/json
 { "clip_id": 1 }
 ```
 
-Places a file reference on the system clipboard (macOS: NSPasteboard file URL, Windows: PowerShell SetFileDropList). You can then paste the clip as a file into Finder, Explorer, or other apps. Returns `204 No Content`.
+Places a file reference on the system clipboard (macOS: NSPasteboard file URL, Windows: PowerShell SetFileDropList, Linux: `text/uri-list`, or `x-special/gnome-copied-files` on Cinnamon, MATE, Xfce, Budgie and Pantheon). You can then paste the clip as a file into Finder, Explorer, a Linux file manager, or other apps. Returns `204 No Content`, or an error when the clipboard could not be written.
 
 ---
 

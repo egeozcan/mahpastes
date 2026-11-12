@@ -14,6 +14,12 @@ const mediaPreviewChannel = MediaPreviewChannel
 type TransferCapabilities struct {
 	DragOut       DragCapability `json:"drag_out"`
 	ClipboardFile bool           `json:"clipboard_file"`
+	// ClipboardRichText reports that HTML clips can be copied as formatted
+	// text (HTML plus a plain-text fallback) with ClipboardService.CopyClipAsRichText.
+	ClipboardRichText bool `json:"clipboard_rich_text"`
+	// OpenWithApps reports that App.ListOpenWithApps can list the
+	// applications registered for a clip's type.
+	OpenWithApps bool `json:"open_with_apps"`
 }
 
 // DragCapability describes outbound drag support for the current platform.

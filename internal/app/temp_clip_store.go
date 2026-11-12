@@ -691,6 +691,13 @@ func (s *TempClipStore) clipExists(clipID int64) (bool, error) {
 	return false, fmt.Errorf("failed to check clip %d existence: %w", clipID, err)
 }
 
+// TransferFileExtension is the extension a clip's transfer file (Open, Open
+// With, Copy as File, drag-out) is written with, so the operating system sees
+// the same file type there as in a lookup made without writing the clip.
+func TransferFileExtension(filename sql.NullString, contentType string) string {
+	return filepath.Ext(tempFilenameForClip(0, filename, contentType))
+}
+
 func tempFilenameForClip(clipID int64, filename sql.NullString, contentType string) string {
 	safeName := fmt.Sprintf("%d", clipID)
 	if filename.Valid && strings.TrimSpace(filename.String) != "" {

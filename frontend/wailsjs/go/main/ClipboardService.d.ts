@@ -3,6 +3,8 @@
 
 export function BulkCopyFilesToClipboard(arg1:Array<number>):Promise<void>;
 
+export function CopyClipAsRichText(arg1:number):Promise<void>;
+
 export function CopyClipContents(arg1:number):Promise<void>;
 
 export function CopyFileToClipboard(arg1:number):Promise<void>;

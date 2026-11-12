@@ -58,6 +58,27 @@ served over the network can't see your filesystem, so pasted paths always stay t
 | Keep the path as text | Always store the path as a text clip; never read the file |
 | Add the file it points to | Always import the file, prompting only when the path isn't a real file |
 
+### Pasting Rich Text
+
+Text copied from a browser, Mail, Notes or a word processor usually reaches the clipboard twice: as plain
+text, and as HTML that keeps its links and formatting. By default a paste keeps the plain text, as a
+`pasted_text_….txt` clip.
+
+To keep the formatting instead, set **Settings → Rich Text Paste → On paste** to **Save the formatting as
+an HTML clip**. A paste that carries HTML is then stored as a `pasted_html_….html` clip (`text/html`),
+wrapped into a complete UTF-8 page when the clipboard held only a fragment, so it opens correctly in a
+browser later. A paste without HTML still becomes a text clip and goes through the pasted-path handling
+above (a path copied in Finder or Explorer is plain text only, so it is still offered as a file); a paste
+that carries HTML is always saved as HTML. The setting works in the desktop app and in the browser UI.
+
+| Option | Behavior |
+|--------|----------|
+| Keep the plain text | Store the plain-text flavour (default) |
+| Save the formatting as an HTML clip | Store the HTML flavour whenever the paste has one |
+
+Some editors (VS Code, for example) put syntax-coloured HTML on the clipboard along with the code, so
+with the second option code pasted from them becomes an HTML clip too.
+
 ### Drag and Drop
 
 Drop files directly into the app:
@@ -110,7 +131,7 @@ These controls apply to images; videos keep their native playback controls.
 **Bottom bar:**
 - Position counter (e.g. "1/5"), filename, and media details
 - Zoom slider with percentage display for images
-- **Actions** menu with Open, Open With, Copy (Path / File / Contents), Save, Edit, Tags, Metadata, Rename, Set Expiration / Cancel Expiration, Merge Duplicates (if duplicates exist), Archive, Delete
+- **Actions** menu with Open, Open With, Copy (Path / File / Contents, plus Rich Text for HTML clips on macOS), Save, Edit, Tags, Metadata, Rename, Set Expiration / Cancel Expiration, Merge Duplicates (if duplicates exist), Archive, Delete
 - Plugin action menu (if plugins define lightbox actions)
 
 Right-clicking the image opens that same Actions menu at the pointer.
@@ -159,13 +180,14 @@ video/*        → Video player
 
 Click the three-dot menu button on any clip card, or right-click anywhere on the card, to open the context menu. The menu uses submenus to group related actions. Available actions:
 
-- **Open** -- opens the clip with the system default application
-- **Open With** -- opens a file dialog to choose an application
-- **Copy** (submenu) -- expands to show **Path**, **File**, and **Contents**
+- **Open** -- opens the clip with the system default application (`xdg-open`, falling back to `gio open`, on Linux). On Windows a file type with no registered application shows the "Open with" dialog instead
+- **Open With** -- on macOS, a submenu listing the applications registered for the clip's file type, as Finder's *Open With* does: the default application first, marked *(default)*, then the rest by name. **Other…** at the bottom opens a file dialog in `/Applications` to pick any application. The list is looked up when the submenu first opens (on macOS 11 and earlier only the default application is listed); if the lookup fails, only **Other…** is shown. On Windows, shows the native "Open with" dialog, which lists installed and Microsoft Store apps; ticking *Always use this app* there makes that app the default for the file type. On Linux it opens a file dialog to choose an application: pick the app's `.desktop` file (or switch the filter to *All Files* to pick a plain executable); the dialog starts in whichever applications directory holds the most apps -- usually `/usr/share/applications`, or the Flatpak exports on Fedora Atomic and similar. The others are `/var/lib/flatpak/exports/share/applications`, `~/.local/share/flatpak/exports/share/applications`, `~/.local/share/applications` and `/var/lib/snapd/desktop/applications`; type a path with Ctrl+L to reach them. The app is started with `gio launch`, falling back to `gtk-launch`. A Flatpak app started this way can only read the clip if its sandbox grants access to the mahpastes data folder, where the clip's temporary file lives
+- **Copy** (submenu) -- expands to show **Path**, **File**, **Contents**, and, for HTML clips on macOS, **Rich Text**
   - **Path** -- creates a temporary file and copies the absolute path to clipboard
-  - **File** -- copies the clip as a file to the system clipboard (macOS via NSPasteboard, Windows via PowerShell; not supported on Linux)
-  - **Contents** -- copies raw text or image data to the system clipboard (available for text/\*, application/json, and image/\* types; non-PNG images are converted to PNG before copying)
-- **Save** -- opens a native save dialog to export the clip to disk
+  - **File** -- copies the clip as a file to the system clipboard (macOS via NSPasteboard, Windows via PowerShell, Linux as `text/uri-list`, or `x-special/gnome-copied-files` on Cinnamon, MATE, Xfce, Budgie and Pantheon; on Linux the copied file stays on the clipboard only while mahpastes is running)
+  - **Contents** -- copies raw text or image data to the system clipboard (available for text/\*, application/json, and image/\* types; non-PNG images are converted to PNG before copying). HTML clips are copied as their source text. On macOS, JPEG, GIF and TIFF images are also offered in their original format alongside the PNG, so apps that accept it keep the original compression or GIF animation; TIFF images are offered in their original format only
+  - **Rich Text** (macOS, HTML clips) -- copies the page as formatted text: Mail, Notes, Pages and other rich-text editors paste it with its formatting and links, while plain-text fields receive its readable text rather than the markup
+- **Save** -- opens a native save dialog to export the clip to disk; in the desktop app the confirmation toast offers **Show in folder**, which shows the saved file selected in Finder, Explorer, or the Linux file manager (through the `org.freedesktop.FileManager1` service, or by opening the containing folder when no file manager provides it). In the browser UI the clip is downloaded instead
 - **Edit** -- opens the image editor or text editor (shown for editable types)
 - **Tags** -- opens the tag popover
 - **Metadata** -- opens the metadata modal for viewing and editing key-value pairs
