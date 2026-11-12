@@ -55,8 +55,8 @@ The settings tell you when the entry needs attention instead of changing it behi
 - **Points at a missing app**: the copy that made the entry was moved or deleted. Turn the setting off
   and on again.
 
-Uninstalling with `make uninstall` (or `scripts/linux/install.sh --uninstall`) removes the entry too
-(on Linux only when it starts the installed copy).
+Uninstalling with `make uninstall` (or `scripts/linux/install.sh --uninstall`), or with the Windows
+installer's uninstaller, removes the entry too (on Linux only when it starts the installed copy).
 
 :::note macOS
 macOS may list mahpastes under **System Settings > General > Login Items** as a background item. The

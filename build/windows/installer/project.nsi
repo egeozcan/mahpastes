@@ -120,6 +120,11 @@ Section "uninstall"
     !insertmacro wails.unassociateFiles
     !insertmacro wails.unassociateCustomProtocols
 
+    # Launch at login (Settings > Background & Startup) writes this per-user
+    # value (runKeyValueName in internal/autostart); without the app it would
+    # point at nothing.
+    DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "mahpastes"
+
     !insertmacro wails.deleteUninstaller
 
     # Not recursive: the folder goes only if it is now empty (uninstall.exe was
