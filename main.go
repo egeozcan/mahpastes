@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -37,7 +36,7 @@ func main() {
 		} else {
 			defer lw.Close()
 			logWriter = lw
-			log.SetOutput(io.MultiWriter(os.Stderr, lw))
+			log.SetOutput(lw.Tee(os.Stderr))
 			// log.SetOutput does not capture runtime panic traces.
 			if err := lw.CaptureCrashes(); err != nil {
 				log.Printf("crash output unavailable: %v", err)

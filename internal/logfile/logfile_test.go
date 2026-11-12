@@ -178,3 +178,24 @@ func TestWriteAfterCloseFails(t *testing.T) {
 		t.Fatalf("err = %v, want os.ErrClosed", err)
 	}
 }
+
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) { return 0, os.ErrInvalid }
+
+func TestTeeWritesFileWhenConsoleFails(t *testing.T) {
+	dir := t.TempDir()
+	w, err := open(dir, MaxSize)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	n, err := w.Tee(failingWriter{}).Write([]byte("hello\n"))
+	if err != nil || n != 6 {
+		t.Fatalf("Write = %d, %v; want 6, nil", n, err)
+	}
+	got, err := os.ReadFile(logPath(dir))
+	if err != nil || string(got) != "hello\n" {
+		t.Fatalf("log = %q, %v", got, err)
+	}
+}

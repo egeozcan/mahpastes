@@ -4,6 +4,7 @@
 package logfile
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"runtime/debug"
@@ -158,6 +159,30 @@ func (w *Writer) Write(p []byte) (int, error) {
 	n, err := w.f.Write(p)
 	w.size += int64(n)
 	return n, err
+}
+
+// Tee returns a writer for log.SetOutput that writes to the log file and then
+// to console, ignoring console errors. io.MultiWriter stops at the first
+// failing writer, and a Windows GUI exe launched from Explorer has no stderr,
+// so every write to it fails.
+func (w *Writer) Tee(console io.Writer) io.Writer {
+	return tee{file: w, console: console}
+}
+
+type tee struct {
+	file    *Writer
+	console io.Writer
+}
+
+func (t tee) Write(p []byte) (int, error) {
+	n, err := t.file.Write(p)
+	if t.console != nil {
+		_, _ = t.console.Write(p)
+	}
+	if err != nil {
+		return n, err
+	}
+	return len(p), nil
 }
 
 // Close closes the file and stops sending crash traces to it.
