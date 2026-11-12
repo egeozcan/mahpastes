@@ -225,7 +225,9 @@ test.describe('Gallery render cost', () => {
       const w = window as any;
       w.__toasts = [];
       const toast = w.showToast;
-      w.showToast = (msg: string, type: string) => { w.__toasts.push({ msg, type }); return toast(msg, type); };
+      // Pass every argument through: dropping the third (a toast's action)
+      // would strip the button from any toast shown while this spy is in place.
+      w.showToast = (...args: any[]) => { w.__toasts.push({ msg: args[0], type: args[1] }); return toast(...args); };
       const list = w.go.main.App.ListClipsPage;
       w.go.main.App.ListClipsPage = async (req: any) => {
         if (req.offset > 0 && !w.__superseded) {
