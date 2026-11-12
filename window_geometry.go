@@ -37,6 +37,15 @@ func saveWindowGeometry(b *wailsbridge.Bridge, dataDir string) {
 // the current screen, and the position. Size and maximised state are already
 // set through options.App.
 func restoreWindowGeometry(b *wailsbridge.Bridge, saved windowstate.State) {
+	// On Windows the window always opens on the default monitor and the saved
+	// position is absolute, so move first: the size is then clamped against
+	// the monitor the window landed on (Wails reports the window's monitor as
+	// current), not shrunk to the default one. Elsewhere the position is
+	// relative to the current screen and its visibility is judged at the
+	// clamped size, so the size comes first and the move after.
+	if nativeWindowPositioning && !saved.Maximised && saved.HasPos {
+		moveWindowNative(saved.X, saved.Y)
+	}
 	var screen *windowstate.Screen
 	if w, h, ok := b.CurrentScreenSize(); ok {
 		screen = &windowstate.Screen{Width: w, Height: h}
@@ -44,13 +53,6 @@ func restoreWindowGeometry(b *wailsbridge.Bridge, saved windowstate.State) {
 	plan := windowstate.PlanRestore(saved, screen, !nativeWindowPositioning)
 	if plan.Resize {
 		b.WindowSetSize(plan.Width, plan.Height)
-	}
-	if saved.Maximised || !saved.HasPos {
-		return
-	}
-	if nativeWindowPositioning {
-		moveWindowNative(saved.X, saved.Y)
-		return
 	}
 	if plan.Move {
 		b.WindowSetPosition(plan.X, plan.Y)

@@ -36,10 +36,12 @@ const edgeSlack = 16
 // State is the persisted geometry. X/Y are only meaningful when HasPos is set.
 //
 // Width/Height are logical (DPI-independent) pixels as Wails reports them.
-// X/Y are in whatever space the platform's position getter uses: on macOS and
-// Linux they are relative to the screen the window was on (Wails'
-// WindowGetPosition), on Windows they are absolute virtual-desktop physical
-// pixels (GetWindowRect), which lets a window come back on a second monitor.
+// X/Y are in whatever space Wails' WindowGetPosition reports: on macOS they
+// are relative to the visible frame of the screen the window was on; on Linux
+// they are root-window coordinates (which match the setter's monitor-relative
+// space only on a monitor at the desktop origin); on Windows they are absolute
+// virtual-desktop physical pixels (GetWindowRect), which the Windows restore
+// path sets back directly so a window can return to a second monitor.
 type State struct {
 	Width     int  `json:"width"`
 	Height    int  `json:"height"`
