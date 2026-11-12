@@ -15,6 +15,13 @@
     "productName": "mahpastes",
     "productVersion": "1.5.0",
     "copyright": "Copyright © mahpastes contributors",
-    "comments": "A local clipboard manager"
+    "comments": "A local clipboard manager",
+    "protocols": [
+      {
+        "scheme": "mahpastes",
+        "description": "mahpastes clip link",
+        "role": "Viewer"
+      }
+    ]
   }
 }

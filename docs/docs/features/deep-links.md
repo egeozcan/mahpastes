@@ -42,7 +42,7 @@ A link mahpastes does not understand is reported and otherwise ignored.
 |----------|-------|
 | macOS | Works once the app is in `/Applications` (or anywhere else macOS has registered it, for example after you opened it once). |
 | Linux | Works after `make install` (`scripts/linux/install.sh`), whose desktop entry registers the `mahpastes:` scheme. |
-| Windows | The zip release does not register the scheme. You can still pass a link on the command line: `mahpastes.exe mahpastes://clip/42`. |
+| Windows | The installer registers the scheme (and its uninstaller removes it). The zip release and `make install` do not; there you can still pass a link on the command line: `mahpastes.exe mahpastes://clip/42`. |
 
 Browsers ask before handing a link to an app; choose to open mahpastes.
 
