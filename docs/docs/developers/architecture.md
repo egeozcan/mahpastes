@@ -236,7 +236,8 @@ fsnotify event
         │
         ▼
 WatcherManager
-  - Debounce (500ms)
+  - Skip hidden, in-progress (.part, ...) and empty files
+  - Debounce (500ms, until size/mtime settle)
   - Check filter
   - Read file
         │
