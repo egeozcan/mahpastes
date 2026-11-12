@@ -314,6 +314,10 @@ export function RestoreBackup(arg1, arg2) {
   return window['go']['main']['App']['RestoreBackup'](arg1, arg2);
 }
 
+export function RevealInFileManager(arg1) {
+  return window['go']['main']['App']['RevealInFileManager'](arg1);
+}
+
 export function SaveClipToFile(arg1) {
   return window['go']['main']['App']['SaveClipToFile'](arg1);
 }

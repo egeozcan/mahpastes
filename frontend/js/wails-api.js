@@ -1169,7 +1169,15 @@ async function getClipText(id) {
 async function saveClipToFile(id) {
     try {
         // Resolves to the path written, or "" when the dialog was cancelled.
-        await window.go.main.App.SaveClipToFile(id);
+        const savedPath = await window.go.main.App.SaveClipToFile(id);
+        // Desktop only: server mode downloads through the browser instead.
+        if (savedPath && window.go.main.App.RevealInFileManager) {
+            showToast('Saved clip to file', 'success', {
+                label: 'Show in folder',
+                onClick: () => window.go.main.App.RevealInFileManager(savedPath).catch(
+                    (e) => showToast('Failed to show file: ' + errText(e), 'error')),
+            });
+        }
     } catch (error) {
         console.error('Error saving clip to file:', error);
         showToast('Failed to save file: ' + errText(error), 'error');

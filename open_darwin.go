@@ -38,3 +38,11 @@ func chooseApplicationDialog(b *wailsbridge.Bridge) (string, error) {
 	}
 	return path, nil
 }
+
+func revealInFileManager(path string) error {
+	cmd := exec.Command("open", "-R", path)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to reveal file: %w: %s", err, string(out))
+	}
+	return nil
+}

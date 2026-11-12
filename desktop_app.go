@@ -241,6 +241,18 @@ func (d *App) OpenClipWithApp(id int64, appPath string) error {
 	return openFileWithApp(item.AbsPath, appPath)
 }
 
+// RevealInFileManager shows a file (such as one just saved) selected in the
+// platform file manager.
+func (d *App) RevealInFileManager(path string) error {
+	if path == "" {
+		return fmt.Errorf("path is required")
+	}
+	if _, err := os.Stat(path); err != nil {
+		return fmt.Errorf("file not found: %w", err)
+	}
+	return revealInFileManager(path)
+}
+
 func (d *App) ChooseApplication() (string, error) {
 	return chooseApplicationDialog(d.bridge)
 }

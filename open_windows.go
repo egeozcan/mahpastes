@@ -5,6 +5,7 @@ package main
 import (
 	"fmt"
 	"os/exec"
+	"path/filepath"
 
 	"go-clipboard/internal/wailsbridge"
 )
@@ -37,4 +38,15 @@ func chooseApplicationDialog(b *wailsbridge.Bridge) (string, error) {
 		return "", fmt.Errorf("failed to open file dialog: %w", err)
 	}
 	return path, nil
+}
+
+// revealInFileManager opens Explorer with the file selected. explorer.exe
+// exits non-zero even on success, so only a failure to start is an error.
+func revealInFileManager(path string) error {
+	cmd := exec.Command("explorer", "/select,"+filepath.Clean(path))
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to reveal file: %w", err)
+	}
+	go func() { _ = cmd.Wait() }()
+	return nil
 }

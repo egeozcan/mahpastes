@@ -314,6 +314,7 @@
             const clip = await fetchJSON(`${api}/clips/${id}`);
             return await downloadBlob(`${api}/clips/${id}/data`, clip.filename || `clip_${id}`);
         },
+        RevealInFileManager: async () => { throw new Error('reveal is desktop-only in server mode'); },
         CopyToClipboard: async (text) => navigator.clipboard ? navigator.clipboard.writeText(text) : undefined,
         ChooseApplication: async () => { throw new Error('application picker is desktop-only in server mode'); },
         OpenClipWithDefaultApp: async (id) => window.open(`${api}/clips/${id}/data`, '_blank', 'noopener'),

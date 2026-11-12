@@ -434,7 +434,7 @@ function createModalFocus(modal) {
     };
 }
 
-function showToast(message, type = 'info') {
+function showToast(message, type = 'info', action = null) {
     const toast = document.getElementById('toast');
 
     // Color mapping
@@ -452,6 +452,19 @@ function showToast(message, type = 'info') {
     toast.classList.add(colorClass);
 
     toast.textContent = message;
+    if (action && action.label && typeof action.onClick === 'function') {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'ml-3 underline font-medium';
+        btn.dataset.testid = 'toast-action';
+        btn.textContent = action.label;
+        btn.addEventListener('click', () => {
+            toast.classList.remove('translate-x-0', 'opacity-100');
+            toast.classList.add('translate-x-full', 'opacity-0');
+            action.onClick();
+        });
+        toast.appendChild(btn);
+    }
     toast.classList.remove('translate-x-full', 'opacity-0');
     toast.classList.add('translate-x-0', 'opacity-100');
 
@@ -462,7 +475,7 @@ function showToast(message, type = 'info') {
     window.toastTimeout = setTimeout(() => {
         toast.classList.remove('translate-x-0', 'opacity-100');
         toast.classList.add('translate-x-full', 'opacity-0');
-    }, 3000);
+    }, action ? 8000 : 3000);
 }
 
 function copyToClipboard(text) {
