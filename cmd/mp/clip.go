@@ -857,19 +857,6 @@ func postRaw(c *client.Client, path string, body io.Reader) (io.ReadCloser, erro
 	return resp.Body, nil
 }
 
-// --- clip open ---
-
-var clipOpenCmd = &cobra.Command{
-	Use:   "open <id>",
-	Short: "Open a clip (desktop app only)",
-	Long:  `Open a clip in the desktop app. This command requires the mahpastes desktop application.`,
-	Example: `  mp clip open 42`,
-	Args:    cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return fmt.Errorf("open requires the mahpastes desktop app")
-	},
-}
-
 // --- clip metadata ---
 
 var clipMetadataCmd = &cobra.Command{
@@ -879,9 +866,9 @@ var clipMetadataCmd = &cobra.Command{
 }
 
 var clipMetadataListCmd = &cobra.Command{
-	Use:   "list <id>",
-	Short: "List all metadata for a clip",
-	Long:  `Display all metadata key-value pairs for a clip.`,
+	Use:     "list <id>",
+	Short:   "List all metadata for a clip",
+	Long:    `Display all metadata key-value pairs for a clip.`,
 	Example: `  mp clip metadata list 42`,
 	Args:    cobra.ExactArgs(1),
 	RunE:    runClipMetadataList,
@@ -923,9 +910,9 @@ func runClipMetadataList(cmd *cobra.Command, args []string) error {
 }
 
 var clipMetadataGetCmd = &cobra.Command{
-	Use:   "get <id> <key>",
-	Short: "Get a metadata value",
-	Long:  `Get the value of a specific metadata key for a clip.`,
+	Use:     "get <id> <key>",
+	Short:   "Get a metadata value",
+	Long:    `Get the value of a specific metadata key for a clip.`,
 	Example: `  mp clip metadata get 42 author`,
 	Args:    cobra.ExactArgs(2),
 	RunE:    runClipMetadataGet,
@@ -1001,9 +988,9 @@ func runClipMetadataSet(cmd *cobra.Command, args []string) error {
 }
 
 var clipMetadataDeleteCmd = &cobra.Command{
-	Use:   "delete <id> <key>",
-	Short: "Delete a metadata key",
-	Long:  `Remove a metadata key-value pair from a clip.`,
+	Use:     "delete <id> <key>",
+	Short:   "Delete a metadata key",
+	Long:    `Remove a metadata key-value pair from a clip.`,
 	Example: `  mp clip metadata delete 42 author`,
 	Args:    cobra.ExactArgs(2),
 	RunE:    runClipMetadataDelete,
