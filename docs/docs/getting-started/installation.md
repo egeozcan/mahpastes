@@ -161,6 +161,10 @@ Try pasting something:
 
 Your first clip should appear in the gallery.
 
+## Version and Update Notices
+
+**Settings → About** shows the installed version. Once a day mahpastes asks GitHub's public releases endpoint whether a newer release exists and, if so, shows a dismissible notice linking to the release page; it never downloads or installs anything. The request is anonymous (no version, no identifiers). Switch it off with **Settings → About → Check for new releases**. Headless runs (`mahpastesd`, e2e) never check.
+
 ## Next Steps
 
 - Learn the basics in [Quick Start](./quick-start)

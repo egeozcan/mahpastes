@@ -8,6 +8,10 @@ Complete reference for all keyboard shortcuts in mahpastes. Press <span classNam
 
 ![Keyboard shortcuts cheatsheet](/img/screenshots/shortcuts-cheatsheet.png)
 
+## macOS Menu Bar
+
+On macOS the menu bar mirrors the most common actions: **File** (Import Files, Import Folder, Settings with <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">,</span>), **View** (Archive, Folder Mode, Watch Folders, Serve, Plugins) and **Help** (Keyboard Shortcuts, Documentation). A menu item does what its keyboard shortcut does and does nothing while a dialog, the import wizard or the editor is in front, the same as the key. Windows and Linux keep the shortcuts below and have no menu bar.
+
 ## System
 
 | Shortcut | Action |

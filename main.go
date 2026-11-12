@@ -2,25 +2,37 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 
 	webui "go-clipboard/frontend"
 	coreapp "go-clipboard/internal/app"
 	"go-clipboard/internal/bridgeiface"
+	"go-clipboard/internal/buildinfo"
 	"go-clipboard/internal/logfile"
 	"go-clipboard/internal/osnotify"
 	"go-clipboard/internal/wailsbridge"
 	"go-clipboard/internal/windowstate"
 
 	"github.com/wailsapp/wails/v2"
+	"github.com/wailsapp/wails/v2/pkg/menu"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"github.com/wailsapp/wails/v2/pkg/options/linux"
 	"github.com/wailsapp/wails/v2/pkg/options/mac"
+	"github.com/wailsapp/wails/v2/pkg/options/windows"
 )
+
+// appIcon is a 256px copy of build/appicon.png for the window icon (Linux)
+// and the About panel (macOS); the full-size source is 1536px.
+//
+//go:embed build/appicon-256.png
+var appIcon []byte
 
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
@@ -84,6 +96,8 @@ func main() {
 	markdownService := NewMarkdownService(core)
 	fileProviderService := &FileProviderService{onMount: core.SetProjectionMount}
 	notificationService := NewNotificationService(core)
+	appInfoService := NewAppInfoService(core)
+	menuEvents := &menuEmitter{}
 
 	core.SetClipboardService(clipboardService)
 	transferHandler := coreapp.NewTransferFileHandler(core)
@@ -101,6 +115,7 @@ func main() {
 		markdownService,
 		fileProviderService,
 		notificationService,
+		appInfoService,
 	}
 	if selfTest != nil {
 		// Presence of this binding is how the frontend detects self-test mode.
@@ -124,6 +139,12 @@ func main() {
 	// after some changes); the saved geometry is applied on the first load only.
 	var restoreOnce sync.Once
 
+	// The macOS menu bar; other platforms keep a menu-less window.
+	var appMenu *menu.Menu
+	if runtime.GOOS == "darwin" {
+		appMenu = buildAppMenu(menuEvents)
+	}
+
 	err = wails.Run(&options.App{
 		Title:            "mahpastes",
 		Width:            winW,
@@ -137,9 +158,11 @@ func main() {
 			Handler: transferHandler,
 		},
 		BackgroundColour: &options.RGBA{R: 248, G: 250, B: 252, A: 1},
+		Menu:             appMenu,
 		OnStartup: func(ctx context.Context) {
 			bridge := wailsbridge.New(ctx)
 			desktopApp.setBridge(bridge)
+			menuEvents.set(bridge.Emit)
 			pluginService.setBridge(bridge)
 			if selfTest != nil {
 				selfTest.setBridge(bridge)
@@ -200,6 +223,9 @@ func main() {
 			if notifier != nil {
 				notifier.Start()
 			}
+			if !headless && !generatingBindings {
+				appInfoService.start(ctx, bridge)
+			}
 		},
 		OnDomReady: func(ctx context.Context) {
 			if !haveSaved {
@@ -216,6 +242,7 @@ func main() {
 			return false
 		},
 		OnShutdown: func(ctx context.Context) {
+			appInfoService.stop()
 			notificationService.stop()
 			fileProviderService.stop()
 			core.Shutdown(ctx)
@@ -235,8 +262,22 @@ func main() {
 			},
 			About: &mac.AboutInfo{
 				Title:   "mahpastes",
-				Message: "A local clipboard manager",
+				Message: "A local clipboard manager\nVersion " + buildinfo.Current(),
+				Icon:    appIcon,
 			},
+		},
+		// The UI has no dark styles, so keep the title bar light even when
+		// Windows is in dark mode.
+		Windows: &windows.Options{
+			Theme: windows.Light,
+		},
+		// ProgramName fixes the GTK program name / Wayland app_id and Icon
+		// the window icon (X11, un-installed runs). The GPU policy is spelled
+		// out because a non-nil Linux block would otherwise default to Always.
+		Linux: &linux.Options{
+			Icon:             appIcon,
+			ProgramName:      "mahpastes",
+			WebviewGpuPolicy: linux.WebviewGpuPolicyNever,
 		},
 	})
 

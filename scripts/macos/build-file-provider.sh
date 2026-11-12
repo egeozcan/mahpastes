@@ -39,7 +39,14 @@ else
     # Bindings intentionally use the non-native implementation. Ordinary builds
     # never compile the extension or enable the fileprovider tag.
     "$wails_bin" generate module
-    MACOSX_DEPLOYMENT_TARGET=13.0 "$wails_bin" build -platform darwin/universal -tags fileprovider -skipbindings
+    # Stamp the version like the Makefile does (internal/buildinfo); `make`
+    # exports MAHPASTES_LDFLAGS, a direct run computes it from git.
+    ldflags="${MAHPASTES_LDFLAGS:-}"
+    if [[ -z "$ldflags" ]]; then
+        ldflags="-X go-clipboard/internal/buildinfo.Version=$(git describe --tags --always --dirty 2>/dev/null || echo dev)"
+        ldflags="$ldflags -X go-clipboard/internal/buildinfo.Commit=$(git rev-parse --short HEAD 2>/dev/null || true)"
+    fi
+    MACOSX_DEPLOYMENT_TARGET=13.0 "$wails_bin" build -platform darwin/universal -tags fileprovider -skipbindings -ldflags "$ldflags"
     # An app extension is an executable with NSExtensionMain as its entry point.
     # Command Line Tools provide the compiler, SDK and linker for both slices;
     # Xcode's project generator and build system are not needed for packaging.

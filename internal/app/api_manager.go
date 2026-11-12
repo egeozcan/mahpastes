@@ -31,6 +31,7 @@ import (
 	"unicode/utf8"
 
 	"go-clipboard/internal/bridgeiface"
+	"go-clipboard/internal/buildinfo"
 	"go-clipboard/internal/cliptype"
 	"go-clipboard/plugin"
 )
@@ -42,6 +43,9 @@ type APIStatus struct {
 	BindAll      bool   `json:"bind_all"`
 	URL          string `json:"url"`
 	RequestCount int64  `json:"request_count"`
+	// Version is the app version, so clients such as mp can spot a
+	// CLI/app mismatch. Always set, also when the server is stopped.
+	Version string `json:"version"`
 }
 
 // APIKeyInfo is the public info about an API key (never includes the secret).
@@ -514,6 +518,7 @@ func (am *APIManager) Start(port int, bindAll bool) (APIStatus, error) {
 		BindAll:      bindAll,
 		URL:          displayServerURL(actualPort),
 		RequestCount: 0,
+		Version:      buildinfo.Current(),
 	}, nil
 }
 
@@ -553,10 +558,11 @@ func (am *APIManager) GetStatus() APIStatus {
 	defer am.mu.RUnlock()
 
 	if !am.running {
-		return APIStatus{}
+		return APIStatus{Version: buildinfo.Current()}
 	}
 
 	return APIStatus{
+		Version:      buildinfo.Current(),
 		Running:      true,
 		Port:         am.port,
 		BindAll:      am.bindAll,

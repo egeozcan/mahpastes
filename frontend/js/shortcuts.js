@@ -238,6 +238,18 @@ const ShortcutManager = (() => {
         actions.set(def.id, { ...def });
     }
 
+    // Runs a registered action on behalf of a native menu item. The action
+    // runs only when its context is live right now, exactly as if its key had
+    // been pressed, so a menu click cannot open Settings on top of a modal or
+    // the import wizard. Returns whether it ran.
+    function runAction(id) {
+        const action = actions.get(id);
+        if (!action || !action.callback) return false;
+        if (!getActiveContexts().includes(action.context)) return false;
+        action.callback();
+        return true;
+    }
+
     // --- Binding Resolution ---
 
     function rebuildBindings() {
@@ -708,6 +720,7 @@ const ShortcutManager = (() => {
         closeCheatSheet,
         isCheatSheetOpen,
         renderCheatSheet,
+        runAction,
         get actions() { return actions; },
         get userOverrides() { return userOverrides; },
         CATEGORY_ORDER,

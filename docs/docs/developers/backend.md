@@ -464,6 +464,16 @@ wails build -platform windows/amd64
 wails build -platform linux/amd64
 ```
 
+### Version stamping
+
+The version shown in Settings → About, the backup manifest and `GET /api/v1/status` comes from `internal/buildinfo`. `wails build` passes `-buildvcs=false`, so the version must be injected with the linker:
+
+```bash
+wails build -ldflags "-X go-clipboard/internal/buildinfo.Version=v1.6.0 -X go-clipboard/internal/buildinfo.Commit=$(git rev-parse --short HEAD)"
+```
+
+`make build`, `make mp`, `make mahpastesd` (and their `-cross` variants), `scripts/linux/wails.sh build` and `scripts/macos/build-file-provider.sh` add these flags from `git describe --tags` automatically (`make build VERSION=v1.6.0` overrides it). An unstamped `go build` falls back to the module version Go embeds, else `dev`. For Windows, set `info.productVersion` in `wails.json` to the numeric `x.y.z` release (CI rewrites it from the tag); it feeds the file Properties and the manifest.
+
 ## Testing
 
 ### Go Unit Tests

@@ -25,6 +25,7 @@ var boundServiceTypes = []interface{}{
 	&MarkdownService{},
 	&FileProviderService{},
 	&NotificationService{},
+	&AppInfoService{},
 	&SelfTestService{},
 }
 

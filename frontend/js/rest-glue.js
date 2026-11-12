@@ -430,6 +430,16 @@
         SetNotificationsEnabled: async () => { throw new Error('system notifications are desktop-only'); },
         SendTestNotification: async () => { throw new Error('system notifications are desktop-only'); },
     };
+    // The server reports its version through /status; the release check is a
+    // desktop-app feature (the toggle is .desktop-only).
+    window.go.main.AppInfoService = {
+        GetAppInfo: async () => {
+            let version = '';
+            try { version = (await fetchJSON(`${api}/status`)).version || ''; } catch (e) { /* shown as unknown */ }
+            return { version, commit: '', update_check_enabled: false, update: null };
+        },
+        SetUpdateCheckEnabled: async () => { throw new Error('the release check is desktop-only'); },
+    };
     // Clipboard copy targets the host's clipboard, which is meaningless for a
     // remote browser user — desktop-only, like drag-out transfers. The UI
     // surfaces that call these are already hidden in server mode.

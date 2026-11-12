@@ -90,7 +90,7 @@ backup.zip
 
 The `manifest.json` contains:
 - Format version (for compatibility)
-- App version that created the backup
+- App version that created the backup (the release version stamped into the build, for example `v1.5.0`)
 - Creation timestamp
 - Platform (the OS that created the backup)
 - Summary (clip count, tag count, plugin count, watch folder count)

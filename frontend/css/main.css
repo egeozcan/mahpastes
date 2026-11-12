@@ -482,6 +482,28 @@ li[data-folder][data-hidden="true"] {
     opacity: 1;
 }
 
+/* "New release available" notice (js/app-info.js) */
+.update-banner {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    z-index: 60;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    max-width: calc(100vw - 32px);
+    padding: 10px 12px;
+    font-size: 12px;
+    color: #44403c; /* stone-700 */
+    background: #fff;
+    border: 1px solid #d6d3d1; /* stone-300 */
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(28, 25, 23, 0.12);
+}
+.update-banner a { color: #1c1917; font-weight: 600; text-decoration: underline; cursor: pointer; }
+.update-banner button { color: #78716c; font-size: 16px; line-height: 1; padding: 0 4px; cursor: pointer; }
+.update-banner button:hover { color: #1c1917; }
+
 .server-mode .desktop-only {
     display: none !important;
 }
