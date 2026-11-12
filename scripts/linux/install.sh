@@ -8,8 +8,9 @@
 #   $PREFIX/share/applications/mahpastes.desktop
 #   $PREFIX/share/icons/hicolor/<size>/apps/mahpastes.png
 # Bundled plugins are copied into the app's data directory, which the app reads
-# from ~/.config/mahpastes (or $XDG_CONFIG_HOME/mahpastes when that is absolute
-# and ~/.config/mahpastes does not exist) unless MAHPASTES_DATA_DIR overrides it.
+# from ~/.config/mahpastes, or $XDG_CONFIG_HOME/mahpastes when XDG_CONFIG_HOME is
+# absolute and no ~/.config/mahpastes library predates it (see resolve_data_dir),
+# unless MAHPASTES_DATA_DIR overrides it.
 set -euo pipefail
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -18,17 +19,26 @@ APP_NAME=mahpastes
 PREFIX="${PREFIX:-$HOME/.local}"
 BINDIR="${BINDIR:-$PREFIX/bin}"
 DATAROOT="${DATAROOT:-$PREFIX/share}"
-# Same rule as the app: an existing ~/.config/mahpastes wins, then an absolute
-# XDG_CONFIG_HOME, then ~/.config.
-if [ -d "$HOME/.config/$APP_NAME" ]; then
-    default_data_dir="$HOME/.config/$APP_NAME"
-else
+# Same rule as the app (resolveLinuxDataDir in internal/app/database.go):
+# an existing $XDG_CONFIG_HOME/mahpastes (XDG_CONFIG_HOME absolute), then an
+# existing ~/.config/mahpastes, then $XDG_CONFIG_HOME/mahpastes for a fresh
+# install, else ~/.config/mahpastes.
+resolve_data_dir() {
+    local legacy="$HOME/.config/$APP_NAME" xdg=""
     case "${XDG_CONFIG_HOME:-}" in
-        /*) default_data_dir="$XDG_CONFIG_HOME/$APP_NAME" ;;
-        *) default_data_dir="$HOME/.config/$APP_NAME" ;;
+        /*) xdg="${XDG_CONFIG_HOME%/}/$APP_NAME" ;;
     esac
-fi
-DATA_DIR="${MAHPASTES_DATA_DIR:-$default_data_dir}"
+    if [ -z "$xdg" ] || [ "$xdg" = "$legacy" ]; then
+        echo "$legacy"
+    elif [ -e "$xdg" ]; then
+        echo "$xdg"
+    elif [ -e "$legacy" ]; then
+        echo "$legacy"
+    else
+        echo "$xdg"
+    fi
+}
+DATA_DIR="${MAHPASTES_DATA_DIR:-$(resolve_data_dir)}"
 binary="$BINDIR/$APP_NAME"
 desktop="$DATAROOT/applications/$APP_NAME.desktop"
 icon_root="$DATAROOT/icons/hicolor"

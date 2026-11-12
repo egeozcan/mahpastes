@@ -189,7 +189,9 @@ Data is stored in platform-specific locations:
 |----------|----------|
 | macOS    | `~/Library/Application Support/mahpastes/` |
 | Windows  | `%APPDATA%\mahpastes\` |
-| Linux    | `~/.config/mahpastes/` (or `$XDG_CONFIG_HOME/mahpastes/` if set to an absolute path and `~/.config/mahpastes/` does not exist) |
+| Linux    | `~/.config/mahpastes/`, or `$XDG_CONFIG_HOME/mahpastes/` (see below) |
+
+On Linux, `$XDG_CONFIG_HOME/mahpastes/` is used when `XDG_CONFIG_HOME` is an absolute path and either that directory already exists or `~/.config/mahpastes/` does not. An existing library is never moved: if you used mahpastes before setting `XDG_CONFIG_HOME`, it stays in `~/.config/mahpastes/`. `mahpastesd` and `scripts/linux/install.sh` follow the same rule; `MAHPASTES_DATA_DIR` overrides it everywhere.
 
 The database file is `clips.db`. Temporary files are stored in `clip_temp_files/` and cleaned up on app exit.
 

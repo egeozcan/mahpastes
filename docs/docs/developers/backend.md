@@ -403,10 +403,12 @@ func getDataDir() (string, error) {
     case "windows":
         return filepath.Join(os.Getenv("APPDATA"), "mahpastes"), nil
     default: // Linux
-        return filepath.Join(homeDir, ".config", "mahpastes"), nil
+        return resolveLinuxDataDir(homeDir, os.Getenv("XDG_CONFIG_HOME")), nil
     }
 }
 ```
+
+`MAHPASTES_DATA_DIR` overrides every platform. On Linux, `resolveLinuxDataDir` picks an existing `$XDG_CONFIG_HOME/mahpastes` (absolute `XDG_CONFIG_HOME` only), then an existing `~/.config/mahpastes`, then `$XDG_CONFIG_HOME/mahpastes` for a fresh install, else `~/.config/mahpastes`, so a library that already exists never moves. `scripts/linux/install.sh` mirrors the rule in `resolve_data_dir`.
 
 ## Dependencies
 
