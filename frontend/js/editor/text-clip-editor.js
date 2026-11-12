@@ -643,8 +643,11 @@ const TextClipEditor = (() => {
 
     function updateSaveState(value) {
         if (!active) return;
+        const dirty = isDirty(value);
         const saveButton = element('editor-save-in-place');
-        if (saveButton) saveButton.disabled = !isDirty(value);
+        if (saveButton) saveButton.disabled = !dirty;
+        // Lets quitting the app ask about unsaved changes (editor.js).
+        if (typeof reportUnsavedEditorChanges === 'function') reportUnsavedEditorChanges(dirty);
     }
 
     // --- search ---------------------------------------------------------------

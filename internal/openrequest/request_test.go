@@ -74,6 +74,16 @@ func TestFromArgs(t *testing.T) {
 			args: []string{"", ""},
 			want: Request{Activate: true},
 		},
+		{
+			name: "the hidden flag does not activate",
+			args: []string{"--hidden"},
+			want: Request{},
+		},
+		{
+			name: "after a double dash the hidden flag is a file name",
+			args: []string{"--", "--hidden"},
+			want: Request{Activate: true, Files: []string{filepath.Join(cwd, "--hidden")}},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -148,11 +158,30 @@ func TestStripOwnFlags(t *testing.T) {
 		{[]string{"mahpastes", "--paste-clipboard"}, []string{"mahpastes"}},
 		{[]string{"mahpastes", "-loglevel", "debug", "--paste-clipboard", "a.png"}, []string{"mahpastes", "-loglevel", "debug", "a.png"}},
 		{[]string{"mahpastes", "--", "--paste-clipboard"}, []string{"mahpastes", "--", "--paste-clipboard"}},
+		{[]string{"mahpastes", "--hidden", "-loglevel", "debug"}, []string{"mahpastes", "-loglevel", "debug"}},
+		{[]string{"mahpastes", "--", "--hidden"}, []string{"mahpastes", "--", "--hidden"}},
 		// The program name is never touched, whatever it is called.
 		{[]string{"--paste-clipboard"}, []string{"--paste-clipboard"}},
 	} {
 		if got := StripOwnFlags(tt.in); !reflect.DeepEqual(got, tt.want) {
 			t.Errorf("StripOwnFlags(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
+func TestWantsStartHidden(t *testing.T) {
+	for _, tt := range []struct {
+		args []string
+		want bool
+	}{
+		{nil, false},
+		{[]string{"--hidden"}, true},
+		{[]string{"-loglevel", "debug", "--hidden"}, true},
+		{[]string{"--", "--hidden"}, false},
+		{[]string{"--hidden-not"}, false},
+	} {
+		if got := WantsStartHidden(tt.args); got != tt.want {
+			t.Errorf("WantsStartHidden(%q) = %v, want %v", tt.args, got, tt.want)
 		}
 	}
 }

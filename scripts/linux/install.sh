@@ -47,6 +47,11 @@ if [[ "${1:-}" == --uninstall ]]; then
     stop_app
     rm -f "$binary" "$desktop"
     rm -f "$icon_root"/*/apps/"$APP_NAME".png
+    # Launch at login (Settings > Background & Startup), when it starts this copy.
+    autostart="${XDG_CONFIG_HOME:-$HOME/.config}/autostart/$APP_NAME.desktop"
+    if [[ -f "$autostart" ]] && grep -qF "$binary" "$autostart"; then
+        rm -f "$autostart"
+    fi
     refresh_desktop_caches
     echo "Removed $APP_NAME from $PREFIX (data in $DATA_DIR was kept)"
     exit 0

@@ -5,10 +5,14 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"runtime"
+	"syscall"
 
 	webui "go-clipboard/frontend"
 	coreapp "go-clipboard/internal/app"
+	"go-clipboard/internal/desktopprefs"
 	"go-clipboard/internal/openrequest"
 	"go-clipboard/internal/wailsbridge"
 
@@ -32,8 +36,11 @@ func main() {
 	// Files and mahpastes:// URLs on the command line (Send To, a drop onto the
 	// exe or launcher, a file manager's Open With), or nothing for a plain launch.
 	launch := launchRequest(selfTestWorker)
+	// --hidden: started by the launch at login entry, which asks for no window.
+	wantHidden := !selfTestWorker && !generatingBindings && openrequest.WantsStartHidden(os.Args[1:])
 	// Wails dev and bindings builds parse os.Args and reject a flag they do not
-	// know, so the app's own flags (--paste-clipboard) go before wails.Run.
+	// know, so the app's own flags (--paste-clipboard, --hidden) go before
+	// wails.Run.
 	os.Args = openrequest.StripOwnFlags(os.Args)
 
 	// Skip the single-instance lock during Wails binding generation: that build
@@ -80,6 +87,33 @@ func main() {
 		}
 	}
 
+	// Settings Wails needs before it starts. The database only opens in
+	// OnStartup, so these live in a small file in the data directory.
+	prefs, err := desktopprefs.Load(dataDir)
+	if err != nil {
+		log.Printf("desktop prefs: %v (using defaults)", err)
+	}
+	// On Windows and Linux there is no tray or Dock: a hidden window comes
+	// back only when a second launch reaches this one over the instance
+	// socket. Without the socket, never hide it.
+	canReshow := runtime.GOOS == "darwin" || instanceServer != nil
+	keepRunning := prefs.KeepRunning(runtime.GOOS) && !selfTestWorker && !generatingBindings
+	if keepRunning && !canReshow {
+		log.Printf("closing the window will quit: without the instance socket a hidden window could not be shown again")
+		keepRunning = false
+	}
+	if wantHidden && !canReshow {
+		log.Printf("showing the window despite %s: without the instance socket it could not be shown again", openrequest.StartHiddenFlag)
+		wantHidden = false
+	}
+	desktopApp.lifecycle.dataDir = dataDir
+	desktopApp.lifecycle.keepRunningActive = keepRunning
+	// macOS hides the app after the page loads instead of using StartHidden:
+	// a window that was never shown does not come back on a Dock click.
+	desktopApp.lifecycle.hideAfterLoad = wantHidden && runtime.GOOS == "darwin"
+	startHidden := os.Getenv("MAHPASTES_START_HIDDEN") == "1" || selfTestWorker ||
+		(wantHidden && runtime.GOOS != "darwin")
+
 	pluginService := NewPluginService(core)
 	clipboardService := NewClipboardService(core)
 	transferService := NewTransferService(core)
@@ -117,7 +151,14 @@ func main() {
 		Height:      800,
 		MinWidth:    800,
 		MinHeight:   600,
-		StartHidden: os.Getenv("MAHPASTES_START_HIDDEN") == "1" || selfTestWorker,
+		StartHidden: startHidden,
+		// Closing the window hides it and the app keeps serving (watch
+		// folders, tag servers, the API, Finder/file manager access). Quit
+		// stays reachable: Cmd+Q or the Dock on macOS, the in-app Quit and
+		// Ctrl+Q everywhere. HideWindowOnClose must not be replaced by an
+		// OnBeforeClose that hides instead: Wails routes Cmd+Q through
+		// OnBeforeClose too, which would make the app impossible to quit.
+		HideWindowOnClose: keepRunning,
 		AssetServer: &assetserver.Options{
 			Assets:  webui.Assets,
 			Handler: transferHandler,
@@ -126,6 +167,15 @@ func main() {
 		OnStartup: func(ctx context.Context) {
 			bridge := wailsbridge.New(ctx)
 			desktopApp.setBridge(bridge)
+			// Wails v2 installs no signal handler, so a SIGTERM (installers,
+			// logout, `kill`) or Ctrl+C would end the process without
+			// OnShutdown: no FUSE unmount, no plugin shutdown, no final share
+			// emissions. Quit through Wails instead.
+			if !generatingBindings {
+				sigs := make(chan os.Signal, 2)
+				signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
+				go quitOnSignal(sigs, desktopApp.signalQuit, os.Exit, signalQuitGrace)
+			}
 			desktopApp.attachOpenRequests(bridge)
 			pluginService.setBridge(bridge)
 			if selfTest != nil {
@@ -169,6 +219,8 @@ func main() {
 				fileProviderService.start(ctx, db, dataDir)
 			}
 		},
+		OnDomReady:    desktopApp.domReady,
+		OnBeforeClose: desktopApp.beforeClose,
 		OnShutdown: func(ctx context.Context) {
 			// Stop taking handoffs first: a launch from now on must not be
 			// acknowledged by a window that is going away. It keeps trying

@@ -170,6 +170,10 @@ export function GetDescendantClipCounts(arg1, arg2) {
   return window['go']['main']['App']['GetDescendantClipCounts'](arg1, arg2);
 }
 
+export function GetDesktopLifecycle() {
+  return window['go']['main']['App']['GetDesktopLifecycle']();
+}
+
 export function GetDuplicateGroups() {
   return window['go']['main']['App']['GetDuplicateGroups']();
 }
@@ -286,6 +290,10 @@ export function ProcessExistingFilesInFolder(arg1) {
   return window['go']['main']['App']['ProcessExistingFilesInFolder'](arg1);
 }
 
+export function QuitApp() {
+  return window['go']['main']['App']['QuitApp']();
+}
+
 export function ReadFileFromPath(arg1) {
   return window['go']['main']['App']['ReadFileFromPath'](arg1);
 }
@@ -350,8 +358,20 @@ export function SetHiddenTags(arg1) {
   return window['go']['main']['App']['SetHiddenTags'](arg1);
 }
 
+export function SetKeepRunningWhenClosed(arg1) {
+  return window['go']['main']['App']['SetKeepRunningWhenClosed'](arg1);
+}
+
+export function SetLaunchAtLogin(arg1, arg2) {
+  return window['go']['main']['App']['SetLaunchAtLogin'](arg1, arg2);
+}
+
 export function SetSetting(arg1, arg2) {
   return window['go']['main']['App']['SetSetting'](arg1, arg2);
+}
+
+export function SetUnsavedChanges(arg1) {
+  return window['go']['main']['App']['SetUnsavedChanges'](arg1);
 }
 
 export function ShowCreateBackupDialog() {

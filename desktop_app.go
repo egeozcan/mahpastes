@@ -118,6 +118,8 @@ type App struct {
 	// openRequests holds files and URLs the OS or a second launch asked this
 	// window to open, until the frontend takes them (open_request.go).
 	openRequests *openrequest.Queue
+	// lifecycle is quit, close and start behaviour (desktop_lifecycle.go).
+	lifecycle *desktopLifecycle
 }
 
 func NewApp() *App {
@@ -126,6 +128,7 @@ func NewApp() *App {
 		desktopCore:  core,
 		core:         core,
 		openRequests: openrequest.NewQueue(openrequest.DefaultNotifyDelay),
+		lifecycle:    &desktopLifecycle{},
 	}
 }
 

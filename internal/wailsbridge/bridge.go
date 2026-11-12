@@ -26,6 +26,8 @@ type Bridge struct {
 	testSaveFile func(opts FileDialogOptions) (string, error)
 	// testShowWindow replaces ShowWindow in tests.
 	testShowWindow func()
+	// testConfirm replaces ConfirmDialog in tests.
+	testConfirm func(opts ConfirmOptions) (bool, error)
 }
 
 // New constructs a Bridge from the context delivered by Wails OnStartup.
@@ -87,10 +89,32 @@ func (b *Bridge) ShowWindow() {
 	}
 }
 
+// HideApp hides the application the way the OS hides it: on macOS
+// [NSApp hide:], the state the red close button leaves it in when the window
+// hides on close, from which a Dock click or Cmd+Tab brings it back. On
+// Windows and Linux Wails hides the main window. No-op if the bridge isn't
+// active.
+//
+// A hidden start on macOS uses this after the page has loaded instead of
+// Wails' StartHidden: a window that was never shown is not brought back by a
+// Dock click, because Wails v2 implements no applicationShouldHandleReopen.
+func (b *Bridge) HideApp() {
+	if !b.active() {
+		return
+	}
+	rt.Hide(b.ctx)
+}
+
 // SetTestShowWindow installs a stand-in for ShowWindow. Only used by test
 // code; production code never calls this.
 func (b *Bridge) SetTestShowWindow(fn func()) {
 	b.testShowWindow = fn
+}
+
+// SetTestConfirm installs a stand-in for ConfirmDialog. Only used by test
+// code; production code never calls this.
+func (b *Bridge) SetTestConfirm(fn func(opts ConfirmOptions) (bool, error)) {
+	b.testConfirm = fn
 }
 
 // SetTestEventSink installs a handler that captures Emit calls in tests.

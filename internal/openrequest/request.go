@@ -45,6 +45,11 @@ type Request struct {
 // Request.PasteClipboard.
 const PasteClipboardFlag = "--paste-clipboard"
 
+// StartHiddenFlag starts the app without showing its window (the launch at
+// login entry passes it). A launch with it never activates a running window:
+// a login item that finds mahpastes already running must not pop it open.
+const StartHiddenFlag = "--hidden"
+
 // Empty reports whether the request carries nothing for the frontend to do.
 // An empty request may still activate the window.
 func (r Request) Empty() bool {
@@ -55,9 +60,10 @@ func (r Request) Empty() bool {
 // activates the window:
 //
 //   - Arguments that start with "-" are flags, never paths: Wails dev builds
-//     take flags, and older macOS passes -psn_<serial>. PasteClipboardFlag is
-//     the one flag that means something here. A lone "--" ends flag skipping,
-//     so a file whose name starts with "-" can still be passed after it.
+//     take flags, and older macOS passes -psn_<serial>. PasteClipboardFlag
+//     and StartHiddenFlag (which clears Activate) are the flags that mean
+//     something here. A lone "--" ends flag skipping, so a file whose name
+//     starts with "-" can still be passed after it.
 //   - mahpastes: URLs are kept as URLs.
 //   - file:// URLs (what desktop launchers pass for %U) become paths.
 //   - Anything else is a path; relative paths are resolved against cwd, the
@@ -79,6 +85,10 @@ func FromArgs(args []string, cwd string) Request {
 			}
 			if arg == PasteClipboardFlag {
 				req.PasteClipboard = true
+				continue
+			}
+			if arg == StartHiddenFlag {
+				req.Activate = false
 				continue
 			}
 			if strings.HasPrefix(arg, "-") {
@@ -119,12 +129,26 @@ func StripOwnFlags(args []string) []string {
 		if arg == "--" {
 			return append(out, args[i:]...)
 		}
-		if i > 0 && arg == PasteClipboardFlag {
+		if i > 0 && (arg == PasteClipboardFlag || arg == StartHiddenFlag) {
 			continue
 		}
 		out = append(out, arg)
 	}
 	return out
+}
+
+// WantsStartHidden reports whether args (os.Args[1:]) carry StartHiddenFlag
+// before any "--".
+func WantsStartHidden(args []string) bool {
+	for _, arg := range args {
+		if arg == "--" {
+			return false
+		}
+		if arg == StartHiddenFlag {
+			return true
+		}
+	}
+	return false
 }
 
 // ParseURL reports whether raw is a mahpastes: URL and returns it trimmed.

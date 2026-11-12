@@ -101,6 +101,7 @@ install: build ## Build and install (kills running instance)
 uninstall: ## Remove installed app
 	-taskkill /IM "$(APP_NAME).exe" /F 2>nul
 	if exist "$(INSTALL_DIR)" rd /s /q "$(INSTALL_DIR)"
+	-reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v $(APP_NAME) /f 2>nul
 	@echo Removed $(APP_NAME) from $(INSTALL_DIR)
 else ifeq ($(HOST_OS),Linux)
 install: build ## Build and install to ~/.local (kills running instance)
@@ -192,6 +193,7 @@ install-bundle:
 uninstall: ## Remove installed app
 	@pkill -f "$(APP_NAME).app/Contents/MacOS/$(APP_NAME)" 2>/dev/null || true
 	rm -rf $(INSTALL_DIR)/$(APP_NAME).app
+	rm -f "$(HOME)/Library/LaunchAgents/io.github.egeozcan.mahpastes.login.plist"
 	@echo "Removed $(APP_NAME) from $(INSTALL_DIR)"
 endif
 
