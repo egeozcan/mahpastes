@@ -48,8 +48,11 @@ if [[ "${1:-}" == --uninstall ]]; then
     rm -f "$binary" "$desktop"
     rm -f "$icon_root"/*/apps/"$APP_NAME".png
     # Launch at login (Settings > Background & Startup), when it starts this copy.
+    # The entry holds the resolved path (os.Executable), so also match it
+    # through a symlinked home such as /home -> /var/home.
     autostart="${XDG_CONFIG_HOME:-$HOME/.config}/autostart/$APP_NAME.desktop"
-    if [[ -f "$autostart" ]] && grep -qF "$binary" "$autostart"; then
+    resolved="$(readlink -f "$(dirname "$binary")" 2>/dev/null || true)/$(basename "$binary")"
+    if [[ -f "$autostart" ]] && grep -qF -e "\"$binary\"" -e "\"$resolved\"" "$autostart"; then
         rm -f "$autostart"
     fi
     refresh_desktop_caches
