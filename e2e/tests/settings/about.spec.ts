@@ -4,7 +4,8 @@ import { selectors } from '../../helpers/selectors';
 /**
  * Settings > About: the stamped version and the opt-out release check. The
  * e2e app runs headless (MAHPASTES_START_HIDDEN=1), where main.go never starts
- * the release check, so no test makes a network request.
+ * the release checker; toggling the setting there sends no request either
+ * (TestReleaseCheckerNeverRequestsBeforeStart), so no test reaches the network.
  */
 test.describe('Settings - about and release check', () => {
   test.afterEach(async ({ app }) => {
@@ -46,9 +47,16 @@ test.describe('Settings - about and release check', () => {
       // The Wails JS runtime notifies local listeners on emit, like the backend does.
       (window as any).runtime.EventsEmit('app:update_available', { version: '99.0.0', url: 'https://github.com/egeozcan/mahpastes/releases/tag/v99.0.0' });
     });
-    const banner = app.page.locator('[data-testid="update-banner"]');
+    const banner = app.page.locator(selectors.settings.updateBanner);
     await expect(banner).toContainText('99.0.0');
-    await app.page.locator('[data-testid="update-banner-dismiss"]').click();
+    await expect(app.page.locator(selectors.settings.updateBannerLink)).toHaveJSProperty('tagName', 'BUTTON');
+    await app.page.locator(selectors.settings.updateBannerDismiss).click();
+    await expect(banner).toHaveCount(0);
+
+    // A dismissed version stays dismissed.
+    await app.page.evaluate(() => {
+      (window as any).runtime.EventsEmit('app:update_available', { version: '99.0.0', url: 'https://github.com/egeozcan/mahpastes/releases/tag/v99.0.0' });
+    });
     await expect(banner).toHaveCount(0);
   });
 });

@@ -267,9 +267,12 @@ func main() {
 			},
 		},
 		// The UI has no dark styles, so keep the title bar light even when
-		// Windows is in dark mode.
+		// Windows is in dark mode. IsZoomControlEnabled keeps WebView2's
+		// default (Ctrl+wheel / Ctrl+- zoom): with a non-nil Windows block
+		// Wails applies the zero value, which would switch zoom off.
 		Windows: &windows.Options{
-			Theme: windows.Light,
+			Theme:                windows.Light,
+			IsZoomControlEnabled: true,
 		},
 		// ProgramName fixes the GTK program name / Wayland app_id and Icon
 		// the window icon (X11, un-installed runs). The GPU policy is spelled

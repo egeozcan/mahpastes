@@ -163,7 +163,7 @@ Your first clip should appear in the gallery.
 
 ## Version and Update Notices
 
-**Settings → About** shows the installed version. Once a day mahpastes asks GitHub's public releases endpoint whether a newer release exists and, if so, shows a dismissible notice linking to the release page; it never downloads or installs anything. The request is anonymous (no version, no identifiers). Switch it off with **Settings → About → Check for new releases**. Headless runs (`mahpastesd`, e2e) never check.
+**Settings → About** shows the installed version. At most once a day (and right away when you switch the check back on) mahpastes asks GitHub's public releases endpoint whether a newer release exists and, if so, shows a notice linking to the release page; once dismissed, the notice does not come back for that release. mahpastes never downloads or installs anything. The request is anonymous (no version, no identifiers). Switch it off with **Settings → About → Check for new releases**. Headless runs (`mahpastesd`, e2e) never check.
 
 ## Next Steps
 

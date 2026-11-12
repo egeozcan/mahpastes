@@ -31,31 +31,38 @@
     function showBanner(update) {
         if (!update || !update.version || dismissedVersion() === update.version) return;
         removeBanner();
+        // Sits above the bottom bar and the toast (bottom-16), so it covers
+        // neither the clip count nor a toast.
         const banner = document.createElement('div');
         banner.id = 'update-banner';
-        banner.className = 'update-banner';
+        banner.className = 'fixed bottom-28 right-4 z-50 max-w-[calc(100vw-2rem)] flex items-center gap-3 ' +
+            'bg-white border border-stone-200 rounded-md shadow-lg pl-4 pr-2 py-2.5 text-xs font-medium text-stone-600';
         banner.setAttribute('role', 'status');
         banner.setAttribute('data-testid', 'update-banner');
 
         const text = document.createElement('span');
-        text.textContent = `mahpastes ${update.version} is available. `;
-        const link = document.createElement('a');
+        text.textContent = `mahpastes ${update.version} is available.`;
+
+        const link = document.createElement('button');
+        link.type = 'button';
+        link.className = 'shrink-0 font-semibold text-stone-800 underline underline-offset-2 hover:text-stone-600 transition-colors';
         link.textContent = 'View release';
         link.setAttribute('data-testid', 'update-banner-link');
         link.addEventListener('click', () => openExternal(update.url));
-        text.appendChild(link);
 
         const close = document.createElement('button');
         close.type = 'button';
-        close.textContent = '×';
-        close.setAttribute('aria-label', 'Dismiss');
+        close.className = 'shrink-0 p-1 text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded transition-colors';
+        close.setAttribute('aria-label', 'Dismiss update notice');
         close.setAttribute('data-testid', 'update-banner-dismiss');
+        close.innerHTML = '<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">' +
+            '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12"/></svg>';
         close.addEventListener('click', () => {
             rememberDismissed(update.version);
             removeBanner();
         });
 
-        banner.append(text, close);
+        banner.append(text, link, close);
         document.body.appendChild(banner);
     }
 
