@@ -234,7 +234,7 @@ If using Apple Silicon (M-series):
 
 ### Copy File Not Working
 
-**Symptoms:** "Copy File" from the card menu doesn't paste a file in Finder.
+**Symptoms:** "Copy File" from the card menu doesn't paste a file in Finder (macOS) or Explorer (Windows).
 
 **Solutions:**
 1. Copy File is supported on macOS (NSPasteboard) and Windows (PowerShell). Not supported on Linux.
