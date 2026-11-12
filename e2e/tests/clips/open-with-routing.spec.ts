@@ -8,14 +8,14 @@ import * as path from 'path';
 // both branches can be checked on any host without launching an app.
 const STUBBED = ['SupportsNativeOpenWith', 'OpenClipWithDialog', 'ChooseApplication', 'OpenClipWithApp'];
 
-async function stubOpenWith(app: any, native: boolean | null): Promise<void> {
-  await app.page.evaluate(({ names, native }: { names: string[]; native: boolean | null }) => {
+async function stubOpenWith(app: any, native: boolean): Promise<void> {
+  await app.page.evaluate(({ names, native }: { names: string[]; native: boolean }) => {
     const w = window as any;
     const App = w.go.main.App;
     w.__origOpenWith = {};
     for (const name of names) w.__origOpenWith[name] = App[name];
     w.__openWithCalls = [];
-    if (native !== null) App.SupportsNativeOpenWith = async () => native;
+    App.SupportsNativeOpenWith = async () => native;
     App.OpenClipWithDialog = async (id: number) => { w.__openWithCalls.push(['dialog', id]); };
     App.ChooseApplication = async () => { w.__openWithCalls.push(['choose']); return ''; };
     App.OpenClipWithApp = async (id: number, appPath: string) => { w.__openWithCalls.push(['app', id, appPath]); };

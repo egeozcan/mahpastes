@@ -4,7 +4,9 @@ package main
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"golang.org/x/sys/windows"
@@ -105,13 +107,31 @@ func TestCheckOpenWithApp(t *testing.T) {
 		if checkOpenWithApp(app) == nil {
 			t.Errorf("%q accepted", app)
 		}
-		if openFileWithApp(`C:\t\a&calc&.txt`, app) == nil {
-			t.Errorf("openFileWithApp started %q", app)
-		}
 	}
 	for _, app := range []string{`C:\Apps\ed.exe`, `C:\Apps\batch.exe`} {
 		if err := checkOpenWithApp(app); err != nil {
 			t.Errorf("%q rejected: %v", app, err)
 		}
+	}
+}
+
+// An extensionless path is resolved through PATHEXT before the check, so it
+// cannot smuggle a batch file past it.
+func TestResolveOpenWithAppChecksResolvedFile(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"run.bat", "ed.exe"} {
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := resolveOpenWithApp(filepath.Join(dir, "run")); err == nil {
+		t.Fatal("extensionless path to run.bat accepted")
+	}
+	if err := openFileWithApp(`C:\t\a&calc&.txt`, filepath.Join(dir, "run")); err == nil {
+		t.Fatal("openFileWithApp started run.bat")
+	}
+	got, err := resolveOpenWithApp(filepath.Join(dir, "ed"))
+	if err != nil || !strings.EqualFold(got, filepath.Join(dir, "ed.exe")) {
+		t.Fatalf("got %q, %v", got, err)
 	}
 }

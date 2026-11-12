@@ -81,13 +81,28 @@ func checkOpenWithApp(appPath string) error {
 	return nil
 }
 
+// resolveOpenWithApp resolves appPath the way os/exec would (a path without an
+// extension gets one from PATHEXT, so C:\x\run may name run.bat) and checks
+// the resolved file. The resolved path is what gets started.
+func resolveOpenWithApp(appPath string) (string, error) {
+	resolved, err := exec.LookPath(appPath)
+	if err != nil {
+		return "", fmt.Errorf("application not found: %w", err)
+	}
+	if err := checkOpenWithApp(resolved); err != nil {
+		return "", err
+	}
+	return resolved, nil
+}
+
 // openFileWithApp starts the application and returns at once; the process is
 // reaped in the background so a long-lived editor never blocks the caller.
 func openFileWithApp(filePath, appPath string) error {
-	if err := checkOpenWithApp(appPath); err != nil {
+	resolved, err := resolveOpenWithApp(appPath)
+	if err != nil {
 		return err
 	}
-	cmd := openWithCmd(filePath, appPath)
+	cmd := openWithCmd(filePath, resolved)
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to open file with app: %w", err)
 	}
