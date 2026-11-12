@@ -351,30 +351,44 @@ func (a *App) OpenClipWithApp(id int64, appPath string) error
 | `id` | int64 | Clip ID |
 | `appPath` | string | Absolute path to the application (e.g., `/Applications/Photoshop.app`) |
 
+The call returns once the application has started; it does not wait for the application to exit. On Windows, `.bat` and `.cmd` files are refused as the application, because they would run through `cmd.exe`.
+
 ---
 
 ### OpenClipWithDialog
 
-Open a clip through the native Windows "Open with" dialog. Returns when the dialog is dismissed. Use `SupportsNativeOpenWith()` (bool) to check availability; it is true only on Windows.
+Open a clip through the native Windows "Open with" dialog, which lists registered handlers, Microsoft Store apps and per-user installs. The chosen app is launched by the shell. Returns when the dialog is dismissed; cancelling is not an error.
 
 ```go
 func (a *App) OpenClipWithDialog(id int64) error
+```
+
+Returns an error on platforms without a native dialog. The frontend calls `SupportsNativeOpenWith` first and uses `ChooseApplication` plus `OpenClipWithApp` when it returns false.
+
+---
+
+### SupportsNativeOpenWith
+
+Report whether `OpenClipWithDialog` is available (true only on Windows).
+
+```go
+func (a *App) SupportsNativeOpenWith() bool
 ```
 
 ---
 
 ### ChooseApplication
 
-Open a macOS file dialog to pick an application.
+Open a file dialog to pick an application.
 
 ```go
 func (a *App) ChooseApplication() (string, error)
 ```
 
-**Returns:** The absolute path to the selected `.app` bundle, or an empty string if cancelled.
+**Returns:** The absolute path to the selected application (an `.app` bundle on macOS, a `.desktop` file or executable on Linux, an `.exe` on Windows), or an empty string if cancelled.
 
 :::note
-macOS only. Returns an error on other platforms.
+On Windows the frontend does not use this picker for Open With; it calls `OpenClipWithDialog` instead.
 :::
 
 ---
