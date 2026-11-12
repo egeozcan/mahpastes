@@ -1085,12 +1085,12 @@ GET /api/v1/status
 The one unauthenticated endpoint, for liveness checks:
 
 ```json
-{ "running": true, "port": 44557, "bind_all": false, "url": "http://127.0.0.1:44557", "request_count": 128, "version": "v1.5.0" }
+{ "running": true, "port": 44557, "bind_all": false, "url": "http://127.0.0.1:44557", "request_count": 128, "version": "1.5.0" }
 ```
 
 `version` is the app version, so clients such as `mp` can detect a CLI/app mismatch (`dev` for an unstamped build). It is visible to anyone who can reach the port, which matters only when the API listens on all interfaces.
 
-It exposes no clip, tag, or key data. `mp api status` calls this route first to check that the API is reachable (exit code 2 if not), then makes an authenticated `GET /clips?limit=1` to validate the key (exit code 3 if it is rejected).
+It exposes no clip, tag, or key data. `mp api status` calls this route first to check that the API is reachable (exit code 2 if not), then makes an authenticated `GET /clips?limit=1` to validate the key (exit code 3 if it is rejected). It prints the app's version next to its own and warns when the two releases differ.
 
 ## Error Responses
 

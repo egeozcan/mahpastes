@@ -43,7 +43,9 @@ var apiStatusCmd = &cobra.Command{
 
 First asks the unauthenticated status endpoint whether the API is up, then
 makes an authenticated request to confirm the key is valid. Exits 2 when the
-app is not reachable and 3 when the key is missing, invalid or revoked.`,
+app is not reachable and 3 when the key is missing, invalid or revoked.
+
+Also prints the app's version, and warns when it differs from this mp's.`,
 	Example: `  # Check connection
   mp api status
 
@@ -58,6 +60,17 @@ type apiServerStatus struct {
 	Port    int    `json:"port"`
 	BindAll bool   `json:"bind_all"`
 	URL     string `json:"url"`
+	// Version is the app version; empty from apps older than the field.
+	Version string `json:"version"`
+}
+
+// versionMismatch reports whether the app and this mp were built from
+// different releases. Unstamped ("dev") and unknown versions never count.
+func versionMismatch(app, cli string) bool {
+	if app == "" || cli == "" || app == "dev" || cli == "dev" {
+		return false
+	}
+	return app != cli
 }
 
 func runAPIStatus(cmd *cobra.Command, args []string) error {
@@ -83,16 +96,26 @@ func runAPIStatus(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	mismatch := versionMismatch(status.Version, client.Version)
 	if jsonOutput {
 		printJSON(map[string]interface{}{
-			"connected": true,
-			"url":       c.BaseURL,
-			"port":      status.Port,
+			"connected":        true,
+			"url":              c.BaseURL,
+			"port":             status.Port,
+			"app_version":      status.Version,
+			"cli_version":      client.Version,
+			"version_mismatch": mismatch,
 		})
 		return nil
 	}
 
 	fmt.Printf("Connected to mahpastes API at %s\n", c.BaseURL)
+	if status.Version != "" {
+		fmt.Printf("App version %s, mp version %s\n", status.Version, client.Version)
+	}
+	if mismatch {
+		fmt.Fprintf(os.Stderr, "Warning: mp %s does not match the app's version %s; update one of them.\n", client.Version, status.Version)
+	}
 	return nil
 }
 

@@ -66,3 +66,21 @@ func TestBulkDownloadReportsAPIError(t *testing.T) {
 		t.Fatalf("exit code = %d (%v), want %d", code, err, client.ExitAuth)
 	}
 }
+
+func TestVersionMismatch(t *testing.T) {
+	cases := []struct {
+		app, cli string
+		want     bool
+	}{
+		{"1.6.0", "1.6.0", false},
+		{"1.6.0", "1.5.0", true},
+		{"dev", "1.5.0", false},
+		{"1.5.0", "dev", false},
+		{"", "1.5.0", false},
+	}
+	for _, tc := range cases {
+		if got := versionMismatch(tc.app, tc.cli); got != tc.want {
+			t.Errorf("versionMismatch(%q, %q) = %v, want %v", tc.app, tc.cli, got, tc.want)
+		}
+	}
+}

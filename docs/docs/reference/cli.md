@@ -236,6 +236,8 @@ First asks the unauthenticated status endpoint whether the API is up, then
 makes an authenticated request to confirm the key is valid. Exits 2 when the
 app is not reachable and 3 when the key is missing, invalid or revoked.
 
+Also prints the app's version, and warns when it differs from this mp's.
+
 ```
 mp api status [flags]
 ```
