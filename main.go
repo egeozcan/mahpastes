@@ -10,6 +10,7 @@ import (
 	webui "go-clipboard/frontend"
 	coreapp "go-clipboard/internal/app"
 	"go-clipboard/internal/wailsbridge"
+	"go-clipboard/internal/windowstate"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -77,13 +78,47 @@ func main() {
 		binds = append(binds, selfTest)
 	}
 
+	// Restore the last window geometry unless this is a headless run.
+	headless := os.Getenv("MAHPASTES_START_HIDDEN") == "1" || selfTestWorker
+	winW, winH := 1280, 800
+	startState := options.Normal
+	saved, haveSaved := windowstate.State{}, false
+	if !headless && !generatingBindings {
+		if saved, haveSaved = windowstate.Load(dataDir); haveSaved {
+			winW, winH = saved.Width, saved.Height
+			if saved.Maximised {
+				startState = options.Maximised
+			}
+		}
+	}
+	var windowBridge *wailsbridge.Bridge
+	saveWindow := func() {
+		if headless || generatingBindings || windowBridge == nil {
+			return
+		}
+		g, ok := windowBridge.WindowGeometry()
+		if !ok {
+			return
+		}
+		cur := windowstate.State{Width: g.Width, Height: g.Height, X: g.X, Y: g.Y, HasPos: true, Maximised: g.Maximised}
+		prev, hadPrev := windowstate.Load(dataDir)
+		next := windowstate.Merge(prev, hadPrev, cur, g.Normal)
+		if next.Width < windowstate.MinWidth || next.Height < windowstate.MinHeight {
+			return
+		}
+		if err := windowstate.Save(dataDir, next); err != nil {
+			log.Printf("window state: %v", err)
+		}
+	}
+
 	err = wails.Run(&options.App{
-		Title:       "mahpastes",
-		Width:       1280,
-		Height:      800,
-		MinWidth:    800,
-		MinHeight:   600,
-		StartHidden: os.Getenv("MAHPASTES_START_HIDDEN") == "1" || selfTestWorker,
+		Title:            "mahpastes",
+		Width:            winW,
+		Height:           winH,
+		WindowStartState: startState,
+		MinWidth:         800,
+		MinHeight:        600,
+		StartHidden:      headless,
 		AssetServer: &assetserver.Options{
 			Assets:  webui.Assets,
 			Handler: transferHandler,
@@ -91,6 +126,7 @@ func main() {
 		BackgroundColour: &options.RGBA{R: 248, G: 250, B: 252, A: 1},
 		OnStartup: func(ctx context.Context) {
 			bridge := wailsbridge.New(ctx)
+			windowBridge = bridge
 			desktopApp.setBridge(bridge)
 			pluginService.setBridge(bridge)
 			if selfTest != nil {
@@ -133,6 +169,24 @@ func main() {
 			if !generatingBindings {
 				fileProviderService.start(ctx, db, dataDir)
 			}
+		},
+		OnDomReady: func(ctx context.Context) {
+			if !haveSaved || !saved.HasPos || windowBridge == nil {
+				return
+			}
+			sw, sh, ok := windowBridge.CurrentScreenSize()
+			if !ok {
+				return
+			}
+			w, h := windowstate.ClampSize(saved.Width, saved.Height, &windowstate.Screen{Width: sw, Height: sh})
+			if saved.Maximised || !windowstate.PositionVisible(saved.X, saved.Y, w, h, windowstate.Screen{Width: sw, Height: sh}) {
+				return
+			}
+			windowBridge.WindowSetPosition(saved.X, saved.Y)
+		},
+		OnBeforeClose: func(ctx context.Context) bool {
+			saveWindow()
+			return false
 		},
 		OnShutdown: func(ctx context.Context) {
 			fileProviderService.stop()
