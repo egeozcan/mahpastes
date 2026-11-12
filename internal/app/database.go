@@ -5,7 +5,9 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
@@ -45,7 +47,7 @@ func getDataDir() (string, error) {
 		if err != nil {
 			return "", err
 		}
-		baseDir = filepath.Join(homeDir, ".config", "mahpastes")
+		baseDir = resolveLinuxDataDir(homeDir, os.Getenv("XDG_CONFIG_HOME"))
 	}
 
 	// Create directory if it doesn't exist
@@ -54,6 +56,36 @@ func getDataDir() (string, error) {
 	}
 
 	return baseDir, nil
+}
+
+// resolveLinuxDataDir picks the Linux data directory. The order never moves a
+// library that already exists:
+//  1. $XDG_CONFIG_HOME/mahpastes when XDG_CONFIG_HOME is absolute and that
+//     directory exists (a library this resolver already placed there);
+//  2. ~/.config/mahpastes when it exists (every library from before XDG
+//     support, which was hardcoded to this path);
+//  3. $XDG_CONFIG_HOME/mahpastes for a fresh install with an absolute
+//     XDG_CONFIG_HOME, else ~/.config/mahpastes.
+//
+// A legacy directory that cannot be inspected (anything other than "does not
+// exist") counts as existing, so the app fails loudly on it instead of
+// silently opening an empty library elsewhere.
+func resolveLinuxDataDir(homeDir, xdgConfigHome string) string {
+	legacy := filepath.Join(homeDir, ".config", "mahpastes")
+	xdg := ""
+	if xdgConfigHome != "" && filepath.IsAbs(xdgConfigHome) {
+		xdg = filepath.Join(xdgConfigHome, "mahpastes")
+	}
+	if xdg == "" || xdg == legacy {
+		return legacy
+	}
+	if _, err := os.Stat(xdg); err == nil {
+		return xdg
+	}
+	if _, err := os.Stat(legacy); !errors.Is(err, fs.ErrNotExist) {
+		return legacy
+	}
+	return xdg
 }
 
 // GetDataDir returns the OS-appropriate data directory for the app.

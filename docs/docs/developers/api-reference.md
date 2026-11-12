@@ -598,8 +598,11 @@ type WatchedFolder struct {
     IsPaused        bool      `json:"is_paused"`
     CreatedAt       time.Time `json:"created_at"`
     Exists          bool      `json:"exists"`
+    WatchError      string    `json:"watch_error,omitempty"` // why a folder that should be watched is not
 }
 ```
+
+`watch_error` is set while a folder that is neither paused nor globally paused is not being watched: `"folder not found"` (deleted, or on a volume that is not mounted), or the operating system's reason for refusing the watch (for example the inotify watch limit). The watcher re-checks every 30 seconds and clears it once the folder is watched again.
 
 ---
 
@@ -745,10 +748,11 @@ func (a *App) GetWatchStatus() WatchStatus
 **WatchStatus structure:**
 ```go
 type WatchStatus struct {
-    GlobalPaused bool `json:"global_paused"`
-    ActiveCount  int  `json:"active_count"`
-    TotalCount   int  `json:"total_count"`
-    IsWatching   bool `json:"is_watching"`
+    GlobalPaused     bool `json:"global_paused"`
+    ActiveCount      int  `json:"active_count"`      // folders being watched right now
+    TotalCount       int  `json:"total_count"`
+    UnavailableCount int  `json:"unavailable_count"` // folders that should be watched but are not
+    IsWatching       bool `json:"is_watching"`
 }
 ```
 
@@ -1735,6 +1739,19 @@ runtime.EventsEmit(ctx, "watch:error", map[string]string{
 ```
 
 **Payload:** `object` with `file` and `error` properties.
+
+### watch:status
+
+Emitted when watch folders start or stop being watched without the user asking: a folder was deleted, moved or unmounted, came back and was re-armed, or the operating system refused a watch. Also emitted (at most every 30 seconds) when the watcher itself reports an error, such as an event-queue overflow.
+
+```go
+runtime.EventsEmit(ctx, "watch:status", map[string]interface{}{
+    "changes": []watchFolderChange{{FolderID: 3, Path: "/Volumes/Card/DCIM", Watching: false, Error: "folder not found"}},
+    "error":   "", // watcher-level error, if any
+})
+```
+
+**Payload:** `object` with `changes` (always a list: `folder_id`, `path`, `watching`, `error`, `recovered`) and `error` (string, empty unless the watcher reported an error).
 
 **JavaScript listener:**
 ```javascript

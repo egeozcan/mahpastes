@@ -33,6 +33,7 @@ export const selectors = {
     closeButton: '#drawer-close-btn',
     watchButton: '#view-tab-watch',
     watchIndicator: '#watch-indicator',
+    activityIndicator: '#drawer-activity-indicator',
     archiveButton: '#toggle-archive-view-btn',
     clearAllButton: '#delete-all-temp-btn',
     settingsButton: '#open-settings-btn',
@@ -289,6 +290,8 @@ export const selectors = {
     path: 'p.text-stone-700',
     pauseToggle: '[data-action="toggle-pause"]',
     deleteButton: '[data-action="remove"]',
+    missingBadge: '[data-watch-badge="missing"]',
+    notWatchingBadge: '[data-watch-badge="not-watching"]',
   },
 
   // Watch folder edit modal

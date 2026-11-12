@@ -248,18 +248,22 @@ mp-cross: ## Cross-compile mp for all platforms
 mahpastesd: ## Build headless server for current platform
 	go build -o build/bin/mahpastesd ./cmd/mahpastesd
 
-mahpastesd-cross: ## Cross-compile headless server (darwin targets only on a macOS host)
+mahpastesd-cross: ## Cross-compile headless server for all platforms (darwin with cgo only on a macOS host)
 	GOOS=linux GOARCH=amd64 go build -o build/bin/mahpastesd-linux-amd64 ./cmd/mahpastesd
 	GOOS=linux GOARCH=arm64 go build -o build/bin/mahpastesd-linux-arm64 ./cmd/mahpastesd
-	GOOS=windows GOARCH=amd64 go build -o build/bin/mahpastesd-windows-amd64.exe ./cmd/mahpastesd
-	GOOS=windows GOARCH=arm64 go build -o build/bin/mahpastesd-windows-arm64.exe ./cmd/mahpastesd
+	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o build/bin/mahpastesd-windows-amd64.exe ./cmd/mahpastesd
+	CGO_ENABLED=0 GOOS=windows GOARCH=arm64 go build -o build/bin/mahpastesd-windows-arm64.exe ./cmd/mahpastesd
 ifeq ($(HOST_OS),Darwin)
-	@# The darwin server uses cgo (Finder trash); Go disables cgo for a foreign
-	@# GOARCH unless asked, and the macOS clang builds either slice.
+	@# On macOS build with cgo so the import wizard's Finder trash is
+	@# recoverable; Go disables cgo for a foreign GOARCH unless asked, and the
+	@# macOS clang builds either slice.
 	CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build -o build/bin/mahpastesd-darwin-amd64 ./cmd/mahpastesd
 	CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -o build/bin/mahpastesd-darwin-arm64 ./cmd/mahpastesd
 else
-	@echo "Skipping darwin mahpastesd: it needs cgo, so build it on macOS."
+	@# Elsewhere the darwin server is built without cgo: everything works, but
+	@# the import wizard deletes originals permanently instead of using the Trash.
+	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -o build/bin/mahpastesd-darwin-amd64 ./cmd/mahpastesd
+	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o build/bin/mahpastesd-darwin-arm64 ./cmd/mahpastesd
 endif
 
 ifeq ($(HOST_OS),Linux)

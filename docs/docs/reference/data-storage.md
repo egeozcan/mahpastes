@@ -16,7 +16,16 @@ The SQLite database contains all clips and settings.
 |----------|------|
 | **macOS** | `~/Library/Application Support/mahpastes/clips.db` |
 | **Windows** | `%APPDATA%\mahpastes\clips.db` |
-| **Linux** | `~/.config/mahpastes/clips.db` |
+| **Linux** | `~/.config/mahpastes/clips.db` or `$XDG_CONFIG_HOME/mahpastes/clips.db` (see below) |
+
+On Linux the data directory follows `XDG_CONFIG_HOME` without ever moving an existing library. The first match wins:
+
+1. `$XDG_CONFIG_HOME/mahpastes/`, if `XDG_CONFIG_HOME` is an absolute path and this directory already exists.
+2. `~/.config/mahpastes/`, if it already exists (every library created before XDG support lives here).
+3. `$XDG_CONFIG_HOME/mahpastes/`, if `XDG_CONFIG_HOME` is an absolute path (a fresh install).
+4. `~/.config/mahpastes/`.
+
+The desktop app, the `mahpastesd` server and `scripts/linux/install.sh` all use this rule. To move an existing library to `$XDG_CONFIG_HOME`, quit mahpastes and move the whole `~/.config/mahpastes` directory there.
 
 The data directory can be overridden with the `MAHPASTES_DATA_DIR` environment variable. This is used for testing.
 
@@ -30,7 +39,7 @@ Temp files are created for clipboard copy-as-file and drag-out transfers. Manage
 |----------|------|
 | **macOS** | `~/Library/Application Support/mahpastes/clip_temp_files/` |
 | **Windows** | `%APPDATA%\mahpastes\clip_temp_files\` |
-| **Linux** | `~/.config/mahpastes/clip_temp_files/` |
+| **Linux** | `clip_temp_files/` inside the [data directory](#database) (`~/.config/mahpastes/` or `$XDG_CONFIG_HOME/mahpastes/`) |
 
 Temp files have a 60-minute lease. A prune job runs every 10 minutes to remove stale and orphaned files. All temp files are also deleted on app exit.
 

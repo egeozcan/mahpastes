@@ -87,7 +87,7 @@ Automatically apply a tag to all imported files:
 ### Process Existing Files
 
 When adding a new watch folder:
-- **Enabled**: Import all existing files in the folder immediately. Source files are removed after import, the same as with live watching.
+- **Enabled**: Import all existing files in the folder immediately. Source files are removed after import, the same as with live watching. Hidden files, downloads still in progress and empty files are skipped, as they are for new files.
 - **Disabled**: Only import new files going forward
 
 ## Managing Watch Folders
@@ -123,10 +123,9 @@ The folder is no longer watched. Existing imported clips remain.
 
 ## Watch Status
 
-The status indicator shows:
-- **Active**: Number of folders actively watching
-- **Paused**: Folders or global watching is paused
-- **Errors**: Issues with specific folders
+The dot on the **Watch** tab, and the dot on the menu button, are green while folders are being watched and turn amber when a folder that should be watched is not (it is missing, its volume is unmounted, or the operating system refused to watch it). `mp watch status` reports the same counts as **Active** and **Unavailable**.
+
+A folder that disappears while it is watched (deleted, moved, or on a drive that was unplugged) is reported with a notification. mahpastes checks every 30 seconds and starts watching it again as soon as it is back, with a "Watching … again" notification; there is no need to restart the app. Files that arrived in the folder while it was not watched are not imported automatically; run `mp watch process <id>` (or `POST /api/v1/watch/{id}/process`) if you want them.
 
 ### Folder Status Indicators
 
@@ -134,7 +133,8 @@ The status indicator shows:
 |-----------|---------|
 | Full opacity card | Actively watching |
 | Dimmed card (50% opacity) + **Paused** text label | Paused |
-| **Folder not found** amber badge | Watched folder no longer exists on disk |
+| **Folder not found** amber badge | Watched folder no longer exists on disk (or its volume is not mounted) |
+| **Not watching** amber badge | The folder exists but is not being watched right now; hover it for the reason (for example the system's file-watch limit) |
 
 ## Use Cases
 
@@ -191,12 +191,13 @@ Videos are imported and archived for later review.
 ### How It Works
 
 1. mahpastes uses filesystem events ([fsnotify](https://github.com/fsnotify/fsnotify)) to monitor each folder
-2. Only file **Create** and **Write** events trigger imports -- other events (rename, chmod, remove) are ignored
-3. Hidden files (filenames starting with `.`) are automatically skipped
-4. Events are debounced (500ms) to let files finish writing before import
-5. The file is read and stored as a clip
-6. If auto-archive or auto-tag is configured, those are applied to the new clip
-7. The original file is deleted from the watched folder after successful import
+2. Only file **Create** and **Write** events trigger imports -- a file renamed into the folder counts as created; other events (chmod, remove) are ignored
+3. Hidden files (filenames starting with `.`) and downloads still in progress are automatically skipped (see below)
+4. Events are debounced: the file must go 500ms without a change event, and its size and modification time must not have changed in that time, before it is imported
+5. Empty (zero-byte) files are skipped
+6. The file is read and stored as a clip
+7. If auto-archive or auto-tag is configured, those are applied to the new clip
+8. The original file is deleted from the watched folder after successful import, unless it changed while it was being read or a backup restore replaced the library in the meantime
 
 :::note Source File Removal
 Imported files are automatically removed from the watched folder after they are successfully stored in mahpastes. The file is only deleted once the database commit is confirmed. This prevents duplicate imports and keeps the watched folder clean.
@@ -206,8 +207,18 @@ Imported files are automatically removed from the watched folder after they are 
 
 Files are imported after 500ms of stability:
 - Prevents importing partially-written files
-- Waits for large files to finish writing
+- Waits for large files to finish writing (a file whose size or modification time is still changing gets another 500ms, even if the system sent no event for the change)
 - Handles rapid file creation gracefully
+
+### Downloads in Progress
+
+Browsers and download tools write a download under a temporary name and rename it when it is complete. Files ending in `.crdownload`, `.part`, `.partial`, `.download`, `.opdownload`, `.tmp`, `.!qb`, `.aria2` or `.filepart`, and files ending in `~`, are never imported, whatever the folder's filter. The finished file is imported once it appears under its final name.
+
+Firefox also creates an empty placeholder under the final name while it downloads. Empty files are never imported, so the placeholder is left alone and the real file is imported when the download completes. If you really want an empty file stored, add it with drag and drop or `mp` instead.
+
+### Folders That Disappear
+
+A watch is tied to the folder that existed when watching started. If the folder is deleted and recreated, moved away, or is on a drive or network share that is disconnected, mahpastes notices (immediately when the system reports it, otherwise within 30 seconds), marks the folder as not watched, and starts watching it again once a folder is back at that path. Restoring a backup also restarts watching; restored folders come back paused until you resume them.
 
 ### Plugin Events
 
@@ -258,10 +269,11 @@ Avoid watching:
 
 ### Folder Not Watching
 
-1. Check folder still exists
+1. Check the folder card for a **Folder not found** or **Not watching** badge (hover **Not watching** for the reason)
 2. Verify it's not paused
 3. Check global pause is off
-4. Restart mahpastes if needed
+4. A missing folder is picked up again within 30 seconds of reappearing; to retry at once, pause and resume it
+5. On Linux, a "no space left on device" reason means the system's inotify watch limit is reached; raise `fs.inotify.max_user_watches` (and `fs.inotify.max_user_instances` for "too many open files")
 
 ### Files Not Importing
 
@@ -269,6 +281,7 @@ Avoid watching:
 2. Test filter regex against filename
 3. Verify file permissions
 4. Check for error notifications
+5. Files with a download-in-progress name (`.part`, `.crdownload`, `.tmp`, ...) and empty files are skipped on purpose
 
 ### High Resource Usage
 

@@ -1243,6 +1243,7 @@ export namespace app {
 	    global_paused: boolean;
 	    active_count: number;
 	    total_count: number;
+	    unavailable_count: number;
 	    is_watching: boolean;
 	
 	    static createFrom(source: any = {}) {
@@ -1254,6 +1255,7 @@ export namespace app {
 	        this.global_paused = source["global_paused"];
 	        this.active_count = source["active_count"];
 	        this.total_count = source["total_count"];
+	        this.unavailable_count = source["unavailable_count"];
 	        this.is_watching = source["is_watching"];
 	    }
 	}
@@ -1270,6 +1272,7 @@ export namespace app {
 	    // Go type: time
 	    created_at: any;
 	    exists: boolean;
+	    watch_error?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new WatchedFolder(source);
@@ -1288,6 +1291,7 @@ export namespace app {
 	        this.is_paused = source["is_paused"];
 	        this.created_at = this.convertValues(source["created_at"], null);
 	        this.exists = source["exists"];
+	        this.watch_error = source["watch_error"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

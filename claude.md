@@ -395,6 +395,13 @@ Revocable, single-clip public download links, distinct from the peer-to-peer `sh
 
 `database.sql` in a backup is **parsed, never executed** (`internal/app/backup_sql.go`). `backupSQLReader` accepts only `INSERT INTO <table> (<cols>) VALUES (<literals>);` with `formatSQLValue`'s literal forms, and fails the whole restore on anything else. `backupRowWriter` checks the table against `backupTables` and every column against the live `PRAGMA table_info`, then binds the values as parameters. Rows for other tables (e.g. `api_keys`), sensitive or non-text settings keys, and `plugins` rows whose `filename` is not a bare `.lua` name, and `plugin_permissions` rows of a type the app never grants (`restorablePermissionTypes`), are skipped and counted; a column this install lacks is dropped from the row, not the row. Only a row the schema refuses (constraint/mismatch) is skipped on insert — any other database error aborts the restore, because SQLite rolls the whole transaction back on some (a full disk) and later statements would autocommit onto the live library. Every use of a stored plugin filename as a path goes through `plugin.Manager.PluginFilePath`, which refuses any directory part. `clips.content_hash` is recomputed from each restored row's bytes (dedup trusts it), and a clip row whose `data` is not a blob/text literal is skipped. After the row replay, restored plugin permissions are marked pending, and watch folders and follows are paused. Every restored plugin is committed `enabled = 0, status = 'needs_review'` (`plugin.StatusNeedsReview`); after the files are extracted, `restorePluginStates` gives the backup's enabled/status back only to plugins whose file is byte-identical to one this install had already reviewed (`reviewedPluginHashes`, read before the restore — rows still `needs_review` don't count). The rest stay held until the user approves the install review (`PreviewInstalledPlugin` / `GET /api/v1/plugins/{id}/review`), which the plugin card's enable toggle shows. The restore confirm dialog's counts come from `InspectBackupForRestore` (`countBackupRows` over `database.sql`, same row filters as the restore), never from the manifest's self-reported summary. A committed restore bumps `App.restoreEpoch`: an upload that tags the clip it just inserted reads the epoch *before* the insert and tags through `addTagToNewClip`, which refuses (`errRestoredSinceInsert`) if a restore ran in between — the clip is gone and its id names a restored row. Every tag server is closed first, immediately (`ServeManager.CloseAll`) — a server looks clips up by the tag id it started with, which the backup may have given to another tag — and `StartServing` refuses (`errRestoreInProgress`) while a restore holds `backupRestoreMu`. Adding a table to backups means exporting it in `exportDatabaseToSQL` *and* adding it to `backupTables`, which drives the pre-restore clear (children before parents) and the restore allowlist — a table exported but not listed is silently skipped on restore.
 
+## Watch Folders (`internal/app/watcher.go`)
+
+- **Generations**: every `WatcherManager.Start` creates a fresh fsnotify watcher and bumps `gen`; `Stop` closes it, clears `activeWatches`/`watchErrors`/`debounceMap`, bumps `gen` and waits for the event and re-arm goroutines (not for in-flight imports: `RestoreBackup` calls `Stop`/`Start` under `backupRestoreMu`, which an upload read-locks). Event goroutines read the watcher they were started with, and debounce timers carry their generation, so nothing from a stopped generation acts.
+- **Re-arm**: `refreshWatches` (serialised by `refreshMu`; never holds `w.mu` across DB, `os.Stat` or fsnotify calls) runs at start, on config changes, every `watchRearmInterval` (30 s) and right after a watched folder's own Remove/Rename event. It drops a watch whose folder is gone, not in `WatchList()`, or no longer `os.SameFile` as when armed (unmount, delete+recreate), and re-adds it once the folder is back. Why a folder is not watched is kept in `watchErrors` → `WatchedFolder.watch_error`, `WatchStatus.unavailable_count`; changes go to the UI as `watch:status`.
+- **Partial files**: names from `inProgressSuffixes` (and `~`) and empty files are never imported (live or `ProcessExistingFiles`); after the debounce the file is re-stat'ed and given another round if size/mtime moved; the source is deleted only if unchanged since it was read (`sameFileState`) and no restore committed since the upload (`App.removeImportedSource` compares `restoreEpoch` under `backupRestoreMu`'s read side — `Stop` does not wait for running imports, so a restore can land between the upload and the removal).
+- Tests (`watcher_test.go`) shrink `watchDebounceDelay`/`watchRearmInterval`; run them with `-race`.
+
 ## Code Style
 
 ### JavaScript
@@ -1072,11 +1079,18 @@ drawer entry.
 ### Key files
 
 - `internal/app/import_wizard.go` — session, scan, inspect, apply
-- `internal/app/trash_{darwin,windows,other}.go` — `moveToTrash`; macOS uses
-  `NSFileManager trashItemAtURL:` (no main-queue dispatch needed, unlike `startNativeFileDrag`).
-  Non-darwin falls back to `os.Remove` and reports `trashIsRecoverable() == false`, which
-  drives a UI warning. `MAHPASTES_TRASH_MODE=remove` forces permanent delete; the e2e
-  launcher sets it so runs don't fill `~/.Trash`.
+- `internal/app/trash_{darwin,darwin_nocgo,linux,windows,windows_other,other}.go` —
+  `moveToTrash`; macOS uses `NSFileManager trashItemAtURL:` (cgo only), Linux runs
+  `GIO_USE_VFS=local gio trash` with a 30 s timeout (recoverable iff `gio` is on PATH;
+  failures such as tmpfs mounts are returned, never silently deleted), Windows amd64/arm64
+  uses `SHFileOperationW` with `FOF_ALLOWUNDO` and first refuses anything it would delete
+  permanently (`recycleBinRefusal`: UNC/`\\?\` paths, non-`DRIVE_FIXED` volumes such as
+  mapped network or removable drives, paths over MAX_PATH). A file too large for the
+  Recycle Bin is still deleted permanently; that cannot be detected up front and no nuke
+  warning is requested, because its modal dialog would block the apply. Other targets
+  (including windows/386) and `darwin && !cgo` (cross-built mahpastesd) use `os.Remove` and report
+  `trashIsRecoverable() == false`, which drives a UI warning. `MAHPASTES_TRASH_MODE=remove`
+  forces permanent delete; the e2e launcher sets it so runs don't fill the trash.
 - `internal/imagemeta/` — EXIF extraction from bytes, shared by the wizard and the Lua
   `image.metadata` binding (which previously read only from clip IDs).
 - `frontend/js/import-wizard.js` — three panes (setup / review / summary), decision map keyed

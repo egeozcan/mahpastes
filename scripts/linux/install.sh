@@ -17,7 +17,9 @@
 #   $PREFIX/share/applications/mahpastes.desktop
 #   $PREFIX/share/icons/hicolor/<size>/apps/mahpastes.png
 # Bundled plugins are copied into the app's data directory, which the app reads
-# from ~/.config/mahpastes unless MAHPASTES_DATA_DIR overrides it.
+# from ~/.config/mahpastes, or $XDG_CONFIG_HOME/mahpastes when XDG_CONFIG_HOME is
+# absolute and no ~/.config/mahpastes library predates it (see resolve_data_dir),
+# unless MAHPASTES_DATA_DIR overrides it.
 # --uninstall removes the app, mp, the desktop entry and the icons, and keeps
 # the data directory.
 set -euo pipefail
@@ -44,7 +46,26 @@ fi
 PREFIX="${PREFIX:-$HOME/.local}"
 BINDIR="${BINDIR:-$PREFIX/bin}"
 DATAROOT="${DATAROOT:-$PREFIX/share}"
-DATA_DIR="${MAHPASTES_DATA_DIR:-$HOME/.config/$APP_NAME}"
+# Same rule as the app (resolveLinuxDataDir in internal/app/database.go):
+# an existing $XDG_CONFIG_HOME/mahpastes (XDG_CONFIG_HOME absolute), then an
+# existing ~/.config/mahpastes, then $XDG_CONFIG_HOME/mahpastes for a fresh
+# install, else ~/.config/mahpastes.
+resolve_data_dir() {
+    local legacy="$HOME/.config/$APP_NAME" xdg=""
+    case "${XDG_CONFIG_HOME:-}" in
+        /*) xdg="${XDG_CONFIG_HOME%/}/$APP_NAME" ;;
+    esac
+    if [ -z "$xdg" ] || [ "$xdg" = "$legacy" ]; then
+        echo "$legacy"
+    elif [ -e "$xdg" ]; then
+        echo "$xdg"
+    elif [ -e "$legacy" ]; then
+        echo "$legacy"
+    else
+        echo "$xdg"
+    fi
+}
+DATA_DIR="${MAHPASTES_DATA_DIR:-$(resolve_data_dir)}"
 binary="$BINDIR/$APP_NAME"
 cli="$BINDIR/$CLI_NAME"
 desktop="$DATAROOT/applications/$APP_NAME.desktop"

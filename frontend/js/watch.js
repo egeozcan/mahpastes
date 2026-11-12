@@ -50,11 +50,13 @@ if (window.__testHelpers) {
 async function updateWatchIndicator() {
     try {
         const status = await window.go.main.App.GetWatchStatus();
-        if (status.is_watching) {
-            watchIndicator.classList.remove('hidden');
-        } else {
-            watchIndicator.classList.add('hidden');
-        }
+        // Amber when a folder that should be watched is not (missing,
+        // unmounted, or its watch was lost); green while all are watched.
+        const unavailable = !status.global_paused && status.unavailable_count > 0;
+        watchIndicator.classList.toggle('hidden', !status.is_watching && !unavailable);
+        watchIndicator.classList.toggle('bg-amber-500', unavailable);
+        watchIndicator.classList.toggle('bg-emerald-500', !unavailable);
+        watchIndicator.dataset.state = unavailable ? 'unavailable' : (status.is_watching ? 'watching' : 'idle');
         // Update shared hamburger indicator (watch OR serve active)
         if (typeof updateDrawerActivityIndicator === 'function') updateDrawerActivityIndicator();
     } catch (error) {
@@ -127,9 +129,15 @@ function createWatchFolderCard(folder) {
     }
 
     const pausedClass = folder.is_paused ? 'opacity-50' : '';
-    const notExistsWarning = !folder.exists
-        ? '<span class="text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">Folder not found</span>'
-        : '';
+    // A folder that is gone shows "Folder not found"; one that exists but is
+    // not being watched (the OS refused the watch, or it was lost and has not
+    // been re-armed yet) shows why.
+    let notExistsWarning = '';
+    if (!folder.exists) {
+        notExistsWarning = '<span class="text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded" data-watch-badge="missing">Folder not found</span>';
+    } else if (folder.watch_error && !folder.is_paused) {
+        notExistsWarning = `<span class="text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded" data-watch-badge="not-watching" data-tooltip="${escapeHTML(folder.watch_error)}">Not watching</span>`;
+    }
 
     // Get auto-tag name if set
     let autoTagHtml = '';
@@ -518,6 +526,28 @@ function initWatchEvents() {
 
     window.runtime.EventsOn('watch:error', (data) => {
         showToast(`Failed to import ${data.file}: ${data.error}`, 'error');
+    });
+
+    // A folder started or stopped being watched (deleted, unmounted, moved,
+    // back again), or the watcher itself reported a problem.
+    window.runtime.EventsOn('watch:status', (data) => {
+        const changes = Array.isArray(data?.changes) ? data.changes : [];
+        if (data?.error) {
+            showToast(`Watch folders: ${data.error}`, 'error');
+        }
+        for (const change of changes) {
+            const name = change.path || 'a watched folder';
+            if (change.error) {
+                showToast(`Not watching ${name}: ${change.error}`, 'error');
+            } else if (change.recovered) {
+                showToast(`Watching ${name} again`);
+            }
+        }
+        if (isViewingWatch) {
+            loadWatchFolders();
+        } else {
+            updateWatchIndicator();
+        }
     });
 
     // An import may or may not belong in the view on screen — folder level,

@@ -6,18 +6,18 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	_ "modernc.org/sqlite"
 )
 
 // TestShareTablesMigrate verifies the share-feature tables land in the DB
-// after initDB. Uses a temp XDG_DATA_HOME so the real clips.db is not touched.
+// after initDB. It works on a temp database so the real clips.db is not touched.
 func TestShareTablesMigrate(t *testing.T) {
 	tmp := t.TempDir()
-	// getDataDir honors XDG_DATA_HOME on Linux, but macOS uses
-	// os.UserConfigDir() which is not env-controlled. To avoid touching the
-	// real DB on any platform, create a fresh connection + apply the same
+	// getDataDir resolves the real per-user directory on every platform, so
+	// instead of calling it, create a fresh connection + apply the same
 	// CREATE TABLE stanzas from database.go's initDB manually.
 
 	dbPath := filepath.Join(tmp, "clips.db")
@@ -424,5 +424,103 @@ func TestMigration_RestoresFKOnError(t *testing.T) {
 		if fk != 1 {
 			t.Fatalf("pooled connection %d has foreign_keys=%d, expected 1", i, fk)
 		}
+	}
+}
+
+func TestResolveLinuxDataDir(t *testing.T) {
+	mkdir := func(t *testing.T, dir string) {
+		t.Helper()
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	setup := func(t *testing.T) (home, xdgHome, legacy, xdg string) {
+		home = t.TempDir()
+		xdgHome = filepath.Join(t.TempDir(), "xdgconf")
+		return home, xdgHome, filepath.Join(home, ".config", "mahpastes"), filepath.Join(xdgHome, "mahpastes")
+	}
+
+	cases := []struct {
+		name         string
+		xdgHome      func(xdgHome string) string
+		legacyExists bool
+		xdgExists    bool
+		want         func(legacy, xdg string) string
+	}{
+		{"fresh, XDG unset", func(string) string { return "" }, false, false, func(l, _ string) string { return l }},
+		{"fresh, XDG relative", func(string) string { return "relative/dir" }, false, false, func(l, _ string) string { return l }},
+		{"fresh, XDG absolute", func(x string) string { return x }, false, false, func(_, x string) string { return x }},
+		{"legacy library, XDG absolute", func(x string) string { return x }, true, false, func(l, _ string) string { return l }},
+		{"legacy library, XDG unset", func(string) string { return "" }, true, false, func(l, _ string) string { return l }},
+		{"XDG library, legacy dir appeared later", func(x string) string { return x }, true, true, func(_, x string) string { return x }},
+		{"XDG library, no legacy", func(x string) string { return x }, false, true, func(_, x string) string { return x }},
+		{"XDG dir exists but XDG now unset", func(string) string { return "" }, false, true, func(l, _ string) string { return l }},
+		{"XDG dir exists but XDG now relative", func(string) string { return "xdgconf" }, true, true, func(l, _ string) string { return l }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			home, xdgHome, legacy, xdg := setup(t)
+			if tc.legacyExists {
+				mkdir(t, legacy)
+			}
+			if tc.xdgExists {
+				mkdir(t, xdg)
+			}
+			if got, want := resolveLinuxDataDir(home, tc.xdgHome(xdgHome)), tc.want(legacy, xdg); got != want {
+				t.Errorf("got %s, want %s", got, want)
+			}
+		})
+	}
+
+	t.Run("XDG_CONFIG_HOME equal to ~/.config", func(t *testing.T) {
+		home := t.TempDir()
+		legacy := filepath.Join(home, ".config", "mahpastes")
+		if got := resolveLinuxDataDir(home, filepath.Join(home, ".config")+"/"); got != legacy {
+			t.Errorf("got %s, want %s", got, legacy)
+		}
+	})
+
+	t.Run("uninspectable legacy dir is kept", func(t *testing.T) {
+		if os.Geteuid() == 0 {
+			t.Skip("root ignores directory permissions")
+		}
+		home, xdgHome, legacy, _ := setup(t)
+		mkdir(t, legacy)
+		configDir := filepath.Dir(legacy)
+		if err := os.Chmod(configDir, 0); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(configDir, 0755) })
+		if got := resolveLinuxDataDir(home, xdgHome); got != legacy {
+			t.Errorf("got %s, want %s (a stat error must not switch libraries)", got, legacy)
+		}
+	})
+}
+
+// TestGetDataDirLinuxXDG checks that getDataDir feeds HOME and XDG_CONFIG_HOME
+// into the resolver and creates the chosen directory. All paths are temp dirs.
+func TestGetDataDirLinuxXDG(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("XDG resolution applies to Linux only")
+	}
+	home := t.TempDir()
+	xdgHome := filepath.Join(t.TempDir(), "xdgconf")
+	t.Setenv("MAHPASTES_DATA_DIR", "")
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", xdgHome)
+
+	got, err := getDataDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(xdgHome, "mahpastes")
+	if got != want {
+		t.Fatalf("got %s, want %s", got, want)
+	}
+	if info, err := os.Stat(want); err != nil || !info.IsDir() {
+		t.Fatalf("data dir not created: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".config", "mahpastes")); !os.IsNotExist(err) {
+		t.Fatalf("legacy dir must not be created, stat err = %v", err)
 	}
 }
