@@ -81,6 +81,9 @@ apiKeyCopyBtn.addEventListener('click', async () => {
 apiKeyRevealClose.addEventListener('click', hideKeyReveal);
 
 async function loadAPIStatus() {
+    // The modal is usable while this loads, so note what the launch fields
+    // held when it started: an edit made in the meantime is kept.
+    const before = { port: apiPortInput.value, autostart: apiAutostartToggle.checked };
     try {
         const status = await window.go.main.APIService.GetAPIStatus();
         apiServerRunning = status.running;
@@ -99,19 +102,23 @@ async function loadAPIStatus() {
             apiPortInput.disabled = false;
             apiBindToggle.disabled = false;
         }
-        await loadAPILaunchSettings(status);
+        await loadAPILaunchSettings(status, before);
     } catch (err) {
         console.error('Failed to load API status:', err);
     }
 }
 
 // Shows the "Start on launch" choice, and in the port field the port the
-// server runs on (or, while stopped, the one it starts on next).
-async function loadAPILaunchSettings(status) {
+// server runs on (or, while stopped, the one it starts on next). A field the
+// user changed since `before` was taken keeps their value: overwriting it
+// would have the switch save the stored port instead of the one just typed.
+async function loadAPILaunchSettings(status, before) {
     try {
         const svc = window.go.main.APIService;
-        apiAutostartToggle.checked = await svc.GetAPIAutostart();
-        apiPortInput.value = status.running ? status.port : await svc.GetAPIPort();
+        const autostart = await svc.GetAPIAutostart();
+        const port = status.running ? status.port : await svc.GetAPIPort();
+        if (apiAutostartToggle.checked === before.autostart) apiAutostartToggle.checked = autostart;
+        if (status.running || apiPortInput.value === before.port) apiPortInput.value = port;
     } catch (err) {
         console.error('Failed to load API launch settings:', err);
     }
