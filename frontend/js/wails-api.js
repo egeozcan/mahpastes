@@ -923,6 +923,16 @@ async function copyClipContents(id) {
     }
 }
 
+async function copyClipAsRichText(id) {
+    try {
+        await window.go.main.ClipboardService.CopyClipAsRichText(id);
+        showToast('Rich text copied to clipboard!');
+    } catch (error) {
+        console.error('Error copying rich text:', error);
+        showToast('Failed to copy rich text.', 'error');
+    }
+}
+
 // Mints a revocable public share link for a clip and copies the full URL to the
 // clipboard. The link is unauthenticated and downloadable by anyone holding it;
 // revoke it from the CLI (`mp link revoke <id>`) or LinkService at any time.

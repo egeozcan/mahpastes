@@ -35,6 +35,12 @@ func buildTransferCapabilities(goos string) TransferCapabilities {
 			Reason:   "drag-out is not implemented on this platform yet",
 		},
 		ClipboardFile: goos == "darwin" || goos == "windows" || goos == "linux",
+		// NSPasteboard takes several flavours in one item; the other
+		// platforms' writers publish a single format per copy.
+		ClipboardRichText: goos == "darwin",
+		// NSWorkspace lists a type's registered handlers. Windows has its
+		// own chooser (OpenClipWithDialog); Linux uses the file picker.
+		OpenWithApps: goos == "darwin",
 	}
 
 	switch goos {

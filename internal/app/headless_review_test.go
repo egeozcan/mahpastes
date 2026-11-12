@@ -147,6 +147,25 @@ func TestGetSettingDeniesScopedAndUnprivilegedKeys(t *testing.T) {
 	}
 }
 
+func TestGetSettingLetsViewersReadPasteHTMLBehavior(t *testing.T) {
+	app := &App{db: newServerTestDB(t)}
+	if err := app.SetSetting("paste_html_behavior", "html"); err != nil {
+		t.Fatalf("seed setting: %v", err)
+	}
+	manager := NewAPIManager(app)
+
+	req := httptest.NewRequest("GET", "/api/v1/settings/paste_html_behavior", nil)
+	req.SetPathValue("key", "paste_html_behavior")
+	rec := httptest.NewRecorder()
+	manager.handleGetSetting(rec, withKey(req, &apiKeyContext{KeyID: 2, Role: "viewer"}))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("viewer reading paste_html_behavior: code = %d, want 200", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), `"html"`) {
+		t.Fatalf("body = %s, want the stored value", rec.Body.String())
+	}
+}
+
 // --- L15: bulk download neutralizes attacker filenames (zip-slip) ---
 
 func TestBulkDownloadSanitizesZipEntryNames(t *testing.T) {

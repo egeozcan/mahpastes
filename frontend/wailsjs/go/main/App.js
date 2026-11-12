@@ -258,6 +258,10 @@ export function ListClipsPage(arg1) {
   return window['go']['main']['App']['ListClipsPage'](arg1);
 }
 
+export function ListOpenWithApps(arg1) {
+  return window['go']['main']['App']['ListOpenWithApps'](arg1);
+}
+
 export function MergeDuplicates(arg1) {
   return window['go']['main']['App']['MergeDuplicates'](arg1);
 }

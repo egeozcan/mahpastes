@@ -1132,6 +1132,8 @@ Five separate Wails-bound services (`ClipboardService`, `TransferService`, `Plug
 **Go (root)**:
 - `clipboard_service.go` - Clipboard copy service struct
 - `clipboard_darwin.go` - macOS clipboard via NSPasteboard (CGo)
+- `clipboard_flavors.go` - Multi-flavour clipboard logic (image original + PNG, HTML rich text, HTML→plain text); platform writers are package vars, nil where unsupported
+- `open_with_apps.go` - Open With application list (probe file, per-extension cache, script output parsing)
 - `clipboard_windows.go` - Windows clipboard via PowerShell
 - `clipboard_other.go` - Unsupported platform stub
 - `transfer_service.go` - Drag-out preparation and native drag initiation
@@ -1161,7 +1163,9 @@ Five separate Wails-bound services (`ClipboardService`, `TransferService`, `Plug
 | Operation | macOS | Windows | Linux |
 |-----------|-------|---------|-------|
 | Copy as file | NSPasteboard (CGo) | PowerShell SetFileDropList | `text/uri-list` (`x-special/gnome-copied-files` on Cinnamon/MATE/Xfce/Budgie/Pantheon) via golang.design/x/clipboard |
-| Copy raw content | golang.design/x/clipboard | Same | Same |
+| Copy raw content | golang.design/x/clipboard; JPEG/GIF/TIFF images as one NSPasteboardItem with the original UTI plus PNG (`clipboard_flavors.go`, CGo writer in `clipboard_darwin.go`) | golang.design/x/clipboard (images via PowerShell) | golang.design/x/clipboard |
+| Copy as rich text (HTML clips) | NSPasteboardItem: `public.html` + rendered plain text (`ClipboardService.CopyClipAsRichText`) | — | — |
+| Open With list | `App.ListOpenWithApps`: NSWorkspace via `osascript -l JavaScript` against an empty probe file, cached per extension (`open_with_apps.go`, `open_darwin.go`) | native chooser (`OpenClipWithDialog`) | file picker |
 | Drag out | NSView.dragFile + file-uri-v1 | DataTransfer file-uri-v1 | DataTransfer file-uri-v1 (`text/uri-list`, exported by WebKitGTK) |
 
 ## Common Tasks

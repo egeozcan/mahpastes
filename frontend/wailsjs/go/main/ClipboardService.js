@@ -6,6 +6,10 @@ export function BulkCopyFilesToClipboard(arg1) {
   return window['go']['main']['ClipboardService']['BulkCopyFilesToClipboard'](arg1);
 }
 
+export function CopyClipAsRichText(arg1) {
+  return window['go']['main']['ClipboardService']['CopyClipAsRichText'](arg1);
+}
+
 export function CopyClipContents(arg1) {
   return window['go']['main']['ClipboardService']['CopyClipContents'](arg1);
 }

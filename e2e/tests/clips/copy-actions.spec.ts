@@ -1,6 +1,7 @@
 import { test, expect } from '../../fixtures/test-fixtures';
 import {
   createTempFile,
+  generateTestHTML,
   generateTestImage,
   generateTestText,
 } from '../../helpers/test-data';
@@ -131,6 +132,85 @@ test.describe('Copy Actions', () => {
       await app.hoverCopySubmenu(filename);
       await app.page.locator(selectors.cardMenu.copyContents).click();
       await app.expectToast('Contents copied to clipboard!');
+    });
+  });
+
+  test.describe('Card Menu - Copy Rich Text', () => {
+    // Rich text is a macOS capability; the capability and the bound method
+    // are stubbed so the menu wiring is checked on any host.
+    const stubRichText = async (app: any, enabled: boolean, fail = false) => {
+      await app.page.evaluate(({ enabled, fail }: { enabled: boolean; fail: boolean }) => {
+        const w = window as any;
+        const svc = w.go.main.ClipboardService;
+        w.__origCopyRichText = svc.CopyClipAsRichText;
+        w.__richTextCalls = [];
+        svc.CopyClipAsRichText = async (id: number) => {
+          w.__richTextCalls.push(id);
+          if (fail) throw new Error('pasteboard refused');
+        };
+        const caps = w.__testHelpers.getTransferCapabilitiesForTest();
+        w.__testHelpers.setTransferCapabilitiesForTest({ ...caps, clipboard_rich_text: enabled });
+      }, { enabled, fail });
+    };
+
+    test.afterEach(async ({ app }) => {
+      await app.page.evaluate(() => {
+        const w = window as any;
+        if (!('__origCopyRichText' in w)) return;
+        w.go.main.ClipboardService.CopyClipAsRichText = w.__origCopyRichText;
+        delete w.__origCopyRichText;
+        delete w.__richTextCalls;
+        w.__testHelpers.clearTransferCapabilitiesForTest();
+      });
+    });
+
+    test('offers Rich Text for HTML clips and copies through the service', async ({ app }) => {
+      const htmlPath = await createTempFile(generateTestHTML(), 'html');
+      const filename = path.basename(htmlPath);
+      await app.uploadFile(htmlPath);
+      const id = Number(await (await app.getClipByFilename(filename)).getAttribute('data-id'));
+      await stubRichText(app, true);
+
+      await app.hoverCopySubmenu(filename);
+      // Contents (the source) stays; Rich Text sits next to it.
+      await expect(app.page.locator(selectors.cardMenu.copyContents)).toBeVisible();
+      await app.page.locator(selectors.cardMenu.copyRichText).click();
+
+      await app.expectToast('Rich text copied to clipboard!');
+      expect(await app.page.evaluate(() => (window as any).__richTextCalls)).toEqual([id]);
+    });
+
+    test('reports a failed rich text copy', async ({ app }) => {
+      const htmlPath = await createTempFile(generateTestHTML(), 'html');
+      const filename = path.basename(htmlPath);
+      await app.uploadFile(htmlPath);
+      await stubRichText(app, true, true);
+
+      await app.hoverCopySubmenu(filename);
+      await app.page.locator(selectors.cardMenu.copyRichText).click();
+      await app.expectToast('Failed to copy rich text.');
+    });
+
+    test('is not offered for other text clips', async ({ app }) => {
+      const textPath = await createTempFile(generateTestText('not-html'), 'txt');
+      const filename = path.basename(textPath);
+      await app.uploadFile(textPath);
+      await stubRichText(app, true);
+
+      await app.hoverCopySubmenu(filename);
+      await expect(app.page.locator(selectors.cardMenu.copyContents)).toBeVisible();
+      await expect(app.page.locator(selectors.cardMenu.copyRichText)).toHaveCount(0);
+    });
+
+    test('is not offered where the platform cannot copy rich text', async ({ app }) => {
+      const htmlPath = await createTempFile(generateTestHTML(), 'html');
+      const filename = path.basename(htmlPath);
+      await app.uploadFile(htmlPath);
+      await stubRichText(app, false);
+
+      await app.hoverCopySubmenu(filename);
+      await expect(app.page.locator(selectors.cardMenu.copyContents)).toBeVisible();
+      await expect(app.page.locator(selectors.cardMenu.copyRichText)).toHaveCount(0);
     });
   });
 

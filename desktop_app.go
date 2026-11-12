@@ -257,6 +257,26 @@ func (d *App) OpenClipWithDialog(id int64) error {
 	return openWithDialog(item.AbsPath)
 }
 
+// ListOpenWithApps lists the applications the system offers for the clip's
+// file type, default first, for the Open With submenu (macOS; see
+// TransferCapabilities.OpenWithApps). Opening one goes through
+// OpenClipWithApp with its path.
+func (d *App) ListOpenWithApps(id int64) ([]OpenWithApp, error) {
+	if openWithAppLister == nil {
+		return nil, fmt.Errorf("listing applications is not supported on this platform")
+	}
+	var filename sql.NullString
+	var contentType string
+	err := d.core.DB().QueryRow("SELECT filename, content_type FROM clips WHERE id = ?", id).Scan(&filename, &contentType)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("clip not found")
+		}
+		return nil, fmt.Errorf("failed to get clip: %w", err)
+	}
+	return lookupOpenWithApps(coreapp.TransferFileExtension(filename, contentType))
+}
+
 // SupportsNativeOpenWith reports whether OpenClipWithDialog is available.
 func (d *App) SupportsNativeOpenWith() bool {
 	return supportsNativeOpenWith()

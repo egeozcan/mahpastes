@@ -89,6 +89,18 @@ func TestBuildTransferCapabilitiesClipboardFile(t *testing.T) {
 	}
 }
 
+func TestBuildTransferCapabilitiesMacOnlyFlavours(t *testing.T) {
+	for goos, want := range map[string]bool{"darwin": true, "windows": false, "linux": false, "freebsd": false} {
+		caps := buildTransferCapabilities(goos)
+		if caps.ClipboardRichText != want {
+			t.Errorf("%s: ClipboardRichText=%v want %v", goos, caps.ClipboardRichText, want)
+		}
+		if caps.OpenWithApps != want {
+			t.Errorf("%s: OpenWithApps=%v want %v", goos, caps.OpenWithApps, want)
+		}
+	}
+}
+
 func TestPrepareClipForTransferReturnsDescriptor(t *testing.T) {
 	tempDir := t.TempDir()
 	db := newTransferServiceTestDB(t, tempDir)

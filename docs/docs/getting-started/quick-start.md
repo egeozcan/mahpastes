@@ -44,7 +44,7 @@ Open the clip context menu (three dots on each card) to access actions:
 | Button | Action |
 |--------|--------|
 | **Open** | Open with your default application |
-| **Open With...** | Choose an application to open this clip (on Windows, the native "Open with" dialog) |
+| **Open With...** | Choose an application to open this clip (on macOS, a list of the applications for its type; on Windows, the native "Open with" dialog) |
 | **Copy** | Submenu with **Path** (temp file path), **File** (file to clipboard), and **Contents** (for text, JSON, and images) |
 | **Save** | Open the native save dialog and export a copy to disk |
 | **Edit** | Open supported image, text, or JSON clips in the built-in editor |

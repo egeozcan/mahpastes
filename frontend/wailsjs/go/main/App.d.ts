@@ -132,6 +132,8 @@ export function IsDirectory(arg1:string):Promise<boolean>;
 
 export function ListClipsPage(arg1:app.ClipListRequest):Promise<app.ClipPage>;
 
+export function ListOpenWithApps(arg1:number):Promise<Array<main.OpenWithApp>>;
+
 export function MergeDuplicates(arg1:number):Promise<void>;
 
 export function MergeTag(arg1:number,arg2:number):Promise<void>;

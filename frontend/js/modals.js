@@ -254,6 +254,8 @@ function openLightboxFileMenu(trigger, clip, anchor = trigger) {
                 clipId: clipId,
                 hasOptions: item.dataset.hasOptions,
             });
+        } else if (action === 'open-with-app') {
+            openClipWithListedApp(clip.id, item.dataset.appPath);
         } else {
             handleLightboxFileAction(action, clip);
         }
@@ -304,6 +306,9 @@ async function handleLightboxFileAction(action, clip) {
             break;
         case 'copy-contents':
             copyClipContents(clip.id);
+            break;
+        case 'copy-rich-text':
+            copyClipAsRichText(clip.id);
             break;
         case 'save-file':
             saveClipToFile(clip.id);

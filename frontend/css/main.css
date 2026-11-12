@@ -271,6 +271,16 @@ input[type="color"]::-webkit-color-swatch {
     padding: 0.25rem 0;
     z-index: 111;
     min-width: 120px;
+    overscroll-behavior: contain;
+}
+
+/* Non-interactive row, e.g. "Loading…" while a submenu fills */
+.card-menu-status,
+.card-menu-status:hover,
+.card-menu-status:focus {
+    color: #a8a29e; /* stone-400 */
+    background-color: transparent;
+    cursor: default;
 }
 
 /* Drag-out handle */

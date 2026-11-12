@@ -4237,6 +4237,9 @@ var viewerReadableSettings = map[string]bool{
 	"tooltips_enabled":       true,
 	"keyboard_shortcuts":     true,
 	"plugin_update_interval": true,
+	// Rich text paste: the browser UI keeps HTML from the viewer's own
+	// clipboard, so the preference applies to every key that can paste.
+	"paste_html_behavior": true,
 }
 
 func (am *APIManager) handleGetSetting(w http.ResponseWriter, r *http.Request) {

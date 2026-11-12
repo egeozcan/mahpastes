@@ -699,6 +699,14 @@ export class AppHelper {
         }
       } catch {}
 
+      // Reset rich text paste the same way (cache and stored value).
+      try {
+        const setPasteHtmlBehavior = (window as any).setPasteHtmlBehavior;
+        if (typeof setPasteHtmlBehavior === 'function') {
+          await setPasteHtmlBehavior('text');
+        }
+      } catch {}
+
       // --- 2. Close all modals via DOM ---
 
       // Use the real editor teardown so worker-scoped pages do not retain
@@ -2639,6 +2647,14 @@ export class AppHelper {
   async hoverCopySubmenu(filename: string): Promise<void> {
     await this.openCardMenu(filename);
     const trigger = this.page.locator(selectors.cardMenu.copyTrigger);
+    await trigger.waitFor({ state: 'visible', timeout: 5000 });
+    await trigger.hover();
+    await this.page.locator(selectors.cardMenu.submenu).waitFor({ state: 'visible', timeout: 3000 });
+  }
+
+  async hoverOpenWithSubmenu(filename: string): Promise<void> {
+    await this.openCardMenu(filename);
+    const trigger = this.page.locator(selectors.cardMenu.openWithTrigger);
     await trigger.waitFor({ state: 'visible', timeout: 5000 });
     await trigger.hover();
     await this.page.locator(selectors.cardMenu.submenu).waitFor({ state: 'visible', timeout: 3000 });

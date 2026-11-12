@@ -585,6 +585,8 @@ function getMenuIcon(name) {
         'restore': '<path stroke-linecap="round" stroke-linejoin="round" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"/>',
         'copy-file': '<path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>',
         'copy-contents': '<path stroke-linecap="round" stroke-linejoin="round" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2"/>',
+        'copy-rich-text': '<path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25H12"/>',
+        'application': '<path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z"/>',
         'delete': '<path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>',
         'set-expiration': '<path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>',
         'cancel-expiration': '<path stroke-linecap="round" stroke-linejoin="round" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"/>',
@@ -609,6 +611,7 @@ const cardMenuTooltips = {
     'copy-public-link': 'Create a revocable public link and copy it to clipboard',
     'copy-file': 'Place file on clipboard for pasting into other apps',
     'copy-contents': 'Copy the raw text or data to clipboard',
+    'copy-rich-text': 'Copy as formatted text for Mail, Notes or Pages',
     'save-file': 'Save a copy to a file',
     'edit': 'Open in the built-in image editor for annotation',
     'tags': 'Add or remove tags',
@@ -621,6 +624,42 @@ const cardMenuTooltips = {
     'delete': 'Permanently delete -- this cannot be undone',
 };
 
+function isHTMLContentType(ct) {
+    return (ct || '').split(';')[0].trim().toLowerCase() === 'text/html';
+}
+
+// Children of the Open With submenu: the applications the system offers for
+// the clip's type (default first), then "Other…" for the picker. A failed
+// lookup leaves just "Other…", which is the old Open With behaviour.
+async function openWithAppMenuItems(clipId) {
+    let apps = [];
+    try {
+        apps = (await window.go.main.App.ListOpenWithApps(Number(clipId))) || [];
+    } catch (err) {
+        console.error('Failed to list applications:', err);
+    }
+    const items = apps.map(app => ({
+        id: 'open-with-app',
+        label: escapeHTML(app.is_default ? `${app.name} (default)` : app.name),
+        iconHtml: getMenuIcon('application'),
+        tooltip: app.path,
+        data: { appPath: app.path },
+    }));
+    if (items.length > 0) items.push({ type: 'divider' });
+    items.push({ id: 'open-with', label: 'Other\u2026', iconHtml: getMenuIcon('open-with'), tooltip: cardMenuTooltips['open-with'] });
+    return items;
+}
+
+async function openClipWithListedApp(clipId, appPath) {
+    if (!appPath) return;
+    try {
+        await window.go.main.App.OpenClipWithApp(Number(clipId), appPath);
+    } catch (err) {
+        console.error('Failed to open clip with application:', err);
+        showToast('Failed to open clip.', 'error');
+    }
+}
+
 // Build the menu item list for ContextMenu.open()
 function buildMenuItemList(clip) {
     const ct = clip.content_type || '';
@@ -630,7 +669,16 @@ function buildMenuItemList(clip) {
     // Open actions (top of menu)
     items.push({ id: 'open', label: 'Open', iconHtml: getMenuIcon('open'), tooltip: cardMenuTooltips['open'] });
     if (!isServerMode) {
-        items.push({ id: 'open-with', label: 'Open With\u2026', iconHtml: getMenuIcon('open-with'), tooltip: cardMenuTooltips['open-with'] });
+        if (typeof canListOpenWithApps === 'function' && canListOpenWithApps()) {
+            // The system's applications for this type, loaded when the
+            // submenu first opens, with the picker as "Other…".
+            items.push({
+                type: 'submenu', label: 'Open With', iconHtml: getMenuIcon('open-with'),
+                submenuId: 'open-with', loadChildren: () => openWithAppMenuItems(clip.id),
+            });
+        } else {
+            items.push({ id: 'open-with', label: 'Open With\u2026', iconHtml: getMenuIcon('open-with'), tooltip: cardMenuTooltips['open-with'] });
+        }
     }
 
     items.push({ type: 'divider' });
@@ -651,6 +699,10 @@ function buildMenuItemList(clip) {
     // desktop-only; in server mode it would just throw a "Failed to copy" toast.
     if (!isServerMode && (ct.startsWith('text/') || ct === 'application/json' || ct.startsWith('image/'))) {
         copyChildren.push({ id: 'copy-contents', label: 'Contents', iconHtml: getMenuIcon('copy-contents'), tooltip: cardMenuTooltips['copy-contents'] });
+    }
+    // HTML as formatted text, next to Contents (which copies the source).
+    if (!isServerMode && isHTMLContentType(ct) && typeof canCopyRichText === 'function' && canCopyRichText()) {
+        copyChildren.push({ id: 'copy-rich-text', label: 'Rich Text', iconHtml: getMenuIcon('copy-rich-text'), tooltip: cardMenuTooltips['copy-rich-text'] });
     }
     items.push({ type: 'submenu', label: 'Copy', iconHtml: getMenuIcon('copy'), submenuId: 'copy', children: copyChildren });
 
@@ -762,6 +814,8 @@ function renderCardMenu(clipId, button, clip, anchor = button) {
                 clipId: id,
                 hasOptions: item.dataset.hasOptions,
             });
+        } else if (action === 'open-with-app') {
+            openClipWithListedApp(id, item.dataset.appPath);
         } else {
             handleCardAction(action, id, button);
         }
@@ -811,6 +865,9 @@ async function handleCardAction(action, clipId, triggerButton) {
             break;
         case 'copy-contents':
             copyClipContents(id);
+            break;
+        case 'copy-rich-text':
+            copyClipAsRichText(id);
             break;
         case 'save-file':
             saveClipToFile(id);
