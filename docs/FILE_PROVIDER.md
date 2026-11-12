@@ -152,6 +152,14 @@ shows **File manager access** in place of Finder access. Enabling it mounts
 `~/Mahpastes` with `Active`, `Archive` and `Tags`, where any file manager, file
 dialog or shell can browse it. **Open in file manager** runs `xdg-open`.
 
+Enabling the folder also adds a **Mahpastes** entry to the sidebars: a GTK
+bookmark in `${XDG_CONFIG_HOME:-~/.config}/gtk-3.0/bookmarks` (Nautilus, Thunar,
+Nemo and GTK file dialogs) and, when `${XDG_DATA_HOME:-~/.local/share}/user-places.xbel`
+already exists, a KDE Places entry (Dolphin and KDE dialogs). Existing entries
+are left alone, an entry you made yourself is never removed, and disabling the
+folder removes only what the app added. If a file cannot be edited, use your
+file manager's Add to Places / Add Bookmark on the folder instead.
+
 * The app process serves the mount itself through
   [go-fuse](https://github.com/hanwen/go-fuse), which is pure Go (no cgo or
   libfuse). There is no extension, loopback service or credential. The mount

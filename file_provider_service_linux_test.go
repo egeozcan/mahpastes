@@ -43,6 +43,8 @@ func TestLinuxMountEnableDisableAndRestart(t *testing.T) {
 	dataDir := t.TempDir()
 	mountDir := filepath.Join(t.TempDir(), "Mahpastes")
 	t.Setenv("MAHPASTES_MOUNT_DIR", mountDir)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	db, err := sql.Open("sqlite", filepath.Join(dataDir, "clips.db")+"?_pragma=journal_mode%3Dwal&_pragma=busy_timeout%3D5000")
 	if err != nil {
 		t.Fatal(err)
