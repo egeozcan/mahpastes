@@ -121,6 +121,10 @@ When adding a new watch folder:
 
 The folder is no longer watched. Existing imported clips remain.
 
+## Notifications While in the Background
+
+Imports and failed imports show as in-app toasts. To also get a native notification while mahpastes is minimised or behind other windows, turn on [System Notifications](./notifications) in Settings; a sync of many files shows as one notification ("Imported 12 clips").
+
 ## Watch Status
 
 The status indicator shows:

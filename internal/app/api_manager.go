@@ -4282,7 +4282,7 @@ func (am *APIManager) handleSetSetting(w http.ResponseWriter, r *http.Request) {
 		am.jsonError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	if isAPILaunchSetting(r.PathValue("key")) {
+	if isDesktopOnlySetting(r.PathValue("key")) {
 		am.jsonError(w, http.StatusForbidden, "this setting can only be changed from the desktop app")
 		return
 	}

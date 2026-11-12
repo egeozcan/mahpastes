@@ -557,6 +557,11 @@ export const selectors = {
     lightboxBackdropLabel: '[data-testid="lightbox-backdrop-close-label"]',
     pastePathSection: '[data-testid="settings-paste-path-section"]',
     pastePathSelect: '[data-testid="paste-path-behavior-select"]',
+    osNotificationsSection: '[data-testid="settings-os-notifications-section"]',
+    osNotificationsToggle: '[data-testid="os-notifications-toggle"]',
+    osNotificationsLabel: '[data-testid="os-notifications-toggle-label"]',
+    osNotificationsStatus: '[data-testid="os-notifications-status"]',
+    osNotificationsTest: '[data-testid="os-notifications-test"]',
   },
 
   // Settings - update interval

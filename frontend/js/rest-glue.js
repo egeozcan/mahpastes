@@ -423,6 +423,13 @@
         GetAPIPort: async () => 44557,
         SetAPIAutostart: async () => { throw new Error('the headless server owns the API listener'); },
     };
+    // System notifications are shown by the desktop app's OS; the section is
+    // .desktop-only and the browser has no window focus to report upstream.
+    window.go.main.NotificationService = {
+        GetNotificationStatus: async () => ({ supported: false, enabled: false, state: 'unsupported', error: '', platform: '' }),
+        SetNotificationsEnabled: async () => { throw new Error('system notifications are desktop-only'); },
+        SendTestNotification: async () => { throw new Error('system notifications are desktop-only'); },
+    };
     // Clipboard copy targets the host's clipboard, which is meaningless for a
     // remote browser user — desktop-only, like drag-out transfers. The UI
     // surfaces that call these are already hidden in server mode.

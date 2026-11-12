@@ -113,6 +113,9 @@ var sensitiveSettingPatterns = []string{
 	// Machine-local: a restored backup must not make the next launch listen.
 	"api_autostart",
 	"api_port",
+	// Machine-local: switching notifications on prompts (macOS) or writes
+	// registry keys (Windows), so only the user on that machine may do it.
+	"os_notifications",
 }
 
 // isSensitiveSetting checks if a setting key matches sensitive patterns

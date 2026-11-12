@@ -70,6 +70,7 @@ The database has two separate settings tables: `settings` (stores watch folder p
 | `api_keys` table | API keys are not part of the backup scope (re-create after restore) |
 | `clip_metadata` table | Not exported -- metadata key-value pairs are lost on restore |
 | Sensitive `settings` rows | Any row in the `settings` table whose key contains `api_key`, `secret`, `password`, or `token` is filtered out |
+| Machine-local `settings` rows | `api_autostart`, `api_port` and `os_notifications` ([System Notifications](./notifications)) stay with the machine they were set on |
 | Temporary files | Regenerated as needed |
 
 ## Backup File Format

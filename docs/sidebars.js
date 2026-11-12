@@ -26,6 +26,7 @@ const sidebars = {
         'features/auto-delete',
         'features/archive',
         'features/watch-folders',
+        'features/notifications',
         'features/bulk-actions',
         'features/deduplication',
         'features/backup-restore',

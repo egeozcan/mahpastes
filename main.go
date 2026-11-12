@@ -10,7 +10,9 @@ import (
 
 	webui "go-clipboard/frontend"
 	coreapp "go-clipboard/internal/app"
+	"go-clipboard/internal/bridgeiface"
 	"go-clipboard/internal/logfile"
+	"go-clipboard/internal/osnotify"
 	"go-clipboard/internal/wailsbridge"
 	"go-clipboard/internal/windowstate"
 
@@ -81,6 +83,7 @@ func main() {
 	linkService := NewLinkService(core)
 	markdownService := NewMarkdownService(core)
 	fileProviderService := &FileProviderService{onMount: core.SetProjectionMount}
+	notificationService := NewNotificationService(core)
 
 	core.SetClipboardService(clipboardService)
 	transferHandler := coreapp.NewTransferFileHandler(core)
@@ -97,6 +100,7 @@ func main() {
 		linkService,
 		markdownService,
 		fileProviderService,
+		notificationService,
 	}
 	if selfTest != nil {
 		// Presence of this binding is how the frontend detects self-test mode.
@@ -150,6 +154,17 @@ func main() {
 				go bridge.Emit("mouse:nav", direction)
 			})
 
+			// Native notifications for background events while the window is
+			// unfocused (off by default). The core gets a bridge that also
+			// feeds them; headless runs never construct one.
+			var coreBridge bridgeiface.Bridge = bridge
+			var notifier *osnotify.Notifier
+			if !headless && !generatingBindings {
+				notifier = newDesktopNotifier(bridge, core)
+				notificationService.setNotifier(notifier)
+				coreBridge = osnotify.Wrap(bridge, notifier, core.ClassifyBackgroundEvent)
+			}
+
 			db, err := coreapp.InitDB()
 			if err != nil {
 				fatalStartup(bridge, headless, logWriter != nil, dataDir, "Could not open the database", err)
@@ -157,7 +172,7 @@ func main() {
 			err = core.Bootstrap(ctx, coreapp.BootstrapOptions{
 				DB:            db,
 				DataDir:       dataDir,
-				Bridge:        bridge,
+				Bridge:        coreBridge,
 				InitClipboard: true,
 				PermissionCallback: func(pluginName, permType, requestedPath string) string {
 					path, err := bridge.OpenDirectory(wailsbridge.FileDialogOptions{
@@ -182,6 +197,9 @@ func main() {
 				}
 				fileProviderService.start(ctx, db, dataDir)
 			}
+			if notifier != nil {
+				notifier.Start()
+			}
 		},
 		OnDomReady: func(ctx context.Context) {
 			if !haveSaved {
@@ -198,6 +216,7 @@ func main() {
 			return false
 		},
 		OnShutdown: func(ctx context.Context) {
+			notificationService.stop()
 			fileProviderService.stop()
 			core.Shutdown(ctx)
 		},

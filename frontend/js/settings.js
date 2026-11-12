@@ -19,6 +19,7 @@ function openSettings() {
     loadLightboxBackdropToggle();
     loadPastePathBehaviorSelect();
     loadFileProviderSettings();
+    if (typeof window.loadOSNotificationSettings === 'function') window.loadOSNotificationSettings();
     settingsModal.removeAttribute('inert');
     settingsModal.classList.remove('opacity-0', 'pointer-events-none');
     settingsModal.classList.add('opacity-100');

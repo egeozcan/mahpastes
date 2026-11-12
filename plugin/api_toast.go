@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"html"
+	"strconv"
 	"sync"
 	"time"
 
@@ -82,10 +83,12 @@ func (t *ToastAPI) show(L *lua.LState) int {
 	t.callTimes = append(t.callTimes, now)
 	t.mu.Unlock()
 
-	// Emit Wails event
+	// Emit Wails event. plugin_id lets a system notification for this toast
+	// name the plugin; the in-app toast ignores it.
 	t.bridge.Emit("plugin:toast", map[string]string{
-		"message": message,
-		"type":    toastType,
+		"message":   message,
+		"type":      toastType,
+		"plugin_id": strconv.FormatInt(t.pluginID, 10),
 	})
 
 	L.Push(lua.LTrue)

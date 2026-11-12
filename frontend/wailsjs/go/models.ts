@@ -1440,6 +1440,26 @@ export namespace main {
 	        this.path = source["path"];
 	    }
 	}
+	export class NotificationStatus {
+	    supported: boolean;
+	    enabled: boolean;
+	    state: string;
+	    error: string;
+	    platform: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new NotificationStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.supported = source["supported"];
+	        this.enabled = source["enabled"];
+	        this.state = source["state"];
+	        this.error = source["error"];
+	        this.platform = source["platform"];
+	    }
+	}
 	export class PluginInfo {
 	    id: number;
 	    name: string;

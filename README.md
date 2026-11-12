@@ -21,6 +21,7 @@ Documentation: https://egeozcan.github.io/mahpastes/
 - **Bulk Actions** — Select multiple clips to tag, archive, download, or delete
 - **Search** — Filter clips by filename or type
 - **Watch Folders** — Auto-import files from monitored directories
+- **System Notifications** — Optional native notifications for imports, received shares and plugin results while the window is in the background
 - **Plugin System** — Install and manage Lua plugins from the dedicated Plugins modal
 - **Backup & Restore** — Export and import all data as a ZIP archive
 - **Copy Path** — Create a temp file and copy its path to clipboard

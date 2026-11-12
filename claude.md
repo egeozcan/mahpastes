@@ -69,6 +69,7 @@ Tests are organized by feature in `e2e/tests/`:
 - `folder-drag/` - Folder drag operations
 - `images/` - Lightbox, editor, comparison
 - `metadata/` - Clip metadata CRUD
+- `notifications/` - System Notifications setting
 - `plugins/` - Plugin system (install, events, APIs, scheduling)
 - `search/` - Filtering functionality
 - `screenshots/` - Documentation screenshot capture
@@ -216,6 +217,9 @@ mahpastes/
 ├── transfer_types.go     # Transfer system type definitions
 ├── window_geometry.go    # Save/restore window size, position, maximised (internal/windowstate, window.json)
 ├── internal/logfile/     # Size-capped <dataDir>/logs/mahpastes.log (+ .1); also receives Go crash traces. Only the instance holding the lock rotates it
+├── notification_service.go # System Notifications setting (NotificationService binding); wires internal/osnotify into main.go
+├── internal/osnotify/    # Native OS notifications for background events: coalescing, rate limits, focus gating, one worker goroutine for all backend calls
+├── internal/app/os_notifications.go # os_notifications setting + ClassifyBackgroundEvent (which frontend events notify)
 ├── window_position_windows.go # Windows: absolute window placement via user32 (Wails' getter/setter disagree)
 ├── window_position_other.go   # Other platforms: position goes through Wails
 ├── thumbnail.go          # Image card thumbnails: generation, hash-keyed disk cache, serving (internal/app)
@@ -437,8 +441,17 @@ The app has a Lua-based plugin system that allows extending functionality.
 - `TransferService` in `transfer_service.go` - Drag-out/transfer operations
 - `ServeService` in `serve_service.go` - Tag HTTP serving operations
 - `APIService` in `api_service.go` - REST API management (start/stop, API keys)
+- `NotificationService` in `notification_service.go` - System Notifications setting (status, enable, test)
 
 Frontend accesses via `window.go.main.PluginService.*`, `window.go.main.ClipboardService.*`, `window.go.main.TransferService.*`, `window.go.main.ServeService.*`, `window.go.main.APIService.*`.
+
+### System Notifications
+
+Off by default (`os_notifications` setting; machine-local, so excluded from backups and refused over REST). In OnStartup main.go wraps the Wails bridge with `osnotify.Wrap(bridge, notifier, core.ClassifyBackgroundEvent)` and hands that to `Bootstrap`, so every emitter (watcher, share manager, plugin manager, REST uploads) feeds notifications without knowing about them. Rules:
+- Only the notifier's worker goroutine calls the Wails notification runtime (`Bridge.InitNotifications/SendNotification/CleanupNotifications` in `internal/wailsbridge/notifications.go`): those calls block (the macOS permission prompt waits up to 3 minutes, Linux makes a D-Bus round trip). Never call them from `Emit`, a bound method or OnStartup.
+- The backend initialises lazily (first notification) or when the user switches the setting on; a failure sticks until the user switches it off and on.
+- The frontend (`frontend/js/os-notifications.js`) emits `window:focus-changed` with a bool; the notifier treats the window as focused until the first report and drops what is waiting when focus returns.
+- Headless runs (`MAHPASTES_START_HIDDEN=1`, the worker self-test, binding generation) never construct a notifier. A new background event that should notify needs a case in `ClassifyBackgroundEvent`; keep it non-blocking and put lookups in `Notice.Label`.
 
 ### Event System
 
