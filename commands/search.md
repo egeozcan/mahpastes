@@ -8,15 +8,17 @@ Search for clips in mahpastes and optionally retrieve their content.
 
 ## Prerequisites
 
-Verify `MAHPASTES_API_URL` and `MAHPASTES_API_KEY` environment variables are set. If not, tell the user to run `/mahpastes:setup` first and stop.
+Verify `MP_API_URL` and `MP_API_KEY` environment variables are set. If not, tell the user to run `/mahpastes:setup` first and stop.
 
 ## Search
+
+If `mp` is on PATH (`command -v mp`), prefer `mp clip list --search QUERY --limit 20` (add `--json` for parsing), `mp clip data ID` and `mp clip download ID -o FILE`. The curl examples below are the fallback.
 
 Use `$ARGUMENTS` as the search query:
 
 ```bash
-curl -s -H "Authorization: Bearer $MAHPASTES_API_KEY" \
-  "$MAHPASTES_API_URL/api/v1/clips?search=QUERY&limit=20"
+curl -s -H "Authorization: Bearer $MP_API_KEY" \
+  "$MP_API_URL/api/v1/clips?search=QUERY&limit=20"
 ```
 
 URL-encode the query value. If `$ARGUMENTS` is empty, ask the user what to search for, or list recent clips without a search filter.
@@ -36,8 +38,8 @@ Format results as a table showing:
 If the user wants to view or use a specific clip, download its data:
 
 ```bash
-curl -s -H "Authorization: Bearer $MAHPASTES_API_KEY" \
-  "$MAHPASTES_API_URL/api/v1/clips/ID/data"
+curl -s -H "Authorization: Bearer $MP_API_KEY" \
+  "$MP_API_URL/api/v1/clips/ID/data"
 ```
 
 - For text content (`text/*`, `application/json`, `application/xml`): display inline

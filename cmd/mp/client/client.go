@@ -55,17 +55,32 @@ type Client struct {
 	HTTPClient *http.Client
 }
 
+// defaultBaseURL is the API address used when no URL is configured.
+const defaultBaseURL = "http://localhost:44557"
+
+// firstEnv returns the first non-empty value among the named environment
+// variables, or "" when none is set.
+func firstEnv(names ...string) string {
+	for _, name := range names {
+		if v := os.Getenv(name); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
 // New creates a Client from environment variables.
-// MP_API_URL defaults to http://localhost:44557.
-// MP_API_KEY is required.
+// MP_API_URL defaults to http://localhost:44557. MAHPASTES_API_URL is used
+// when MP_API_URL is unset, so the agent plugin's settings also work for mp.
+// MP_API_KEY is required; MAHPASTES_API_KEY is used when it is unset.
 func New() (*Client, error) {
-	baseURL := os.Getenv("MP_API_URL")
+	baseURL := firstEnv("MP_API_URL", "MAHPASTES_API_URL")
 	if baseURL == "" {
-		baseURL = "http://localhost:44557"
+		baseURL = defaultBaseURL
 	}
 	baseURL = strings.TrimRight(baseURL, "/")
 
-	apiKey := os.Getenv("MP_API_KEY")
+	apiKey := firstEnv("MP_API_KEY", "MAHPASTES_API_KEY")
 	if apiKey == "" {
 		return nil, fmt.Errorf("MP_API_KEY environment variable is required.\n\nTo get started:\n  1. Open mahpastes Settings > API\n  2. Create an API key\n  3. export MP_API_KEY=<your-key>")
 	}

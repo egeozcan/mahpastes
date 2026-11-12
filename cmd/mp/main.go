@@ -22,7 +22,14 @@ Getting started:
   3. Export your key:  export MP_API_KEY=<your-key>
   4. (Optional) Set a custom URL:  export MP_API_URL=http://host:port
 
-By default, mp connects to http://localhost:44557.`,
+By default, mp connects to http://localhost:44557.
+
+Environment variables:
+  MP_API_KEY   API key (required)
+  MP_API_URL   API base URL (default http://localhost:44557)
+  MAHPASTES_API_KEY, MAHPASTES_API_URL
+               Fallbacks used when the MP_ variables are unset
+               (the same names the Claude Code plugin configures).`,
 	SilenceUsage:  true,
 	SilenceErrors: true,
 }

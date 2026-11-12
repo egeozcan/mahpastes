@@ -65,6 +65,8 @@ Connected to mahpastes API at http://localhost:44557
 |----------|----------|---------|-------------|
 | `MP_API_KEY` | Yes | -- | API key starting with `mp_` |
 | `MP_API_URL` | No | `http://localhost:44557` | API base URL |
+| `MAHPASTES_API_KEY` | No | -- | Fallback for `MP_API_KEY`, used only when `MP_API_KEY` is unset (the name the Claude Code plugin uses) |
+| `MAHPASTES_API_URL` | No | -- | Fallback for `MP_API_URL`, used only when `MP_API_URL` is unset |
 
 ## Uploading Files
 

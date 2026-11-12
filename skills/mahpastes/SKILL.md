@@ -9,21 +9,34 @@ mahpastes is a desktop clipboard manager with a REST API and HTTP tag-serve syst
 
 ## Prerequisites
 
-Before any operation, verify that `MAHPASTES_API_URL` and `MAHPASTES_API_KEY` environment variables are set. If either is missing, tell the user to run `/mahpastes:setup` and do not proceed.
+Before any operation, verify that `MP_API_URL` and `MP_API_KEY` environment variables are set. These are the same variables the `mp` CLI reads. If `MP_API_KEY` is missing, tell the user to run `/mahpastes:setup` and do not proceed. If `MP_API_URL` is missing, the default `http://127.0.0.1:44557` applies.
 
 Verify connectivity:
 
 ```bash
 curl -sf -o /dev/null -w "%{http_code}" \
-  -H "Authorization: Bearer $MAHPASTES_API_KEY" \
-  "$MAHPASTES_API_URL/api/v1/tags"
+  -H "Authorization: Bearer $MP_API_KEY" \
+  "$MP_API_URL/api/v1/tags"
 ```
 
 A `200` response confirms the API is reachable and the key is valid. Any other response means the server is not running or the key is invalid — tell the user to check mahpastes and re-run `/mahpastes:setup`.
 
+## Prefer the mp CLI
+
+If the `mp` CLI is on PATH (`command -v mp` succeeds), prefer it over hand-written curl. It reads the same `MP_API_URL` / `MP_API_KEY` variables and handles auth, multipart uploads and output formatting:
+
+- Upload a file: `mp clip upload path/to/file --tag TAG_NAME`
+- Upload in-memory content: `printf '%s' "$CONTENT" | mp clip upload --filename notes.md`
+- Search: `mp clip list --search QUERY --limit 20` (add `--json` for machine-readable output)
+- List tags: `mp tag list`; create a tag: `mp tag create NAME`; tag a clip: `mp tag assign CLIP_ID --tag TAG_NAME`
+- Download: `mp clip download ID -o output-file`
+- Start tag-serve: `mp serve start TAG_NAME --port PORT --api-access none`; stop it: `mp serve stop TAG_NAME`
+
+Use the curl examples below only when `mp` is not installed. Run `mp --help` or `mp <command> --help` for flags not listed here.
+
 ## Authentication
 
-All API requests require the header: `Authorization: Bearer $MAHPASTES_API_KEY`
+All API requests require the header: `Authorization: Bearer $MP_API_KEY`
 
 Keys have roles: viewer (read-only), editor (create/delete clips), admin (full access including tag CRUD and serve management). Admin is required for tag-serve and tag management.
 
@@ -46,38 +59,47 @@ When a 403 with `"tag-scoped keys cannot manage tags"` is received, do not retry
 
 ```bash
 curl -s -X POST \
-  -H "Authorization: Bearer $MAHPASTES_API_KEY" \
+  -H "Authorization: Bearer $MP_API_KEY" \
   -F "file=@/path/to/file" \
-  "$MAHPASTES_API_URL/api/v1/clips"
+  "$MP_API_URL/api/v1/clips"
 ```
 
 Response (201): `{"id": N, "filename": "...", "content_type": "...", "size": N, "tags": []}`
 
 To override the filename, append `?filename=custom-name.ext` to the URL.
 
-To upload in-memory content, write it to a temp file first, upload, then clean up.
+To upload in-memory content without a temp file, pipe it to curl, which reads stdin for the `@-` form field:
+
+```bash
+printf '%s' "$CONTENT" | curl -s -X POST \
+  -H "Authorization: Bearer $MP_API_KEY" \
+  -F "file=@-;filename=notes.md" \
+  "$MP_API_URL/api/v1/clips"
+```
+
+With `mp`, use `printf '%s' "$CONTENT" | mp clip upload --filename notes.md`.
 
 ### Tag a Clip
 
 ```bash
 # Create a tag
 curl -s -X POST \
-  -H "Authorization: Bearer $MAHPASTES_API_KEY" \
+  -H "Authorization: Bearer $MP_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"name":"tag-name"}' \
-  "$MAHPASTES_API_URL/api/v1/tags"
+  "$MP_API_URL/api/v1/tags"
 
 # Add tag to clip
 curl -s -X PUT \
-  -H "Authorization: Bearer $MAHPASTES_API_KEY" \
-  "$MAHPASTES_API_URL/api/v1/clips/CLIP_ID/tags/TAG_ID"
+  -H "Authorization: Bearer $MP_API_KEY" \
+  "$MP_API_URL/api/v1/clips/CLIP_ID/tags/TAG_ID"
 ```
 
 ### Search Clips
 
 ```bash
-curl -s -H "Authorization: Bearer $MAHPASTES_API_KEY" \
-  "$MAHPASTES_API_URL/api/v1/clips?search=QUERY&limit=50"
+curl -s -H "Authorization: Bearer $MP_API_KEY" \
+  "$MP_API_URL/api/v1/clips?search=QUERY&limit=50"
 ```
 
 Response: `{"clips": [...], "total": N, "limit": N, "offset": N}`
@@ -87,18 +109,18 @@ Filter by tag (`tag=TAG_ID`), content type (`content_type=image/png`), or archiv
 ### Download Clip Data
 
 ```bash
-curl -s -H "Authorization: Bearer $MAHPASTES_API_KEY" \
-  "$MAHPASTES_API_URL/api/v1/clips/ID/data" -o output-file
+curl -s -H "Authorization: Bearer $MP_API_KEY" \
+  "$MP_API_URL/api/v1/clips/ID/data" -o output-file
 ```
 
 ### Start Tag-Serve (Web Hosting)
 
 ```bash
 curl -s -X POST \
-  -H "Authorization: Bearer $MAHPASTES_API_KEY" \
+  -H "Authorization: Bearer $MP_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"tag_id":TAG_ID,"port":PORT,"bind_all":false,"api_access":"none"}' \
-  "$MAHPASTES_API_URL/api/v1/serve"
+  "$MP_API_URL/api/v1/serve"
 ```
 
 Clips tagged with TAG_ID become accessible at `http://127.0.0.1:PORT/FILENAME`. A clip named `index.html` is served at the root path.
@@ -108,8 +130,8 @@ Set `api_access` to `"read"` or `"readwrite"` to enable the JSON API on the serv
 
 ```bash
 curl -s -X DELETE \
-  -H "Authorization: Bearer $MAHPASTES_API_KEY" \
-  "$MAHPASTES_API_URL/api/v1/clips/ID"
+  -H "Authorization: Bearer $MP_API_KEY" \
+  "$MP_API_URL/api/v1/clips/ID"
 ```
 
 Response: 204 No Content.
@@ -118,8 +140,8 @@ Response: 204 No Content.
 
 ```bash
 curl -s -X DELETE \
-  -H "Authorization: Bearer $MAHPASTES_API_KEY" \
-  "$MAHPASTES_API_URL/api/v1/serve/TAG_ID"
+  -H "Authorization: Bearer $MP_API_KEY" \
+  "$MP_API_URL/api/v1/serve/TAG_ID"
 ```
 
 ## Workflow Patterns
