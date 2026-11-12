@@ -704,6 +704,11 @@ export class AppHelper {
             const all = [...(clips || []), ...(archived || [])];
             if (all.length === 0) break;
             await Promise.all(all.map((c: any) => App.DeleteClip(c.id).catch(() => {})));
+            // Deleting through the bridge skips the UI's delete path, which
+            // also frees the clip's cached video frame; do that here so one
+            // test's frames do not count against the next on this page.
+            const freeFrame = (window as any).videoFrameCacheDelete;
+            if (typeof freeFrame === 'function') all.forEach((c: any) => freeFrame(Number(c.id)));
           }
         }
       } catch {}
