@@ -267,7 +267,12 @@ async function openEditor(clipId, options = {}) {
         updateEditorSaveState();
         if (editorFocusTrapCleanup) editorFocusTrapCleanup();
         editorFocusTrapCleanup = trapFocus(editorModal);
-        if (!isTextEditor) requestAnimationFrame(() => document.querySelector('.editor-tool-btn.active')?.focus());
+        // A dialog that opened over the editor before this frame (a plugin
+        // option prompt, an upload conflict) keeps the focus it took.
+        if (!isTextEditor) requestAnimationFrame(() => {
+            if (isCoveredByHigherLayer(editorModal)) return;
+            document.querySelector('.editor-tool-btn.active')?.focus();
+        });
 
     } catch (error) {
         console.error('Error opening editor:', error);
