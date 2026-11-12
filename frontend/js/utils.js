@@ -434,6 +434,9 @@ function createModalFocus(modal) {
     };
 }
 
+// showToast shows a transient status message. An optional action
+// ({ label, onClick }) adds a button after the message and keeps the toast up
+// longer so there is time to reach it.
 function showToast(message, type = 'info', action = null) {
     const toast = document.getElementById('toast');
 
@@ -451,16 +454,24 @@ function showToast(message, type = 'info', action = null) {
     const colorClass = colors[type] || colors.info;
     toast.classList.add(colorClass);
 
+    const hide = () => {
+        toast.classList.remove('translate-x-0', 'opacity-100');
+        toast.classList.add('translate-x-full', 'opacity-0');
+        // A hidden toast keeps no focusable action behind it.
+        toast.querySelector('[data-testid="toast-action"]')?.remove();
+    };
+
     toast.textContent = message;
-    if (action && action.label && typeof action.onClick === 'function') {
+    const hasAction = !!(action && action.label && typeof action.onClick === 'function');
+    if (hasAction) {
         const btn = document.createElement('button');
         btn.type = 'button';
-        btn.className = 'ml-3 underline font-medium';
+        btn.className = 'ml-2 underline underline-offset-2 font-medium hover:opacity-80 transition-opacity';
         btn.dataset.testid = 'toast-action';
         btn.textContent = action.label;
         btn.addEventListener('click', () => {
-            toast.classList.remove('translate-x-0', 'opacity-100');
-            toast.classList.add('translate-x-full', 'opacity-0');
+            if (window.toastTimeout) clearTimeout(window.toastTimeout);
+            hide();
             action.onClick();
         });
         toast.appendChild(btn);
@@ -472,10 +483,7 @@ function showToast(message, type = 'info', action = null) {
         clearTimeout(window.toastTimeout);
     }
 
-    window.toastTimeout = setTimeout(() => {
-        toast.classList.remove('translate-x-0', 'opacity-100');
-        toast.classList.add('translate-x-full', 'opacity-0');
-    }, action ? 8000 : 3000);
+    window.toastTimeout = setTimeout(hide, hasAction ? 8000 : 3000);
 }
 
 function copyToClipboard(text) {

@@ -202,6 +202,7 @@ mahpastes/
 ├── native_drag_other.go  # Unsupported platform stub
 ├── open_darwin.go        # macOS file-open helper
 ├── open_windows.go       # Windows file-open helper
+├── open_linux.go         # Linux file-open helper (xdg-open / gio launch, FileManager1 reveal)
 ├── open_other.go         # Unsupported platform stub
 ├── plugin_service.go     # Plugin frontend API (separate struct)
 ├── plugins.go            # Plugin install/uninstall helpers

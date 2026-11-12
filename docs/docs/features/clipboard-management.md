@@ -160,12 +160,12 @@ video/*        → Video player
 Click the three-dot menu button on any clip card, or right-click anywhere on the card, to open the context menu. The menu uses submenus to group related actions. Available actions:
 
 - **Open** -- opens the clip with the system default application (`xdg-open`, falling back to `gio open`, on Linux)
-- **Open With** -- opens a file dialog to choose an application. On Linux, pick a `.desktop` file; the dialog starts in the Flatpak applications directory when present (type a path with Ctrl+L to reach `~/.local/share/applications`, `/usr/share/applications`, or `~/.local/share/flatpak/exports/share/applications`). Sandboxed Flatpak apps can only read the clip if they have file access
+- **Open With** -- opens a file dialog to choose an application. On Linux, pick the app's `.desktop` file (or switch the filter to *All Files* to pick a plain executable); the dialog starts in whichever applications directory holds the most apps -- usually `/usr/share/applications`, or the Flatpak exports on Fedora Atomic and similar. The others are `/var/lib/flatpak/exports/share/applications`, `~/.local/share/flatpak/exports/share/applications`, `~/.local/share/applications` and `/var/lib/snapd/desktop/applications`; type a path with Ctrl+L to reach them. The app is started with `gio launch`, falling back to `gtk-launch`. A Flatpak app started this way can only read the clip if its sandbox grants access to the mahpastes data folder, where the clip's temporary file lives
 - **Copy** (submenu) -- expands to show **Path**, **File**, and **Contents**
   - **Path** -- creates a temporary file and copies the absolute path to clipboard
   - **File** -- copies the clip as a file to the system clipboard (macOS via NSPasteboard, Windows via PowerShell; not supported on Linux)
   - **Contents** -- copies raw text or image data to the system clipboard (available for text/\*, application/json, and image/\* types; non-PNG images are converted to PNG before copying)
-- **Save** -- opens a native save dialog to export the clip to disk; the confirmation toast offers **Show in folder**, which reveals the saved file in Finder, Explorer, or the Linux file manager
+- **Save** -- opens a native save dialog to export the clip to disk; in the desktop app the confirmation toast offers **Show in folder**, which shows the saved file selected in Finder, Explorer, or the Linux file manager (through the `org.freedesktop.FileManager1` service, or by opening the containing folder when no file manager provides it). In the browser UI the clip is downloaded instead
 - **Edit** -- opens the image editor or text editor (shown for editable types)
 - **Tags** -- opens the tag popover
 - **Metadata** -- opens the metadata modal for viewing and editing key-value pairs

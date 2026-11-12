@@ -72,3 +72,14 @@ func TestSaveClipToFileReportsCancelAndPath(t *testing.T) {
 		t.Fatalf("saved bytes = %q", b)
 	}
 }
+
+// RevealInFileManager hands the path to open/explorer/xdg-open, so it must
+// refuse anything that is not an existing absolute path before running them.
+func TestRevealInFileManagerValidatesPath(t *testing.T) {
+	d := &App{}
+	for _, p := range []string{"", "-a", "relative/a.txt", filepath.Join(t.TempDir(), "missing.txt")} {
+		if err := d.RevealInFileManager(p); err == nil {
+			t.Errorf("RevealInFileManager(%q) = nil, want error", p)
+		}
+	}
+}

@@ -1170,8 +1170,9 @@ async function saveClipToFile(id) {
     try {
         // Resolves to the path written, or "" when the dialog was cancelled.
         const savedPath = await window.go.main.App.SaveClipToFile(id);
-        // Desktop only: server mode downloads through the browser instead.
-        if (savedPath && window.go.main.App.RevealInFileManager) {
+        // Desktop only: in server mode the browser saved a download (the
+        // glue resolves to its name), which the host file manager can't show.
+        if (savedPath && window.mahpastesMode !== 'server') {
             showToast('Saved clip to file', 'success', {
                 label: 'Show in folder',
                 onClick: () => window.go.main.App.RevealInFileManager(savedPath).catch(

@@ -10,6 +10,7 @@ import (
 	"log"
 	"mime"
 	"os"
+	"path/filepath"
 	"time"
 
 	coreapp "go-clipboard/internal/app"
@@ -246,6 +247,11 @@ func (d *App) OpenClipWithApp(id int64, appPath string) error {
 func (d *App) RevealInFileManager(path string) error {
 	if path == "" {
 		return fmt.Errorf("path is required")
+	}
+	// Only absolute paths: the platform helpers pass it to open, explorer
+	// and xdg-open, where a relative "-x" would read as an option.
+	if !filepath.IsAbs(path) {
+		return fmt.Errorf("path must be absolute: %s", path)
 	}
 	if _, err := os.Stat(path); err != nil {
 		return fmt.Errorf("file not found: %w", err)
