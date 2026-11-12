@@ -3,13 +3,16 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"sync"
 
 	webui "go-clipboard/frontend"
 	coreapp "go-clipboard/internal/app"
+	"go-clipboard/internal/logfile"
 	"go-clipboard/internal/wailsbridge"
 	"go-clipboard/internal/windowstate"
 
@@ -25,6 +28,20 @@ func main() {
 	dataDir, err := coreapp.GetDataDir()
 	if err != nil {
 		log.Fatalf("data dir: %v", err)
+	}
+	// Keep a log in the data directory: stderr is discarded for a Windows GUI
+	// exe and a Finder-launched .app. Skipped for binding generation.
+	if !generatingBindings {
+		if lw, err := logfile.Open(dataDir); err != nil {
+			log.Printf("log file unavailable: %v", err)
+		} else {
+			defer lw.Close()
+			log.SetOutput(io.MultiWriter(os.Stderr, lw))
+			// log.SetOutput does not capture runtime panic traces.
+			if err := debug.SetCrashOutput(lw.File(), debug.CrashOptions{}); err != nil {
+				log.Printf("crash output unavailable: %v", err)
+			}
+		}
 	}
 	// Skip the single-instance lock during Wails binding generation: that build
 	// (`-tags bindings`) only introspects bound methods and exits, so it must
@@ -128,7 +145,7 @@ func main() {
 
 			db, err := coreapp.InitDB()
 			if err != nil {
-				log.Fatalf("db: %v", err)
+				fatalStartup(bridge, "Could not open the database", err)
 			}
 			err = core.Bootstrap(ctx, coreapp.BootstrapOptions{
 				DB:            db,
@@ -148,7 +165,7 @@ func main() {
 				},
 			})
 			if err != nil {
-				log.Fatalf("bootstrap: %v", err)
+				fatalStartup(bridge, "Could not start mahpastes", err)
 			}
 			if !generatingBindings {
 				fileProviderService.start(ctx, db, dataDir)
@@ -201,4 +218,16 @@ func main() {
 	if selfTest != nil {
 		os.Exit(selfTest.finish())
 	}
+}
+
+// fatalStartup logs a startup failure, tells the user in a native dialog (the
+// window would otherwise just vanish) and exits.
+func fatalStartup(bridge *wailsbridge.Bridge, title string, err error) {
+	log.Printf("fatal startup error: %s: %v", title, err)
+	msg := fmt.Sprintf("%v", err)
+	if dir, derr := coreapp.GetDataDir(); derr == nil {
+		msg += "\n\nDetails are in " + logfile.Dir(dir)
+	}
+	bridge.ErrorDialog("mahpastes: "+title, msg)
+	os.Exit(1)
 }

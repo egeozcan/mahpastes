@@ -13,6 +13,7 @@ import (
 	"time"
 
 	coreapp "go-clipboard/internal/app"
+	"go-clipboard/internal/logfile"
 	"go-clipboard/internal/wailsbridge"
 
 	"golang.design/x/clipboard"
@@ -119,6 +120,19 @@ type App struct {
 func NewApp() *App {
 	core := coreapp.NewApp()
 	return &App{desktopCore: core, core: core}
+}
+
+// OpenLogFolder reveals the log directory in the system file manager.
+func (d *App) OpenLogFolder() error {
+	dataDir, err := coreapp.GetDataDir()
+	if err != nil {
+		return err
+	}
+	dir := logfile.Dir(dataDir)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	return openFolder(dir)
 }
 
 func (d *App) setBridge(b *wailsbridge.Bridge) {

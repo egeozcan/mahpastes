@@ -274,6 +274,10 @@ export function OpenClipWithDefaultApp(arg1) {
   return window['go']['main']['App']['OpenClipWithDefaultApp'](arg1);
 }
 
+export function OpenLogFolder() {
+  return window['go']['main']['App']['OpenLogFolder']();
+}
+
 export function PreviewMergeTag(arg1, arg2) {
   return window['go']['main']['App']['PreviewMergeTag'](arg1, arg2);
 }
