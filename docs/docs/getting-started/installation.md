@@ -93,6 +93,21 @@ mkdir -p ~/Library/Application\ Support/mahpastes/plugins
 cp plugins/*.lua ~/Library/Application\ Support/mahpastes/plugins/
 ```
 
+### Desktop Integration
+
+What the installed app registers with the operating system:
+
+- **macOS**: Finder **Open With > mahpastes** for any file (never as the default app), drops on the Dock
+  icon, and [`mahpastes://` clip links](../features/deep-links.md). The bundle identifier is
+  `io.github.egeozcan.mahpastes`; builds from before it was fixed used `com.wails.mahpastes`, so after
+  upgrading from one of those macOS asks once more for folder and local network access.
+- **Linux**: `make install` writes a desktop entry that lists mahpastes under **Open With** for text,
+  Markdown, images, PDF and JSON, handles `mahpastes://` links, and adds a **Save Clipboard as Clip**
+  action you can bind to a global shortcut ([details](../features/clipboard-management.md#save-the-clipboard-from-a-global-shortcut-linux)).
+- **Windows**: dropping files on `mahpastes.exe` imports them. Add a **Send to** entry yourself as
+  described in [Send to on Windows](../features/clipboard-management.md#send-to-on-windows); the zip
+  release registers nothing, including `mahpastes://` links.
+
 ## Install the CLI (`mp`)
 
 The `mp` CLI is a standalone binary that talks to mahpastes over the REST API. It requires no CGo and cross-compiles for macOS, Linux, and Windows.

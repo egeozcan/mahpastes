@@ -32,6 +32,7 @@ const sidebars = {
         'features/drag-and-drop',
         'features/tag-serve',
         'features/rest-api',
+        'features/deep-links',
       ],
     },
     {

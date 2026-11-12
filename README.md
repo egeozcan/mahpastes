@@ -80,12 +80,23 @@ After building, copy to Applications:
 cp -R build/bin/mahpastes.app /Applications/
 ```
 
+Every build uses the bundle identifier `io.github.egeozcan.mahpastes` (from
+the committed `build/darwin/Info.plist`). Builds made before it was committed
+were `com.wails.mahpastes` unless they included Finder integration, so after
+upgrading from one of those macOS asks once more for folder and network
+permissions; your clips are not affected. The installed app appears under
+Finder's **Open With**, accepts files dropped on its Dock icon and handles
+[`mahpastes://` clip links](docs/docs/features/deep-links.md).
+
 ### Install on Linux
 
 `make install` builds and installs for the current user, without root:
 the app goes to `~/.local/bin/mahpastes`, with a desktop entry and icons under
 `~/.local/share`. Set `PREFIX` to install elsewhere. `make uninstall` removes
-them again and keeps your data.
+them again and keeps your data. The desktop entry lists mahpastes under
+**Open With** for common file types (never as the default), handles
+[`mahpastes://` clip links](docs/docs/features/deep-links.md), and has a
+**Save Clipboard as Clip** action you can bind to a global shortcut.
 
 Build dependencies:
 
