@@ -34,7 +34,7 @@ Documentation: https://egeozcan.github.io/mahpastes/
 Download the latest release from the [Releases](https://github.com/egeozcan/mahpastes/releases) page:
 
 - **macOS** (13+, universal): `mahpastes-macos-universal.zip`, signed and notarized, with Finder integration. Drag `mahpastes.app` to Applications.
-- **Windows** (x64 or ARM): `mahpastes-windows-amd64.zip` or `mahpastes-windows-arm64.zip`. Extract and run `mahpastes.exe`.
+- **Windows** (x64 or ARM): `mahpastes-windows-amd64-installer.exe` (or `arm64`) installs with Start Menu shortcuts; `mahpastes-windows-amd64.zip` or `mahpastes-windows-arm64.zip` is the portable archive; `scoop install https://github.com/egeozcan/mahpastes/releases/latest/download/mahpastes.json` also works. See `packaging/README.md` for the Scoop and Homebrew manifests.
 - **Linux** (x64; GTK 3, WebKitGTK 4.1, glibc 2.39+: Ubuntu 24.04, Debian 13, Fedora 40 and later): `mahpastes-linux-amd64.tar.gz`. Extract and run `./install.sh`, which installs the app and `mp` to `~/.local/bin` with a desktop entry and icon (`./install.sh --uninstall` removes them).
 - **Standalone** `mp` CLI and `mahpastesd` headless server for each platform, plus `SHA256SUMS` to verify downloads.
 

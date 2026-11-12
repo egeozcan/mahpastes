@@ -28,6 +28,9 @@ jobs:
       GH_REPO: ${{ github.repository }}
       TAG: ${{ github.ref_name }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: packaging
       - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
@@ -42,6 +45,8 @@ jobs:
             mahpastes-macos-universal.zip
             mahpastes-windows-amd64.zip
             mahpastes-windows-arm64.zip
+            mahpastes-windows-amd64-installer.exe
+            mahpastes-windows-arm64-installer.exe
             mahpastes-linux-amd64.tar.gz
             mp-darwin-universal
             mahpastesd-darwin-universal
@@ -62,6 +67,12 @@ jobs:
           # Bare names, so `sha256sum -c SHA256SUMS` works in a download folder.
           sha256sum -- * > SHA256SUMS
           cat SHA256SUMS
+          # Package-manager manifests matching these exact assets (not
+          # checksummed themselves; they carry the checksums).
+          version=0.0.0-dev
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then version="$TAG"; fi
+          bash ../packaging/render.sh "$version" SHA256SUMS .
+          ls -l mahpastes.json mahpastes.rb
 
       - name: Keep the assets of a run that publishes nothing
         if: github.ref_type != 'tag'

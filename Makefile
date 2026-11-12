@@ -8,7 +8,11 @@ ifeq ($(OS),Windows_NT)
     GO_PATH := $(strip $(GOPATH))
     WAILS := wails
     APP_EXE := $(BUILD_DIR)/$(APP_NAME).exe
-    INSTALL_DIR := $(APPDATA)/$(APP_NAME)
+    # The program directory must stay apart from the data directory
+    # (%APPDATA%\mahpastes holds clips.db), so uninstall can never touch data.
+    INSTALL_DIR := $(LOCALAPPDATA)\Programs\$(APP_NAME)
+    DATA_DIR := $(APPDATA)\$(APP_NAME)
+    START_MENU_LINK := $(APPDATA)\Microsoft\Windows\Start Menu\Programs\$(APP_NAME).lnk
     PLUGIN_DIR := $(APPDATA)/$(APP_NAME)/plugins
     MP_INSTALL_DIR ?= $(if $(GO_BIN),$(GO_BIN),$(if $(GO_PATH),$(GO_PATH)\bin,$(USERPROFILE)\go\bin))
     SHELL := cmd.exe
@@ -89,17 +93,22 @@ install: build ## Build and install (kills running instance)
 	-taskkill /IM "$(APP_NAME).exe" /F 2>nul
 	timeout /t 1 /nobreak >nul
 	if not exist "$(INSTALL_DIR)" mkdir "$(INSTALL_DIR)"
-	copy "$(subst /,\,$(APP_EXE))" "$(INSTALL_DIR)\$(APP_NAME).exe"
+	copy /Y "$(subst /,\,$(APP_EXE))" "$(INSTALL_DIR)\$(APP_NAME).exe"
 	@echo Installed to $(INSTALL_DIR)\$(APP_NAME).exe
+	-if exist "$(DATA_DIR)\$(APP_NAME).exe" del /F /Q "$(DATA_DIR)\$(APP_NAME).exe"
+	powershell -NoProfile -Command "$$s=(New-Object -ComObject WScript.Shell).CreateShortcut('$(START_MENU_LINK)'); $$s.TargetPath='$(INSTALL_DIR)\$(APP_NAME).exe'; $$s.WorkingDirectory='$(INSTALL_DIR)'; $$s.Save()"
+	@echo Start Menu shortcut: $(START_MENU_LINK)
 	if not exist "$(PLUGIN_DIR)" mkdir "$(PLUGIN_DIR)"
 	copy plugins\*.lua "$(PLUGIN_DIR)\"
 	@echo Updated bundled plugins
 	start "" "$(INSTALL_DIR)\$(APP_NAME).exe"
 
-uninstall: ## Remove installed app
+uninstall: ## Remove installed app (keeps data)
 	-taskkill /IM "$(APP_NAME).exe" /F 2>nul
 	if exist "$(INSTALL_DIR)" rd /s /q "$(INSTALL_DIR)"
-	@echo Removed $(APP_NAME) from $(INSTALL_DIR)
+	-if exist "$(START_MENU_LINK)" del /F /Q "$(START_MENU_LINK)"
+	-if exist "$(DATA_DIR)\$(APP_NAME).exe" del /F /Q "$(DATA_DIR)\$(APP_NAME).exe"
+	@echo Removed $(APP_NAME) from $(INSTALL_DIR); clips and settings in $(DATA_DIR) are kept
 else ifeq ($(HOST_OS),Linux)
 install: build ## Build and install to ~/.local with mp (kills running instance)
 	@# mp is pure Go; image-based hosts may only have Go inside the dev container.
@@ -266,8 +275,8 @@ help: ## Show this help
 	@echo   dev            Start development server with hot reload
 	@echo   build          Production build (clean)
 	@echo   clean          Remove build artifacts
-	@echo   install        Build and install (kills running instance)
-	@echo   uninstall      Remove installed app
+	@echo   install        Build and install to %LOCALAPPDATA%\Programs with a Start Menu shortcut
+	@echo   uninstall      Remove the installed app and shortcut (keeps data)
 	@echo   bindings       Regenerate Wails frontend bindings after Go changes
 	@echo   test           Run e2e tests
 	@echo   test-headed    Run e2e tests with visible browser

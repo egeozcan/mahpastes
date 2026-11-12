@@ -15,8 +15,10 @@ contains:
 | Asset | For |
 |-------|-----|
 | `mahpastes-macos-universal.zip` | macOS 13 or later, Intel and Apple Silicon |
-| `mahpastes-windows-amd64.zip` | Windows on x64 |
-| `mahpastes-windows-arm64.zip` | Windows on ARM |
+| `mahpastes-windows-amd64-installer.exe` | Windows on x64, installer |
+| `mahpastes-windows-arm64-installer.exe` | Windows on ARM, installer |
+| `mahpastes-windows-amd64.zip`, `mahpastes-windows-arm64.zip` | Windows, portable archive |
+| `mahpastes.json`, `mahpastes.rb` | Scoop manifest and Homebrew cask matching the release |
 | `mahpastes-linux-amd64.tar.gz` | Linux on x64 with GTK 3 and WebKitGTK 4.1 |
 | `mp-<os>-<arch>`, `mahpastesd-<os>-<arch>` | Standalone CLI and headless server |
 | `SHA256SUMS` | Checksums of every asset |
@@ -36,15 +38,35 @@ example `~/.local/bin`.
 
 ### Windows
 
-1. Download `mahpastes-windows-amd64.zip`, or `mahpastes-windows-arm64.zip` on an ARM PC
-2. Extract it to a folder of your choice, for example `%LOCALAPPDATA%\Programs\mahpastes`
-3. Run `mahpastes.exe`
+**Installer.** Download `mahpastes-windows-amd64-installer.exe` (or the `arm64`
+one on an ARM PC) and run it. It installs for all users (it asks for
+administrator rights), adds Start Menu and desktop shortcuts and an entry in
+Settings, Apps, and installs `mp.exe` next to the app. Uninstalling removes the
+program but keeps your clips and settings in `%APPDATA%\mahpastes`.
+
+**Portable.** Download `mahpastes-windows-amd64.zip` (or `arm64`), extract it to
+a folder of your choice and run `mahpastes.exe`.
+
+**Scoop.** The release carries a manifest that matches its zips exactly. It puts
+`mp` on your `PATH` and adds a Start Menu shortcut:
+
+```powershell
+scoop install https://github.com/egeozcan/mahpastes/releases/latest/download/mahpastes.json
+```
 
 The Windows build is not code-signed, so SmartScreen may warn on first launch;
 choose **More info**, then **Run anyway**. mahpastes uses the Microsoft Edge
 WebView2 runtime, which Windows 10 and 11 normally include; if it is missing,
-the app offers to install it. `mp.exe` sits next to the app; add that folder to
-your `PATH` to run `mp` from any terminal.
+the app offers to install it. With the installer or the zip, `mp.exe` sits next
+to the app; add that folder to your `PATH` to run `mp` from any terminal (Scoop
+does this for you).
+
+### Homebrew
+
+Each release also carries `mahpastes.rb`, a Homebrew cask for the macOS zip that
+links `mp` onto your `PATH`. mahpastes does not run a tap; see
+[`packaging/README.md`](https://github.com/egeozcan/mahpastes/blob/master/packaging/README.md)
+for how to host it in your own.
 
 ### Linux
 
@@ -145,8 +167,8 @@ The project includes a Makefile with convenient targets:
 make dev        # Start dev server with hot reload
 make build      # Clean production build
 make clean      # Remove build artifacts
-make install    # Build, kill running app, install to /Applications, launch
-make uninstall  # Remove installed app
+make install    # Build, kill running app, install (/Applications; %LOCALAPPDATA%\Programs and a Start Menu shortcut on Windows), launch
+make uninstall  # Remove installed app (keeps your data)
 make bindings   # Regenerate frontend bindings after Go changes
 make test       # Run e2e tests
 make help       # Show all targets
