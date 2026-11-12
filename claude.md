@@ -1073,11 +1073,16 @@ drawer entry.
 ### Key files
 
 - `internal/app/import_wizard.go` — session, scan, inspect, apply
-- `internal/app/trash_{darwin,darwin_nocgo,linux,windows,other}.go` — `moveToTrash`; macOS
-  uses `NSFileManager trashItemAtURL:` (cgo only), Linux runs `gio trash` (recoverable iff
-  `gio` is on PATH; failures such as tmpfs mounts are returned, never silently deleted),
-  Windows uses `SHFileOperationW` with `FOF_ALLOWUNDO` (UNC paths refused). Other targets
-  and `darwin && !cgo` (cross-built mahpastesd) use `os.Remove` and report
+- `internal/app/trash_{darwin,darwin_nocgo,linux,windows,windows_other,other}.go` —
+  `moveToTrash`; macOS uses `NSFileManager trashItemAtURL:` (cgo only), Linux runs
+  `GIO_USE_VFS=local gio trash` with a 30 s timeout (recoverable iff `gio` is on PATH;
+  failures such as tmpfs mounts are returned, never silently deleted), Windows amd64/arm64
+  uses `SHFileOperationW` with `FOF_ALLOWUNDO` and first refuses anything it would delete
+  permanently (`recycleBinRefusal`: UNC/`\\?\` paths, non-`DRIVE_FIXED` volumes such as
+  mapped network or removable drives, paths over MAX_PATH). A file too large for the
+  Recycle Bin is still deleted permanently; that cannot be detected up front and no nuke
+  warning is requested, because its modal dialog would block the apply. Other targets
+  (including windows/386) and `darwin && !cgo` (cross-built mahpastesd) use `os.Remove` and report
   `trashIsRecoverable() == false`, which drives a UI warning. `MAHPASTES_TRASH_MODE=remove`
   forces permanent delete; the e2e launcher sets it so runs don't fill the trash.
 - `internal/imagemeta/` — EXIF extraction from bytes, shared by the wizard and the Lua

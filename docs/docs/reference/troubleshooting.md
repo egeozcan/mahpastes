@@ -249,6 +249,24 @@ If using Apple Silicon (M-series):
 
 **Solution:** Right-click and save image first, then drag file.
 
+### Import Folder: Files Marked for Deletion Are Not Deleted
+
+**Issue:** The Import Folder summary reports files it could not delete, and they are still in the folder.
+
+The wizard moves deleted originals to the Trash (macOS, Linux) or the Recycle Bin (Windows). When a file cannot be moved there, the wizard leaves it in place and reports it, instead of deleting it permanently.
+
+**Causes:**
+- **Linux:** the folder is on a mount without trash support, such as `/tmp` or another tmpfs or system-internal mount, or the mount does not allow a `.Trash-<uid>` folder.
+- **Windows:** the folder is on a network share, a mapped network drive or a removable drive. These have no Recycle Bin. Paths longer than 259 characters are also refused.
+
+**Solutions:**
+1. Delete the remaining files yourself in your file manager.
+2. Move the folder to a local disk before importing it.
+
+On Linux, moving files to the Trash needs the `gio` tool (glib2; the `libglib2.0-bin` package on Debian and Ubuntu). Without it, the wizard warns that deletion is permanent before you choose any deletes.
+
+On Windows, a file too large for the Recycle Bin is still deleted permanently.
+
 ## REST API Issues
 
 ### Connection Refused
