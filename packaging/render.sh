@@ -10,6 +10,12 @@ if [[ $# -ne 3 ]]; then
   exit 2
 fi
 version="${1#v}"
+# The version goes into sed replacements, URLs and JSON, so it must stay one
+# plain token (the same rule build.yml applies to the version stamp).
+if [[ ! "$version" =~ ^[0-9A-Za-z._+-]+$ ]]; then
+  echo "unusable version: $1" >&2
+  exit 2
+fi
 sums="$2"
 out="$3"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -96,7 +96,9 @@ install: build ## Build and install (kills running instance)
 	copy /Y "$(subst /,\,$(APP_EXE))" "$(INSTALL_DIR)\$(APP_NAME).exe"
 	@echo Installed to $(INSTALL_DIR)\$(APP_NAME).exe
 	-if exist "$(DATA_DIR)\$(APP_NAME).exe" del /F /Q "$(DATA_DIR)\$(APP_NAME).exe"
-	powershell -NoProfile -Command "$$s=(New-Object -ComObject WScript.Shell).CreateShortcut('$(START_MENU_LINK)'); $$s.TargetPath='$(INSTALL_DIR)\$(APP_NAME).exe'; $$s.WorkingDirectory='$(INSTALL_DIR)'; $$s.Save()"
+	@rem The paths are rebuilt from the environment inside PowerShell (same as
+	@rem INSTALL_DIR and START_MENU_LINK) so a quote in them cannot break the command.
+	powershell -NoProfile -Command "$$d=Join-Path $$env:LOCALAPPDATA 'Programs\$(APP_NAME)'; $$s=(New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $$env:APPDATA 'Microsoft\Windows\Start Menu\Programs\$(APP_NAME).lnk')); $$s.TargetPath=(Join-Path $$d '$(APP_NAME).exe'); $$s.WorkingDirectory=$$d; $$s.Save()"
 	@echo Start Menu shortcut: $(START_MENU_LINK)
 	if not exist "$(PLUGIN_DIR)" mkdir "$(PLUGIN_DIR)"
 	copy plugins\*.lua "$(PLUGIN_DIR)\"

@@ -72,7 +72,7 @@ ManifestDPIAware true
 
 Name "${INFO_PRODUCTNAME}"
 OutFile "..\..\bin\${INFO_PROJECTNAME}-${ARCH}-installer.exe" # Name of the installer's file.
-InstallDir "$PROGRAMFILES64\${INFO_COMPANYNAME}\${INFO_PRODUCTNAME}" # Default installing folder ($PROGRAMFILES is Program Files folder).
+InstallDir "$PROGRAMFILES64\${INFO_PRODUCTNAME}" # Default installing folder ($PROGRAMFILES is Program Files folder).
 ShowInstDetails show # This will always show the installation details.
 
 Function .onInit
@@ -90,6 +90,7 @@ Section
 
     # The CLI sits next to the app. The release build compiles it into
     # build\bin before running wails build -nsis.
+    # Every File installed here needs a matching Delete in the uninstall section.
     File "..\..\bin\mp.exe"
 
     CreateShortcut "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
@@ -106,9 +107,12 @@ Section "uninstall"
 
     RMDir /r "$AppData\${PRODUCT_EXECUTABLE}" # Remove the WebView2 DataPath
 
-    # Only the program directory goes. The clip database and settings live in
-    # $AppData\mahpastes and are deliberately kept.
-    RMDir /r $INSTDIR
+    # Remove only the files this installer put there. The directory page lets
+    # the user pick any folder (even %APPDATA%\mahpastes, which holds the clip
+    # database and settings), so a recursive delete of $INSTDIR could destroy
+    # data. The clip database and settings are always kept.
+    Delete "$INSTDIR\${PRODUCT_EXECUTABLE}"
+    Delete "$INSTDIR\mp.exe"
 
     Delete "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk"
     Delete "$DESKTOP\${INFO_PRODUCTNAME}.lnk"
@@ -117,4 +121,8 @@ Section "uninstall"
     !insertmacro wails.unassociateCustomProtocols
 
     !insertmacro wails.deleteUninstaller
+
+    # Not recursive: the folder goes only if it is now empty (uninstall.exe was
+    # removed just above).
+    RMDir "$INSTDIR"
 SectionEnd

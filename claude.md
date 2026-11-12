@@ -23,8 +23,8 @@ A Wails desktop clipboard manager for macOS, Windows, and Linux with image editi
 make dev          # Start dev server with hot reload
 make build        # Clean production build
 make clean        # Remove build artifacts
-make install      # Build, kill running app, install to /Applications, launch
-make uninstall    # Remove from /Applications
+make install      # Build, kill running app, install (/Applications; ~/.local on Linux; %LOCALAPPDATA%\Programs + Start Menu shortcut on Windows), launch
+make uninstall    # Remove the installed app (keeps data)
 make bindings     # Regenerate frontend bindings after Go changes
 make test         # Run e2e tests
 make test-headed  # Run e2e tests with visible browser

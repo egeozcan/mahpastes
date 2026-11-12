@@ -138,7 +138,7 @@ A `Makefile` provides shortcuts for common operations:
 ```bash
 make dev        # Start dev server with hot reload
 make build      # Clean production build
-make install    # Build, kill running app, install (/Applications, ~/.local on Linux), launch
+make install    # Build, kill running app, install (/Applications, ~/.local on Linux, %LOCALAPPDATA%\Programs on Windows), launch
 make test       # Run e2e tests
 make screenshots # Refresh documentation screenshots
 make help       # Show all targets

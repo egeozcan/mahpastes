@@ -40,8 +40,10 @@ version, and make sure you copied the whole `mahpastes.app` out of the archive.
 
 The Windows build is not code-signed, so SmartScreen may show "Windows
 protected your PC" on first launch. Click **More info**, then **Run anyway**.
-On ARM PCs, use `mahpastes-windows-arm64.zip`; the x64 build also runs, but
-under emulation.
+On ARM PCs, use `mahpastes-windows-arm64-installer.exe` or
+`mahpastes-windows-arm64.zip`. The x64 installer refuses to install on ARM
+("can't be installed on the current Windows architecture"); the x64 zip runs,
+but under emulation.
 
 ### Linux: App Won't Start
 

@@ -19,10 +19,12 @@ Each run produces:
 | --- | --- |
 | `mahpastes-macos-universal.zip` | Signed, notarized and stapled `mahpastes.app` with Finder integration, universal `mp`, plugins, examples |
 | `mahpastes-windows-amd64.zip`, `mahpastes-windows-arm64.zip` | `mahpastes.exe`, `mp.exe`, plugins, examples |
+| `mahpastes-windows-amd64-installer.exe`, `mahpastes-windows-arm64-installer.exe` | NSIS installer (`build/windows/installer/project.nsi`) for `mahpastes.exe` and `mp.exe` |
 | `mahpastes-linux-amd64.tar.gz` | `mahpastes`, `mp`, `install.sh`, `mahpastes.png`, plugins, examples |
 | `mp-darwin-universal`, `mahpastesd-darwin-universal` | Signed and notarized universal command-line tools |
 | `mp-<os>-<arch>`, `mahpastesd-<os>-<arch>` | Standalone tools for linux and windows, amd64 and arm64 (`.exe` on Windows) |
 | `SHA256SUMS` | Checksums of all of the above (releases only) |
+| `mahpastes.json`, `mahpastes.rb` | Scoop manifest and Homebrew cask rendered from `packaging/` with those checksums (releases only; see `packaging/README.md`) |
 
 Every binary is stamped with `-X go-clipboard/internal/buildinfo.Version=<v>
 -X go-clipboard/internal/buildinfo.Commit=<sha>`. A tag build uses the tag name;

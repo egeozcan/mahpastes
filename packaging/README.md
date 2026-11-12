@@ -34,11 +34,12 @@ A manifest installed from a URL is not tracked by `scoop update`.
 3. Scoop: commit `out/mahpastes.json` as `bucket/mahpastes.json` in your
    bucket. Its `checkver` and `autoupdate` entries let Scoop's `checkver -u`
    (or the Excavator bot) bump later versions.
-4. Homebrew: commit `out/mahpastes.rb` as `Casks/mahpastes.rb` in your tap, then
-   `brew audit --cask --online mahpastes` and `brew install --cask ./mahpastes.rb`
-   on a Mac. Homebrew quarantines casks, so the macOS release must be signed and
-   notarized (it is when the signing secrets are set). `binary "mp"` needs the
-   notarized `mp` in the zip.
+4. Homebrew: commit `out/mahpastes.rb` as `Casks/mahpastes.rb` in your tap
+   (a GitHub repository named `<user>/homebrew-<tap>`), push it, then on a Mac
+   run `brew tap <user>/<tap>`, `brew audit --cask --online <user>/<tap>/mahpastes`
+   and `brew install --cask <user>/<tap>/mahpastes`. Homebrew quarantines casks,
+   so the macOS release must be signed and notarized (it is when the signing
+   secrets are set). `binary "mp"` needs the notarized `mp` in the zip.
 
 Pushing to a tap from CI needs a token for that repository; `GITHUB_TOKEN`
 cannot do it, so bumping stays a manual step or a workflow in the tap.

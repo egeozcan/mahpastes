@@ -175,7 +175,7 @@ jobs:
           # Wails only warns, and still succeeds, when makensis is missing.
           $arch = "${{ matrix.goarch }}"
           $installer = "build/bin/mahpastes-$arch-installer.exe"
-          if (-not (Test-Path $installer)) { throw "Missing $installer: the NSIS installer was not built" }
+          if (-not (Test-Path $installer)) { throw "Missing ${installer}: the NSIS installer was not built" }
           Copy-Item $installer "dist/$env:PKG-installer.exe"
       - name: Package Linux
         if: runner.os == 'Linux'

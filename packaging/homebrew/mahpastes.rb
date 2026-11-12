@@ -18,5 +18,15 @@ cask "mahpastes" do
   app "mahpastes-macos-universal/mahpastes.app"
   binary "mahpastes-macos-universal/mp"
 
-  zap trash: "~/Library/Application Support/mahpastes"
+  # The bundle identifier set by scripts/macos/build-file-provider.sh.
+  uninstall quit: "io.github.egeozcan.mahpastes"
+
+  zap trash: [
+    "~/Library/Application Support/mahpastes",
+    "~/Library/Caches/io.github.egeozcan.mahpastes",
+    "~/Library/HTTPStorages/io.github.egeozcan.mahpastes",
+    "~/Library/Preferences/io.github.egeozcan.mahpastes.plist",
+    "~/Library/Saved Application State/io.github.egeozcan.mahpastes.savedState",
+    "~/Library/WebKit/io.github.egeozcan.mahpastes",
+  ]
 end
