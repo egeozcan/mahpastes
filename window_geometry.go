@@ -12,8 +12,8 @@ import (
 // runtime Quit on every platform, so this runs on each way the app exits while
 // the window getters still work (they are disabled once shutdown starts).
 // With options.App.HideWindowOnClose (keep running when closed) the close
-// button hides the window without reaching OnBeforeClose; the geometry is then
-// saved by the quit that eventually ends the app.
+// button hides the window natively, without reaching OnBeforeClose, so
+// WindowHidden saves it then. A write is skipped when nothing changed.
 func saveWindowGeometry(b *wailsbridge.Bridge, dataDir string) {
 	g, ok := b.WindowGeometry()
 	if !ok {
@@ -25,12 +25,27 @@ func saveWindowGeometry(b *wailsbridge.Bridge, dataDir string) {
 	cur := windowstate.State{Width: g.Width, Height: g.Height, X: g.X, Y: g.Y, HasPos: true, Maximised: g.Maximised}
 	prev, hadPrev := windowstate.Load(dataDir)
 	next, ok := windowstate.Merge(prev, hadPrev, cur, g.Normal)
-	if !ok {
+	if !ok || (hadPrev && next == prev) {
 		return
 	}
 	if err := windowstate.Save(dataDir, next); err != nil {
 		log.Printf("window state: %v", err)
 	}
+}
+
+// WindowHidden saves the window geometry when the window may just have been
+// hidden. With keep-running, Wails hides the window on the close button by
+// itself (Windows' WindowHide, GTK's hide-on-delete, AppKit's orderOut)
+// without calling Go, so the frontend reports it: on window blur, which hiding
+// the active window always causes, and on visibilitychange. Saving on a plain
+// focus loss is harmless, and an unchanged geometry is not written. Does
+// nothing when the window quits on close (OnBeforeClose saves it then) or
+// never shows (headless runs).
+func (d *App) WindowHidden() {
+	if !d.lifecycle.saveGeometryOnHide || d.bridge == nil {
+		return
+	}
+	saveWindowGeometry(d.bridge, d.lifecycle.dataDir)
 }
 
 // restoreWindowGeometry applies the parts of a saved state that Wails cannot

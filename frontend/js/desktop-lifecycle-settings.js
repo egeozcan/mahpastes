@@ -141,4 +141,17 @@
         if (typeof closeDrawer === 'function') closeDrawer();
         window.quitApp();
     });
+
+    // With keep running on, the close button hides the window natively and
+    // Go is not told, so report it to save the window's size and place
+    // (App.WindowHidden ignores the call otherwise). Hiding the active window
+    // always blurs it; visibilitychange covers webviews that also report it.
+    const reportHidden = () => {
+        if (typeof app()?.WindowHidden !== 'function') return;
+        Promise.resolve(app().WindowHidden()).catch(() => {});
+    };
+    window.addEventListener('blur', reportHidden);
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) reportHidden();
+    });
 })();

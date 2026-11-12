@@ -441,3 +441,7 @@ export function UploadFileAndGetID(arg1) {
 export function UploadFiles(arg1, arg2, arg3) {
   return window['go']['main']['App']['UploadFiles'](arg1, arg2, arg3);
 }
+
+export function WindowHidden() {
+  return window['go']['main']['App']['WindowHidden']();
+}

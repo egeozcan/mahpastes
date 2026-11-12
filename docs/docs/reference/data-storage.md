@@ -57,7 +57,7 @@ Temp files have a 60-minute lease. A prune job runs every 10 minutes to remove s
 
 ### Window State
 
-The main window's size, position and maximised state are saved under the `window` key of `desktop-prefs.json` in the data directory (next to `clips.db`) when the app quits, and read back at the next launch. With **Keep running when the window is closed**, closing the window only hides it, so the placement is saved when the app finally quits. It is not part of backups. To reset the window to its default size and placement, quit mahpastes and remove the `window` entry (or delete `desktop-prefs.json`, which also resets the keep-running choice).
+The main window's size, position and maximised state are saved under the `window` key of `desktop-prefs.json` in the data directory (next to `clips.db`) when the app quits, and read back at the next launch. With **Keep running when the window is closed**, closing the window only hides it; the placement is saved then (and whenever the window loses focus), and again when the app quits. It is not part of backups. To reset the window to its default size and placement, quit mahpastes and remove the `window` entry (or delete `desktop-prefs.json`, which also resets the keep-running choice).
 
 ### Log Files
 

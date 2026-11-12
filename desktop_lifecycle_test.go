@@ -253,3 +253,16 @@ func TestKeepRunningSettingIsStoredForNextLaunch(t *testing.T) {
 		t.Fatalf("stored choice applies next launch, this one keeps its own: %+v", got)
 	}
 }
+
+// WindowHidden runs on every blur. Without keep-running, or before Wails has
+// started (no bridge), it must neither fail nor write the prefs file.
+func TestWindowHiddenIsANoOpWithoutAWindowToSave(t *testing.T) {
+	for _, keep := range []bool{false, true} {
+		dir := t.TempDir()
+		d := &App{lifecycle: &desktopLifecycle{dataDir: dir, saveGeometryOnHide: keep}}
+		d.WindowHidden()
+		if _, err := os.Stat(desktopprefs.Path(dir)); !os.IsNotExist(err) {
+			t.Errorf("saveGeometryOnHide=%v: prefs file written (stat err %v)", keep, err)
+		}
+	}
+}

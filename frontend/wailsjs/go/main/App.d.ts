@@ -224,3 +224,5 @@ export function UpdateWatchedFolderPartial(arg1:number,arg2:Record<string, json.
 export function UploadFileAndGetID(arg1:app.FileData):Promise<number>;
 
 export function UploadFiles(arg1:Array<app.FileData>,arg2:number,arg3:number):Promise<void>;
+
+export function WindowHidden():Promise<void>;

@@ -156,6 +156,7 @@ func main() {
 	// later, so only headless runs skip the window geometry and release check.
 	headless := os.Getenv("MAHPASTES_START_HIDDEN") == "1" || selfTestWorker
 	startHidden := headless || (wantHidden && runtime.GOOS != "darwin")
+	desktopApp.lifecycle.saveGeometryOnHide = keepRunning && !headless && !generatingBindings
 
 	pluginService := NewPluginService(core)
 	clipboardService := NewClipboardService(core)
@@ -329,8 +330,8 @@ func main() {
 		// Every quit (close button without keep-running, Cmd+Q, the Dock,
 		// the in-app Quit, a signal) passes here while the window getters
 		// still work. With keep-running the close button only hides the
-		// window, and the geometry is saved when the app finally quits; the
-		// window keeps its size and place while hidden. Saving first is
+		// window, without coming here; App.WindowHidden saves the geometry
+		// then, and the quit that ends the app saves it again. Saving first is
 		// harmless when the unsaved-changes prompt then keeps the app open.
 		OnBeforeClose: func(ctx context.Context) bool {
 			if !headless && !generatingBindings {

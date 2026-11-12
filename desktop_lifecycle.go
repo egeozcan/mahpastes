@@ -29,6 +29,9 @@ type desktopLifecycle struct {
 	// keepRunningActive is the HideWindowOnClose this process was started
 	// with. Wails reads it once, so a changed setting applies on next launch.
 	keepRunningActive bool
+	// saveGeometryOnHide is keepRunningActive for a window that is ever
+	// shown: WindowHidden then saves the geometry (window_geometry.go).
+	saveGeometryOnHide bool
 	// hideAfterLoad hides the app once the page has loaded (macOS hidden start).
 	hideAfterLoad bool
 	hideOnce      sync.Once
