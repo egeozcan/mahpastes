@@ -54,10 +54,13 @@ func buildTransferCapabilities(goos string) TransferCapabilities {
 			NativeDrag: false,
 		}
 	case "linux":
+		// Pure HTML5 drag: the shared adapter sets text/uri-list (file:// URI)
+		// on the DataTransfer, which WebKitGTK exports as a GTK drag target
+		// that file managers accept as a file drop.
 		caps.DragOut = DragCapability{
-			Enabled:  false,
-			Strategy: "linux-fileuri-v1",
-			Reason:   "planned for a future release",
+			Enabled:    true,
+			Strategy:   "file-uri-v1",
+			NativeDrag: false,
 		}
 	}
 

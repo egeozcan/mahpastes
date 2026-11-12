@@ -49,7 +49,7 @@ The file keeps its original filename. If the clip was pasted without a filename,
 |----------|--------|-----------|
 | **macOS** | Fully supported | Native drag via NSView.dragFile (CGo) |
 | **Windows** | Fully supported | DataTransfer DownloadURL backed by an HTTP transfer handler |
-| **Linux** | Planned | Not yet implemented |
+| **Linux** | Supported | HTML5 drag with a `text/uri-list` file URI |
 
 ### macOS
 
@@ -61,7 +61,7 @@ On Windows, drag-out uses Chromium's `DownloadURL` DataTransfer type. Because Ch
 
 ### Linux
 
-Linux drag-out is planned for a future release. A placeholder strategy (`linux-fileuri-v1`) exists in the codebase but is not yet functional.
+On Linux, drag-out uses a standard HTML5 drag. The app sets a `file://` URI (`text/uri-list`) and the plain path on the drag, and WebKitGTK exports it as a GTK drag target, so file managers such as Nautilus and Dolphin and most GTK/Qt apps accept the drop as a file. Drags within the app window are not treated as imports. Support can vary with the compositor and the receiving app.
 
 ## Temporary Files
 

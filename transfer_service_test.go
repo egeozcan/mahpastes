@@ -55,7 +55,7 @@ func TestBuildTransferCapabilitiesMatrix(t *testing.T) {
 	}{
 		{goos: "darwin", dragEnabled: true, expectStrategy: "file-uri-v1", expectReason: false, nativeDrag: true},
 		{goos: "windows", dragEnabled: true, expectStrategy: "file-uri-v1", expectReason: false, nativeDrag: false},
-		{goos: "linux", dragEnabled: false, expectStrategy: "linux-fileuri-v1", expectReason: true, nativeDrag: false},
+		{goos: "linux", dragEnabled: true, expectStrategy: "file-uri-v1", expectReason: false, nativeDrag: false},
 		{goos: "freebsd", dragEnabled: false, expectStrategy: "", expectReason: true, nativeDrag: false},
 	}
 
