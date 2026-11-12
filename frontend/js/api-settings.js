@@ -7,6 +7,7 @@ const apiModalClose = document.getElementById('api-modal-close');
 const apiPortInput = document.getElementById('api-port-input');
 const apiBindToggle = document.getElementById('api-bind-toggle');
 const apiToggleBtn = document.getElementById('api-toggle-btn');
+const apiAutostartToggle = document.getElementById('api-autostart-toggle');
 const apiStatusText = document.getElementById('api-status-text');
 
 const apiShowCreateBtn = document.getElementById('api-show-create-btn');
@@ -58,6 +59,12 @@ apiModal.addEventListener('click', (e) => {
 });
 
 apiToggleBtn.addEventListener('click', toggleAPIServer);
+apiAutostartToggle.addEventListener('change', () => saveAPILaunchSettings(true));
+// "Start on launch" uses the port shown above, so a port edited while it is on
+// is saved too (the server itself only picks it up on the next Start).
+apiPortInput.addEventListener('change', () => {
+    if (apiAutostartToggle.checked) saveAPILaunchSettings(false);
+});
 apiShowCreateBtn.addEventListener('click', showCreateKeyForm);
 apiCancelCreateBtn.addEventListener('click', hideCreateKeyForm);
 apiCreateKeyBtn.addEventListener('click', createAPIKey);
@@ -92,9 +99,44 @@ async function loadAPIStatus() {
             apiPortInput.disabled = false;
             apiBindToggle.disabled = false;
         }
+        await loadAPILaunchSettings(status);
     } catch (err) {
         console.error('Failed to load API status:', err);
     }
+}
+
+// Shows the "Start on launch" choice, and in the port field the port the
+// server runs on (or, while stopped, the one it starts on next).
+async function loadAPILaunchSettings(status) {
+    try {
+        const svc = window.go.main.APIService;
+        apiAutostartToggle.checked = await svc.GetAPIAutostart();
+        apiPortInput.value = status.running ? status.port : await svc.GetAPIPort();
+    } catch (err) {
+        console.error('Failed to load API launch settings:', err);
+    }
+}
+
+// Saves run one after another, each with the values from when it was made, so
+// a port edit followed at once by a click on the switch (the blur fires the
+// port save first) cannot land out of order.
+let apiLaunchSaveChain = Promise.resolve();
+
+// revertToggle: a failed save from the switch itself flips it back.
+function saveAPILaunchSettings(revertToggle) {
+    const enabled = apiAutostartToggle.checked;
+    const port = parseInt(apiPortInput.value, 10) || 44557;
+    apiLaunchSaveChain = apiLaunchSaveChain.then(async () => {
+        try {
+            await window.go.main.APIService.SetAPIAutostart(enabled, port);
+        } catch (err) {
+            if (revertToggle && apiAutostartToggle.checked === enabled) {
+                apiAutostartToggle.checked = !enabled;
+            }
+            showToast('Error: ' + errText(err), 'error');
+        }
+    });
+    return apiLaunchSaveChain;
 }
 
 // Start/Stop and Create Key each ignore clicks while their call is in flight:

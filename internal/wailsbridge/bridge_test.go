@@ -67,8 +67,20 @@ func TestBridgeNilSafety(t *testing.T) {
 		t.Fatalf("nil bridge OpenDirectory should return (\"\", nil), got (%q, %v)", path, err)
 	}
 
+	if _, ok := b.WindowGeometry(); ok {
+		t.Fatal("nil bridge WindowGeometry should report ok=false")
+	}
+	b.WindowSetPosition(1, 2)
+	b.WindowSetSize(800, 600)
+	if _, _, ok := b.CurrentScreenSize(); ok {
+		t.Fatal("nil bridge CurrentScreenSize should report ok=false")
+	}
+
 	// A Bridge with nil ctx is equally a no-op.
 	b = New(nil)
+	if _, ok := b.WindowGeometry(); ok {
+		t.Fatal("nil-ctx bridge WindowGeometry should report ok=false")
+	}
 	b.Emit("x")
 	b.On("x", func(...any) {})
 	if _, err := b.OpenFile(FileDialogOptions{}); err != nil {

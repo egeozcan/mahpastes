@@ -69,6 +69,7 @@ export namespace app {
 	    bind_all: boolean;
 	    url: string;
 	    request_count: number;
+	    version: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new APIStatus(source);
@@ -81,6 +82,7 @@ export namespace app {
 	        this.bind_all = source["bind_all"];
 	        this.url = source["url"];
 	        this.request_count = source["request_count"];
+	        this.version = source["version"];
 	    }
 	}
 	export class BackupInspection {
@@ -1033,6 +1035,20 @@ export namespace app {
 		    return a;
 		}
 	}
+	export class ReleaseInfo {
+	    version: string;
+	    url: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ReleaseInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.version = source["version"];
+	        this.url = source["url"];
+	    }
+	}
 	export class ServeInfo {
 	    tag_id: number;
 	    tag_name: string;
@@ -1410,6 +1426,42 @@ export namespace imagemeta {
 
 export namespace main {
 	
+	export class AppInfo {
+	    version: string;
+	    commit: string;
+	    update_check_enabled: boolean;
+	    update?: app.ReleaseInfo;
+	
+	    static createFrom(source: any = {}) {
+	        return new AppInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.version = source["version"];
+	        this.commit = source["commit"];
+	        this.update_check_enabled = source["update_check_enabled"];
+	        this.update = this.convertValues(source["update"], app.ReleaseInfo);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class ClipboardImage {
 	    data: string;
 	    content_type: string;
@@ -1446,6 +1498,26 @@ export namespace main {
 	        this.recoveryPath = source["recoveryPath"];
 	        this.location = source["location"];
 	        this.path = source["path"];
+	    }
+	}
+	export class NotificationStatus {
+	    supported: boolean;
+	    enabled: boolean;
+	    state: string;
+	    error: string;
+	    platform: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new NotificationStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.supported = source["supported"];
+	        this.enabled = source["enabled"];
+	        this.state = source["state"];
+	        this.error = source["error"];
+	        this.platform = source["platform"];
 	    }
 	}
 	export class OpenWithApp {

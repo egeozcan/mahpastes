@@ -121,6 +121,10 @@ When adding a new watch folder:
 
 The folder is no longer watched. Existing imported clips remain.
 
+## Notifications While in the Background
+
+Imports and failed imports show as in-app toasts. To also get a native notification while mahpastes is minimised or behind other windows, turn on [System Notifications](./notifications) in Settings; a sync of many files shows as one notification ("Imported 12 clips").
+
 ## Watch Status
 
 The dot on the **Watch** tab, and the dot on the menu button, are green while folders are being watched and turn amber when a folder that should be watched is not (it is missing, its volume is unmounted, or the operating system refused to watch it). `mp watch status` reports the same counts as **Active** and **Unavailable**.

@@ -261,6 +261,13 @@ maintenanceModal.addEventListener('click', (e) => {
 maintenanceDeduplicateBtn.addEventListener('click', runDeduplicate);
 maintenanceRemoveEmptyTagsBtn.addEventListener('click', runRemoveEmptyTags);
 maintenanceCompactDbBtn.addEventListener('click', runCompactDatabase);
+document.getElementById('maintenance-open-logs-btn')?.addEventListener('click', async () => {
+    try {
+        await window.go.main.App.OpenLogFolder();
+    } catch (error) {
+        showToast('Could not open log folder: ' + error, 'error');
+    }
+});
 maintenanceStaleFilesBtn?.addEventListener('click', runStaleFileSweep);
 maintenanceOrphanRowsBtn?.addEventListener('click', runOrphanRowsSweep);
 maintenanceClearMarkdownCacheBtn?.addEventListener('click', () => {

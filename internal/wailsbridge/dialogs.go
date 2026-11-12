@@ -92,3 +92,16 @@ func toRTFilters(in []FileFilter) []rt.FileFilter {
 	}
 	return out
 }
+
+// ErrorDialog shows a native error message box. It is a no-op without a live
+// Wails context.
+func (b *Bridge) ErrorDialog(title, message string) {
+	if !b.active() {
+		return
+	}
+	_, _ = rt.MessageDialog(b.ctx, rt.MessageDialogOptions{
+		Type:    rt.ErrorDialog,
+		Title:   title,
+		Message: message,
+	})
+}

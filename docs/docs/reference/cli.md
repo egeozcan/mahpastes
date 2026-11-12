@@ -20,18 +20,24 @@ and other resources from your terminal.
 
 Getting started:
   1. Open mahpastes and enable the API in Settings > API
+     (turn on "Start on launch" to keep it running across restarts)
   2. Create an API key in Settings > API
   3. Export your key:  export MP_API_KEY=&lt;your-key>
+     (or keep it in a file:  export MP_API_KEY_FILE=&lt;path>)
   4. (Optional) Set a custom URL:  export MP_API_URL=http://host:port
 
 By default, mp connects to http://localhost:44557.
 
 Environment variables:
-  MP_API_KEY   API key (required)
-  MP_API_URL   API base URL (default http://localhost:44557)
+  MP_API_KEY       API key (this or MP_API_KEY_FILE is required)
+  MP_API_KEY_FILE  File holding just the API key, used when MP_API_KEY
+                   is unset
+  MP_API_URL       API base URL (default http://localhost:44557)
+  MP_TIMEOUT       Wait for the connection and the first response bytes
+                   (default 30s; never limits a running transfer)
   MAHPASTES_API_KEY, MAHPASTES_API_URL
-               Fallbacks used when the MP_ variables are unset
-               (the same names the Claude Code plugin configures).
+                   Fallbacks used when the MP_ variables are unset
+                   (the same names the Claude Code plugin configures).
 
 ### Options
 
@@ -1214,7 +1220,7 @@ Copy clip as file to clipboard
 Copy a clip as a file reference to the system clipboard.
 
 This places a file reference on the clipboard so you can paste the clip
-as a file into Finder or other applications. The mahpastes desktop app
+as a file into Finder, Explorer, a Linux file manager or other applications. The mahpastes desktop app
 performs the actual clipboard operation.
 
 ```
@@ -3387,8 +3393,10 @@ Show watch folder system status
 
 Display the overall status of the watch folder system.
 
-Shows whether watching is globally paused, how many folders are active,
-and the total count of configured folders.
+Shows whether watching is globally paused, how many folders are being
+watched, how many should be watched but are not (folder missing, volume
+unmounted, or the operating system refused the watch), and the total count
+of configured folders.
 
 ```
 mp watch status [flags]

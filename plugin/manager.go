@@ -1406,14 +1406,16 @@ func (m *Manager) ExecuteUIAction(pluginID int64, actionID string, clipIDs []int
 					m.bridge.Emit("plugin:modal", actionResult.Modal.ToEventMap())
 				} else {
 					m.bridge.Emit("plugin:toast", map[string]string{
-						"message": "Cannot show result — another modal is open",
-						"type":    "error",
+						"message":   "Cannot show result — another modal is open",
+						"type":      "error",
+						"plugin_id": fmt.Sprint(pluginID),
 					})
 				}
 			} else if !actionResult.Success && actionResult.Error != "" {
 				m.bridge.Emit("plugin:toast", map[string]string{
-					"message": actionResult.Error,
-					"type":    "error",
+					"message":   actionResult.Error,
+					"type":      "error",
+					"plugin_id": fmt.Sprint(pluginID),
 				})
 			}
 		}()

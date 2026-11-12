@@ -19,18 +19,24 @@ and other resources from your terminal.
 
 Getting started:
   1. Open mahpastes and enable the API in Settings > API
+     (turn on "Start on launch" to keep it running across restarts)
   2. Create an API key in Settings > API
   3. Export your key:  export MP_API_KEY=<your-key>
+     (or keep it in a file:  export MP_API_KEY_FILE=<path>)
   4. (Optional) Set a custom URL:  export MP_API_URL=http://host:port
 
 By default, mp connects to http://localhost:44557.
 
 Environment variables:
-  MP_API_KEY   API key (required)
-  MP_API_URL   API base URL (default http://localhost:44557)
+  MP_API_KEY       API key (this or MP_API_KEY_FILE is required)
+  MP_API_KEY_FILE  File holding just the API key, used when MP_API_KEY
+                   is unset
+  MP_API_URL       API base URL (default http://localhost:44557)
+  MP_TIMEOUT       Wait for the connection and the first response bytes
+                   (default 30s; never limits a running transfer)
   MAHPASTES_API_KEY, MAHPASTES_API_URL
-               Fallbacks used when the MP_ variables are unset
-               (the same names the Claude Code plugin configures).`,
+                   Fallbacks used when the MP_ variables are unset
+                   (the same names the Claude Code plugin configures).`,
 	Version:       versionString(),
 	SilenceUsage:  true,
 	SilenceErrors: true,

@@ -70,6 +70,7 @@ Tests are organized by feature in `e2e/tests/`:
 - `folder-drag/` - Folder drag operations
 - `images/` - Lightbox, editor, comparison
 - `metadata/` - Clip metadata CRUD
+- `notifications/` - System Notifications setting
 - `plugins/` - Plugin system (install, events, APIs, scheduling)
 - `search/` - Filtering functionality
 - `screenshots/` - Documentation screenshot capture
@@ -205,6 +206,7 @@ mahpastes/
 ├── open_windows.go       # Windows file-open helper
 ├── open_linux.go         # Linux file-open helper (xdg-open / gio launch, FileManager1 reveal)
 ├── open_other.go         # Unsupported platform stub
+├── open_folder.go        # Reveal a directory in the file manager (Open Log Folder)
 ├── plugin_service.go     # Plugin frontend API (separate struct)
 ├── plugins.go            # Plugin install/uninstall helpers
 ├── serve_json_api.go     # JSON API handler for served tags (/_api prefix)
@@ -215,6 +217,13 @@ mahpastes/
 ├── transfer_handler.go   # HTTP handler for drag-out file transfers
 ├── transfer_service.go   # Drag-out preparation and native drag initiation
 ├── transfer_types.go     # Transfer system type definitions
+├── window_geometry.go    # Save/restore window size, position, maximised (internal/windowstate, window.json)
+├── internal/logfile/     # Size-capped <dataDir>/logs/mahpastes.log (+ .1); also receives Go crash traces. Only the instance holding the lock rotates it
+├── notification_service.go # System Notifications setting (NotificationService binding); wires internal/osnotify into main.go
+├── internal/osnotify/    # Native OS notifications for background events: coalescing, rate limits, focus gating, one worker goroutine for all backend calls
+├── internal/app/os_notifications.go # os_notifications setting + ClassifyBackgroundEvent (which frontend events notify)
+├── window_position_windows.go # Windows: absolute window placement via user32 (Wails' getter/setter disagree)
+├── window_position_other.go   # Other platforms: position goes through Wails
 ├── thumbnail.go          # Image card thumbnails: generation, hash-keyed disk cache, serving (internal/app)
 ├── tag_hierarchy.go      # Tag tree helpers (parent, root, ancestor, descendant checks)
 ├── watcher.go            # Watch folder implementation
@@ -301,7 +310,7 @@ The `mp` binary is a stateless CLI for mahpastes, talking to the REST API (`/api
 
 ```bash
 make mp                              # Build
-export MP_API_KEY=mp_your_key_here   # Required
+export MP_API_KEY=mp_your_key_here   # Required (or MP_API_KEY_FILE=<path to a file holding the key>)
 export MP_API_URL=http://localhost:44557  # Optional, this is the default
 export MP_TIMEOUT=30s                # Optional: connect/response-header wait (exit 2 on expiry)
 ```
@@ -329,7 +338,7 @@ export MP_TIMEOUT=30s                # Optional: connect/response-header wait (e
 - `mp clip data <id> > file.png` outputs raw content to stdout; `--latest [--tag X]` picks the newest non-archived clip, and binary content is refused on a terminal unless `--force`
 - Pipe filter: `cmd | mp clip upload` (or `-`) names the clip `paste-<timestamp>.<ext>` with the extension sniffed client-side (cmd/mp/stdin.go); `-q` on `clip upload`/`clip list` prints bare IDs
 - `mp --version` reports `internal/buildinfo.Version` when stamped with `-ldflags -X`, else the toolchain's VCS module version, else "dev"
-- Auth via `MP_API_KEY` env var (Bearer token), no config files
+- Auth via `MP_API_KEY` env var (Bearer token), or `MP_API_KEY_FILE` naming a file that holds just the key (`MP_API_KEY` wins; read capped at 4 KiB). Env vars only, no config files
 - Exit codes: 0 success, 1 general error, 2 connection error, 3 auth error
 
 ### Architecture
@@ -362,7 +371,8 @@ The app exposes a REST API via `api_manager.go` that the `mp` CLI and external t
 ### Key Files
 
 - `api_manager.go` - HTTP server with ~40+ endpoints, auth middleware, CORS
-- `api_service.go` - Wails-bound `APIService` struct for frontend control (start/stop API, manage keys)
+- `api_service.go` - Wails-bound `APIService` struct for frontend control (start/stop API, manage keys, "Start on launch")
+- `internal/app/api_autostart.go` - "Start on launch": `api_autostart` + `api_port` settings. `StartAPIOnLaunch` runs from main.go `OnStartup` (not the shared `Bootstrap`, since mahpastesd starts its own listener), always loopback-only (`bind_all` is never persisted). Both keys are excluded from backups (`sensitiveSettingPatterns`) and refused by `PUT /api/v1/settings/{key}`
 
 ### Authentication
 
@@ -391,6 +401,13 @@ Revocable, single-clip public download links, distinct from the peer-to-peer `sh
 
 - **Relay client, never a relay.** `libp2p.EnableRelay` (in `shareHostOptions`) registers the circuit-v2 STOP side, which is all a NAT'd publisher needs to be reached through someone else's relay. Do not call `relay.New(host)`: that starts the HOP service and relays arbitrary third parties' traffic through the user's machine. `TestShareManagerDoesNotRunRelayHop` pins this.
 - **Status reads never take `publication.fmu`.** An emission holds `fmu` for a whole clip. Reporters (`GetShareStatus`, `emitPublicationUpdated`) read `publication.reportedView()`, which every mutation under `fmu` refreshes via `setStatusLocked` / `addFollowerLocked` / `removeFollowerLocked` / `closeAllFollowersLocked` — use those helpers, never assign `status` or touch `followers` directly. Anything that *decides* (emit, admit a follower) still reads `status` under `fmu`.
+
+## Version, About and Menu Bar
+
+- Version: `internal/buildinfo` (`Version`, `Commit`, `Current()`), stamped via `-ldflags "-X go-clipboard/internal/buildinfo.Version=..."` (Makefile, `scripts/linux/wails.sh`, `scripts/macos/build-file-provider.sh` do it; CI must pass it too). Used by the backup manifest, `GET /api/v1/status` (`version`) and `AppInfoService`.
+- Release check: `internal/app/update_check.go` (`ReleaseChecker`; `app_info_service.go` is the bound wrapper); setting `update_check` (default on, `false` disables), at most one anonymous GET per day (every attempt counts, also a failed one). Nothing is requested before `ReleaseChecker.Start`, which main.go calls only for desktop, non-headless runs, so toggling the setting in e2e never reaches the network. Emits `app:update_available`; `frontend/js/app-info.js` shows the banner and the Settings → About section.
+- macOS menu bar: `app_menu.go` (File/View/Help plus Wails' App/Edit/Window roles, macOS only) emits `menu:action`; `app-info.js` maps ids to ShortcutManager actions through `ShortcutManager.runAction`, which honours the active context. Only Cmd-combos not used by in-app shortcuts may get a menu accelerator.
+- Window chrome: `main.go` sets `windows.Options{Theme: windows.Light}` (UI is light-only), `linux.Options` (embedded `build/appicon-256.png`, ProgramName, GPU policy Never) and the About panel icon/version.
 
 ## Backup and Restore
 
@@ -445,8 +462,17 @@ The app has a Lua-based plugin system that allows extending functionality.
 - `TransferService` in `transfer_service.go` - Drag-out/transfer operations
 - `ServeService` in `serve_service.go` - Tag HTTP serving operations
 - `APIService` in `api_service.go` - REST API management (start/stop, API keys)
+- `NotificationService` in `notification_service.go` - System Notifications setting (status, enable, test)
 
 Frontend accesses via `window.go.main.PluginService.*`, `window.go.main.ClipboardService.*`, `window.go.main.TransferService.*`, `window.go.main.ServeService.*`, `window.go.main.APIService.*`.
+
+### System Notifications
+
+Off by default (`os_notifications` setting; machine-local, so excluded from backups and refused over REST). In OnStartup main.go wraps the Wails bridge with `osnotify.Wrap(bridge, notifier, core.ClassifyBackgroundEvent)` and hands that to `Bootstrap`, so every emitter (watcher, share manager, plugin manager, REST uploads) feeds notifications without knowing about them. Rules:
+- Only the notifier's worker goroutine calls the Wails notification runtime (`Bridge.InitNotifications/SendNotification/CleanupNotifications` in `internal/wailsbridge/notifications.go`): those calls block (the macOS permission prompt waits up to 3 minutes, Linux makes a D-Bus round trip). Never call them from `Emit`, a bound method or OnStartup.
+- The backend initialises lazily (first notification) or when the user switches the setting on; a failure sticks until the user switches it off and on.
+- The frontend (`frontend/js/os-notifications.js`) emits `window:focus-changed` with a bool; the notifier treats the window as focused until the first report and drops what is waiting when focus returns.
+- Headless runs (`MAHPASTES_START_HIDDEN=1`, the worker self-test, binding generation) never construct a notifier. A new background event that should notify needs a case in `ClassifyBackgroundEvent`; keep it non-blocking and put lookups in `Notice.Label`.
 
 ### Event System
 

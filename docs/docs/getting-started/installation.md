@@ -277,7 +277,7 @@ export MP_API_KEY=mp_your_key_here
 Add the export to your shell profile (`~/.zshrc`, `~/.bashrc`) so it persists across sessions.
 :::
 
-The CLI connects to `http://localhost:44557` by default. Override with `MP_API_URL` if needed.
+To read the key from a file instead, set `MP_API_KEY_FILE` to its path. The CLI connects to `http://localhost:44557` by default. Override with `MP_API_URL` if needed. Turn on **Start on launch** in the API modal so the server starts with the app.
 
 Verify connectivity:
 
@@ -295,6 +295,10 @@ Try pasting something:
 3. Press <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">V</span>
 
 Your first clip should appear in the gallery.
+
+## Version and Update Notices
+
+**Settings → About** shows the installed version. At most once a day (and right away when you switch the check back on) mahpastes asks GitHub's public releases endpoint whether a newer release exists and, if so, shows a notice linking to the release page; once dismissed, the notice does not come back for that release. mahpastes never downloads or installs anything. The request is anonymous (no version, no identifiers). Switch it off with **Settings → About → Check for new releases**. Headless runs (`mahpastesd`, e2e) never check.
 
 ## Next Steps
 

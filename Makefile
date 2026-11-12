@@ -29,6 +29,21 @@ else
     MP_INSTALL_DIR ?= $(if $(GO_BIN),$(GO_BIN),$(HOME)/.local/bin)
 endif
 
+# Version stamped into every binary (see internal/buildinfo). Override with
+# `make build VERSION=v1.6.0`; falls back to "dev" outside a git checkout.
+ifeq ($(OS),Windows_NT)
+    VERSION ?= $(strip $(shell git describe --tags --always --dirty 2>NUL))
+    COMMIT ?= $(strip $(shell git rev-parse --short HEAD 2>NUL))
+else
+    VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null)
+    COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null)
+endif
+ifeq ($(VERSION),)
+    VERSION := dev
+endif
+LDFLAGS := -X go-clipboard/internal/buildinfo.Version=$(VERSION) -X go-clipboard/internal/buildinfo.Commit=$(COMMIT)
+export MAHPASTES_LDFLAGS := $(LDFLAGS)
+
 .PHONY: dev build clean install install-bundle install-ready-bundle stop-installed-app stop-file-provider-extension uninstall bindings mp mp-install mp-uninstall mp-docs mp-cross mahpastesd mahpastesd-cross mahpastesd-install test screenshots
 
 ## Development
@@ -59,12 +74,12 @@ ifeq ($(HOST_OS),Darwin)
 		$(MAKE) build-file-provider; \
 	else \
 		echo "Warning: Finder integration disabled: set TEAM_ID, SIGN_IDENTITY, HOST_PROFILE_PATH and EXTENSION_PROFILE_PATH (both profiles must be readable files). Building the ordinary app." >&2; \
-		$(WAILS) build; \
+		$(WAILS) build -ldflags "$(LDFLAGS)"; \
 	fi
 else ifeq ($(HOST_OS),Linux)
-	bash scripts/linux/wails.sh build
+	bash scripts/linux/wails.sh build -ldflags "$(LDFLAGS)"
 else
-	$(WAILS) build
+	$(WAILS) build -ldflags "$(LDFLAGS)"
 endif
 
 .PHONY: build-file-provider
@@ -214,7 +229,7 @@ endif
 ## CLI
 
 mp: ## Build mp CLI for current platform
-	go build -o build/bin/mp ./cmd/mp
+	go build -ldflags "$(LDFLAGS)" -o build/bin/mp ./cmd/mp
 
 mp-install: mp ## Install mp to MP_INSTALL_DIR (user-writable by default)
 ifeq ($(OS),Windows_NT)
@@ -238,32 +253,32 @@ mp-docs: mp ## Regenerate the CLI reference (docs/docs/reference/cli.md) and man
 	build/bin/mp gendocs --markdown docs/docs/reference/cli.md --man build/man
 
 mp-cross: ## Cross-compile mp for all platforms
-	GOOS=darwin GOARCH=amd64 go build -o build/bin/mp-darwin-amd64 ./cmd/mp
-	GOOS=darwin GOARCH=arm64 go build -o build/bin/mp-darwin-arm64 ./cmd/mp
-	GOOS=linux GOARCH=amd64 go build -o build/bin/mp-linux-amd64 ./cmd/mp
-	GOOS=linux GOARCH=arm64 go build -o build/bin/mp-linux-arm64 ./cmd/mp
-	GOOS=windows GOARCH=amd64 go build -o build/bin/mp-windows-amd64.exe ./cmd/mp
-	GOOS=windows GOARCH=arm64 go build -o build/bin/mp-windows-arm64.exe ./cmd/mp
+	GOOS=darwin GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o build/bin/mp-darwin-amd64 ./cmd/mp
+	GOOS=darwin GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o build/bin/mp-darwin-arm64 ./cmd/mp
+	GOOS=linux GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o build/bin/mp-linux-amd64 ./cmd/mp
+	GOOS=linux GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o build/bin/mp-linux-arm64 ./cmd/mp
+	GOOS=windows GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o build/bin/mp-windows-amd64.exe ./cmd/mp
+	GOOS=windows GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o build/bin/mp-windows-arm64.exe ./cmd/mp
 
 mahpastesd: ## Build headless server for current platform
-	go build -o build/bin/mahpastesd ./cmd/mahpastesd
+	go build -ldflags "$(LDFLAGS)" -o build/bin/mahpastesd ./cmd/mahpastesd
 
 mahpastesd-cross: ## Cross-compile headless server for all platforms (darwin with cgo only on a macOS host)
-	GOOS=linux GOARCH=amd64 go build -o build/bin/mahpastesd-linux-amd64 ./cmd/mahpastesd
-	GOOS=linux GOARCH=arm64 go build -o build/bin/mahpastesd-linux-arm64 ./cmd/mahpastesd
-	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o build/bin/mahpastesd-windows-amd64.exe ./cmd/mahpastesd
-	CGO_ENABLED=0 GOOS=windows GOARCH=arm64 go build -o build/bin/mahpastesd-windows-arm64.exe ./cmd/mahpastesd
+	GOOS=linux GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o build/bin/mahpastesd-linux-amd64 ./cmd/mahpastesd
+	GOOS=linux GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o build/bin/mahpastesd-linux-arm64 ./cmd/mahpastesd
+	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o build/bin/mahpastesd-windows-amd64.exe ./cmd/mahpastesd
+	CGO_ENABLED=0 GOOS=windows GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o build/bin/mahpastesd-windows-arm64.exe ./cmd/mahpastesd
 ifeq ($(HOST_OS),Darwin)
 	@# On macOS build with cgo so the import wizard's Finder trash is
 	@# recoverable; Go disables cgo for a foreign GOARCH unless asked, and the
 	@# macOS clang builds either slice.
-	CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build -o build/bin/mahpastesd-darwin-amd64 ./cmd/mahpastesd
-	CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -o build/bin/mahpastesd-darwin-arm64 ./cmd/mahpastesd
+	CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o build/bin/mahpastesd-darwin-amd64 ./cmd/mahpastesd
+	CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o build/bin/mahpastesd-darwin-arm64 ./cmd/mahpastesd
 else
 	@# Elsewhere the darwin server is built without cgo: everything works, but
 	@# the import wizard deletes originals permanently instead of using the Trash.
-	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -o build/bin/mahpastesd-darwin-amd64 ./cmd/mahpastesd
-	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o build/bin/mahpastesd-darwin-arm64 ./cmd/mahpastesd
+	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o build/bin/mahpastesd-darwin-amd64 ./cmd/mahpastesd
+	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o build/bin/mahpastesd-darwin-arm64 ./cmd/mahpastesd
 endif
 
 ifeq ($(HOST_OS),Linux)

@@ -45,6 +45,17 @@ export MP_API_KEY=mp_your_key_here
 
 Add this line to your shell profile (`~/.zshrc` or `~/.bashrc`) so it persists across sessions.
 
+To keep the key out of your shell profile, save it to a file only you can read and point `MP_API_KEY_FILE` at it instead:
+
+```bash
+(umask 077 && printf '%s\n' 'mp_your_key_here' > ~/.config/mahpastes-key)
+export MP_API_KEY_FILE=~/.config/mahpastes-key
+```
+
+The file must hold just the key (a trailing newline is fine). `MP_API_KEY` wins when both are set.
+
+The desktop app's API server is off until you start it. Turn on **Start on launch** in the API modal so it starts with the app (see [REST API](../features/rest-api.md#start-on-launch)).
+
 ### Verify
 
 Confirm the CLI can reach the API and that your key is accepted:
@@ -65,11 +76,14 @@ Shell completion and man pages are installed with `make mp-install`; see [Shell 
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `MP_API_KEY` | Yes | -- | API key starting with `mp_` |
+| `MP_API_KEY` | Yes* | -- | API key starting with `mp_` |
+| `MP_API_KEY_FILE` | No | -- | Path to a file holding just the key; used when `MP_API_KEY` is unset |
 | `MP_API_URL` | No | `http://localhost:44557` | API base URL |
 | `MAHPASTES_API_KEY` | No | -- | Fallback for `MP_API_KEY`, used only when `MP_API_KEY` is unset (the name the Claude Code plugin uses) |
 | `MAHPASTES_API_URL` | No | -- | Fallback for `MP_API_URL`, used only when `MP_API_URL` is unset |
 | `MP_TIMEOUT` | No | `30s` | How long to wait for the connection and for the server to start responding (e.g. `10s` or `10`). It never limits the transfer itself, so large uploads and downloads are not cut off, and commands that wait on long server-side work only use it for the connection (`backup create`/`restore`, `maintenance`, `dedup all`, `plugin install`/`update`/`run`, `watch process`, `clip download` of several clips). On expiry `mp` exits with code 2 |
+
+\* One of `MP_API_KEY` or `MP_API_KEY_FILE` is required.
 
 ## Uploading Files
 

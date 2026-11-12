@@ -237,7 +237,7 @@ exists.
 
 ### Corrupted Database
 
-**Symptoms:** App crashes, errors about database.
+**Symptoms:** App crashes, errors about database, or a "Could not open the database" dialog at startup.
 
 **Solutions:**
 1. Restore from backup if available
@@ -273,6 +273,23 @@ exists.
 
 ## Platform-Specific Issues
 
+### Window Opens in the Wrong Place or at the Wrong Size
+
+**Issue:** After changing monitors or display scaling, the window opens somewhere awkward.
+
+**Solution:** Quit mahpastes, delete `window.json` from the [data directory](./data-storage#window-state), and start it again. The window opens centred at its default size, and the new placement is remembered from then on.
+
+### System Notifications Do Not Appear
+
+**Issue:** **System Notifications** is on, but nothing shows when a watch folder imports in the background.
+
+**Solution:**
+1. Open **Settings → System Notifications**. If it says "Not available", the reason follows: on macOS allow mahpastes under **System Settings → Notifications** (the bare binary that `wails dev` runs cannot notify at all; a built `.app` can); on Linux make sure a notification daemon is running.
+2. Click **Send Test Notification**. If nothing appears, Focus / Do Not Disturb / Focus assist is probably hiding it.
+3. Notifications only appear while the window is unfocused, and similar events are combined, so a burst of imports shows as one notification after a couple of seconds.
+
+See [System Notifications](../features/notifications).
+
 ### macOS: Drag and Drop from Safari
 
 **Issue:** Dragging images from Safari doesn't work.
@@ -305,7 +322,7 @@ On Windows, a file too large for the Recycle Bin is still deleted permanently.
 
 **Solutions:**
 1. Verify mahpastes is running
-2. Open **Settings** > **API** and confirm the API is enabled
+2. Open **Settings** > **API** and confirm the API is enabled. The server does not start with the app unless **Start on launch** is on
 3. Check the port matches your `MP_API_URL` (default `http://localhost:44557`)
 
 ### 401 Unauthorized
@@ -313,7 +330,7 @@ On Windows, a file too large for the Recycle Bin is still deleted permanently.
 **Symptoms:** API calls return 401.
 
 **Solutions:**
-1. Check your `MP_API_KEY` environment variable is set correctly
+1. Check your `MP_API_KEY` environment variable (or the file `MP_API_KEY_FILE` names) holds the right key
 2. Verify the key has not been revoked in **Settings** > **API**
 3. Confirm the key prefix is `mp_`
 
@@ -338,7 +355,7 @@ On Windows, a file too large for the Recycle Bin is still deleted permanently.
 
 ## CLI (`mp`) Issues
 
-### "MP_API_KEY environment variable is required"
+### "MP_API_KEY environment variable (or MP_API_KEY_FILE) is required"
 
 **Symptoms:** Any `mp` command fails immediately with exit code 3.
 
@@ -347,7 +364,18 @@ On Windows, a file too large for the Recycle Bin is still deleted permanently.
 export MP_API_KEY=mp_your_key_here
 ```
 
-Add this line to your shell profile (`~/.zshrc` or `~/.bashrc`) for persistence.
+Or keep the key in a file and point `MP_API_KEY_FILE` at it:
+```bash
+export MP_API_KEY_FILE=~/.config/mahpastes-key
+```
+
+Add the export to your shell profile (`~/.zshrc` or `~/.bashrc`) for persistence.
+
+### "MP_API_KEY_FILE ... is empty" or "must contain only the API key"
+
+**Symptoms:** Any `mp` command fails immediately when `MP_API_KEY_FILE` is set.
+
+**Solution:** The file must hold just the key, such as `mp_abc123...`, optionally followed by a newline. Remove blank or extra lines, spaces inside the key, and quotes.
 
 ### "Cannot connect to mahpastes"
 
@@ -357,7 +385,7 @@ If `MP_API_URL` points at a host that does not answer at all, this message appea
 
 **Solutions:**
 1. Verify the mahpastes desktop app is running
-2. Confirm the API is enabled in **Settings** > **API**
+2. Confirm the API is enabled in **Settings** > **API**. Turn on **Start on launch** there so it starts with the app every time
 3. If using a custom URL, check `MP_API_URL`:
    ```bash
    export MP_API_URL=http://localhost:44557
@@ -374,12 +402,12 @@ If `MP_API_URL` points at a host that does not answer at all, this message appea
 1. Check that `MP_API_URL` points at mahpastes and that the app is responsive
 2. On a slow network link, raise the limit, for example `export MP_TIMEOUT=2m`
 
-### "Authentication failed. Check MP_API_KEY."
+### "Authentication failed. Check MP_API_KEY (or MP_API_KEY_FILE)."
 
 **Symptoms:** Commands fail with exit code 3.
 
 **Solutions:**
-1. Verify `MP_API_KEY` is set to a valid, non-revoked key
+1. Verify `MP_API_KEY` (or the file `MP_API_KEY_FILE` names) holds a valid, non-revoked key
 2. Regenerate the key in **Settings** > **API** if needed
 3. Check for extra whitespace or quotes in the key value
 
@@ -463,4 +491,5 @@ If issues persist:
    - mahpastes version
    - Steps to reproduce
    - Error messages (if any)
+   - The log file: **Maintenance → Open Log Folder** opens the folder with `mahpastes.log` (see [Log Files](data-storage.md#log-files)); if the app does not start, find it under `logs/` in the data directory
    - Screenshots (if relevant)

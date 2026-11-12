@@ -282,6 +282,10 @@ export function OpenClipWithDialog(arg1) {
   return window['go']['main']['App']['OpenClipWithDialog'](arg1);
 }
 
+export function OpenLogFolder() {
+  return window['go']['main']['App']['OpenLogFolder']();
+}
+
 export function PreviewMergeTag(arg1, arg2) {
   return window['go']['main']['App']['PreviewMergeTag'](arg1, arg2);
 }

@@ -14,14 +14,12 @@ import (
 	"strings"
 	"time"
 
+	"go-clipboard/internal/buildinfo"
 	"go-clipboard/internal/fileprovider"
 	"go-clipboard/plugin"
 )
 
-const (
-	BackupFormatVersion = 1
-	AppVersion          = "1.0.0" // TODO: Get from build info
-)
+const BackupFormatVersion = 1
 
 // BackupManifest describes the contents of a backup file
 type BackupManifest struct {
@@ -110,6 +108,12 @@ var sensitiveSettingPatterns = []string{
 	"secret",
 	"password",
 	"token",
+	// Machine-local: a restored backup must not make the next launch listen.
+	"api_autostart",
+	"api_port",
+	// Machine-local: switching notifications on prompts (macOS) or writes
+	// registry keys (Windows), so only the user on that machine may do it.
+	"os_notifications",
 }
 
 // isSensitiveSetting checks if a setting key matches sensitive patterns
@@ -283,7 +287,7 @@ func (a *App) CreateBackup(destPath string) error {
 	// Create manifest
 	manifest := BackupManifest{
 		FormatVersion: BackupFormatVersion,
-		AppVersion:    AppVersion,
+		AppVersion:    buildinfo.Current(),
 		CreatedAt:     time.Now(),
 		Platform:      getPlatform(),
 		Summary:       summary,

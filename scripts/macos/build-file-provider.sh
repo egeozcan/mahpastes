@@ -38,14 +38,15 @@ else
     wails_bin="${WAILS_BIN:-$(go env GOPATH)/bin/wails}"
     # Bindings intentionally use the non-native implementation. Ordinary builds
     # never compile the extension or enable the fileprovider tag.
-    # MAHPASTES_LDFLAGS carries extra linker flags, such as the version stamp
-    # CI passes for releases; unset, the build is unchanged. The ${a[@]+...}
-    # form keeps an empty array safe under set -u in macOS's bash 3.2.
-    ldflags=()
-    if [[ -n "${MAHPASTES_LDFLAGS:-}" ]]; then ldflags=(-ldflags "$MAHPASTES_LDFLAGS"); fi
     "$wails_bin" generate module
-    MACOSX_DEPLOYMENT_TARGET=13.0 "$wails_bin" build -platform darwin/universal -tags fileprovider -skipbindings \
-        ${ldflags[@]+"${ldflags[@]}"}
+    # Stamp the version like the Makefile does (internal/buildinfo); `make`
+    # exports MAHPASTES_LDFLAGS, a direct run computes it from git.
+    ldflags="${MAHPASTES_LDFLAGS:-}"
+    if [[ -z "$ldflags" ]]; then
+        ldflags="-X go-clipboard/internal/buildinfo.Version=$(git describe --tags --always --dirty 2>/dev/null || echo dev)"
+        ldflags="$ldflags -X go-clipboard/internal/buildinfo.Commit=$(git rev-parse --short HEAD 2>/dev/null || true)"
+    fi
+    MACOSX_DEPLOYMENT_TARGET=13.0 "$wails_bin" build -platform darwin/universal -tags fileprovider -skipbindings -ldflags "$ldflags"
     # An app extension is an executable with NSExtensionMain as its entry point.
     # Command Line Tools provide the compiler, SDK and linker for both slices;
     # Xcode's project generator and build system are not needed for packaging.

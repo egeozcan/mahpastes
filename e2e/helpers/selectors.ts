@@ -569,6 +569,18 @@ export const selectors = {
     pastePathSelect: '[data-testid="paste-path-behavior-select"]',
     pasteHtmlSection: '[data-testid="settings-paste-html-section"]',
     pasteHtmlSelect: '[data-testid="paste-html-behavior-select"]',
+    aboutSection: '[data-testid="settings-about-section"]',
+    aboutVersion: '[data-testid="about-version"]',
+    updateCheckToggle: '[data-testid="update-check-toggle"]',
+    updateCheckLabel: '[data-testid="update-check-toggle-label"]',
+    updateBanner: '[data-testid="update-banner"]',
+    updateBannerLink: '[data-testid="update-banner-link"]',
+    updateBannerDismiss: '[data-testid="update-banner-dismiss"]',
+    osNotificationsSection: '[data-testid="settings-os-notifications-section"]',
+    osNotificationsToggle: '[data-testid="os-notifications-toggle"]',
+    osNotificationsLabel: '[data-testid="os-notifications-toggle-label"]',
+    osNotificationsStatus: '[data-testid="os-notifications-status"]',
+    osNotificationsTest: '[data-testid="os-notifications-test"]',
   },
 
   // Settings - update interval
@@ -612,6 +624,18 @@ export const selectors = {
     compactDbButton: '#maintenance-compact-db-btn',
     markdownCacheSize: '#maintenance-markdown-cache-size',
     clearMarkdownCacheButton: '#maintenance-clear-markdown-cache-btn',
+    logSection: '[data-testid="maintenance-log-section"]',
+    openLogsButton: '#maintenance-open-logs-btn',
+  },
+
+  // REST API modal
+  api: {
+    openButton: '#open-api-btn',
+    modal: '[data-testid="api-modal"]',
+    closeButton: '#api-modal-close',
+    portInput: '[data-testid="api-port-input"]',
+    autostartToggle: '[data-testid="api-autostart-toggle"]',
+    autostartLabel: '[data-testid="api-autostart-label"]',
   },
 
   // Import Folder wizard

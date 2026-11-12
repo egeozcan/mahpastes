@@ -21,6 +21,7 @@ Documentation: https://egeozcan.github.io/mahpastes/
 - **Bulk Actions** — Select multiple clips to tag, archive, download, or delete
 - **Search** — Filter clips by filename or type
 - **Watch Folders** — Auto-import files from monitored directories
+- **System Notifications** — Optional native notifications for imports, received shares and plugin results while the window is in the background
 - **Plugin System** — Install and manage Lua plugins from the dedicated Plugins modal
 - **`mp` CLI** — Upload, search, tag, pipe and back up clips from the terminal ([CLI workflow](docs/docs/tutorials/cli-workflow.md)); see the [integration recipes](docs/docs/tutorials/integration-recipes.md) for shell, fzf, tmux, vim, git, file-manager and macOS Quick Action snippets
 - **REST API** — Local, key-authenticated HTTP API with viewer/editor/admin roles and tag-scoped keys ([REST API](docs/docs/features/rest-api.md))
@@ -156,7 +157,7 @@ On macOS, `make build` and `make install` include Finder integration when the
 Apple Command Line Tools. Without it, they warn and build the ordinary app.
 On Linux the same Settings section mounts the clips as a read-only folder
 instead; it needs no build options. Windows keeps the ordinary Wails build.
-Use `wails build` directly for a macOS build without Finder integration.
+Use `wails build` directly for a macOS build without Finder integration. Builds made through `make` stamp the version from `git describe`; with a plain `wails build` pass `-ldflags "-X go-clipboard/internal/buildinfo.Version=vX.Y.Z"` (see the [backend docs](docs/docs/developers/backend.md#version-stamping)).
 
 ### Project Structure
 

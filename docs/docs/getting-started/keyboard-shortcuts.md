@@ -8,6 +8,10 @@ Complete reference for all keyboard shortcuts in mahpastes. Press <span classNam
 
 ![Keyboard shortcuts cheatsheet](/img/screenshots/shortcuts-cheatsheet.png)
 
+## macOS Menu Bar
+
+On macOS the menu bar mirrors the most common actions: **File** (Import Files with <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">O</span>, Import Folder with <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">Shift</span> + <span className="keyboard-key">O</span>, Settings with <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">,</span>), **View** (Archive, Folder Mode, Watch Folders, Serve, Plugins) and **Help** (Keyboard Shortcuts, Documentation). A menu item runs the same action as its keyboard shortcut and only where that shortcut works: nothing happens while a dialog, the menu drawer, the lightbox, the editor, the comparison view or the import wizard is in front, and the gallery actions (Import Files, Import Folder and the **View** items) work only from the clip gallery, not from the Watch, Serve or Share views. Windows and Linux have no menu bar and keep the shortcuts below.
+
 ## System
 
 | Shortcut | Action |

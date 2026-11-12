@@ -1662,7 +1662,7 @@ type APIKeyCreateResult struct {
 **Returns:** The result containing the raw API key string (prefixed `mp_`) and key metadata. This is the only time the full key is returned — store it securely.
 
 :::tip
-Pass the key as `MP_API_KEY` environment variable or as a `Bearer` token in the `Authorization` header.
+Pass the key to `mp` as the `MP_API_KEY` environment variable (or in a file named by `MP_API_KEY_FILE`), or to any client as a `Bearer` token in the `Authorization` header.
 :::
 
 ---

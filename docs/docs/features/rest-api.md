@@ -26,6 +26,16 @@ The REST API runs a separate HTTP server with key-based authentication. Every re
 
 The status line shows the server URL and request count while running.
 
+### Start on launch
+
+Turn on **Start on launch** to have the desktop app start the server each time it opens, so `mp`, scripts and agent plugins keep working after a restart without reopening this modal. It is off by default.
+
+- The server starts on the port shown in the modal: the one you last started it on, or the one in the port field when you turn the switch on (editing the port while it is on updates it too).
+- It always listens on `127.0.0.1` only. The **Network** toggle is never remembered, so network access still needs a manual start.
+- If the port is taken at launch, the app opens normally and the server stays stopped; start it from the modal.
+- The choice is local to this computer: backups do not carry it (restoring one turns it off), and API keys cannot change it through `PUT /api/v1/settings/{key}`.
+- The headless server (`mahpastesd`) ignores it; it always starts its own listener.
+
 ![API settings](/img/screenshots/api-settings.png)
 
 ## Stopping the Server
@@ -1075,8 +1085,10 @@ GET /api/v1/status
 The one unauthenticated endpoint, for liveness checks:
 
 ```json
-{ "running": true, "port": 44557, "bind_all": false, "url": "http://127.0.0.1:44557", "request_count": 128 }
+{ "running": true, "port": 44557, "bind_all": false, "url": "http://127.0.0.1:44557", "request_count": 128, "version": "v1.5.0" }
 ```
+
+`version` is the app version, so clients such as `mp` can detect a CLI/app mismatch (`dev` for an unstamped build). It is visible to anyone who can reach the port, which matters only when the API listens on all interfaces.
 
 It exposes no clip, tag, or key data. `mp api status` calls this route first to check that the API is reachable (exit code 2 if not), then makes an authenticated `GET /clips?limit=1` to validate the key (exit code 3 if it is rejected).
 
