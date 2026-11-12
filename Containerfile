@@ -1,6 +1,7 @@
 # Headless mahpastes server. Build:  podman build -t mahpastesd -f Containerfile .
 # Run:  podman run -d -p 127.0.0.1:44557:44557 -v mahpastesd-data:/data mahpastesd
-FROM golang:1.25 AS build
+# Keep in step with GO_VERSION in .github/workflows/build.yml and go.mod's toolchain.
+FROM golang:1.26.6 AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download

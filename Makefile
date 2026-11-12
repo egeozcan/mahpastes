@@ -253,6 +253,19 @@ else
 	@echo "Skipping darwin mahpastesd: it needs cgo, so build it on macOS."
 endif
 
+ifeq ($(HOST_OS),Linux)
+mahpastesd-install: mahpastesd ## Linux: install mahpastesd and its systemd user unit (does not enable it)
+	@mkdir -p "$(HOME)/.local/bin" "$(HOME)/.config/systemd/user"
+	@install -m 755 build/bin/mahpastesd "$(HOME)/.local/bin/mahpastesd"
+	@install -m 644 scripts/linux/mahpastesd.service "$(HOME)/.config/systemd/user/mahpastesd.service"
+	@echo "Installed mahpastesd to $(HOME)/.local/bin and the user unit to $(HOME)/.config/systemd/user. Next:"
+	@echo "  systemctl --user daemon-reload && systemctl --user enable --now mahpastesd"
+else
+mahpastesd-install:
+	@echo "mahpastesd-install installs a systemd user unit and is Linux-only."
+	@exit 1
+endif
+
 ## Testing
 
 test: ## Run e2e tests
@@ -295,10 +308,3 @@ help: ## Show this help
 endif
 
 .DEFAULT_GOAL := help
-
-mahpastesd-install: mahpastesd ## Linux: install mahpastesd and its systemd user unit (does not enable it)
-	@mkdir -p "$(HOME)/.local/bin" "$(HOME)/.config/systemd/user"
-	@install -m 755 build/bin/mahpastesd "$(HOME)/.local/bin/mahpastesd"
-	@install -m 644 scripts/linux/mahpastesd.service "$(HOME)/.config/systemd/user/mahpastesd.service"
-	@echo "Installed mahpastesd and the user unit. Next:"
-	@echo "  systemctl --user daemon-reload && systemctl --user enable --now mahpastesd"
