@@ -49,9 +49,10 @@ your `PATH` to run `mp` from any terminal.
 ### Linux
 
 The Linux build runs on distributions with GTK 3, WebKitGTK 4.1 and glibc 2.39
-or newer: Ubuntu 24.04, Debian 13, Fedora 40 and later, and current Arch, as
-well as image-based desktops such as Silverblue, Kinoite and Bazzite, which
-already ship these libraries.
+or newer: Ubuntu 24.04, Debian 13, Fedora 40 and later, and current Arch. On
+image-based Fedora desktops (Silverblue, Kinoite, Bazzite), check with
+`rpm -q webkit2gtk4.1` and layer the package with
+`rpm-ostree install webkit2gtk4.1` if it is missing.
 
 ```bash
 tar -xzf mahpastes-linux-amd64.tar.gz
