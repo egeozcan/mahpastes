@@ -44,10 +44,11 @@ test.describe('Modal scroll lock', () => {
     await page.locator('#confirm-no-btn').click();
 
     // Closing a stacked dialog must not release the settings modal's lock.
+    // The lock puts the document back from its scroll event, which fires with
+    // the next rendered frame, so wait for the restore instead of a fixed time.
     const stackedScrollY = await page.evaluate(() => window.scrollY);
     await page.evaluate(() => window.scrollBy(0, 500));
-    await page.waitForTimeout(100);
-    expect(await page.evaluate(() => window.scrollY)).toBe(stackedScrollY);
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(stackedScrollY);
 
     await app.closeSettingsModal();
     await page.waitForFunction(
