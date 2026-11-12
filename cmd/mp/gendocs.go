@@ -30,7 +30,10 @@ var gendocsCmd = &cobra.Command{
 				return err
 			}
 			rootCmd.DisableAutoGenTag = true
-			header := &doc.GenManHeader{Title: "MP", Section: "1", Source: "mahpastes"}
+			// No Title: cobra then titles each page after its command
+			// (MP-CLIP-LIST(1)) instead of calling every page MP(1). Source
+			// is what scripts/install-mp.sh checks before removing a page.
+			header := &doc.GenManHeader{Section: "1", Source: "mahpastes"}
 			if err := doc.GenManTree(rootCmd, header, manDir); err != nil {
 				return err
 			}

@@ -101,7 +101,14 @@ uninstall: ## Remove installed app
 	if exist "$(INSTALL_DIR)" rd /s /q "$(INSTALL_DIR)"
 	@echo Removed $(APP_NAME) from $(INSTALL_DIR)
 else ifeq ($(HOST_OS),Linux)
-install: build mp ## Build and install the app and mp (with completions) to ~/.local (kills running instance)
+install: build ## Build and install the app and mp (with completions) to ~/.local (kills running instance)
+	@# mp is pure Go; image-based hosts may only have Go inside the dev container.
+	@# Built after 'build' (which cleans build/bin), never alongside it.
+	@if command -v go >/dev/null 2>&1; then \
+		$(MAKE) mp; \
+	else \
+		echo "Go not found on the host; installing without mp (run 'make mp-install' where Go is available)." >&2; \
+	fi
 	@bash scripts/linux/install.sh
 
 uninstall: ## Remove installed app, mp and completions (keeps data)

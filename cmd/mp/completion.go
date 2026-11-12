@@ -1,10 +1,11 @@
 package main
 
 import (
+	"errors"
 	"fmt"
-	"os"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -91,14 +92,16 @@ func fetchTagNames(c *client.Client, prefix string) []string {
 	return names
 }
 
-// registerCompletions wires dynamic and static completion onto the command
-// tree. It runs from main so every command's flags already exist.
-func registerCompletions() {
-	for _, p := range []struct {
-		cmd  *cobra.Command
-		flag string
-		fn   completer
-	}{
+// flagCompletion pairs a flag with its completer.
+type flagCompletion struct {
+	cmd  *cobra.Command
+	flag string
+	fn   completer
+}
+
+// flagCompletions lists every flag that gets dynamic or static completion.
+func flagCompletions() []flagCompletion {
+	return []flagCompletion{
 		{clipListCmd, "tag", completeTags},
 		{clipDataCmd, "tag", completeTags},
 		{clipUploadCmd, "tag", completeTags},
@@ -110,13 +113,35 @@ func registerCompletions() {
 		{clipListCmd, "content-type", staticCompleter(contentTypeSuggestions)},
 		{clipUploadCmd, "content-type", staticCompleter(contentTypeSuggestions)},
 		{apiKeyCreateCmd, "role", staticCompleter(roleSuggestions)},
-	} {
-		if err := p.cmd.RegisterFlagCompletionFunc(p.flag, p.fn); err != nil {
-			fmt.Fprintf(os.Stderr, "mp: completion for --%s: %v\n", p.flag, err)
-		}
 	}
-	tagUpdateCmd.ValidArgsFunction = completeTagArg(0)
-	tagDeleteCmd.ValidArgsFunction = completeTagArg(0)
-	tagClipsCmd.ValidArgsFunction = completeTagArg(0)
-	tagMergeCmd.ValidArgsFunction = completeTagArg(0, 1)
+}
+
+var (
+	registerOnce sync.Once
+	registerErr  error
+)
+
+// registerCompletions wires dynamic and static completion onto the command
+// tree. It runs from main, after every init, so all flags already exist. It is
+// idempotent: cobra rejects a second registration of the same flag.
+func registerCompletions() error {
+	registerOnce.Do(func() {
+		var errs []error
+		for _, p := range flagCompletions() {
+			if err := p.cmd.RegisterFlagCompletionFunc(p.flag, p.fn); err != nil {
+				errs = append(errs, fmt.Errorf("completion for %s --%s: %w", p.cmd.CommandPath(), p.flag, err))
+			}
+		}
+		registerErr = errors.Join(errs...)
+		tagUpdateCmd.ValidArgsFunction = completeTagArg(0)
+		tagDeleteCmd.ValidArgsFunction = completeTagArg(0)
+		tagClipsCmd.ValidArgsFunction = completeTagArg(0)
+		tagMergeCmd.ValidArgsFunction = completeTagArg(0, 1)
+		serveStartCmd.ValidArgsFunction = completeTagArg(0)
+		serveStopCmd.ValidArgsFunction = completeTagArg(0)
+		// The positional arguments are clip IDs: offer neither tags nor files.
+		tagAssignCmd.ValidArgsFunction = cobra.NoFileCompletions
+		tagRemoveCmd.ValidArgsFunction = cobra.NoFileCompletions
+	})
+	return registerErr
 }

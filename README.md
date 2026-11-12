@@ -83,9 +83,12 @@ cp -R build/bin/mahpastes.app /Applications/
 ### Install on Linux
 
 `make install` builds and installs for the current user, without root:
-the app goes to `~/.local/bin/mahpastes`, with a desktop entry and icons under
+the app goes to `~/.local/bin/mahpastes` and the `mp` CLI to `~/.local/bin/mp`
+(when Go is available on the host), with a desktop entry, icons, `mp` shell
+completions (bash, zsh, and fish when installed) and `mp` man pages under
 `~/.local/share`. Set `PREFIX` to install elsewhere. `make uninstall` removes
-them again and keeps your data.
+them again and keeps your data. On other systems, `make mp-install` installs
+just `mp` with its completions and man pages, and `make mp-uninstall` removes them.
 
 Build dependencies:
 
