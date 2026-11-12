@@ -168,8 +168,10 @@ test.describe('Open With routing', () => {
 
       await app.hoverOpenWithSubmenu(name);
       await expect(app.page.locator(selectors.cardMenu.submenuStatus)).toHaveText('Loading\u2026');
-      // Clicking the placeholder does nothing and keeps the menu open.
-      await app.page.locator(selectors.cardMenu.submenuStatus).click();
+      // Clicking the placeholder does nothing and keeps the menu open. It is
+      // aria-disabled, which Playwright's actionability check treats as not
+      // clickable, so the click is forced to reach the menu's handler.
+      await app.page.locator(selectors.cardMenu.submenuStatus).click({ force: true });
       await expect(app.page.locator(selectors.cardMenu.dropdown)).toBeVisible();
 
       await releaseListLookups(app);
