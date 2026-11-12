@@ -223,8 +223,9 @@ mahpastesd: ## Build headless server for current platform
 mahpastesd-cross: ## Cross-compile headless server for all platforms
 	GOOS=linux GOARCH=amd64 go build -o build/bin/mahpastesd-linux-amd64 ./cmd/mahpastesd
 	GOOS=linux GOARCH=arm64 go build -o build/bin/mahpastesd-linux-arm64 ./cmd/mahpastesd
-	GOOS=darwin GOARCH=amd64 go build -o build/bin/mahpastesd-darwin-amd64 ./cmd/mahpastesd
-	GOOS=darwin GOARCH=arm64 go build -o build/bin/mahpastesd-darwin-arm64 ./cmd/mahpastesd
+	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -o build/bin/mahpastesd-darwin-amd64 ./cmd/mahpastesd
+	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o build/bin/mahpastesd-darwin-arm64 ./cmd/mahpastesd
+	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o build/bin/mahpastesd-windows-amd64.exe ./cmd/mahpastesd
 
 ## Testing
 

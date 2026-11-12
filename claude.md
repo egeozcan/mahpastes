@@ -1073,11 +1073,13 @@ drawer entry.
 ### Key files
 
 - `internal/app/import_wizard.go` — session, scan, inspect, apply
-- `internal/app/trash_{darwin,windows,other}.go` — `moveToTrash`; macOS uses
-  `NSFileManager trashItemAtURL:` (no main-queue dispatch needed, unlike `startNativeFileDrag`).
-  Non-darwin falls back to `os.Remove` and reports `trashIsRecoverable() == false`, which
-  drives a UI warning. `MAHPASTES_TRASH_MODE=remove` forces permanent delete; the e2e
-  launcher sets it so runs don't fill `~/.Trash`.
+- `internal/app/trash_{darwin,darwin_nocgo,linux,windows,other}.go` — `moveToTrash`; macOS
+  uses `NSFileManager trashItemAtURL:` (cgo only), Linux runs `gio trash` (recoverable iff
+  `gio` is on PATH; failures such as tmpfs mounts are returned, never silently deleted),
+  Windows uses `SHFileOperationW` with `FOF_ALLOWUNDO` (UNC paths refused). Other targets
+  and `darwin && !cgo` (cross-built mahpastesd) use `os.Remove` and report
+  `trashIsRecoverable() == false`, which drives a UI warning. `MAHPASTES_TRASH_MODE=remove`
+  forces permanent delete; the e2e launcher sets it so runs don't fill the trash.
 - `internal/imagemeta/` — EXIF extraction from bytes, shared by the wizard and the Lua
   `image.metadata` binding (which previously read only from clip IDs).
 - `frontend/js/import-wizard.js` — three panes (setup / review / summary), decision map keyed
