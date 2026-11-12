@@ -57,8 +57,10 @@ if [[ ! -x "build/bin/$APP_NAME" ]]; then
     exit 1
 fi
 
-# The app keeps a single-instance lock; a relaunch while the old process is
-# still exiting would just focus the stale window.
+# The app is single-instance per data directory: a launch while an old process
+# still holds the lock hands its arguments to that process (raising its window)
+# and exits. Stop the old process first so the launch at the end of this script
+# starts the newly installed binary instead of focusing the stale one.
 stop_app
 
 # install(1) writes a new inode, so a still-mapped old binary is never modified.

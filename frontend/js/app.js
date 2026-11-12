@@ -1986,6 +1986,12 @@ window.addEventListener('load', async () => {
         });
     }
 
+    // Files and links the OS (or a second launch) asked this window to open.
+    // Taken only now, once the gallery and settings are loaded (open-requests.js).
+    if (typeof initOpenRequests === 'function') {
+        initOpenRequests();
+    }
+
     // On refocus, bring the gallery up to date without paying a full reload
     // for every Cmd-Tab. Changes this app hears about (watch imports, shared
     // clips, tag events) reload the gallery when they arrive, hidden or not.

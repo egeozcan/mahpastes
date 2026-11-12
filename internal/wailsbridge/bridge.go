@@ -8,6 +8,7 @@ package wailsbridge
 
 import (
 	"context"
+	goruntime "runtime"
 
 	rt "github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -23,6 +24,8 @@ type Bridge struct {
 	ctx          context.Context
 	testSink     func(name string, data ...interface{})
 	testSaveFile func(opts FileDialogOptions) (string, error)
+	// testShowWindow replaces ShowWindow in tests.
+	testShowWindow func()
 }
 
 // New constructs a Bridge from the context delivered by Wails OnStartup.
@@ -52,6 +55,42 @@ func (b *Bridge) Quit() {
 		return
 	}
 	rt.Quit(b.ctx)
+}
+
+// ShowWindow brings the main window forward: shown if hidden, unminimised,
+// raised and focused where the OS allows it. No-op if the bridge isn't active.
+//
+// Per platform, Wails v2.12 does:
+//   - Windows: WindowShow restores a minimised window itself and calls
+//     SetForegroundWindow. WindowUnminimise is SW_RESTORE, which would also
+//     un-maximise a maximised window, so it is not called there.
+//   - Linux: WindowShow is gtk_widget_show; WindowUnminimise is
+//     gtk_window_present, the call that actually raises. On Wayland the
+//     compositor may answer with an attention hint instead of focus, since
+//     Wails v2 cannot pass on the launcher's activation token.
+//   - macOS: WindowShow is makeKeyAndOrderFront + activateIgnoringOtherApps;
+//     WindowUnminimise deminiaturizes a window sitting in the Dock.
+func (b *Bridge) ShowWindow() {
+	if b == nil {
+		return
+	}
+	if b.testShowWindow != nil {
+		b.testShowWindow()
+		return
+	}
+	if b.ctx == nil {
+		return
+	}
+	rt.WindowShow(b.ctx)
+	if goruntime.GOOS != "windows" {
+		rt.WindowUnminimise(b.ctx)
+	}
+}
+
+// SetTestShowWindow installs a stand-in for ShowWindow. Only used by test
+// code; production code never calls this.
+func (b *Bridge) SetTestShowWindow(fn func()) {
+	b.testShowWindow = fn
 }
 
 // SetTestEventSink installs a handler that captures Emit calls in tests.

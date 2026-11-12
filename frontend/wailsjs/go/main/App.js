@@ -366,6 +366,10 @@ export function StartImportSession(arg1, arg2) {
   return window['go']['main']['App']['StartImportSession'](arg1, arg2);
 }
 
+export function TakeOpenRequests() {
+  return window['go']['main']['App']['TakeOpenRequests']();
+}
+
 export function ThumbnailURLBase() {
   return window['go']['main']['App']['ThumbnailURLBase']();
 }

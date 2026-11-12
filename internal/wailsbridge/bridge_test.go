@@ -49,6 +49,8 @@ func TestBridgeNilSafety(t *testing.T) {
 	b.On("x", func(...any) {})
 	b.Once("x", func(...any) {})
 	b.Off("x")
+	b.ShowWindow()
+	NewForTesting().ShowWindow()
 
 	path, err := b.OpenFile(FileDialogOptions{})
 	if path != "" || err != nil {
@@ -73,5 +75,15 @@ func TestBridgeNilSafety(t *testing.T) {
 	b.On("x", func(...any) {})
 	if _, err := b.OpenFile(FileDialogOptions{}); err != nil {
 		t.Fatalf("nil-ctx bridge OpenFile should return nil err, got %v", err)
+	}
+}
+
+func TestShowWindowTestHook(t *testing.T) {
+	b := NewForTesting()
+	calls := 0
+	b.SetTestShowWindow(func() { calls++ })
+	b.ShowWindow()
+	if calls != 1 {
+		t.Fatalf("ShowWindow hook called %d times, want 1", calls)
 	}
 }

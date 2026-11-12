@@ -66,6 +66,19 @@ If using Apple Silicon (M-series):
    rm ~/Library/Application\ Support/mahpastes/clips.db-shm
    ```
 
+### "Another mahpastes instance is already running"
+
+**Symptoms:** Launching mahpastes shows this error (in a dialog on Windows, on the terminal elsewhere) instead
+of opening a window.
+
+A second launch normally just brings the running window to the front. You see this error only when the
+process holding the data directory is not a desktop window that can take over, usually:
+
+1. The headless server `mahpastesd` is running against the same data directory -- stop it, or give one of
+   them a different `MAHPASTES_DATA_DIR`
+2. The running instance is still starting up or is hanging -- wait a moment, or end the process named in the
+   message
+
 ### High Memory Usage
 
 **Symptoms:** App uses excessive memory.

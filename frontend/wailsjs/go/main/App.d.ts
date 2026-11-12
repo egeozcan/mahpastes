@@ -186,6 +186,8 @@ export function ShowRestoreBackupDialog():Promise<main.RestoreSelection>;
 
 export function StartImportSession(arg1:string,arg2:boolean):Promise<app.ImportScanResult>;
 
+export function TakeOpenRequests():Promise<main.OpenRequests>;
+
 export function ThumbnailURLBase():Promise<string>;
 
 export function ToggleArchive(arg1:number):Promise<void>;

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -232,5 +233,51 @@ func TestProbeFilePathsRejectsOversizedBatch(t *testing.T) {
 		t.Fatal("ProbeFilePaths accepted an oversized batch, want error")
 	} else if !strings.Contains(err.Error(), "too many paths") {
 		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// Paths the OS hands over to open (argv, a forwarded second launch, a Finder
+// open) get the same importability checks as a pasted path, without the paste
+// heuristics and without the paste batch cap.
+func TestProbeOpenedFiles(t *testing.T) {
+	dataDir := t.TempDir()
+	tempDir := filepath.Join(dataDir, "clip_temp_files")
+	if err := os.Mkdir(tempDir, 0o755); err != nil {
+		t.Fatalf("Mkdir: %v", err)
+	}
+	ourFile := filepath.Join(tempDir, "7_photo.png")
+	if err := os.WriteFile(ourFile, []byte("x"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	var files []string
+	for i := 0; i < maxProbePaths+8; i++ {
+		p := filepath.Join(dataDir, fmt.Sprintf("f%02d.txt", i))
+		if err := os.WriteFile(p, []byte("hi"), 0o644); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+		files = append(files, p)
+	}
+
+	a := &App{tempDir: tempDir}
+	input := append([]string{ourFile, dataDir, "relative.txt", "~/x.txt", ""}, files...)
+	probes := a.ProbeOpenedFiles(input)
+	if len(probes) != len(input) {
+		t.Fatalf("got %d probes for %d inputs", len(probes), len(input))
+	}
+	if !probes[0].IsTemp || !probes[0].IsRegular {
+		t.Errorf("own temp file probe = %+v, want regular and IsTemp", probes[0])
+	}
+	if !probes[1].IsDir || probes[1].IsRegular {
+		t.Errorf("directory probe = %+v", probes[1])
+	}
+	for i := 2; i <= 4; i++ {
+		if probes[i].Exists || probes[i].Path != "" {
+			t.Errorf("non-absolute input %q resolved to %+v", input[i], probes[i])
+		}
+	}
+	for i, p := range probes[5:] {
+		if !p.Exists || !p.IsRegular || p.IsTemp || p.Path != files[i] {
+			t.Errorf("file %d probe = %+v", i, p)
+		}
 	}
 }

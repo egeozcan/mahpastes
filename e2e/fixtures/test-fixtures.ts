@@ -4,6 +4,7 @@ import { getBaseURL, spawnSecondaryInstance, restartWailsInstance } from '../hel
 import { createTempDir, cleanup, Point } from '../helpers/test-data.js';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import * as net from 'net';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -175,6 +176,31 @@ export class AppHelper {
       if (typeof loadClips === 'function') await loadClips();
     });
     await this.page.waitForFunction(() => (window as any).__appReady === true, { timeout: 10000 });
+  }
+
+  /**
+   * Sends an open request over the running app's instance socket, exactly as
+   * a second launch of the app does (internal/openrequest/ipc.go): one JSON
+   * line out, one JSON ack back. Pass `activate: false` so the hidden test
+   * window is not brought on screen.
+   *
+   * Requires `dataDir` (set for the worker's primary instance).
+   */
+  async sendOpenRequest(req: { files?: string[]; urls?: string[]; activate?: boolean }): Promise<{ ok: boolean; error?: string }> {
+    if (!this.dataDir) throw new Error('sendOpenRequest: dataDir not available on this AppHelper');
+    const socketPath = path.join(this.dataDir, 'instance.sock');
+    const line = JSON.stringify({ v: 1, files: req.files ?? [], urls: req.urls ?? [], activate: req.activate ?? false }) + '\n';
+    return new Promise((resolve, reject) => {
+      const conn = net.createConnection(socketPath);
+      let reply = '';
+      conn.setTimeout(5000, () => { conn.destroy(); reject(new Error('instance socket timed out')); });
+      conn.on('connect', () => conn.write(line));
+      conn.on('data', (chunk) => { reply += chunk.toString(); });
+      conn.on('error', reject);
+      conn.on('end', () => {
+        try { resolve(JSON.parse(reply.trim())); } catch (e) { reject(new Error(`bad instance socket reply: ${reply}`)); }
+      });
+    });
   }
 
   async getClipCountFromDB(archived: boolean = false): Promise<number> {

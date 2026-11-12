@@ -1440,6 +1440,22 @@ export namespace main {
 	        this.path = source["path"];
 	    }
 	}
+	export class OpenRequests {
+	    files: string[];
+	    skipped: string[];
+	    urls: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new OpenRequests(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.files = source["files"];
+	        this.skipped = source["skipped"];
+	        this.urls = source["urls"];
+	    }
+	}
 	export class PluginInfo {
 	    id: number;
 	    name: string;

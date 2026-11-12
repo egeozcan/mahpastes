@@ -310,6 +310,8 @@
         // Pasted paths name files on the viewer's machine, which the server
         // cannot see — an empty result keeps every paste a text clip.
         ProbeFilePaths: async () => [],
+        // Files and links handed over by the OS only reach a desktop window.
+        TakeOpenRequests: async () => ({ files: [], skipped: [], urls: [] }),
         SaveClipToFile: async (id) => {
             const clip = await fetchJSON(`${api}/clips/${id}`);
             return await downloadBlob(`${api}/clips/${id}/data`, clip.filename || `clip_${id}`);

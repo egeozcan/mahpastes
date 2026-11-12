@@ -70,6 +70,36 @@ Supported drop types:
 - Single files
 - Multiple files at once
 
+### Opening Files with mahpastes
+
+mahpastes is a single window per data directory. Launching it again while it is already running does
+not start a second copy: the running window comes forward instead, and any files named on the command
+line are imported into it.
+
+That makes these work:
+
+- **Command line**: `mahpastes photo.png notes.txt` imports both files into the running window (or
+  into the window it opens, if mahpastes was not running). Relative paths are resolved against the
+  directory you ran the command from.
+- **Windows**: dropping files onto `mahpastes.exe` or a shortcut to it, or a **Send to** shortcut to
+  `mahpastes.exe` (put one in `shell:sendto`).
+- **Linux**: launching the app again from the app menu, KRunner or a dock raises the running window.
+- **macOS**: when the app is installed as a registered bundle, files that Finder opens with mahpastes
+  arrive the same way, including on a cold launch.
+
+Opened files go through the same import as a pasted file path: duplicate detection, the upload expiry
+from the bottom bar and folder auto-tagging all apply, and the archive view switches back to the active
+list so the new clips are visible. Only ordinary files are imported; folders, missing paths and
+mahpastes' own temporary files (from **Copy Path** or drag-out) are skipped with a notice.
+
+If the running process is the headless server (`mahpastesd`) rather than the desktop window, the second
+launch cannot hand over and shows the "another mahpastes instance is already running" error instead.
+
+:::note Window focus
+Windows and most desktops bring the window to the front. On Wayland the compositor decides: GNOME may
+only highlight mahpastes in the taskbar ("needs attention") rather than raise it.
+:::
+
 ### Expiration
 
 Set per-clip expiration when uploading (dropdown in the bottom bar) or on existing clips via the context menu. See [Auto-Delete](./auto-delete.md) for details.

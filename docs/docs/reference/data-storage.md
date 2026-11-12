@@ -20,6 +20,12 @@ The SQLite database contains all clips and settings.
 
 The data directory can be overridden with the `MAHPASTES_DATA_DIR` environment variable. This is used for testing.
 
+Only one process may use a data directory at a time. The desktop app and `mahpastesd` hold an advisory
+lock on `instance.lock` in the data directory while they run. The desktop app also listens on
+`instance.sock` there (a Unix domain socket readable only by your user; on a very long data directory path
+it is created in your per-user runtime or temp directory instead), which is how a second launch hands its
+files to the running window. Both files are safe to delete while mahpastes is not running.
+
 The database uses WAL journal mode, a 5-second busy timeout, and foreign keys enabled. These pragmas are set via the DSN string for connection-pool safety.
 
 ### Temporary Files

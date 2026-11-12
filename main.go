@@ -9,6 +9,7 @@ import (
 
 	webui "go-clipboard/frontend"
 	coreapp "go-clipboard/internal/app"
+	"go-clipboard/internal/openrequest"
 	"go-clipboard/internal/wailsbridge"
 
 	"github.com/wailsapp/wails/v2"
@@ -24,20 +25,32 @@ func main() {
 	if err != nil {
 		log.Fatalf("data dir: %v", err)
 	}
+	// Opt-in headless mode for the native worker smoke check. Nothing below is
+	// bound or started unless the flag is present, so a normal run is unaffected.
+	selfTestWorker := wantsWorkerSelfTest()
+
+	// Files and mahpastes:// URLs on the command line (Send To, a drop onto the
+	// exe or launcher, a file manager's Open With), or nothing for a plain launch.
+	launch := launchRequest(selfTestWorker)
+
 	// Skip the single-instance lock during Wails binding generation: that build
 	// (`-tags bindings`) only introspects bound methods and exits, so it must
 	// not collide with the lock held by an already-running instance.
 	if !generatingBindings {
-		instanceLock, err := coreapp.AcquireInstanceLock(dataDir)
+		// A second launch against the same data dir hands its request to the
+		// running window (which comes forward) and exits. The self-test never
+		// does: its exit code is a CI verdict, and a handoff would fake a pass.
+		instanceLock, handedOff, err := acquireInstanceOrHandOff(dataDir, launch, !selfTestWorker)
+		if handedOff {
+			return
+		}
 		if err != nil {
+			showStartupError(err.Error())
 			log.Fatalf("%v", err)
 		}
 		defer instanceLock.Release()
 	}
 
-	// Opt-in headless mode for the native worker smoke check. Nothing below is
-	// bound or started unless the flag is present, so a normal run is unaffected.
-	selfTestWorker := wantsWorkerSelfTest()
 	var selfTest *SelfTestService
 	if selfTestWorker {
 		selfTest = NewSelfTestService()
@@ -45,6 +58,22 @@ func main() {
 
 	desktopApp := NewApp()
 	core := desktopApp.core
+
+	// Launch arguments wait in the open-request queue until the frontend has
+	// loaded and takes them.
+	if !launch.Empty() {
+		desktopApp.submitOpenRequest(launch)
+	}
+	// Later launches reach this window through the instance socket.
+	if !generatingBindings {
+		instanceServer, err := openrequest.Listen(dataDir)
+		if err != nil {
+			log.Printf("instance socket unavailable; a second launch cannot reach this window: %v", err)
+		} else {
+			go instanceServer.Serve(desktopApp.submitOpenRequest)
+			defer instanceServer.Close()
+		}
+	}
 
 	pluginService := NewPluginService(core)
 	clipboardService := NewClipboardService(core)
@@ -92,6 +121,7 @@ func main() {
 		OnStartup: func(ctx context.Context) {
 			bridge := wailsbridge.New(ctx)
 			desktopApp.setBridge(bridge)
+			desktopApp.attachOpenRequests(bridge)
 			pluginService.setBridge(bridge)
 			if selfTest != nil {
 				selfTest.setBridge(bridge)
@@ -154,6 +184,18 @@ func main() {
 			About: &mac.AboutInfo{
 				Title:   "mahpastes",
 				Message: "A local clipboard manager",
+			},
+			// Finder "Open With", a drop on the Dock icon and mahpastes:// links
+			// arrive as Apple Events rather than arguments. On a cold launch they
+			// come before OnStartup; the open-request queue holds them until the
+			// frontend takes them.
+			OnFileOpen: func(path string) {
+				desktopApp.submitOpenRequest(openrequest.Request{Files: []string{path}, Activate: true})
+			},
+			OnUrlOpen: func(raw string) {
+				if u, ok := openrequest.ParseURL(raw); ok {
+					desktopApp.submitOpenRequest(openrequest.Request{URLs: []string{u}, Activate: true})
+				}
 			},
 		},
 	})

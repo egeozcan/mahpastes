@@ -61,3 +61,17 @@ func TestProbeFilePathsFollowsSymlinkToRegularFile(t *testing.T) {
 		t.Errorf("symlink probe = %+v, want an existing regular file", probes[0])
 	}
 }
+
+// A pasted path is shell-unescaped, but a path handed over by the OS is exact:
+// a file literally named with a backslash must not be misread.
+func TestProbeOpenedFilesKeepsLiteralBackslash(t *testing.T) {
+	p := filepath.Join(t.TempDir(), `a\ b.txt`)
+	if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	a := &App{}
+	probes := a.ProbeOpenedFiles([]string{p})
+	if !probes[0].Exists || !probes[0].IsRegular || probes[0].Path != p {
+		t.Fatalf("probe = %+v, want the literal file", probes[0])
+	}
+}

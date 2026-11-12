@@ -259,6 +259,7 @@ mahpastes/
 │   │   ├── metadata.js   # Clip metadata handling
 │   │   ├── modal-renderer.js # Plugin result modal rendering
 │   │   ├── modals.js     # All modal/lightbox/editor logic
+│   │   ├── open-requests.js # Files/links handed over by the OS or a second launch
 │   │   ├── plugin-icons.js # Plugin icon rendering
 │   │   ├── plugin-review.js # Plugin permission review UI
 │   │   ├── plugins.js    # Plugin management UI
@@ -1162,6 +1163,15 @@ Five separate Wails-bound services (`ClipboardService`, `TransferService`, `Plug
 | Copy as file | NSPasteboard (CGo) | PowerShell SetFileDropList | Not supported |
 | Copy raw content | golang.design/x/clipboard | Same | Same |
 | Drag out | NSView.dragFile + file-uri-v1 | DataTransfer file-uri-v1 | Planned |
+
+## Single Instance and Open Requests
+
+One desktop process per data directory. `main.go` takes the flock (`internal/app/instance_lock.go`) **before** `wails.Run`; a launch that loses it calls `acquireInstanceOrHandOff` (`instance_handoff.go`), which sends its argv to the lock holder over the instance socket and exits 0 without creating a window. Only when nothing accepts (the holder is `mahpastesd`, or it is still starting/hung, after `handoffTimeout`) does it fail with the old lock error (a `MessageBox` on Windows, since the GUI binary has no console). Wails' own `SingleInstanceLock` is deliberately not used: our flock runs first and would pre-empt it, and on Linux Wails starts `OnStartup` before its D-Bus check. The worker self-test never hands off (its exit code is a CI verdict) and the bindings build skips the lock and argv entirely.
+
+- `internal/openrequest`: `Request{Files, URLs, Activate}` is the one entry point for "the OS asked us to open something". `FromArgs` classifies argv (flags skipped, `--` honoured, `file://` → path, `mahpastes:` → URL, relative paths resolved against the sender's cwd). `ipc.go` is the socket protocol: `<dataDir>/instance.sock` (hashed name in `$XDG_RUNTIME_DIR`/temp when the path exceeds `sockaddr_un`), one JSON line each way, `{"v":1,...}` → `{"ok":true}`, size/item caps, entries re-sanitized server side. `Queue` buffers until the frontend takes it, dedupes pending files, activates at once, and notifies after a 150 ms debounce.
+- Sources: launch argv (`launchRequest`), the socket server, and on macOS `mac.Options.OnFileOpen`/`OnUrlOpen` (these fire before `OnStartup` on a cold launch, hence the queue). All go through `App.submitOpenRequest`. New URL actions extend `handleOpenRequestUrl` in `frontend/js/open-requests.js`.
+- Delivery is pull-based: Go emits `app:open-request` (no payload); the frontend calls the bound `App.TakeOpenRequests()`, which vets files with `core.ProbeOpenedFiles` (regular, not our temp dir, no paste heuristics, no 32-path cap) and returns `{files, skipped, urls}`. `initOpenRequests()` runs at the end of app.js startup and drains once, so requests queued before the page loaded are not lost, and with several frontends attached (wails dev: native window + browser) each file is imported once. Files go through `uploadFilesFromPaths`.
+- Raising: `Bridge.ShowWindow` (WindowShow, plus WindowUnminimise except on Windows where it would un-maximise). The second process calls `AllowSetForegroundWindow(holderPID)` on Windows first. On Wayland a raise may only produce an attention hint.
 
 ## Common Tasks
 
