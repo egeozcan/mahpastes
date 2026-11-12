@@ -148,7 +148,11 @@ func TestGetSettingDeniesScopedAndUnprivilegedKeys(t *testing.T) {
 }
 
 func TestGetSettingLetsViewersReadPasteHTMLBehavior(t *testing.T) {
-	app := &App{db: newServerTestDB(t)}
+	db := newServerTestDB(t)
+	if _, err := db.Exec(`CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT)`); err != nil {
+		t.Fatalf("create settings table: %v", err)
+	}
+	app := &App{db: db}
 	if err := app.SetSetting("paste_html_behavior", "html"); err != nil {
 		t.Fatalf("seed setting: %v", err)
 	}

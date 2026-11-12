@@ -67,8 +67,9 @@ text, and as HTML that keeps its links and formatting. By default a paste keeps 
 To keep the formatting instead, set **Settings → Rich Text Paste → On paste** to **Save the formatting as
 an HTML clip**. A paste that carries HTML is then stored as a `pasted_html_….html` clip (`text/html`),
 wrapped into a complete UTF-8 page when the clipboard held only a fragment, so it opens correctly in a
-browser later. A paste without HTML still becomes a text clip, and pasted file paths are still offered as
-files. The setting works in the desktop app and in the browser UI.
+browser later. A paste without HTML still becomes a text clip and goes through the pasted-path handling
+above (a path copied in Finder or Explorer is plain text only, so it is still offered as a file); a paste
+that carries HTML is always saved as HTML. The setting works in the desktop app and in the browser UI.
 
 | Option | Behavior |
 |--------|----------|

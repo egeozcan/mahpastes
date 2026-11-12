@@ -23,8 +23,12 @@ test.describe('Rich Text Paste', () => {
     await expect(clip).toHaveCount(1);
     const id = Number(await clip.getAttribute('data-id'));
     return app.page.evaluate(async (clipId: number) => {
-      const data = await (window as any).go.main.App.GetClipData(clipId);
-      return data.content;
+      // ClipData carries the bytes in `data`: the text itself for valid
+      // UTF-8 text clips, base64 otherwise.
+      const clip = await (window as any).go.main.App.GetClipData(clipId);
+      if (clip.data_encoding !== 'base64') return clip.data;
+      const bytes = Uint8Array.from(atob(clip.data), c => c.charCodeAt(0));
+      return new TextDecoder().decode(bytes);
     }, id);
   };
 

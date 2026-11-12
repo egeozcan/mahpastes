@@ -2660,6 +2660,23 @@ export class AppHelper {
     await this.page.locator(selectors.cardMenu.submenu).waitFor({ state: 'visible', timeout: 3000 });
   }
 
+  /**
+   * Shows the plain "Open With…" item whatever the host: on macOS it is
+   * otherwise a submenu of the system's applications (open-with-routing.spec).
+   * Undo with resetTransferCapabilities().
+   */
+  async usePlainOpenWith(): Promise<void> {
+    await this.page.evaluate(() => {
+      const helpers = (window as any).__testHelpers;
+      helpers.setTransferCapabilitiesForTest({ ...helpers.getTransferCapabilitiesForTest(), open_with_apps: false });
+    });
+  }
+
+  /** Drops any transfer capability override, back to the platform's values. */
+  async resetTransferCapabilities(): Promise<void> {
+    await this.page.evaluate(() => (window as any).__testHelpers.clearTransferCapabilitiesForTest());
+  }
+
   async hoverPluginsSubmenu(filename: string): Promise<void> {
     await this.openCardMenu(filename);
     const trigger = this.page.locator(selectors.cardMenu.pluginsTrigger);

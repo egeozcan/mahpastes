@@ -3,6 +3,11 @@ import { createTempFile, generateTestImage, generateTestText } from '../../helpe
 import { selectors } from '../../helpers/selectors';
 import * as path from 'path';
 
+// These tests cover the plain "Open With…" item; the macOS application list
+// has its own spec (open-with-routing.spec.ts).
+test.beforeEach(async ({ app }) => { await app.usePlainOpenWith(); });
+test.afterEach(async ({ app }) => { await app.resetTransferCapabilities(); });
+
 test.describe('Context Menu Structure', () => {
   test('should show Open and Open With at the top of the menu', async ({ app }) => {
     const imagePath = await createTempFile(generateTestImage(), 'png');
