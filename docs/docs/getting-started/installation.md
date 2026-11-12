@@ -80,13 +80,13 @@ mv mp-linux-amd64 ~/.local/bin/mp
 ### Verify a download
 
 `SHA256SUMS` lists the checksum of every asset. In the folder holding your
-downloads:
+downloads, check the line for the file you downloaded:
 
 ```bash
 # Linux
-sha256sum --check --ignore-missing SHA256SUMS
+grep mahpastes-linux-amd64.tar.gz SHA256SUMS | sha256sum --check
 # macOS
-shasum -a 256 --check --ignore-missing SHA256SUMS
+grep mahpastes-macos-universal.zip SHA256SUMS | shasum -a 256 --check
 ```
 
 On Windows, compare the output of `Get-FileHash mahpastes-windows-amd64.zip`
