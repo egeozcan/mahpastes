@@ -289,6 +289,8 @@ export const selectors = {
     path: 'p.text-stone-700',
     pauseToggle: '[data-action="toggle-pause"]',
     deleteButton: '[data-action="remove"]',
+    missingBadge: '[data-watch-badge="missing"]',
+    notWatchingBadge: '[data-watch-badge="not-watching"]',
   },
 
   // Watch folder edit modal

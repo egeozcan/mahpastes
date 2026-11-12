@@ -382,6 +382,21 @@ func (a *App) emitWatchError(filePath string, errMsg string) {
 	})
 }
 
+// emitWatchStatus tells the frontend that watch folders started or stopped
+// being watched (changes), or that the watcher itself reported an error.
+func (a *App) emitWatchStatus(changes []watchFolderChange, watcherError string) {
+	if a.bridge == nil {
+		return
+	}
+	if changes == nil {
+		changes = []watchFolderChange{}
+	}
+	a.bridge.Emit("watch:status", map[string]interface{}{
+		"changes": changes,
+		"error":   watcherError,
+	})
+}
+
 // emitWatchImport sends an import event to the frontend with full clip data
 func (a *App) emitWatchImport(clip ClipPreview) {
 	if a.bridge == nil {
@@ -950,6 +965,10 @@ type WatchedFolder struct {
 	IsPaused        bool      `json:"is_paused"`        // per-folder pause
 	CreatedAt       time.Time `json:"created_at"`
 	Exists          bool      `json:"exists"` // whether folder path exists on disk
+	// WatchError says why a folder that should be watched is not being
+	// watched right now (missing, unmounted, moved, or the OS refused the
+	// watch). Empty while it is watched, paused, or watching is stopped.
+	WatchError string `json:"watch_error,omitempty"`
 }
 
 // WatchedFolderConfig for creating/updating watched folders
@@ -4352,6 +4371,9 @@ func (a *App) GetWatchedFolders() ([]WatchedFolder, error) {
 		if _, err := os.Stat(f.Path); err == nil {
 			f.Exists = true
 		}
+		if a.watcherManager != nil {
+			f.WatchError = a.watcherManager.folderWatchError(f.ID)
+		}
 
 		folders = append(folders, f)
 	}
@@ -4640,9 +4662,12 @@ func (a *App) ProcessExistingFilesInFolder(folderID int64) error {
 // WatchStatus represents the current watching state
 type WatchStatus struct {
 	GlobalPaused bool `json:"global_paused"`
-	ActiveCount  int  `json:"active_count"`
+	ActiveCount  int  `json:"active_count"` // folders being watched right now
 	TotalCount   int  `json:"total_count"`
-	IsWatching   bool `json:"is_watching"` // true if any folder is actively being watched
+	// UnavailableCount counts folders that should be watched but are not
+	// (missing, unmounted, moved, or the OS refused the watch).
+	UnavailableCount int  `json:"unavailable_count"`
+	IsWatching       bool `json:"is_watching"` // true if any folder is actively being watched
 }
 
 // GetWatchStatus returns the current watch status
@@ -4654,18 +4679,40 @@ func (a *App) GetWatchStatus() WatchStatus {
 		return WatchStatus{GlobalPaused: globalPaused}
 	}
 
-	activeCount := 0
+	var armed, failed map[int64]bool
+	running := false
+	if a.watcherManager != nil {
+		armed, failed, running = a.watcherManager.watchState()
+	}
+
+	activeCount, unavailableCount := 0, 0
 	for _, f := range folders {
-		if !f.IsPaused && f.Exists {
+		if f.IsPaused {
+			continue
+		}
+		if running {
+			// The watcher's own view: a folder can exist and still not be
+			// watched (its watch was lost, or the OS refused it).
+			if armed[f.ID] {
+				activeCount++
+			} else if failed[f.ID] {
+				unavailableCount++
+			}
+			continue
+		}
+		if f.Exists {
 			activeCount++
+		} else if !globalPaused {
+			unavailableCount++
 		}
 	}
 
 	return WatchStatus{
-		GlobalPaused: globalPaused,
-		ActiveCount:  activeCount,
-		TotalCount:   len(folders),
-		IsWatching:   !globalPaused && activeCount > 0,
+		GlobalPaused:     globalPaused,
+		ActiveCount:      activeCount,
+		TotalCount:       len(folders),
+		UnavailableCount: unavailableCount,
+		IsWatching:       !globalPaused && activeCount > 0,
 	}
 }
 

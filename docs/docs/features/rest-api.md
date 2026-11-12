@@ -628,6 +628,8 @@ Returns all configured watch folders:
 }
 ```
 
+A folder that should be watched but is not (missing, on an unmounted volume, or refused by the operating system) also carries `"watch_error"` with the reason. `GET /api/v1/watch/status` returns `global_paused`, `active_count` (folders being watched right now), `unavailable_count` (folders that should be watched but are not), `total_count` and `is_watching`.
+
 #### Add a watch folder
 
 ```
