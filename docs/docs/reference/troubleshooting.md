@@ -237,7 +237,7 @@ If using Apple Silicon (M-series):
 **Symptoms:** "Copy File" from the card menu doesn't paste a file in Finder.
 
 **Solutions:**
-1. Copy File is supported on macOS (NSPasteboard) and Windows (PowerShell). Not supported on Linux.
+1. Copy File is supported on macOS (NSPasteboard) and Windows (PowerShell). On Linux it is offered as `text/uri-list` (or `x-special/gnome-copied-files` on Cinnamon/MATE); a session with no clipboard backend now reports an error instead of a silent success.
 2. On Windows, ensure no policy blocks PowerShell clipboard access.
 3. Try "Copy Contents" instead if you only need the raw data (text or image).
 

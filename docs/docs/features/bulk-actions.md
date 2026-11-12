@@ -63,7 +63,7 @@ Copy all selected clips as files to the system clipboard:
 You can also press <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">C</span> as an alternative.
 
 :::note Platform Support
-Copy as files is supported on macOS (via NSPasteboard) and Windows (via PowerShell). On Linux, this action is not available.
+Copy as files is supported on macOS (via NSPasteboard), Windows (via PowerShell) and Linux (as `text/uri-list`, or `x-special/gnome-copied-files` on Cinnamon and MATE). On Linux only the file reference is offered, so pasting into a terminal or text field yields nothing, and the offer ends when mahpastes quits.
 :::
 
 ### Tag

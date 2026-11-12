@@ -78,6 +78,14 @@ func TestBuildTransferCapabilitiesMatrix(t *testing.T) {
 	}
 }
 
+func TestBuildTransferCapabilitiesClipboardFile(t *testing.T) {
+	for goos, want := range map[string]bool{"darwin": true, "windows": true, "linux": true, "freebsd": false} {
+		if got := buildTransferCapabilities(goos).ClipboardFile; got != want {
+			t.Errorf("%s: ClipboardFile=%v want %v", goos, got, want)
+		}
+	}
+}
+
 func TestPrepareClipForTransferReturnsDescriptor(t *testing.T) {
 	tempDir := t.TempDir()
 	db := newTransferServiceTestDB(t, tempDir)

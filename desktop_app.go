@@ -14,6 +14,7 @@ import (
 	"time"
 
 	coreapp "go-clipboard/internal/app"
+	"go-clipboard/internal/cliputil"
 	"go-clipboard/internal/wailsbridge"
 
 	"golang.design/x/clipboard"
@@ -283,8 +284,7 @@ func (d *App) ChooseApplication() (string, error) {
 }
 
 func (d *App) CopyToClipboard(text string) error {
-	clipboard.Write(clipboard.FmtText, []byte(text))
-	return nil
+	return cliputil.WriteText(text)
 }
 
 func (d *App) GetClipboardText() (string, error) {

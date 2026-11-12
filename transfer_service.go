@@ -34,7 +34,7 @@ func buildTransferCapabilities(goos string) TransferCapabilities {
 			Strategy: "",
 			Reason:   "drag-out is not implemented on this platform yet",
 		},
-		ClipboardFile: goos == "darwin" || goos == "windows",
+		ClipboardFile: goos == "darwin" || goos == "windows" || goos == "linux",
 	}
 
 	switch goos {

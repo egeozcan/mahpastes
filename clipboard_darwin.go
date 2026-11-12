@@ -29,6 +29,8 @@ import (
 	"fmt"
 	"unsafe"
 
+	"go-clipboard/internal/cliputil"
+
 	"golang.design/x/clipboard"
 )
 
@@ -55,6 +57,5 @@ func copyFilesToClipboard(paths []string) error {
 
 // copyImageToClipboard places PNG image data on the macOS clipboard.
 func copyImageToClipboard(pngData []byte) error {
-	clipboard.Write(clipboard.FmtImage, pngData)
-	return nil
+	return cliputil.Write(clipboard.FmtImage, pngData)
 }

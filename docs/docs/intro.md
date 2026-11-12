@@ -90,7 +90,7 @@ All data is stored locally in a SQLite database. Nothing leaves your machine unl
 |----------|----------------|-------|
 | **macOS** | 10.15 (Catalina) or later | Full support including native drag-out and clipboard file copy |
 | **Windows** | 10 or later | Full support including drag-out (OLE) and clipboard file copy (PowerShell) |
-| **Linux** | Experimental | Core app works; clipboard file copy and drag-out not supported |
+| **Linux** | Experimental | Core app works; clipboard file copy works; drag-out not supported |
 
 ## Get Help
 

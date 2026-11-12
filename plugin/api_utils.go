@@ -11,7 +11,7 @@ import (
 	"time"
 
 	lua "github.com/yuin/gopher-lua"
-	"golang.design/x/clipboard"
+	"go-clipboard/internal/cliputil"
 )
 
 // UtilsAPI provides utility functions to plugins
@@ -163,10 +163,11 @@ func (u *UtilsAPI) clipboardWriteFn(L *lua.LState) int {
 	}
 	text := L.CheckString(1)
 	log.Printf("[plugin:%s] writing to clipboard", u.pluginName)
-	// clipboard.Write returns a channel that signals when the clipboard content is
-	// replaced by another process. We discard it because we only need fire-and-forget
-	// write semantics here.
-	clipboard.Write(clipboard.FmtText, []byte(text))
+	if err := cliputil.WriteText(text); err != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(err.Error()))
+		return 2
+	}
 	L.Push(lua.LTrue)
 	return 1
 }

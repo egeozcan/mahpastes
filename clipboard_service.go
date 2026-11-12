@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	coreapp "go-clipboard/internal/app"
+	"go-clipboard/internal/cliputil"
 
 	"golang.design/x/clipboard"
 	_ "golang.org/x/image/webp"
@@ -66,8 +67,7 @@ func (s *ClipboardService) CopyClipContents(id int64) error {
 	}
 
 	if strings.HasPrefix(contentType, "text/") || contentType == "application/json" {
-		clipboard.Write(clipboard.FmtText, data)
-		return nil
+		return cliputil.Write(clipboard.FmtText, data)
 	}
 
 	if strings.HasPrefix(contentType, "image/") {
