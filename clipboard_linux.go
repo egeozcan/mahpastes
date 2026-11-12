@@ -23,18 +23,34 @@ func copyFilesToClipboard(paths []string) error {
 	return cliputil.Write(clipboard.Register(mime), payload)
 }
 
+// gnomeCopiedFilesDesktops lists the XDG_CURRENT_DESKTOP entries whose default
+// file manager pastes only x-special/gnome-copied-files: Nemo (Cinnamon, and
+// Budgie on most distributions), Caja (MATE), Thunar (Xfce) and elementary
+// Files (Pantheon).
+var gnomeCopiedFilesDesktops = map[string]bool{
+	"X-CINNAMON": true,
+	"CINNAMON":   true,
+	"MATE":       true,
+	"XFCE":       true,
+	"BUDGIE":     true,
+	"PANTHEON":   true,
+}
+
 // clipboardFilePayload returns the MIME target and body for copying paths.
-// text/uri-list (RFC 2483, CRLF separated) is understood by Dolphin, Nautilus
-// 43+, Thunar and most GTK/Qt apps. Nemo and Caja (Cinnamon, MATE) only read
-// x-special/gnome-copied-files ("copy\n" followed by LF separated URIs).
+// text/uri-list (RFC 2483, CRLF separated) is what Dolphin and other Qt apps,
+// Nautilus 43+, PCManFM and browsers read when pasting files. The desktops in
+// gnomeCopiedFilesDesktops get x-special/gnome-copied-files instead ("copy\n"
+// followed by LF separated URIs), which their file managers require.
+// desktop is the colon-separated XDG_CURRENT_DESKTOP value.
 func clipboardFilePayload(paths []string, desktop string) (mime string, payload []byte) {
 	uris := make([]string, len(paths))
 	for i, p := range paths {
 		uris[i] = fileURLFromAbsPath(p)
 	}
-	d := strings.ToUpper(desktop)
-	if strings.Contains(d, "CINNAMON") || strings.Contains(d, "MATE") {
-		return "x-special/gnome-copied-files", []byte("copy\n" + strings.Join(uris, "\n"))
+	for _, name := range strings.Split(desktop, ":") {
+		if gnomeCopiedFilesDesktops[strings.ToUpper(strings.TrimSpace(name))] {
+			return "x-special/gnome-copied-files", []byte("copy\n" + strings.Join(uris, "\n"))
+		}
 	}
 	return "text/uri-list", []byte(strings.Join(uris, "\r\n") + "\r\n")
 }

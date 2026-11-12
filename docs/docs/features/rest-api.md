@@ -974,7 +974,7 @@ Content-Type: application/json
 { "clip_id": 1 }
 ```
 
-Places a file reference on the system clipboard (macOS: NSPasteboard file URL, Windows: PowerShell SetFileDropList). You can then paste the clip as a file into Finder, Explorer, or other apps. Returns `204 No Content`.
+Places a file reference on the system clipboard (macOS: NSPasteboard file URL, Windows: PowerShell SetFileDropList, Linux: `text/uri-list`, or `x-special/gnome-copied-files` on Cinnamon, MATE, Xfce, Budgie and Pantheon). You can then paste the clip as a file into Finder, Explorer, a Linux file manager, or other apps. Returns `204 No Content`, or an error when the clipboard could not be written.
 
 ---
 

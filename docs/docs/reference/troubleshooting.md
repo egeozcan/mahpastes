@@ -234,12 +234,13 @@ If using Apple Silicon (M-series):
 
 ### Copy File Not Working
 
-**Symptoms:** "Copy File" from the card menu doesn't paste a file in Finder.
+**Symptoms:** "Copy File" from the card menu doesn't paste a file in Finder, Explorer or the Linux file manager.
 
 **Solutions:**
-1. Copy File is supported on macOS (NSPasteboard) and Windows (PowerShell). On Linux it is offered as `text/uri-list` (or `x-special/gnome-copied-files` on Cinnamon/MATE); a session with no clipboard backend now reports an error instead of a silent success.
-2. On Windows, ensure no policy blocks PowerShell clipboard access.
-3. Try "Copy Contents" instead if you only need the raw data (text or image).
+1. Copy File is supported on macOS (NSPasteboard), Windows (PowerShell) and Linux. If the copy itself fails, for example in a Linux session where no clipboard is reachable, mahpastes shows "Failed to copy file." instead of a success message.
+2. On Linux the file is offered as one clipboard type only, picked from `XDG_CURRENT_DESKTOP`: `x-special/gnome-copied-files` on Cinnamon, MATE, Xfce, Budgie and Pantheon (Nemo, Caja, Thunar and elementary Files read only that type), `text/uri-list` everywhere else (Dolphin, Nautilus 43 and later, PCManFM, browsers and chat apps). Pasting into an app that wants the other type, or into a terminal, pastes nothing. Paste before quitting mahpastes: the clipboard offer ends when the app exits.
+3. On Windows, ensure no policy blocks PowerShell clipboard access.
+4. Try "Copy Contents" instead if you only need the raw data (text or image).
 
 ## Platform-Specific Issues
 
