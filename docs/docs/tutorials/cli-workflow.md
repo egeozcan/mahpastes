@@ -47,7 +47,7 @@ Add this line to your shell profile (`~/.zshrc` or `~/.bashrc`) so it persists a
 
 ### Verify
 
-Confirm the CLI can reach the API:
+Confirm the CLI can reach the API and that your key is accepted:
 
 ```bash
 mp api status
@@ -59,6 +59,8 @@ Expected output:
 Connected to mahpastes API at http://localhost:44557
 ```
 
+Shell completion and man pages are installed with `make mp-install`; see [Shell Completion](../getting-started/installation.md#shell-completion). Every command and flag is listed in the [CLI Reference](../reference/cli.md).
+
 ## Environment Variables
 
 | Variable | Required | Default | Description |
@@ -67,6 +69,7 @@ Connected to mahpastes API at http://localhost:44557
 | `MP_API_URL` | No | `http://localhost:44557` | API base URL |
 | `MAHPASTES_API_KEY` | No | -- | Fallback for `MP_API_KEY`, used only when `MP_API_KEY` is unset (the name the Claude Code plugin uses) |
 | `MAHPASTES_API_URL` | No | -- | Fallback for `MP_API_URL`, used only when `MP_API_URL` is unset |
+| `MP_TIMEOUT` | No | `30s` | How long to wait for the connection and for the server to start responding (e.g. `10s` or `10`). It never limits the transfer itself, so large uploads and downloads are not cut off, and commands that wait on long server-side work only use it for the connection (`backup create`/`restore`, `maintenance`, `dedup all`, `plugin install`/`update`/`run`, `watch process`, `clip download` of several clips). On expiry `mp` exits with code 2 |
 
 ## Uploading Files
 
@@ -88,11 +91,22 @@ Upload multiple files at once:
 mp clip upload *.png --tag batch
 ```
 
-Upload from stdin (requires `--filename`):
+Upload from stdin. Without `--filename` the clip is named `paste-<timestamp>.<ext>`, with the extension sniffed from the content (`.txt` for text, `.png`, `.pdf`, `.gz` and so on for known binary types, `.bin` otherwise; `--content-type` picks the extension instead). `-` as the file argument means stdin too. Empty input is an error rather than an empty clip, and `mp clip upload` with no arguments on an interactive terminal stops with an error instead of waiting for input (pass `-` to type the clip instead, ending it with Ctrl-D, or Ctrl-Z then Enter on Windows):
 
 ```bash
+echo "meeting notes" | mp clip upload
 echo "meeting notes" | mp clip upload --filename notes.txt
+some-command | mp clip upload - --tag logs
 ```
+
+Use `-q`/`--quiet` on `upload` and `list` to print only bare clip IDs, one per line, for capturing in scripts:
+
+```bash
+id=$(echo hi | mp clip upload -q)
+mp clip list --tag logs -q | mp clip delete --stdin
+```
+
+If any file in a multi-file upload fails (or cannot be tagged or given its expiration), `mp clip upload` still prints the clips that did upload and then exits with code 1.
 
 Upload with an expiration:
 
@@ -142,6 +156,12 @@ Paginate through results:
 mp clip list --limit 20 --offset 40
 ```
 
+Sort by `created_at` (the default), `name`, `size` or `type`, in `desc` (the default) or `asc` order. Unknown values are rejected:
+
+```bash
+mp clip list --sort size --dir desc --limit 5
+```
+
 ## Downloading Clips
 
 Stream raw clip data to a file:
@@ -149,6 +169,15 @@ Stream raw clip data to a file:
 ```bash
 mp clip data 42 > output.png
 ```
+
+Print the newest non-archived clip, optionally within a tag, like `pbpaste`:
+
+```bash
+mp clip data --latest
+mp clip data --latest --tag notes | wc -l
+```
+
+When stdout is a terminal, `mp clip data` refuses binary content (an image, an archive) instead of dumping it onto the screen. Redirect the output, or pass `--force` to write it anyway.
 
 Download with the original filename:
 
@@ -524,16 +553,21 @@ mp clip get 42 --json | jq '.filename'
 |------|---------|
 | 0 | Success |
 | 1 | General error |
-| 2 | Connection error (API unreachable) |
-| 3 | Authentication error (invalid or revoked key) |
+| 2 | Connection error (API unreachable or not responding within `MP_TIMEOUT`) |
+| 3 | Authentication error (missing, invalid or revoked key) |
+
+`mp --version` prints the CLI version; send it along with bug reports.
 
 Use exit codes in scripts:
 
 ```bash
 mp api status > /dev/null 2>&1
-if [ $? -ne 0 ]; then
-  echo "mahpastes is not reachable or key is invalid"
-fi
+case $? in
+  0) ;;
+  2) echo "mahpastes is not running or its API is disabled" ;;
+  3) echo "MP_API_KEY is missing, invalid or revoked" ;;
+  *) echo "mp api status failed" ;;
+esac
 ```
 
 ## Example: Daily Backup Script
@@ -557,6 +591,7 @@ echo "Backup saved: $FILENAME"
 
 ## Related
 
+- [Integration Recipes](integration-recipes.md) -- wire `mp` into fzf, tmux, vim, git, file managers and macOS Quick Actions
 - [Clipboard Management](../features/clipboard-management.md) -- feature reference
 - [Watch Folders](../features/watch-folders.md) -- watch folder details
 - [Troubleshooting](../reference/troubleshooting.md) -- CLI error solutions

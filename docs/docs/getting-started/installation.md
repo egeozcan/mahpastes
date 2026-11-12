@@ -124,6 +124,32 @@ If you want a different location, override the target directory:
 make mp-install MP_INSTALL_DIR=/usr/local/bin
 ```
 
+`make mp-install` (and `make install` on Linux) also installs shell completions and man pages under `~/.local/share` (or `$DATAROOT`, `$PREFIX/share`). `make mp-uninstall` removes them again. See [Shell Completion](#shell-completion) below.
+
+### Shell Completion
+
+`mp` can complete commands, flags, tag names (`--tag`, `mp tag delete <TAB>`), content types and API roles. Tag names are fetched from the running app; when the app is not running, or `MP_API_KEY` is not set, completion stays silent and returns immediately.
+
+`make mp-install` already writes the scripts. To set them up by hand, or on Windows, generate them with `mp completion`:
+
+```bash
+# bash (needs bash-completion v2)
+mp completion bash > ~/.local/share/bash-completion/completions/mp
+
+# zsh: ~/.local/share/zsh/site-functions is not on zsh's default fpath
+mp completion zsh > ~/.local/share/zsh/site-functions/_mp
+# then add to ~/.zshrc, before compinit:
+#   fpath=(~/.local/share/zsh/site-functions $fpath)
+
+# fish
+mp completion fish > ~/.config/fish/completions/mp.fish
+
+# PowerShell: add to your profile ($PROFILE)
+mp completion powershell | Out-String | Invoke-Expression
+```
+
+Start a new shell afterwards. Man pages (`man mp`, `man mp-clip-list`) are installed to `~/.local/share/man`; add it to `MANPATH` if your system does not search it. The complete command list is in the [CLI Reference](../reference/cli.md).
+
 ### Configure API Access
 
 The CLI authenticates with an API key. Generate one in the desktop app:

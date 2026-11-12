@@ -1,0 +1,121 @@
+package main
+
+import (
+	"bytes"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/spf13/cobra"
+	"github.com/spf13/cobra/doc"
+)
+
+// gendocsCmd emits the man pages and the Markdown CLI reference from the
+// command tree, so they cannot drift from the code. It is hidden: it is a
+// build-time tool (make mp-docs), not part of the user-facing CLI.
+var gendocsCmd = &cobra.Command{
+	Use:    "gendocs",
+	Short:  "Generate man pages and the Markdown CLI reference",
+	Hidden: true,
+	Args:   cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		manDir, _ := cmd.Flags().GetString("man")
+		mdFile, _ := cmd.Flags().GetString("markdown")
+		if manDir == "" && mdFile == "" {
+			return fmt.Errorf("nothing to do: pass --man <dir> and/or --markdown <file>")
+		}
+		if manDir != "" {
+			if err := os.MkdirAll(manDir, 0o755); err != nil {
+				return err
+			}
+			rootCmd.DisableAutoGenTag = true
+			// No Title: cobra then titles each page after its command
+			// (MP-CLIP-LIST(1)) instead of calling every page MP(1). Source
+			// is what scripts/install-mp.sh checks before removing a page.
+			header := &doc.GenManHeader{Section: "1", Source: "mahpastes"}
+			if err := doc.GenManTree(rootCmd, header, manDir); err != nil {
+				return err
+			}
+		}
+		if mdFile != "" {
+			md, err := renderMarkdownReference(rootCmd)
+			if err != nil {
+				return err
+			}
+			if err := os.MkdirAll(filepath.Dir(mdFile), 0o755); err != nil {
+				return err
+			}
+			return os.WriteFile(mdFile, md, 0o644)
+		}
+		return nil
+	},
+}
+
+func init() {
+	gendocsCmd.Flags().String("man", "", "Directory to write man pages (mp.1, mp-clip-list.1, ...) into")
+	gendocsCmd.Flags().String("markdown", "", "File to write the single-page Markdown CLI reference to")
+	rootCmd.AddCommand(gendocsCmd)
+}
+
+// renderMarkdownReference renders every visible command into one Docusaurus
+// page, depth first, with links between commands turned into page anchors.
+func renderMarkdownReference(root *cobra.Command) ([]byte, error) {
+	root.DisableAutoGenTag = true
+	// Cobra adds these lazily on Execute; add them now so the output is the
+	// same whether or not the command ran through Execute.
+	root.InitDefaultCompletionCmd()
+	root.InitDefaultHelpCmd()
+	var buf bytes.Buffer
+	buf.WriteString("---\nsidebar_position: 3\ntitle: CLI Reference\n---\n\n")
+	buf.WriteString("# CLI Reference\n\n")
+	buf.WriteString("Every `mp` command and flag, generated from the CLI itself (`make mp-docs`; do not edit by hand). For a guided tour see the [CLI Workflow tutorial](../tutorials/cli-workflow.md); the same content is installed as man pages (`man mp`, `man mp-clip-list`).\n\n")
+
+	anchor := func(name string) string {
+		return "#" + strings.TrimSuffix(strings.ReplaceAll(name, "_", "-"), ".md")
+	}
+	var walk func(c *cobra.Command) error
+	walk = func(c *cobra.Command) error {
+		if !c.IsAvailableCommand() && c != root || c.IsAdditionalHelpTopicCommand() {
+			return nil
+		}
+		var sub bytes.Buffer
+		if err := doc.GenMarkdownCustom(c, &sub, anchor); err != nil {
+			return err
+		}
+		buf.WriteString(escapeMDX(sub.String()))
+		buf.WriteString("\n---\n\n")
+		for _, child := range c.Commands() {
+			if err := walk(child); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if err := walk(root); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// escapeMDX makes help text safe for Docusaurus' MDX parser: outside code
+// fences and inline code, "<" and "{" would otherwise start JSX.
+func escapeMDX(s string) string {
+	lines := strings.Split(s, "\n")
+	inFence := false
+	for i, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(line), "```") {
+			inFence = !inFence
+			continue
+		}
+		if inFence {
+			continue
+		}
+		parts := strings.Split(line, "`")
+		for j := 0; j < len(parts); j += 2 {
+			parts[j] = strings.NewReplacer("<", "&lt;", "{", "&#123;").Replace(parts[j])
+		}
+		lines[i] = strings.Join(parts, "`")
+	}
+	return strings.Join(lines, "\n")
+}

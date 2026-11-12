@@ -292,7 +292,7 @@ If using Apple Silicon (M-series):
 
 ### "MP_API_KEY environment variable is required"
 
-**Symptoms:** Any `mp` command fails immediately.
+**Symptoms:** Any `mp` command fails immediately with exit code 3.
 
 **Solution:** Export your API key before running commands:
 ```bash
@@ -305,6 +305,8 @@ Add this line to your shell profile (`~/.zshrc` or `~/.bashrc`) for persistence.
 
 **Symptoms:** Commands fail with the message "Cannot connect to mahpastes. Is the app running with the API enabled?"
 
+If `MP_API_URL` points at a host that does not answer at all, this message appears after `MP_TIMEOUT` (default `30s`).
+
 **Solutions:**
 1. Verify the mahpastes desktop app is running
 2. Confirm the API is enabled in **Settings** > **API**
@@ -313,6 +315,16 @@ Add this line to your shell profile (`~/.zshrc` or `~/.bashrc`) for persistence.
    export MP_API_URL=http://localhost:44557
    mp api status
    ```
+
+### "Timed out waiting for mahpastes"
+
+**Symptoms:** A command fails with exit code 2 after about 30 seconds.
+
+**Cause:** `mp` connected, but the server did not start responding within `MP_TIMEOUT` (default `30s`). This usually means the app is hung or something else is listening on that port.
+
+**Solutions:**
+1. Check that `MP_API_URL` points at mahpastes and that the app is responsive
+2. On a slow network link, raise the limit, for example `export MP_TIMEOUT=2m`
 
 ### "Authentication failed. Check MP_API_KEY."
 

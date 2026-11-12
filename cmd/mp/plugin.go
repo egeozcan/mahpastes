@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -126,7 +127,7 @@ func runPluginInstall(cmd *cobra.Command, args []string) error {
 		Name string `json:"name"`
 	}
 
-	if err := c.PostJSON("/api/v1/plugins", body, &result); err != nil {
+	if err := c.Long().PostJSON("/api/v1/plugins", body, &result); err != nil {
 		return err
 	}
 
@@ -180,9 +181,9 @@ func runPluginRemove(cmd *cobra.Command, args []string) error {
 // ── plugin enable ───────────────────────────────────────────────────────
 
 var pluginEnableCmd = &cobra.Command{
-	Use:   "enable <id>",
-	Short: "Enable a disabled plugin",
-	Long:  `Enable a plugin so it can handle events and run actions.`,
+	Use:     "enable <id>",
+	Short:   "Enable a disabled plugin",
+	Long:    `Enable a plugin so it can handle events and run actions.`,
 	Example: `  mp plugin enable 1`,
 	Args:    cobra.ExactArgs(1),
 	RunE:    runPluginEnable,
@@ -215,9 +216,9 @@ func runPluginEnable(cmd *cobra.Command, args []string) error {
 // ── plugin disable ──────────────────────────────────────────────────────
 
 var pluginDisableCmd = &cobra.Command{
-	Use:   "disable <id>",
-	Short: "Disable an enabled plugin",
-	Long:  `Disable a plugin. It remains installed but will not handle events or run actions.`,
+	Use:     "disable <id>",
+	Short:   "Disable an enabled plugin",
+	Long:    `Disable a plugin. It remains installed but will not handle events or run actions.`,
 	Example: `  mp plugin disable 1`,
 	Args:    cobra.ExactArgs(1),
 	RunE:    runPluginDisable,
@@ -310,7 +311,7 @@ func runPluginRun(cmd *cobra.Command, args []string) error {
 
 	var result map[string]interface{}
 
-	if err := c.PostJSON(fmt.Sprintf("/api/v1/plugins/%d/actions/%s", pluginID, actionID), body, &result); err != nil {
+	if err := c.Long().PostJSON(fmt.Sprintf("/api/v1/plugins/%d/actions/%s", pluginID, url.PathEscape(actionID)), body, &result); err != nil {
 		return err
 	}
 
@@ -420,7 +421,7 @@ func runPluginStorageGet(cmd *cobra.Command, args []string) error {
 	var result struct {
 		Value string `json:"value"`
 	}
-	if err := c.GetJSON(fmt.Sprintf("/api/v1/plugins/%d/storage/%s", pluginID, key), &result); err != nil {
+	if err := c.GetJSON(fmt.Sprintf("/api/v1/plugins/%d/storage/%s", pluginID, url.PathEscape(key)), &result); err != nil {
 		return err
 	}
 
@@ -459,7 +460,7 @@ func runPluginStorageSet(cmd *cobra.Command, args []string) error {
 	value := args[2]
 
 	body := map[string]string{"value": value}
-	if err := c.PutJSON(fmt.Sprintf("/api/v1/plugins/%d/storage/%s", pluginID, key), body, nil); err != nil {
+	if err := c.PutJSON(fmt.Sprintf("/api/v1/plugins/%d/storage/%s", pluginID, url.PathEscape(key)), body, nil); err != nil {
 		return err
 	}
 
@@ -512,7 +513,7 @@ func runPluginUpdate(cmd *cobra.Command, args []string) error {
 			} `json:"updates"`
 		}
 
-		if err := c.PostJSON("/api/v1/plugins/check-updates", nil, &envelope); err != nil {
+		if err := c.Long().PostJSON("/api/v1/plugins/check-updates", nil, &envelope); err != nil {
 			return err
 		}
 
@@ -566,7 +567,7 @@ func runPluginUpdate(cmd *cobra.Command, args []string) error {
 		} `json:"plugin_info,omitempty"`
 	}
 
-	if err := c.PostJSON(fmt.Sprintf("/api/v1/plugins/%d/update", pluginID), nil, &result); err != nil {
+	if err := c.Long().PostJSON(fmt.Sprintf("/api/v1/plugins/%d/update", pluginID), nil, &result); err != nil {
 		return err
 	}
 

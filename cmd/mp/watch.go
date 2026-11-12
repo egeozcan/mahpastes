@@ -529,7 +529,7 @@ func runWatchProcess(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid watch folder ID: %s", args[0])
 	}
 
-	if err := c.PostJSON(fmt.Sprintf("/api/v1/watch/%d/process", id), nil, nil); err != nil {
+	if err := c.Long().PostJSON(fmt.Sprintf("/api/v1/watch/%d/process", id), nil, nil); err != nil {
 		return err
 	}
 

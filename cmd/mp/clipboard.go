@@ -14,7 +14,7 @@ import (
 var clipboardCmd = &cobra.Command{
 	Use:   "clipboard",
 	Short: "Copy clip content to the system clipboard",
-	Long: `Copy clip contents or file references to the system clipboard (macOS or Windows).
+	Long: `Copy clip contents or file references to the system clipboard.
 
 These commands instruct the mahpastes desktop app to place clip data on
 the system clipboard. The desktop app must be running.`,

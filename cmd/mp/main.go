@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -30,6 +31,7 @@ Environment variables:
   MAHPASTES_API_KEY, MAHPASTES_API_URL
                Fallbacks used when the MP_ variables are unset
                (the same names the Claude Code plugin configures).`,
+	Version:       versionString(),
 	SilenceUsage:  true,
 	SilenceErrors: true,
 }
@@ -50,14 +52,26 @@ func init() {
 }
 
 func main() {
+	if err := registerCompletions(); err != nil {
+		errorf("%s", err)
+	}
 	if err := rootCmd.Execute(); err != nil {
 		exitCode := client.ExitError
-		if apiErr, ok := err.(*client.APIError); ok {
-			errorf("%s", apiErr.Message)
+		errorf("%s", err)
+		// errors.As keeps the API error's exit code when a command wrapped it
+		// (e.g. "fetch tags: ...").
+		var apiErr *client.APIError
+		if errors.As(err, &apiErr) {
 			exitCode = apiErr.ExitCode()
-		} else {
-			errorf("%s", err)
 		}
 		os.Exit(exitCode)
 	}
+}
+
+// versionString renders the resolved version, with the commit when known.
+func versionString() string {
+	if client.Commit != "" {
+		return client.Version + " (" + client.Commit + ")"
+	}
+	return client.Version
 }

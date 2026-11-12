@@ -64,6 +64,7 @@ const sidebars = {
         'tutorials/screenshot-workflow',
         'tutorials/code-snippets',
         'tutorials/automated-imports',
+        'tutorials/integration-recipes',
       ],
     },
     {
@@ -84,6 +85,7 @@ const sidebars = {
       label: 'Reference',
       collapsed: true,
       items: [
+        'reference/cli',
         'reference/data-storage',
         'reference/troubleshooting',
       ],

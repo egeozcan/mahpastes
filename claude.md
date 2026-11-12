@@ -31,7 +31,8 @@ make test-headed  # Run e2e tests with visible browser
 make test-debug   # Run e2e tests with Playwright inspector
 make screenshots  # Capture documentation screenshots
 make mp            # Build mp CLI for current platform
-make mp-install    # Install mp to a user bin dir (or GOBIN if set)
+make mp-install    # Install mp to a user bin dir (or GOBIN if set) plus shell completions and man pages
+make mp-docs       # Regenerate docs/docs/reference/cli.md and build/man from the command tree (a test fails when cli.md is stale)
 make mp-cross      # Cross-compile mp for all platforms
 make help         # Show all targets
 ```
@@ -301,6 +302,7 @@ The `mp` binary is a stateless CLI for mahpastes, talking to the REST API (`/api
 make mp                              # Build
 export MP_API_KEY=mp_your_key_here   # Required
 export MP_API_URL=http://localhost:44557  # Optional, this is the default
+export MP_TIMEOUT=30s                # Optional: connect/response-header wait (exit 2 on expiry)
 ```
 
 ### Command Groups
@@ -323,7 +325,9 @@ export MP_API_URL=http://localhost:44557  # Optional, this is the default
 - `--json` flag on any command for machine-readable output
 - `--stdin` flag on bulk commands reads IDs from stdin
 - Tags can be referenced by name or ID
-- `mp clip data <id> > file.png` outputs raw content to stdout
+- `mp clip data <id> > file.png` outputs raw content to stdout; `--latest [--tag X]` picks the newest non-archived clip, and binary content is refused on a terminal unless `--force`
+- Pipe filter: `cmd | mp clip upload` (or `-`) names the clip `paste-<timestamp>.<ext>` with the extension sniffed client-side (cmd/mp/stdin.go); `-q` on `clip upload`/`clip list` prints bare IDs
+- `mp --version` reports `internal/buildinfo.Version` when stamped with `-ldflags -X`, else the toolchain's VCS module version, else "dev"
 - Auth via `MP_API_KEY` env var (Bearer token), no config files
 - Exit codes: 0 success, 1 general error, 2 connection error, 3 auth error
 
@@ -333,8 +337,10 @@ export MP_API_URL=http://localhost:44557  # Optional, this is the default
 cmd/mp/
 ├── main.go        # Root command, --json flag
 ├── client/
-│   └── client.go  # HTTP client (auth, errors, JSON/multipart helpers)
+│   ├── client.go  # HTTP client (auth, errors, JSON/multipart helpers)
+│   └── version.go # Resolved mp version (buildinfo stamp or VCS build info)
 ├── output.go      # Human/JSON formatting (printTable, printJSON, printKeyValue)
+├── stdin.go       # Stdin naming/sniffing and TTY checks for pipe use
 ├── clip.go        # clip subcommands
 ├── tag.go         # tag subcommands
 ├── dedup.go       # dedup subcommands

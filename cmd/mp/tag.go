@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -294,8 +295,8 @@ func runTagAssign(cmd *cobra.Command, args []string) error {
 
 	if jsonOutput {
 		printJSON(map[string]interface{}{
-			"tagged":  len(clipIDs),
-			"tag_id":  tagID,
+			"tagged":   len(clipIDs),
+			"tag_id":   tagID,
 			"clip_ids": clipIDs,
 		})
 		return nil
@@ -404,7 +405,10 @@ func runTagClips(cmd *cobra.Command, args []string) error {
 	limit, _ := cmd.Flags().GetInt("limit")
 	offset, _ := cmd.Flags().GetInt("offset")
 
-	path := fmt.Sprintf("/api/v1/tags/%d/clips?limit=%d&offset=%d", tagID, limit, offset)
+	q := url.Values{}
+	q.Set("limit", strconv.Itoa(limit))
+	q.Set("offset", strconv.Itoa(offset))
+	path := fmt.Sprintf("/api/v1/tags/%d/clips?%s", tagID, q.Encode())
 
 	var result struct {
 		Clips []struct {
