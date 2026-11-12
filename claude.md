@@ -23,16 +23,17 @@ A Wails desktop clipboard manager for macOS, Windows, and Linux with image editi
 make dev          # Start dev server with hot reload
 make build        # Clean production build
 make clean        # Remove build artifacts
-make install      # Build, kill running app, install to /Applications, launch
-make uninstall    # Remove from /Applications
+make install      # Build, kill running app, install (/Applications; ~/.local on Linux; %LOCALAPPDATA%\Programs + Start Menu shortcut on Windows), launch
+make uninstall    # Remove the installed app (keeps data)
 make bindings     # Regenerate frontend bindings after Go changes
 make test         # Run e2e tests
 make test-headed  # Run e2e tests with visible browser
 make test-debug   # Run e2e tests with Playwright inspector
 make screenshots  # Capture documentation screenshots
 make mp            # Build mp CLI for current platform
-make mp-install    # Install mp to a user bin dir (or GOBIN if set)
-make mp-cross      # Cross-compile mp for all platforms
+make mp-install    # Install mp to a user bin dir (or GOBIN if set) plus shell completions and man pages
+make mp-docs       # Regenerate docs/docs/reference/cli.md and build/man from the command tree (a test fails when cli.md is stale)
+make mp-cross      # Cross-compile mp for macOS, Linux and Windows (amd64 and arm64)
 make help         # Show all targets
 ```
 
@@ -69,6 +70,7 @@ Tests are organized by feature in `e2e/tests/`:
 - `folder-drag/` - Folder drag operations
 - `images/` - Lightbox, editor, comparison
 - `metadata/` - Clip metadata CRUD
+- `notifications/` - System Notifications setting
 - `plugins/` - Plugin system (install, events, APIs, scheduling)
 - `search/` - Filtering functionality
 - `screenshots/` - Documentation screenshot capture
@@ -196,13 +198,16 @@ mahpastes/
 ├── clipboard_windows.go  # Windows clipboard via PowerShell
 ├── clipboard_other.go    # Unsupported platform stub
 ├── database.go           # SQLite operations
+├── desktop_lifecycle.go  # Quit prompt, SIGTERM/SIGINT quit, keep running, launch at login bindings
 ├── main.go               # Entry point
 ├── native_drag_darwin.go # macOS native file drag via CGo
 ├── native_drag_windows.go # Windows native drag via DataTransfer
 ├── native_drag_other.go  # Unsupported platform stub
 ├── open_darwin.go        # macOS file-open helper
 ├── open_windows.go       # Windows file-open helper
+├── open_linux.go         # Linux file-open helper (xdg-open / gio launch, FileManager1 reveal)
 ├── open_other.go         # Unsupported platform stub
+├── open_folder.go        # Reveal a directory in the file manager (Open Log Folder)
 ├── plugin_service.go     # Plugin frontend API (separate struct)
 ├── plugins.go            # Plugin install/uninstall helpers
 ├── serve_json_api.go     # JSON API handler for served tags (/_api prefix)
@@ -213,6 +218,13 @@ mahpastes/
 ├── transfer_handler.go   # HTTP handler for drag-out file transfers
 ├── transfer_service.go   # Drag-out preparation and native drag initiation
 ├── transfer_types.go     # Transfer system type definitions
+├── window_geometry.go    # Save/restore window size, position, maximised (internal/windowstate, stored under "window" in desktop-prefs.json via internal/desktopprefs)
+├── internal/logfile/     # Size-capped <dataDir>/logs/mahpastes.log (+ .1); also receives Go crash traces. Only the instance holding the lock rotates it
+├── notification_service.go # System Notifications setting (NotificationService binding); wires internal/osnotify into main.go
+├── internal/osnotify/    # Native OS notifications for background events: coalescing, rate limits, focus gating, one worker goroutine for all backend calls
+├── internal/app/os_notifications.go # os_notifications setting + ClassifyBackgroundEvent (which frontend events notify)
+├── window_position_windows.go # Windows: absolute window placement via user32 (Wails' getter/setter disagree)
+├── window_position_other.go   # Other platforms: position goes through Wails
 ├── thumbnail.go          # Image card thumbnails: generation, hash-keyed disk cache, serving (internal/app)
 ├── tag_hierarchy.go      # Tag tree helpers (parent, root, ancestor, descendant checks)
 ├── watcher.go            # Watch folder implementation
@@ -243,6 +255,7 @@ mahpastes/
 │   │   ├── app.js        # Main app initialization, event handlers
 │   │   ├── api-settings.js # API settings management UI
 │   │   ├── context-menu.js # Context menu functionality
+│   │   ├── desktop-lifecycle-settings.js # Background & Startup settings, drawer Quit
 │   │   ├── editor/       # Modular image editor
 │   │   │   ├── editor-core.js   # Core editor canvas logic
 │   │   │   ├── tool-anonymize.js # Anonymize/blur tool
@@ -259,6 +272,7 @@ mahpastes/
 │   │   ├── metadata.js   # Clip metadata handling
 │   │   ├── modal-renderer.js # Plugin result modal rendering
 │   │   ├── modals.js     # All modal/lightbox/editor logic
+│   │   ├── open-requests.js # Files/links handed over by the OS or a second launch
 │   │   ├── plugin-icons.js # Plugin icon rendering
 │   │   ├── plugin-review.js # Plugin permission review UI
 │   │   ├── plugins.js    # Plugin management UI
@@ -299,8 +313,9 @@ The `mp` binary is a stateless CLI for mahpastes, talking to the REST API (`/api
 
 ```bash
 make mp                              # Build
-export MP_API_KEY=mp_your_key_here   # Required
+export MP_API_KEY=mp_your_key_here   # Required (or MP_API_KEY_FILE=<path to a file holding the key>)
 export MP_API_URL=http://localhost:44557  # Optional, this is the default
+export MP_TIMEOUT=30s                # Optional: connect/response-header wait (exit 2 on expiry)
 ```
 
 ### Command Groups
@@ -323,8 +338,10 @@ export MP_API_URL=http://localhost:44557  # Optional, this is the default
 - `--json` flag on any command for machine-readable output
 - `--stdin` flag on bulk commands reads IDs from stdin
 - Tags can be referenced by name or ID
-- `mp clip data <id> > file.png` outputs raw content to stdout
-- Auth via `MP_API_KEY` env var (Bearer token), no config files
+- `mp clip data <id> > file.png` outputs raw content to stdout; `--latest [--tag X]` picks the newest non-archived clip, and binary content is refused on a terminal unless `--force`
+- Pipe filter: `cmd | mp clip upload` (or `-`) names the clip `paste-<timestamp>.<ext>` with the extension sniffed client-side (cmd/mp/stdin.go); `-q` on `clip upload`/`clip list` prints bare IDs
+- `mp --version` reports `internal/buildinfo.Version` when stamped with `-ldflags -X`, else the toolchain's VCS module version, else "dev"
+- Auth via `MP_API_KEY` env var (Bearer token), or `MP_API_KEY_FILE` naming a file that holds just the key (`MP_API_KEY` wins; read capped at 4 KiB). Env vars only, no config files
 - Exit codes: 0 success, 1 general error, 2 connection error, 3 auth error
 
 ### Architecture
@@ -333,8 +350,10 @@ export MP_API_URL=http://localhost:44557  # Optional, this is the default
 cmd/mp/
 ├── main.go        # Root command, --json flag
 ├── client/
-│   └── client.go  # HTTP client (auth, errors, JSON/multipart helpers)
+│   ├── client.go  # HTTP client (auth, errors, JSON/multipart helpers)
+│   └── version.go # Resolved mp version (buildinfo stamp or VCS build info)
 ├── output.go      # Human/JSON formatting (printTable, printJSON, printKeyValue)
+├── stdin.go       # Stdin naming/sniffing and TTY checks for pipe use
 ├── clip.go        # clip subcommands
 ├── tag.go         # tag subcommands
 ├── dedup.go       # dedup subcommands
@@ -355,7 +374,8 @@ The app exposes a REST API via `api_manager.go` that the `mp` CLI and external t
 ### Key Files
 
 - `api_manager.go` - HTTP server with ~40+ endpoints, auth middleware, CORS
-- `api_service.go` - Wails-bound `APIService` struct for frontend control (start/stop API, manage keys)
+- `api_service.go` - Wails-bound `APIService` struct for frontend control (start/stop API, manage keys, "Start on launch")
+- `internal/app/api_autostart.go` - "Start on launch": `api_autostart` + `api_port` settings. `StartAPIOnLaunch` runs from main.go `OnStartup` (not the shared `Bootstrap`, since mahpastesd starts its own listener), always loopback-only (`bind_all` is never persisted). Both keys are excluded from backups (`sensitiveSettingPatterns`) and refused by `PUT /api/v1/settings/{key}`
 
 ### Authentication
 
@@ -385,9 +405,23 @@ Revocable, single-clip public download links, distinct from the peer-to-peer `sh
 - **Relay client, never a relay.** `libp2p.EnableRelay` (in `shareHostOptions`) registers the circuit-v2 STOP side, which is all a NAT'd publisher needs to be reached through someone else's relay. Do not call `relay.New(host)`: that starts the HOP service and relays arbitrary third parties' traffic through the user's machine. `TestShareManagerDoesNotRunRelayHop` pins this.
 - **Status reads never take `publication.fmu`.** An emission holds `fmu` for a whole clip. Reporters (`GetShareStatus`, `emitPublicationUpdated`) read `publication.reportedView()`, which every mutation under `fmu` refreshes via `setStatusLocked` / `addFollowerLocked` / `removeFollowerLocked` / `closeAllFollowersLocked` — use those helpers, never assign `status` or touch `followers` directly. Anything that *decides* (emit, admit a follower) still reads `status` under `fmu`.
 
+## Version, About and Menu Bar
+
+- Version: `internal/buildinfo` (`Version`, `Commit`, `Current()`), stamped via `-ldflags "-X go-clipboard/internal/buildinfo.Version=..."` (Makefile, `scripts/linux/wails.sh`, `scripts/macos/build-file-provider.sh` do it; CI must pass it too). Used by the backup manifest, `GET /api/v1/status` (`version`) and `AppInfoService`.
+- Release check: `internal/app/update_check.go` (`ReleaseChecker`; `app_info_service.go` is the bound wrapper); setting `update_check` (default on, `false` disables), at most one anonymous GET per day (every attempt counts, also a failed one). Nothing is requested before `ReleaseChecker.Start`, which main.go calls only for desktop, non-headless runs, so toggling the setting in e2e never reaches the network. Emits `app:update_available`; `frontend/js/app-info.js` shows the banner and the Settings → About section.
+- macOS menu bar: `app_menu.go` (File/View/Help plus Wails' App/Edit/Window roles, macOS only) emits `menu:action`; `app-info.js` maps ids to ShortcutManager actions through `ShortcutManager.runAction`, which honours the active context. Only Cmd-combos not used by in-app shortcuts may get a menu accelerator.
+- Window chrome: `main.go` sets `windows.Options{Theme: windows.Light}` (UI is light-only), `linux.Options` (embedded `build/appicon-256.png`, ProgramName, GPU policy Never) and the About panel icon/version.
+
 ## Backup and Restore
 
 `database.sql` in a backup is **parsed, never executed** (`internal/app/backup_sql.go`). `backupSQLReader` accepts only `INSERT INTO <table> (<cols>) VALUES (<literals>);` with `formatSQLValue`'s literal forms, and fails the whole restore on anything else. `backupRowWriter` checks the table against `backupTables` and every column against the live `PRAGMA table_info`, then binds the values as parameters. Rows for other tables (e.g. `api_keys`), sensitive or non-text settings keys, and `plugins` rows whose `filename` is not a bare `.lua` name, and `plugin_permissions` rows of a type the app never grants (`restorablePermissionTypes`), are skipped and counted; a column this install lacks is dropped from the row, not the row. Only a row the schema refuses (constraint/mismatch) is skipped on insert — any other database error aborts the restore, because SQLite rolls the whole transaction back on some (a full disk) and later statements would autocommit onto the live library. Every use of a stored plugin filename as a path goes through `plugin.Manager.PluginFilePath`, which refuses any directory part. `clips.content_hash` is recomputed from each restored row's bytes (dedup trusts it), and a clip row whose `data` is not a blob/text literal is skipped. After the row replay, restored plugin permissions are marked pending, and watch folders and follows are paused. Every restored plugin is committed `enabled = 0, status = 'needs_review'` (`plugin.StatusNeedsReview`); after the files are extracted, `restorePluginStates` gives the backup's enabled/status back only to plugins whose file is byte-identical to one this install had already reviewed (`reviewedPluginHashes`, read before the restore — rows still `needs_review` don't count). The rest stay held until the user approves the install review (`PreviewInstalledPlugin` / `GET /api/v1/plugins/{id}/review`), which the plugin card's enable toggle shows. The restore confirm dialog's counts come from `InspectBackupForRestore` (`countBackupRows` over `database.sql`, same row filters as the restore), never from the manifest's self-reported summary. A committed restore bumps `App.restoreEpoch`: an upload that tags the clip it just inserted reads the epoch *before* the insert and tags through `addTagToNewClip`, which refuses (`errRestoredSinceInsert`) if a restore ran in between — the clip is gone and its id names a restored row. Every tag server is closed first, immediately (`ServeManager.CloseAll`) — a server looks clips up by the tag id it started with, which the backup may have given to another tag — and `StartServing` refuses (`errRestoreInProgress`) while a restore holds `backupRestoreMu`. Adding a table to backups means exporting it in `exportDatabaseToSQL` *and* adding it to `backupTables`, which drives the pre-restore clear (children before parents) and the restore allowlist — a table exported but not listed is silently skipped on restore.
+
+## Watch Folders (`internal/app/watcher.go`)
+
+- **Generations**: every `WatcherManager.Start` creates a fresh fsnotify watcher and bumps `gen`; `Stop` closes it, clears `activeWatches`/`watchErrors`/`debounceMap`, bumps `gen` and waits for the event and re-arm goroutines (not for in-flight imports: `RestoreBackup` calls `Stop`/`Start` under `backupRestoreMu`, which an upload read-locks). Event goroutines read the watcher they were started with, and debounce timers carry their generation, so nothing from a stopped generation acts.
+- **Re-arm**: `refreshWatches` (serialised by `refreshMu`; never holds `w.mu` across DB, `os.Stat` or fsnotify calls) runs at start, on config changes, every `watchRearmInterval` (30 s) and right after a watched folder's own Remove/Rename event. It drops a watch whose folder is gone, not in `WatchList()`, or no longer `os.SameFile` as when armed (unmount, delete+recreate), and re-adds it once the folder is back. Why a folder is not watched is kept in `watchErrors` → `WatchedFolder.watch_error`, `WatchStatus.unavailable_count`; changes go to the UI as `watch:status`.
+- **Partial files**: names from `inProgressSuffixes` (and `~`) and empty files are never imported (live or `ProcessExistingFiles`); after the debounce the file is re-stat'ed and given another round if size/mtime moved; the source is deleted only if unchanged since it was read (`sameFileState`) and no restore committed since the upload (`App.removeImportedSource` compares `restoreEpoch` under `backupRestoreMu`'s read side — `Stop` does not wait for running imports, so a restore can land between the upload and the removal).
+- Tests (`watcher_test.go`) shrink `watchDebounceDelay`/`watchRearmInterval`; run them with `-race`.
 
 ## Code Style
 
@@ -431,8 +465,17 @@ The app has a Lua-based plugin system that allows extending functionality.
 - `TransferService` in `transfer_service.go` - Drag-out/transfer operations
 - `ServeService` in `serve_service.go` - Tag HTTP serving operations
 - `APIService` in `api_service.go` - REST API management (start/stop, API keys)
+- `NotificationService` in `notification_service.go` - System Notifications setting (status, enable, test)
 
 Frontend accesses via `window.go.main.PluginService.*`, `window.go.main.ClipboardService.*`, `window.go.main.TransferService.*`, `window.go.main.ServeService.*`, `window.go.main.APIService.*`.
+
+### System Notifications
+
+Off by default (`os_notifications` setting; machine-local, so excluded from backups and refused over REST). In OnStartup main.go wraps the Wails bridge with `osnotify.Wrap(bridge, notifier, core.ClassifyBackgroundEvent)` and hands that to `Bootstrap`, so every emitter (watcher, share manager, plugin manager, REST uploads) feeds notifications without knowing about them. Rules:
+- Only the notifier's worker goroutine calls the Wails notification runtime (`Bridge.InitNotifications/SendNotification/CleanupNotifications` in `internal/wailsbridge/notifications.go`): those calls block (the macOS permission prompt waits up to 3 minutes, Linux makes a D-Bus round trip). Never call them from `Emit`, a bound method or OnStartup.
+- The backend initialises lazily (first notification) or when the user switches the setting on; a failure sticks until the user switches it off and on.
+- The frontend (`frontend/js/os-notifications.js`) emits `window:focus-changed` with a bool; the notifier treats the window as focused until the first report and drops what is waiting when focus returns.
+- Headless runs (`MAHPASTES_START_HIDDEN=1`, the worker self-test, binding generation) never construct a notifier. A new background event that should notify needs a case in `ClassifyBackgroundEvent`; keep it non-blocking and put lookups in `Notice.Label`.
 
 ### Event System
 
@@ -1066,11 +1109,18 @@ drawer entry.
 ### Key files
 
 - `internal/app/import_wizard.go` — session, scan, inspect, apply
-- `internal/app/trash_{darwin,windows,other}.go` — `moveToTrash`; macOS uses
-  `NSFileManager trashItemAtURL:` (no main-queue dispatch needed, unlike `startNativeFileDrag`).
-  Non-darwin falls back to `os.Remove` and reports `trashIsRecoverable() == false`, which
-  drives a UI warning. `MAHPASTES_TRASH_MODE=remove` forces permanent delete; the e2e
-  launcher sets it so runs don't fill `~/.Trash`.
+- `internal/app/trash_{darwin,darwin_nocgo,linux,windows,windows_other,other}.go` —
+  `moveToTrash`; macOS uses `NSFileManager trashItemAtURL:` (cgo only), Linux runs
+  `GIO_USE_VFS=local gio trash` with a 30 s timeout (recoverable iff `gio` is on PATH;
+  failures such as tmpfs mounts are returned, never silently deleted), Windows amd64/arm64
+  uses `SHFileOperationW` with `FOF_ALLOWUNDO` and first refuses anything it would delete
+  permanently (`recycleBinRefusal`: UNC/`\\?\` paths, non-`DRIVE_FIXED` volumes such as
+  mapped network or removable drives, paths over MAX_PATH). A file too large for the
+  Recycle Bin is still deleted permanently; that cannot be detected up front and no nuke
+  warning is requested, because its modal dialog would block the apply. Other targets
+  (including windows/386) and `darwin && !cgo` (cross-built mahpastesd) use `os.Remove` and report
+  `trashIsRecoverable() == false`, which drives a UI warning. `MAHPASTES_TRASH_MODE=remove`
+  forces permanent delete; the e2e launcher sets it so runs don't fill the trash.
 - `internal/imagemeta/` — EXIF extraction from bytes, shared by the wizard and the Lua
   `image.metadata` binding (which previously read only from clip IDs).
 - `frontend/js/import-wizard.js` — three panes (setup / review / summary), decision map keyed
@@ -1131,6 +1181,8 @@ Five separate Wails-bound services (`ClipboardService`, `TransferService`, `Plug
 **Go (root)**:
 - `clipboard_service.go` - Clipboard copy service struct
 - `clipboard_darwin.go` - macOS clipboard via NSPasteboard (CGo)
+- `clipboard_flavors.go` - Multi-flavour clipboard logic (image original + PNG, HTML rich text, HTML→plain text); platform writers are package vars, nil where unsupported
+- `open_with_apps.go` - Open With application list (probe file, per-extension cache, script output parsing)
 - `clipboard_windows.go` - Windows clipboard via PowerShell
 - `clipboard_other.go` - Unsupported platform stub
 - `transfer_service.go` - Drag-out preparation and native drag initiation
@@ -1159,9 +1211,33 @@ Five separate Wails-bound services (`ClipboardService`, `TransferService`, `Plug
 
 | Operation | macOS | Windows | Linux |
 |-----------|-------|---------|-------|
-| Copy as file | NSPasteboard (CGo) | PowerShell SetFileDropList | Not supported |
-| Copy raw content | golang.design/x/clipboard | Same | Same |
-| Drag out | NSView.dragFile + file-uri-v1 | DataTransfer file-uri-v1 | Planned |
+| Copy as file | NSPasteboard (CGo) | PowerShell SetFileDropList | `text/uri-list` (`x-special/gnome-copied-files` on Cinnamon/MATE/Xfce/Budgie/Pantheon) via golang.design/x/clipboard |
+| Copy raw content | golang.design/x/clipboard; JPEG/GIF/TIFF images as one NSPasteboardItem with the original UTI plus PNG (`clipboard_flavors.go`, CGo writer in `clipboard_darwin.go`) | golang.design/x/clipboard (images via PowerShell) | golang.design/x/clipboard |
+| Copy as rich text (HTML clips) | NSPasteboardItem: `public.html` + rendered plain text (`ClipboardService.CopyClipAsRichText`) | — | — |
+| Open With list | `App.ListOpenWithApps`: NSWorkspace via `osascript -l JavaScript` against an empty probe file, cached per extension (`open_with_apps.go`, `open_darwin.go`) | native chooser (`OpenClipWithDialog`) | file picker |
+| Drag out | NSView.dragFile + file-uri-v1 | DataTransfer file-uri-v1 | DataTransfer file-uri-v1 (`text/uri-list`, exported by WebKitGTK) |
+
+## Single Instance and Open Requests
+
+One desktop process per data directory. `main.go` takes the flock (`internal/app/instance_lock.go`) **before** `wails.Run`; a launch that loses it calls `acquireInstanceOrHandOff` (`instance_handoff.go`), which sends its argv to the lock holder over the instance socket and exits 0 without creating a window. It keeps retrying the lock between connection attempts, so a launch while the holder is shutting down (`OnShutdown` closes the socket first) takes the lock once it is freed. Only when nothing accepts (the holder is `mahpastesd`, or it is still starting/hung, after `handoffTimeout`) or the holder refuses the request does it fail with the old lock error (a `MessageBox` on Windows, since the GUI binary has no console). Wails' own `SingleInstanceLock` is deliberately not used: our flock runs first and would pre-empt it, and on Linux Wails starts `OnStartup` before its D-Bus check. The worker self-test never hands off (its exit code is a CI verdict) and the bindings build skips the lock and argv entirely.
+
+- `internal/openrequest`: `Request{Files, URLs, Activate, PasteClipboard}` is the one entry point for "the OS asked us to open something". `FromArgs` classifies argv (flags skipped except `--paste-clipboard` and `--hidden`, which clears `Activate` so a login launch that hands off does not raise the window; `--` honoured, `file://` → path, `mahpastes:` → URL, relative paths resolved against the sender's cwd); `main.go` then removes the app's own flags from `os.Args` (`StripOwnFlags`) because Wails dev/bindings builds reject unknown flags. `link.go` is the `mahpastes://` grammar (`ParseLink`: `show`/`activate`/empty → `LinkShow`, `clip/<id>` → `LinkClip`; anything else unsupported). Links only navigate: never add a link that creates, changes, copies or opens a clip in another app (any web page can fire one); mutating launch actions are flags (`--paste-clipboard`, the Linux desktop action). `ipc.go` is the socket protocol: `<dataDir>/instance.sock` (hashed name in `$XDG_RUNTIME_DIR`/temp when the path exceeds `sockaddr_un`), one JSON line each way, `{"v":1,...}` → `{"ok":true}`, size/item caps, entries re-sanitized server side. `Queue` buffers until the frontend takes it, dedupes pending files, activates at once, and notifies after a 150 ms debounce.
+- Sources: launch argv (`launchRequest`), the socket server, and on macOS `mac.Options.OnFileOpen`/`OnUrlOpen` (these fire before `OnStartup` on a cold launch, hence the queue). All go through `App.submitOpenRequest`. New link kinds go in `openrequest.ParseLink` (with tests) and `handleOpenRequests` in `frontend/js/open-requests.js`.
+- Delivery is pull-based: Go emits `app:open-request` (no payload); the frontend calls the bound `App.TakeOpenRequests()`, which vets files with `core.ProbeOpenedFiles` (regular, not our temp dir, no paste heuristics, no 32-path cap) plus an open-for-read check and returns `{files, skipped, links, unsupported_links, paste_clipboard}` (links parsed by `ParseLink`). A clip link opens the lightbox (media), the editor (text) or focuses the card (anything else, never `OpenClipWithDefaultApp`); `paste_clipboard` reads `GetClipboardImage`/`GetClipboardText` and goes through the normal paste path. `initOpenRequests()` runs at the end of app.js startup and drains once, so requests queued before the page loaded are not lost, and with several frontends attached (wails dev: native window + browser) each file is imported once. Files go through `uploadFilesFromPaths`, 32 at a time. On Unix the client refuses a socket owned by another user (the long-path fallback can sit in a shared temp dir).
+- OS registration: macOS `build/darwin/Info.plist` (+ `Info.dev.plist` for `wails dev`; both committed Wails templates, `TestInfo*` in `info_plist_test.go` renders and checks them) declares bundle ID `io.github.egeozcan.mahpastes` (must match `FP_BUNDLE_ID` in `scripts/macos/build-file-provider.sh`), a catch-all `CFBundleDocumentTypes` with `LSHandlerRank Alternate`, the `mahpastes` URL scheme and the privacy usage strings. Linux: the desktop entry in `scripts/linux/install.sh` (`Exec=... %U`, short `MimeType` list + `x-scheme-handler/mahpastes`, `Save Clipboard as Clip` action). Windows: nothing is registered by the zip; Send To is a manual shortcut (docs), the installer belongs to the release work.
+- Versions: `wails.json` `info.productVersion` feeds Info.plist and the Windows version resource; `internal/buildinfo` (`Version`, `Commit`) is stamped via `-ldflags` from `scripts/version.sh --ldflags` (Makefile, build-file-provider.sh, CI). CI runs `scripts/version.sh --stamp` to write the tag into `wails.json` first.
+- Raising: `Bridge.ShowWindow` (WindowShow, plus WindowUnminimise except on Windows where it would un-maximise). The second process calls `AllowSetForegroundWindow(holderPID)` on Windows first. On Wayland a raise may only produce an attention hint.
+
+## App Lifetime (`desktop_lifecycle.go`)
+
+The rule: the app must never become impossible to quit. Wails v2 routes the close button (unless `HideWindowOnClose`), Cmd+Q, the Dock's Quit and every `runtime.Quit` through `OnBeforeClose`.
+
+- `OnBeforeClose` = `App.beforeClose`: prompts only when the frontend reported unsaved editor changes (`App.SetUnsavedChanges`, sent by `reportUnsavedEditorChanges` in editor.js / text-clip-editor.js, only on change; `OnDomReady` resets it). Only an answer cancels (**Keep Editing**, or dismissing the dialog); a dialog error quits (fail open), a signal quit skips the prompt (`forceQuit`), and a quit while the prompt is up is dropped (`prompting` CAS) instead of stacking dialogs. The dialog is `Bridge.ConfirmDialog` (macOS needs explicit Buttons; Linux/Windows return "Yes"/"No"). Never make `OnBeforeClose` hide the window instead of quitting: Cmd+Q would then never quit.
+- Keep running when closed: Wails' static `HideWindowOnClose`, read once at startup from `<dataDir>/desktop-prefs.json` (`internal/desktopprefs`; the DB is not open before `wails.Run`). Default on for macOS (Dock click re-shows), opt-in elsewhere, where only a second launch over the instance socket can show the window again, so `main.go` forces it off when the socket server failed. A changed setting applies on next start (`keep_running_active` vs `keep_running_when_closed`).
+- Quit: there is no app menu on macOS (Menu is nil), so Cmd/Ctrl+Q is the `quit-app` shortcut (`firesInInputs: true`, so it works in the editor) and the drawer's **Quit mahpastes**, both calling `App.QuitApp` → `Bridge.Quit` (goroutine; it re-enters `OnBeforeClose`). The Dock's Quit goes through Wails directly.
+- Signals: Wails installs no handler. `OnStartup` does `signal.Notify(SIGINT, SIGTERM)` → `quitOnSignal`: first signal → `signalQuit` (forceQuit + `Bridge.Quit`, so `OnShutdown` runs), then `os.Exit(1)` after `signalQuitGrace` (10 s, counted from the signal; the quit runs on its own goroutine so it cannot hold the deadline off) or a second signal.
+- Launch at login: `internal/autostart` (pure Go). Linux/BSD: XDG `~/.config/autostart/mahpastes.desktop` (`Hidden=true`/`X-GNOME-Autostart-enabled=false` read as switched off). Windows: HKCU `...\CurrentVersion\Run` value `mahpastes` (+ `Explorer\StartupApproved\Run` for "disabled in Task Manager", cleared on write). macOS: `~/Library/LaunchAgents/io.github.egeozcan.mahpastes.login.plist` (RunAtLoad, Aqua, no KeepAlive, `AssociatedBundleIdentifiers`; never `launchctl load`ed, it takes effect at next login). `Set` refuses relative, temp-dir and AppTranslocation executables; on Linux `$APPIMAGE` is preferred. Stale entries (other copy, missing target, switched off by the system) are reported in Settings (and logged at startup by `logLoginEntryProblems`), never silently rewritten. The XDG entry sets no `NoDisplay` (GNOME's startup-apps list would hide it). macOS 13+ Login Items switch-offs live in the background-items database, not the plist, so they are not visible to `Get`. Uninstall paths (install.sh, Makefile) remove the entry.
+- Hidden start: the entry passes `--hidden` (`openrequest.StartHiddenFlag`, stripped before `wails.Run`). Linux/Windows use `StartHidden` (only with a working instance socket); macOS hides the app after DOM ready (`Bridge.HideApp`, once) because a window never shown does not come back on a Dock click.
 
 ## Common Tasks
 

@@ -25,7 +25,7 @@ var maintenanceVacuumCmd = &cobra.Command{
 			Before int64 `json:"before"`
 			After  int64 `json:"after"`
 		}
-		if err := c.PostJSON("/api/v1/maintenance/vacuum", nil, &resp); err != nil {
+		if err := c.Long().PostJSON("/api/v1/maintenance/vacuum", nil, &resp); err != nil {
 			return err
 		}
 
@@ -57,7 +57,7 @@ var maintenanceStaleFilesListCmd = &cobra.Command{
 		}
 
 		var files []map[string]interface{}
-		if err := c.GetJSON("/api/v1/maintenance/stale-files", &files); err != nil {
+		if err := c.Long().GetJSON("/api/v1/maintenance/stale-files", &files); err != nil {
 			return err
 		}
 
@@ -89,7 +89,7 @@ var maintenanceStaleFilesCleanCmd = &cobra.Command{
 			Count int   `json:"count"`
 			Bytes int64 `json:"bytes"`
 		}
-		if err := c.PostJSON("/api/v1/maintenance/stale-files/clean", nil, &resp); err != nil {
+		if err := c.Long().PostJSON("/api/v1/maintenance/stale-files/clean", nil, &resp); err != nil {
 			return err
 		}
 
@@ -119,7 +119,7 @@ var maintenanceOrphanRowsListCmd = &cobra.Command{
 		}
 
 		var report map[string]int
-		if err := c.GetJSON("/api/v1/maintenance/orphan-rows", &report); err != nil {
+		if err := c.Long().GetJSON("/api/v1/maintenance/orphan-rows", &report); err != nil {
 			return err
 		}
 
@@ -145,7 +145,7 @@ var maintenanceOrphanRowsCleanCmd = &cobra.Command{
 		}
 
 		var report map[string]int
-		if err := c.PostJSON("/api/v1/maintenance/orphan-rows/clean", nil, &report); err != nil {
+		if err := c.Long().PostJSON("/api/v1/maintenance/orphan-rows/clean", nil, &report); err != nil {
 			return err
 		}
 

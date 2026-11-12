@@ -2,15 +2,20 @@ package client
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
+	"net"
 	"net/http"
+	"net/textproto"
 	"net/url"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Exit codes used by the CLI.
@@ -55,46 +60,185 @@ type Client struct {
 	HTTPClient *http.Client
 }
 
+// defaultBaseURL is the API address used when no URL is configured.
+const defaultBaseURL = "http://localhost:44557"
+
+// firstEnv returns the first non-empty value among the named environment
+// variables, or "" when none is set.
+func firstEnv(names ...string) string {
+	for _, name := range names {
+		if v := os.Getenv(name); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
 // New creates a Client from environment variables.
-// MP_API_URL defaults to http://localhost:44557.
-// MP_API_KEY is required.
+// MP_API_URL defaults to http://localhost:44557. MAHPASTES_API_URL is used
+// when MP_API_URL is unset, so the agent plugin's settings also work for mp.
+// The API key comes from MP_API_KEY, else from the file MP_API_KEY_FILE names,
+// else from MAHPASTES_API_KEY; one of them is required.
 func New() (*Client, error) {
-	baseURL := os.Getenv("MP_API_URL")
+	baseURL := firstEnv("MP_API_URL", "MAHPASTES_API_URL")
 	if baseURL == "" {
-		baseURL = "http://localhost:44557"
+		baseURL = defaultBaseURL
 	}
 	baseURL = strings.TrimRight(baseURL, "/")
 
 	apiKey := os.Getenv("MP_API_KEY")
 	if apiKey == "" {
-		return nil, fmt.Errorf("MP_API_KEY environment variable is required.\n\nTo get started:\n  1. Open mahpastes Settings > API\n  2. Create an API key\n  3. export MP_API_KEY=<your-key>")
+		if path := os.Getenv("MP_API_KEY_FILE"); path != "" {
+			key, err := readKeyFile(path)
+			if err != nil {
+				return nil, err
+			}
+			apiKey = key
+		}
+	}
+	if apiKey == "" {
+		apiKey = os.Getenv("MAHPASTES_API_KEY")
+	}
+	if apiKey == "" {
+		// A missing key is an authentication problem: exit with ExitAuth like
+		// an invalid or revoked key, as documented.
+		return nil, &APIError{
+			StatusCode: http.StatusUnauthorized,
+			Message:    "MP_API_KEY environment variable (or MP_API_KEY_FILE) is required.\n\nTo get started:\n  1. Open mahpastes Settings > API\n  2. Create an API key\n  3. export MP_API_KEY=<your-key>\n     (or save it to a file and export MP_API_KEY_FILE=<path>)",
+		}
 	}
 
 	return &Client{
 		BaseURL:    baseURL,
 		APIKey:     apiKey,
-		HTTPClient: &http.Client{},
+		HTTPClient: &http.Client{Transport: newTransport(timeoutFromEnv())},
 	}, nil
+}
+
+// defaultTimeout bounds connection setup and the wait for response headers.
+const defaultTimeout = 30 * time.Second
+
+// timeoutFromEnv returns MP_TIMEOUT (a Go duration such as "10s", or plain
+// seconds such as "10") or defaultTimeout when unset or invalid.
+func timeoutFromEnv() time.Duration {
+	v := strings.TrimSpace(os.Getenv("MP_TIMEOUT"))
+	if v == "" {
+		return defaultTimeout
+	}
+	if d, err := time.ParseDuration(v); err == nil && d > 0 {
+		return d
+	}
+	if n, err := strconv.ParseFloat(v, 64); err == nil && n > 0 {
+		return time.Duration(n * float64(time.Second))
+	}
+	return defaultTimeout
+}
+
+// newTransport builds a transport with dial, TLS and response-header
+// deadlines. There is deliberately no whole-request timeout so that large
+// uploads and downloads are not cut off while data is flowing.
+func newTransport(timeout time.Duration) *http.Transport {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.DialContext = (&net.Dialer{Timeout: timeout, KeepAlive: 30 * time.Second}).DialContext
+	t.TLSHandshakeTimeout = timeout
+	t.ResponseHeaderTimeout = timeout
+	return t
+}
+
+// Long returns a client for requests whose server handler does all of its
+// work (building a backup, restoring one, vacuuming, running a plugin action)
+// before it writes any response header. It keeps the dial and TLS deadlines
+// but drops the response-header deadline, so a slow but healthy operation is
+// not reported as a timeout.
+func (c *Client) Long() *Client {
+	if c.HTTPClient == nil {
+		return c
+	}
+	t, ok := c.HTTPClient.Transport.(*http.Transport)
+	if !ok || t.ResponseHeaderTimeout == 0 {
+		return c
+	}
+	lt := t.Clone()
+	lt.ResponseHeaderTimeout = 0
+	hc := *c.HTTPClient
+	hc.Transport = lt
+	cp := *c
+	cp.HTTPClient = &hc
+	return &cp
+}
+
+var quoteEscaper = strings.NewReplacer("\\", "\\\\", `"`, "\\\"")
+
+func escapeQuotes(s string) string { return quoteEscaper.Replace(s) }
+
+// maxKeyFileSize bounds how much of MP_API_KEY_FILE is read, so pointing it
+// at a large file or an endless device fails fast instead of eating memory.
+const maxKeyFileSize = 4096
+
+// readKeyFile reads the API key from path (MP_API_KEY_FILE). The file holds
+// just the key; surrounding whitespace, such as a trailing newline, is
+// ignored. Pipes work too, e.g. MP_API_KEY_FILE=<(pass show mahpastes).
+func readKeyFile(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", fmt.Errorf("cannot read MP_API_KEY_FILE: %w", err)
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, maxKeyFileSize+1))
+	if err != nil {
+		return "", fmt.Errorf("cannot read MP_API_KEY_FILE: %w", err)
+	}
+	if len(data) > maxKeyFileSize {
+		return "", fmt.Errorf("MP_API_KEY_FILE %q is too large to hold an API key", path)
+	}
+	key := strings.TrimSpace(string(data))
+	if key == "" {
+		return "", fmt.Errorf("MP_API_KEY_FILE %q is empty", path)
+	}
+	if strings.IndexFunc(key, func(r rune) bool { return r <= ' ' || r == 0x7f }) >= 0 {
+		return "", fmt.Errorf("MP_API_KEY_FILE %q must contain only the API key", path)
+	}
+	return key, nil
 }
 
 // do executes an HTTP request with auth headers and handles common errors.
 func (c *Client) do(req *http.Request) (*http.Response, error) {
 	req.Header.Set("Authorization", "Bearer "+c.APIKey)
 	if req.Header.Get("User-Agent") == "" {
-		req.Header.Set("User-Agent", "mp-cli/1.0")
+		req.Header.Set("User-Agent", "mp-cli/"+Version)
 	}
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
-		if isConnectionRefused(err) {
+		if isConnectionRefused(err) || isDialError(err) {
 			return nil, &APIError{
 				StatusCode: 0,
 				Message:    "Cannot connect to mahpastes. Is the app running with the API enabled?",
 			}
 		}
+		if isTimeout(err) {
+			return nil, &APIError{
+				StatusCode: 0,
+				Message:    fmt.Sprintf("Timed out waiting for mahpastes at %s (raise MP_TIMEOUT for slow connections).", c.BaseURL),
+			}
+		}
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
 
+	return resp, nil
+}
+
+// Do sends a prepared request with the client's auth header, User-Agent and
+// error classification, and returns an APIError for non-2xx responses. The
+// caller must close the response body.
+func (c *Client) Do(req *http.Request) (*http.Response, error) {
+	resp, err := c.do(req)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkResponse(resp); err != nil {
+		return nil, err
+	}
 	return resp, nil
 }
 
@@ -108,7 +252,7 @@ func checkResponse(resp *http.Response) error {
 
 	switch resp.StatusCode {
 	case http.StatusUnauthorized:
-		return &APIError{StatusCode: 401, Message: "Authentication failed. Check MP_API_KEY."}
+		return &APIError{StatusCode: 401, Message: "Authentication failed. Check MP_API_KEY (or MP_API_KEY_FILE)."}
 	case http.StatusForbidden:
 		return &APIError{StatusCode: 403, Message: "Insufficient permissions."}
 	}
@@ -219,52 +363,90 @@ func (c *Client) UploadFile(path string, filename string, reader io.Reader, extr
 	pr, pw := io.Pipe()
 	w := multipart.NewWriter(pw)
 
-	// Write multipart body in a goroutine so it streams into the request
+	// Write multipart body in a goroutine so it streams into the request.
+	// writeErr is only read after done is closed.
 	var writeErr error
+	done := make(chan struct{})
 	go func() {
-		defer pw.Close()
-
-		for k, v := range extraFields {
-			if err := w.WriteField(k, v); err != nil {
-				writeErr = fmt.Errorf("write field %s: %w", k, err)
-				return
-			}
-		}
-
-		part, err := w.CreateFormFile("file", filename)
-		if err != nil {
-			writeErr = fmt.Errorf("create form file: %w", err)
-			return
-		}
-		if _, err := io.Copy(part, reader); err != nil {
-			writeErr = fmt.Errorf("copy file data: %w", err)
-			return
-		}
-		if err := w.Close(); err != nil {
-			writeErr = fmt.Errorf("close multipart writer: %w", err)
-			return
-		}
+		defer close(done)
+		writeErr = writeMultipart(w, filename, reader, extraFields)
+		// CloseWithError(nil) is a plain Close; a write failure aborts the
+		// request instead of sending a silently truncated body.
+		pw.CloseWithError(writeErr)
 	}()
 
 	req, err := http.NewRequest("POST", c.BaseURL+path, pr)
 	if err != nil {
+		pr.Close()
+		<-done
 		return err
 	}
 	req.Header.Set("Content-Type", w.FormDataContentType())
 
 	resp, err := c.do(req)
 	if err != nil {
+		// Unblock the writer in case the transport stopped reading. Do not
+		// wait for it: it may be blocked reading an idle stdin. A local read
+		// error has already closed done, which makes writeErr safe to read.
+		pr.Close()
+		select {
+		case <-done:
+			if writeErr != nil && !errors.Is(writeErr, io.ErrClosedPipe) {
+				return writeErr // e.g. a local read error that aborted the request
+			}
+		default:
+		}
 		return err
 	}
 	defer resp.Body.Close()
+	if err := checkResponse(resp); err != nil {
+		// The server rejected the upload, possibly before consuming it; its
+		// message explains more than the writer's closed-pipe error would.
+		// writeErr is not needed, so do not wait for the writer.
+		pr.Close()
+		return err
+	}
+	// On success the transport finishes sending (or closes) the body, which
+	// lets the writer return.
+	<-done
 	if writeErr != nil {
 		return writeErr
 	}
-	if err := checkResponse(resp); err != nil {
-		return err
-	}
 	if result != nil {
 		return json.NewDecoder(resp.Body).Decode(result)
+	}
+	return nil
+}
+
+// writeMultipart writes extraFields followed by the file part. The file part
+// carries the caller's content type ("content_type" in extraFields) in its own
+// header, which the server honours, instead of a separate form field.
+func writeMultipart(w *multipart.Writer, filename string, reader io.Reader, extraFields map[string]string) error {
+	for k, v := range extraFields {
+		if k == "content_type" {
+			continue
+		}
+		if err := w.WriteField(k, v); err != nil {
+			return fmt.Errorf("write field %s: %w", k, err)
+		}
+	}
+
+	h := make(textproto.MIMEHeader)
+	h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="file"; filename="%s"`, escapeQuotes(filename)))
+	ctype := "application/octet-stream"
+	if ct := extraFields["content_type"]; ct != "" {
+		ctype = ct
+	}
+	h.Set("Content-Type", ctype)
+	part, err := w.CreatePart(h)
+	if err != nil {
+		return fmt.Errorf("create form file: %w", err)
+	}
+	if _, err := io.Copy(part, reader); err != nil {
+		return fmt.Errorf("copy file data: %w", err)
+	}
+	if err := w.Close(); err != nil {
+		return fmt.Errorf("close multipart writer: %w", err)
 	}
 	return nil
 }
@@ -323,6 +505,28 @@ func (c *Client) jsonRequest(method, path string, body interface{}, result inter
 	return nil
 }
 
+// isDialError reports whether err happened while establishing the connection
+// (unreachable host, unknown host, dial timeout), so the CLI exits with
+// ExitConnection rather than a generic error.
+func isDialError(err error) bool {
+	var opErr *net.OpError
+	if errors.As(err, &opErr) && opErr.Op == "dial" {
+		return true
+	}
+	var dnsErr *net.DNSError
+	return errors.As(err, &dnsErr)
+}
+
+// isTimeout reports whether err is a transport deadline (dial, TLS handshake
+// or response header) expiring.
+func isTimeout(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
+}
+
 // isConnectionRefused checks whether an error is a connection refused error.
 func isConnectionRefused(err error) bool {
 	if err == nil {
@@ -336,4 +540,14 @@ func isConnectionRefused(err error) bool {
 	return strings.Contains(s, "connection refused") ||
 		strings.Contains(s, "No connection could be made") ||
 		strings.Contains(s, "connect: connection refused")
+}
+
+// WithTimeout returns a copy of the client whose whole request (connection
+// setup, headers and body) is bounded by d. Only for small responses: shell
+// completion uses it so a stopped or stalled app never makes TAB hang.
+func (c *Client) WithTimeout(d time.Duration) *Client {
+	hc := &http.Client{Transport: newTransport(d), Timeout: d}
+	cp := *c
+	cp.HTTPClient = hc
+	return &cp
 }

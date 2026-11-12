@@ -7,6 +7,7 @@ const apiModalClose = document.getElementById('api-modal-close');
 const apiPortInput = document.getElementById('api-port-input');
 const apiBindToggle = document.getElementById('api-bind-toggle');
 const apiToggleBtn = document.getElementById('api-toggle-btn');
+const apiAutostartToggle = document.getElementById('api-autostart-toggle');
 const apiStatusText = document.getElementById('api-status-text');
 
 const apiShowCreateBtn = document.getElementById('api-show-create-btn');
@@ -58,16 +59,31 @@ apiModal.addEventListener('click', (e) => {
 });
 
 apiToggleBtn.addEventListener('click', toggleAPIServer);
+apiAutostartToggle.addEventListener('change', () => saveAPILaunchSettings(true));
+// "Start on launch" uses the port shown above, so a port edited while it is on
+// is saved too (the server itself only picks it up on the next Start).
+apiPortInput.addEventListener('change', () => {
+    if (apiAutostartToggle.checked) saveAPILaunchSettings(false);
+});
 apiShowCreateBtn.addEventListener('click', showCreateKeyForm);
 apiCancelCreateBtn.addEventListener('click', hideCreateKeyForm);
 apiCreateKeyBtn.addEventListener('click', createAPIKey);
-apiKeyCopyBtn.addEventListener('click', () => {
-    navigator.clipboard.writeText(apiKeyRevealValue.textContent);
-    showToast('Key copied to clipboard');
+apiKeyCopyBtn.addEventListener('click', async () => {
+    try {
+        if (!navigator.clipboard) throw new Error('clipboard API unavailable');
+        await navigator.clipboard.writeText(apiKeyRevealValue.textContent);
+        showToast('Key copied to clipboard');
+    } catch (err) {
+        console.error('Failed to copy key:', err);
+        showToast('Failed to copy key.', 'error');
+    }
 });
 apiKeyRevealClose.addEventListener('click', hideKeyReveal);
 
 async function loadAPIStatus() {
+    // The modal is usable while this loads, so note what the launch fields
+    // held when it started: an edit made in the meantime is kept.
+    const before = { port: apiPortInput.value, autostart: apiAutostartToggle.checked };
     try {
         const status = await window.go.main.APIService.GetAPIStatus();
         apiServerRunning = status.running;
@@ -86,9 +102,48 @@ async function loadAPIStatus() {
             apiPortInput.disabled = false;
             apiBindToggle.disabled = false;
         }
+        await loadAPILaunchSettings(status, before);
     } catch (err) {
         console.error('Failed to load API status:', err);
     }
+}
+
+// Shows the "Start on launch" choice, and in the port field the port the
+// server runs on (or, while stopped, the one it starts on next). A field the
+// user changed since `before` was taken keeps their value: overwriting it
+// would have the switch save the stored port instead of the one just typed.
+async function loadAPILaunchSettings(status, before) {
+    try {
+        const svc = window.go.main.APIService;
+        const autostart = await svc.GetAPIAutostart();
+        const port = status.running ? status.port : await svc.GetAPIPort();
+        if (apiAutostartToggle.checked === before.autostart) apiAutostartToggle.checked = autostart;
+        if (status.running || apiPortInput.value === before.port) apiPortInput.value = port;
+    } catch (err) {
+        console.error('Failed to load API launch settings:', err);
+    }
+}
+
+// Saves run one after another, each with the values from when it was made, so
+// a port edit followed at once by a click on the switch (the blur fires the
+// port save first) cannot land out of order.
+let apiLaunchSaveChain = Promise.resolve();
+
+// revertToggle: a failed save from the switch itself flips it back.
+function saveAPILaunchSettings(revertToggle) {
+    const enabled = apiAutostartToggle.checked;
+    const port = parseInt(apiPortInput.value, 10) || 44557;
+    apiLaunchSaveChain = apiLaunchSaveChain.then(async () => {
+        try {
+            await window.go.main.APIService.SetAPIAutostart(enabled, port);
+        } catch (err) {
+            if (revertToggle && apiAutostartToggle.checked === enabled) {
+                apiAutostartToggle.checked = !enabled;
+            }
+            showToast('Error: ' + errText(err), 'error');
+        }
+    });
+    return apiLaunchSaveChain;
 }
 
 // Start/Stop and Create Key each ignore clicks while their call is in flight:

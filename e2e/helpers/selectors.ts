@@ -33,6 +33,7 @@ export const selectors = {
     closeButton: '#drawer-close-btn',
     watchButton: '#view-tab-watch',
     watchIndicator: '#watch-indicator',
+    activityIndicator: '#drawer-activity-indicator',
     archiveButton: '#toggle-archive-view-btn',
     clearAllButton: '#delete-all-temp-btn',
     settingsButton: '#open-settings-btn',
@@ -81,12 +82,19 @@ export const selectors = {
     dropdown: '.card-menu-dropdown',
     open: '.card-menu-dropdown [data-action="open"]',
     openWith: '.card-menu-dropdown [data-action="open-with"]',
+    // macOS: Open With is a submenu of the system's applications plus "Other…"
+    openWithTrigger: '[data-submenu="open-with"]',
+    openWithApp: '.card-menu-submenu [data-action="open-with-app"]',
+    openWithOther: '.card-menu-submenu [data-action="open-with"]',
+    submenuStatus: '.card-menu-submenu .card-menu-status',
     copyTrigger: '[data-submenu="copy"]',
     pluginsTrigger: '[data-submenu="plugins"]',
     submenu: '.card-menu-submenu',
     copyPath: '.card-menu-submenu [data-action="copy-path"]',
     copyFile: '.card-menu-submenu [data-action="copy-file"]',
     copyContents: '.card-menu-submenu [data-action="copy-contents"]',
+    copyRichText: '.card-menu-submenu [data-action="copy-rich-text"]',
+    copyLink: '.card-menu-submenu [data-action="copy-link"]',
     save: '.card-menu-dropdown [data-action="save-file"]',
     edit: '.card-menu-dropdown [data-action="edit"]',
     tags: '.card-menu-dropdown [data-action="tags"]',
@@ -289,6 +297,8 @@ export const selectors = {
     path: 'p.text-stone-700',
     pauseToggle: '[data-action="toggle-pause"]',
     deleteButton: '[data-action="remove"]',
+    missingBadge: '[data-watch-badge="missing"]',
+    notWatchingBadge: '[data-watch-badge="not-watching"]',
   },
 
   // Watch folder edit modal
@@ -350,6 +360,7 @@ export const selectors = {
   toast: {
     container: '#toast',
     message: '#toast', // Toast text is set directly on the container
+    action: '#toast [data-testid="toast-action"]',
   },
 
   // Text editor
@@ -557,6 +568,20 @@ export const selectors = {
     lightboxBackdropLabel: '[data-testid="lightbox-backdrop-close-label"]',
     pastePathSection: '[data-testid="settings-paste-path-section"]',
     pastePathSelect: '[data-testid="paste-path-behavior-select"]',
+    pasteHtmlSection: '[data-testid="settings-paste-html-section"]',
+    pasteHtmlSelect: '[data-testid="paste-html-behavior-select"]',
+    aboutSection: '[data-testid="settings-about-section"]',
+    aboutVersion: '[data-testid="about-version"]',
+    updateCheckToggle: '[data-testid="update-check-toggle"]',
+    updateCheckLabel: '[data-testid="update-check-toggle-label"]',
+    updateBanner: '[data-testid="update-banner"]',
+    updateBannerLink: '[data-testid="update-banner-link"]',
+    updateBannerDismiss: '[data-testid="update-banner-dismiss"]',
+    osNotificationsSection: '[data-testid="settings-os-notifications-section"]',
+    osNotificationsToggle: '[data-testid="os-notifications-toggle"]',
+    osNotificationsLabel: '[data-testid="os-notifications-toggle-label"]',
+    osNotificationsStatus: '[data-testid="os-notifications-status"]',
+    osNotificationsTest: '[data-testid="os-notifications-test"]',
   },
 
   // Settings - update interval
@@ -600,6 +625,18 @@ export const selectors = {
     compactDbButton: '#maintenance-compact-db-btn',
     markdownCacheSize: '#maintenance-markdown-cache-size',
     clearMarkdownCacheButton: '#maintenance-clear-markdown-cache-btn',
+    logSection: '[data-testid="maintenance-log-section"]',
+    openLogsButton: '#maintenance-open-logs-btn',
+  },
+
+  // REST API modal
+  api: {
+    openButton: '#open-api-btn',
+    modal: '[data-testid="api-modal"]',
+    closeButton: '#api-modal-close',
+    portInput: '[data-testid="api-port-input"]',
+    autostartToggle: '[data-testid="api-autostart-toggle"]',
+    autostartLabel: '[data-testid="api-autostart-label"]',
   },
 
   // Import Folder wizard

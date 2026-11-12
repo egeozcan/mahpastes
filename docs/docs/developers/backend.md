@@ -36,6 +36,7 @@ The backend is written in Go using the Wails framework. It handles data storage,
 ├── native_drag_other.go     Fallback native drag stub
 ├── open_darwin.go           macOS open-with-default-app
 ├── open_windows.go          Windows open-with-default-app
+├── open_linux.go            Linux open-with-default-app (xdg-open, gio)
 ├── open_other.go            Fallback open-with-default-app stub
 ├── tag_hierarchy.go         Tag tree helpers (parent, root, ancestor, descendant checks)
 ├── plugin/                  Lua plugin system
@@ -199,30 +200,22 @@ Manages folder watching using fsnotify:
 
 ```go
 type WatcherManager struct {
-    watcher       *fsnotify.Watcher
     app           *App
-    activeWatches map[int64]string    // folderID -> path
-    debounceMap   map[string]*time.Timer
-    mu            sync.RWMutex
+    refreshMu     sync.Mutex                // serialises refreshWatches
+    mu            sync.RWMutex              // guards the fields below
     running       bool
+    gen           uint64                    // bumped by every Start and Stop
+    watcher       *fsnotify.Watcher         // a fresh one per Start
+    activeWatches map[int64]activeWatch     // folderID -> armed path + directory identity
+    watchErrors   map[int64]string          // folderID -> why it is not watched
+    debounceMap   map[string]*pendingFile   // path -> debounce timer + size/mtime
+    // ...
 }
 ```
 
-**Event handling:**
-```go
-func (w *WatcherManager) handleEvents() {
-    for {
-        select {
-        case event := <-w.watcher.Events:
-            if event.Op&(fsnotify.Create|fsnotify.Write) != 0 {
-                w.debounceFile(event.Name)
-            }
-        case err := <-w.watcher.Errors:
-            log.Printf("Watcher error: %v", err)
-        }
-    }
-}
-```
+- **Start/Stop**: `Start` creates a new fsnotify watcher and begins a new generation (event goroutine + re-arm loop); `Stop` closes it, clears all state and waits for the event goroutine. Goroutines and timers check their generation, so a Stop/Start pair (backup restore) leaves nothing stale behind.
+- **Event handling**: only Create/Write events of files are debounced; hidden names, download-in-progress names (`.crdownload`, `.part`, ...) and empty files are skipped. A Remove/Rename of a watched folder itself drops its watch and asks for an immediate re-arm pass.
+- **Re-arm**: `refreshWatches` runs on start, on config changes, every 30 seconds and after a lost watch. It drops watches whose folder is gone, no longer in `WatchList()` or a different directory (`os.SameFile`), re-adds them when the folder is back, and reports changes as the `watch:status` event.
 
 ## Data Types
 
@@ -365,16 +358,18 @@ func (a *App) CreateTempFile(id int64) (string, error) {
 
 ### Watcher Concurrency
 
-The watcher uses RWMutex for reads vs writes:
+`w.mu` (an RWMutex) guards the watcher's maps and is never held across database access, `os.Stat` or fsnotify calls: a stat on an unreachable network volume can block. `refreshWatches` reads a snapshot under `w.mu`, does its filesystem work unlocked, and applies the result only if the generation is unchanged. The event goroutine never calls fsnotify `Add`/`Remove` (on Windows they wait for fsnotify's reader goroutine, which may be blocked handing it an event). `Stop` waits at most 2 seconds for a re-arm pass in progress, so quitting cannot hang on a dead mount.
 
 ```go
-func (w *WatcherManager) processFile(filePath string) {
-    w.mu.RLock()        // Read lock for map access
+func (w *WatcherManager) processFile(gen uint64, filePath string, info os.FileInfo) {
+    w.mu.RLock() // read lock for map access
     var folderID int64
-    for id, path := range w.activeWatches {
-        if path == dir {
-            folderID = id
-            break
+    if gen == w.gen && w.running {
+        for id, aw := range w.activeWatches {
+            if aw.path == dir {
+                folderID = id
+                break
+            }
         }
     }
     w.mu.RUnlock()
@@ -409,10 +404,12 @@ func getDataDir() (string, error) {
     case "windows":
         return filepath.Join(os.Getenv("APPDATA"), "mahpastes"), nil
     default: // Linux
-        return filepath.Join(homeDir, ".config", "mahpastes"), nil
+        return resolveLinuxDataDir(homeDir, os.Getenv("XDG_CONFIG_HOME")), nil
     }
 }
 ```
+
+`MAHPASTES_DATA_DIR` overrides every platform. On Linux, `resolveLinuxDataDir` picks an existing `$XDG_CONFIG_HOME/mahpastes` (absolute `XDG_CONFIG_HOME` only), then an existing `~/.config/mahpastes`, then `$XDG_CONFIG_HOME/mahpastes` for a fresh install, else `~/.config/mahpastes`, so a library that already exists never moves. `scripts/linux/install.sh` mirrors the rule in `resolve_data_dir`.
 
 ## Dependencies
 
@@ -463,6 +460,16 @@ wails build -platform darwin/universal
 wails build -platform windows/amd64
 wails build -platform linux/amd64
 ```
+
+### Version stamping
+
+The version shown in Settings → About, the backup manifest and `GET /api/v1/status` comes from `internal/buildinfo`. `wails build` passes `-buildvcs=false`, so the version must be injected with the linker:
+
+```bash
+wails build -ldflags "-X go-clipboard/internal/buildinfo.Version=v1.6.0 -X go-clipboard/internal/buildinfo.Commit=$(git rev-parse --short HEAD)"
+```
+
+`make build`, `make mp`, `make mahpastesd` (and their `-cross` variants), `scripts/linux/wails.sh build` and `scripts/macos/build-file-provider.sh` add these flags from `git describe --tags` automatically (`make build VERSION=v1.6.0` overrides it). An unstamped `go build` falls back to the module version Go embeds, else `dev`. For Windows, set `info.productVersion` in `wails.json` to the numeric `x.y.z` release (CI rewrites it from the tag); it feeds the file Properties and the manifest.
 
 ## Testing
 

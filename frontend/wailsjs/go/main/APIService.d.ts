@@ -4,11 +4,17 @@ import {app} from '../models';
 
 export function CreateAPIKey(arg1:string,arg2:string,arg3:number):Promise<app.APIKeyCreateResult>;
 
+export function GetAPIAutostart():Promise<boolean>;
+
+export function GetAPIPort():Promise<number>;
+
 export function GetAPIStatus():Promise<app.APIStatus>;
 
 export function ListAPIKeys():Promise<Array<app.APIKeyInfo>>;
 
 export function RevokeAPIKey(arg1:number):Promise<void>;
+
+export function SetAPIAutostart(arg1:boolean,arg2:number):Promise<void>;
 
 export function StartAPI(arg1:number,arg2:boolean):Promise<app.APIStatus>;
 

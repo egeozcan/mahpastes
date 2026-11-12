@@ -561,6 +561,31 @@ test.describe('Modal layering and keyboard ownership', () => {
       }
       await app.closeImageEditor();
     });
+
+    test('a dialog opening as the editor appears keeps focus past the editor\'s first frame', async ({ app }) => {
+      const name = await uploadImage(app);
+      // Open the plugin options dialog (which takes focus synchronously) in
+      // the same task that shows the editor, before the editor's next frame.
+      await app.page.evaluate(() => {
+        const editor = document.getElementById('editor-modal')!;
+        const observer = new MutationObserver(() => {
+          if (!editor.classList.contains('active')) return;
+          observer.disconnect();
+          (window as any).openPluginOptionsDialog(
+            { label: 'Opts', plugin_id: 0, id: 'x', options: [{ id: 'q', label: 'Q', type: 'text' }] }, []);
+        });
+        observer.observe(editor, { attributes: true, attributeFilter: ['class'] });
+      });
+      await app.openImageEditor(name);
+      await expectLayerOpen(app.page, '#plugin-options-modal', true);
+      await app.page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+      expect(await focusIsInside(app.page, '#plugin-options-modal')).toBe(true);
+
+      await app.page.keyboard.press('Escape');
+      await expectLayerOpen(app.page, '#plugin-options-modal', false);
+      await expect(app.page.locator(selectors.editor.modal)).toHaveClass(/active/);
+      await app.closeImageEditor();
+    });
   });
 
   test.describe('user content is never taken for an app dialog', () => {

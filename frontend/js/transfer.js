@@ -5,7 +5,9 @@ let transferCapabilities = {
         reason: 'Transfer service is unavailable',
         native_drag: false
     },
-    clipboard_file: false
+    clipboard_file: false,
+    clipboard_rich_text: false,
+    open_with_apps: false
 };
 
 let transferCapabilitiesOverride = null;
@@ -64,7 +66,9 @@ async function initTransferCapabilities() {
                 reason: 'Transfer capability lookup failed',
                 native_drag: false
             },
-            clipboard_file: false
+            clipboard_file: false,
+            clipboard_rich_text: false,
+            open_with_apps: false
         };
     }
     return getEffectiveTransferCapabilities();
@@ -81,6 +85,16 @@ function canUseNativeDragOut() {
     }
     const service = window.go?.main?.TransferService;
     return !!service && typeof service.StartNativeDragOut === 'function';
+}
+
+// Copy > Rich Text: HTML clips go on the clipboard as formatted text.
+function canCopyRichText() {
+    return !!getEffectiveTransferCapabilities().clipboard_rich_text;
+}
+
+// Open With lists the system's registered applications for the clip's type.
+function canListOpenWithApps() {
+    return !!getEffectiveTransferCapabilities().open_with_apps;
 }
 
 function getDragStrategy() {

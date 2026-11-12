@@ -789,6 +789,8 @@ Shows a toast notification.
 
 **Rate limit:** 5 toasts per minute per plugin.
 
+While the mahpastes window is in the background and the user has turned on [System Notifications](../features/notifications), toasts are also shown as native notifications titled with the plugin's name (bursts are combined). Results reported with `task.complete` and `task.fail` notify the same way.
+
 **Example:**
 ```lua
 toast.show("Sync complete!", "success")
@@ -1066,7 +1068,7 @@ Writes text to the system clipboard.
 |------|------|----------|-------------|
 | text | string | Yes | Text to copy |
 
-**Returns:** `true` on success, or `nil, error_message` if clipboard access is not permitted
+**Returns:** `true` on success, or `nil, error_message` if clipboard access is not permitted or the clipboard could not be written (for example, a Linux session with no reachable clipboard, or a headless server with no display)
 
 :::warning
 Requires `clipboard = true` in the plugin manifest.

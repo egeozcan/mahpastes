@@ -310,13 +310,25 @@
         // Pasted paths name files on the viewer's machine, which the server
         // cannot see — an empty result keeps every paste a text clip.
         ProbeFilePaths: async () => [],
+        // Files and links handed over by the OS only reach a desktop window.
+        TakeOpenRequests: async () => ({ files: [], skipped: [], links: [], unsupported_links: [], paste_clipboard: false }),
         SaveClipToFile: async (id) => {
             const clip = await fetchJSON(`${api}/clips/${id}`);
             return await downloadBlob(`${api}/clips/${id}/data`, clip.filename || `clip_${id}`);
         },
-        CopyToClipboard: async (text) => navigator.clipboard ? navigator.clipboard.writeText(text) : undefined,
+        RevealInFileManager: async () => { throw new Error('reveal is desktop-only in server mode'); },
+        CopyToClipboard: async (text) => {
+            // navigator.clipboard is missing outside secure contexts (plain
+            // http on the LAN); report that instead of pretending to copy.
+            if (!navigator.clipboard) throw new Error('clipboard is unavailable in this browser context');
+            return navigator.clipboard.writeText(text);
+        },
+        OpenLogFolder: async () => { throw new Error('the log folder is on the server in server mode'); },
         ChooseApplication: async () => { throw new Error('application picker is desktop-only in server mode'); },
         OpenClipWithDefaultApp: async (id) => window.open(`${api}/clips/${id}/data`, '_blank', 'noopener'),
+        SupportsNativeOpenWith: async () => false,
+        ListOpenWithApps: async () => { throw new Error('open-with is desktop-only in server mode'); },
+        OpenClipWithDialog: async () => { throw new Error('open-with is desktop-only in server mode'); },
         OpenClipWithApp: async () => { throw new Error('open-with is desktop-only in server mode'); },
         ShowCreateBackupDialog: () => downloadBlob(`${api}/backup`, 'mahpastes-backup.zip'),
         ShowRestoreBackupDialog: async () => null,
@@ -417,6 +429,27 @@
         RevokeAPIKey: (id) => del(`${api}/keys/${id}`),
         StartAPI: async () => { throw new Error('the headless server owns the API listener'); },
         StopAPI: async () => { throw new Error('the headless server owns the API listener'); },
+        // "Start on launch" is a desktop setting; the Server section is hidden.
+        GetAPIAutostart: async () => false,
+        GetAPIPort: async () => 44557,
+        SetAPIAutostart: async () => { throw new Error('the headless server owns the API listener'); },
+    };
+    // System notifications are shown by the desktop app's OS; the section is
+    // .desktop-only and the browser has no window focus to report upstream.
+    window.go.main.NotificationService = {
+        GetNotificationStatus: async () => ({ supported: false, enabled: false, state: 'unsupported', error: '', platform: '' }),
+        SetNotificationsEnabled: async () => { throw new Error('system notifications are desktop-only'); },
+        SendTestNotification: async () => { throw new Error('system notifications are desktop-only'); },
+    };
+    // The server reports its version through /status; the release check is a
+    // desktop-app feature (the toggle is .desktop-only).
+    window.go.main.AppInfoService = {
+        GetAppInfo: async () => {
+            let version = '';
+            try { version = (await fetchJSON(`${api}/status`)).version || ''; } catch (e) { /* shown as unknown */ }
+            return { version, commit: '', update_check_enabled: false, update: null };
+        },
+        SetUpdateCheckEnabled: async () => { throw new Error('the release check is desktop-only'); },
     };
     // Clipboard copy targets the host's clipboard, which is meaningless for a
     // remote browser user — desktop-only, like drag-out transfers. The UI

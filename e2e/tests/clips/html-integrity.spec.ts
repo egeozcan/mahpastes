@@ -199,6 +199,10 @@ test.describe('HTML Integrity', () => {
   });
 
   test.describe('Context Menu', () => {
+    // The checks expect the plain Open With item on every host.
+    test.beforeEach(async ({ app }) => { await app.usePlainOpenWith(); });
+    test.afterEach(async ({ app }) => { await app.resetTransferCapabilities(); });
+
     test('should have well-formed structure with all expected items', async ({ app }) => {
       const imagePath = await createTempFile(generateTestImage(), 'png');
       await app.uploadFile(imagePath);
@@ -265,6 +269,10 @@ test.describe('HTML Integrity', () => {
   });
 
   test.describe('Lightbox', () => {
+    // The Actions menu check expects the plain Open With item on every host.
+    test.beforeEach(async ({ app }) => { await app.usePlainOpenWith(); });
+    test.afterEach(async ({ app }) => { await app.resetTransferCapabilities(); });
+
     test('should have well-formed structure when open', async ({ app }) => {
       const imagePath = await createTempFile(generateTestImage(), 'png');
       await app.uploadFile(imagePath);

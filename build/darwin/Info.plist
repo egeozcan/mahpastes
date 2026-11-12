@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Wails template for the macOS app bundle's Info.plist (Wails reads this file
+  instead of its built-in default and fills in the product name, version,
+  copyright and comments from the "info" block of wails.json). The bundle
+  identifier must stay io.github.egeozcan.mahpastes:
+  scripts/macos/build-file-provider.sh signs, entitles and registers the File
+  Provider extension under the same identifier, and TCC grants, notification
+  permission and LaunchServices registrations are keyed on it.
+  Info.dev.plist is the `wails dev` variant and must keep the same identifier.
+-->
+<plist version="1.0">
+    <dict>
+        <key>CFBundlePackageType</key>
+        <string>APPL</string>
+        <key>CFBundleName</key>
+        <string>{{.Info.ProductName}}</string>
+        <key>CFBundleDisplayName</key>
+        <string>{{.Info.ProductName}}</string>
+        <key>CFBundleExecutable</key>
+        <string>{{.OutputFilename}}</string>
+        <key>CFBundleIdentifier</key>
+        <string>io.github.egeozcan.mahpastes</string>
+        <key>CFBundleVersion</key>
+        <string>{{.Info.ProductVersion}}</string>
+        <key>CFBundleShortVersionString</key>
+        <string>{{.Info.ProductVersion}}</string>
+        <key>CFBundleGetInfoString</key>
+        <string>{{.Info.Comments}}</string>
+        <key>CFBundleIconFile</key>
+        <string>iconfile</string>
+        <key>LSMinimumSystemVersion</key>
+        <string>12.0</string>
+        <key>LSApplicationCategoryType</key>
+        <string>public.app-category.productivity</string>
+        <key>NSHighResolutionCapable</key>
+        <string>true</string>
+        <key>NSHumanReadableCopyright</key>
+        <string>{{.Info.Copyright}}</string>
+
+        <!-- Finder "Open With > mahpastes" and dropping files on the Dock icon.
+             Rank Alternate: listed for every file, never the default handler. -->
+        <key>CFBundleDocumentTypes</key>
+        <array>
+            <dict>
+                <key>CFBundleTypeName</key>
+                <string>Any file</string>
+                <key>CFBundleTypeRole</key>
+                <string>Viewer</string>
+                <key>LSHandlerRank</key>
+                <string>Alternate</string>
+                <key>LSItemContentTypes</key>
+                <array>
+                    <string>public.data</string>
+                    <string>public.content</string>
+                </array>
+            </dict>
+        </array>
+
+        <!-- mahpastes:// links (see docs/docs/features/deep-links.md). -->
+        <key>CFBundleURLTypes</key>
+        <array>
+            <dict>
+                <key>CFBundleURLName</key>
+                <string>io.github.egeozcan.mahpastes</string>
+                <key>CFBundleURLSchemes</key>
+                <array>
+                    <string>mahpastes</string>
+                </array>
+                <key>CFBundleTypeRole</key>
+                <string>Viewer</string>
+            </dict>
+        </array>
+
+        <!-- Shown in the macOS permission prompts. -->
+        <key>NSLocalNetworkUsageDescription</key>
+        <string>mahpastes finds other mahpastes devices on your local network to share clips with them.</string>
+        <key>NSDesktopFolderUsageDescription</key>
+        <string>mahpastes reads files from your Desktop when you import them or watch the folder for new screenshots.</string>
+        <key>NSDownloadsFolderUsageDescription</key>
+        <string>mahpastes reads files from your Downloads folder when you import them or watch the folder.</string>
+        <key>NSDocumentsFolderUsageDescription</key>
+        <string>mahpastes reads files from your Documents folder when you import them or watch a folder there.</string>
+    </dict>
+</plist>

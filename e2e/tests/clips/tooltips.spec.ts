@@ -21,13 +21,10 @@ test.describe('Tooltips', () => {
   test('tooltip CSS renders on hover via pseudo-element', async ({ app }) => {
     const btn = app.page.locator('#tag-filter-btn');
     await btn.hover();
-    // CSS transition-delay: 300ms + transition: opacity 150ms = 450ms total
-    await app.page.waitForTimeout(500);
-
-    const opacity = await btn.evaluate((el) => {
-      return window.getComputedStyle(el, '::after').opacity;
-    });
-    expect(opacity).toBe('1');
+    // CSS transition-delay: 300ms + transition: opacity 150ms = 450ms total.
+    // Poll rather than sleep past it: on a loaded machine a fixed wait can
+    // read the transition a frame short of done (0.99).
+    await expect.poll(() => btn.evaluate((el) => window.getComputedStyle(el, '::after').opacity)).toBe('1');
   });
 
   test('tooltip disappears when mouse leaves', async ({ app }) => {
@@ -35,14 +32,9 @@ test.describe('Tooltips', () => {
     await btn.hover();
     await app.page.waitForTimeout(400);
 
-    // Move mouse away
+    // Move mouse away; the 150ms fade-out can finish a frame late under load.
     await app.page.mouse.move(0, 0);
-    await app.page.waitForTimeout(200);
-
-    const opacity = await btn.evaluate((el) => {
-      return window.getComputedStyle(el, '::after').opacity;
-    });
-    expect(opacity).toBe('0');
+    await expect.poll(() => btn.evaluate((el) => window.getComputedStyle(el, '::after').opacity)).toBe('0');
   });
 
   test('card menu items have tooltips', async ({ app }) => {

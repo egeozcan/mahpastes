@@ -4,118 +4,104 @@ on:
   push:
     tags:
       - 'v*'
+  # Runs the whole pipeline, checksums included, without publishing anything
+  # unless it is started on a tag.
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
-    strategy:
-      matrix:
-        include:
-          - platform: macos-latest
-            build_target: darwin/universal
-            artifact_name: mahpastes-macos-universal
-          - platform: windows-latest
-            build_target: windows/amd64
-            artifact_name: mahpastes-windows-amd64
-
-    runs-on: ${{ matrix.platform }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.24'
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      # Install Wails
-      - name: Install Wails
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
-
-      # Build app
-      - name: Build
-        run: wails build -platform ${{ matrix.build_target }}
-
-      # Build mp CLI
-      - name: Build mp CLI
-        run: go build -o build/bin/mp${{ matrix.platform == 'windows-latest' && '.exe' || '' }} ./cmd/mp
-
-      # Package macOS
-      - name: Package macOS
-        if: matrix.platform == 'macos-latest'
-        run: |
-          mkdir -p staging
-          cp -R build/bin/mahpastes.app staging/
-          cp build/bin/mp staging/
-          cp -R plugins staging/
-          cp -R examples staging/
-          cd staging
-          zip -r ../${{ matrix.artifact_name }}.zip mahpastes.app mp plugins/ examples/
-
-      # Package Windows
-      - name: Package Windows
-        if: matrix.platform == 'windows-latest'
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Path staging -Force
-          Copy-Item build/bin/mahpastes.exe staging/
-          Copy-Item build/bin/mp.exe staging/
-          Copy-Item -Recurse plugins staging/
-          Copy-Item -Recurse examples staging/
-          Compress-Archive -Path staging/* -DestinationPath ${{ matrix.artifact_name }}.zip
-
-      # Upload artifact
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.artifact_name }}
-          path: ${{ matrix.artifact_name }}.zip
+    uses: ./.github/workflows/build.yml
+    with:
+      version: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+    secrets: inherit
 
   release:
     needs: build
     runs-on: ubuntu-latest
-
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ github.ref_name }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Download all artifacts
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: packaging
+      - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
-          path: artifacts
+          pattern: mahpastes-*-${{ github.sha }}
+          path: dist
+          merge-multiple: true
+
+      - name: Check assets and write SHA256SUMS
+        working-directory: dist
+        run: |
+          expected=(
+            mahpastes-macos-universal.zip
+            mahpastes-windows-amd64.zip
+            mahpastes-windows-arm64.zip
+            mahpastes-windows-amd64-installer.exe
+            mahpastes-windows-arm64-installer.exe
+            mahpastes-linux-amd64.tar.gz
+            mp-darwin-universal
+            mahpastesd-darwin-universal
+          )
+          for os_arch in linux-amd64 linux-arm64 windows-amd64 windows-arm64; do
+            exe=''
+            if [[ "$os_arch" == windows-* ]]; then exe=.exe; fi
+            expected+=("mp-$os_arch$exe" "mahpastesd-$os_arch$exe")
+          done
+          missing=0
+          for asset in "${expected[@]}"; do
+            if [[ ! -f "$asset" ]]; then
+              echo "::error::Missing release asset $asset"
+              missing=1
+            fi
+          done
+          ((missing == 0))
+          # Bare names, so `sha256sum -c SHA256SUMS` works in a download folder.
+          sha256sum -- * > SHA256SUMS
+          cat SHA256SUMS
+          # Package-manager manifests matching these exact assets (not
+          # checksummed themselves; they carry the checksums).
+          version=0.0.0-dev
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then version="$TAG"; fi
+          bash ../packaging/render.sh "$version" SHA256SUMS .
+          ls -l mahpastes.json mahpastes.rb
+
+      - name: Keep the assets of a run that publishes nothing
+        if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-assets-${{ github.sha }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Check if release exists
+        if: github.ref_type == 'tag'
         id: check_release
         run: |
-          if gh release view "${{ github.ref_name }}" &>/dev/null; then
+          if gh release view "$TAG" >/dev/null 2>&1; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # If release was pre-created (e.g., with curated notes), just upload assets
       - name: Upload assets to existing release
-        if: steps.check_release.outputs.exists == 'true'
-        run: gh release upload "${{ github.ref_name }}" artifacts/**/*.zip --clobber
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        if: github.ref_type == 'tag' && steps.check_release.outputs.exists == 'true'
+        run: gh release upload "$TAG" dist/* --clobber
 
       # If no release exists yet, create one with auto-generated notes
       - name: Create release with assets
-        if: steps.check_release.outputs.exists == 'false'
+        if: github.ref_type == 'tag' && steps.check_release.outputs.exists == 'false'
         uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/**/*.zip
+          files: dist/*
           generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -16,9 +16,30 @@ The SQLite database contains all clips and settings.
 |----------|------|
 | **macOS** | `~/Library/Application Support/mahpastes/clips.db` |
 | **Windows** | `%APPDATA%\mahpastes\clips.db` |
-| **Linux** | `~/.config/mahpastes/clips.db` |
+| **Linux** | `~/.config/mahpastes/clips.db` or `$XDG_CONFIG_HOME/mahpastes/clips.db` (see below) |
+
+On Linux the data directory follows `XDG_CONFIG_HOME` without ever moving an existing library. The first match wins:
+
+1. `$XDG_CONFIG_HOME/mahpastes/`, if `XDG_CONFIG_HOME` is an absolute path and this directory already exists.
+2. `~/.config/mahpastes/`, if it already exists (every library created before XDG support lives here).
+3. `$XDG_CONFIG_HOME/mahpastes/`, if `XDG_CONFIG_HOME` is an absolute path (a fresh install).
+4. `~/.config/mahpastes/`.
+
+The desktop app, the `mahpastesd` server and `scripts/linux/install.sh` all use this rule. To move an existing library to `$XDG_CONFIG_HOME`, quit mahpastes and move the whole `~/.config/mahpastes` directory there.
 
 The data directory can be overridden with the `MAHPASTES_DATA_DIR` environment variable. This is used for testing.
+
+Only one process may use a data directory at a time. The desktop app and `mahpastesd` hold an advisory
+lock on `instance.lock` in the data directory while they run. The desktop app also listens on
+`instance.sock` there (a Unix domain socket readable only by your user; on a very long data directory path
+it is created in your per-user runtime or temp directory instead), which is how a second launch hands its
+files to the running window. Both files are safe to delete while mahpastes is not running.
+
+`desktop-prefs.json` in the data directory holds the desktop settings mahpastes needs before its
+database opens: **Keep running when the window is closed** (see
+[Background & Startup](../features/background-startup.md)) and the [window state](#window-state). It is
+not part of a backup; deleting it restores the platform default and the default window placement. The **Launch at login** entry lives where your system keeps login items,
+not in the data directory.
 
 The database uses WAL journal mode, a 5-second busy timeout, and foreign keys enabled. These pragmas are set via the DSN string for connection-pool safety.
 
@@ -30,9 +51,17 @@ Temp files are created for clipboard copy-as-file and drag-out transfers. Manage
 |----------|------|
 | **macOS** | `~/Library/Application Support/mahpastes/clip_temp_files/` |
 | **Windows** | `%APPDATA%\mahpastes\clip_temp_files\` |
-| **Linux** | `~/.config/mahpastes/clip_temp_files/` |
+| **Linux** | `clip_temp_files/` inside the [data directory](#database) (`~/.config/mahpastes/` or `$XDG_CONFIG_HOME/mahpastes/`) |
 
 Temp files have a 60-minute lease. A prune job runs every 10 minutes to remove stale and orphaned files. All temp files are also deleted on app exit.
+
+### Window State
+
+The main window's size, position and maximised state are saved under the `window` key of `desktop-prefs.json` in the data directory (next to `clips.db`) when the app quits, and read back at the next launch. With **Keep running when the window is closed**, closing the window only hides it; the placement is saved then (and whenever the window loses focus), and again when the app quits. It is not part of backups. To reset the window to its default size and placement, quit mahpastes and remove the `window` entry (or delete `desktop-prefs.json`, which also resets the keep-running choice).
+
+### Log Files
+
+mahpastes writes diagnostics, including Go crash traces, to `logs/mahpastes.log` in the data directory. When the file reaches 5 MB it is moved to `mahpastes.log.1` (replacing any older copy), so logs use at most about 10 MB. If the database cannot be opened at startup (for example because it is corrupt), or startup fails for another reason after the window opens, a dialog shows the error and names this folder before the app quits. **Open Log Folder** in the Maintenance window opens it (desktop app only; in server mode the logs stay on the server). Logs can contain file paths, so the folder and files are readable only by your user account where the system supports file permissions, and they never leave your machine.
 
 ## What's Stored
 

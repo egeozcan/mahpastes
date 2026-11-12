@@ -170,6 +170,10 @@ export function GetDescendantClipCounts(arg1, arg2) {
   return window['go']['main']['App']['GetDescendantClipCounts'](arg1, arg2);
 }
 
+export function GetDesktopLifecycle() {
+  return window['go']['main']['App']['GetDesktopLifecycle']();
+}
+
 export function GetDuplicateGroups() {
   return window['go']['main']['App']['GetDuplicateGroups']();
 }
@@ -258,6 +262,10 @@ export function ListClipsPage(arg1) {
   return window['go']['main']['App']['ListClipsPage'](arg1);
 }
 
+export function ListOpenWithApps(arg1) {
+  return window['go']['main']['App']['ListOpenWithApps'](arg1);
+}
+
 export function MergeDuplicates(arg1) {
   return window['go']['main']['App']['MergeDuplicates'](arg1);
 }
@@ -274,6 +282,14 @@ export function OpenClipWithDefaultApp(arg1) {
   return window['go']['main']['App']['OpenClipWithDefaultApp'](arg1);
 }
 
+export function OpenClipWithDialog(arg1) {
+  return window['go']['main']['App']['OpenClipWithDialog'](arg1);
+}
+
+export function OpenLogFolder() {
+  return window['go']['main']['App']['OpenLogFolder']();
+}
+
 export function PreviewMergeTag(arg1, arg2) {
   return window['go']['main']['App']['PreviewMergeTag'](arg1, arg2);
 }
@@ -284,6 +300,10 @@ export function ProbeFilePaths(arg1) {
 
 export function ProcessExistingFilesInFolder(arg1) {
   return window['go']['main']['App']['ProcessExistingFilesInFolder'](arg1);
+}
+
+export function QuitApp() {
+  return window['go']['main']['App']['QuitApp']();
 }
 
 export function ReadFileFromPath(arg1) {
@@ -312,6 +332,10 @@ export function RenameClip(arg1, arg2) {
 
 export function RestoreBackup(arg1, arg2) {
   return window['go']['main']['App']['RestoreBackup'](arg1, arg2);
+}
+
+export function RevealInFileManager(arg1) {
+  return window['go']['main']['App']['RevealInFileManager'](arg1);
 }
 
 export function SaveClipToFile(arg1) {
@@ -350,8 +374,20 @@ export function SetHiddenTags(arg1) {
   return window['go']['main']['App']['SetHiddenTags'](arg1);
 }
 
+export function SetKeepRunningWhenClosed(arg1) {
+  return window['go']['main']['App']['SetKeepRunningWhenClosed'](arg1);
+}
+
+export function SetLaunchAtLogin(arg1, arg2) {
+  return window['go']['main']['App']['SetLaunchAtLogin'](arg1, arg2);
+}
+
 export function SetSetting(arg1, arg2) {
   return window['go']['main']['App']['SetSetting'](arg1, arg2);
+}
+
+export function SetUnsavedChanges(arg1) {
+  return window['go']['main']['App']['SetUnsavedChanges'](arg1);
 }
 
 export function ShowCreateBackupDialog() {
@@ -364,6 +400,14 @@ export function ShowRestoreBackupDialog() {
 
 export function StartImportSession(arg1, arg2) {
   return window['go']['main']['App']['StartImportSession'](arg1, arg2);
+}
+
+export function SupportsNativeOpenWith() {
+  return window['go']['main']['App']['SupportsNativeOpenWith']();
+}
+
+export function TakeOpenRequests() {
+  return window['go']['main']['App']['TakeOpenRequests']();
 }
 
 export function ThumbnailURLBase() {
@@ -396,4 +440,8 @@ export function UploadFileAndGetID(arg1) {
 
 export function UploadFiles(arg1, arg2, arg3) {
   return window['go']['main']['App']['UploadFiles'](arg1, arg2, arg3);
+}
+
+export function WindowHidden() {
+  return window['go']['main']['App']['WindowHidden']();
 }

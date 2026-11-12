@@ -254,6 +254,8 @@ function openLightboxFileMenu(trigger, clip, anchor = trigger) {
                 clipId: clipId,
                 hasOptions: item.dataset.hasOptions,
             });
+        } else if (action === 'open-with-app') {
+            openClipWithListedApp(clip.id, item.dataset.appPath);
         } else {
             handleLightboxFileAction(action, clip);
         }
@@ -281,6 +283,10 @@ async function handleLightboxFileAction(action, clip) {
             break;
         case 'open-with':
             try {
+                if (await window.go.main.App.SupportsNativeOpenWith()) {
+                    await window.go.main.App.OpenClipWithDialog(clip.id);
+                    break;
+                }
                 const appPath = await window.go.main.App.ChooseApplication();
                 if (appPath) {
                     await window.go.main.App.OpenClipWithApp(clip.id, appPath);
@@ -300,6 +306,9 @@ async function handleLightboxFileAction(action, clip) {
             break;
         case 'copy-contents':
             copyClipContents(clip.id);
+            break;
+        case 'copy-rich-text':
+            copyClipAsRichText(clip.id);
             break;
         case 'save-file':
             saveClipToFile(clip.id);

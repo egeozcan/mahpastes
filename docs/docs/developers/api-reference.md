@@ -351,20 +351,56 @@ func (a *App) OpenClipWithApp(id int64, appPath string) error
 | `id` | int64 | Clip ID |
 | `appPath` | string | Absolute path to the application (e.g., `/Applications/Photoshop.app`) |
 
+The call returns once the application has started; it does not wait for the application to exit. On Windows, `.bat` and `.cmd` files are refused as the application, because they would run through `cmd.exe`.
+
+---
+
+### OpenClipWithDialog
+
+Open a clip through the native Windows "Open with" dialog, which lists registered handlers, Microsoft Store apps and per-user installs. The chosen app is launched by the shell. Returns when the dialog is dismissed; cancelling is not an error.
+
+```go
+func (a *App) OpenClipWithDialog(id int64) error
+```
+
+Returns an error on platforms without a native dialog. The frontend calls `SupportsNativeOpenWith` first and uses `ChooseApplication` plus `OpenClipWithApp` when it returns false.
+
+---
+
+### ListOpenWithApps
+
+List the applications the system offers for a clip's file type (macOS).
+
+```go
+func (a *App) ListOpenWithApps(id int64) ([]OpenWithApp, error)
+```
+
+**Returns:** `OpenWithApp` values (`name`, `path`, `is_default`), the default application first and the rest by name. The lookup asks Launch Services (through `NSWorkspace`, run under `osascript`'s JavaScript bridge) about an empty file with the extension the clip's transfer file would have, so the clip itself is not written out just to build a menu. Results are cached per extension for a minute. On macOS 11 and earlier only the default application is listed. The frontend opens a listed application with `OpenClipWithApp(id, path)` and falls back to `ChooseApplication` when the lookup fails. Returns an error where `TransferCapabilities.open_with_apps` is false.
+
+---
+
+### SupportsNativeOpenWith
+
+Report whether `OpenClipWithDialog` is available (true only on Windows).
+
+```go
+func (a *App) SupportsNativeOpenWith() bool
+```
+
 ---
 
 ### ChooseApplication
 
-Open a macOS file dialog to pick an application.
+Open a file dialog to pick an application.
 
 ```go
 func (a *App) ChooseApplication() (string, error)
 ```
 
-**Returns:** The absolute path to the selected `.app` bundle, or an empty string if cancelled.
+**Returns:** The absolute path to the selected application (an `.app` bundle on macOS, a `.desktop` file or executable on Linux, an `.exe` on Windows), or an empty string if cancelled.
 
 :::note
-macOS only. Returns an error on other platforms.
+On Windows the frontend does not use this picker for Open With; it calls `OpenClipWithDialog` instead.
 :::
 
 ---
@@ -598,8 +634,11 @@ type WatchedFolder struct {
     IsPaused        bool      `json:"is_paused"`
     CreatedAt       time.Time `json:"created_at"`
     Exists          bool      `json:"exists"`
+    WatchError      string    `json:"watch_error,omitempty"` // why a folder that should be watched is not
 }
 ```
+
+`watch_error` is set while a folder that is neither paused nor globally paused is not being watched: `"folder not found"` (deleted, or on a volume that is not mounted), or the operating system's reason for refusing the watch (for example the inotify watch limit). The watcher re-checks every 30 seconds and clears it once the folder is watched again.
 
 ---
 
@@ -745,10 +784,11 @@ func (a *App) GetWatchStatus() WatchStatus
 **WatchStatus structure:**
 ```go
 type WatchStatus struct {
-    GlobalPaused bool `json:"global_paused"`
-    ActiveCount  int  `json:"active_count"`
-    TotalCount   int  `json:"total_count"`
-    IsWatching   bool `json:"is_watching"`
+    GlobalPaused     bool `json:"global_paused"`
+    ActiveCount      int  `json:"active_count"`      // folders being watched right now
+    TotalCount       int  `json:"total_count"`
+    UnavailableCount int  `json:"unavailable_count"` // folders that should be watched but are not
+    IsWatching       bool `json:"is_watching"`
 }
 ```
 
@@ -1390,7 +1430,19 @@ Copy the raw content of a clip to the system clipboard.
 func (s *ClipboardService) CopyClipContents(id int64) error
 ```
 
-For text clips, copies the text directly. For image clips, copies as PNG image data.
+For text clips (including HTML, whose source is copied as plain text), copies the text directly. For image clips, copies as PNG image data. On macOS a JPEG, GIF or TIFF clip is additionally offered in its original encoding (`public.jpeg`, `com.compuserve.gif`, `public.tiff`) on the same pasteboard item, so apps that read it keep the original compression or animation; a TIFF, which the app cannot convert, is offered in its original encoding only.
+
+---
+
+### CopyClipAsRichText
+
+Copy an HTML clip as formatted text (macOS).
+
+```go
+func (s *ClipboardService) CopyClipAsRichText(id int64) error
+```
+
+Puts one pasteboard item holding the clip's HTML (`public.html`, with a `<meta charset="utf-8">` prepended when the document declares no charset) and its rendered text as the plain-string fallback, so Mail, Notes or Pages paste the formatting and plain-text fields get readable text. Returns an error for clips that are not `text/html`, and on platforms where `TransferCapabilities.clipboard_rich_text` is false.
 
 ---
 
@@ -1407,6 +1459,13 @@ func (s *TransferService) GetTransferCapabilities() TransferCapabilities
 ```
 
 **Returns:** A capabilities value (not pointer, no error) indicating which drag/clipboard features are available on the current platform.
+
+| Field | Meaning |
+|-------|---------|
+| `drag_out` | Drag-out support: `enabled`, `strategy`, `native_drag`, and a `reason` when disabled |
+| `clipboard_file` | Copy as File is available (macOS, Windows, Linux) |
+| `clipboard_rich_text` | `ClipboardService.CopyClipAsRichText` is available (macOS) |
+| `open_with_apps` | `App.ListOpenWithApps` can list the system's applications for a clip (macOS) |
 
 ---
 
@@ -1603,7 +1662,7 @@ type APIKeyCreateResult struct {
 **Returns:** The result containing the raw API key string (prefixed `mp_`) and key metadata. This is the only time the full key is returned — store it securely.
 
 :::tip
-Pass the key as `MP_API_KEY` environment variable or as a `Bearer` token in the `Authorization` header.
+Pass the key to `mp` as the `MP_API_KEY` environment variable (or in a file named by `MP_API_KEY_FILE`), or to any client as a `Bearer` token in the `Authorization` header.
 :::
 
 ---
@@ -1735,6 +1794,19 @@ runtime.EventsEmit(ctx, "watch:error", map[string]string{
 ```
 
 **Payload:** `object` with `file` and `error` properties.
+
+### watch:status
+
+Emitted when watch folders start or stop being watched without the user asking: a folder was deleted, moved or unmounted, came back and was re-armed, or the operating system refused a watch. Also emitted (at most every 30 seconds) when the watcher itself reports an error, such as an event-queue overflow.
+
+```go
+runtime.EventsEmit(ctx, "watch:status", map[string]interface{}{
+    "changes": []watchFolderChange{{FolderID: 3, Path: "/Volumes/Card/DCIM", Watching: false, Error: "folder not found"}},
+    "error":   "", // watcher-level error, if any
+})
+```
+
+**Payload:** `object` with `changes` (always a list: `folder_id`, `path`, `watching`, `error`, `recovered`) and `error` (string, empty unless the watcher reported an error).
 
 **JavaScript listener:**
 ```javascript

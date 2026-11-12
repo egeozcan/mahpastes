@@ -262,6 +262,17 @@
             <div id="drawer-plugin-actions" class="hidden">
                 <div class="my-1 border-t border-stone-100"></div>
             </div>
+            <div id="drawer-quit" class="hidden" data-testid="drawer-quit">
+                <div class="my-1 border-t border-stone-100"></div>
+                <button id="quit-app-btn" data-testid="quit-app-btn"
+                    class="desktop-only border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-500 text-xs font-medium py-2.5 px-3 rounded-md transition-colors flex items-center w-full"
+                    data-tooltip="Quit mahpastes and stop everything it runs in the background">
+                    <svg class="w-4 h-4 mr-2 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5.636 5.636a9 9 0 1012.728 0M12 3v9" />
+                    </svg>
+                    Quit mahpastes
+                </button>
+            </div>
         </nav>
     </aside>
 
@@ -1544,6 +1555,49 @@
                     </div>
                     <p id="file-provider-note" class="text-[11px] text-stone-500 mt-3">Disabling removes the Finder location and asks macOS to keep downloaded files in a recovery folder.</p>
                 </div>
+                <!-- Background & Startup (desktop app only; shown when the bindings exist) -->
+                <div id="desktop-lifecycle-settings" class="hidden pt-4 border-t border-stone-100" data-testid="desktop-lifecycle-settings">
+                    <h3 class="text-xs font-semibold text-stone-600 uppercase tracking-wider mb-3 flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5.636 5.636a9 9 0 1012.728 0M12 3v9"/>
+                        </svg>
+                        Background &amp; Startup
+                    </h3>
+                    <p class="text-[11px] text-stone-500 mb-3">
+                        Watch folders, tag servers, the API, sharing and file manager access only work while mahpastes is running.
+                    </p>
+                    <div class="space-y-3">
+                        <div>
+                            <label class="flex items-center gap-3 cursor-pointer" data-testid="keep-running-label">
+                                <div class="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" id="keep-running-toggle" data-testid="keep-running-toggle" class="sr-only peer" aria-describedby="keep-running-note keep-running-restart">
+                                    <div class="w-9 h-5 bg-stone-300 peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-stone-400 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-stone-800"></div>
+                                </div>
+                                <span class="text-xs font-medium text-stone-700">Keep running when the window is closed</span>
+                            </label>
+                            <p id="keep-running-note" class="text-[11px] text-stone-500 mt-2 pl-12" data-testid="keep-running-note"></p>
+                            <p id="keep-running-restart" class="hidden text-[11px] text-amber-700 mt-1 pl-12" data-testid="keep-running-restart">Takes effect the next time mahpastes starts.</p>
+                        </div>
+                        <div id="launch-at-login-block" data-testid="launch-at-login-block">
+                            <label class="flex items-center gap-3 cursor-pointer" data-testid="launch-at-login-label">
+                                <div class="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" id="launch-at-login-toggle" data-testid="launch-at-login-toggle" class="sr-only peer" aria-describedby="launch-at-login-status">
+                                    <div class="w-9 h-5 bg-stone-300 peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-stone-400 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-stone-800"></div>
+                                </div>
+                                <span class="text-xs font-medium text-stone-700">Launch at login</span>
+                            </label>
+                            <label id="launch-hidden-label" class="flex items-center gap-3 cursor-pointer mt-2 pl-12" data-testid="launch-hidden-label">
+                                <div class="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" id="launch-hidden-toggle" data-testid="launch-hidden-toggle" class="sr-only peer" checked aria-describedby="launch-hidden-note">
+                                    <div class="w-9 h-5 bg-stone-300 peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-stone-400 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-stone-800"></div>
+                                </div>
+                                <span class="text-xs font-medium text-stone-700">Start in the background</span>
+                            </label>
+                            <p id="launch-hidden-note" class="text-[11px] text-stone-500 mt-2 pl-12" data-testid="launch-hidden-note"></p>
+                            <p id="launch-at-login-status" class="text-[11px] text-stone-500 mt-1 pl-12 break-all" role="status" aria-live="polite" data-testid="launch-at-login-status"></p>
+                        </div>
+                    </div>
+                </div>
                 <!-- Backup & Restore -->
                 <div class="pt-4 border-t border-stone-100">
                     <h3 class="text-xs font-semibold text-stone-600 uppercase tracking-wider mb-3 flex items-center gap-2">
@@ -1630,6 +1684,55 @@
                         </select>
                     </div>
                 </div>
+                <!-- Rich Text Paste (desktop and browser: the HTML comes from the viewer's own clipboard) -->
+                <div class="pt-4 border-t border-stone-100" data-testid="settings-paste-html-section">
+                    <h3 class="text-xs font-semibold text-stone-600 uppercase tracking-wider mb-3 flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                                d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5"/>
+                        </svg>
+                        Rich Text Paste
+                    </h3>
+                    <p class="text-[11px] text-stone-500 mb-3">
+                        Text copied from a browser, Mail or a word processor usually carries its formatting
+                        and links as HTML alongside the plain text. Choose which one a paste keeps.
+                    </p>
+                    <div class="flex items-center gap-3">
+                        <label for="paste-html-behavior-select" class="text-[11px] text-stone-600 font-medium">On paste</label>
+                        <select id="paste-html-behavior-select" data-testid="paste-html-behavior-select"
+                            class="border border-stone-200 rounded-md text-xs bg-white px-2 py-1.5 focus:outline-none focus:border-stone-400 focus:ring-1 focus:ring-stone-400/20 transition-colors">
+                            <option value="text" selected>Keep the plain text</option>
+                            <option value="html">Save the formatting as an HTML clip</option>
+                        </select>
+                    </div>
+                </div>
+                <!-- System Notifications (desktop-only: shown by the desktop OS, not the browser) -->
+                <div id="os-notifications-settings" class="desktop-only pt-4 border-t border-stone-100" data-testid="settings-os-notifications-section">
+                    <h3 class="text-xs font-semibold text-stone-600 uppercase tracking-wider mb-3 flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0"/>
+                        </svg>
+                        System Notifications
+                    </h3>
+                    <p class="text-[11px] text-stone-500 mb-3">
+                        Show a system notification for watch folder imports, clips received from followed shares and plugin
+                        results while mahpastes is in the background. Bursts are combined into one notification, and clicking
+                        one brings the window back.
+                    </p>
+                    <label class="flex items-center gap-3 cursor-pointer" data-testid="os-notifications-toggle-label">
+                        <div class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" id="os-notifications-toggle" data-testid="os-notifications-toggle" class="sr-only peer">
+                            <div class="w-9 h-5 bg-stone-300 peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-stone-400 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-stone-800"></div>
+                        </div>
+                        <span class="text-xs font-medium text-stone-700">Notify me about background events</span>
+                    </label>
+                    <p id="os-notifications-status" data-testid="os-notifications-status" class="text-[11px] text-stone-500 mt-2" role="status" aria-live="polite"></p>
+                    <button id="os-notifications-test" data-testid="os-notifications-test" type="button"
+                        class="hidden mt-3 border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-[11px] font-medium py-1.5 px-3 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                        Send Test Notification
+                    </button>
+                    <p id="os-notifications-platform-note" data-testid="os-notifications-platform-note" class="text-[11px] text-stone-400 mt-2"></p>
+                </div>
                 <!-- Image Viewer -->
                 <div class="pt-4 border-t border-stone-100">
                     <h3 class="text-xs font-semibold text-stone-600 uppercase tracking-wider mb-3 flex items-center gap-2">
@@ -1668,6 +1771,35 @@
                         </div>
                         <span class="text-xs font-medium text-stone-700">Show tooltips on hover</span>
                     </label>
+                </div>
+                <!-- About: version, release check -->
+                <div class="pt-4 border-t border-stone-100" data-testid="settings-about-section">
+                    <h3 class="text-xs font-semibold text-stone-600 uppercase tracking-wider mb-3 flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                        About
+                    </h3>
+                    <div class="flex items-center gap-3">
+                        <img src="css/appicon.png" alt="" width="40" height="40" class="rounded-lg" draggable="false">
+                        <div>
+                            <p class="text-xs font-medium text-stone-700">mahpastes</p>
+                            <p id="about-version" data-testid="about-version" class="text-[11px] text-stone-500 font-mono">Version …</p>
+                        </div>
+                    </div>
+                    <div id="update-check-settings" class="desktop-only mt-4">
+                        <label class="flex items-center gap-3 cursor-pointer" data-testid="update-check-toggle-label">
+                            <div class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" id="update-check-toggle" data-testid="update-check-toggle" class="sr-only peer" checked>
+                                <div class="w-9 h-5 bg-stone-300 peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-stone-400 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-stone-800"></div>
+                            </div>
+                            <span class="text-xs font-medium text-stone-700">Check for new releases</span>
+                        </label>
+                        <p class="text-[11px] text-stone-500 mt-2">
+                            At most once a day mahpastes asks GitHub whether a newer release exists and shows a notice if so. The request
+                            carries no data about you or your clips. mahpastes never updates itself.
+                        </p>
+                    </div>
                 </div>
             </div>
             <div class="bg-stone-50 px-5 py-3 flex justify-end border-t border-stone-100">
@@ -1743,6 +1875,23 @@
                     <button id="maintenance-compact-db-btn" data-testid="maintenance-compact-db-btn"
                         class="bg-stone-800 hover:bg-stone-700 text-white text-xs font-medium py-2 px-4 rounded-md transition-colors">
                         Compact Database
+                    </button>
+                </div>
+                <!-- Open Log Folder (desktop-only: the logs live on the server's disk) -->
+                <div class="desktop-only pt-4 border-t border-stone-100" data-testid="maintenance-log-section">
+                    <h3 class="text-xs font-semibold text-stone-600 uppercase tracking-wider mb-3 flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        Log Files
+                    </h3>
+                    <p class="text-[11px] text-stone-500 mb-3">
+                        Open the folder with mahpastes.log, useful when reporting a problem
+                    </p>
+                    <button id="maintenance-open-logs-btn" data-testid="maintenance-open-logs-btn"
+                        class="bg-stone-800 hover:bg-stone-700 text-white text-xs font-medium py-2 px-4 rounded-md transition-colors">
+                        Open Log Folder
                     </button>
                 </div>
                 <!-- Sweep Stale Files -->
@@ -2178,6 +2327,15 @@
                             <span class="text-[10px] font-medium text-stone-500">Network</span>
                         </div>
                     </div>
+                    <label class="flex items-center gap-2 mb-3 cursor-pointer" data-testid="api-autostart-label"
+                        title="Start the server on 127.0.0.1 each time mahpastes opens">
+                        <div class="relative inline-flex items-center">
+                            <input type="checkbox" id="api-autostart-toggle" class="sr-only peer" data-testid="api-autostart-toggle">
+                            <div class="w-9 h-5 bg-stone-300 peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-stone-400 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-stone-800"></div>
+                        </div>
+                        <span class="text-[10px] font-medium text-stone-500">Start on launch</span>
+                        <span class="text-[10px] text-stone-400">127.0.0.1 only, on the port above</span>
+                    </label>
                     <div class="flex items-center gap-3">
                         <button id="api-toggle-btn" data-testid="api-toggle-btn"
                             class="bg-stone-800 hover:bg-stone-700 text-white text-xs font-medium py-2 px-4 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
@@ -2461,6 +2619,7 @@
     <script src="js/tooltips.js"></script>
     <script src="js/utils.js"></script>
     <script src="js/paste-paths.js"></script>
+    <script src="js/paste-rich.js"></script>
     <script src="js/wails-api.js"></script>
     <script src="js/roving-tabindex.js"></script>
     <script src="js/shortcuts.js"></script>
@@ -2508,6 +2667,9 @@
     <script src="js/merge-tag-modal.js"></script>
     <script src="js/share.js"></script>
     <script src="js/file-provider-settings.js"></script>
+    <script src="js/os-notifications.js"></script>
+    <script src="js/app-info.js"></script>
+    <script src="js/desktop-lifecycle-settings.js"></script>
     <script src="js/settings.js"></script>
     <script src="js/maintenance.js"></script>
     <script src="js/import-wizard.js"></script>
@@ -2518,6 +2680,7 @@
     <script src="js/metadata.js"></script>
     <script src="js/tags.js"></script>
     <script src="js/api-settings.js"></script>
+    <script src="js/open-requests.js"></script>
     <script src="js/app.js"></script>
     <script src="js/sort.js"></script>
     <script src="js/search-options.js"></script>

@@ -14,7 +14,7 @@ import (
 var clipboardCmd = &cobra.Command{
 	Use:   "clipboard",
 	Short: "Copy clip content to the system clipboard",
-	Long: `Copy clip contents or file references to the macOS system clipboard.
+	Long: `Copy clip contents or file references to the system clipboard.
 
 These commands instruct the mahpastes desktop app to place clip data on
 the system clipboard. The desktop app must be running.`,
@@ -72,7 +72,7 @@ var clipboardCopyFileCmd = &cobra.Command{
 	Long: `Copy a clip as a file reference to the system clipboard.
 
 This places a file reference on the clipboard so you can paste the clip
-as a file into Finder or other applications. The mahpastes desktop app
+as a file into Finder, Explorer, a Linux file manager or other applications. The mahpastes desktop app
 performs the actual clipboard operation.`,
 	Example: `  # Copy clip as file reference
   mp clipboard copy-file 42

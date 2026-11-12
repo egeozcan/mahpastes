@@ -26,12 +26,16 @@ const sidebars = {
         'features/auto-delete',
         'features/archive',
         'features/watch-folders',
+        'features/notifications',
         'features/bulk-actions',
         'features/deduplication',
         'features/backup-restore',
         'features/drag-and-drop',
         'features/tag-serve',
         'features/rest-api',
+        'features/headless-server',
+        'features/deep-links',
+        'features/background-startup',
       ],
     },
     {
@@ -64,6 +68,7 @@ const sidebars = {
         'tutorials/screenshot-workflow',
         'tutorials/code-snippets',
         'tutorials/automated-imports',
+        'tutorials/integration-recipes',
       ],
     },
     {
@@ -84,6 +89,7 @@ const sidebars = {
       label: 'Reference',
       collapsed: true,
       items: [
+        'reference/cli',
         'reference/data-storage',
         'reference/troubleshooting',
       ],

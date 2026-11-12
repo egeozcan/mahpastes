@@ -48,13 +48,6 @@ const transferStrategyAdapters = {
             }
             return writes > 0;
         }
-    },
-
-    // Placeholder for future Linux-specific outbound drag support.
-    'linux-fileuri-v1': {
-        setDragData() {
-            return false;
-        }
     }
 };
 

@@ -30,8 +30,10 @@ import (
 //     fails with an unrelated "unable to infer the AssetDir" error. The app already
 //     uses MAHPASTES_START_HIDDEN and MAHPASTES_DATA_DIR, so this matches house
 //     convention and cannot collide with Wails' own flags.
+//
 //   - The frontend detects the mode by the *presence* of the bound service
 //     rather than by a flag it would have to be told about.
+//
 //   - It reports JSON on stdout and sets the exit code, which is what makes it
 //     usable from CI on all three OSes without a human reading a window.
 const selfTestWorkerEnv = "MAHPASTES_SELFTEST_WORKER"

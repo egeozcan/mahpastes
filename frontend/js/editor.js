@@ -104,9 +104,12 @@ function setEditorSaving(saving) {
     );
     saveButton.disabled = saving || (isTextEditor ? !TextClipEditor.isDirty() : (!EditorCore.isDirty() && !pendingImageOperation));
     saveAsButton.disabled = saving;
+    if (!saving) reportUnsavedEditorChanges();
 }
 
 function updateEditorSaveState() {
+    // The text editor reports its own state on every change (text-clip-editor.js).
+    if (!isTextEditor) reportUnsavedEditorChanges();
     if (!document.getElementById('editor-modal')?.classList.contains('active') || editorSaving) return;
     const saveButton = document.getElementById('editor-save-in-place');
     const pendingImageOperation = !isTextEditor && (
@@ -264,7 +267,12 @@ async function openEditor(clipId, options = {}) {
         updateEditorSaveState();
         if (editorFocusTrapCleanup) editorFocusTrapCleanup();
         editorFocusTrapCleanup = trapFocus(editorModal);
-        if (!isTextEditor) requestAnimationFrame(() => document.querySelector('.editor-tool-btn.active')?.focus());
+        // A dialog that opened over the editor before this frame (a plugin
+        // option prompt, an upload conflict) keeps the focus it took.
+        if (!isTextEditor) requestAnimationFrame(() => {
+            if (isCoveredByHigherLayer(editorModal)) return;
+            document.querySelector('.editor-tool-btn.active')?.focus();
+        });
 
     } catch (error) {
         console.error('Error opening editor:', error);
@@ -335,6 +343,23 @@ function hasUnsavedEditorChanges() {
     return EditorCore.isDirty();
 }
 
+// The editor's dirty state as last sent to Go. Quitting the app (window close,
+// Cmd+Q, Ctrl+Q, the menu's Quit) asks before discarding unsaved changes, and
+// the native side can only know about them through this report. It is sent
+// only when it changes; server mode has no such binding.
+let reportedUnsavedEditorChanges = false;
+
+function reportUnsavedEditorChanges(dirty = hasUnsavedEditorChanges()) {
+    dirty = !!dirty;
+    if (dirty === reportedUnsavedEditorChanges) return;
+    const app = window.go?.main?.App;
+    if (typeof app?.SetUnsavedChanges !== 'function') return;
+    reportedUnsavedEditorChanges = dirty;
+    Promise.resolve(app.SetUnsavedChanges(dirty)).catch(error => {
+        console.error('Failed to report unsaved editor changes:', error);
+    });
+}
+
 function closeEditor(options) {
     const force = options === true || options?.force === true;
     if (!force && hasUnsavedEditorChanges()) {
@@ -371,6 +396,7 @@ function closeEditor(options) {
     editorFilename = '';
     isTextEditor = false;
     editorSaving = false;
+    reportUnsavedEditorChanges(false);
 
     TextTool.cancelTextInput();
     document.getElementById('editor-mode-label').textContent = 'Edit';

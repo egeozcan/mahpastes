@@ -45,6 +45,41 @@ func (a *App) ProbeFilePaths(paths []string) ([]PathProbe, error) {
 		return nil, fmt.Errorf("too many paths: %d (max %d)", len(paths), maxProbePaths)
 	}
 
+	stat := a.newPathStatter()
+	probes := make([]PathProbe, 0, len(paths))
+	for _, raw := range paths {
+		probe := PathProbe{Input: raw}
+		if resolved, ok := normalizePastedPath(raw); ok {
+			stat(&probe, resolved)
+		}
+		probes = append(probes, probe)
+	}
+	return probes, nil
+}
+
+// ProbeOpenedFiles applies the same checks to paths the operating system
+// handed the app to open (command-line arguments, a forwarded second launch,
+// a macOS Finder open). Unlike a paste these are already exact paths, so none
+// of the paste normalization (quote stripping, shell unescaping, ~) applies,
+// which would misread a file literally named with a backslash or quotes; only
+// absolute paths are accepted. There is no batch cap: a Send To selection can
+// be hundreds of files, and each probe is a stat.
+func (a *App) ProbeOpenedFiles(paths []string) []PathProbe {
+	stat := a.newPathStatter()
+	probes := make([]PathProbe, 0, len(paths))
+	for _, raw := range paths {
+		probe := PathProbe{Input: raw}
+		if raw != "" && !strings.ContainsRune(raw, 0) && filepath.IsAbs(raw) {
+			stat(&probe, filepath.Clean(raw))
+		}
+		probes = append(probes, probe)
+	}
+	return probes
+}
+
+// newPathStatter returns a function that fills a probe for an already
+// normalized absolute path.
+func (a *App) newPathStatter() func(probe *PathProbe, resolved string) {
 	tempDir := a.TempDir()
 	// The temp dir may sit under a symlinked root (/var → /private/var on
 	// macOS), so keep a resolved copy to compare against paths that arrived in
@@ -53,29 +88,24 @@ func (a *App) ProbeFilePaths(paths []string) ([]PathProbe, error) {
 	if evaluated, err := filepath.EvalSymlinks(tempDir); err == nil {
 		resolvedTempDir = evaluated
 	}
-
-	probes := make([]PathProbe, 0, len(paths))
-	for _, raw := range paths {
-		probe := PathProbe{Input: raw}
-		if resolved, ok := normalizePastedPath(raw); ok {
-			probe.Path = resolved
-			probe.Name = filepath.Base(resolved)
-			if info, err := os.Stat(resolved); err == nil {
-				probe.Exists = true
-				probe.IsDir = info.IsDir()
-				probe.IsRegular = info.Mode().IsRegular()
-				probe.Size = info.Size()
-				probe.IsTemp = isInsideDir(tempDir, resolved)
-				if !probe.IsTemp {
-					if evaluated, err := filepath.EvalSymlinks(resolved); err == nil {
-						probe.IsTemp = isInsideDir(resolvedTempDir, evaluated)
-					}
-				}
+	return func(probe *PathProbe, resolved string) {
+		probe.Path = resolved
+		probe.Name = filepath.Base(resolved)
+		info, err := os.Stat(resolved)
+		if err != nil {
+			return
+		}
+		probe.Exists = true
+		probe.IsDir = info.IsDir()
+		probe.IsRegular = info.Mode().IsRegular()
+		probe.Size = info.Size()
+		probe.IsTemp = isInsideDir(tempDir, resolved)
+		if !probe.IsTemp {
+			if evaluated, err := filepath.EvalSymlinks(resolved); err == nil {
+				probe.IsTemp = isInsideDir(resolvedTempDir, evaluated)
 			}
 		}
-		probes = append(probes, probe)
 	}
-	return probes, nil
 }
 
 // isInsideDir reports whether path is dir itself or lives beneath it. Both

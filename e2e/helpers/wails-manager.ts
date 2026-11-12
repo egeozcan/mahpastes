@@ -4,6 +4,7 @@ import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as net from 'net';
 import { fileURLToPath } from 'url';
+import { desktopInstanceEnv, removeInstanceEnv, wailsInvocation } from './instance-env.js';
 
 // ---------------------------------------------------------------------------
 // Cross-process restart serialization
@@ -359,27 +360,10 @@ export async function spawnWailsInstance(
   // Create fresh data directory
   await fs.mkdir(dataDir, { recursive: true });
 
-  // Find wails binary - check common locations
-  const wailsPaths = [
-    'wails', // In PATH
-    path.join(os.homedir(), 'go', 'bin', 'wails'),
-    '/usr/local/bin/wails',
-    '/usr/local/go/bin/wails',
-  ];
-
-  let wailsBin = 'wails';
-  for (const p of wailsPaths) {
-    try {
-      await fs.access(p);
-      wailsBin = p;
-      break;
-    } catch {
-      // Try next path
-    }
-  }
-
-  // Spawn wails dev with environment override
-  const proc = spawn(wailsBin, [
+  // Spawn wails dev with the instance's isolated environment (see instance-env.ts)
+  const wails = await wailsInvocation();
+  const proc = spawn(wails.cmd, [
+    ...wails.args,
     'dev',
     '-loglevel', 'warning',
     '-devserver', `localhost:${port}`,
@@ -387,23 +371,7 @@ export async function spawnWailsInstance(
     ...(opts.fastBuild ? FAST_BUILD_FLAGS : []),
   ], {
     cwd: PROJECT_ROOT,
-    env: {
-      ...process.env,
-      MAHPASTES_DATA_DIR: dataDir,
-      // Disable public DHT bootstrap peers in tests — mDNS provides same-host
-      // discovery and hitting public IPFS nodes is unreliable in CI.
-      MAHPASTES_SHARE_DISABLE_WAN_BOOTSTRAP: '1',
-      MAHPASTES_START_HIDDEN: '1',
-      // Folder-import "delete" moves files to the Trash. Tests create and
-      // delete fixtures constantly, so force a permanent remove — otherwise
-      // every run silts up the developer's ~/.Trash with temp files.
-      MAHPASTES_TRASH_MODE: 'remove',
-      // StartImportSession normally only accepts a folder the user chose in the
-      // native picker, which Playwright cannot drive. This opts that check out
-      // so tests can scan a temp directory directly.
-      MAHPASTES_ALLOW_UNPICKED_IMPORT: '1',
-      PATH: `${process.env.PATH}:${path.join(os.homedir(), 'go', 'bin')}`,
-    },
+    env: await desktopInstanceEnv(dataDir),
     stdio: ['pipe', 'pipe', 'pipe'],
     detached: false,
   });
@@ -437,6 +405,7 @@ export async function spawnWailsInstance(
     // and will unlink the shared app binary whenever it finally exits.
     await terminatePort(port).catch(() => {});
     await fs.rm(dataDir, { recursive: true, force: true }).catch(() => {});
+    await removeInstanceEnv(dataDir);
     throw err;
   } finally {
     dispose();
@@ -480,6 +449,7 @@ export async function killWailsInstance(workerIndex: number): Promise<void> {
   } catch {
     // Ignore cleanup errors
   }
+  await removeInstanceEnv(instance.dataDir);
 
   instances.delete(workerIndex);
 }
@@ -595,25 +565,11 @@ export async function restartWailsInstance(workerIndex: number): Promise<WailsIn
     check();
   });
 
-  // Find wails binary.
-  const wailsPaths = [
-    'wails',
-    path.join(os.homedir(), 'go', 'bin', 'wails'),
-    '/usr/local/bin/wails',
-    '/usr/local/go/bin/wails',
-  ];
-  let wailsBin = 'wails';
-  for (const p of wailsPaths) {
-    try {
-      await fs.access(p);
-      wailsBin = p;
-      break;
-    } catch { /* try next */ }
-  }
-
   // Spawn on the same port + same dataDir. A restart only ever happens mid-run,
   // long after global-setup did a full build, so the skip flags always apply.
-  const proc = spawn(wailsBin, [
+  const wails = await wailsInvocation();
+  const proc = spawn(wails.cmd, [
+    ...wails.args,
     'dev',
     '-loglevel', 'warning',
     '-devserver', `localhost:${port}`,
@@ -621,21 +577,7 @@ export async function restartWailsInstance(workerIndex: number): Promise<WailsIn
     ...FAST_BUILD_FLAGS,
   ], {
     cwd: PROJECT_ROOT,
-    env: {
-      ...process.env,
-      MAHPASTES_DATA_DIR: dataDir,
-      MAHPASTES_SHARE_DISABLE_WAN_BOOTSTRAP: '1',
-      MAHPASTES_START_HIDDEN: '1',
-      // Folder-import "delete" moves files to the Trash. Tests create and
-      // delete fixtures constantly, so force a permanent remove — otherwise
-      // every run silts up the developer's ~/.Trash with temp files.
-      MAHPASTES_TRASH_MODE: 'remove',
-      // StartImportSession normally only accepts a folder the user chose in the
-      // native picker, which Playwright cannot drive. This opts that check out
-      // so tests can scan a temp directory directly.
-      MAHPASTES_ALLOW_UNPICKED_IMPORT: '1',
-      PATH: `${process.env.PATH}:${path.join(os.homedir(), 'go', 'bin')}`,
-    },
+    env: await desktopInstanceEnv(dataDir),
     stdio: ['pipe', 'pipe', 'pipe'],
     detached: false,
   });

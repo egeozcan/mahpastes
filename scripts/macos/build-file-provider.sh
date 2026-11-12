@@ -39,7 +39,10 @@ else
     # Bindings intentionally use the non-native implementation. Ordinary builds
     # never compile the extension or enable the fileprovider tag.
     "$wails_bin" generate module
-    MACOSX_DEPLOYMENT_TARGET=13.0 "$wails_bin" build -platform darwin/universal -tags fileprovider -skipbindings
+    # Stamp the version like the Makefile does (internal/buildinfo); `make`
+    # and CI export MAHPASTES_LDFLAGS, a direct run asks scripts/version.sh.
+    ldflags="${MAHPASTES_LDFLAGS:-$(bash scripts/version.sh --ldflags)}"
+    MACOSX_DEPLOYMENT_TARGET=13.0 "$wails_bin" build -platform darwin/universal -tags fileprovider -skipbindings -ldflags "$ldflags"
     # An app extension is an executable with NSExtensionMain as its entry point.
     # Command Line Tools provide the compiler, SDK and linker for both slices;
     # Xcode's project generator and build system are not needed for packaging.
@@ -72,9 +75,12 @@ group = os.environ['FP_APP_GROUP']
 keychain = os.environ['FP_KEYCHAIN_GROUP']
 info = root / 'Contents/Info.plist'
 with info.open('rb') as f:
-    # Wails emits XML starting with DOCTYPE, without an XML declaration.
-    # plistlib's format sniffing rejects that valid shape unless told XML.
+    # Wails' own default template starts with DOCTYPE and no XML declaration,
+    # which plistlib's format sniffing rejects; build/darwin/Info.plist has a
+    # declaration, but saying XML keeps this working for either.
     data = plistlib.load(f, fmt=plistlib.FMT_XML)
+# build/darwin/Info.plist already carries the default identifier; FP_BUNDLE_ID
+# may name another one for a different signing team, so it is applied here.
 data.update(CFBundleIdentifier=bundle, MahpastesAppGroup=group,
             MahpastesKeychainGroup=keychain, LSMinimumSystemVersion='13.0')
 with info.open('wb') as f:

@@ -465,8 +465,14 @@ function updateDrawerActivityIndicator() {
     // Show hamburger dot if watch OR serve is active
     const watchActive = watchIndicator && !watchIndicator.classList.contains('hidden');
     const serveActive = serveIndicator && !serveIndicator.classList.contains('hidden');
+    // Amber when a watch folder should be watched but is not, so the problem
+    // shows without opening the drawer (the Watch tab dot is inside it).
+    const watchUnavailable = watchActive && watchIndicator.dataset.state === 'unavailable';
     if (drawerActivityIndicator) {
         drawerActivityIndicator.classList.toggle('hidden', !watchActive && !serveActive);
+        drawerActivityIndicator.classList.toggle('bg-amber-500', watchUnavailable);
+        drawerActivityIndicator.classList.toggle('bg-emerald-500', !watchUnavailable);
+        drawerActivityIndicator.dataset.state = watchUnavailable ? 'unavailable' : 'active';
     }
 }
 

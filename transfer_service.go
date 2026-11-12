@@ -34,7 +34,13 @@ func buildTransferCapabilities(goos string) TransferCapabilities {
 			Strategy: "",
 			Reason:   "drag-out is not implemented on this platform yet",
 		},
-		ClipboardFile: goos == "darwin" || goos == "windows",
+		ClipboardFile: goos == "darwin" || goos == "windows" || goos == "linux",
+		// NSPasteboard takes several flavours in one item; the other
+		// platforms' writers publish a single format per copy.
+		ClipboardRichText: goos == "darwin",
+		// NSWorkspace lists a type's registered handlers. Windows has its
+		// own chooser (OpenClipWithDialog); Linux uses the file picker.
+		OpenWithApps: goos == "darwin",
 	}
 
 	switch goos {
@@ -54,10 +60,13 @@ func buildTransferCapabilities(goos string) TransferCapabilities {
 			NativeDrag: false,
 		}
 	case "linux":
+		// Pure HTML5 drag: the shared adapter sets text/uri-list (file:// URI)
+		// on the DataTransfer, which WebKitGTK exports as a GTK drag target
+		// that file managers accept as a file drop.
 		caps.DragOut = DragCapability{
-			Enabled:  false,
-			Strategy: "linux-fileuri-v1",
-			Reason:   "planned for a future release",
+			Enabled:    true,
+			Strategy:   "file-uri-v1",
+			NativeDrag: false,
 		}
 	}
 

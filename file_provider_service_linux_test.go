@@ -43,6 +43,19 @@ func TestLinuxMountEnableDisableAndRestart(t *testing.T) {
 	dataDir := t.TempDir()
 	mountDir := filepath.Join(t.TempDir(), "Mahpastes")
 	t.Setenv("MAHPASTES_MOUNT_DIR", mountDir)
+	// Sidebar entries go to temp XDG dirs, never the real user's files.
+	cfgHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("MAHPASTES_DATA_DIR", "")
+	gtkFile := filepath.Join(cfgHome, "gtk-3.0", "bookmarks")
+	if err := os.MkdirAll(filepath.Dir(gtkFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const userBookmark = "file:///srv/projects Projects\n"
+	if err := os.WriteFile(gtkFile, []byte(userBookmark), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	db, err := sql.Open("sqlite", filepath.Join(dataDir, "clips.db")+"?_pragma=journal_mode%3Dwal&_pragma=busy_timeout%3D5000")
 	if err != nil {
 		t.Fatal(err)
@@ -70,8 +83,11 @@ func TestLinuxMountEnableDisableAndRestart(t *testing.T) {
 	if err == nil {
 		err = json.Unmarshal(b, &saved)
 	}
-	if err != nil || !saved.Enabled || saved.MountPath != mountDir {
+	if err != nil || !saved.Enabled || saved.MountPath != mountDir || !saved.GTKBookmarkAdded {
 		t.Fatalf("saved enrollment = %+v, %v", saved, err)
+	}
+	if b, _ := os.ReadFile(gtkFile); string(b) != userBookmark+fileURLFromAbsPath(mountDir)+" Mahpastes\n" {
+		t.Fatalf("gtk bookmarks after enable = %q", b)
 	}
 	if _, err = os.ReadDir(filepath.Join(mountDir, "Active")); err != nil {
 		t.Fatal(err)
@@ -112,6 +128,16 @@ func TestLinuxMountEnableDisableAndRestart(t *testing.T) {
 	}
 	if _, err = os.Stat(mountDir); !os.IsNotExist(err) {
 		t.Fatalf("mount directory left behind: %v", err)
+	}
+	if b, _ := os.ReadFile(gtkFile); string(b) != userBookmark {
+		t.Fatalf("gtk bookmarks after disable = %q", b)
+	}
+	saved = providerEnrollment{}
+	if b, err = os.ReadFile(filepath.Join(dataDir, "file-provider.json")); err == nil {
+		err = json.Unmarshal(b, &saved)
+	}
+	if err != nil || saved.GTKBookmarkAdded || saved.KDEPlaceAdded {
+		t.Fatalf("enrollment after disable = %+v, %v", saved, err)
 	}
 	restarted.stop()
 }

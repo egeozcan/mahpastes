@@ -41,7 +41,11 @@ var apiStatusCmd = &cobra.Command{
 	Short: "Check API connectivity",
 	Long: `Verify that the CLI can connect to the mahpastes API.
 
-Makes a test request to confirm the API is reachable and the key is valid.`,
+First asks the unauthenticated status endpoint whether the API is up, then
+makes an authenticated request to confirm the key is valid. Exits 2 when the
+app is not reachable and 3 when the key is missing, invalid or revoked.
+
+Also prints the app's version, and warns when it differs from this mp's.`,
 	Example: `  # Check connection
   mp api status
 
@@ -50,13 +54,40 @@ Makes a test request to confirm the API is reachable and the key is valid.`,
 	RunE: runAPIStatus,
 }
 
+// apiServerStatus mirrors the response of GET /api/v1/status.
+type apiServerStatus struct {
+	Running bool   `json:"running"`
+	Port    int    `json:"port"`
+	BindAll bool   `json:"bind_all"`
+	URL     string `json:"url"`
+	// Version is the app version; empty from apps older than the field.
+	Version string `json:"version"`
+}
+
+// versionMismatch reports whether the app and this mp were built from
+// different releases. Unstamped ("dev") and unknown versions never count.
+func versionMismatch(app, cli string) bool {
+	if app == "" || cli == "" || app == "dev" || cli == "dev" {
+		return false
+	}
+	return app != cli
+}
+
 func runAPIStatus(cmd *cobra.Command, args []string) error {
 	c, err := client.New()
 	if err != nil {
 		return err
 	}
 
-	// Verify connectivity by making a lightweight API call.
+	// Reachability: the status route needs no key, so a failure here means
+	// the app or its API is not reachable (exit 2), not a bad key.
+	var status apiServerStatus
+	if err := c.GetJSON("/api/v1/status", &status); err != nil {
+		return fmt.Errorf("mahpastes API at %s is not reachable: %w", c.BaseURL, err)
+	}
+
+	// Authentication: a lightweight authenticated call validates the key
+	// (401/403 exit 3).
 	var result struct {
 		Clips []interface{} `json:"clips"`
 		Total int           `json:"total"`
@@ -65,15 +96,26 @@ func runAPIStatus(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	mismatch := versionMismatch(status.Version, client.Version)
 	if jsonOutput {
 		printJSON(map[string]interface{}{
-			"connected": true,
-			"url":       c.BaseURL,
+			"connected":        true,
+			"url":              c.BaseURL,
+			"port":             status.Port,
+			"app_version":      status.Version,
+			"cli_version":      client.Version,
+			"version_mismatch": mismatch,
 		})
 		return nil
 	}
 
 	fmt.Printf("Connected to mahpastes API at %s\n", c.BaseURL)
+	if status.Version != "" {
+		fmt.Printf("App version %s, mp version %s\n", status.Version, client.Version)
+	}
+	if mismatch {
+		fmt.Fprintf(os.Stderr, "Warning: mp %s does not match the app's version %s; update one of them.\n", client.Version, status.Version)
+	}
 	return nil
 }
 

@@ -45,9 +45,20 @@ export MP_API_KEY=mp_your_key_here
 
 Add this line to your shell profile (`~/.zshrc` or `~/.bashrc`) so it persists across sessions.
 
+To keep the key out of your shell profile, save it to a file only you can read and point `MP_API_KEY_FILE` at it instead:
+
+```bash
+(umask 077 && printf '%s\n' 'mp_your_key_here' > ~/.config/mahpastes-key)
+export MP_API_KEY_FILE=~/.config/mahpastes-key
+```
+
+The file must hold just the key (a trailing newline is fine). `MP_API_KEY` wins when both are set.
+
+The desktop app's API server is off until you start it. Turn on **Start on launch** in the API modal so it starts with the app (see [REST API](../features/rest-api.md#start-on-launch)).
+
 ### Verify
 
-Confirm the CLI can reach the API:
+Confirm the CLI can reach the API and that your key is accepted:
 
 ```bash
 mp api status
@@ -59,12 +70,20 @@ Expected output:
 Connected to mahpastes API at http://localhost:44557
 ```
 
+Shell completion and man pages are installed with `make mp-install`; see [Shell Completion](../getting-started/installation.md#shell-completion). Every command and flag is listed in the [CLI Reference](../reference/cli.md).
+
 ## Environment Variables
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `MP_API_KEY` | Yes | -- | API key starting with `mp_` |
+| `MP_API_KEY` | Yes* | -- | API key starting with `mp_` |
+| `MP_API_KEY_FILE` | No | -- | Path to a file holding just the key; used when `MP_API_KEY` is unset |
 | `MP_API_URL` | No | `http://localhost:44557` | API base URL |
+| `MAHPASTES_API_KEY` | No | -- | Fallback for `MP_API_KEY`, used only when `MP_API_KEY` is unset (the name the Claude Code plugin uses) |
+| `MAHPASTES_API_URL` | No | -- | Fallback for `MP_API_URL`, used only when `MP_API_URL` is unset |
+| `MP_TIMEOUT` | No | `30s` | How long to wait for the connection and for the server to start responding (e.g. `10s` or `10`). It never limits the transfer itself, so large uploads and downloads are not cut off, and commands that wait on long server-side work only use it for the connection (`backup create`/`restore`, `maintenance`, `dedup all`, `plugin install`/`update`/`run`, `watch process`, `clip download` of several clips). On expiry `mp` exits with code 2 |
+
+\* One of `MP_API_KEY` or `MP_API_KEY_FILE` is required.
 
 ## Uploading Files
 
@@ -86,11 +105,22 @@ Upload multiple files at once:
 mp clip upload *.png --tag batch
 ```
 
-Upload from stdin (requires `--filename`):
+Upload from stdin. Without `--filename` the clip is named `paste-<timestamp>.<ext>`, with the extension sniffed from the content (`.txt` for text, `.png`, `.pdf`, `.gz` and so on for known binary types, `.bin` otherwise; `--content-type` picks the extension instead). `-` as the file argument means stdin too. Empty input is an error rather than an empty clip, and `mp clip upload` with no arguments on an interactive terminal stops with an error instead of waiting for input (pass `-` to type the clip instead, ending it with Ctrl-D, or Ctrl-Z then Enter on Windows):
 
 ```bash
+echo "meeting notes" | mp clip upload
 echo "meeting notes" | mp clip upload --filename notes.txt
+some-command | mp clip upload - --tag logs
 ```
+
+Use `-q`/`--quiet` on `upload` and `list` to print only bare clip IDs, one per line, for capturing in scripts:
+
+```bash
+id=$(echo hi | mp clip upload -q)
+mp clip list --tag logs -q | mp clip delete --stdin
+```
+
+If any file in a multi-file upload fails (or cannot be tagged or given its expiration), `mp clip upload` still prints the clips that did upload and then exits with code 1.
 
 Upload with an expiration:
 
@@ -140,6 +170,12 @@ Paginate through results:
 mp clip list --limit 20 --offset 40
 ```
 
+Sort by `created_at` (the default), `name`, `size` or `type`, in `desc` (the default) or `asc` order. Unknown values are rejected:
+
+```bash
+mp clip list --sort size --dir desc --limit 5
+```
+
 ## Downloading Clips
 
 Stream raw clip data to a file:
@@ -147,6 +183,15 @@ Stream raw clip data to a file:
 ```bash
 mp clip data 42 > output.png
 ```
+
+Print the newest non-archived clip, optionally within a tag, like `pbpaste`:
+
+```bash
+mp clip data --latest
+mp clip data --latest --tag notes | wc -l
+```
+
+When stdout is a terminal, `mp clip data` refuses binary content (an image, an archive) instead of dumping it onto the screen. Redirect the output, or pass `--force` to write it anyway.
 
 Download with the original filename:
 
@@ -164,6 +209,37 @@ Download multiple clips as a ZIP:
 
 ```bash
 mp clip download 1 2 3 -o clips.zip
+```
+
+## Opening Clips
+
+Open a clip in the application your system uses for its file type:
+
+```bash
+mp clip open 42
+```
+
+Or name the application (`open -a` on macOS; on Linux and Windows the program is run with the file):
+
+```bash
+mp clip open 42 --app Preview
+mp clip open 42 --app gimp
+```
+
+`mp clip open` downloads the clip into a private folder under your user cache directory
+(`mahpastes/mp-open`, for example `~/.cache/mahpastes/mp-open` on Linux) and opens that copy. The copy
+is left there because the application reads it after `mp` has exited; delete the folder whenever you
+like. Editing the copy does not change the clip. This works against the desktop app and against
+`mahpastesd`, as long as the clip's data can be downloaded to this computer.
+
+Programs, scripts and installers (`.exe`, `.bat`, `.ps1`, `.py`, `.sh`, `.msi`, `.command`, `.pkg`,
+`.desktop` and similar) are not opened with the default application, since that could run them; use
+`mp clip download` instead, or name a program with `--app`.
+
+To show the clip in the mahpastes window instead, use its [clip link](../features/deep-links.md):
+
+```bash
+mp clip open 42 --in-app
 ```
 
 ## Bulk Operations
@@ -522,16 +598,21 @@ mp clip get 42 --json | jq '.filename'
 |------|---------|
 | 0 | Success |
 | 1 | General error |
-| 2 | Connection error (API unreachable) |
-| 3 | Authentication error (invalid or revoked key) |
+| 2 | Connection error (API unreachable or not responding within `MP_TIMEOUT`) |
+| 3 | Authentication error (missing, invalid or revoked key) |
+
+`mp --version` prints the CLI version; send it along with bug reports.
 
 Use exit codes in scripts:
 
 ```bash
 mp api status > /dev/null 2>&1
-if [ $? -ne 0 ]; then
-  echo "mahpastes is not reachable or key is invalid"
-fi
+case $? in
+  0) ;;
+  2) echo "mahpastes is not running or its API is disabled" ;;
+  3) echo "MP_API_KEY is missing, invalid or revoked" ;;
+  *) echo "mp api status failed" ;;
+esac
 ```
 
 ## Example: Daily Backup Script
@@ -555,6 +636,7 @@ echo "Backup saved: $FILENAME"
 
 ## Related
 
+- [Integration Recipes](integration-recipes.md) -- wire `mp` into fzf, tmux, vim, git, file managers and macOS Quick Actions
 - [Clipboard Management](../features/clipboard-management.md) -- feature reference
 - [Watch Folders](../features/watch-folders.md) -- watch folder details
 - [Troubleshooting](../reference/troubleshooting.md) -- CLI error solutions

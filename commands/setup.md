@@ -7,34 +7,34 @@ Set up the mahpastes API connection for Claude Code.
 
 ## Step 1: Check Existing Configuration
 
-Read `~/.claude/settings.json`. Check if `env.MAHPASTES_API_URL` and `env.MAHPASTES_API_KEY` exist and are non-empty.
+Read `~/.claude/settings.json`. Check if `env.MP_API_URL` and `env.MP_API_KEY` exist and are non-empty. These are the variables the `mp` CLI reads, so one configuration serves both the plugin and `mp`.
 
 If both are set, verify connectivity:
 
 ```bash
 curl -sf -o /dev/null -w "%{http_code}" \
-  -H "Authorization: Bearer $MAHPASTES_API_KEY" \
-  "$MAHPASTES_API_URL/api/v1/tags"
+  -H "Authorization: Bearer $MP_API_KEY" \
+  "$MP_API_URL/api/v1/tags"
 ```
 
 If this returns `200`, inform the user that mahpastes is already configured and working. Ask if they want to reconfigure. If they don't, stop here.
 
 ## Step 2: Determine API URL
 
-Try the default URL `http://127.0.0.1:8484`:
+Try the default URL `http://127.0.0.1:44557` (the default port of the app's API server and of `mp`):
 
 ```bash
-curl -sf -o /dev/null -w "%{http_code}" http://127.0.0.1:8484/api/v1/tags 2>/dev/null || echo "UNREACHABLE"
+curl -sf -o /dev/null -w "%{http_code}" http://127.0.0.1:44557/api/v1/status 2>/dev/null || echo "UNREACHABLE"
 ```
 
-A `401` response means the API is running on the default port (auth required — expected).
+`GET /api/v1/status` needs no key. A `200` response means the API is running on the default port.
 
 If unreachable, tell the user to:
 1. Open the mahpastes app
 2. Go to **Settings** (gear icon) → **API** tab
 3. Click **Start API** and note the port number
 
-Ask the user for the port if it differs from 8484, then construct the URL as `http://127.0.0.1:PORT`.
+Ask the user for the port if it differs from 44557, then construct the URL as `http://127.0.0.1:PORT`.
 
 ## Step 3: Get API Key
 
@@ -55,8 +55,10 @@ Ask the user to paste the API key.
 
 Read `~/.claude/settings.json` (create with `{}` if it doesn't exist). Merge the mahpastes env vars into the existing `env` object, preserving all other settings:
 
-- Set `env.MAHPASTES_API_URL` to the URL from step 2
-- Set `env.MAHPASTES_API_KEY` to the key from step 3
+- Set `env.MP_API_URL` to the URL from step 2
+- Set `env.MP_API_KEY` to the key from step 3
+
+Only `MP_*` names are written. The `mp` CLI also accepts the older `MAHPASTES_API_URL` / `MAHPASTES_API_KEY` names as fallbacks, so existing settings written by an earlier version of this command keep working for `mp`. Re-running setup replaces them with `MP_*` values.
 
 Write the updated JSON back to `~/.claude/settings.json` with proper formatting.
 

@@ -6,6 +6,14 @@ export function CreateAPIKey(arg1, arg2, arg3) {
   return window['go']['main']['APIService']['CreateAPIKey'](arg1, arg2, arg3);
 }
 
+export function GetAPIAutostart() {
+  return window['go']['main']['APIService']['GetAPIAutostart']();
+}
+
+export function GetAPIPort() {
+  return window['go']['main']['APIService']['GetAPIPort']();
+}
+
 export function GetAPIStatus() {
   return window['go']['main']['APIService']['GetAPIStatus']();
 }
@@ -16,6 +24,10 @@ export function ListAPIKeys() {
 
 export function RevokeAPIKey(arg1) {
   return window['go']['main']['APIService']['RevokeAPIKey'](arg1);
+}
+
+export function SetAPIAutostart(arg1, arg2) {
+  return window['go']['main']['APIService']['SetAPIAutostart'](arg1, arg2);
 }
 
 export function StartAPI(arg1, arg2) {

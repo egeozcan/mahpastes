@@ -105,6 +105,18 @@ if [[ ! -x "$wails" ]]; then
     exit 1
 fi
 
+# Stamp the version into `wails build` (internal/buildinfo) unless the caller
+# already passed -ldflags (the Makefile does). Wails builds with
+# -buildvcs=false, so this flag is the only source of the version.
+stamp_version() {
+    local a
+    for a in "$@"; do [[ "$a" == -ldflags* ]] && return 0; done
+    local v c
+    v="$(git describe --tags --always --dirty 2>/dev/null || echo dev)"
+    c="$(git rev-parse --short HEAD 2>/dev/null || true)"
+    args+=(-ldflags "-X go-clipboard/internal/buildinfo.Version=$v -X go-clipboard/internal/buildinfo.Commit=$c")
+}
+
 # Wails v2 links webkit2gtk-4.0 unless told otherwise. Ubuntu 24.04+, Debian 13
 # and Fedora 40+ ship only 4.1; prefer it whenever it is available.
 args=("$@")
@@ -114,4 +126,5 @@ if pkg-config --exists webkit2gtk-4.1; then
     build* | dev*) args=("$1" -tags webkit2_41 "${@:2}") ;;
     esac
 fi
+[[ "${1:-}" == build ]] && stamp_version "$@"
 exec "$wails" "${args[@]}"

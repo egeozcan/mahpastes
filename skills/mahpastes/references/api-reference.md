@@ -2,11 +2,11 @@
 
 ## Base URL
 
-`$MAHPASTES_API_URL` (default: `http://127.0.0.1:8484`)
+`$MP_API_URL` (default: `http://127.0.0.1:44557`, the port the mp CLI and the app use)
 
 ## Authentication
 
-All requests require: `Authorization: Bearer $MAHPASTES_API_KEY`
+All requests require: `Authorization: Bearer $MP_API_KEY`
 
 API keys have roles with increasing privilege:
 - **viewer** (level 0): List and view clips/tags, list servers
@@ -82,8 +82,8 @@ Response: Single clip object (same shape as list item).
 Response: Raw file content with appropriate `Content-Type` header.
 
 ```bash
-curl -s -H "Authorization: Bearer $MAHPASTES_API_KEY" \
-  "$MAHPASTES_API_URL/api/v1/clips/42/data" -o document.pdf
+curl -s -H "Authorization: Bearer $MP_API_KEY" \
+  "$MP_API_URL/api/v1/clips/42/data" -o document.pdf
 ```
 
 ### Upload Clip
@@ -102,9 +102,9 @@ Content-Type: `multipart/form-data`
 
 ```bash
 curl -s -X POST \
-  -H "Authorization: Bearer $MAHPASTES_API_KEY" \
+  -H "Authorization: Bearer $MP_API_KEY" \
   -F "file=@/path/to/file.txt" \
-  "$MAHPASTES_API_URL/api/v1/clips?filename=custom-name.txt"
+  "$MP_API_URL/api/v1/clips?filename=custom-name.txt"
 ```
 
 Response (201): Clip object with `id`, `filename`, `content_type`, `size`, `tags`.

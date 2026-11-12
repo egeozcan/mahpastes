@@ -55,7 +55,7 @@ func TestBuildTransferCapabilitiesMatrix(t *testing.T) {
 	}{
 		{goos: "darwin", dragEnabled: true, expectStrategy: "file-uri-v1", expectReason: false, nativeDrag: true},
 		{goos: "windows", dragEnabled: true, expectStrategy: "file-uri-v1", expectReason: false, nativeDrag: false},
-		{goos: "linux", dragEnabled: false, expectStrategy: "linux-fileuri-v1", expectReason: true, nativeDrag: false},
+		{goos: "linux", dragEnabled: true, expectStrategy: "file-uri-v1", expectReason: false, nativeDrag: false},
 		{goos: "freebsd", dragEnabled: false, expectStrategy: "", expectReason: true, nativeDrag: false},
 	}
 
@@ -71,10 +71,33 @@ func TestBuildTransferCapabilitiesMatrix(t *testing.T) {
 			if tc.expectReason && caps.DragOut.Reason == "" {
 				t.Fatalf("expected non-empty reason for %s", tc.goos)
 			}
+			if !tc.expectReason && caps.DragOut.Reason != "" {
+				t.Fatalf("expected no reason for %s, got %q", tc.goos, caps.DragOut.Reason)
+			}
 			if caps.DragOut.NativeDrag != tc.nativeDrag {
 				t.Fatalf("native_drag mismatch: got %v want %v", caps.DragOut.NativeDrag, tc.nativeDrag)
 			}
 		})
+	}
+}
+
+func TestBuildTransferCapabilitiesClipboardFile(t *testing.T) {
+	for goos, want := range map[string]bool{"darwin": true, "windows": true, "linux": true, "freebsd": false} {
+		if got := buildTransferCapabilities(goos).ClipboardFile; got != want {
+			t.Errorf("%s: ClipboardFile=%v want %v", goos, got, want)
+		}
+	}
+}
+
+func TestBuildTransferCapabilitiesMacOnlyFlavours(t *testing.T) {
+	for goos, want := range map[string]bool{"darwin": true, "windows": false, "linux": false, "freebsd": false} {
+		caps := buildTransferCapabilities(goos)
+		if caps.ClipboardRichText != want {
+			t.Errorf("%s: ClipboardRichText=%v want %v", goos, caps.ClipboardRichText, want)
+		}
+		if caps.OpenWithApps != want {
+			t.Errorf("%s: OpenWithApps=%v want %v", goos, caps.OpenWithApps, want)
+		}
 	}
 }
 

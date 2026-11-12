@@ -1,0 +1,33 @@
+# systemd user unit for the mahpastes headless server.
+# Install with `make mahpastesd-install` (or copy this file to
+# ~/.config/systemd/user/ and the binary to ~/.local/bin/mahpastesd), then:
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now mahpastesd
+# Change settings with `systemctl --user edit mahpastesd` rather than editing
+# this file: `make mahpastesd-install` overwrites it.
+# See docs/docs/features/headless-server.md.
+[Unit]
+Description=mahpastes headless server
+# Stop retrying after 5 failed starts in a minute (for example when the port or
+# the data directory is already in use) instead of restarting forever.
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/mahpastesd
+# A dedicated data dir: the server and the desktop app take the same
+# per-data-dir lock, so never point this at the desktop app's directory.
+Environment=MAHPASTES_DATA_DIR=%h/.local/share/mahpastesd
+# 44557 is also the desktop app's REST API default port. If both run on this
+# machine, give one of them another port.
+Environment=MAHPASTESD_PORT=44557
+# Loopback only by default. For network access put a TLS proxy in front and
+# set MAHPASTESD_BIND_ALL=1 and MAHPASTESD_TRUST_PROXY=1 (see docs).
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

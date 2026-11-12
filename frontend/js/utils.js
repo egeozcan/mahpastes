@@ -434,7 +434,10 @@ function createModalFocus(modal) {
     };
 }
 
-function showToast(message, type = 'info') {
+// showToast shows a transient status message. An optional action
+// ({ label, onClick }) adds a button after the message and keeps the toast up
+// longer so there is time to reach it.
+function showToast(message, type = 'info', action = null) {
     const toast = document.getElementById('toast');
 
     // Color mapping
@@ -451,7 +454,28 @@ function showToast(message, type = 'info') {
     const colorClass = colors[type] || colors.info;
     toast.classList.add(colorClass);
 
+    const hide = () => {
+        toast.classList.remove('translate-x-0', 'opacity-100');
+        toast.classList.add('translate-x-full', 'opacity-0');
+        // A hidden toast keeps no focusable action behind it.
+        toast.querySelector('[data-testid="toast-action"]')?.remove();
+    };
+
     toast.textContent = message;
+    const hasAction = !!(action && action.label && typeof action.onClick === 'function');
+    if (hasAction) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'ml-2 underline underline-offset-2 font-medium hover:opacity-80 transition-opacity';
+        btn.dataset.testid = 'toast-action';
+        btn.textContent = action.label;
+        btn.addEventListener('click', () => {
+            if (window.toastTimeout) clearTimeout(window.toastTimeout);
+            hide();
+            action.onClick();
+        });
+        toast.appendChild(btn);
+    }
     toast.classList.remove('translate-x-full', 'opacity-0');
     toast.classList.add('translate-x-0', 'opacity-100');
 
@@ -459,10 +483,7 @@ function showToast(message, type = 'info') {
         clearTimeout(window.toastTimeout);
     }
 
-    window.toastTimeout = setTimeout(() => {
-        toast.classList.remove('translate-x-0', 'opacity-100');
-        toast.classList.add('translate-x-full', 'opacity-0');
-    }, 3000);
+    window.toastTimeout = setTimeout(hide, hasAction ? 8000 : 3000);
 }
 
 function copyToClipboard(text) {
@@ -474,14 +495,19 @@ function copyToClipboard(text) {
     document.body.appendChild(textArea);
     textArea.focus();
     textArea.select();
+    // execCommand reports a refused copy by returning false, not by throwing.
+    let copied = false;
     try {
-        document.execCommand('copy');
-        showToast('Copied to clipboard!');
+        copied = document.execCommand('copy');
     } catch (err) {
         console.error('Failed to copy: ', err);
-        showToast('Failed to copy.', 'error');
     }
     document.body.removeChild(textArea);
+    if (copied) {
+        showToast('Copied to clipboard!');
+    } else {
+        showToast('Failed to copy.', 'error');
+    }
 }
 
 // Tag colors are free text in the database and reach the DOM from the REST

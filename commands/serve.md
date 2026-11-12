@@ -8,7 +8,7 @@ Set up web hosting for files via mahpastes tag-serve.
 
 ## Prerequisites
 
-Verify `MAHPASTES_API_URL` and `MAHPASTES_API_KEY` environment variables are set. If not, tell the user to run `/mahpastes:setup` first and stop.
+Verify `MP_API_URL` and `MP_API_KEY` environment variables are set. If not, tell the user to run `/mahpastes:setup` first and stop.
 
 ## Parse Arguments
 
@@ -17,23 +17,25 @@ Extract from `$ARGUMENTS`:
 - `$2` — Port number (optional). If not provided, pick a random port in the 3000-9000 range.
 - `$3` — API access mode: `none`, `read`, or `readwrite` (optional, default: `none`)
 
+If `mp` is on PATH (`command -v mp`), prefer `mp tag list`, `mp tag create NAME`, `mp clip upload FILE --tag NAME`, and `mp serve start NAME --port PORT --api-access API_ACCESS`. The curl examples below are the fallback.
+
 ## Find or Create Tag
 
 List existing tags and look for one matching `$1`:
 
 ```bash
-curl -s -H "Authorization: Bearer $MAHPASTES_API_KEY" \
-  "$MAHPASTES_API_URL/api/v1/tags"
+curl -s -H "Authorization: Bearer $MP_API_KEY" \
+  "$MP_API_URL/api/v1/tags"
 ```
 
 If not found, create it:
 
 ```bash
 curl -s -X POST \
-  -H "Authorization: Bearer $MAHPASTES_API_KEY" \
+  -H "Authorization: Bearer $MP_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"name":"TAG_NAME"}' \
-  "$MAHPASTES_API_URL/api/v1/tags"
+  "$MP_API_URL/api/v1/tags"
 ```
 
 Save the tag ID for later steps.
@@ -51,26 +53,26 @@ For each file:
 1. Upload:
    ```bash
    curl -s -X POST \
-     -H "Authorization: Bearer $MAHPASTES_API_KEY" \
+     -H "Authorization: Bearer $MP_API_KEY" \
      -F "file=@FILE_PATH" \
-     "$MAHPASTES_API_URL/api/v1/clips"
+     "$MP_API_URL/api/v1/clips"
    ```
 
 2. Tag the uploaded clip:
    ```bash
    curl -s -X PUT \
-     -H "Authorization: Bearer $MAHPASTES_API_KEY" \
-     "$MAHPASTES_API_URL/api/v1/clips/CLIP_ID/tags/TAG_ID"
+     -H "Authorization: Bearer $MP_API_KEY" \
+     "$MP_API_URL/api/v1/clips/CLIP_ID/tags/TAG_ID"
    ```
 
 ## Start Serving
 
 ```bash
 curl -s -X POST \
-  -H "Authorization: Bearer $MAHPASTES_API_KEY" \
+  -H "Authorization: Bearer $MP_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"tag_id":TAG_ID,"port":PORT,"bind_all":false,"api_access":"API_ACCESS"}' \
-  "$MAHPASTES_API_URL/api/v1/serve"
+  "$MP_API_URL/api/v1/serve"
 ```
 
 ## Report

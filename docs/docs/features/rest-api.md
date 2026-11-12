@@ -26,6 +26,16 @@ The REST API runs a separate HTTP server with key-based authentication. Every re
 
 The status line shows the server URL and request count while running.
 
+### Start on launch
+
+Turn on **Start on launch** to have the desktop app start the server each time it opens, so `mp`, scripts and agent plugins keep working after a restart without reopening this modal. It is off by default.
+
+- The server starts on the port shown in the modal: the one you last started it on, or the one in the port field when you turn the switch on (editing the port while it is on updates it too).
+- It always listens on `127.0.0.1` only. The **Network** toggle is never remembered, so network access still needs a manual start.
+- If the port is taken at launch, the app opens normally and the server stays stopped; start it from the modal.
+- The choice is local to this computer: backups do not carry it (restoring one turns it off), and API keys cannot change it through `PUT /api/v1/settings/{key}`.
+- The headless server (`mahpastesd`) ignores it; it always starts its own listener.
+
 ![API settings](/img/screenshots/api-settings.png)
 
 ## Stopping the Server
@@ -415,7 +425,7 @@ Most bulk operations return a JSON object with the count of affected items:
 | `bulk/tag` | `{ "tagged": 3 }` |
 | `bulk/untag` | `{ "untagged": 3 }` |
 | `bulk/download` | Binary ZIP file |
-| `bulk/copy` | `204 No Content` |
+| `bulk/copy` | `204 No Content`, or `500` with the reason when the clipboard could not be written |
 
 ---
 
@@ -627,6 +637,8 @@ Returns all configured watch folders:
   "total": 1
 }
 ```
+
+A folder that should be watched but is not (missing, on an unmounted volume, or refused by the operating system) also carries `"watch_error"` with the reason. `GET /api/v1/watch/status` returns `global_paused`, `active_count` (folders being watched right now), `unavailable_count` (folders that should be watched but are not), `total_count` and `is_watching`.
 
 #### Add a watch folder
 
@@ -961,7 +973,7 @@ Content-Type: application/json
 { "clip_id": 1 }
 ```
 
-Copies the clip's raw content (text or image data) to the system clipboard. Returns `204 No Content`.
+Copies the clip's raw content (text or image data) to the system clipboard. Returns `204 No Content`, or `500` with the reason when the clipboard could not be written (for example, a Linux session with no reachable clipboard).
 
 #### Copy as file
 
@@ -974,7 +986,7 @@ Content-Type: application/json
 { "clip_id": 1 }
 ```
 
-Places a file reference on the system clipboard (macOS: NSPasteboard file URL, Windows: PowerShell SetFileDropList). You can then paste the clip as a file into Finder, Explorer, or other apps. Returns `204 No Content`.
+Places a file reference on the system clipboard (macOS: NSPasteboard file URL, Windows: PowerShell SetFileDropList, Linux: `text/uri-list`, or `x-special/gnome-copied-files` on Cinnamon, MATE, Xfce, Budgie and Pantheon). You can then paste the clip as a file into Finder, Explorer, a Linux file manager, or other apps. Returns `204 No Content`, or an error when the clipboard could not be written.
 
 ---
 
@@ -1073,10 +1085,12 @@ GET /api/v1/status
 The one unauthenticated endpoint, for liveness checks:
 
 ```json
-{ "running": true, "port": 44557, "bind_all": false, "url": "http://127.0.0.1:44557", "request_count": 128 }
+{ "running": true, "port": 44557, "bind_all": false, "url": "http://127.0.0.1:44557", "request_count": 128, "version": "1.5.0" }
 ```
 
-It exposes no clip, tag, or key data. Note that `mp api status` does not use this route — it makes an authenticated `GET /clips?limit=1` so that it also validates the key.
+`version` is the app version, so clients such as `mp` can detect a CLI/app mismatch (`dev` for an unstamped build). It is visible to anyone who can reach the port, which matters only when the API listens on all interfaces.
+
+It exposes no clip, tag, or key data. `mp api status` calls this route first to check that the API is reachable (exit code 2 if not), then makes an authenticated `GET /clips?limit=1` to validate the key (exit code 3 if it is rejected). It prints the app's version next to its own and warns when the two releases differ.
 
 ## Error Responses
 

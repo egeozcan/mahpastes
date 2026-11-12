@@ -58,6 +58,27 @@ served over the network can't see your filesystem, so pasted paths always stay t
 | Keep the path as text | Always store the path as a text clip; never read the file |
 | Add the file it points to | Always import the file, prompting only when the path isn't a real file |
 
+### Pasting Rich Text
+
+Text copied from a browser, Mail, Notes or a word processor usually reaches the clipboard twice: as plain
+text, and as HTML that keeps its links and formatting. By default a paste keeps the plain text, as a
+`pasted_text_….txt` clip.
+
+To keep the formatting instead, set **Settings → Rich Text Paste → On paste** to **Save the formatting as
+an HTML clip**. A paste that carries HTML is then stored as a `pasted_html_….html` clip (`text/html`),
+wrapped into a complete UTF-8 page when the clipboard held only a fragment, so it opens correctly in a
+browser later. A paste without HTML still becomes a text clip and goes through the pasted-path handling
+above (a path copied in Finder or Explorer is plain text only, so it is still offered as a file); a paste
+that carries HTML is always saved as HTML. The setting works in the desktop app and in the browser UI.
+
+| Option | Behavior |
+|--------|----------|
+| Keep the plain text | Store the plain-text flavour (default) |
+| Save the formatting as an HTML clip | Store the HTML flavour whenever the paste has one |
+
+Some editors (VS Code, for example) put syntax-coloured HTML on the clipboard along with the code, so
+with the second option code pasted from them becomes an HTML clip too.
+
 ### Drag and Drop
 
 Drop files directly into the app:
@@ -69,6 +90,94 @@ Drop files directly into the app:
 Supported drop types:
 - Single files
 - Multiple files at once
+
+### Opening Files with mahpastes
+
+mahpastes is a single window per data directory. Launching it again while it is already running does
+not start a second copy: the running window comes forward instead, and any files named on the command
+line are imported into it.
+
+That makes these work:
+
+- **Command line**: `mahpastes photo.png notes.txt` imports both files into the running window (or
+  into the window it opens, if mahpastes was not running). Relative paths are resolved against the
+  directory you ran the command from.
+- **Windows**: dropping files onto `mahpastes.exe` or a shortcut to it, or **Send to > mahpastes** in
+  Explorer once you have added the shortcut (see [Send to on Windows](#send-to-on-windows)).
+- **Linux**: with the desktop entry from `make install` (`scripts/linux/install.sh`), mahpastes is listed
+  under **Open With** for text, Markdown, images, PDF and JSON files, and dropping files on its launcher
+  imports them. It is never made the default application for any of these types. Launching the app again
+  from the app menu, KRunner or a dock raises the running window.
+- **macOS**: Finder **Open With > mahpastes** works for any file, and so does dropping files on the Dock
+  icon. mahpastes is listed as an alternative handler only, so it never becomes the default app for a
+  file type. Starting a second copy from a terminal (`open -n -a mahpastes --args "$PWD/file.png"`, or
+  running the binary inside the bundle) also hands its files to the running window. `open` starts the
+  app in `/`, so pass absolute paths there.
+
+Opened files go through the same import as a pasted file path: duplicate detection, the upload expiry
+from the bottom bar and folder auto-tagging all apply, and the archive view switches back to the active
+list so the new clips are visible. Only ordinary files you can read are imported; folders, missing or
+unreadable paths and mahpastes' own temporary files (from **Copy Path** or drag-out) are skipped with a
+notice. A large selection is imported a few dozen files at a time.
+
+If the running process is the headless server (`mahpastesd`) rather than the desktop window, the second
+launch cannot hand over and shows the "another mahpastes instance is already running" error instead. A
+launch while the running window is closing waits a few seconds for it to exit and then starts normally.
+
+The same handover brings back a window that is hidden because **Keep running when the window is closed**
+is on or mahpastes started hidden at login (see [Background & Startup](background-startup.md)).
+
+:::note Window focus
+Windows and most desktops bring the window to the front. On Wayland the compositor decides: GNOME may
+only highlight mahpastes in the taskbar ("needs attention") rather than raise it.
+:::
+
+### Send to on Windows
+
+Explorer's **Send to** menu lists the shortcuts in your `shell:sendto` folder, and passes the selected
+files to the program a shortcut points at. The zip release does not add one for you. To add it:
+
+1. Press **Win+R**, type `shell:sendto` and press Enter. The Send To folder opens.
+2. In another Explorer window, right-drag `mahpastes.exe` into that folder and choose **Create shortcuts
+   here**. Rename the shortcut to `mahpastes`.
+
+Or run this in PowerShell from the folder that holds `mahpastes.exe`:
+
+```powershell
+$shell = New-Object -ComObject WScript.Shell
+$link = $shell.CreateShortcut("$([Environment]::GetFolderPath('SendTo'))\mahpastes.lnk")
+$link.TargetPath = (Resolve-Path .\mahpastes.exe).Path
+$link.Save()
+```
+
+Select files in Explorer, right-click, and choose **Send to > mahpastes** (on Windows 11 it is under
+**Show more options**). The running window imports them; if mahpastes is not running, it starts with them.
+Delete the shortcut from `shell:sendto` to remove the entry. If you move `mahpastes.exe`, create the
+shortcut again.
+
+Explorer passes the selection on a single command line of about 32,000 characters, so a very large
+selection (thousands of files) is cut short. Use [watch folders](./watch-folders.md) or the import wizard
+for those.
+
+### Save the Clipboard from a Global Shortcut (Linux)
+
+The Linux desktop entry has a **Save Clipboard as Clip** action. It saves whatever is on the clipboard
+as a new clip, exactly as pasting into the window would, even while mahpastes is in the background. Right-click
+the launcher to run it, or bind it to a key:
+
+- **KDE Plasma**: System Settings > Keyboard > Shortcuts > **Add New > Application...**, choose mahpastes,
+  then assign a key to **Save Clipboard as Clip**.
+- **GNOME and others**: add a custom shortcut whose command is the path of the installed binary with
+  `--paste-clipboard`, for example `~/.local/bin/mahpastes --paste-clipboard`.
+
+The window comes forward so you can see the result. An image on the clipboard is saved as an image;
+otherwise the text is saved (a copied file path asks whether to import the file, as a paste does).
+
+:::note GNOME on Wayland
+mahpastes reads the clipboard through XWayland, which GNOME only updates while an X11 window has focus.
+There, a shortcut pressed right after copying in a Wayland-native app can save the previous clipboard
+content. KDE Plasma is not affected.
+:::
 
 ### Expiration
 
@@ -110,7 +219,7 @@ These controls apply to images; videos keep their native playback controls.
 **Bottom bar:**
 - Position counter (e.g. "1/5"), filename, and media details
 - Zoom slider with percentage display for images
-- **Actions** menu with Open, Open With, Copy (Path / File / Contents), Save, Edit, Tags, Metadata, Rename, Set Expiration / Cancel Expiration, Merge Duplicates (if duplicates exist), Archive, Delete
+- **Actions** menu with Open, Open With, Copy (Path / File / Contents, plus Rich Text for HTML clips on macOS), Save, Edit, Tags, Metadata, Rename, Set Expiration / Cancel Expiration, Merge Duplicates (if duplicates exist), Archive, Delete
 - Plugin action menu (if plugins define lightbox actions)
 
 Right-clicking the image opens that same Actions menu at the pointer.
@@ -159,13 +268,15 @@ video/*        → Video player
 
 Click the three-dot menu button on any clip card, or right-click anywhere on the card, to open the context menu. The menu uses submenus to group related actions. Available actions:
 
-- **Open** -- opens the clip with the system default application
-- **Open With** -- opens a file dialog to choose an application
-- **Copy** (submenu) -- expands to show **Path**, **File**, and **Contents**
+- **Open** -- opens the clip with the system default application (`xdg-open`, falling back to `gio open`, on Linux). On Windows a file type with no registered application shows the "Open with" dialog instead
+- **Open With** -- on macOS, a submenu listing the applications registered for the clip's file type, as Finder's *Open With* does: the default application first, marked *(default)*, then the rest by name. **Other…** at the bottom opens a file dialog in `/Applications` to pick any application. The list is looked up when the submenu first opens (on macOS 11 and earlier only the default application is listed); if the lookup fails, only **Other…** is shown. On Windows, shows the native "Open with" dialog, which lists installed and Microsoft Store apps; ticking *Always use this app* there makes that app the default for the file type. On Linux it opens a file dialog to choose an application: pick the app's `.desktop` file (or switch the filter to *All Files* to pick a plain executable); the dialog starts in whichever applications directory holds the most apps -- usually `/usr/share/applications`, or the Flatpak exports on Fedora Atomic and similar. The others are `/var/lib/flatpak/exports/share/applications`, `~/.local/share/flatpak/exports/share/applications`, `~/.local/share/applications` and `/var/lib/snapd/desktop/applications`; type a path with Ctrl+L to reach them. The app is started with `gio launch`, falling back to `gtk-launch`. A Flatpak app started this way can only read the clip if its sandbox grants access to the mahpastes data folder, where the clip's temporary file lives
+- **Copy** (submenu) -- expands to show **Path**, **File**, **Contents**, **Link**, and, for HTML clips on macOS, **Rich Text**
   - **Path** -- creates a temporary file and copies the absolute path to clipboard
-  - **File** -- copies the clip as a file to the system clipboard (macOS via NSPasteboard, Windows via PowerShell; not supported on Linux)
-  - **Contents** -- copies raw text or image data to the system clipboard (available for text/\*, application/json, and image/\* types; non-PNG images are converted to PNG before copying)
-- **Save** -- opens a native save dialog to export the clip to disk
+  - **File** -- copies the clip as a file to the system clipboard (macOS via NSPasteboard, Windows via PowerShell, Linux as `text/uri-list`, or `x-special/gnome-copied-files` on Cinnamon, MATE, Xfce, Budgie and Pantheon; on Linux the copied file stays on the clipboard only while mahpastes is running)
+  - **Contents** -- copies raw text or image data to the system clipboard (available for text/\*, application/json, and image/\* types; non-PNG images are converted to PNG before copying). HTML clips are copied as their source text. On macOS, JPEG, GIF and TIFF images are also offered in their original format alongside the PNG, so apps that accept it keep the original compression or GIF animation; TIFF images are offered in their original format only
+  - **Rich Text** (macOS, HTML clips) -- copies the page as formatted text: Mail, Notes, Pages and other rich-text editors paste it with its formatting and links, while plain-text fields receive its readable text rather than the markup
+  - **Link** -- copies the clip's `mahpastes://clip/<id>` link; opening it shows the clip in mahpastes (see [Clip Links](./deep-links.md))
+- **Save** -- opens a native save dialog to export the clip to disk; in the desktop app the confirmation toast offers **Show in folder**, which shows the saved file selected in Finder, Explorer, or the Linux file manager (through the `org.freedesktop.FileManager1` service, or by opening the containing folder when no file manager provides it). In the browser UI the clip is downloaded instead
 - **Edit** -- opens the image editor or text editor (shown for editable types)
 - **Tags** -- opens the tag popover
 - **Metadata** -- opens the metadata modal for viewing and editing key-value pairs

@@ -21,29 +21,43 @@ Documentation: https://egeozcan.github.io/mahpastes/
 - **Bulk Actions** — Select multiple clips to tag, archive, download, or delete
 - **Search** — Filter clips by filename or type
 - **Watch Folders** — Auto-import files from monitored directories
+- **System Notifications** — Optional native notifications for imports, received shares and plugin results while the window is in the background
 - **Plugin System** — Install and manage Lua plugins from the dedicated Plugins modal
+- **`mp` CLI** — Upload, search, tag, pipe and back up clips from the terminal ([CLI workflow](docs/docs/tutorials/cli-workflow.md)); see the [integration recipes](docs/docs/tutorials/integration-recipes.md) for shell, fzf, tmux, vim, git, file-manager and macOS Quick Action snippets
+- **REST API** — Local, key-authenticated HTTP API with viewer/editor/admin roles and tag-scoped keys ([REST API](docs/docs/features/rest-api.md))
+- **Headless Server** — `mahpastesd` runs the same API and a web UI without the desktop app ([setup](docs/docs/tutorials/integration-recipes.md#without-the-desktop-app-mahpastesd))
+- **Claude Code Plugin** — Lets Claude Code store artifacts, host sites and search clips through the API ([skill](skills/mahpastes/SKILL.md), [commands](commands/); run `/mahpastes:setup` to connect)
 - **Backup & Restore** — Export and import all data as a ZIP archive
+- **Background & Startup** — Keep running when the window is closed and launch at login, optionally hidden ([docs](docs/docs/features/background-startup.md))
 - **Copy Path** — Create a temp file and copy its path to clipboard
 - **Export** — Save individual clips or download multiple as a ZIP
 - **Auto-Delete Engine** — Backend expiration support is implemented; per-clip expiration controls are being surfaced in UI
+- **Headless Server** — Run `mahpastesd` under systemd or in a container; see [docs/docs/features/headless-server.md](docs/docs/features/headless-server.md)
 
 ## Installation
 
 ### Download Release
 
-Download the latest release from the [Releases](https://github.com/egeozcan/mahpastes/releases) page.
+Download the latest release from the [Releases](https://github.com/egeozcan/mahpastes/releases) page:
+
+- **macOS** (13+, universal): `mahpastes-macos-universal.zip`, signed and notarized, with Finder integration. Drag `mahpastes.app` to Applications.
+- **Windows** (x64 or ARM): `mahpastes-windows-amd64-installer.exe` (or `arm64`) installs with Start Menu shortcuts; `mahpastes-windows-amd64.zip` or `mahpastes-windows-arm64.zip` is the portable archive; `scoop install https://github.com/egeozcan/mahpastes/releases/latest/download/mahpastes.json` also works. See `packaging/README.md` for the Scoop and Homebrew manifests.
+- **Linux** (x64; GTK 3, WebKitGTK 4.1, glibc 2.39+: Ubuntu 24.04, Debian 13, Fedora 40 and later): `mahpastes-linux-amd64.tar.gz`. Extract and run `./install.sh`, which installs the app and `mp` to `~/.local/bin` with a desktop entry and icon (`./install.sh --uninstall` removes them).
+- **Standalone** `mp` CLI and `mahpastesd` headless server for each platform, plus `SHA256SUMS` to verify downloads.
+
+Every app archive includes the `mp` CLI, the bundled plugins and examples. See the [installation guide](docs/docs/getting-started/installation.md) for details.
 
 ### Build from Source
 
 #### Prerequisites
 
-- [Go](https://go.dev/dl/) 1.24+
-- [Wails CLI](https://wails.io/docs/gettingstarted/installation)
+- [Go](https://go.dev/dl/) 1.25.7+ (fetches the 1.26.6 toolchain go.mod asks for)
+- [Wails CLI](https://wails.io/docs/gettingstarted/installation) v2.12.0
 - [Node.js](https://nodejs.org/) 18+
 
 ```bash
 # Install Wails CLI
-go install github.com/wailsapp/wails/v2/cmd/wails@latest
+go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
 ```
 
 #### Build
@@ -80,12 +94,28 @@ After building, copy to Applications:
 cp -R build/bin/mahpastes.app /Applications/
 ```
 
+Every build uses the bundle identifier `io.github.egeozcan.mahpastes` (from
+the committed `build/darwin/Info.plist`). Builds made before it was committed
+were `com.wails.mahpastes` unless they included Finder integration, so after
+upgrading from one of those macOS asks once more for folder and network
+permissions; your clips are not affected. The installed app appears under
+Finder's **Open With**, accepts files dropped on its Dock icon and handles
+[`mahpastes://` clip links](docs/docs/features/deep-links.md).
+
 ### Install on Linux
 
 `make install` builds and installs for the current user, without root:
-the app goes to `~/.local/bin/mahpastes`, with a desktop entry and icons under
+the app goes to `~/.local/bin/mahpastes` and the `mp` CLI to `~/.local/bin/mp`
+(when Go is available on the host), with a desktop entry, icons, `mp` shell
+completions (bash, zsh, and fish when installed) and `mp` man pages under
 `~/.local/share`. Set `PREFIX` to install elsewhere. `make uninstall` removes
-them again and keeps your data.
+them again (and the launch-at-login entry, if it starts that copy) and keeps
+your data. On other systems, `make mp-install` installs
+just `mp` with its completions and man pages, and `make mp-uninstall` removes them.
+The desktop entry lists mahpastes under
+**Open With** for common file types (never as the default), handles
+[`mahpastes://` clip links](docs/docs/features/deep-links.md), and has a
+**Save Clipboard as Clip** action you can bind to a global shortcut.
 
 Build dependencies:
 
@@ -130,7 +160,7 @@ A `Makefile` provides shortcuts for common operations:
 ```bash
 make dev        # Start dev server with hot reload
 make build      # Clean production build
-make install    # Build, kill running app, install (/Applications, ~/.local on Linux), launch
+make install    # Build, kill running app, install (/Applications, ~/.local on Linux, %LOCALAPPDATA%\Programs on Windows), launch
 make test       # Run e2e tests
 make screenshots # Refresh documentation screenshots
 make help       # Show all targets
@@ -141,7 +171,7 @@ On macOS, `make build` and `make install` include Finder integration when the
 Apple Command Line Tools. Without it, they warn and build the ordinary app.
 On Linux the same Settings section mounts the clips as a read-only folder
 instead; it needs no build options. Windows keeps the ordinary Wails build.
-Use `wails build` directly for a macOS build without Finder integration.
+Use `wails build` directly for a macOS build without Finder integration. Builds made through `make` stamp the version from `git describe`; with a plain `wails build` pass `-ldflags "-X go-clipboard/internal/buildinfo.Version=vX.Y.Z"` (see the [backend docs](docs/docs/developers/backend.md#version-stamping)).
 
 ### Project Structure
 
@@ -189,7 +219,9 @@ Data is stored in platform-specific locations:
 |----------|----------|
 | macOS    | `~/Library/Application Support/mahpastes/` |
 | Windows  | `%APPDATA%\mahpastes\` |
-| Linux    | `~/.config/mahpastes/` |
+| Linux    | `~/.config/mahpastes/`, or `$XDG_CONFIG_HOME/mahpastes/` (see below) |
+
+On Linux, `$XDG_CONFIG_HOME/mahpastes/` is used when `XDG_CONFIG_HOME` is an absolute path and either that directory already exists or `~/.config/mahpastes/` does not. An existing library is never moved: if you used mahpastes before setting `XDG_CONFIG_HOME`, it stays in `~/.config/mahpastes/`. `mahpastesd` and `scripts/linux/install.sh` follow the same rule; `MAHPASTES_DATA_DIR` overrides it everywhere.
 
 The database file is `clips.db`. Temporary files are stored in `clip_temp_files/` and cleaned up on app exit.
 
@@ -207,6 +239,7 @@ Shortcuts are configurable from **Settings > Shortcuts**.
 | `W` | Open watch view |
 | `/` | Focus search |
 | `Cmd/Ctrl + V` | Paste from clipboard |
+| `Cmd/Ctrl + Q` | Quit (desktop app) |
 | `Escape` | Close modal, drawer, or cheatsheet |
 
 ### Image Editor

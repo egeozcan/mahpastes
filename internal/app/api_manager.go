@@ -31,6 +31,7 @@ import (
 	"unicode/utf8"
 
 	"go-clipboard/internal/bridgeiface"
+	"go-clipboard/internal/buildinfo"
 	"go-clipboard/internal/cliptype"
 	"go-clipboard/plugin"
 )
@@ -42,6 +43,9 @@ type APIStatus struct {
 	BindAll      bool   `json:"bind_all"`
 	URL          string `json:"url"`
 	RequestCount int64  `json:"request_count"`
+	// Version is the app version, so clients such as mp can spot a
+	// CLI/app mismatch. Always set, also when the server is stopped.
+	Version string `json:"version"`
 }
 
 // APIKeyInfo is the public info about an API key (never includes the secret).
@@ -514,6 +518,7 @@ func (am *APIManager) Start(port int, bindAll bool) (APIStatus, error) {
 		BindAll:      bindAll,
 		URL:          displayServerURL(actualPort),
 		RequestCount: 0,
+		Version:      buildinfo.Current(),
 	}, nil
 }
 
@@ -553,10 +558,11 @@ func (am *APIManager) GetStatus() APIStatus {
 	defer am.mu.RUnlock()
 
 	if !am.running {
-		return APIStatus{}
+		return APIStatus{Version: buildinfo.Current()}
 	}
 
 	return APIStatus{
+		Version:      buildinfo.Current(),
 		Running:      true,
 		Port:         am.port,
 		BindAll:      am.bindAll,
@@ -1895,6 +1901,31 @@ func attachmentDisposition(name string) string {
 	return fmt.Sprintf("attachment; filename=%q", name)
 }
 
+// maxMultipartFieldBytes caps a plain form field read ahead of the file part.
+const maxMultipartFieldBytes = 4096
+
+// nextFilePart advances a multipart reader to the file part, skipping (and
+// collecting) any plain form fields sent before it, so field-first bodies work
+// the same as file-first ones. The file part is the one named "file" or any
+// part carrying a filename. Collected fields are keyed by form name.
+func nextFilePart(reader *multipart.Reader) (*multipart.Part, map[string]string, error) {
+	fields := map[string]string{}
+	for {
+		part, err := reader.NextPart()
+		if err != nil {
+			return nil, nil, err
+		}
+		if part.FormName() == "file" || part.FileName() != "" {
+			return part, fields, nil
+		}
+		if name := part.FormName(); name != "" {
+			v, _ := io.ReadAll(io.LimitReader(part, maxMultipartFieldBytes))
+			fields[name] = string(v)
+		}
+		part.Close()
+	}
+}
+
 func (am *APIManager) handleCreateClip(w http.ResponseWriter, r *http.Request) {
 	keyCtx := getKeyContext(r)
 
@@ -1919,7 +1950,7 @@ func (am *APIManager) handleCreateClip(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxClipUploadBytes+multipartOverheadBytes)
 
 	reader := multipart.NewReader(r.Body, params["boundary"])
-	part, err := reader.NextPart()
+	part, fields, err := nextFilePart(reader)
 	if err != nil {
 		am.jsonError(w, http.StatusBadRequest, "failed to read multipart data")
 		return
@@ -1938,6 +1969,9 @@ func (am *APIManager) handleCreateClip(w http.ResponseWriter, r *http.Request) {
 
 	// Detect content type
 	partContentType := part.Header.Get("Content-Type")
+	if override := strings.TrimSpace(fields["content_type"]); override != "" {
+		partContentType = override
+	}
 	if partContentType == "" || partContentType == "application/octet-stream" {
 		partContentType = mime.TypeByExtension(filepath.Ext(filename))
 		if partContentType == "" {
@@ -3048,7 +3082,7 @@ func (am *APIManager) handleBulkCopyToClipboard(w http.ResponseWriter, r *http.R
 	}
 
 	if err := am.app.clipboardService.BulkCopyFilesToClipboard(body.IDs); err != nil {
-		am.jsonError(w, http.StatusInternalServerError, "failed to copy to clipboard")
+		am.jsonError(w, http.StatusInternalServerError, "failed to copy to clipboard: "+err.Error())
 		return
 	}
 
@@ -4068,7 +4102,7 @@ func (am *APIManager) handleUploadPlugin(w http.ResponseWriter, r *http.Request)
 	r.Body = http.MaxBytesReader(w, r.Body, maxPluginUploadBytes+multipartOverheadBytes)
 
 	reader := multipart.NewReader(r.Body, params["boundary"])
-	part, err := reader.NextPart()
+	part, _, err := nextFilePart(reader)
 	if err != nil {
 		am.jsonError(w, http.StatusBadRequest, "failed to read multipart data")
 		return
@@ -4195,7 +4229,7 @@ func (am *APIManager) handleRestoreBackup(w http.ResponseWriter, r *http.Request
 	}
 
 	reader := multipart.NewReader(r.Body, params["boundary"])
-	part, err := reader.NextPart()
+	part, _, err := nextFilePart(reader)
 	if err != nil {
 		am.jsonError(w, http.StatusBadRequest, "failed to read multipart data")
 		return
@@ -4237,6 +4271,9 @@ var viewerReadableSettings = map[string]bool{
 	"tooltips_enabled":       true,
 	"keyboard_shortcuts":     true,
 	"plugin_update_interval": true,
+	// Rich text paste: the browser UI keeps HTML from the viewer's own
+	// clipboard, so the preference applies to every key that can paste.
+	"paste_html_behavior": true,
 }
 
 func (am *APIManager) handleGetSetting(w http.ResponseWriter, r *http.Request) {
@@ -4280,6 +4317,10 @@ func (am *APIManager) handleSetSetting(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		am.jsonError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if isDesktopOnlySetting(r.PathValue("key")) {
+		am.jsonError(w, http.StatusForbidden, "this setting can only be changed from the desktop app")
 		return
 	}
 	if err := am.app.SetSetting(r.PathValue("key"), body.Value); err != nil {

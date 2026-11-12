@@ -451,8 +451,10 @@ var watchStatusCmd = &cobra.Command{
 	Short: "Show watch folder system status",
 	Long: `Display the overall status of the watch folder system.
 
-Shows whether watching is globally paused, how many folders are active,
-and the total count of configured folders.`,
+Shows whether watching is globally paused, how many folders are being
+watched, how many should be watched but are not (folder missing, volume
+unmounted, or the operating system refused the watch), and the total count
+of configured folders.`,
 	Example: `  # Show watch status
   mp watch status
 
@@ -468,10 +470,11 @@ func runWatchStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	var status struct {
-		GlobalPaused bool `json:"global_paused"`
-		ActiveCount  int  `json:"active_count"`
-		TotalCount   int  `json:"total_count"`
-		IsWatching   bool `json:"is_watching"`
+		GlobalPaused     bool `json:"global_paused"`
+		ActiveCount      int  `json:"active_count"`
+		TotalCount       int  `json:"total_count"`
+		UnavailableCount int  `json:"unavailable_count"`
+		IsWatching       bool `json:"is_watching"`
 	}
 
 	if err := c.GetJSON("/api/v1/watch/status", &status); err != nil {
@@ -495,6 +498,7 @@ func runWatchStatus(cmd *cobra.Command, args []string) error {
 	pairs := [][2]string{
 		{"Global Paused", globalPaused},
 		{"Active", strconv.Itoa(status.ActiveCount)},
+		{"Unavailable", strconv.Itoa(status.UnavailableCount)},
 		{"Total", strconv.Itoa(status.TotalCount)},
 		{"Watching", isWatching},
 	}
@@ -529,7 +533,7 @@ func runWatchProcess(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid watch folder ID: %s", args[0])
 	}
 
-	if err := c.PostJSON(fmt.Sprintf("/api/v1/watch/%d/process", id), nil, nil); err != nil {
+	if err := c.Long().PostJSON(fmt.Sprintf("/api/v1/watch/%d/process", id), nil, nil); err != nil {
 		return err
 	}
 

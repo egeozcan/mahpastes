@@ -49,7 +49,7 @@ func runBackupCreate(cmd *cobra.Command, args []string) error {
 
 	outputPath := args[0]
 
-	body, _, err := c.GetRaw("/api/v1/backup")
+	body, _, err := c.Long().GetRaw("/api/v1/backup")
 	if err != nil {
 		return err
 	}
@@ -137,7 +137,7 @@ func runBackupRestore(cmd *cobra.Command, args []string) error {
 		filename = inputPath
 	}
 
-	if err := c.UploadFile("/api/v1/backup/restore", filename, reader, nil, nil); err != nil {
+	if err := c.Long().UploadFile("/api/v1/backup/restore", filename, reader, nil, nil); err != nil {
 		return err
 	}
 

@@ -1,0 +1,36 @@
+{
+    "version": "@VERSION@",
+    "description": "Clipboard and file clip manager with an mp command line client",
+    "homepage": "https://github.com/egeozcan/mahpastes",
+    "license": "MIT",
+    "architecture": {
+        "64bit": {
+            "url": "https://github.com/egeozcan/mahpastes/releases/download/v@VERSION@/mahpastes-windows-amd64.zip",
+            "hash": "@SHA_WIN_AMD64@",
+            "extract_dir": "mahpastes-windows-amd64"
+        },
+        "arm64": {
+            "url": "https://github.com/egeozcan/mahpastes/releases/download/v@VERSION@/mahpastes-windows-arm64.zip",
+            "hash": "@SHA_WIN_ARM64@",
+            "extract_dir": "mahpastes-windows-arm64"
+        }
+    },
+    "bin": "mp.exe",
+    "shortcuts": [
+        [
+            "mahpastes.exe",
+            "mahpastes"
+        ]
+    ],
+    "checkver": "github",
+    "autoupdate": {
+        "architecture": {
+            "64bit": {
+                "url": "https://github.com/egeozcan/mahpastes/releases/download/v$version/mahpastes-windows-amd64.zip"
+            },
+            "arm64": {
+                "url": "https://github.com/egeozcan/mahpastes/releases/download/v$version/mahpastes-windows-arm64.zip"
+            }
+        }
+    }
+}

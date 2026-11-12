@@ -4,6 +4,22 @@ import { selectors } from '../../helpers/selectors';
 import * as path from 'path';
 
 test.describe('Markdown clips', () => {
+  // Several tests replace MarkdownService methods on the worker-scoped page;
+  // put the real ones back so a stub never answers for a later test.
+  test.beforeEach(async ({ app }) => {
+    await app.page.evaluate(() => {
+      const w = window as any;
+      w.__markdownServiceOriginal = { ...w.go.main.MarkdownService };
+    });
+  });
+  test.afterEach(async ({ app }) => {
+    await app.page.evaluate(() => {
+      const w = window as any;
+      if (w.__markdownServiceOriginal) Object.assign(w.go.main.MarkdownService, w.__markdownServiceOriginal);
+      delete w.__markdownServiceOriginal;
+    });
+  });
+
   test('opens a filename-classified Markdown clip in rendered Preview', async ({ app }) => {
     const markdownPath = await createTempFile('# Preview Heading\n\nSource excerpt.', 'MD');
     const filename = path.basename(markdownPath);

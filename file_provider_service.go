@@ -41,6 +41,10 @@ type providerEnrollment struct {
 	// CreatedMountDir records that the app created MountPath, so disabling
 	// removes only a directory the user did not make.
 	CreatedMountDir bool `json:"createdMountDir,omitempty"`
+	// GTKBookmarkAdded and KDEPlaceAdded record sidebar entries the app
+	// created for the mount, so disabling removes only those.
+	GTKBookmarkAdded bool `json:"gtkBookmarkAdded,omitempty"`
+	KDEPlaceAdded    bool `json:"kdePlaceAdded,omitempty"`
 }
 
 const providerDomainRemoved = "The Finder location was removed. Use Retry to add it again."
@@ -452,8 +456,50 @@ func (s *FileProviderService) enableMount() (FileProviderStatus, error) {
 		s.message = err.Error()
 		return s.status(), err
 	}
+	s.surfaceInSidebars()
 	s.message = ""
 	return s.status(), nil
+}
+
+// surfaceInSidebars adds the mount to the file managers' sidebars. Failures
+// are logged only: the folder works without them. A custom
+// MAHPASTES_DATA_DIR (tests, development profiles) never touches the user's
+// sidebars.
+func (s *FileProviderService) surfaceInSidebars() {
+	if os.Getenv("MAHPASTES_DATA_DIR") != "" {
+		return
+	}
+	gtk, kde, err := surfaceMount(s.enrollment.MountPath)
+	if err != nil {
+		log.Printf("File manager sidebar: %v", err)
+	}
+	if (gtk && !s.enrollment.GTKBookmarkAdded) || (kde && !s.enrollment.KDEPlaceAdded) {
+		s.enrollment.GTKBookmarkAdded = s.enrollment.GTKBookmarkAdded || gtk
+		s.enrollment.KDEPlaceAdded = s.enrollment.KDEPlaceAdded || kde
+		if err := s.saveEnrollment(); err != nil {
+			log.Printf("File manager sidebar: %v", err)
+		}
+	}
+}
+
+// unsurfaceFromSidebars removes the sidebar entries the app added. A flag
+// stays set only for an entry whose removal failed, so a later disable
+// retries it and never touches an entry the app did not add.
+func (s *FileProviderService) unsurfaceFromSidebars() {
+	if !s.enrollment.GTKBookmarkAdded && !s.enrollment.KDEPlaceAdded {
+		return
+	}
+	gtk, kde, err := unsurfaceMount(s.enrollment.MountPath, s.enrollment.GTKBookmarkAdded, s.enrollment.KDEPlaceAdded)
+	if err != nil {
+		log.Printf("File manager sidebar: %v", err)
+	}
+	if gtk == s.enrollment.GTKBookmarkAdded && kde == s.enrollment.KDEPlaceAdded {
+		return
+	}
+	s.enrollment.GTKBookmarkAdded, s.enrollment.KDEPlaceAdded = gtk, kde
+	if err := s.saveEnrollment(); err != nil {
+		log.Printf("File manager sidebar: %v", err)
+	}
 }
 
 func (s *FileProviderService) disableMount() (FileProviderStatus, error) {
@@ -465,6 +511,7 @@ func (s *FileProviderService) disableMount() (FileProviderStatus, error) {
 		return s.status(), err
 	}
 	s.disconnect()
+	s.unsurfaceFromSidebars()
 	// Leave no empty placeholder behind in the home directory; Remove refuses
 	// a directory that is still a busy mount or has gained other contents.
 	if path := s.enrollment.MountPath; path != "" && s.enrollment.CreatedMountDir {

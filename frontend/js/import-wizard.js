@@ -982,7 +982,7 @@ const ImportWizard = (() => {
         const counts = planCounts();
         const message = counts.deletes
             ? `${counts.imports} file${counts.imports === 1 ? '' : 's'} will be imported and ${counts.deletes} `
-              + `${state.trashRecoverable ? 'moved to the Trash' : 'permanently deleted'}.`
+              + `${state.trashRecoverable ? (/Windows/.test(navigator.userAgent) ? 'moved to the Recycle Bin' : 'moved to the Trash') : 'permanently deleted'}.`
             : `${counts.imports} file${counts.imports === 1 ? '' : 's'} will be imported.`;
 
         showConfirmDialog('Apply import plan?', message, runApply, null, {
