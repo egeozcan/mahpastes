@@ -45,7 +45,7 @@ func getDataDir() (string, error) {
 		if err != nil {
 			return "", err
 		}
-		baseDir = filepath.Join(homeDir, ".config", "mahpastes")
+		baseDir = resolveLinuxDataDir(homeDir, os.Getenv("XDG_CONFIG_HOME"))
 	}
 
 	// Create directory if it doesn't exist
@@ -54,6 +54,20 @@ func getDataDir() (string, error) {
 	}
 
 	return baseDir, nil
+}
+
+// resolveLinuxDataDir picks the Linux data directory. An existing
+// ~/.config/mahpastes always wins so no library is stranded; otherwise an
+// absolute XDG_CONFIG_HOME is honoured, falling back to ~/.config.
+func resolveLinuxDataDir(homeDir, xdgConfigHome string) string {
+	legacy := filepath.Join(homeDir, ".config", "mahpastes")
+	if _, err := os.Stat(legacy); err == nil {
+		return legacy
+	}
+	if xdgConfigHome != "" && filepath.IsAbs(xdgConfigHome) {
+		return filepath.Join(xdgConfigHome, "mahpastes")
+	}
+	return legacy
 }
 
 // GetDataDir returns the OS-appropriate data directory for the app.

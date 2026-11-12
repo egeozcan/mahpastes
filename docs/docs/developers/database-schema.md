@@ -445,7 +445,7 @@ UPDATE clips SET is_archived = 1 WHERE id IN (?, ?, ?)
 |----------|------|
 | macOS | `~/Library/Application Support/mahpastes/clips.db` |
 | Windows | `%APPDATA%\mahpastes\clips.db` |
-| Linux | `~/.config/mahpastes/clips.db` |
+| Linux | `~/.config/mahpastes/clips.db` (or `$XDG_CONFIG_HOME/mahpastes/clips.db`; an existing `~/.config/mahpastes` always wins) |
 
 ## Backup
 

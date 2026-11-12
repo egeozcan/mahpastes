@@ -8,7 +8,8 @@
 #   $PREFIX/share/applications/mahpastes.desktop
 #   $PREFIX/share/icons/hicolor/<size>/apps/mahpastes.png
 # Bundled plugins are copied into the app's data directory, which the app reads
-# from ~/.config/mahpastes unless MAHPASTES_DATA_DIR overrides it.
+# from ~/.config/mahpastes (or $XDG_CONFIG_HOME/mahpastes when that is absolute
+# and ~/.config/mahpastes does not exist) unless MAHPASTES_DATA_DIR overrides it.
 set -euo pipefail
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -17,7 +18,17 @@ APP_NAME=mahpastes
 PREFIX="${PREFIX:-$HOME/.local}"
 BINDIR="${BINDIR:-$PREFIX/bin}"
 DATAROOT="${DATAROOT:-$PREFIX/share}"
-DATA_DIR="${MAHPASTES_DATA_DIR:-$HOME/.config/$APP_NAME}"
+# Same rule as the app: an existing ~/.config/mahpastes wins, then an absolute
+# XDG_CONFIG_HOME, then ~/.config.
+if [ -d "$HOME/.config/$APP_NAME" ]; then
+    default_data_dir="$HOME/.config/$APP_NAME"
+else
+    case "${XDG_CONFIG_HOME:-}" in
+        /*) default_data_dir="$XDG_CONFIG_HOME/$APP_NAME" ;;
+        *) default_data_dir="$HOME/.config/$APP_NAME" ;;
+    esac
+fi
+DATA_DIR="${MAHPASTES_DATA_DIR:-$default_data_dir}"
 binary="$BINDIR/$APP_NAME"
 desktop="$DATAROOT/applications/$APP_NAME.desktop"
 icon_root="$DATAROOT/icons/hicolor"

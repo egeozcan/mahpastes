@@ -16,7 +16,7 @@ The SQLite database contains all clips and settings.
 |----------|------|
 | **macOS** | `~/Library/Application Support/mahpastes/clips.db` |
 | **Windows** | `%APPDATA%\mahpastes\clips.db` |
-| **Linux** | `~/.config/mahpastes/clips.db` |
+| **Linux** | `~/.config/mahpastes/clips.db` (or `$XDG_CONFIG_HOME/mahpastes/clips.db`; an existing `~/.config/mahpastes` always wins) |
 
 The data directory can be overridden with the `MAHPASTES_DATA_DIR` environment variable. This is used for testing.
 
@@ -30,7 +30,7 @@ Temp files are created for clipboard copy-as-file and drag-out transfers. Manage
 |----------|------|
 | **macOS** | `~/Library/Application Support/mahpastes/clip_temp_files/` |
 | **Windows** | `%APPDATA%\mahpastes\clip_temp_files\` |
-| **Linux** | `~/.config/mahpastes/clip_temp_files/` |
+| **Linux** | `~/.config/mahpastes/clip_temp_files/` (under `$XDG_CONFIG_HOME/mahpastes` when that applies) |
 
 Temp files have a 60-minute lease. A prune job runs every 10 minutes to remove stale and orphaned files. All temp files are also deleted on app exit.
 

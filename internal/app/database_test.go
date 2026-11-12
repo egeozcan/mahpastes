@@ -426,3 +426,25 @@ func TestMigration_RestoresFKOnError(t *testing.T) {
 		}
 	}
 }
+
+func TestResolveLinuxDataDir(t *testing.T) {
+	home := t.TempDir()
+	xdg := filepath.Join(t.TempDir(), "xdgconf")
+	legacy := filepath.Join(home, ".config", "mahpastes")
+
+	if got := resolveLinuxDataDir(home, ""); got != legacy {
+		t.Errorf("unset XDG: got %s", got)
+	}
+	if got := resolveLinuxDataDir(home, "relative/dir"); got != legacy {
+		t.Errorf("relative XDG must be ignored: got %s", got)
+	}
+	if got := resolveLinuxDataDir(home, xdg); got != filepath.Join(xdg, "mahpastes") {
+		t.Errorf("absolute XDG without legacy dir: got %s", got)
+	}
+	if err := os.MkdirAll(legacy, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if got := resolveLinuxDataDir(home, xdg); got != legacy {
+		t.Errorf("existing legacy dir must win: got %s", got)
+	}
+}
