@@ -26,6 +26,12 @@ lock on `instance.lock` in the data directory while they run. The desktop app al
 it is created in your per-user runtime or temp directory instead), which is how a second launch hands its
 files to the running window. Both files are safe to delete while mahpastes is not running.
 
+`desktop-prefs.json` in the data directory holds the desktop settings mahpastes needs before its
+database opens, currently **Keep running when the window is closed** (see
+[Background & Startup](../features/background-startup.md)). It is not part of a backup; deleting it
+restores the platform default. The **Launch at login** entry lives where your system keeps login items,
+not in the data directory.
+
 The database uses WAL journal mode, a 5-second busy timeout, and foreign keys enabled. These pragmas are set via the DSN string for connection-pool safety.
 
 ### Temporary Files

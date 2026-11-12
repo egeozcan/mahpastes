@@ -79,6 +79,23 @@ process holding the data directory is not a desktop window that can take over, u
 2. The running instance is still starting up or is hanging -- wait a moment, or end the process named in the
    message
 
+### Closing the window does not quit mahpastes
+
+**Symptoms:** After closing the window, watch folders still import, or mahpastes does not appear to
+start again.
+
+**Keep running when the window is closed** is on (the default on macOS), so mahpastes is still running
+without its window. Launching it again (or clicking its Dock icon on macOS) shows the window. To quit,
+use <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> +
+<span className="keyboard-key">Q</span> or **Quit mahpastes** in the menu drawer, or turn the setting off
+under **Settings > Background & Startup** (takes effect after a restart). See
+[Background & Startup](../features/background-startup.md).
+
+### mahpastes starts without a window at login
+
+**Launch at login** with **Start hidden** is on. Launch mahpastes again (or click its Dock icon on
+macOS) to show the window, or turn **Start hidden** off under **Settings > Background & Startup**.
+
 ### High Memory Usage
 
 **Symptoms:** App uses excessive memory.

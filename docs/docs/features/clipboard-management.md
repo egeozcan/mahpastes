@@ -103,6 +103,9 @@ If the running process is the headless server (`mahpastesd`) rather than the des
 launch cannot hand over and shows the "another mahpastes instance is already running" error instead. A
 launch while the running window is closing waits a few seconds for it to exit and then starts normally.
 
+The same handover brings back a window that is hidden because **Keep running when the window is closed**
+is on or mahpastes started hidden at login (see [Background & Startup](background-startup.md)).
+
 :::note Window focus
 Windows and most desktops bring the window to the front. On Wayland the compositor decides: GNOME may
 only highlight mahpastes in the taskbar ("needs attention") rather than raise it.

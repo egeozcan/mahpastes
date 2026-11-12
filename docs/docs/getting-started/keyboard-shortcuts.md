@@ -16,6 +16,7 @@ Complete reference for all keyboard shortcuts in mahpastes. Press <span classNam
 | <span className="keyboard-key">Esc</span> | Close current modal, drawer, or cheatsheet |
 | <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">V</span> | Paste from system clipboard |
 | <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">C</span> | Copy (context-dependent, see below) |
+| <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">Q</span> | Quit mahpastes (desktop app; asks first when the editor has unsaved changes) |
 
 ### Cmd+C Behavior
 

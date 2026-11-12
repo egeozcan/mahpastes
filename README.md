@@ -23,6 +23,7 @@ Documentation: https://egeozcan.github.io/mahpastes/
 - **Watch Folders** — Auto-import files from monitored directories
 - **Plugin System** — Install and manage Lua plugins from the dedicated Plugins modal
 - **Backup & Restore** — Export and import all data as a ZIP archive
+- **Background & Startup** — Keep running when the window is closed and launch at login, optionally hidden ([docs](docs/docs/features/background-startup.md))
 - **Copy Path** — Create a temp file and copy its path to clipboard
 - **Export** — Save individual clips or download multiple as a ZIP
 - **Auto-Delete Engine** — Backend expiration support is implemented; per-clip expiration controls are being surfaced in UI
@@ -93,7 +94,8 @@ Finder's **Open With**, accepts files dropped on its Dock icon and handles
 `make install` builds and installs for the current user, without root:
 the app goes to `~/.local/bin/mahpastes`, with a desktop entry and icons under
 `~/.local/share`. Set `PREFIX` to install elsewhere. `make uninstall` removes
-them again and keeps your data. The desktop entry lists mahpastes under
+them again (and the launch-at-login entry, if it starts that copy) and keeps
+your data. The desktop entry lists mahpastes under
 **Open With** for common file types (never as the default), handles
 [`mahpastes://` clip links](docs/docs/features/deep-links.md), and has a
 **Save Clipboard as Clip** action you can bind to a global shortcut.
@@ -218,6 +220,7 @@ Shortcuts are configurable from **Settings > Shortcuts**.
 | `W` | Open watch view |
 | `/` | Focus search |
 | `Cmd/Ctrl + V` | Paste from clipboard |
+| `Cmd/Ctrl + Q` | Quit (desktop app) |
 | `Escape` | Close modal, drawer, or cheatsheet |
 
 ### Image Editor

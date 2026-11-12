@@ -33,6 +33,7 @@ const sidebars = {
         'features/tag-serve',
         'features/rest-api',
         'features/deep-links',
+        'features/background-startup',
       ],
     },
     {
