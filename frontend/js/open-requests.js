@@ -17,6 +17,9 @@
 // multi-path paste) rather than all at once.
 const OPEN_REQUEST_IMPORT_BATCH = 32;
 
+// How much of an unsupported link the error toast shows.
+const OPEN_REQUEST_LINK_SHOWN = 80;
+
 let openRequestDrain = null;
 let openRequestDrainAgain = false;
 
@@ -84,8 +87,11 @@ async function handleOpenRequests(batch) {
         showToast(`Skipped ${skipped.length} ${noun} that can't be imported: ${shown}`, 'error');
     }
 
+    // Any web page can send a link, so a long one is shortened rather than
+    // filling the toast (showToast sets text, never markup).
     for (const url of unsupported) {
-        showToast(`Unsupported mahpastes link: ${url}`, 'error');
+        const shown = url.length > OPEN_REQUEST_LINK_SHOWN ? `${url.slice(0, OPEN_REQUEST_LINK_SHOWN)}…` : url;
+        showToast(`Unsupported mahpastes link: ${shown}`, 'error');
     }
 
     // Only the last clip link is shown: each one would replace the previous

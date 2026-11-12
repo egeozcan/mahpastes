@@ -187,9 +187,9 @@ is left there because the application reads it after `mp` has exited; delete the
 like. Editing the copy does not change the clip. This works against the desktop app and against
 `mahpastesd`, as long as the clip's data can be downloaded to this computer.
 
-Executable file types (`.exe`, `.bat`, `.ps1`, `.command`, `.desktop` and similar) are not opened with
-the default application, since that would run them; use `mp clip download` instead, or name a program
-with `--app`.
+Programs, scripts and installers (`.exe`, `.bat`, `.ps1`, `.py`, `.sh`, `.msi`, `.command`, `.pkg`,
+`.desktop` and similar) are not opened with the default application, since that could run them; use
+`mp clip download` instead, or name a program with `--app`.
 
 To show the clip in the mahpastes window instead, use its [clip link](../features/deep-links.md):
 

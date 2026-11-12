@@ -106,6 +106,15 @@ test.describe('Open request handling in the window', () => {
     await app.expectToast('Unsupported mahpastes link: mahpastes://nothing-here');
   });
 
+  test('shows an unsupported link as shortened text, never as markup', async ({ app }) => {
+    const link = 'mahpastes:<img id=pwn-link src=x>' + 'a'.repeat(200);
+
+    await handle(app, { unsupported_links: [link] });
+
+    await app.expectToast(`Unsupported mahpastes link: ${link.slice(0, 80)}…`);
+    await expect(app.page.locator('#pwn-link')).toHaveCount(0);
+  });
+
   test('a clip link opens an image clip in the lightbox', async ({ app }) => {
     const imagePath = await createTempFile(generateTestImage(32, 32, 'blue'), 'png');
     await app.uploadFile(imagePath);

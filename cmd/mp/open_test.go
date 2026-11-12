@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestOpenFileName(t *testing.T) {
@@ -26,6 +27,11 @@ func TestOpenFileName(t *testing.T) {
 		{"a:b|c?.txt", "text/plain", "a_b_c_.txt"},
 		{"trailing. ", "text/plain", "trailing"},
 		{"line\nbreak.txt", "text/plain", "line_break.txt"},
+		// Windows device names, in any case and with any extension.
+		{"NUL.txt", "text/plain", "_NUL.txt"},
+		{"con", "text/plain", "_con"},
+		{"Com1.tar.gz", "application/gzip", "_Com1.tar.gz"},
+		{"console.txt", "text/plain", "console.txt"},
 	} {
 		if got := openFileName(7, tt.filename, tt.contentType); got != tt.want {
 			t.Errorf("openFileName(%q, %q) = %q, want %q", tt.filename, tt.contentType, got, tt.want)
@@ -34,6 +40,24 @@ func TestOpenFileName(t *testing.T) {
 	long := strings.Repeat("x", 300) + ".png"
 	if got := openFileName(7, long, "image/png"); len(got) != 200 || !strings.HasSuffix(got, ".png") {
 		t.Errorf("long name shortened to %q (%d bytes), want 200 bytes ending in .png", got, len(got))
+	}
+	// A cut through a multi-byte character would leave a name macOS refuses.
+	wide := "x" + strings.Repeat("ü", 150) + ".txt"
+	if got := openFileName(7, wide, "text/plain"); len(got) > 200 || !utf8.ValidString(got) || !strings.HasSuffix(got, ".txt") {
+		t.Errorf("multi-byte name shortened to %q (%d bytes), want valid UTF-8 within 200 bytes ending in .txt", got, len(got))
+	}
+}
+
+func TestExecutableExtensionsAreRefused(t *testing.T) {
+	for _, name := range []string{"run.py", "Setup.EXE", "help.chm", "go.webloc", "x.AppImage", "a.ps1", "p.msix"} {
+		if !executableExtensions[strings.ToLower(filepath.Ext(name))] {
+			t.Errorf("%s is not treated as executable", name)
+		}
+	}
+	for _, name := range []string{"photo.png", "notes.txt", "report.pdf", "data.json"} {
+		if executableExtensions[strings.ToLower(filepath.Ext(name))] {
+			t.Errorf("%s is treated as executable", name)
+		}
 	}
 }
 

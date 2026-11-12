@@ -101,12 +101,19 @@ func TestFromArgsFileURLs(t *testing.T) {
 		}
 		return
 	}
+	// What a Linux launcher passes for %U: local files as file:// URIs, and
+	// remote locations (a file manager browsing sftp:// or smb://) as
+	// themselves. Remote ones are not files here and must not become
+	// cwd-relative paths.
 	got := FromArgs([]string{
 		"file:///home/u/a%20b.png",
 		"file://localhost/home/u/c.txt",
 		"file://otherhost/home/u/d.txt",
+		"file:///home/u/%C3%BCber%23.txt",
+		"sftp://host/home/u/e.txt",
+		"smb://server/share/f.txt",
 	}, "/cwd")
-	want := []string{"/home/u/a b.png", "/home/u/c.txt"}
+	want := []string{"/home/u/a b.png", "/home/u/c.txt", "/home/u/über#.txt"}
 	if !reflect.DeepEqual(got.Files, want) {
 		t.Fatalf("got %v, want %v", got.Files, want)
 	}

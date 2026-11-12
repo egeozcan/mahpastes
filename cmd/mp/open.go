@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"go-clipboard/cmd/mp/client"
 
@@ -29,8 +30,9 @@ The copy stays in mp's cache folder (mahpastes/mp-open under your user cache
 directory) because the application reads it after mp has exited; delete that
 folder whenever you like. Editing the copy does not change the clip.
 
-Executable file types (.exe, .bat, .command, .desktop and similar) are not
-opened by default; use "mp clip download" for those.
+Programs, scripts and installers (.exe, .bat, .py, .sh, .command, .pkg,
+.desktop and similar) are not opened by default; use "mp clip download" for
+those.
 
 --in-app instead brings the running mahpastes window forward and shows the clip,
 through its mahpastes:// link. That needs the desktop app on this computer
@@ -116,12 +118,37 @@ func openerCommand(goos, target, app string) (string, []string) {
 // than displays on at least one OS. A clip is whatever someone pasted, shared
 // or dropped into a watch folder, so "open" never runs one.
 var executableExtensions = map[string]bool{
+	// Windows: programs, scripts and installers, and the shell files that
+	// launch or install something.
 	".exe": true, ".com": true, ".bat": true, ".cmd": true, ".ps1": true, ".psm1": true,
-	".vbs": true, ".vbe": true, ".js": true, ".jse": true, ".wsf": true, ".wsh": true,
-	".msi": true, ".msp": true, ".scr": true, ".lnk": true, ".url": true, ".hta": true,
-	".cpl": true, ".pif": true, ".reg": true, ".appref-ms": true, ".application": true,
-	".jar": true, ".command": true, ".tool": true, ".terminal": true, ".desktop": true,
-	".app": true, ".pkg": true, ".scpt": true, ".workflow": true,
+	".psd1": true, ".ps1xml": true, ".psc1": true, ".vb": true, ".vbs": true, ".vbe": true,
+	".js": true, ".jse": true, ".ws": true, ".wsf": true, ".wsh": true, ".msi": true,
+	".msp": true, ".mst": true, ".scr": true, ".lnk": true, ".url": true, ".website": true,
+	".hta": true, ".chm": true, ".cpl": true, ".msc": true, ".pif": true, ".reg": true,
+	".inf": true, ".scf": true, ".gadget": true, ".diagcab": true, ".library-ms": true,
+	".settingcontent-ms": true, ".appref-ms": true, ".application": true, ".xbap": true,
+	".appx": true, ".appxbundle": true, ".msix": true, ".msixbundle": true,
+	".appinstaller": true,
+	// Interpreted scripts that a Python, Java or shell association runs.
+	".py": true, ".pyw": true, ".pyz": true, ".pyzw": true, ".jar": true, ".jnlp": true,
+	".sh": true, ".run": true, ".appimage": true,
+	// macOS: scripts, bundles, installers and location files that open
+	// another file or app.
+	".command": true, ".tool": true, ".terminal": true, ".app": true, ".pkg": true,
+	".mpkg": true, ".scpt": true, ".scptd": true, ".applescript": true, ".workflow": true,
+	".action": true, ".fileloc": true, ".webloc": true, ".inetloc": true,
+	// Linux launchers.
+	".desktop": true,
+}
+
+// windowsReservedNames are device names Windows resolves in any folder and
+// with any extension ("NUL.txt" is the NUL device).
+var windowsReservedNames = map[string]bool{
+	"CON": true, "PRN": true, "AUX": true, "NUL": true,
+	"COM1": true, "COM2": true, "COM3": true, "COM4": true, "COM5": true,
+	"COM6": true, "COM7": true, "COM8": true, "COM9": true,
+	"LPT1": true, "LPT2": true, "LPT3": true, "LPT4": true, "LPT5": true,
+	"LPT6": true, "LPT7": true, "LPT8": true, "LPT9": true,
 }
 
 // commonExtensions names files whose clip has no filename. mime's own table
@@ -165,12 +192,22 @@ func openFileName(id int64, filename, contentType string) string {
 			name += exts[0]
 		}
 	}
+	stem, _, _ := strings.Cut(name, ".")
+	if windowsReservedNames[strings.ToUpper(strings.TrimRight(stem, " "))] {
+		name = "_" + name
+	}
 	if len(name) > 200 {
 		ext := filepath.Ext(name)
 		if len(ext) > 20 {
 			ext = ""
 		}
-		name = name[:200-len(ext)] + ext
+		// Cut on a character boundary: macOS refuses file names that are not
+		// valid UTF-8.
+		cut := 200 - len(ext)
+		for cut > 0 && !utf8.RuneStart(name[cut]) {
+			cut--
+		}
+		name = name[:cut] + ext
 	}
 	return name
 }
