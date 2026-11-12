@@ -57,7 +57,9 @@ if ((uninstall)); then
     exit 0
 fi
 
-if [[ ! -x "$src" ]]; then
+# -f, not -x: archive extractors do not always keep the executable bit, and
+# install(1) sets the mode anyway.
+if [[ ! -f "$src" ]]; then
     echo "$src not found; run 'make mp' first." >&2
     exit 1
 fi

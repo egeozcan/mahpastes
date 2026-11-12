@@ -30,24 +30,32 @@ Documentation: https://egeozcan.github.io/mahpastes/
 - **Copy Path** — Create a temp file and copy its path to clipboard
 - **Export** — Save individual clips or download multiple as a ZIP
 - **Auto-Delete Engine** — Backend expiration support is implemented; per-clip expiration controls are being surfaced in UI
+- **Headless Server** — Run `mahpastesd` under systemd or in a container; see [docs/docs/features/headless-server.md](docs/docs/features/headless-server.md)
 
 ## Installation
 
 ### Download Release
 
-Download the latest release from the [Releases](https://github.com/egeozcan/mahpastes/releases) page.
+Download the latest release from the [Releases](https://github.com/egeozcan/mahpastes/releases) page:
+
+- **macOS** (13+, universal): `mahpastes-macos-universal.zip`, signed and notarized, with Finder integration. Drag `mahpastes.app` to Applications.
+- **Windows** (x64 or ARM): `mahpastes-windows-amd64-installer.exe` (or `arm64`) installs with Start Menu shortcuts; `mahpastes-windows-amd64.zip` or `mahpastes-windows-arm64.zip` is the portable archive; `scoop install https://github.com/egeozcan/mahpastes/releases/latest/download/mahpastes.json` also works. See `packaging/README.md` for the Scoop and Homebrew manifests.
+- **Linux** (x64; GTK 3, WebKitGTK 4.1, glibc 2.39+: Ubuntu 24.04, Debian 13, Fedora 40 and later): `mahpastes-linux-amd64.tar.gz`. Extract and run `./install.sh`, which installs the app and `mp` to `~/.local/bin` with a desktop entry and icon (`./install.sh --uninstall` removes them).
+- **Standalone** `mp` CLI and `mahpastesd` headless server for each platform, plus `SHA256SUMS` to verify downloads.
+
+Every app archive includes the `mp` CLI, the bundled plugins and examples. See the [installation guide](docs/docs/getting-started/installation.md) for details.
 
 ### Build from Source
 
 #### Prerequisites
 
-- [Go](https://go.dev/dl/) 1.24+
-- [Wails CLI](https://wails.io/docs/gettingstarted/installation)
+- [Go](https://go.dev/dl/) 1.25.7+ (fetches the 1.26.6 toolchain go.mod asks for)
+- [Wails CLI](https://wails.io/docs/gettingstarted/installation) v2.12.0
 - [Node.js](https://nodejs.org/) 18+
 
 ```bash
 # Install Wails CLI
-go install github.com/wailsapp/wails/v2/cmd/wails@latest
+go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
 ```
 
 #### Build
@@ -137,7 +145,7 @@ A `Makefile` provides shortcuts for common operations:
 ```bash
 make dev        # Start dev server with hot reload
 make build      # Clean production build
-make install    # Build, kill running app, install (/Applications, ~/.local on Linux), launch
+make install    # Build, kill running app, install (/Applications, ~/.local on Linux, %LOCALAPPDATA%\Programs on Windows), launch
 make test       # Run e2e tests
 make screenshots # Refresh documentation screenshots
 make help       # Show all targets

@@ -8,17 +8,125 @@ Get mahpastes running on your system in a few minutes.
 
 ## Download Pre-built Release
 
-The easiest way to install mahpastes is to download a pre-built release.
+The easiest way to install mahpastes is to download a pre-built release from the
+[Releases page](https://github.com/egeozcan/mahpastes/releases). Each release
+contains:
 
-1. Go to the [Releases page](https://github.com/egeozcan/mahpastes/releases)
-2. Download `mahpastes-darwin-universal.dmg` (works on Intel and Apple Silicon)
-3. Open the downloaded `.dmg` file
-4. Drag `mahpastes.app` to your Applications folder
-5. On first launch, right-click the app and select "Open" to bypass Gatekeeper
+| Asset | For |
+|-------|-----|
+| `mahpastes-macos-universal.zip` | macOS 13 or later, Intel and Apple Silicon |
+| `mahpastes-windows-amd64-installer.exe` | Windows on x64, installer |
+| `mahpastes-windows-arm64-installer.exe` | Windows on ARM, installer |
+| `mahpastes-windows-amd64.zip`, `mahpastes-windows-arm64.zip` | Windows, portable archive |
+| `mahpastes.json`, `mahpastes.rb` | Scoop manifest and Homebrew cask matching the release |
+| `mahpastes-linux-amd64.tar.gz` | Linux on x64 with GTK 3 and WebKitGTK 4.1 |
+| `mp-<os>-<arch>`, `mahpastesd-<os>-<arch>` | Standalone CLI and headless server |
+| `SHA256SUMS` | Checksums of every asset |
 
-:::note First Launch on macOS
-Since mahpastes is not signed with an Apple Developer certificate, macOS may show a security warning. Right-click the app and select "Open" the first time to allow it to run.
-:::
+Every app archive also contains the `mp` CLI, the bundled plugins and examples.
+
+### macOS
+
+1. Download `mahpastes-macos-universal.zip` and open it
+2. Drag `mahpastes.app` from the extracted folder to your Applications folder
+3. Launch it like any other app
+
+Release builds are signed with an Apple Developer ID and notarized by Apple,
+so they open without a Gatekeeper override. The app includes
+[Finder integration](https://github.com/egeozcan/mahpastes/blob/master/docs/FILE_PROVIDER.md).
+An unsigned build, such as one you compiled yourself, is blocked on first
+launch; see [Troubleshooting](../reference/troubleshooting.md#macos-app-is-damaged-or-security-warning)
+for how to allow it.
+
+To use `mp`, copy it from the extracted folder to a directory on your `PATH`,
+for example `~/.local/bin`.
+
+### Windows
+
+**Installer.** Download `mahpastes-windows-amd64-installer.exe` (or the `arm64`
+one on an ARM PC) and run it. It installs for all users (it asks for
+administrator rights), adds Start Menu and desktop shortcuts and an entry in
+Settings, Apps, and installs `mp.exe` next to the app. Uninstalling removes the
+program but keeps your clips and settings in `%APPDATA%\mahpastes`.
+
+**Portable.** Download `mahpastes-windows-amd64.zip` (or `arm64`), extract it to
+a folder of your choice and run `mahpastes.exe`.
+
+**Scoop.** The release carries a manifest that matches its zips exactly. It puts
+`mp` on your `PATH` and adds a Start Menu shortcut:
+
+```powershell
+scoop install https://github.com/egeozcan/mahpastes/releases/latest/download/mahpastes.json
+```
+
+The Windows builds are not code-signed, so SmartScreen may warn on first
+launch; choose **More info**, then **Run anyway**. mahpastes uses the Microsoft
+Edge WebView2 runtime, which Windows 10 and 11 normally include. The installer
+installs it when it is missing; the portable zip does not, so install it from
+Microsoft if the app will not start. With the installer or the zip, `mp.exe`
+sits next to the app; add that folder to your `PATH` to run `mp` from any
+terminal (Scoop does this for you).
+
+### Homebrew
+
+Each release also carries `mahpastes.rb`, a Homebrew cask for the macOS zip that
+links `mp` onto your `PATH`. mahpastes does not run a tap; see
+[`packaging/README.md`](https://github.com/egeozcan/mahpastes/blob/master/packaging/README.md)
+for how to host it in your own.
+
+### Linux
+
+The Linux build runs on distributions with GTK 3, WebKitGTK 4.1 and glibc 2.39
+or newer: Ubuntu 24.04, Debian 13, Fedora 40 and later, and current Arch. On
+image-based Fedora desktops (Silverblue, Kinoite, Bazzite), check with
+`rpm -q webkit2gtk4.1` and layer the package with
+`rpm-ostree install webkit2gtk4.1` if it is missing.
+
+```bash
+tar -xzf mahpastes-linux-amd64.tar.gz
+cd mahpastes-linux-amd64
+./install.sh
+```
+
+`install.sh` installs for the current user without root: the app and `mp` go
+to `~/.local/bin`, a desktop entry and icons to `~/.local/share`, and the
+bundled plugins to `~/.config/mahpastes/plugins`. Set `PREFIX` to install
+somewhere else. If `~/.local/bin` is not on your `PATH`, the script says so;
+add it in your shell profile. `./install.sh --uninstall` removes the app, `mp`,
+the desktop entry and the icons again and keeps your data.
+
+The app itself needs only the GTK 3 and WebKitGTK 4.1 libraries, which desktop
+systems normally ship. To browse clips in your file manager (**File manager
+access** in Settings), also install the `fuse3` package (`sudo apt install fuse3`,
+`sudo dnf install fuse3`, `sudo pacman -S fuse3`). See
+[File manager access on Linux](https://github.com/egeozcan/mahpastes/blob/master/docs/FILE_PROVIDER.md#linux-file-manager-access).
+
+### Standalone CLI and server
+
+The `mp` CLI and the `mahpastesd` headless server are also published as single
+files: `mp-linux-amd64`, `mp-linux-arm64`, `mp-windows-amd64.exe`,
+`mp-windows-arm64.exe` and `mp-darwin-universal`, and the same names for
+`mahpastesd`. Downloads lose their executable bit on macOS and Linux:
+
+```bash
+chmod +x mp-linux-amd64
+mv mp-linux-amd64 ~/.local/bin/mp
+```
+
+### Verify a download
+
+`SHA256SUMS` lists the checksum of every asset. In the folder holding your
+downloads, check the line for the file you downloaded:
+
+```bash
+# Linux
+grep mahpastes-linux-amd64.tar.gz SHA256SUMS | sha256sum --check
+# macOS
+grep mahpastes-macos-universal.zip SHA256SUMS | shasum -a 256 --check
+```
+
+On Windows, compare the output of `Get-FileHash mahpastes-windows-amd64.zip`
+with the matching line.
 
 ## Build from Source
 
@@ -30,14 +138,14 @@ Before building, install these dependencies:
 
 | Dependency | Version | Purpose |
 |------------|---------|---------|
-| [Go](https://go.dev/dl/) | 1.24+ | Backend language |
+| [Go](https://go.dev/dl/) | 1.25.7+ (fetches the 1.26.6 toolchain go.mod asks for) | Backend language |
 | [Node.js](https://nodejs.org/) | 18+ | Frontend build tools |
-| [Wails CLI](https://wails.io/) | 2.x | Desktop app framework |
+| [Wails CLI](https://wails.io/) | 2.12.0 | Desktop app framework |
 
 #### Install Wails CLI
 
 ```bash
-go install github.com/wailsapp/wails/v2/cmd/wails@latest
+go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
 ```
 
 Verify the installation:
@@ -72,8 +180,8 @@ The project includes a Makefile with convenient targets:
 make dev        # Start dev server with hot reload
 make build      # Clean production build
 make clean      # Remove build artifacts
-make install    # Build, kill running app, install to /Applications, launch
-make uninstall  # Remove installed app
+make install    # Build, kill running app, install (/Applications; %LOCALAPPDATA%\Programs and a Start Menu shortcut on Windows), launch
+make uninstall  # Remove installed app (keeps your data)
 make bindings   # Regenerate frontend bindings after Go changes
 make test       # Run e2e tests
 make help       # Show all targets
@@ -87,6 +195,7 @@ make install
 
 # Or manually
 cp -R build/bin/mahpastes.app /Applications/
+# Only needed for an unsigned local build that carries a download quarantine
 xattr -cr /Applications/mahpastes.app
 # Copy bundled plugins
 mkdir -p ~/Library/Application\ Support/mahpastes/plugins
@@ -102,7 +211,7 @@ The `mp` CLI is a standalone binary that talks to mahpastes over the REST API. I
 ```bash
 make mp            # Build for current platform
 make mp-install    # Install to your user bin dir (or GOBIN if set)
-make mp-cross      # Cross-compile for all platforms
+make mp-cross      # Cross-compile for macOS, Linux and Windows (amd64 and arm64)
 ```
 
 Default install locations:

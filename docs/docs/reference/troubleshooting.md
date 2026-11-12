@@ -10,24 +10,53 @@ Common issues and their solutions.
 
 ### macOS: "App is damaged" or Security Warning
 
-macOS Gatekeeper may block unsigned apps.
+Release downloads are signed and notarized, so Gatekeeper opens them without a
+warning. If macOS still reports the app as damaged, download
+`mahpastes-macos-universal.zip` again from the
+[Releases page](https://github.com/egeozcan/mahpastes/releases) and extract it
+with Finder or `ditto -x -k`; tools that drop extended attributes or symlinks
+while unpacking break the signature.
 
-**Solution:**
-1. Right-click the app
-2. Select "Open"
-3. Click "Open" in the dialog
-4. App will launch and be remembered
+An unsigned app that was downloaded or copied from another Mac, such as an
+unsigned build artifact, is blocked instead. Allow it once:
+1. Try to open the app, then dismiss the warning
+2. Open **System Settings > Privacy & Security**
+3. Click **Open Anyway** next to the message about mahpastes and confirm
+4. The app launches and macOS remembers the choice
 
-Or via Terminal:
+On macOS 14 and earlier you can instead right-click the app, select "Open" and
+click "Open" in the dialog. Or clear the download quarantine via Terminal:
 ```bash
 xattr -cr /Applications/mahpastes.app
 ```
 
 ### macOS: App Won't Open (Apple Silicon)
 
-If using Apple Silicon (M-series):
-1. Ensure you downloaded the Universal build
-2. Try the Intel build via Rosetta if issues persist
+The release app is a universal build that runs natively on Intel and Apple
+Silicon and needs macOS 13 or later. Check **About This Mac** for the macOS
+version, and make sure you copied the whole `mahpastes.app` out of the archive.
+
+### Windows: SmartScreen Warning
+
+The Windows build is not code-signed, so SmartScreen may show "Windows
+protected your PC" on first launch. Click **More info**, then **Run anyway**.
+On ARM PCs, use `mahpastes-windows-arm64-installer.exe` or
+`mahpastes-windows-arm64.zip`. The x64 installer refuses to install on ARM
+("can't be installed on the current Windows architecture"); the x64 zip runs,
+but under emulation.
+
+### Linux: App Won't Start
+
+The release build needs GTK 3, WebKitGTK 4.1 and glibc 2.39 or newer (Ubuntu
+24.04, Debian 13, Fedora 40 and later). An error such as `libwebkit2gtk-4.1.so.0:
+cannot open shared object file` means the library is missing: install
+`libwebkit2gtk-4.1-0` (Debian/Ubuntu) or `webkit2gtk4.1` (Fedora). On older
+distributions, such as Ubuntu 22.04, build from source instead; the build falls
+back to WebKitGTK 4.0 there.
+
+If the app does not appear in the application menu after `./install.sh`, log
+out and back in, or check that `~/.local/share/applications/mahpastes.desktop`
+exists.
 
 ## Runtime Issues
 

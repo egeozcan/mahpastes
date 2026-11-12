@@ -12,14 +12,14 @@ This guide covers how to set up the development environment, make changes, and s
 
 | Tool | Version | Purpose |
 |------|---------|---------|
-| [Go](https://go.dev/dl/) | 1.24+ | Backend development |
+| [Go](https://go.dev/dl/) | 1.25.7+ (fetches the 1.26.6 toolchain go.mod asks for) | Backend development |
 | [Node.js](https://nodejs.org/) | 18+ | Frontend tooling |
-| [Wails CLI](https://wails.io/) | 2.x | Build and development |
+| [Wails CLI](https://wails.io/) | 2.12.0 | Build and development |
 
 ### Install Wails CLI
 
 ```bash
-go install github.com/wailsapp/wails/v2/cmd/wails@latest
+go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
 ```
 
 Verify installation:

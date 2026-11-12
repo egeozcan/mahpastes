@@ -23,8 +23,8 @@ A Wails desktop clipboard manager for macOS, Windows, and Linux with image editi
 make dev          # Start dev server with hot reload
 make build        # Clean production build
 make clean        # Remove build artifacts
-make install      # Build, kill running app, install to /Applications, launch
-make uninstall    # Remove from /Applications
+make install      # Build, kill running app, install (/Applications; ~/.local on Linux; %LOCALAPPDATA%\Programs + Start Menu shortcut on Windows), launch
+make uninstall    # Remove the installed app (keeps data)
 make bindings     # Regenerate frontend bindings after Go changes
 make test         # Run e2e tests
 make test-headed  # Run e2e tests with visible browser
@@ -33,7 +33,7 @@ make screenshots  # Capture documentation screenshots
 make mp            # Build mp CLI for current platform
 make mp-install    # Install mp to a user bin dir (or GOBIN if set) plus shell completions and man pages
 make mp-docs       # Regenerate docs/docs/reference/cli.md and build/man from the command tree (a test fails when cli.md is stale)
-make mp-cross      # Cross-compile mp for all platforms
+make mp-cross      # Cross-compile mp for macOS, Linux and Windows (amd64 and arm64)
 make help         # Show all targets
 ```
 
