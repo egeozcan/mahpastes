@@ -32,7 +32,7 @@ make test-debug   # Run e2e tests with Playwright inspector
 make screenshots  # Capture documentation screenshots
 make mp            # Build mp CLI for current platform
 make mp-install    # Install mp to a user bin dir (or GOBIN if set)
-make mp-cross      # Cross-compile mp for all platforms
+make mp-cross      # Cross-compile mp for macOS, Linux and Windows (amd64 and arm64)
 make help         # Show all targets
 ```
 

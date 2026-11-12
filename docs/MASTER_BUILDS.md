@@ -1,17 +1,52 @@
-# Builds from master
+# Builds from master and releases
 
-The Master builds workflow runs on every push to master and can also be started
-manually. Its downloadable Actions artifacts contain Windows amd64, Linux amd64,
-and signed, notarized universal macOS desktop apps, plus bundled plugins and examples.
-Artifacts are retained for 14 days and identified by source commit. This workflow
-does not publish GitHub Releases. Linux requires GTK 3 and WebKitGTK 4.1.
+Master builds and tagged releases run the same build, defined once in the
+reusable workflow `.github/workflows/build.yml`:
+
+- `master-builds.yml` runs it on every push to master and on manual start. Its
+  downloadable Actions artifacts are retained for 14 days and identified by
+  source commit. It does not publish GitHub Releases.
+- `release.yml` runs it for every pushed `v*` tag, checks that every asset was
+  produced, writes `SHA256SUMS` and publishes the assets to the GitHub Release
+  for that tag (uploading into a release created beforehand, or creating one
+  with generated notes). Started manually on a branch, it runs the whole
+  pipeline, checksums included, and keeps the result as an Actions artifact
+  without publishing anything.
+
+Each run produces:
+
+| Asset | Contents |
+| --- | --- |
+| `mahpastes-macos-universal.zip` | Signed, notarized and stapled `mahpastes.app` with Finder integration, universal `mp`, plugins, examples |
+| `mahpastes-windows-amd64.zip`, `mahpastes-windows-arm64.zip` | `mahpastes.exe`, `mp.exe`, plugins, examples |
+| `mahpastes-linux-amd64.tar.gz` | `mahpastes`, `mp`, `install.sh`, `mahpastes.png`, plugins, examples |
+| `mp-darwin-universal`, `mahpastesd-darwin-universal` | Signed and notarized universal command-line tools |
+| `mp-<os>-<arch>`, `mahpastesd-<os>-<arch>` | Standalone tools for linux and windows, amd64 and arm64 (`.exe` on Windows) |
+| `SHA256SUMS` | Checksums of all of the above (releases only) |
+
+Every binary is stamped with `-X go-clipboard/internal/buildinfo.Version=<v>
+-X go-clipboard/internal/buildinfo.Commit=<sha>`. A tag build uses the tag name;
+other runs use `git describe --tags --always`. Go, Node and Wails versions are
+pinned at the top of `build.yml` and match the other workflows and go.mod's
+toolchain.
+
+The Linux app is built on Ubuntu 24.04 and needs GTK 3, WebKitGTK 4.1 and glibc
+2.39 or newer (Ubuntu 24.04, Debian 13, Fedora 40 and later). The Windows arm64
+app is cross-compiled from the x64 runner, since WebView2 builds need no cgo.
+Darwin `mahpastesd` uses cgo, so both darwin tools are built on the macOS
+runner (two architectures joined with `lipo`); everything else standalone is
+built with cgo disabled on Linux.
 
 macOS includes Finder integration. Signing is mandatory: missing secrets fail the
-macOS job rather than silently producing an unsigned download. Windows and Linux
-continue independently. The macOS job submits each signed app to Apple, waits
+macOS job rather than silently producing an unsigned download. On master,
+Windows and Linux continue independently; a release needs every job, so a failed
+macOS job publishes nothing. The macOS job submits the signed app to Apple, waits
 for notarization, staples and validates the ticket, and checks Gatekeeper before
-packaging. A failed notarization or validation prevents uploading the macOS
-artifact. Apple processing time is included in the 90-minute job timeout.
+packaging. It then signs `mp` and `mahpastesd` with the same identity and
+notarizes them in one more submission. Plain executables cannot hold a stapled
+ticket, so Gatekeeper checks their notarization online the first time a
+downloaded copy runs. A failed notarization or validation prevents uploading the
+macOS artifact. Apple processing time is included in the 90-minute job timeout.
 
 ## One-time repository secrets
 
@@ -44,5 +79,7 @@ gh secret set APPLE_APP_SPECIFIC_PASSWORD
 ```
 
 The signing job imports the identity into a temporary runner Keychain and removes
-that Keychain and decoded files on exit. Signing secrets are used only by this
-push/manual workflow, never the pull-request build workflow.
+that Keychain and decoded files on exit. Both callers pass `secrets: inherit` to
+the shared build; signing secrets are used only by these push, tag and manual
+workflows, never the pull-request build workflow. The shared build only reads
+repository contents; the release job alone gets permission to write releases.

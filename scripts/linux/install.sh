@@ -1,24 +1,48 @@
 #!/usr/bin/env bash
 # Install (or remove) the Linux desktop app for the current user.
 #
-# Usage: scripts/linux/install.sh [--uninstall]
+# Usage: install.sh [--uninstall]
+#
+# Works from both layouts it ships in:
+#   - an extracted release tarball, where the app, mp, mahpastes.png and
+#     plugins/ sit next to this script;
+#   - a source checkout (scripts/linux/install.sh), after 'make build', where
+#     they come from build/bin, build/appicon.png and plugins/.
 #
 # Everything goes under $PREFIX (default ~/.local), so no root access is needed:
 #   $PREFIX/bin/mahpastes                      the app
+#   $PREFIX/bin/mp                             the CLI, when one was built or shipped
 #   $PREFIX/share/applications/mahpastes.desktop
 #   $PREFIX/share/icons/hicolor/<size>/apps/mahpastes.png
 # Bundled plugins are copied into the app's data directory, which the app reads
 # from ~/.config/mahpastes unless MAHPASTES_DATA_DIR overrides it.
+# --uninstall removes the app, mp, the desktop entry and the icons, and keeps
+# the data directory.
 set -euo pipefail
 
-repo="$(cd "$(dirname "$0")/../.." && pwd)"
-cd "$repo"
 APP_NAME=mahpastes
+CLI_NAME=mp
+script_dir="$(cd "$(dirname "$0")" && pwd)"
+if [[ -f "$script_dir/$APP_NAME" ]]; then
+    # Release tarball: everything is beside this script.
+    cd "$script_dir"
+    app_src="$APP_NAME"
+    cli_src="$CLI_NAME"
+    icon_src="$APP_NAME.png"
+    build_hint="the release archive looks incomplete; extract it again."
+else
+    cd "$script_dir/../.."
+    app_src="build/bin/$APP_NAME"
+    cli_src="build/bin/$CLI_NAME"
+    icon_src="build/appicon.png"
+    build_hint="run 'make build' first."
+fi
 PREFIX="${PREFIX:-$HOME/.local}"
 BINDIR="${BINDIR:-$PREFIX/bin}"
 DATAROOT="${DATAROOT:-$PREFIX/share}"
 DATA_DIR="${MAHPASTES_DATA_DIR:-$HOME/.config/$APP_NAME}"
 binary="$BINDIR/$APP_NAME"
+cli="$BINDIR/$CLI_NAME"
 desktop="$DATAROOT/applications/$APP_NAME.desktop"
 icon_root="$DATAROOT/icons/hicolor"
 
@@ -45,15 +69,15 @@ refresh_desktop_caches() {
 
 if [[ "${1:-}" == --uninstall ]]; then
     stop_app
-    rm -f "$binary" "$desktop"
+    rm -f "$binary" "$cli" "$desktop"
     rm -f "$icon_root"/*/apps/"$APP_NAME".png
     refresh_desktop_caches
     echo "Removed $APP_NAME from $PREFIX (data in $DATA_DIR was kept)"
     exit 0
 fi
 
-if [[ ! -x "build/bin/$APP_NAME" ]]; then
-    echo "build/bin/$APP_NAME not found; run 'make build' first." >&2
+if [[ ! -f "$app_src" ]]; then
+    echo "$app_src not found; $build_hint" >&2
     exit 1
 fi
 
@@ -62,7 +86,12 @@ fi
 stop_app
 
 # install(1) writes a new inode, so a still-mapped old binary is never modified.
-install -Dm755 "build/bin/$APP_NAME" "$binary"
+# The mode is set explicitly: archive extractors and downloads do not always
+# keep the executable bit.
+install -Dm755 "$app_src" "$binary"
+if [[ -f "$cli_src" ]]; then
+    install -Dm755 "$cli_src" "$cli"
+fi
 
 mkdir -p "$DATA_DIR/plugins"
 cp plugins/*.lua "$DATA_DIR/plugins/"
@@ -82,10 +111,10 @@ fi
 for size in "${sizes[@]}"; do
     dir="$icon_root/${size}x${size}/apps"
     mkdir -p "$dir"
-    if ((${#resize[@]})) && "${resize[@]}" build/appicon.png -resize "${size}x${size}" "$dir/$APP_NAME.png" 2>/dev/null; then
+    if ((${#resize[@]})) && "${resize[@]}" "$icon_src" -resize "${size}x${size}" "$dir/$APP_NAME.png" 2>/dev/null; then
         continue
     fi
-    install -m644 build/appicon.png "$dir/$APP_NAME.png"
+    install -m644 "$icon_src" "$dir/$APP_NAME.png"
 done
 
 # Exec uses an absolute path: desktop sessions (notably Ubuntu's) do not always
@@ -110,6 +139,9 @@ chmod 644 "$desktop"
 refresh_desktop_caches
 
 echo "Installed to $binary"
+if [[ -f "$cli_src" ]]; then
+    echo "Installed $CLI_NAME to $cli"
+fi
 echo "Updated bundled plugins in $DATA_DIR/plugins"
 case ":$PATH:" in *:"$BINDIR":*) ;; *) echo "Add $BINDIR to PATH to run '$APP_NAME' from a terminal." ;; esac
 

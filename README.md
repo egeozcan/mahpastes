@@ -31,19 +31,26 @@ Documentation: https://egeozcan.github.io/mahpastes/
 
 ### Download Release
 
-Download the latest release from the [Releases](https://github.com/egeozcan/mahpastes/releases) page.
+Download the latest release from the [Releases](https://github.com/egeozcan/mahpastes/releases) page:
+
+- **macOS** (13+, universal): `mahpastes-macos-universal.zip`, signed and notarized, with Finder integration. Drag `mahpastes.app` to Applications.
+- **Windows** (x64 or ARM): `mahpastes-windows-amd64.zip` or `mahpastes-windows-arm64.zip`. Extract and run `mahpastes.exe`.
+- **Linux** (x64; GTK 3, WebKitGTK 4.1, glibc 2.39+: Ubuntu 24.04, Debian 13, Fedora 40 and later): `mahpastes-linux-amd64.tar.gz`. Extract and run `./install.sh`, which installs the app and `mp` to `~/.local/bin` with a desktop entry and icon (`./install.sh --uninstall` removes them).
+- **Standalone** `mp` CLI and `mahpastesd` headless server for each platform, plus `SHA256SUMS` to verify downloads.
+
+Every app archive includes the `mp` CLI, the bundled plugins and examples. See the [installation guide](docs/docs/getting-started/installation.md) for details.
 
 ### Build from Source
 
 #### Prerequisites
 
-- [Go](https://go.dev/dl/) 1.24+
-- [Wails CLI](https://wails.io/docs/gettingstarted/installation)
+- [Go](https://go.dev/dl/) 1.25.7+ (fetches the 1.26.6 toolchain go.mod asks for)
+- [Wails CLI](https://wails.io/docs/gettingstarted/installation) v2.12.0
 - [Node.js](https://nodejs.org/) 18+
 
 ```bash
 # Install Wails CLI
-go install github.com/wailsapp/wails/v2/cmd/wails@latest
+go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
 ```
 
 #### Build
@@ -83,7 +90,8 @@ cp -R build/bin/mahpastes.app /Applications/
 ### Install on Linux
 
 `make install` builds and installs for the current user, without root:
-the app goes to `~/.local/bin/mahpastes`, with a desktop entry and icons under
+the app goes to `~/.local/bin/mahpastes` and the `mp` CLI to `~/.local/bin/mp`
+(when Go is available on the host), with a desktop entry and icons under
 `~/.local/share`. Set `PREFIX` to install elsewhere. `make uninstall` removes
 them again and keeps your data.
 

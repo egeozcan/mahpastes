@@ -101,7 +101,13 @@ uninstall: ## Remove installed app
 	if exist "$(INSTALL_DIR)" rd /s /q "$(INSTALL_DIR)"
 	@echo Removed $(APP_NAME) from $(INSTALL_DIR)
 else ifeq ($(HOST_OS),Linux)
-install: build ## Build and install to ~/.local (kills running instance)
+install: build ## Build and install to ~/.local with mp (kills running instance)
+	@# mp is pure Go; image-based hosts may only have Go inside the dev container.
+	@if command -v go >/dev/null 2>&1; then \
+		$(MAKE) mp; \
+	else \
+		echo "Go not found on the host; installing without mp (run 'make mp-install' where Go is available)." >&2; \
+	fi
 	@bash scripts/linux/install.sh
 
 uninstall: ## Remove installed app (keeps data)
@@ -215,16 +221,26 @@ mp-cross: ## Cross-compile mp for all platforms
 	GOOS=darwin GOARCH=amd64 go build -o build/bin/mp-darwin-amd64 ./cmd/mp
 	GOOS=darwin GOARCH=arm64 go build -o build/bin/mp-darwin-arm64 ./cmd/mp
 	GOOS=linux GOARCH=amd64 go build -o build/bin/mp-linux-amd64 ./cmd/mp
+	GOOS=linux GOARCH=arm64 go build -o build/bin/mp-linux-arm64 ./cmd/mp
 	GOOS=windows GOARCH=amd64 go build -o build/bin/mp-windows-amd64.exe ./cmd/mp
+	GOOS=windows GOARCH=arm64 go build -o build/bin/mp-windows-arm64.exe ./cmd/mp
 
 mahpastesd: ## Build headless server for current platform
 	go build -o build/bin/mahpastesd ./cmd/mahpastesd
 
-mahpastesd-cross: ## Cross-compile headless server for all platforms
+mahpastesd-cross: ## Cross-compile headless server (darwin targets only on a macOS host)
 	GOOS=linux GOARCH=amd64 go build -o build/bin/mahpastesd-linux-amd64 ./cmd/mahpastesd
 	GOOS=linux GOARCH=arm64 go build -o build/bin/mahpastesd-linux-arm64 ./cmd/mahpastesd
-	GOOS=darwin GOARCH=amd64 go build -o build/bin/mahpastesd-darwin-amd64 ./cmd/mahpastesd
-	GOOS=darwin GOARCH=arm64 go build -o build/bin/mahpastesd-darwin-arm64 ./cmd/mahpastesd
+	GOOS=windows GOARCH=amd64 go build -o build/bin/mahpastesd-windows-amd64.exe ./cmd/mahpastesd
+	GOOS=windows GOARCH=arm64 go build -o build/bin/mahpastesd-windows-arm64.exe ./cmd/mahpastesd
+ifeq ($(HOST_OS),Darwin)
+	@# The darwin server uses cgo (Finder trash); Go disables cgo for a foreign
+	@# GOARCH unless asked, and the macOS clang builds either slice.
+	CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build -o build/bin/mahpastesd-darwin-amd64 ./cmd/mahpastesd
+	CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -o build/bin/mahpastesd-darwin-arm64 ./cmd/mahpastesd
+else
+	@echo "Skipping darwin mahpastesd: it needs cgo, so build it on macOS."
+endif
 
 ## Testing
 

@@ -1,0 +1,235 @@
+# Shared build for Master builds and Release: desktop apps for every platform
+# plus standalone mp and mahpastesd binaries, uploaded as Actions artifacts
+# named mahpastes-<name>-<sha>. Callers pass `secrets: inherit` so the macOS job
+# can sign and notarize (see docs/MASTER_BUILDS.md).
+name: Build
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Version stamped into the binaries. Empty uses git describe.
+        type: string
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+env:
+  # Keep in step with go.mod's toolchain line and the other workflows.
+  GO_VERSION: '1.26.6'
+  NODE_VERSION: '22'
+  WAILS_VERSION: v2.12.0
+
+jobs:
+  meta:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      ldflags: ${{ steps.version.outputs.ldflags }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # git describe needs the tags and the history back to them.
+          fetch-depth: 0
+      - name: Resolve version stamp
+        id: version
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          version="$REQUESTED_VERSION"
+          if [[ -z "$version" ]]; then
+            version="$(git describe --tags --always)"
+          fi
+          # The value is spliced into -ldflags, so it must stay one plain token.
+          if [[ ! "$version" =~ ^[0-9A-Za-z._+-]+$ ]]; then
+            echo "::error::Unusable version stamp: $version"
+            exit 1
+          fi
+          echo "Version $version, commit $GITHUB_SHA"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "ldflags=-X go-clipboard/internal/buildinfo.Version=$version -X go-clipboard/internal/buildinfo.Commit=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+
+  desktop:
+    needs: meta
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Pinned rather than ubuntu-latest: the runner's glibc and WebKitGTK
+          # 4.1 set the oldest distributions the Linux build runs on.
+          - os: ubuntu-24.04
+            target: linux/amd64
+            name: linux-amd64
+            goarch: amd64
+            args: -tags webkit2_41
+          - os: windows-latest
+            target: windows/amd64
+            name: windows-amd64
+            goarch: amd64
+            args: ''
+          # WebView2 builds need no cgo, so the x64 runner cross-compiles arm64.
+          - os: windows-latest
+            target: windows/arm64
+            name: windows-arm64
+            goarch: arm64
+            args: ''
+          - os: macos-latest
+            target: darwin/universal
+            name: macos-universal
+            goarch: ''
+            args: ''
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    env:
+      VERSION_LDFLAGS: ${{ needs.meta.outputs.ldflags }}
+      PKG: mahpastes-${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Install Linux desktop libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+      - name: Install Wails
+        shell: bash
+        run: go install "github.com/wailsapp/wails/v2/cmd/wails@$WAILS_VERSION"
+
+      - name: Build Windows and Linux app
+        if: runner.os != 'macOS'
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          WAILS_ARGS: ${{ matrix.args }}
+        # WAILS_ARGS is deliberately unquoted so "-tags webkit2_41" splits.
+        run: wails build -platform "$TARGET" $WAILS_ARGS -ldflags "$VERSION_LDFLAGS"
+      - name: Build mp for Windows and Linux
+        if: runner.os != 'macOS'
+        shell: bash
+        env:
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: '0'
+        run: |
+          exe=''
+          if [[ "$RUNNER_OS" == Windows ]]; then exe=.exe; fi
+          go build -trimpath -ldflags "$VERSION_LDFLAGS" -o "build/bin/mp$exe" ./cmd/mp
+
+      - name: Build universal macOS app with Finder integration
+        if: runner.os == 'macOS'
+        env:
+          MAHPASTES_LDFLAGS: ${{ needs.meta.outputs.ldflags }}
+        run: bash scripts/macos/build-file-provider.sh --unsigned
+      - name: Build universal mp and mahpastesd for macOS
+        if: runner.os == 'macOS'
+        env:
+          # mahpastesd uses cgo on macOS; Go turns cgo off for the non-native
+          # slice unless it is enabled explicitly.
+          CGO_ENABLED: '1'
+          MACOSX_DEPLOYMENT_TARGET: '13.0'
+        run: |
+          slices="$RUNNER_TEMP/command-line-slices"
+          mkdir -p "$slices"
+          for cmd in mp mahpastesd; do
+            for arch in arm64 amd64; do
+              GOARCH="$arch" go build -trimpath -ldflags "$VERSION_LDFLAGS" -o "$slices/$cmd-$arch" "./cmd/$cmd"
+            done
+            lipo -create "$slices/$cmd-arm64" "$slices/$cmd-amd64" -output "build/bin/$cmd"
+            lipo "build/bin/$cmd" -verify_arch arm64 x86_64
+          done
+      - name: Sign, notarize and staple macOS app and command-line tools
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_HOST_PROFILE: ${{ secrets.MACOS_HOST_PROFILE }}
+          MACOS_EXTENSION_PROFILE: ${{ secrets.MACOS_EXTENSION_PROFILE }}
+          TEAM_ID: ${{ secrets.MACOS_TEAM_ID }}
+          SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: bash scripts/macos/ci-sign.sh build/bin/mp build/bin/mahpastesd
+
+      - name: Package Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $stage = "staging/$env:PKG"
+          New-Item -ItemType Directory -Path $stage, dist -Force | Out-Null
+          Copy-Item build/bin/mahpastes.exe, build/bin/mp.exe $stage
+          Copy-Item -Recurse plugins, examples $stage
+          Compress-Archive -Path $stage -DestinationPath "dist/$env:PKG.zip"
+      - name: Package Linux
+        if: runner.os == 'Linux'
+        run: |
+          stage="staging/$PKG"
+          mkdir -p "$stage" dist
+          install -m755 build/bin/mahpastes build/bin/mp scripts/linux/install.sh "$stage/"
+          install -m644 build/appicon.png "$stage/mahpastes.png"
+          cp -R plugins examples "$stage/"
+          tar -czf "dist/$PKG.tar.gz" -C staging "$PKG"
+      - name: Package macOS
+        if: runner.os == 'macOS'
+        run: |
+          stage="staging/$PKG"
+          mkdir -p "$stage" dist
+          ditto build/bin/mahpastes.app "$stage/mahpastes.app"
+          cp build/bin/mp "$stage/"
+          cp -R plugins examples "$stage/"
+          ditto -c -k --keepParent "$stage" "dist/$PKG.zip"
+          cp build/bin/mp dist/mp-darwin-universal
+          cp build/bin/mahpastesd dist/mahpastesd-darwin-universal
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mahpastes-${{ matrix.name }}-${{ github.sha }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
+
+  # Standalone binaries for the pure-Go targets. Darwin mahpastesd needs cgo,
+  # so both darwin tools come from the macOS desktop job above.
+  command-line:
+    needs: meta
+    runs-on: ubuntu-latest
+    env:
+      VERSION_LDFLAGS: ${{ needs.meta.outputs.ldflags }}
+      CGO_ENABLED: '0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      # mahpastesd embeds the frontend; build it the way wails build does so
+      # the server serves the same bundle as the desktop apps.
+      - name: Build frontend
+        run: |
+          npm --prefix frontend ci
+          npm --prefix frontend run build
+      - name: Build mp and mahpastesd
+        run: |
+          mkdir -p dist
+          for target in linux/amd64 linux/arm64 windows/amd64 windows/arm64; do
+            os="${target%/*}"
+            arch="${target#*/}"
+            exe=''
+            if [[ "$os" == windows ]]; then exe=.exe; fi
+            for cmd in mp mahpastesd; do
+              GOOS="$os" GOARCH="$arch" go build -trimpath -ldflags "$VERSION_LDFLAGS" \
+                -o "dist/$cmd-$os-$arch$exe" "./cmd/$cmd"
+            done
+          done
+          ls -l dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mahpastes-command-line-${{ github.sha }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
