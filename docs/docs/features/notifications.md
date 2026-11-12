@@ -24,11 +24,11 @@ Notifications appear only while the mahpastes window does not have focus. When y
 
 A folder sync can import hundreds of files at once. Instead of one notification per file, events of the same kind are collected for a couple of seconds and shown together ("Imported 12 clips"). Each kind of event notifies at most once every 30 seconds, and no more than 5 notifications appear per minute overall; anything held back is combined into the next one. Coming back to the window drops what is still waiting.
 
-Clicking a notification brings the mahpastes window back.
+Clicking a notification brings the mahpastes window back. Some Wayland desktops do not let an app raise its own window; there the window is marked as wanting attention instead (for example, a highlighted taskbar entry).
 
 ## Testing
 
-When the setting is on, **Send Test Notification** shows one right away, whatever the focus. Use it to check that your system lets mahpastes notifications through (Focus, Do Not Disturb or Focus assist can hide them).
+When the setting is on, **Send Test Notification** shows one right away, whatever the focus. The button only appears while the setting is on. Use it to check that your system lets mahpastes notifications through (Focus, Do Not Disturb or Focus assist can hide them).
 
 ## Platform Notes
 

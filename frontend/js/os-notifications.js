@@ -10,11 +10,15 @@
     function reportFocus() {
         const focused = document.hasFocus() && !document.hidden;
         if (focused === reportedFocus) return;
-        reportedFocus = focused;
+        const emit = window.runtime?.EventsEmit;
+        // No runtime (yet): the backend treats the window as focused. Leave
+        // reportedFocus alone so the next focus event reports again.
+        if (typeof emit !== 'function') return;
         try {
-            window.runtime?.EventsEmit?.('window:focus-changed', focused);
+            emit('window:focus-changed', focused);
+            reportedFocus = focused;
         } catch (e) {
-            // No runtime (yet): the backend treats the window as focused.
+            // Same: retried on the next focus event.
         }
     }
     window.addEventListener('focus', reportFocus);

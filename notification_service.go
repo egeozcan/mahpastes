@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"log"
 	"runtime"
 	"sync"
@@ -18,6 +19,8 @@ const focusEvent = "window:focus-changed"
 // activateWait bounds SetNotificationsEnabled(true): macOS keeps the
 // permission prompt open for up to three minutes.
 const activateWait = 190 * time.Second
+
+var errNotificationsOff = errors.New("turn on system notifications first")
 
 // NotificationService exposes the "System notifications" setting to the
 // frontend. The notifier is nil in headless runs (e2e, worker self-test),
@@ -121,11 +124,16 @@ func (s *NotificationService) SetNotificationsEnabled(enabled bool) (Notificatio
 }
 
 // SendTestNotification shows a notification now, whatever the focus, so the
-// user can check that the OS (Focus, Do Not Disturb) lets it through.
+// user can check that the OS (Focus, Do Not Disturb) lets it through. It is
+// refused while the setting is off: initialising the backend prompts on macOS
+// and writes registry keys on Windows, which only switching it on may do.
 func (s *NotificationService) SendTestNotification() (NotificationStatus, error) {
 	n := s.current()
 	if n == nil {
 		return s.status(), nil
+	}
+	if !s.core.OSNotificationsEnabled() {
+		return s.status(), errNotificationsOff
 	}
 	err := n.SendTest(activateWait)
 	return s.status(), err

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	goruntime "runtime"
+	"strings"
 
 	rt "github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -57,8 +58,45 @@ func (b *Bridge) SendNotification(id, title, body string) (err error) {
 		return ErrNotificationsInactive
 	}
 	defer recoverNotificationPanic(&err)
+	title, body = notificationText(goruntime.GOOS, title, body)
 	return rt.SendNotification(b.ctx, rt.NotificationOptions{ID: id, Title: title, Body: body})
 }
+
+// notificationText makes event text (filenames, tag names, plugin messages:
+// all untrusted) safe for the platform backend.
+//
+//   - Windows: go-toast puts the text unescaped into CDATA sections of the
+//     toast XML, and when its COM path fails it pastes that XML into a
+//     PowerShell double-quoted here-string, where "$(...)" runs code and a
+//     line starting with `"@` ends the string. So line breaks become spaces,
+//     "$" and the backtick escape become look-alikes, and "]]>" is split.
+//   - Linux: freedesktop notification bodies are markup (links, images), so
+//     the body is escaped. The summary is plain text.
+//   - Every platform: the title is one line.
+func notificationText(goos, title, body string) (string, string) {
+	title = oneLine(title)
+	switch goos {
+	case "windows":
+		title, body = windowsToastText(title), windowsToastText(oneLine(body))
+	case "linux":
+		body = linuxBodyMarkup.Replace(body)
+	}
+	return title, body
+}
+
+var lineBreaks = strings.NewReplacer("\r\n", " ", "\r", " ", "\n", " ", "\u0085", " ", " ", " ", " ", " ")
+
+func oneLine(s string) string { return lineBreaks.Replace(s) }
+
+var windowsToastReplacer = strings.NewReplacer(
+	"$", "＄", // FULLWIDTH DOLLAR SIGN
+	"`", "ˋ", // MODIFIER LETTER GRAVE ACCENT
+	"]]>", "]] >",
+)
+
+func windowsToastText(s string) string { return windowsToastReplacer.Replace(s) }
+
+var linuxBodyMarkup = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;")
 
 // CleanupNotifications releases the notification backend (the Linux D-Bus
 // connection). Only call it after a successful InitNotifications.

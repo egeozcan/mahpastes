@@ -147,6 +147,27 @@ func TestNotifierRespectsDisabledSetting(t *testing.T) {
 	waitFor(t, "a notification once enabled", func() bool { _, out, _ := s.snapshot(); return len(out) == 1 })
 }
 
+func TestNotifierDisabledEventsDoNotUseTheRateBudget(t *testing.T) {
+	s := &fakeSender{}
+	var on atomic.Bool
+	limits := fastLimits
+	limits.KeyCooldown = time.Hour
+	limits.RateMax = 1
+	limits.RateWindow = time.Hour
+	n := New(Options{Sender: s, Enabled: on.Load, Limits: limits})
+	n.Start()
+	t.Cleanup(func() { n.Stop(2 * time.Second) })
+	n.SetFocused(false)
+	n.Post(notice("k", ""))
+	time.Sleep(100 * time.Millisecond) // past the debounce: dropped as disabled
+	on.Store(true)
+	n.Post(notice("k", "after"))
+	waitFor(t, "the first notification after switching on", func() bool { _, out, _ := s.snapshot(); return len(out) == 1 })
+	if _, out, _ := s.snapshot(); out[0].body != "1:after" {
+		t.Fatalf("sent %+v, want only the event seen while on", out)
+	}
+}
+
 func TestNotifierInitFailureSticksUntilActivate(t *testing.T) {
 	s := &fakeSender{initErr: errors.New("notifications require a valid bundle identifier")}
 	var on atomic.Bool

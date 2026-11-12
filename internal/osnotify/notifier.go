@@ -315,13 +315,22 @@ func (n *Notifier) flush() {
 		n.mu.Unlock()
 		return
 	}
+	now := n.now()
+	at := n.q.next(now)
+	n.mu.Unlock()
+	if at.IsZero() || at.After(now) {
+		return
+	}
+	// Read the setting before popping, so events that arrive while it is off
+	// neither show nor use up the per-kind cooldown and the overall cap.
+	if !n.enabled() {
+		n.Discard()
+		return
+	}
+	n.mu.Lock()
 	due := n.q.pop(n.now())
 	n.mu.Unlock()
 	if len(due) == 0 {
-		return
-	}
-	if !n.enabled() {
-		n.Discard()
 		return
 	}
 	if n.ensureInit() != nil {

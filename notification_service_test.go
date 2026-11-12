@@ -108,6 +108,26 @@ func TestNotificationServiceEnableInitialisesAndReportsFailure(t *testing.T) {
 	}
 }
 
+func TestNotificationServiceTestRefusedWhileOff(t *testing.T) {
+	core := newNotificationTestCore(t)
+	svc := NewNotificationService(core)
+	sender := &stubSender{}
+	n := osnotify.New(osnotify.Options{Sender: sender, Enabled: core.OSNotificationsEnabled})
+	n.Start()
+	svc.setNotifier(n)
+	defer svc.stop()
+
+	if _, err := svc.SendTestNotification(); !errors.Is(err, errNotificationsOff) {
+		t.Fatalf("test while off: err = %v, want errNotificationsOff", err)
+	}
+	sender.mu.Lock()
+	inits, sent := sender.inits, sender.sent
+	sender.mu.Unlock()
+	if inits != 0 || sent != 0 {
+		t.Fatalf("backend touched while off: inits %d, sent %d", inits, sent)
+	}
+}
+
 func TestNotificationServiceStopIsBounded(t *testing.T) {
 	core := newNotificationTestCore(t)
 	svc := NewNotificationService(core)

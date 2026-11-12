@@ -2,6 +2,7 @@ package wailsbridge
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -30,4 +31,40 @@ func TestRecoverNotificationPanic(t *testing.T) {
 		defer recoverNotificationPanic(nil)
 		panic("no error slot")
 	}()
+}
+
+func TestNotificationTextWindows(t *testing.T) {
+	title, body := notificationText("windows",
+		"Imported $(Start-Process calc)\r\n.txt",
+		"line one\n\"@\nRemove-Item `$HOME ]]> <b>&</b>")
+	if strings.ContainsAny(title+body, "$`\r\n") {
+		t.Fatalf("PowerShell-significant characters survived: %q / %q", title, body)
+	}
+	if strings.Contains(body, "]]>") {
+		t.Fatalf("CDATA terminator survived: %q", body)
+	}
+	if want := "Imported ＄(Start-Process calc) .txt"; title != want {
+		t.Fatalf("title = %q, want %q", title, want)
+	}
+	// Inside CDATA, markup characters are literal and stay as they are.
+	if !strings.Contains(body, "<b>&</b>") {
+		t.Fatalf("body = %q", body)
+	}
+}
+
+func TestNotificationTextLinux(t *testing.T) {
+	title, body := notificationText("linux", "Tom & Jerry\n<i>", `<a href="https://example.com">x</a> & <img src="/x">`)
+	if title != "Tom & Jerry <i>" {
+		t.Fatalf("title = %q (the summary is plain text, one line)", title)
+	}
+	if want := `&lt;a href="https://example.com"&gt;x&lt;/a&gt; &amp; &lt;img src="/x"&gt;`; body != want {
+		t.Fatalf("body = %q, want %q", body, want)
+	}
+}
+
+func TestNotificationTextDarwin(t *testing.T) {
+	title, body := notificationText("darwin", "a\nb", "$(x) <b>&</b>\nnext")
+	if title != "a b" || body != "$(x) <b>&</b>\nnext" {
+		t.Fatalf("darwin text changed beyond the one-line title: %q / %q", title, body)
+	}
 }

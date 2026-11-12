@@ -254,7 +254,7 @@ If using Apple Silicon (M-series):
 **Issue:** **System Notifications** is on, but nothing shows when a watch folder imports in the background.
 
 **Solution:**
-1. Open **Settings → System Notifications**. If it says "Not available", the reason follows: on macOS allow mahpastes under **System Settings → Notifications** (builds run from source cannot notify at all); on Linux make sure a notification daemon is running.
+1. Open **Settings → System Notifications**. If it says "Not available", the reason follows: on macOS allow mahpastes under **System Settings → Notifications** (the bare binary that `wails dev` runs cannot notify at all; a built `.app` can); on Linux make sure a notification daemon is running.
 2. Click **Send Test Notification**. If nothing appears, Focus / Do Not Disturb / Focus assist is probably hiding it.
 3. Notifications only appear while the window is unfocused, and similar events are combined, so a burst of imports shows as one notification after a couple of seconds.
 
