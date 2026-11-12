@@ -138,7 +138,7 @@ Before building, install these dependencies:
 
 | Dependency | Version | Purpose |
 |------------|---------|---------|
-| [Go](https://go.dev/dl/) | 1.25.7+ (fetches the 1.26.6 toolchain go.mod asks for) | Backend language |
+| [Go](https://go.dev/dl/) | 1.25.7+ (fetches the 1.26.11 toolchain go.mod asks for) | Backend language |
 | [Node.js](https://nodejs.org/) | 18+ | Frontend build tools |
 | [Wails CLI](https://wails.io/) | 2.12.0 | Desktop app framework |
 

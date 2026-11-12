@@ -51,7 +51,7 @@ Every app archive includes the `mp` CLI, the bundled plugins and examples. See t
 
 #### Prerequisites
 
-- [Go](https://go.dev/dl/) 1.25.7+ (fetches the 1.26.6 toolchain go.mod asks for)
+- [Go](https://go.dev/dl/) 1.25.7+ (fetches the 1.26.11 toolchain go.mod asks for)
 - [Wails CLI](https://wails.io/docs/gettingstarted/installation) v2.12.0
 - [Node.js](https://nodejs.org/) 18+
 

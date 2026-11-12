@@ -18,7 +18,7 @@ permissions:
 
 env:
   # Keep in step with go.mod's toolchain line and the other workflows.
-  GO_VERSION: '1.26.6'
+  GO_VERSION: '1.26.11'
   NODE_VERSION: '22'
   WAILS_VERSION: v2.12.0
 
