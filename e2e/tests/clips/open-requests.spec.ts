@@ -1,5 +1,6 @@
 import { test, expect } from '../../fixtures/test-fixtures';
 import { createTempDir, createTempFile, generateTestImage, generateTestText } from '../../helpers/test-data';
+import { selectors } from '../../helpers/selectors';
 import * as path from 'path';
 
 /**
@@ -60,14 +61,22 @@ test.describe('Open requests from a second launch', () => {
   });
 });
 
+type OpenBatch = {
+  files?: string[];
+  skipped?: string[];
+  links?: { kind: string; clip_id?: number; url: string }[];
+  unsupported_links?: string[];
+  paste_clipboard?: boolean;
+};
+
 test.describe('Open request handling in the window', () => {
-  const handle = (app: any, batch: { files: string[]; skipped: string[]; urls: string[] }) =>
+  const handle = (app: any, batch: OpenBatch) =>
     app.page.evaluate((b: any) => (window as any).__testHelpers.handleOpenRequests(b), batch);
 
   test('imports opened files and shows them', async ({ app }) => {
     const filePath = await createTempFile(generateTestImage(24, 24, 'red'), 'png');
 
-    await handle(app, { files: [filePath], skipped: [], urls: [] });
+    await handle(app, { files: [filePath] });
 
     await app.expectClipCount(1);
     await app.expectClipVisible(path.basename(filePath));
@@ -78,22 +87,102 @@ test.describe('Open request handling in the window', () => {
     await app.toggleArchiveView();
     expect(await app.isArchiveViewActive()).toBe(true);
 
-    await handle(app, { files: [filePath], skipped: [], urls: [] });
+    await handle(app, { files: [filePath] });
 
     expect(await app.isArchiveViewActive()).toBe(false);
     await app.expectClipVisible(path.basename(filePath));
   });
 
   test('reports items that are not files', async ({ app }) => {
-    await handle(app, { files: [], skipped: ['/somewhere/Folder', 'C:\\data\\gone.txt'], urls: [] });
+    await handle(app, { skipped: ['/somewhere/Folder', 'C:\\data\\gone.txt'] });
 
     await app.expectToast("Skipped 2 items that can't be imported: Folder, gone.txt");
     await app.expectClipCount(0);
   });
 
   test('reports links it has no action for', async ({ app }) => {
-    await handle(app, { files: [], skipped: [], urls: ['mahpastes://nothing-here'] });
+    await handle(app, { unsupported_links: ['mahpastes://nothing-here'] });
 
     await app.expectToast('Unsupported mahpastes link: mahpastes://nothing-here');
+  });
+
+  test('a clip link opens an image clip in the lightbox', async ({ app }) => {
+    const imagePath = await createTempFile(generateTestImage(32, 32, 'blue'), 'png');
+    await app.uploadFile(imagePath);
+    const card = await app.getClipByFilename(path.basename(imagePath));
+    const id = Number(await card.getAttribute('data-id'));
+
+    await handle(app, { links: [{ kind: 'clip', clip_id: id, url: `mahpastes://clip/${id}` }] });
+
+    await expect.poll(() => app.isLightboxOpen()).toBe(true);
+  });
+
+  test('a clip link opens a text clip in the editor', async ({ app }) => {
+    const textPath = await createTempFile(generateTestText('linked-text'), 'txt');
+    await app.uploadFile(textPath);
+    const card = await app.getClipByFilename(path.basename(textPath));
+    const id = Number(await card.getAttribute('data-id'));
+
+    await handle(app, { links: [{ kind: 'clip', clip_id: id, url: `mahpastes://clip/${id}` }] });
+
+    await expect.poll(() => app.isEditorOpen()).toBe(true);
+  });
+
+  test('a link to a missing clip is reported', async ({ app }) => {
+    await handle(app, { links: [{ kind: 'clip', clip_id: 999999, url: 'mahpastes://clip/999999' }] });
+
+    await app.expectToast('Clip 999999 was not found.');
+  });
+
+  test('a link never opens another application', async ({ app }) => {
+    const pdfPath = await createTempFile(Buffer.from('%PDF-1.4\n%%EOF\n'), 'pdf');
+    await app.uploadFile(pdfPath);
+    const card = await app.getClipByFilename(path.basename(pdfPath));
+    const id = Number(await card.getAttribute('data-id'));
+    await app.page.evaluate(() => {
+      (window as any).__openedWithDefaultApp = 0;
+      const api = (window as any).go.main.App;
+      api.OpenClipWithDefaultApp = async () => { (window as any).__openedWithDefaultApp++; };
+    });
+
+    await handle(app, { links: [{ kind: 'clip', clip_id: id, url: `mahpastes://clip/${id}` }] });
+
+    // A clip without an in-app viewer is focused in the gallery instead.
+    await expect(card).toBeFocused();
+    expect(await app.page.evaluate(() => (window as any).__openedWithDefaultApp)).toBe(0);
+  });
+
+  test('the paste action saves the system clipboard as a clip', async ({ app }) => {
+    const marker = `pasted-from-shortcut-${Date.now()}`;
+    await app.page.evaluate((text) => {
+      const api = (window as any).go.main.App;
+      api.GetClipboardImage = async () => { throw new Error('no image in clipboard'); };
+      api.GetClipboardText = async () => text;
+    }, marker);
+
+    await handle(app, { paste_clipboard: true });
+
+    await expect.poll(() => app.getClipCountFromDB(), { timeout: 10000 }).toBe(1);
+  });
+});
+
+test.describe('Clip links', () => {
+  test('Copy > Link puts the clip\'s mahpastes link on the clipboard', async ({ app }) => {
+    const textPath = await createTempFile(generateTestText('link-me'), 'txt');
+    await app.uploadFile(textPath);
+    const filename = path.basename(textPath);
+    const card = await app.getClipByFilename(filename);
+    const id = Number(await card.getAttribute('data-id'));
+    await app.page.evaluate(() => {
+      const api = (window as any).go.main.App;
+      (window as any).__copiedText = null;
+      api.CopyToClipboard = async (text: string) => { (window as any).__copiedText = text; };
+    });
+
+    await app.hoverCopySubmenu(filename);
+    await app.page.locator(selectors.cardMenu.copyLink).click();
+
+    await app.expectToast('Link copied to clipboard!');
+    expect(await app.page.evaluate(() => (window as any).__copiedText)).toBe(`mahpastes://clip/${id}`);
   });
 });

@@ -60,6 +60,16 @@ func TestFromArgs(t *testing.T) {
 			want: Request{Activate: true, Files: []string{filepath.Join(cwd, "notes:2024.txt")}},
 		},
 		{
+			name: "the paste flag is the one flag that counts",
+			args: []string{"--paste-clipboard", abs("/tmp/a.png")},
+			want: Request{Activate: true, PasteClipboard: true, Files: []string{abs("/tmp/a.png")}},
+		},
+		{
+			name: "after a double dash the paste flag is a file name",
+			args: []string{"--", "--paste-clipboard"},
+			want: Request{Activate: true, Files: []string{filepath.Join(cwd, "--paste-clipboard")}},
+		},
+		{
 			name: "empty args are ignored",
 			args: []string{"", ""},
 			want: Request{Activate: true},
@@ -120,5 +130,31 @@ func TestParseURL(t *testing.T) {
 		if ok != tt.ok || got != tt.want {
 			t.Errorf("ParseURL(%q) = %q, %v; want %q, %v", tt.in, got, ok, tt.want, tt.ok)
 		}
+	}
+}
+
+func TestStripOwnFlags(t *testing.T) {
+	for _, tt := range []struct {
+		in, want []string
+	}{
+		{[]string{"mahpastes"}, []string{"mahpastes"}},
+		{[]string{"mahpastes", "--paste-clipboard"}, []string{"mahpastes"}},
+		{[]string{"mahpastes", "-loglevel", "debug", "--paste-clipboard", "a.png"}, []string{"mahpastes", "-loglevel", "debug", "a.png"}},
+		{[]string{"mahpastes", "--", "--paste-clipboard"}, []string{"mahpastes", "--", "--paste-clipboard"}},
+		// The program name is never touched, whatever it is called.
+		{[]string{"--paste-clipboard"}, []string{"--paste-clipboard"}},
+	} {
+		if got := StripOwnFlags(tt.in); !reflect.DeepEqual(got, tt.want) {
+			t.Errorf("StripOwnFlags(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
+func TestPasteOnlyRequestIsNotEmpty(t *testing.T) {
+	if (Request{PasteClipboard: true}).Empty() {
+		t.Fatal("a paste request must count as work for the frontend")
+	}
+	if !(Request{Activate: true}).Empty() {
+		t.Fatal("a plain activate carries nothing for the frontend")
 	}
 }

@@ -32,6 +32,9 @@ func main() {
 	// Files and mahpastes:// URLs on the command line (Send To, a drop onto the
 	// exe or launcher, a file manager's Open With), or nothing for a plain launch.
 	launch := launchRequest(selfTestWorker)
+	// Wails dev and bindings builds parse os.Args and reject a flag they do not
+	// know, so the app's own flags (--paste-clipboard) go before wails.Run.
+	os.Args = openrequest.StripOwnFlags(os.Args)
 
 	// Skip the single-instance lock during Wails binding generation: that build
 	// (`-tags bindings`) only introspects bound methods and exits, so it must

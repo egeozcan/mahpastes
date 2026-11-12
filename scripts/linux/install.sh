@@ -93,6 +93,16 @@ done
 # Exec uses an absolute path: desktop sessions (notably Ubuntu's) do not always
 # have ~/.local/bin on PATH. StartupWMClass matches the GTK program name, which
 # links the running window to this entry on X11 and Wayland.
+#
+# %U passes files the user opens with mahpastes ("Open With", a drop on the
+# launcher) as file:// URLs and mahpastes:// links as they are; a launch while
+# the app runs hands them to the open window. MimeType lists a few common
+# types so mahpastes shows up under "Open With" for them, plus the mahpastes:
+# URL scheme. Nothing is made a default handler for files (no xdg-mime
+# default), and the app is the only handler for its own scheme.
+#
+# The desktop actions appear in the launcher's right-click menu, and KDE lists
+# them under System Settings > Shortcuts so they can get a global shortcut.
 mkdir -p "$(dirname "$desktop")"
 cat >"$desktop" <<EOF
 [Desktop Entry]
@@ -100,13 +110,24 @@ Type=Application
 Name=mahpastes
 GenericName=Clipboard Manager
 Comment=Clipboard and paste manager
-Exec="$binary"
+Exec="$binary" %U
 Icon=$APP_NAME
 Terminal=false
 Categories=Utility;
 Keywords=clipboard;paste;snippets;
+MimeType=text/plain;text/markdown;image/png;image/jpeg;image/gif;image/webp;application/pdf;application/json;x-scheme-handler/mahpastes;
 StartupNotify=true
 StartupWMClass=$APP_NAME
+SingleMainWindow=true
+Actions=paste-clipboard;show;
+
+[Desktop Action paste-clipboard]
+Name=Save Clipboard as Clip
+Exec="$binary" --paste-clipboard
+
+[Desktop Action show]
+Name=Show mahpastes
+Exec="$binary"
 EOF
 chmod 644 "$desktop"
 refresh_desktop_caches

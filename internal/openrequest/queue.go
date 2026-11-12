@@ -84,6 +84,11 @@ func (q *Queue) Submit(r Request) {
 		}
 		q.pending.URLs = append(q.pending.URLs, u)
 	}
+	// Repeated paste requests before a drain collapse into one paste: the
+	// clipboard has one content.
+	if r.PasteClipboard {
+		q.pending.PasteClipboard = true
+	}
 	if !q.pending.Empty() {
 		q.scheduleLocked()
 	}
@@ -98,7 +103,7 @@ func (q *Queue) Submit(r Request) {
 func (q *Queue) Take() Request {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	out := Request{Files: q.pending.Files, URLs: q.pending.URLs}
+	out := Request{Files: q.pending.Files, URLs: q.pending.URLs, PasteClipboard: q.pending.PasteClipboard}
 	q.pending = Request{}
 	q.seen = map[string]bool{}
 	if q.timer != nil {

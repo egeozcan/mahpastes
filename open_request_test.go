@@ -48,9 +48,10 @@ func TestTakeOpenRequestsSortsImportableFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := OpenRequests{
-		Files:   []string{good},
-		Skipped: []string{dir, missing, own},
-		URLs:    []string{"mahpastes://show"},
+		Files:            []string{good},
+		Skipped:          []string{dir, missing, own},
+		Links:            []openrequest.Link{{Kind: openrequest.LinkShow, URL: "mahpastes://show"}},
+		UnsupportedLinks: []string{},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("TakeOpenRequests() = %#v\nwant %#v", got, want)
@@ -58,9 +59,36 @@ func TestTakeOpenRequestsSortsImportableFiles(t *testing.T) {
 
 	// Drained: the next call is empty, never nil slices for the frontend.
 	again, _ := d.TakeOpenRequests()
-	if again.Files == nil || again.Skipped == nil || again.URLs == nil ||
-		len(again.Files)+len(again.Skipped)+len(again.URLs) != 0 {
+	if again.Files == nil || again.Skipped == nil || again.Links == nil || again.UnsupportedLinks == nil ||
+		len(again.Files)+len(again.Skipped)+len(again.Links)+len(again.UnsupportedLinks) != 0 || again.PasteClipboard {
 		t.Fatalf("second take = %#v, want empty non-nil slices", again)
+	}
+}
+
+// Links are parsed on the way out: valid ones go to the frontend typed, the
+// rest are handed back verbatim to be reported. A paste request survives the
+// queue on its own, with nothing else to open.
+func TestTakeOpenRequestsParsesLinksAndPaste(t *testing.T) {
+	d := newOpenRequestTestApp(t)
+	d.submitOpenRequest(openrequest.Request{
+		URLs:     []string{"mahpastes://clip/42", "mahpastes://delete/42", "mahpastes://clip/0"},
+		Activate: true,
+	})
+	d.submitOpenRequest(openrequest.Request{PasteClipboard: true, Activate: true})
+
+	got, err := d.TakeOpenRequests()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := OpenRequests{
+		Files:            []string{},
+		Skipped:          []string{},
+		Links:            []openrequest.Link{{Kind: openrequest.LinkClip, ClipID: 42, URL: "mahpastes://clip/42"}},
+		UnsupportedLinks: []string{"mahpastes://delete/42", "mahpastes://clip/0"},
+		PasteClipboard:   true,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("TakeOpenRequests() = %#v\nwant %#v", got, want)
 	}
 }
 

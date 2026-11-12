@@ -609,6 +609,7 @@ const cardMenuTooltips = {
     'copy-public-link': 'Create a revocable public link and copy it to clipboard',
     'copy-file': 'Place file on clipboard for pasting into other apps',
     'copy-contents': 'Copy the raw text or data to clipboard',
+    'copy-link': 'Copy a mahpastes:// link that shows this clip in the app',
     'save-file': 'Save a copy to a file',
     'edit': 'Open in the built-in image editor for annotation',
     'tags': 'Add or remove tags',
@@ -651,6 +652,11 @@ function buildMenuItemList(clip) {
     // desktop-only; in server mode it would just throw a "Failed to copy" toast.
     if (!isServerMode && (ct.startsWith('text/') || ct === 'application/json' || ct.startsWith('image/'))) {
         copyChildren.push({ id: 'copy-contents', label: 'Contents', iconHtml: getMenuIcon('copy-contents'), tooltip: cardMenuTooltips['copy-contents'] });
+    }
+    // mahpastes:// links reach the desktop app through the OS, never the
+    // server's web page.
+    if (!isServerMode) {
+        copyChildren.push({ id: 'copy-link', label: 'Link', iconHtml: getMenuIcon('copy-public-link'), tooltip: cardMenuTooltips['copy-link'] });
     }
     items.push({ type: 'submenu', label: 'Copy', iconHtml: getMenuIcon('copy'), submenuId: 'copy', children: copyChildren });
 
@@ -807,6 +813,9 @@ async function handleCardAction(action, clipId, triggerButton) {
             break;
         case 'copy-contents':
             copyClipContents(id);
+            break;
+        case 'copy-link':
+            copyClipLink(id);
             break;
         case 'save-file':
             saveClipToFile(id);

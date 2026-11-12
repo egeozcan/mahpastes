@@ -34,21 +34,30 @@ type Request struct {
 	URLs []string `json:"urls,omitempty"`
 	// Activate asks for the window to be shown, unminimised and raised.
 	Activate bool `json:"activate"`
+	// PasteClipboard asks the window to save what is on the system clipboard
+	// as a new clip, as if the user had pasted it. It comes only from the
+	// PasteClipboardFlag on the command line (a desktop action bound to a
+	// global shortcut), never from a URL: links must not change anything.
+	PasteClipboard bool `json:"paste_clipboard,omitempty"`
 }
 
-// Empty reports whether the request carries nothing to open. An empty request
-// may still activate the window.
+// PasteClipboardFlag is the command-line flag that sets
+// Request.PasteClipboard.
+const PasteClipboardFlag = "--paste-clipboard"
+
+// Empty reports whether the request carries nothing for the frontend to do.
+// An empty request may still activate the window.
 func (r Request) Empty() bool {
-	return len(r.Files) == 0 && len(r.URLs) == 0
+	return len(r.Files) == 0 && len(r.URLs) == 0 && !r.PasteClipboard
 }
 
 // FromArgs classifies command-line arguments (os.Args[1:]) into a Request that
 // activates the window:
 //
 //   - Arguments that start with "-" are flags, never paths: Wails dev builds
-//     take flags, and older macOS passes -psn_<serial>. A lone "--" ends flag
-//     skipping, so a file whose name starts with "-" can still be passed after
-//     it.
+//     take flags, and older macOS passes -psn_<serial>. PasteClipboardFlag is
+//     the one flag that means something here. A lone "--" ends flag skipping,
+//     so a file whose name starts with "-" can still be passed after it.
 //   - mahpastes: URLs are kept as URLs.
 //   - file:// URLs (what desktop launchers pass for %U) become paths.
 //   - Anything else is a path; relative paths are resolved against cwd, the
@@ -66,6 +75,10 @@ func FromArgs(args []string, cwd string) Request {
 		if !flagsDone {
 			if arg == "--" {
 				flagsDone = true
+				continue
+			}
+			if arg == PasteClipboardFlag {
+				req.PasteClipboard = true
 				continue
 			}
 			if strings.HasPrefix(arg, "-") {
@@ -94,6 +107,24 @@ func FromArgs(args []string, cwd string) Request {
 		req.Files = append(req.Files, filepath.Clean(p))
 	}
 	return req
+}
+
+// StripOwnFlags returns args (a full os.Args, program name first) without the
+// flags FromArgs consumes. Wails dev and bindings builds parse os.Args with the
+// flag package and fail on a flag they do not know, so the app removes its own
+// before wails.Run. Arguments after "--" are left alone.
+func StripOwnFlags(args []string) []string {
+	out := make([]string, 0, len(args))
+	for i, arg := range args {
+		if arg == "--" {
+			return append(out, args[i:]...)
+		}
+		if i > 0 && arg == PasteClipboardFlag {
+			continue
+		}
+		out = append(out, arg)
+	}
+	return out
 }
 
 // ParseURL reports whether raw is a mahpastes: URL and returns it trimmed.

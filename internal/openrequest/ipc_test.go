@@ -301,3 +301,20 @@ func TestSocketPathFallsBackForLongDataDirs(t *testing.T) {
 	}
 	<-got
 }
+
+// A paste request is the one request that carries nothing but a flag; it must
+// survive the trip and the server-side sanitizing.
+func TestSendDeliversPasteClipboard(t *testing.T) {
+	dataDir := shortDataDir(t)
+	_, got := startServer(t, dataDir)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	req := Request{PasteClipboard: true, Activate: true}
+	if err := Send(ctx, dataDir, req); err != nil {
+		t.Fatal(err)
+	}
+	if r := <-got; !reflect.DeepEqual(r, req) {
+		t.Fatalf("handler got %#v, want %#v", r, req)
+	}
+}

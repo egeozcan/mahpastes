@@ -20,8 +20,15 @@ type OpenRequests struct {
 	// folder, a device or pipe, or one of the app's own temp files (re-opening a dragged-out
 	// clip would only duplicate it).
 	Skipped []string `json:"skipped"`
-	// URLs are mahpastes:// links to act on.
-	URLs []string `json:"urls"`
+	// Links are the mahpastes:// links to act on, parsed. A link only
+	// navigates the window.
+	Links []openrequest.Link `json:"links"`
+	// UnsupportedLinks are mahpastes: URLs that are not valid links, as
+	// received, to be reported.
+	UnsupportedLinks []string `json:"unsupported_links"`
+	// PasteClipboard asks the frontend to save the system clipboard as a
+	// clip (the --paste-clipboard launch flag).
+	PasteClipboard bool `json:"paste_clipboard"`
 }
 
 // submitOpenRequest is the single entry point for everything the OS or a
@@ -48,13 +55,19 @@ func (d *App) attachOpenRequests(b *wailsbridge.Bridge) {
 // the same rules as a pasted path: only existing regular files outside the
 // app's own temp directory are importable.
 func (d *App) TakeOpenRequests() (OpenRequests, error) {
-	out := OpenRequests{Files: []string{}, Skipped: []string{}, URLs: []string{}}
+	out := OpenRequests{Files: []string{}, Skipped: []string{}, Links: []openrequest.Link{}, UnsupportedLinks: []string{}}
 	if d.openRequests == nil {
 		return out, nil
 	}
 	req := d.openRequests.Take()
-	if len(req.URLs) > 0 {
-		out.URLs = req.URLs
+	out.PasteClipboard = req.PasteClipboard
+	for _, raw := range req.URLs {
+		link, err := openrequest.ParseLink(raw)
+		if err != nil {
+			out.UnsupportedLinks = append(out.UnsupportedLinks, raw)
+			continue
+		}
+		out.Links = append(out.Links, link)
 	}
 	if len(req.Files) == 0 {
 		return out, nil

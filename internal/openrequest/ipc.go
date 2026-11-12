@@ -31,6 +31,8 @@ import (
 // Wire format (one request per connection, newline-terminated JSON each way):
 //
 //	client -> server  {"v":1,"files":["/abs/a.png"],"urls":["mahpastes://x"],"activate":true}
+//	                  ("paste_clipboard":true is added for --paste-clipboard;
+//	                  a receiver that predates it ignores the field)
 //	server -> client  {"ok":true}            or {"ok":false,"error":"..."}
 //
 // Only the user who owns the data directory can reach the socket (the file is
@@ -228,7 +230,7 @@ func sanitize(in Request) (Request, error) {
 	if len(in.Files)+len(in.URLs) > maxRequestItems {
 		return Request{}, fmt.Errorf("too many items: %d (max %d)", len(in.Files)+len(in.URLs), maxRequestItems)
 	}
-	out := Request{Activate: in.Activate}
+	out := Request{Activate: in.Activate, PasteClipboard: in.PasteClipboard}
 	for _, f := range in.Files {
 		if f == "" || !filepath.IsAbs(f) {
 			continue

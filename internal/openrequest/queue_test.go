@@ -107,3 +107,23 @@ func waitFor(t *testing.T, cond func() bool) {
 		time.Sleep(2 * time.Millisecond)
 	}
 }
+
+// Paste requests notify the frontend like any other work and collapse into one
+// paste until the frontend takes them.
+func TestQueuePasteClipboard(t *testing.T) {
+	q := NewQueue(time.Millisecond)
+	var notified atomic.Int32
+	q.Attach(nil, func() { notified.Add(1) })
+
+	q.Submit(Request{PasteClipboard: true, Activate: true})
+	q.Submit(Request{PasteClipboard: true, Activate: true})
+	waitFor(t, func() bool { return notified.Load() >= 1 })
+
+	got := q.Take()
+	if !got.PasteClipboard || len(got.Files) != 0 || len(got.URLs) != 0 {
+		t.Fatalf("Take() = %#v, want one paste", got)
+	}
+	if again := q.Take(); again.PasteClipboard {
+		t.Fatal("paste survived Take")
+	}
+}
