@@ -4,6 +4,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -16,7 +17,6 @@ func TestStdinFilenameSniffsExtension(t *testing.T) {
 	png := "\x89PNG\r\n\x1a\n" + strings.Repeat("x", 600)
 	cases := []struct{ in, want string }{
 		{"hello", "paste-20260102-030405.txt"},
-		{"", "paste-20260102-030405.txt"},
 		{png, "paste-20260102-030405.png"},
 		{"\x00\x01\x02\x03binary", "paste-20260102-030405.bin"},
 	}
@@ -38,6 +38,43 @@ func TestStdinFilenameSniffsExtension(t *testing.T) {
 	if !strings.HasSuffix(name, ".pdf") {
 		t.Fatalf("content-type ext: %s", name)
 	}
+	if _, _, err := stdinFilename("x.md", "", strings.NewReader(""), now); err != errEmptyStdin {
+		t.Fatalf("empty stdin with --filename: err = %v", err)
+	}
+}
+
+// Every sniffable type maps to a fixed extension, not to whatever the host's
+// mime tables list first.
+func TestExtensionForContentTypeIsDeterministic(t *testing.T) {
+	cases := map[string]string{
+		"application/x-gzip":           ".gz",
+		"audio/mpeg":                   ".mp3",
+		"video/mp4":                    ".mp4",
+		"audio/wave":                   ".wav",
+		"image/x-icon":                 ".ico",
+		"text/plain; charset=utf-16be": ".txt",
+		"text/markdown":                ".md",
+		"TEXT/HTML; charset=utf-8":     ".html",
+		"":                             ".txt",
+	}
+	for ct, want := range cases {
+		if got := extensionForContentType(ct); got != want {
+			t.Errorf("%q -> %q, want %q", ct, got, want)
+		}
+	}
+	// What http.DetectContentType can report for these magic numbers.
+	sniffs := map[string]string{
+		"\x1f\x8b\x08":                    ".gz",
+		"ID3\x03\x00":                     ".mp3",
+		"wOFF":                            ".woff",
+		"\x00asm":                         ".wasm",
+		"BM" + strings.Repeat("\x00", 20): ".bmp",
+	}
+	for head, want := range sniffs {
+		if got := sniffExtension([]byte(head)); got != want {
+			t.Errorf("sniff %q -> %q, want %q", head, got, want)
+		}
+	}
 }
 
 func TestLooksBinary(t *testing.T) {
@@ -47,7 +84,7 @@ func TestLooksBinary(t *testing.T) {
 }
 
 func TestLatestClipID(t *testing.T) {
-	var q map[string][]string
+	var q url.Values
 	empty := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		q = r.URL.Query()
@@ -62,7 +99,7 @@ func TestLatestClipID(t *testing.T) {
 	t.Setenv("MP_API_KEY", "k")
 	c := newTestClient(t)
 	id, err := latestClipID(c, "")
-	if err != nil || id != 42 || q["limit"][0] != "1" {
+	if err != nil || id != 42 || q.Get("limit") != "1" || q.Get("archived") != "false" {
 		t.Fatalf("id=%d err=%v q=%v", id, err, q)
 	}
 	empty = true
@@ -71,9 +108,9 @@ func TestLatestClipID(t *testing.T) {
 	}
 }
 
-func TestVersionString(t *testing.T) {
-	if versionString() == "" || rootCmd.Version == "" {
-		t.Fatal("version not set")
+func TestVersionFlag(t *testing.T) {
+	if rootCmd.Version == "" || rootCmd.Version != versionString() {
+		t.Fatalf("rootCmd.Version = %q", rootCmd.Version)
 	}
 }
 

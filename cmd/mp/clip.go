@@ -38,7 +38,7 @@ Results are paginated. Use --limit and --offset for pagination.`,
   # List archived clips tagged "screenshots"
   mp clip list --tag screenshots --archived
 
-  # Search by filename
+  # Search by filename or text content
   mp clip list --search "report"
 
   # Get all clip IDs as JSON for scripting
@@ -73,7 +73,39 @@ func init() {
 	clipListCmd.Flags().BoolVarP(&clipListQuiet, "quiet", "q", false, "Print only clip IDs, one per line")
 }
 
+// setListOrder validates --sort/--dir and adds them to a listing query. The
+// server silently falls back to created_at/desc for values it does not know,
+// so a typo would otherwise list in the wrong order with exit 0. An ordered
+// listing takes the server's general listing path, where a plain `search`
+// only post-filters the first page of 500-byte previews; search_content asks
+// for the database search instead (filename, type and text content, paged).
+func setListOrder(params url.Values, sort, dir string) error {
+	switch sort {
+	case "", "created_at", "name", "filename", "size", "type":
+	default:
+		return fmt.Errorf("invalid --sort %q: use created_at, name, size or type", sort)
+	}
+	switch dir {
+	case "", "asc", "desc":
+	default:
+		return fmt.Errorf("invalid --dir %q: use asc or desc", dir)
+	}
+	if sort != "" {
+		params.Set("sort", sort)
+	}
+	if dir != "" {
+		params.Set("dir", dir)
+	}
+	if params.Get("search") != "" {
+		params.Set("search_content", "true")
+	}
+	return nil
+}
+
 func runClipList(cmd *cobra.Command, args []string) error {
+	if err := setListOrder(url.Values{}, clipListSort, clipListDir); err != nil {
+		return err
+	}
 	c, err := client.New()
 	if err != nil {
 		return err
@@ -99,11 +131,10 @@ func runClipList(cmd *cobra.Command, args []string) error {
 	if clipListContentType != "" {
 		params.Set("content_type", clipListContentType)
 	}
-	if clipListSort != "" {
-		params.Set("sort", clipListSort)
-	}
-	if clipListDir != "" {
-		params.Set("dir", clipListDir)
+	if clipListSort != "" || clipListDir != "" {
+		if err := setListOrder(params, clipListSort, clipListDir); err != nil {
+			return err
+		}
 	}
 
 	path := "/api/v1/clips?" + params.Encode()
@@ -269,15 +300,18 @@ var (
 )
 
 func init() {
-	clipDataCmd.Flags().BoolVar(&clipDataLatest, "latest", false, "Use the newest clip instead of an ID")
+	clipDataCmd.Flags().BoolVar(&clipDataLatest, "latest", false, "Use the newest non-archived clip instead of an ID")
 	clipDataCmd.Flags().StringVar(&clipDataTag, "tag", "", "With --latest, restrict to a tag (name or ID)")
 	clipDataCmd.Flags().BoolVar(&clipDataForce, "force", false, "Write binary data even when stdout is a terminal")
 }
 
-// latestClipID returns the ID of the newest clip, optionally within a tag.
+// latestClipID returns the ID of the newest non-archived clip, optionally
+// within a tag: what the gallery shows first, so archiving a clip takes it out
+// of `mp clip data --latest` as it does out of the main view.
 func latestClipID(c *client.Client, tag string) (int64, error) {
 	params := url.Values{}
 	params.Set("limit", "1")
+	params.Set("archived", "false")
 	if tag != "" {
 		tagID, err := c.ResolveTagID(tag)
 		if err != nil {
@@ -300,28 +334,31 @@ func latestClipID(c *client.Client, tag string) (int64, error) {
 }
 
 func runClipData(cmd *cobra.Command, args []string) error {
-	c, err := client.New()
-	if err != nil {
-		return err
-	}
-
 	var id int64
 	switch {
 	case clipDataLatest && len(args) > 0:
 		return fmt.Errorf("--latest cannot be combined with a clip ID")
 	case clipDataLatest:
-		id, err = latestClipID(c, clipDataTag)
-		if err != nil {
-			return err
-		}
 	case len(args) == 0:
 		return fmt.Errorf("a clip ID or --latest is required")
 	case clipDataTag != "":
 		return fmt.Errorf("--tag only applies with --latest")
 	default:
+		var err error
 		id, err = strconv.ParseInt(args[0], 10, 64)
 		if err != nil {
 			return fmt.Errorf("invalid clip ID: %s", args[0])
+		}
+	}
+
+	c, err := client.New()
+	if err != nil {
+		return err
+	}
+	if clipDataLatest {
+		id, err = latestClipID(c, clipDataTag)
+		if err != nil {
+			return err
 		}
 	}
 
@@ -331,17 +368,29 @@ func runClipData(cmd *cobra.Command, args []string) error {
 	}
 	defer body.Close()
 
-	var r io.Reader = body
-	if stdoutIsTerminal() && !clipDataForce {
-		br := bufio.NewReaderSize(body, 512)
-		head, _ := br.Peek(512)
-		if looksBinary(head) {
-			return fmt.Errorf("refusing to write binary data to a terminal (redirect the output or use --force)")
-		}
-		r = br
+	r, err := guardTerminal(body, stdoutIsTerminal() && !clipDataForce)
+	if err != nil {
+		return err
 	}
-
 	return copyToStdout(r)
+}
+
+// guardTerminal refuses binary content when it would land on a terminal
+// (check is true), where it garbles the screen and can send control
+// sequences. The returned reader replays the bytes it peeked at.
+func guardTerminal(body io.Reader, check bool) (io.Reader, error) {
+	if !check {
+		return body, nil
+	}
+	br := bufio.NewReaderSize(body, 512)
+	head, err := br.Peek(512)
+	if err != nil && err != io.EOF && err != bufio.ErrBufferFull {
+		return nil, err
+	}
+	if looksBinary(head) {
+		return nil, fmt.Errorf("refusing to write binary data to a terminal (redirect the output or use --force)")
+	}
+	return br, nil
 }
 
 // --- clip upload ---
@@ -393,6 +442,21 @@ func init() {
 }
 
 func runClipUpload(cmd *cobra.Command, args []string) error {
+	// Check the input before touching the API, so a usage mistake never
+	// creates or tags anything. A bare `mp clip upload` on a terminal is a
+	// mistake rather than a request to type a clip, so it fails instead of
+	// waiting; an explicit "-" reads the terminal until EOF, like `cat -`.
+	fromStdin := len(args) == 0 || (len(args) == 1 && args[0] == "-")
+	if !fromStdin {
+		for _, a := range args {
+			if a == "-" {
+				return fmt.Errorf(`"-" (stdin) cannot be combined with other files`)
+			}
+		}
+	} else if len(args) == 0 && stdinIsTerminal() {
+		return fmt.Errorf("no input: pipe data to stdin, pass file arguments, or use - to type the clip")
+	}
+
 	c, err := client.New()
 	if err != nil {
 		return err
@@ -424,20 +488,9 @@ func runClipUpload(cmd *cobra.Command, args []string) error {
 	}
 
 	var uploaded []uploadedClip
-
-	fromStdin := len(args) == 0 || (len(args) == 1 && args[0] == "-")
-	if !fromStdin {
-		for _, a := range args {
-			if a == "-" {
-				return fmt.Errorf(`"-" (stdin) cannot be combined with other files`)
-			}
-		}
-	}
+	failed := 0 // files that failed to upload, tag or expire
 
 	if fromStdin {
-		if stdinIsTerminal() {
-			return fmt.Errorf("no input: pipe data to stdin or pass file arguments")
-		}
 		name, in, err := stdinFilename(clipUploadFilename, clipUploadContentType, os.Stdin, time.Now())
 		if err != nil {
 			return err
@@ -459,6 +512,7 @@ func runClipUpload(cmd *cobra.Command, args []string) error {
 			f, err := os.Open(filePath)
 			if err != nil {
 				errorf("skipping %s: %s", filePath, err)
+				failed++
 				continue
 			}
 
@@ -468,6 +522,7 @@ func runClipUpload(cmd *cobra.Command, args []string) error {
 			f.Close()
 			if uploadErr != nil {
 				errorf("failed to upload %s: %s", filePath, uploadErr)
+				failed++
 				continue
 			}
 			uploaded = append(uploaded, clip)
@@ -476,41 +531,50 @@ func runClipUpload(cmd *cobra.Command, args []string) error {
 
 	// Apply tag and expiration to uploaded clips
 	for _, clip := range uploaded {
+		ok := true
 		if tagID > 0 {
 			if err := c.PutJSON(fmt.Sprintf("/api/v1/clips/%d/tags/%d", clip.ID, tagID), nil, nil); err != nil {
 				errorf("failed to tag clip %d: %s", clip.ID, err)
+				ok = false
 			}
 		}
 		if expireMinutes > 0 {
 			if err := c.PutJSON(fmt.Sprintf("/api/v1/clips/%d/expiration", clip.ID), map[string]int{"minutes": expireMinutes}, nil); err != nil {
 				errorf("failed to set expiration on clip %d: %s", clip.ID, err)
+				ok = false
 			}
+		}
+		if !ok {
+			failed++
 		}
 	}
 
-	if jsonOutput {
+	// Report what was uploaded in every mode, then fail the command if
+	// anything went wrong, so `ids=$(mp clip upload -q a b)` scripts see a
+	// non-zero exit for a partial upload.
+	switch {
+	case jsonOutput:
 		printJSON(uploaded)
-		return nil
-	}
-
-	if clipUploadQuiet {
+	case clipUploadQuiet:
 		for _, clip := range uploaded {
 			fmt.Println(clip.ID)
 		}
-		if len(uploaded) == 0 {
-			return fmt.Errorf("no files were uploaded")
+	default:
+		for _, clip := range uploaded {
+			fmt.Printf("Uploaded: %s (ID: %d)\n", clip.Filename, clip.ID)
 		}
-		return nil
-	}
-
-	for _, clip := range uploaded {
-		fmt.Printf("Uploaded: %s (ID: %d)\n", clip.Filename, clip.ID)
 	}
 
 	if len(uploaded) == 0 {
 		return fmt.Errorf("no files were uploaded")
 	}
-
+	if failed > 0 {
+		total := len(args)
+		if fromStdin {
+			total = 1
+		}
+		return fmt.Errorf("%d of %d uploads had errors", failed, total)
+	}
 	return nil
 }
 

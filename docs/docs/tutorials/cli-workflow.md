@@ -87,7 +87,7 @@ Upload multiple files at once:
 mp clip upload *.png --tag batch
 ```
 
-Upload from stdin. Without `--filename` the clip is named `paste-<timestamp>.<ext>`, with the extension sniffed from the content (`.txt` for text, `.png`, `.pdf` and so on for known binary types, `.bin` otherwise). `-` as the file argument means stdin too:
+Upload from stdin. Without `--filename` the clip is named `paste-<timestamp>.<ext>`, with the extension sniffed from the content (`.txt` for text, `.png`, `.pdf`, `.gz` and so on for known binary types, `.bin` otherwise; `--content-type` picks the extension instead). `-` as the file argument means stdin too. Empty input is an error rather than an empty clip, and `mp clip upload` with no arguments on an interactive terminal stops with an error instead of waiting for input (pass `-` to type the clip instead, ending it with Ctrl-D, or Ctrl-Z then Enter on Windows):
 
 ```bash
 echo "meeting notes" | mp clip upload
@@ -102,7 +102,7 @@ id=$(echo hi | mp clip upload -q)
 mp clip list --tag logs -q | mp clip delete --stdin
 ```
 
-Print the newest clip (like `pbpaste`) with `mp clip data --latest [--tag NAME]`. `mp clip data` refuses to write binary content to a terminal unless you redirect the output or pass `--force`. `mp clip list` also accepts `--sort created_at|name|size|type` and `--dir asc|desc`. `mp --version` prints the version.
+If any file in a multi-file upload fails (or cannot be tagged or given its expiration), `mp clip upload` still prints the clips that did upload and then exits with code 1.
 
 Upload with an expiration:
 
@@ -152,6 +152,12 @@ Paginate through results:
 mp clip list --limit 20 --offset 40
 ```
 
+Sort by `created_at` (the default), `name`, `size` or `type`, in `desc` (the default) or `asc` order. Unknown values are rejected:
+
+```bash
+mp clip list --sort size --dir desc --limit 5
+```
+
 ## Downloading Clips
 
 Stream raw clip data to a file:
@@ -159,6 +165,15 @@ Stream raw clip data to a file:
 ```bash
 mp clip data 42 > output.png
 ```
+
+Print the newest non-archived clip, optionally within a tag, like `pbpaste`:
+
+```bash
+mp clip data --latest
+mp clip data --latest --tag notes | wc -l
+```
+
+When stdout is a terminal, `mp clip data` refuses binary content (an image, an archive) instead of dumping it onto the screen. Redirect the output, or pass `--force` to write it anyway.
 
 Download with the original filename:
 
@@ -536,6 +551,8 @@ mp clip get 42 --json | jq '.filename'
 | 1 | General error |
 | 2 | Connection error (API unreachable or not responding within `MP_TIMEOUT`) |
 | 3 | Authentication error (missing, invalid or revoked key) |
+
+`mp --version` prints the CLI version; send it along with bug reports.
 
 Use exit codes in scripts:
 

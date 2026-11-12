@@ -16,8 +16,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"go-clipboard/internal/buildinfo"
 )
 
 // Exit codes used by the CLI.
@@ -149,7 +147,7 @@ func escapeQuotes(s string) string { return quoteEscaper.Replace(s) }
 func (c *Client) do(req *http.Request) (*http.Response, error) {
 	req.Header.Set("Authorization", "Bearer "+c.APIKey)
 	if req.Header.Get("User-Agent") == "" {
-		req.Header.Set("User-Agent", "mp-cli/"+buildinfo.Version)
+		req.Header.Set("User-Agent", "mp-cli/"+Version)
 	}
 
 	resp, err := c.HTTPClient.Do(req)

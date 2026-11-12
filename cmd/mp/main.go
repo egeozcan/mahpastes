@@ -7,7 +7,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"go-clipboard/cmd/mp/client"
-	"go-clipboard/internal/buildinfo"
 )
 
 var rootCmd = &cobra.Command{
@@ -59,10 +58,10 @@ func main() {
 	}
 }
 
-// versionString renders the stamped version, with the commit when known.
+// versionString renders the resolved version, with the commit when known.
 func versionString() string {
-	if buildinfo.Commit != "" {
-		return buildinfo.Version + " (" + buildinfo.Commit + ")"
+	if client.Commit != "" {
+		return client.Version + " (" + client.Commit + ")"
 	}
-	return buildinfo.Version
+	return client.Version
 }
