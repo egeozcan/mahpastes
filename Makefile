@@ -23,6 +23,8 @@ else
     APP_PROCESS_PATTERN := [/]$(APP_NAME).app/Contents/MacOS/$(APP_NAME)
     FILE_PROVIDER_PROCESS_PATTERN := [/]MahpastesFileProvider\.appex/Contents/MacOS/MahpastesFileProvider
     MP_INSTALL_DIR ?= $(if $(GO_BIN),$(GO_BIN),$(HOME)/.local/bin)
+    # Stamps internal/buildinfo with the git version (scripts/version.sh).
+    VERSION_LDFLAGS := $(shell bash scripts/version.sh --ldflags 2>/dev/null)
 endif
 
 .PHONY: dev build clean install install-bundle install-ready-bundle stop-installed-app stop-file-provider-extension uninstall bindings mp mp-install mp-cross mahpastesd mahpastesd-cross test screenshots
@@ -55,10 +57,10 @@ ifeq ($(HOST_OS),Darwin)
 		$(MAKE) build-file-provider; \
 	else \
 		echo "Warning: Finder integration disabled: set TEAM_ID, SIGN_IDENTITY, HOST_PROFILE_PATH and EXTENSION_PROFILE_PATH (both profiles must be readable files). Building the ordinary app." >&2; \
-		$(WAILS) build; \
+		$(WAILS) build -ldflags "$(VERSION_LDFLAGS)"; \
 	fi
 else ifeq ($(HOST_OS),Linux)
-	bash scripts/linux/wails.sh build
+	bash scripts/linux/wails.sh build -ldflags "$(VERSION_LDFLAGS)"
 else
 	$(WAILS) build
 endif
@@ -196,7 +198,7 @@ endif
 ## CLI
 
 mp: ## Build mp CLI for current platform
-	go build -o build/bin/mp ./cmd/mp
+	go build -ldflags "$(VERSION_LDFLAGS)" -o build/bin/mp ./cmd/mp
 
 mp-install: mp ## Install mp to MP_INSTALL_DIR (user-writable by default)
 ifeq ($(OS),Windows_NT)
@@ -218,7 +220,7 @@ mp-cross: ## Cross-compile mp for all platforms
 	GOOS=windows GOARCH=amd64 go build -o build/bin/mp-windows-amd64.exe ./cmd/mp
 
 mahpastesd: ## Build headless server for current platform
-	go build -o build/bin/mahpastesd ./cmd/mahpastesd
+	go build -ldflags "$(VERSION_LDFLAGS)" -o build/bin/mahpastesd ./cmd/mahpastesd
 
 mahpastesd-cross: ## Cross-compile headless server for all platforms
 	GOOS=linux GOARCH=amd64 go build -o build/bin/mahpastesd-linux-amd64 ./cmd/mahpastesd

@@ -14,14 +14,12 @@ import (
 	"strings"
 	"time"
 
+	"go-clipboard/internal/buildinfo"
 	"go-clipboard/internal/fileprovider"
 	"go-clipboard/plugin"
 )
 
-const (
-	BackupFormatVersion = 1
-	AppVersion          = "1.0.0" // TODO: Get from build info
-)
+const BackupFormatVersion = 1
 
 // BackupManifest describes the contents of a backup file
 type BackupManifest struct {
@@ -283,7 +281,7 @@ func (a *App) CreateBackup(destPath string) error {
 	// Create manifest
 	manifest := BackupManifest{
 		FormatVersion: BackupFormatVersion,
-		AppVersion:    AppVersion,
+		AppVersion:    buildinfo.Version,
 		CreatedAt:     time.Now(),
 		Platform:      getPlatform(),
 		Summary:       summary,

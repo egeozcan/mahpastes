@@ -40,13 +40,25 @@ jobs:
       - name: Install Wails
         run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
 
+      # The tag is the version: Info.plist and the Windows version resource
+      # take it from wails.json, the binaries from internal/buildinfo.
+      - name: Stamp version
+        shell: bash
+        env:
+          MAHPASTES_VERSION: ${{ github.ref_name }}
+        run: |
+          bash scripts/version.sh --stamp
+          echo "VERSION_LDFLAGS=$(bash scripts/version.sh --ldflags)" >> "$GITHUB_ENV"
+
       # Build app
       - name: Build
-        run: wails build -platform ${{ matrix.build_target }}
+        shell: bash
+        run: wails build -platform ${{ matrix.build_target }} -ldflags "$VERSION_LDFLAGS"
 
       # Build mp CLI
       - name: Build mp CLI
-        run: go build -o build/bin/mp${{ matrix.platform == 'windows-latest' && '.exe' || '' }} ./cmd/mp
+        shell: bash
+        run: go build -ldflags "$VERSION_LDFLAGS" -o build/bin/mp${{ matrix.platform == 'windows-latest' && '.exe' || '' }} ./cmd/mp
 
       # Package macOS
       - name: Package macOS

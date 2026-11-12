@@ -7,7 +7,6 @@
 # Build output
 /build/bin/
 /build/file-provider/
-/build/darwin/
 /go-clipboard
 /bin/
 /mahpastesd
