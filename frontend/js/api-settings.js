@@ -7,6 +7,7 @@ const apiModalClose = document.getElementById('api-modal-close');
 const apiPortInput = document.getElementById('api-port-input');
 const apiBindToggle = document.getElementById('api-bind-toggle');
 const apiToggleBtn = document.getElementById('api-toggle-btn');
+const apiAutostartToggle = document.getElementById('api-autostart-toggle');
 const apiStatusText = document.getElementById('api-status-text');
 
 const apiShowCreateBtn = document.getElementById('api-show-create-btn');
@@ -58,6 +59,14 @@ apiModal.addEventListener('click', (e) => {
 });
 
 apiToggleBtn.addEventListener('click', toggleAPIServer);
+apiAutostartToggle.addEventListener('change', async () => {
+    try {
+        await window.go.main.APIService.SetAPIAutostart(apiAutostartToggle.checked);
+    } catch (err) {
+        apiAutostartToggle.checked = !apiAutostartToggle.checked;
+        showToast('Error: ' + errText(err), 'error');
+    }
+});
 apiShowCreateBtn.addEventListener('click', showCreateKeyForm);
 apiCancelCreateBtn.addEventListener('click', hideCreateKeyForm);
 apiCreateKeyBtn.addEventListener('click', createAPIKey);
@@ -71,6 +80,7 @@ async function loadAPIStatus() {
     try {
         const status = await window.go.main.APIService.GetAPIStatus();
         apiServerRunning = status.running;
+        apiAutostartToggle.checked = await window.go.main.APIService.GetAPIAutostart();
         if (status.running) {
             apiToggleBtn.textContent = 'Stop Server';
             apiToggleBtn.classList.remove('bg-stone-800', 'hover:bg-stone-700');

@@ -175,6 +175,7 @@ func main() {
 				fatalStartup(bridge, headless, logWriter != nil, dataDir, "Could not start mahpastes", err)
 			}
 			if !generatingBindings {
+				apiService.startOnLaunch()
 				fileProviderService.start(ctx, db, dataDir)
 			}
 		},

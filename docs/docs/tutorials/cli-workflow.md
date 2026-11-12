@@ -63,7 +63,8 @@ Connected to mahpastes API at http://localhost:44557
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `MP_API_KEY` | Yes | -- | API key starting with `mp_` |
+| `MP_API_KEY` | Yes* | -- | API key starting with `mp_` |
+| `MP_API_KEY_FILE` | No | -- | *Path to a file containing the key; used when `MP_API_KEY` is unset |
 | `MP_API_URL` | No | `http://localhost:44557` | API base URL |
 
 ## Uploading Files

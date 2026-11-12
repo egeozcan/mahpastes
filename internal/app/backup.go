@@ -110,6 +110,9 @@ var sensitiveSettingPatterns = []string{
 	"secret",
 	"password",
 	"token",
+	// Machine-local: a restored backup must not make the next launch listen.
+	"api_autostart",
+	"api_port",
 }
 
 // isSensitiveSetting checks if a setting key matches sensitive patterns

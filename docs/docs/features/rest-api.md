@@ -23,6 +23,7 @@ The REST API runs a separate HTTP server with key-based authentication. Every re
 2. Set a port (default: `44557`, the port the `mp` CLI uses)
 3. Optionally enable **Network** toggle to bind to `0.0.0.0` instead of `127.0.0.1`
 4. Click **Start Server**
+   Tick **Start on launch** to have the desktop app start the server automatically (loopback only, on the port above) each time it opens. Network binding is never remembered.
 
 The status line shows the server URL and request count while running.
 

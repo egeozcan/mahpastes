@@ -57,7 +57,8 @@ type Client struct {
 
 // New creates a Client from environment variables.
 // MP_API_URL defaults to http://localhost:44557.
-// MP_API_KEY is required.
+// MP_API_KEY is required unless MP_API_KEY_FILE names a file holding the key
+// (MP_API_KEY wins when both are set).
 func New() (*Client, error) {
 	baseURL := os.Getenv("MP_API_URL")
 	if baseURL == "" {
@@ -67,7 +68,19 @@ func New() (*Client, error) {
 
 	apiKey := os.Getenv("MP_API_KEY")
 	if apiKey == "" {
-		return nil, fmt.Errorf("MP_API_KEY environment variable is required.\n\nTo get started:\n  1. Open mahpastes Settings > API\n  2. Create an API key\n  3. export MP_API_KEY=<your-key>")
+		if path := os.Getenv("MP_API_KEY_FILE"); path != "" {
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return nil, fmt.Errorf("cannot read MP_API_KEY_FILE: %w", err)
+			}
+			apiKey = strings.TrimSpace(string(data))
+			if apiKey == "" {
+				return nil, fmt.Errorf("MP_API_KEY_FILE %s is empty", path)
+			}
+		}
+	}
+	if apiKey == "" {
+		return nil, fmt.Errorf("MP_API_KEY environment variable (or MP_API_KEY_FILE) is required.\n\nTo get started:\n  1. Open mahpastes Settings > API\n  2. Create an API key\n  3. export MP_API_KEY=<your-key>")
 	}
 
 	return &Client{

@@ -4282,6 +4282,10 @@ func (am *APIManager) handleSetSetting(w http.ResponseWriter, r *http.Request) {
 		am.jsonError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
+	if isAPILaunchSetting(r.PathValue("key")) {
+		am.jsonError(w, http.StatusForbidden, "this setting can only be changed from the desktop app")
+		return
+	}
 	if err := am.app.SetSetting(r.PathValue("key"), body.Value); err != nil {
 		am.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
