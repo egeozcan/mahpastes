@@ -505,6 +505,9 @@ export class AppHelper {
             // Ignore individual delete errors
           }
         }
+        // Drop the removed folders' live watches too.
+        // @ts-ignore
+        await window.go.main.App.RefreshWatches?.();
       });
     } catch {
       // Ignore errors
@@ -630,7 +633,20 @@ export class AppHelper {
         if (App?.GetWatchedFolders) {
           const folders = await App.GetWatchedFolders();
           await Promise.all(folders.map((f: any) => App.RemoveWatchedFolder(f.id).catch(() => {})));
+          // Drop the removed folders' live watches too.
+          await App.RefreshWatches?.();
         }
+      } catch {}
+
+      // The tempDir fixture is torn down before the app, so a test's watched
+      // folder can vanish while still watched and raise a "Not watching …"
+      // toast; don't let it carry into the next test.
+      try {
+        // @ts-ignore
+        clearTimeout(window.toastTimeout);
+        const toast = document.getElementById('toast');
+        toast?.classList.remove('translate-x-0', 'opacity-100');
+        toast?.classList.add('translate-x-full', 'opacity-0');
       } catch {}
 
       try {

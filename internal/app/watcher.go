@@ -125,15 +125,18 @@ type WatcherManager struct {
 	running       bool
 	gen           uint64
 	watcher       *fsnotify.Watcher
-	stopCh        chan struct{}   // closed by Stop; ends the re-arm loop
-	loops         *sync.WaitGroup // this generation's event and re-arm goroutines
+	stopCh        chan struct{} // closed by Stop; ends the re-arm loop
+	eventsDone    chan struct{} // closed when this generation's handleEvents returns
+	rearmDone     chan struct{} // closed when this generation's re-arm loop returns
 	activeWatches map[int64]activeWatch
 	watchErrors   map[int64]string // folder id -> why a folder that should be watched is not
 	debounceMap   map[string]*pendingFile
 	lastErrorEmit time.Time
 
-	// kick asks the re-arm loop for an immediate pass (after a watch was
-	// lost). Buffered; never closed.
+	// kick asks this generation's re-arm loop for an immediate pass (after a
+	// watch was lost). Buffered; never closed. A new one per generation, so a
+	// loop left behind by Stop (stuck on a slow folder) cannot swallow a kick
+	// meant for the next generation.
 	kick chan struct{}
 }
 
@@ -152,7 +155,6 @@ func NewWatcherManager(app *App) (*WatcherManager, error) {
 		activeWatches: make(map[int64]activeWatch),
 		watchErrors:   make(map[int64]string),
 		debounceMap:   make(map[string]*pendingFile),
-		kick:          make(chan struct{}, 1),
 	}, nil
 }
 
@@ -181,28 +183,35 @@ func (w *WatcherManager) Start() error {
 	w.watchErrors = make(map[int64]string)
 	w.debounceMap = make(map[string]*pendingFile)
 	stop := make(chan struct{})
-	w.stopCh = stop
-	loops := &sync.WaitGroup{}
-	loops.Add(2)
-	w.loops = loops
+	eventsDone := make(chan struct{})
+	rearmDone := make(chan struct{})
+	kick := make(chan struct{}, 1)
+	w.stopCh, w.eventsDone, w.rearmDone, w.kick = stop, eventsDone, rearmDone, kick
 	w.mu.Unlock()
 
 	go func() {
-		defer loops.Done()
+		defer close(eventsDone)
 		w.handleEvents(fw, gen)
 	}()
 	go func() {
-		defer loops.Done()
-		w.rearmLoop(stop)
+		defer close(rearmDone)
+		w.rearmLoop(stop, kick)
 	}()
 
 	// Load and start watching folders
 	return w.refreshWatches()
 }
 
-// Stop stops all watching and waits for the event and re-arm goroutines to
-// exit. Imports already running finish on their own: they may need locks the
-// caller holds (a backup restore holds backupRestoreMu).
+// watchStopRearmWait bounds how long Stop waits for a re-arm pass in progress.
+// A pass stats every folder, and a stat on a dead network mount can hang; Stop
+// (and so quitting the app) must not hang with it. A pass that finishes after
+// Stop applies nothing: its generation has ended.
+var watchStopRearmWait = 2 * time.Second
+
+// Stop stops all watching and waits for the event goroutine to exit (and,
+// briefly, for a re-arm pass in progress). Imports already running finish on
+// their own: they may need locks the caller holds (a backup restore holds
+// backupRestoreMu).
 func (w *WatcherManager) Stop() {
 	w.mu.Lock()
 	if !w.running {
@@ -229,19 +238,24 @@ func (w *WatcherManager) Stop() {
 
 	fw := w.watcher
 	w.watcher = nil
-	loops := w.loops
+	eventsDone, rearmDone := w.eventsDone, w.rearmDone
 	w.mu.Unlock()
 
 	// Closing the watcher closes its channels, which ends handleEvents.
 	if fw != nil {
 		fw.Close()
 	}
-	loops.Wait()
+	<-eventsDone
+	select {
+	case <-rearmDone:
+	case <-time.After(watchStopRearmWait):
+		log.Printf("Watch folders: a re-arm pass is still running (slow folder?); not waiting for it")
+	}
 }
 
 // rearmLoop reconciles the watches with the configuration every
 // watchRearmInterval, and at once when a watch was lost.
-func (w *WatcherManager) rearmLoop(stop <-chan struct{}) {
+func (w *WatcherManager) rearmLoop(stop <-chan struct{}, kick <-chan struct{}) {
 	ticker := time.NewTicker(watchRearmInterval)
 	defer ticker.Stop()
 	for {
@@ -249,7 +263,7 @@ func (w *WatcherManager) rearmLoop(stop <-chan struct{}) {
 		case <-stop:
 			return
 		case <-ticker.C:
-		case <-w.kick:
+		case <-kick:
 		}
 		select {
 		case <-stop:
@@ -262,10 +276,21 @@ func (w *WatcherManager) rearmLoop(stop <-chan struct{}) {
 	}
 }
 
-// kickRearm asks the re-arm loop for an immediate pass.
+// kickRearm asks the current generation's re-arm loop for an immediate pass.
 func (w *WatcherManager) kickRearm() {
+	w.mu.RLock()
+	kick := w.kick
+	w.mu.RUnlock()
+	signalRearm(kick)
+}
+
+// signalRearm sends a non-blocking kick; repeated kicks coalesce.
+func signalRearm(kick chan struct{}) {
+	if kick == nil {
+		return
+	}
 	select {
-	case w.kick <- struct{}{}:
+	case kick <- struct{}{}:
 	default:
 	}
 }
@@ -292,6 +317,15 @@ func (w *WatcherManager) watchState() (armed map[int64]bool, failed map[int64]bo
 		failed[id] = true
 	}
 	return armed, failed, w.running
+}
+
+// pinFileIdentity makes info remember which file it describes. On Windows,
+// os.Stat defers reading the file ID until the first os.SameFile call, which
+// would then resolve against whatever is at the path by that time and make an
+// identity check always pass.
+func pinFileIdentity(info os.FileInfo) os.FileInfo {
+	os.SameFile(info, info)
+	return info
 }
 
 // watchListHas reports whether fsnotify still holds a watch on path.
@@ -399,6 +433,7 @@ func (w *WatcherManager) refreshWatches() error {
 			errs[id] = "not a folder"
 			continue
 		}
+		pinFileIdentity(info)
 		if inUse[path] {
 			// Another folder entry already watches this directory.
 			next[id] = activeWatch{path: path, info: info}
@@ -484,7 +519,9 @@ func diffWatchState(shouldWatch map[int64]string, prevActive map[int64]activeWat
 
 // handleEvents processes one generation's fsnotify events. It reads from the
 // watcher it was started with, never from the field, so a restart cannot
-// make it read another generation's channels.
+// make it read another generation's channels. It must never call into
+// fsnotify (Add/Remove): on Windows those wait for fsnotify's reader
+// goroutine, which can be blocked handing this goroutine an event.
 func (w *WatcherManager) handleEvents(fw *fsnotify.Watcher, gen uint64) {
 	for {
 		select {
@@ -565,17 +602,18 @@ func (w *WatcherManager) dropLostWatch(gen uint64, path string) bool {
 			found = true
 		}
 	}
-	fw := w.watcher
+	kick := w.kick
 	w.mu.Unlock()
 	if !found {
 		return false
 	}
 
-	if fw != nil {
-		_ = fw.Remove(path) // usually already gone
-	}
+	// No fw.Remove here: fsnotify has already dropped a watch whose folder
+	// was removed or moved, and on Windows Remove waits for fsnotify's reader
+	// goroutine, which may itself be waiting for this goroutine to take the
+	// next event. The re-arm pass cleans up from its own goroutine.
 	log.Printf("Watched folder %s was moved or deleted; it is watched again once it is back", path)
-	w.kickRearm()
+	signalRearm(kick)
 	return true
 }
 
@@ -628,7 +666,7 @@ func (w *WatcherManager) settleFile(gen uint64, path string, p *pendingFile) {
 		log.Printf("Skipping empty file (it may be a download placeholder): %s", path)
 		return
 	}
-	w.processFile(gen, path, info)
+	w.processFile(gen, path, pinFileIdentity(info))
 }
 
 // removeImportedSource deletes a watched file once it is safely stored,
@@ -856,6 +894,7 @@ func (w *WatcherManager) ProcessExistingFiles(folderID int64) error {
 		if err != nil || !info.Mode().IsRegular() || info.Size() == 0 {
 			continue
 		}
+		pinFileIdentity(info)
 
 		clipID, err := w.importFile(filePath, folder)
 		if err != nil {

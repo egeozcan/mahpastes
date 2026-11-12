@@ -567,3 +567,77 @@ func TestWatchStatusEventPayload(t *testing.T) {
 		t.Fatalf("changes = %#v, want an empty list (never null)", payload["changes"])
 	}
 }
+
+// A re-arm pass stuck on a slow folder (a stat on a dead network mount) must
+// not hang Stop, and so quitting the app; when it finishes it applies nothing.
+func TestWatcherStopDoesNotWaitForStuckRearm(t *testing.T) {
+	shrinkWatchTimings(t, 0)
+	oldWait := watchStopRearmWait
+	watchStopRearmWait = 100 * time.Millisecond
+	t.Cleanup(func() { watchStopRearmWait = oldWait })
+	a, cleanup := setupTestApp(t)
+	defer cleanup()
+	wm, _ := startTestWatcher(t, a)
+	addWatchDir(t, a, t.TempDir())
+
+	// Hold the refresh lock so the kicked pass blocks inside refreshWatches.
+	wm.refreshMu.Lock()
+	wm.kickRearm()
+	time.Sleep(50 * time.Millisecond)
+
+	done := make(chan struct{})
+	go func() {
+		wm.Stop()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		wm.refreshMu.Unlock()
+		t.Fatal("Stop waited for a stuck re-arm pass")
+	}
+	wm.refreshMu.Unlock()
+
+	time.Sleep(100 * time.Millisecond)
+	armed, _, running := wm.watchState()
+	if running || len(armed) != 0 {
+		t.Fatalf("after Stop: running=%v armed=%v; the late pass must apply nothing", running, armed)
+	}
+}
+
+// The restore sequence while a re-arm pass is stuck: the next generation
+// watches again, and its own lost-watch kicks reach its own re-arm loop (the
+// left-behind loop must not take them).
+func TestWatcherRestartAfterStuckRearmStillRearms(t *testing.T) {
+	shrinkWatchTimings(t, 0) // periodic re-arm off: only kicks re-arm
+	oldWait := watchStopRearmWait
+	watchStopRearmWait = 50 * time.Millisecond
+	t.Cleanup(func() { watchStopRearmWait = oldWait })
+	a, cleanup := setupTestApp(t)
+	defer cleanup()
+	wm, _ := startTestWatcher(t, a)
+	dir := filepath.Join(t.TempDir(), "inbox")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	f := addWatchDir(t, a, dir)
+
+	wm.refreshMu.Lock()
+	wm.kickRearm()
+	time.Sleep(30 * time.Millisecond)
+	wm.Stop()
+	wm.refreshMu.Unlock()
+	if err := wm.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	expectImported(t, a, dir, "after-restart.txt")
+
+	// Deleting the folder kicks the new generation's loop, which records it
+	// as missing even though the periodic pass is effectively off.
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, 5*time.Second, "the kicked pass to report the folder missing", func() bool {
+		return wm.folderWatchError(f.ID) == errFolderMissing
+	})
+}

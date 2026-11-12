@@ -4424,6 +4424,9 @@ func (a *App) GetWatchedFolderByID(id int64) (*WatchedFolder, error) {
 	if _, err := os.Stat(f.Path); err == nil {
 		f.Exists = true
 	}
+	if a.watcherManager != nil {
+		f.WatchError = a.watcherManager.folderWatchError(f.ID)
+	}
 
 	return &f, nil
 }
