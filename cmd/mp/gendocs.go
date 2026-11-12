@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -98,8 +99,14 @@ func renderMarkdownReference(root *cobra.Command) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// bareURL matches scheme://... in prose. Docusaurus turns a bare URL into a
+// link and its link handling throws on ones that are not real URLs
+// (http://host:port), failing the whole build; a code span is never linked.
+var bareURL = regexp.MustCompile(`[A-Za-z][A-Za-z0-9+.-]*://[^\s` + "`" + `<>()\[\]]*[^\s` + "`" + `<>()\[\].,;:!?'"]`)
+
 // escapeMDX makes help text safe for Docusaurus' MDX parser: outside code
-// fences and inline code, "<" and "{" would otherwise start JSX.
+// fences and inline code, "<" and "{" would otherwise start JSX, and bare
+// URLs are put in code spans so they are not auto-linked.
 func escapeMDX(s string) string {
 	lines := strings.Split(s, "\n")
 	inFence := false
@@ -113,6 +120,7 @@ func escapeMDX(s string) string {
 		}
 		parts := strings.Split(line, "`")
 		for j := 0; j < len(parts); j += 2 {
+			parts[j] = bareURL.ReplaceAllString(parts[j], "`$0`")
 			parts[j] = strings.NewReplacer("<", "&lt;", "{", "&#123;").Replace(parts[j])
 		}
 		lines[i] = strings.Join(parts, "`")
