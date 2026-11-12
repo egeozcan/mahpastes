@@ -64,6 +64,7 @@ const sidebars = {
         'tutorials/screenshot-workflow',
         'tutorials/code-snippets',
         'tutorials/automated-imports',
+        'tutorials/integration-recipes',
       ],
     },
     {
