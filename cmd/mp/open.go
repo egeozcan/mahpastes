@@ -318,9 +318,11 @@ var windowsSchemeRegistered = func() bool {
 // to the running app (or starts it).
 func openClipInApp(id int64) error {
 	if runtime.GOOS == "windows" && !windowsSchemeRegistered() {
-		// The zip build registers nothing, and rundll32 would only show "no
-		// app to open this link".
-		return fmt.Errorf("--in-app needs the mahpastes:// link handler, which is not registered on this computer; run \"mahpastes.exe %s\" instead", clipLink(id))
+		// The installer registers the scheme (wails.json info.protocols,
+		// under Software\Classes, which HKCR merges); the zip build and make
+		// install register nothing, and rundll32 would only show "no app to
+		// open this link".
+		return fmt.Errorf("--in-app needs the mahpastes:// link handler, which the Windows installer registers and is not registered on this computer; run \"mahpastes.exe %s\" instead", clipLink(id))
 	}
 	link := clipLink(id)
 	opener, openerArgs := openerCommand(runtime.GOOS, link, "")
