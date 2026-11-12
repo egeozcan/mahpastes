@@ -85,17 +85,20 @@ That makes these work:
   `mahpastes.exe` (put one in `shell:sendto`).
 - **Linux**: launching the app again from the app menu, KRunner or a dock raises the running window.
 - **macOS**: Finder and the Dock already bring a running app forward. Starting a second copy anyway
-  (`open -n -a mahpastes --args file.png`, or running the binary inside the bundle from a terminal) hands
-  its files to the running window. Finder **Open With** and drops on the Dock icon use the same import
-  once the app bundle declares the file types it accepts, which it does not yet.
+  (`open -n -a mahpastes --args "$PWD/file.png"`, or running the binary inside the bundle from a terminal)
+  hands its files to the running window. `open` starts the app in `/`, so pass absolute paths there.
+  Finder **Open With** and drops on the Dock icon use the same import once the app bundle declares the
+  file types it accepts, which it does not yet.
 
 Opened files go through the same import as a pasted file path: duplicate detection, the upload expiry
 from the bottom bar and folder auto-tagging all apply, and the archive view switches back to the active
-list so the new clips are visible. Only ordinary files are imported; folders, missing paths and
-mahpastes' own temporary files (from **Copy Path** or drag-out) are skipped with a notice.
+list so the new clips are visible. Only ordinary files you can read are imported; folders, missing or
+unreadable paths and mahpastes' own temporary files (from **Copy Path** or drag-out) are skipped with a
+notice. A large selection is imported a few dozen files at a time.
 
 If the running process is the headless server (`mahpastesd`) rather than the desktop window, the second
-launch cannot hand over and shows the "another mahpastes instance is already running" error instead.
+launch cannot hand over and shows the "another mahpastes instance is already running" error instead. A
+launch while the running window is closing waits a few seconds for it to exit and then starts normally.
 
 :::note Window focus
 Windows and most desktops bring the window to the front. On Wayland the compositor decides: GNOME may

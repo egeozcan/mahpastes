@@ -11,6 +11,11 @@
 // still loading is picked up by the drain at startup, and that only one page
 // imports each file when more than one is attached.
 
+// Each batch is read into memory in full before it is uploaded, so a large
+// Send To selection is imported a few files at a time (the same bound as a
+// multi-path paste) rather than all at once.
+const OPEN_REQUEST_IMPORT_BATCH = 32;
+
 let openRequestDrain = null;
 let openRequestDrainAgain = false;
 
@@ -43,9 +48,9 @@ async function drainOpenRequests() {
 }
 
 // Handles one batch: { files, skipped, urls }. Files were already checked by
-// the backend (existing regular files outside the app's temp dir); they import
-// through the same path as a pasted file path, so duplicate detection, the
-// upload expiry and folder auto-tagging all apply.
+// the backend (existing, readable regular files outside the app's temp dir);
+// they import through the same path as a pasted file path, so duplicate
+// detection, the upload expiry and folder auto-tagging all apply.
 async function handleOpenRequests(batch) {
     if (!batch) return;
     const files = batch.files || [];
@@ -57,14 +62,16 @@ async function handleOpenRequests(batch) {
         if (isViewingArchive && typeof toggleViewMode === 'function') {
             toggleViewMode();
         }
-        await uploadFilesFromPaths(files);
+        for (let i = 0; i < files.length; i += OPEN_REQUEST_IMPORT_BATCH) {
+            await uploadFilesFromPaths(files.slice(i, i + OPEN_REQUEST_IMPORT_BATCH));
+        }
     }
 
     if (skipped.length > 0) {
         const names = skipped.map(p => p.split(/[/\\]/).pop() || p);
         const shown = names.slice(0, 3).join(', ') + (names.length > 3 ? `, +${names.length - 3} more` : '');
         const noun = skipped.length === 1 ? 'item' : 'items';
-        showToast(`Skipped ${skipped.length} ${noun} that ${skipped.length === 1 ? 'is' : 'are'} not a file: ${shown}`, 'error');
+        showToast(`Skipped ${skipped.length} ${noun} that can't be imported: ${shown}`, 'error');
     }
 
     for (const url of urls) {

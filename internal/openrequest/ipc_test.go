@@ -261,6 +261,14 @@ func TestListenRestrictsAndCloseRemovesSocket(t *testing.T) {
 }
 
 func TestSocketPathFallsBackForLongDataDirs(t *testing.T) {
+	// Keep the fallback socket out of the real per-user runtime and temp
+	// directories.
+	runtimeDir := shortDataDir(t)
+	t.Setenv("XDG_RUNTIME_DIR", runtimeDir)
+	t.Setenv("TMPDIR", runtimeDir)
+	t.Setenv("TMP", runtimeDir)
+	t.Setenv("TEMP", runtimeDir)
+
 	short := shortDataDir(t)
 	if got := SocketPath(short); got != filepath.Join(short, socketName) {
 		t.Fatalf("SocketPath(%s) = %s, want inside the data dir", short, got)
@@ -276,6 +284,9 @@ func TestSocketPathFallsBackForLongDataDirs(t *testing.T) {
 	}
 	if p == SocketPath(long+"x") {
 		t.Fatal("different data dirs share a fallback socket")
+	}
+	if filepath.Dir(p) != runtimeDir {
+		t.Fatalf("fallback path %s is not in the per-user runtime dir %s", p, runtimeDir)
 	}
 
 	// The fallback still works end to end.

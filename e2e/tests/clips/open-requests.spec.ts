@@ -14,6 +14,8 @@ import * as path from 'path';
  * socket tests assert on the library, not on toasts in this page.
  */
 test.describe('Open requests from a second launch', () => {
+  test.skip(process.platform === 'win32', "Node's net module cannot speak AF_UNIX sockets on Windows");
+
   test('imports files forwarded by a second launch', async ({ app }) => {
     const imagePath = await createTempFile(generateTestImage(32, 32, 'green'), 'png');
     const textPath = await createTempFile(generateTestText('second-launch'), 'txt');
@@ -85,7 +87,7 @@ test.describe('Open request handling in the window', () => {
   test('reports items that are not files', async ({ app }) => {
     await handle(app, { files: [], skipped: ['/somewhere/Folder', 'C:\\data\\gone.txt'], urls: [] });
 
-    await app.expectToast('Skipped 2 items that are not a file: Folder, gone.txt');
+    await app.expectToast("Skipped 2 items that can't be imported: Folder, gone.txt");
     await app.expectClipCount(0);
   });
 

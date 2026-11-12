@@ -1,9 +1,11 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -59,6 +61,35 @@ func TestTakeOpenRequestsSortsImportableFiles(t *testing.T) {
 	if again.Files == nil || again.Skipped == nil || again.URLs == nil ||
 		len(again.Files)+len(again.Skipped)+len(again.URLs) != 0 {
 		t.Fatalf("second take = %#v, want empty non-nil slices", again)
+	}
+}
+
+// A file the user cannot read is skipped up front; otherwise it would abort
+// the import of every other file in the same batch.
+func TestTakeOpenRequestsSkipsUnreadableFiles(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("needs Unix permissions enforced for this user")
+	}
+	d := newOpenRequestTestApp(t)
+	dir := t.TempDir()
+	ok := filepath.Join(dir, "ok.txt")
+	locked := filepath.Join(dir, "locked.txt")
+	for _, p := range []string{ok, locked} {
+		if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Chmod(locked, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	d.submitOpenRequest(openrequest.Request{Files: []string{locked, ok}})
+	got, err := d.TakeOpenRequests()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got.Files, []string{ok}) || !reflect.DeepEqual(got.Skipped, []string{locked}) {
+		t.Fatalf("TakeOpenRequests() = %#v, want ok.txt imported and locked.txt skipped", got)
 	}
 }
 
@@ -149,6 +180,70 @@ func TestSecondLaunchWithoutListenerKeepsLockError(t *testing.T) {
 		if !coreapp.IsInstanceLockError(err) {
 			t.Fatalf("allow=%v: err = %v, want the instance lock error", allow, err)
 		}
+	}
+}
+
+// An instance that is shutting down closes its socket before it releases the
+// lock. A launch in that gap must not fail with "already running": it takes
+// the lock once it is free and starts normally.
+func TestSecondLaunchTakesLockFreedDuringHandoff(t *testing.T) {
+	oldTimeout, oldAttempt := handoffTimeout, handoffAttempt
+	handoffTimeout, handoffAttempt = 5*time.Second, 50*time.Millisecond
+	defer func() { handoffTimeout, handoffAttempt = oldTimeout, oldAttempt }()
+
+	dataDir := shortTempDir(t)
+	held, err := coreapp.AcquireInstanceLock(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	released := make(chan struct{})
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		held.Release()
+		close(released)
+	}()
+
+	lock, handedOff, err := acquireInstanceOrHandOff(dataDir, openrequest.Request{Activate: true}, true)
+	<-released
+	if err != nil || handedOff || lock == nil {
+		t.Fatalf("acquireInstanceOrHandOff = (%v, %v, %v), want the freed lock", lock, handedOff, err)
+	}
+	lock.Release()
+}
+
+// A request the running instance refuses is not retried until the timeout.
+func TestSecondLaunchRefusedFailsAtOnce(t *testing.T) {
+	old := handoffTimeout
+	handoffTimeout = 10 * time.Second
+	defer func() { handoffTimeout = old }()
+
+	dataDir := shortTempDir(t)
+	lock, err := coreapp.AcquireInstanceLock(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Release()
+	srv, err := openrequest.Listen(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	go srv.Serve(func(openrequest.Request) {})
+	defer srv.Close()
+
+	tooMany := make([]string, 20000)
+	for i := range tooMany {
+		tooMany[i] = filepath.Join(dataDir, "f")
+	}
+	start := time.Now()
+	second, handedOff, err := acquireInstanceOrHandOff(dataDir, openrequest.Request{Files: tooMany, Activate: true}, true)
+	if handedOff || second != nil || !coreapp.IsInstanceLockError(err) {
+		t.Fatalf("acquireInstanceOrHandOff = (%v, %v, %v), want the lock error", second, handedOff, err)
+	}
+	if !errors.Is(err, openrequest.ErrRefused) {
+		t.Fatalf("err = %v, want it to carry ErrRefused", err)
+	}
+	if elapsed := time.Since(start); elapsed > 3*time.Second {
+		t.Fatalf("refused handoff took %s, want an immediate failure", elapsed)
 	}
 }
 

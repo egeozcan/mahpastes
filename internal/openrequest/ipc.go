@@ -247,16 +247,25 @@ func sanitize(in Request) (Request, error) {
 // a desktop app (mahpastesd), is still starting, or is gone.
 var ErrNoListener = errors.New("no running mahpastes window is listening")
 
+// ErrRefused means the request will not be delivered however often it is
+// retried: the running instance rejected it, or the socket belongs to another
+// user.
+var ErrRefused = errors.New("open request refused")
+
 // Send delivers req to the instance that owns dataDir. It keeps retrying the
 // connection until ctx expires, because a launch that lost the lock race may
 // get here before the winner has opened its socket (a double-click starts two
 // processes almost together). A refused or missing socket after that is
-// ErrNoListener.
+// ErrNoListener; a request the instance rejects, or a socket owned by another
+// user, is ErrRefused.
 func Send(ctx context.Context, dataDir string, req Request) error {
 	path := SocketPath(dataDir)
 	var d net.Dialer
 	var conn net.Conn
 	for {
+		if err := checkSocketOwner(path); err != nil {
+			return fmt.Errorf("%w: %v", ErrRefused, err)
+		}
 		var err error
 		conn, err = d.DialContext(ctx, "unix", path)
 		if err == nil {
@@ -288,7 +297,7 @@ func Send(ctx context.Context, dataDir string, req Request) error {
 		return fmt.Errorf("decode reply: %w", err)
 	}
 	if !reply.OK {
-		return fmt.Errorf("running instance refused the request: %s", reply.Error)
+		return fmt.Errorf("%w by the running instance: %s", ErrRefused, reply.Error)
 	}
 	return nil
 }

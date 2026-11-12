@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+
 	"go-clipboard/internal/openrequest"
 	"go-clipboard/internal/wailsbridge"
 )
@@ -14,8 +16,8 @@ const openRequestEvent = "app:open-request"
 type OpenRequests struct {
 	// Files are regular files that may be imported as clips.
 	Files []string `json:"files"`
-	// Skipped are paths that cannot be imported: missing, a folder, a device
-	// or pipe, or one of the app's own temp files (re-opening a dragged-out
+	// Skipped are paths that cannot be imported: missing, unreadable, a
+	// folder, a device or pipe, or one of the app's own temp files (re-opening a dragged-out
 	// clip would only duplicate it).
 	Skipped []string `json:"skipped"`
 	// URLs are mahpastes:// links to act on.
@@ -58,11 +60,24 @@ func (d *App) TakeOpenRequests() (OpenRequests, error) {
 		return out, nil
 	}
 	for _, probe := range d.core.ProbeOpenedFiles(req.Files) {
-		if probe.Exists && probe.IsRegular && !probe.IsTemp {
+		if probe.Exists && probe.IsRegular && !probe.IsTemp && readable(probe.Path) {
 			out.Files = append(out.Files, probe.Path)
 		} else {
 			out.Skipped = append(out.Skipped, probe.Input)
 		}
 	}
 	return out, nil
+}
+
+// readable reports whether path can be opened for reading. The frontend reads
+// a batch of opened files before uploading any of them and gives up on the
+// whole batch at the first failure, so a file without read permission in a
+// Send To selection must be reported as skipped here, not fail the rest.
+func readable(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	f.Close()
+	return true
 }

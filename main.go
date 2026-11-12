@@ -65,10 +65,12 @@ func main() {
 		desktopApp.submitOpenRequest(launch)
 	}
 	// Later launches reach this window through the instance socket.
+	var instanceServer *openrequest.Server
 	if !generatingBindings {
-		instanceServer, err := openrequest.Listen(dataDir)
+		instanceServer, err = openrequest.Listen(dataDir)
 		if err != nil {
 			log.Printf("instance socket unavailable; a second launch cannot reach this window: %v", err)
+			instanceServer = nil
 		} else {
 			go instanceServer.Serve(desktopApp.submitOpenRequest)
 			defer instanceServer.Close()
@@ -165,6 +167,12 @@ func main() {
 			}
 		},
 		OnShutdown: func(ctx context.Context) {
+			// Stop taking handoffs first: a launch from now on must not be
+			// acknowledged by a window that is going away. It keeps trying
+			// the lock and starts fresh once this process has released it.
+			if instanceServer != nil {
+				instanceServer.Close()
+			}
 			fileProviderService.stop()
 			core.Shutdown(ctx)
 		},
