@@ -353,6 +353,16 @@ func (a *App) OpenClipWithApp(id int64, appPath string) error
 
 ---
 
+### OpenClipWithDialog
+
+Open a clip through the native Windows "Open with" dialog. Returns when the dialog is dismissed. Use `SupportsNativeOpenWith()` (bool) to check availability; it is true only on Windows.
+
+```go
+func (a *App) OpenClipWithDialog(id int64) error
+```
+
+---
+
 ### ChooseApplication
 
 Open a macOS file dialog to pick an application.

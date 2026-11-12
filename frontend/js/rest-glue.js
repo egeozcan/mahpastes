@@ -318,6 +318,8 @@
         CopyToClipboard: async (text) => navigator.clipboard ? navigator.clipboard.writeText(text) : undefined,
         ChooseApplication: async () => { throw new Error('application picker is desktop-only in server mode'); },
         OpenClipWithDefaultApp: async (id) => window.open(`${api}/clips/${id}/data`, '_blank', 'noopener'),
+        SupportsNativeOpenWith: async () => false,
+        OpenClipWithDialog: async () => { throw new Error('open-with is desktop-only in server mode'); },
         OpenClipWithApp: async () => { throw new Error('open-with is desktop-only in server mode'); },
         ShowCreateBackupDialog: () => downloadBlob(`${api}/backup`, 'mahpastes-backup.zip'),
         ShowRestoreBackupDialog: async () => null,

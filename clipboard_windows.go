@@ -5,7 +5,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 )
 
@@ -23,7 +22,7 @@ func copyFilesToClipboard(paths []string) error {
 		`$list = New-Object System.Collections.Specialized.StringCollection; @(%s) | ForEach-Object { $list.Add($_) }; [System.Windows.Forms.Clipboard]::SetFileDropList($list)`,
 		strings.Join(items, ","),
 	)
-	cmd := exec.Command("powershell", "-NoProfile", "-Command",
+	cmd := hiddenCommand("powershell", "-NoProfile", "-NonInteractive", "-Command",
 		"Add-Type -AssemblyName System.Windows.Forms; "+script)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("powershell failed: %w: %s", err, string(out))
@@ -57,7 +56,7 @@ func copyImageToClipboard(pngData []byte) error {
 		`$img = [System.Drawing.Image]::FromFile('%s'); [System.Windows.Forms.Clipboard]::SetImage($img); $img.Dispose()`,
 		escaped,
 	)
-	cmd := exec.Command("powershell", "-NoProfile", "-Command",
+	cmd := hiddenCommand("powershell", "-NoProfile", "-NonInteractive", "-Command",
 		"Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.Drawing; "+script)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("powershell failed: %w: %s", err, string(out))

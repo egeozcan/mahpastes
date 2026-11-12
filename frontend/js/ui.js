@@ -788,6 +788,10 @@ async function handleCardAction(action, clipId, triggerButton) {
             break;
         case 'open-with':
             try {
+                if (await window.go.main.App.SupportsNativeOpenWith()) {
+                    await window.go.main.App.OpenClipWithDialog(id);
+                    break;
+                }
                 const appPath = await window.go.main.App.ChooseApplication();
                 if (appPath) {
                     await window.go.main.App.OpenClipWithApp(id, appPath);

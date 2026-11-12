@@ -140,6 +140,8 @@ export function OpenClipWithApp(arg1:number,arg2:string):Promise<void>;
 
 export function OpenClipWithDefaultApp(arg1:number):Promise<void>;
 
+export function OpenClipWithDialog(arg1:number):Promise<void>;
+
 export function PreviewMergeTag(arg1:number,arg2:number):Promise<app.MergeTagPreview>;
 
 export function ProbeFilePaths(arg1:Array<string>):Promise<Array<app.PathProbe>>;
@@ -187,6 +189,8 @@ export function ShowCreateBackupDialog():Promise<string>;
 export function ShowRestoreBackupDialog():Promise<main.RestoreSelection>;
 
 export function StartImportSession(arg1:string,arg2:boolean):Promise<app.ImportScanResult>;
+
+export function SupportsNativeOpenWith():Promise<boolean>;
 
 export function ThumbnailURLBase():Promise<string>;
 

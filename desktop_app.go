@@ -242,6 +242,25 @@ func (d *App) OpenClipWithApp(id int64, appPath string) error {
 	return openFileWithApp(item.AbsPath, appPath)
 }
 
+// OpenClipWithDialog opens a clip through the platform's native "Open with"
+// chooser (Windows only; see SupportsNativeOpenWith). It returns once the
+// dialog is dismissed.
+func (d *App) OpenClipWithDialog(id int64) error {
+	if !supportsNativeOpenWith() {
+		return fmt.Errorf("native open-with dialog is not available on this platform")
+	}
+	item, err := d.core.PrepareClipTransferItem(id, "open_with")
+	if err != nil {
+		return err
+	}
+	return openWithDialog(item.AbsPath)
+}
+
+// SupportsNativeOpenWith reports whether OpenClipWithDialog is available.
+func (d *App) SupportsNativeOpenWith() bool {
+	return supportsNativeOpenWith()
+}
+
 // RevealInFileManager shows a file (such as one just saved) selected in the
 // platform file manager.
 func (d *App) RevealInFileManager(path string) error {

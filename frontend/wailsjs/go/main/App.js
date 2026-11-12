@@ -274,6 +274,10 @@ export function OpenClipWithDefaultApp(arg1) {
   return window['go']['main']['App']['OpenClipWithDefaultApp'](arg1);
 }
 
+export function OpenClipWithDialog(arg1) {
+  return window['go']['main']['App']['OpenClipWithDialog'](arg1);
+}
+
 export function PreviewMergeTag(arg1, arg2) {
   return window['go']['main']['App']['PreviewMergeTag'](arg1, arg2);
 }
@@ -368,6 +372,10 @@ export function ShowRestoreBackupDialog() {
 
 export function StartImportSession(arg1, arg2) {
   return window['go']['main']['App']['StartImportSession'](arg1, arg2);
+}
+
+export function SupportsNativeOpenWith() {
+  return window['go']['main']['App']['SupportsNativeOpenWith']();
 }
 
 export function ThumbnailURLBase() {

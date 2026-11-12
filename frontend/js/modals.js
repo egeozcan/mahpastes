@@ -281,6 +281,10 @@ async function handleLightboxFileAction(action, clip) {
             break;
         case 'open-with':
             try {
+                if (await window.go.main.App.SupportsNativeOpenWith()) {
+                    await window.go.main.App.OpenClipWithDialog(clip.id);
+                    break;
+                }
                 const appPath = await window.go.main.App.ChooseApplication();
                 if (appPath) {
                     await window.go.main.App.OpenClipWithApp(clip.id, appPath);
