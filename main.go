@@ -289,6 +289,12 @@ func main() {
 				Bridge:        coreBridge,
 				InitClipboard: true,
 				PermissionCallback: func(pluginName, permType, requestedPath string) string {
+					// A headless run has no window to answer the folder
+					// picker: on Linux the GTK dialog would block the plugin
+					// (and the clip event it is handling) forever. Decline.
+					if headless {
+						return ""
+					}
 					path, err := bridge.OpenDirectory(wailsbridge.FileDialogOptions{
 						Title:                fmt.Sprintf("Plugin %q requests %s access", pluginName, permType),
 						DefaultDirectory:     filepath.Dir(requestedPath),
