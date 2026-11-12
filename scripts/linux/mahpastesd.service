@@ -1,0 +1,25 @@
+# systemd user unit for the mahpastes headless server.
+# Install with `make mahpastesd-install`, then:
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now mahpastesd
+# See docs/docs/features/headless-server.md.
+[Unit]
+Description=mahpastes headless server
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/mahpastesd
+# A dedicated data dir: the server and the desktop app take the same
+# per-data-dir lock, so never point this at the desktop app's directory.
+Environment=MAHPASTES_DATA_DIR=%h/.local/share/mahpastesd
+Environment=MAHPASTESD_PORT=44557
+# Loopback only by default. For network access put a TLS proxy in front and
+# set MAHPASTESD_BIND_ALL=1 and MAHPASTESD_TRUST_PROXY=1 (see docs).
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

@@ -26,6 +26,7 @@ Documentation: https://egeozcan.github.io/mahpastes/
 - **Copy Path** — Create a temp file and copy its path to clipboard
 - **Export** — Save individual clips or download multiple as a ZIP
 - **Auto-Delete Engine** — Backend expiration support is implemented; per-clip expiration controls are being surfaced in UI
+- **Headless Server** — Run `mahpastesd` under systemd or in a container; see [docs/docs/features/headless-server.md](docs/docs/features/headless-server.md)
 
 ## Installation
 

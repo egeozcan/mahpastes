@@ -29,7 +29,7 @@ else
     MP_INSTALL_DIR ?= $(if $(GO_BIN),$(GO_BIN),$(HOME)/.local/bin)
 endif
 
-.PHONY: dev build clean install install-bundle install-ready-bundle stop-installed-app stop-file-provider-extension uninstall bindings mp mp-install mp-cross mahpastesd mahpastesd-cross test screenshots
+.PHONY: dev build clean install install-bundle install-ready-bundle stop-installed-app stop-file-provider-extension uninstall bindings mp mp-install mp-cross mahpastesd mahpastesd-cross mahpastesd-install test screenshots
 
 ## Development
 
@@ -295,3 +295,10 @@ help: ## Show this help
 endif
 
 .DEFAULT_GOAL := help
+
+mahpastesd-install: mahpastesd ## Linux: install mahpastesd and its systemd user unit (does not enable it)
+	@mkdir -p "$(HOME)/.local/bin" "$(HOME)/.config/systemd/user"
+	@install -m 755 build/bin/mahpastesd "$(HOME)/.local/bin/mahpastesd"
+	@install -m 644 scripts/linux/mahpastesd.service "$(HOME)/.config/systemd/user/mahpastesd.service"
+	@echo "Installed mahpastesd and the user unit. Next:"
+	@echo "  systemctl --user daemon-reload && systemctl --user enable --now mahpastesd"
