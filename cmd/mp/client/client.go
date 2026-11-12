@@ -327,11 +327,16 @@ func (c *Client) UploadFile(path string, filename string, reader io.Reader, extr
 
 	resp, err := c.do(req)
 	if err != nil {
-		// Unblock the writer in case the transport stopped reading.
+		// Unblock the writer in case the transport stopped reading. Do not
+		// wait for it: it may be blocked reading an idle stdin. A local read
+		// error has already closed done, which makes writeErr safe to read.
 		pr.Close()
-		<-done
-		if writeErr != nil && !errors.Is(writeErr, io.ErrClosedPipe) {
-			return writeErr // e.g. a local read error that aborted the request
+		select {
+		case <-done:
+			if writeErr != nil && !errors.Is(writeErr, io.ErrClosedPipe) {
+				return writeErr // e.g. a local read error that aborted the request
+			}
+		default:
 		}
 		return err
 	}
@@ -339,8 +344,8 @@ func (c *Client) UploadFile(path string, filename string, reader io.Reader, extr
 	if err := checkResponse(resp); err != nil {
 		// The server rejected the upload, possibly before consuming it; its
 		// message explains more than the writer's closed-pipe error would.
+		// writeErr is not needed, so do not wait for the writer.
 		pr.Close()
-		<-done
 		return err
 	}
 	// On success the transport finishes sending (or closes) the body, which

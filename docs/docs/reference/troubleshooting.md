@@ -305,6 +305,8 @@ Add this line to your shell profile (`~/.zshrc` or `~/.bashrc`) for persistence.
 
 **Symptoms:** Commands fail with the message "Cannot connect to mahpastes. Is the app running with the API enabled?"
 
+If `MP_API_URL` points at a host that does not answer at all, this message appears after `MP_TIMEOUT` (default `30s`).
+
 **Solutions:**
 1. Verify the mahpastes desktop app is running
 2. Confirm the API is enabled in **Settings** > **API**
@@ -318,10 +320,10 @@ Add this line to your shell profile (`~/.zshrc` or `~/.bashrc`) for persistence.
 
 **Symptoms:** A command fails with exit code 2 after about 30 seconds.
 
-**Cause:** `mp` could not connect, or the server accepted the connection but did not start responding within `MP_TIMEOUT` (default `30s`). This usually means `MP_API_URL` points at an unreachable host or the app is hung.
+**Cause:** `mp` connected, but the server did not start responding within `MP_TIMEOUT` (default `30s`). This usually means the app is hung or something else is listening on that port.
 
 **Solutions:**
-1. Check `MP_API_URL` and that the app is responsive
+1. Check that `MP_API_URL` points at mahpastes and that the app is responsive
 2. On a slow network link, raise the limit, for example `export MP_TIMEOUT=2m`
 
 ### "Authentication failed. Check MP_API_KEY."

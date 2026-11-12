@@ -301,6 +301,7 @@ The `mp` binary is a stateless CLI for mahpastes, talking to the REST API (`/api
 make mp                              # Build
 export MP_API_KEY=mp_your_key_here   # Required
 export MP_API_URL=http://localhost:44557  # Optional, this is the default
+export MP_TIMEOUT=30s                # Optional: connect/response-header wait (exit 2 on expiry)
 ```
 
 ### Command Groups
