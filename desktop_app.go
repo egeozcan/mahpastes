@@ -145,7 +145,10 @@ func (d *App) OpenLogFolder() error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	return openFolder(dir)
+	// The shared opener: ShellExecute on Windows, open on macOS and
+	// xdg-open (gio as the fallback) on Linux all show a folder in the file
+	// manager.
+	return openFileWithDefaultApp(dir)
 }
 
 func (d *App) setBridge(b *wailsbridge.Bridge) {
