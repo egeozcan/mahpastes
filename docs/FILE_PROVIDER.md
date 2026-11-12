@@ -155,10 +155,18 @@ dialog or shell can browse it. **Open in file manager** runs `xdg-open`.
 Enabling the folder also adds a **Mahpastes** entry to the sidebars: a GTK
 bookmark in `${XDG_CONFIG_HOME:-~/.config}/gtk-3.0/bookmarks` (Nautilus, Thunar,
 Nemo and GTK file dialogs) and, when `${XDG_DATA_HOME:-~/.local/share}/user-places.xbel`
-already exists, a KDE Places entry (Dolphin and KDE dialogs). Existing entries
-are left alone, an entry you made yourself is never removed, and disabling the
-folder removes only what the app added. If a file cannot be edited, use your
-file manager's Add to Places / Add Bookmark on the folder instead.
+already exists, a KDE Places entry (Dolphin and KDE dialogs). If either file
+already has an entry for the folder, nothing is added there. Disabling the
+folder removes only what the app added: the exact `<url> Mahpastes` bookmark
+line, and the place carrying the app's own KDE `<ID>`, so a bookmark or place
+you made yourself for the same folder stays. The KDE file is parsed before and
+after every edit and left untouched if it does not parse; both files are
+replaced atomically, and a symlinked file (dotfile managers) is edited through
+its link. Entries are added when you enable the folder or press Retry, not on
+every launch, so one you delete by hand stays deleted until then. The entry points at an empty folder
+while the app is not running. A custom `MAHPASTES_DATA_DIR` (tests and
+development profiles) never edits the sidebars. If a file cannot be edited,
+use your file manager's Add to Places / Add Bookmark on the folder instead.
 
 * The app process serves the mount itself through
   [go-fuse](https://github.com/hanwen/go-fuse), which is pure Go (no cgo or
