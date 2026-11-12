@@ -315,6 +315,7 @@
             return await downloadBlob(`${api}/clips/${id}/data`, clip.filename || `clip_${id}`);
         },
         CopyToClipboard: async (text) => navigator.clipboard ? navigator.clipboard.writeText(text) : undefined,
+        OpenLogFolder: async () => { throw new Error('the log folder is on the server in server mode'); },
         ChooseApplication: async () => { throw new Error('application picker is desktop-only in server mode'); },
         OpenClipWithDefaultApp: async (id) => window.open(`${api}/clips/${id}/data`, '_blank', 'noopener'),
         OpenClipWithApp: async () => { throw new Error('open-with is desktop-only in server mode'); },

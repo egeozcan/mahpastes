@@ -40,7 +40,7 @@ The main window's size, position and maximised state are saved to `window.json` 
 
 ### Log Files
 
-mahpastes writes diagnostics, including Go crash traces, to `logs/mahpastes.log` in the data directory. When the file reaches 5 MB it is moved to `mahpastes.log.1` (replacing any older copy), so logs never use more than about 10 MB. If startup fails, for example because the database is corrupt, a dialog shows the error and points at this folder. **Open Log Folder** in the Maintenance window opens it. Logs can contain file paths; they stay on your machine.
+mahpastes writes diagnostics, including Go crash traces, to `logs/mahpastes.log` in the data directory. When the file reaches 5 MB it is moved to `mahpastes.log.1` (replacing any older copy), so logs use at most about 10 MB. If the database cannot be opened at startup (for example because it is corrupt), or startup fails for another reason after the window opens, a dialog shows the error and names this folder before the app quits. **Open Log Folder** in the Maintenance window opens it (desktop app only; in server mode the logs stay on the server). Logs can contain file paths, so the folder and files are readable only by your user account where the system supports file permissions, and they never leave your machine.
 
 ## What's Stored
 

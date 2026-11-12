@@ -203,6 +203,7 @@ mahpastes/
 ├── open_darwin.go        # macOS file-open helper
 ├── open_windows.go       # Windows file-open helper
 ├── open_other.go         # Unsupported platform stub
+├── open_folder.go        # Reveal a directory in the file manager (Open Log Folder)
 ├── plugin_service.go     # Plugin frontend API (separate struct)
 ├── plugins.go            # Plugin install/uninstall helpers
 ├── serve_json_api.go     # JSON API handler for served tags (/_api prefix)
@@ -214,6 +215,7 @@ mahpastes/
 ├── transfer_service.go   # Drag-out preparation and native drag initiation
 ├── transfer_types.go     # Transfer system type definitions
 ├── window_geometry.go    # Save/restore window size, position, maximised (internal/windowstate, window.json)
+├── internal/logfile/     # Size-capped <dataDir>/logs/mahpastes.log (+ .1); also receives Go crash traces. Only the instance holding the lock rotates it
 ├── window_position_windows.go # Windows: absolute window placement via user32 (Wails' getter/setter disagree)
 ├── window_position_other.go   # Other platforms: position goes through Wails
 ├── thumbnail.go          # Image card thumbnails: generation, hash-keyed disk cache, serving (internal/app)

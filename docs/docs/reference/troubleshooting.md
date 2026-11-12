@@ -208,7 +208,7 @@ If using Apple Silicon (M-series):
 
 ### Corrupted Database
 
-**Symptoms:** App crashes, errors about database.
+**Symptoms:** App crashes, errors about database, or a "Could not open the database" dialog at startup.
 
 **Solutions:**
 1. Restore from backup if available
@@ -409,4 +409,5 @@ If issues persist:
    - mahpastes version
    - Steps to reproduce
    - Error messages (if any)
+   - The log file: **Maintenance → Open Log Folder** opens the folder with `mahpastes.log` (see [Log Files](data-storage.md#log-files)); if the app does not start, find it under `logs/` in the data directory
    - Screenshots (if relevant)

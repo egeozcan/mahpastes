@@ -7,7 +7,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"runtime/debug"
 	"sync"
 
 	webui "go-clipboard/frontend"
@@ -31,14 +30,16 @@ func main() {
 	}
 	// Keep a log in the data directory: stderr is discarded for a Windows GUI
 	// exe and a Finder-launched .app. Skipped for binding generation.
+	var logWriter *logfile.Writer
 	if !generatingBindings {
 		if lw, err := logfile.Open(dataDir); err != nil {
 			log.Printf("log file unavailable: %v", err)
 		} else {
 			defer lw.Close()
+			logWriter = lw
 			log.SetOutput(io.MultiWriter(os.Stderr, lw))
 			// log.SetOutput does not capture runtime panic traces.
-			if err := debug.SetCrashOutput(lw.File(), debug.CrashOptions{}); err != nil {
+			if err := lw.CaptureCrashes(); err != nil {
 				log.Printf("crash output unavailable: %v", err)
 			}
 		}
@@ -52,6 +53,13 @@ func main() {
 			log.Fatalf("%v", err)
 		}
 		defer instanceLock.Release()
+		// Only the instance that owns the data directory rotates the log, so
+		// a second launch cannot move the running instance's file away.
+		if logWriter != nil {
+			if err := logWriter.EnableRotation(); err != nil {
+				log.Printf("log rotation: %v", err)
+			}
+		}
 	}
 
 	// Opt-in headless mode for the native worker smoke check. Nothing below is
@@ -145,7 +153,7 @@ func main() {
 
 			db, err := coreapp.InitDB()
 			if err != nil {
-				fatalStartup(bridge, "Could not open the database", err)
+				fatalStartup(bridge, headless, logWriter != nil, dataDir, "Could not open the database", err)
 			}
 			err = core.Bootstrap(ctx, coreapp.BootstrapOptions{
 				DB:            db,
@@ -165,7 +173,7 @@ func main() {
 				},
 			})
 			if err != nil {
-				fatalStartup(bridge, "Could not start mahpastes", err)
+				fatalStartup(bridge, headless, logWriter != nil, dataDir, "Could not start mahpastes", err)
 			}
 			if !generatingBindings {
 				fileProviderService.start(ctx, db, dataDir)
@@ -221,13 +229,16 @@ func main() {
 }
 
 // fatalStartup logs a startup failure, tells the user in a native dialog (the
-// window would otherwise just vanish) and exits.
-func fatalStartup(bridge *wailsbridge.Bridge, title string, err error) {
+// window would otherwise just vanish) and exits. Headless runs (e2e, the
+// worker self-test) skip the dialog: nobody could dismiss it.
+func fatalStartup(bridge *wailsbridge.Bridge, headless, haveLog bool, dataDir, title string, err error) {
 	log.Printf("fatal startup error: %s: %v", title, err)
-	msg := fmt.Sprintf("%v", err)
-	if dir, derr := coreapp.GetDataDir(); derr == nil {
-		msg += "\n\nDetails are in " + logfile.Dir(dir)
+	if !headless {
+		msg := err.Error()
+		if haveLog {
+			msg += "\n\nDetails are in " + logfile.Dir(dataDir)
+		}
+		bridge.ErrorDialog("mahpastes: "+title, msg)
 	}
-	bridge.ErrorDialog("mahpastes: "+title, msg)
 	os.Exit(1)
 }

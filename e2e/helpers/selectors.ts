@@ -600,6 +600,8 @@ export const selectors = {
     compactDbButton: '#maintenance-compact-db-btn',
     markdownCacheSize: '#maintenance-markdown-cache-size',
     clearMarkdownCacheButton: '#maintenance-clear-markdown-cache-btn',
+    logSection: '[data-testid="maintenance-log-section"]',
+    openLogsButton: '#maintenance-open-logs-btn',
   },
 
   // Import Folder wizard
