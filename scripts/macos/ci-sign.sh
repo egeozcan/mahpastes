@@ -68,12 +68,24 @@ cli_archive="$signing_dir/command-line-tools.zip"
 ditto -c -k --keepParent "$cli_dir" "$cli_archive"
 # notarytool can finish --wait with an Invalid verdict, so check the status
 # instead of relying on the exit code alone, and print Apple's log on failure.
+# A failed submit is not allowed to end the script before its output and the
+# log are printed; the status check below fails the job instead.
+submit_rc=0
 result="$(xcrun notarytool submit "$cli_archive" --keychain-profile "$NOTARY_PROFILE" \
-    --wait --output-format json)"
+    --wait --output-format json)" || submit_rc=$?
 echo "$result"
-status="$(printf '%s' "$result" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("status", ""))')"
-if [[ "$status" != Accepted ]]; then
-    submission="$(printf '%s' "$result" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("id", ""))')"
+json_field() {
+    printf '%s' "$result" | python3 -c '
+import json, sys
+try:
+    value = json.load(sys.stdin).get(sys.argv[1], "")
+except (ValueError, AttributeError):
+    value = ""
+print(value)' "$1"
+}
+status="$(json_field status)"
+if [[ "$status" != Accepted || "$submit_rc" -ne 0 ]]; then
+    submission="$(json_field id)"
     if [[ -n "$submission" ]]; then
         xcrun notarytool log "$submission" --keychain-profile "$NOTARY_PROFILE" || true
     fi

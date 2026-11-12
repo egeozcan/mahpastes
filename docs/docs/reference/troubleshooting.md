@@ -17,13 +17,15 @@ warning. If macOS still reports the app as damaged, download
 with Finder or `ditto -x -k`; tools that drop extended attributes or symlinks
 while unpacking break the signature.
 
-An app you built yourself without signing is blocked instead. Allow it once:
-1. Right-click the app
-2. Select "Open"
-3. Click "Open" in the dialog
-4. App will launch and be remembered
+An unsigned app that was downloaded or copied from another Mac, such as an
+unsigned build artifact, is blocked instead. Allow it once:
+1. Try to open the app, then dismiss the warning
+2. Open **System Settings > Privacy & Security**
+3. Click **Open Anyway** next to the message about mahpastes and confirm
+4. The app launches and macOS remembers the choice
 
-Or via Terminal:
+On macOS 14 and earlier you can instead right-click the app, select "Open" and
+click "Open" in the dialog. Or clear the download quarantine via Terminal:
 ```bash
 xattr -cr /Applications/mahpastes.app
 ```
