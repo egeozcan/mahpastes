@@ -61,9 +61,15 @@ apiToggleBtn.addEventListener('click', toggleAPIServer);
 apiShowCreateBtn.addEventListener('click', showCreateKeyForm);
 apiCancelCreateBtn.addEventListener('click', hideCreateKeyForm);
 apiCreateKeyBtn.addEventListener('click', createAPIKey);
-apiKeyCopyBtn.addEventListener('click', () => {
-    navigator.clipboard.writeText(apiKeyRevealValue.textContent);
-    showToast('Key copied to clipboard');
+apiKeyCopyBtn.addEventListener('click', async () => {
+    try {
+        if (!navigator.clipboard) throw new Error('clipboard API unavailable');
+        await navigator.clipboard.writeText(apiKeyRevealValue.textContent);
+        showToast('Key copied to clipboard');
+    } catch (err) {
+        console.error('Failed to copy key:', err);
+        showToast('Failed to copy key.', 'error');
+    }
 });
 apiKeyRevealClose.addEventListener('click', hideKeyReveal);
 

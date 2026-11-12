@@ -495,14 +495,19 @@ function copyToClipboard(text) {
     document.body.appendChild(textArea);
     textArea.focus();
     textArea.select();
+    // execCommand reports a refused copy by returning false, not by throwing.
+    let copied = false;
     try {
-        document.execCommand('copy');
-        showToast('Copied to clipboard!');
+        copied = document.execCommand('copy');
     } catch (err) {
         console.error('Failed to copy: ', err);
-        showToast('Failed to copy.', 'error');
     }
     document.body.removeChild(textArea);
+    if (copied) {
+        showToast('Copied to clipboard!');
+    } else {
+        showToast('Failed to copy.', 'error');
+    }
 }
 
 // Tag colors are free text in the database and reach the DOM from the REST

@@ -9,14 +9,21 @@ import (
 	"golang.design/x/clipboard"
 )
 
+// The library entry points, replaced in tests so the error mapping can be
+// checked without touching the user's clipboard.
+var (
+	initClipboard  = clipboard.Init
+	writeClipboard = clipboard.Write
+)
+
 // Write publishes data in the given format. clipboard.Write returns a nil
 // channel when nothing was written (no backend, failed Init, empty format),
 // which this turns into an error.
 func Write(format clipboard.Format, data []byte) error {
-	if err := clipboard.Init(); err != nil {
+	if err := initClipboard(); err != nil {
 		return fmt.Errorf("failed to initialize clipboard: %w", err)
 	}
-	if clipboard.Write(format, data) == nil {
+	if writeClipboard(format, data) == nil {
 		return errors.New("failed to write to clipboard: no clipboard backend accepted the data")
 	}
 	return nil

@@ -18,11 +18,18 @@ import (
 type UtilsAPI struct {
 	pluginName       string
 	clipboardAllowed bool
+	// writeClipboardText places text on the system clipboard; tests replace
+	// it so they never touch the user's clipboard.
+	writeClipboardText func(string) error
 }
 
 // NewUtilsAPI creates a new utils API
 func NewUtilsAPI(pluginName string, clipboardAllowed bool) *UtilsAPI {
-	return &UtilsAPI{pluginName: pluginName, clipboardAllowed: clipboardAllowed}
+	return &UtilsAPI{
+		pluginName:         pluginName,
+		clipboardAllowed:   clipboardAllowed,
+		writeClipboardText: cliputil.WriteText,
+	}
 }
 
 // Register adds utility functions to the Lua state
@@ -153,8 +160,8 @@ func (u *UtilsAPI) urlDecodeFn(L *lua.LState) int {
 }
 
 // clipboardWriteFn writes text to the system clipboard.
-// Requires clipboard = true in the plugin manifest.
-// Note: clipboard.Init() must be called by the host app before any plugin can use this.
+// Requires clipboard = true in the plugin manifest. Returns true, or nil and
+// an error message when the clipboard could not be written.
 func (u *UtilsAPI) clipboardWriteFn(L *lua.LState) int {
 	if !u.clipboardAllowed {
 		L.Push(lua.LNil)
@@ -163,7 +170,7 @@ func (u *UtilsAPI) clipboardWriteFn(L *lua.LState) int {
 	}
 	text := L.CheckString(1)
 	log.Printf("[plugin:%s] writing to clipboard", u.pluginName)
-	if err := cliputil.WriteText(text); err != nil {
+	if err := u.writeClipboardText(text); err != nil {
 		L.Push(lua.LNil)
 		L.Push(lua.LString(err.Error()))
 		return 2

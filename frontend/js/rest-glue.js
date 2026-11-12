@@ -315,7 +315,12 @@
             return await downloadBlob(`${api}/clips/${id}/data`, clip.filename || `clip_${id}`);
         },
         RevealInFileManager: async () => { throw new Error('reveal is desktop-only in server mode'); },
-        CopyToClipboard: async (text) => navigator.clipboard ? navigator.clipboard.writeText(text) : undefined,
+        CopyToClipboard: async (text) => {
+            // navigator.clipboard is missing outside secure contexts (plain
+            // http on the LAN); report that instead of pretending to copy.
+            if (!navigator.clipboard) throw new Error('clipboard is unavailable in this browser context');
+            return navigator.clipboard.writeText(text);
+        },
         ChooseApplication: async () => { throw new Error('application picker is desktop-only in server mode'); },
         OpenClipWithDefaultApp: async (id) => window.open(`${api}/clips/${id}/data`, '_blank', 'noopener'),
         SupportsNativeOpenWith: async () => false,

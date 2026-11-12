@@ -3048,7 +3048,7 @@ func (am *APIManager) handleBulkCopyToClipboard(w http.ResponseWriter, r *http.R
 	}
 
 	if err := am.app.clipboardService.BulkCopyFilesToClipboard(body.IDs); err != nil {
-		am.jsonError(w, http.StatusInternalServerError, "failed to copy to clipboard")
+		am.jsonError(w, http.StatusInternalServerError, "failed to copy to clipboard: "+err.Error())
 		return
 	}
 

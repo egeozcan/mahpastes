@@ -415,7 +415,7 @@ Most bulk operations return a JSON object with the count of affected items:
 | `bulk/tag` | `{ "tagged": 3 }` |
 | `bulk/untag` | `{ "untagged": 3 }` |
 | `bulk/download` | Binary ZIP file |
-| `bulk/copy` | `204 No Content` |
+| `bulk/copy` | `204 No Content`, or `500` with the reason when the clipboard could not be written |
 
 ---
 
@@ -961,7 +961,7 @@ Content-Type: application/json
 { "clip_id": 1 }
 ```
 
-Copies the clip's raw content (text or image data) to the system clipboard. Returns `204 No Content`.
+Copies the clip's raw content (text or image data) to the system clipboard. Returns `204 No Content`, or `500` with the reason when the clipboard could not be written (for example, a Linux session with no reachable clipboard).
 
 #### Copy as file
 

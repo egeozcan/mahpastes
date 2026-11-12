@@ -62,6 +62,34 @@ test.describe('Copy Actions', () => {
     });
   });
 
+  test.describe('Card Menu - Copy Path', () => {
+    test('should report failure when the webview refuses the copy', async ({ app }) => {
+      const textPath = await createTempFile(generateTestText('copy-path-fail'), 'txt');
+      const filename = path.basename(textPath);
+      await app.uploadFile(textPath);
+
+      // execCommand('copy') returns false (it does not throw) when the
+      // webview declines to copy; that must not show a success toast.
+      await app.page.evaluate(() => {
+        const w = window as any;
+        w.__origExecCommand = document.execCommand;
+        document.execCommand = () => false;
+      });
+      try {
+        await app.copyClipPath(filename);
+        await app.expectToast('Failed to copy.');
+      } finally {
+        await app.page.evaluate(() => {
+          const w = window as any;
+          if (w.__origExecCommand) {
+            document.execCommand = w.__origExecCommand;
+            delete w.__origExecCommand;
+          }
+        });
+      }
+    });
+  });
+
   test.describe('Card Menu - Copy Contents', () => {
     test('should show Copy Contents for text clips', async ({ app }) => {
       const textPath = await createTempFile(generateTestText('copy-contents'), 'txt');
