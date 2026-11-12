@@ -56,6 +56,9 @@ var (
 	clipListOffset      int
 	clipListSearch      string
 	clipListContentType string
+	clipListSort        string
+	clipListDir         string
+	clipListQuiet       bool
 )
 
 func init() {
@@ -65,6 +68,9 @@ func init() {
 	clipListCmd.Flags().IntVar(&clipListOffset, "offset", 0, "Pagination offset")
 	clipListCmd.Flags().StringVar(&clipListSearch, "search", "", "Filter by filename or text content substring")
 	clipListCmd.Flags().StringVar(&clipListContentType, "content-type", "", "Filter by MIME type")
+	clipListCmd.Flags().StringVar(&clipListSort, "sort", "", "Sort field: created_at, name, size or type")
+	clipListCmd.Flags().StringVar(&clipListDir, "dir", "", "Sort direction: asc or desc")
+	clipListCmd.Flags().BoolVarP(&clipListQuiet, "quiet", "q", false, "Print only clip IDs, one per line")
 }
 
 func runClipList(cmd *cobra.Command, args []string) error {
@@ -93,6 +99,12 @@ func runClipList(cmd *cobra.Command, args []string) error {
 	if clipListContentType != "" {
 		params.Set("content_type", clipListContentType)
 	}
+	if clipListSort != "" {
+		params.Set("sort", clipListSort)
+	}
+	if clipListDir != "" {
+		params.Set("dir", clipListDir)
+	}
 
 	path := "/api/v1/clips?" + params.Encode()
 
@@ -120,6 +132,13 @@ func runClipList(cmd *cobra.Command, args []string) error {
 
 	if jsonOutput {
 		printJSON(result)
+		return nil
+	}
+
+	if clipListQuiet {
+		for _, clip := range result.Clips {
+			fmt.Println(clip.ID)
+		}
 		return nil
 	}
 
@@ -223,7 +242,7 @@ func runClipGet(cmd *cobra.Command, args []string) error {
 // --- clip data ---
 
 var clipDataCmd = &cobra.Command{
-	Use:   "data <id>",
+	Use:   "data [id]",
 	Short: "Output raw clip content to stdout",
 	Long: `Download and write the raw binary content of a clip to stdout.
 Useful for piping clip data to other commands or saving to a file.`,
@@ -234,9 +253,50 @@ Useful for piping clip data to other commands or saving to a file.`,
   mp clip data 42 | wc -c
 
   # View text clip content
-  mp clip data 42`,
-	Args: cobra.ExactArgs(1),
+  mp clip data 42
+
+  # Print the newest clip (optionally within a tag), like pbpaste
+  mp clip data --latest
+  mp clip data --latest --tag notes`,
+	Args: cobra.MaximumNArgs(1),
 	RunE: runClipData,
+}
+
+var (
+	clipDataLatest bool
+	clipDataTag    string
+	clipDataForce  bool
+)
+
+func init() {
+	clipDataCmd.Flags().BoolVar(&clipDataLatest, "latest", false, "Use the newest clip instead of an ID")
+	clipDataCmd.Flags().StringVar(&clipDataTag, "tag", "", "With --latest, restrict to a tag (name or ID)")
+	clipDataCmd.Flags().BoolVar(&clipDataForce, "force", false, "Write binary data even when stdout is a terminal")
+}
+
+// latestClipID returns the ID of the newest clip, optionally within a tag.
+func latestClipID(c *client.Client, tag string) (int64, error) {
+	params := url.Values{}
+	params.Set("limit", "1")
+	if tag != "" {
+		tagID, err := c.ResolveTagID(tag)
+		if err != nil {
+			return 0, err
+		}
+		params.Set("tag", strconv.FormatInt(tagID, 10))
+	}
+	var result struct {
+		Clips []struct {
+			ID int64 `json:"id"`
+		} `json:"clips"`
+	}
+	if err := c.GetJSON("/api/v1/clips?"+params.Encode(), &result); err != nil {
+		return 0, err
+	}
+	if len(result.Clips) == 0 {
+		return 0, &client.APIError{StatusCode: http.StatusNotFound, Message: "no clips found"}
+	}
+	return result.Clips[0].ID, nil
 }
 
 func runClipData(cmd *cobra.Command, args []string) error {
@@ -245,9 +305,24 @@ func runClipData(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	id, err := strconv.ParseInt(args[0], 10, 64)
-	if err != nil {
-		return fmt.Errorf("invalid clip ID: %s", args[0])
+	var id int64
+	switch {
+	case clipDataLatest && len(args) > 0:
+		return fmt.Errorf("--latest cannot be combined with a clip ID")
+	case clipDataLatest:
+		id, err = latestClipID(c, clipDataTag)
+		if err != nil {
+			return err
+		}
+	case len(args) == 0:
+		return fmt.Errorf("a clip ID or --latest is required")
+	case clipDataTag != "":
+		return fmt.Errorf("--tag only applies with --latest")
+	default:
+		id, err = strconv.ParseInt(args[0], 10, 64)
+		if err != nil {
+			return fmt.Errorf("invalid clip ID: %s", args[0])
+		}
 	}
 
 	body, _, err := c.GetRaw(fmt.Sprintf("/api/v1/clips/%d/data", id))
@@ -256,7 +331,17 @@ func runClipData(cmd *cobra.Command, args []string) error {
 	}
 	defer body.Close()
 
-	return copyToStdout(body)
+	var r io.Reader = body
+	if stdoutIsTerminal() && !clipDataForce {
+		br := bufio.NewReaderSize(body, 512)
+		head, _ := br.Peek(512)
+		if looksBinary(head) {
+			return fmt.Errorf("refusing to write binary data to a terminal (redirect the output or use --force)")
+		}
+		r = br
+	}
+
+	return copyToStdout(r)
 }
 
 // --- clip upload ---
@@ -265,7 +350,10 @@ var clipUploadCmd = &cobra.Command{
 	Use:   "upload [files...]",
 	Short: "Upload files as clips",
 	Long: `Upload one or more files to mahpastes as new clips.
-If no file arguments are given, reads from stdin (requires --filename).
+If no file arguments are given (or the argument is "-"), reads from stdin. The
+clip is named paste-<timestamp>.<ext> with the extension sniffed from the
+content unless --filename is given. With --quiet, only the new clip IDs are
+printed, one per line.
 Optionally tag the uploaded clips and set an expiration duration.`,
 	Example: `  # Upload a single file
   mp clip upload photo.png
@@ -279,6 +367,10 @@ Optionally tag the uploaded clips and set an expiration duration.`,
   # Upload from stdin
   echo "hello" | mp clip upload --filename hello.txt
 
+  # Pipe filter: capture the new clip's ID
+  echo "hello" | mp clip upload -q
+  some-command | mp clip upload - --tag logs -q
+
   # Upload with expiration
   mp clip upload temp.txt --expire 30m`,
 	RunE: runClipUpload,
@@ -289,6 +381,7 @@ var (
 	clipUploadExpire      string
 	clipUploadFilename    string
 	clipUploadContentType string
+	clipUploadQuiet       bool
 )
 
 func init() {
@@ -296,6 +389,7 @@ func init() {
 	clipUploadCmd.Flags().StringVar(&clipUploadExpire, "expire", "", "Expiration duration (e.g. 30m, 2h, 7d)")
 	clipUploadCmd.Flags().StringVar(&clipUploadFilename, "filename", "", "Filename for stdin input")
 	clipUploadCmd.Flags().StringVar(&clipUploadContentType, "content-type", "", "Content type for stdin input")
+	clipUploadCmd.Flags().BoolVarP(&clipUploadQuiet, "quiet", "q", false, "Print only the new clip IDs, one per line")
 }
 
 func runClipUpload(cmd *cobra.Command, args []string) error {
@@ -331,10 +425,22 @@ func runClipUpload(cmd *cobra.Command, args []string) error {
 
 	var uploaded []uploadedClip
 
-	if len(args) == 0 {
-		// Read from stdin
-		if clipUploadFilename == "" {
-			return fmt.Errorf("--filename is required when reading from stdin")
+	fromStdin := len(args) == 0 || (len(args) == 1 && args[0] == "-")
+	if !fromStdin {
+		for _, a := range args {
+			if a == "-" {
+				return fmt.Errorf(`"-" (stdin) cannot be combined with other files`)
+			}
+		}
+	}
+
+	if fromStdin {
+		if stdinIsTerminal() {
+			return fmt.Errorf("no input: pipe data to stdin or pass file arguments")
+		}
+		name, in, err := stdinFilename(clipUploadFilename, clipUploadContentType, os.Stdin, time.Now())
+		if err != nil {
+			return err
 		}
 
 		extra := map[string]string{}
@@ -343,7 +449,7 @@ func runClipUpload(cmd *cobra.Command, args []string) error {
 		}
 
 		var clip uploadedClip
-		if err := c.UploadFile("/api/v1/clips", clipUploadFilename, os.Stdin, extra, &clip); err != nil {
+		if err := c.UploadFile("/api/v1/clips", name, in, extra, &clip); err != nil {
 			return err
 		}
 		uploaded = append(uploaded, clip)
@@ -384,6 +490,16 @@ func runClipUpload(cmd *cobra.Command, args []string) error {
 
 	if jsonOutput {
 		printJSON(uploaded)
+		return nil
+	}
+
+	if clipUploadQuiet {
+		for _, clip := range uploaded {
+			fmt.Println(clip.ID)
+		}
+		if len(uploaded) == 0 {
+			return fmt.Errorf("no files were uploaded")
+		}
 		return nil
 	}
 

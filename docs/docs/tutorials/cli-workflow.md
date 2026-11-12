@@ -87,11 +87,22 @@ Upload multiple files at once:
 mp clip upload *.png --tag batch
 ```
 
-Upload from stdin (requires `--filename`):
+Upload from stdin. Without `--filename` the clip is named `paste-<timestamp>.<ext>`, with the extension sniffed from the content (`.txt` for text, `.png`, `.pdf` and so on for known binary types, `.bin` otherwise). `-` as the file argument means stdin too:
 
 ```bash
+echo "meeting notes" | mp clip upload
 echo "meeting notes" | mp clip upload --filename notes.txt
+some-command | mp clip upload - --tag logs
 ```
+
+Use `-q`/`--quiet` on `upload` and `list` to print only bare clip IDs, one per line, for capturing in scripts:
+
+```bash
+id=$(echo hi | mp clip upload -q)
+mp clip list --tag logs -q | mp clip delete --stdin
+```
+
+Print the newest clip (like `pbpaste`) with `mp clip data --latest [--tag NAME]`. `mp clip data` refuses to write binary content to a terminal unless you redirect the output or pass `--force`. `mp clip list` also accepts `--sort created_at|name|size|type` and `--dir asc|desc`. `mp --version` prints the version.
 
 Upload with an expiration:
 

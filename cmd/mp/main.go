@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"go-clipboard/cmd/mp/client"
+	"go-clipboard/internal/buildinfo"
 )
 
 var rootCmd = &cobra.Command{
@@ -24,6 +25,7 @@ Getting started:
   4. (Optional) Set a custom URL:  export MP_API_URL=http://host:port
 
 By default, mp connects to http://localhost:44557.`,
+	Version:       versionString(),
 	SilenceUsage:  true,
 	SilenceErrors: true,
 }
@@ -55,4 +57,12 @@ func main() {
 		}
 		os.Exit(exitCode)
 	}
+}
+
+// versionString renders the stamped version, with the commit when known.
+func versionString() string {
+	if buildinfo.Commit != "" {
+		return buildinfo.Version + " (" + buildinfo.Commit + ")"
+	}
+	return buildinfo.Version
 }
