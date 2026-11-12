@@ -136,21 +136,28 @@ func (s *Server) Path() string { return s.path }
 func (s *Server) Serve(handle func(Request)) {
 	for {
 		conn, err := s.ln.Accept()
-		if err != nil {
-			s.mu.Lock()
-			closed := s.closed
+		s.mu.Lock()
+		if s.closed {
 			s.mu.Unlock()
-			if closed {
-				return
+			if conn != nil {
+				conn.Close()
 			}
-			var ne net.Error
-			if errors.As(err, &ne) && ne.Timeout() {
-				continue
-			}
-			log.Printf("instance socket: accept: %v", err)
 			return
 		}
+		if err != nil {
+			s.mu.Unlock()
+			if errors.Is(err, net.ErrClosed) {
+				return
+			}
+			// Transient (out of file descriptors, an aborted connection):
+			// keep serving, or every later launch would lose its handoff.
+			log.Printf("instance socket: accept: %v", err)
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+		// Added under the lock so Close's Wait never races a new connection.
 		s.wg.Add(1)
+		s.mu.Unlock()
 		go func() {
 			defer s.wg.Done()
 			serveConn(conn, handle)

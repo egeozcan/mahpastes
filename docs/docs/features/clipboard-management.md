@@ -84,8 +84,10 @@ That makes these work:
 - **Windows**: dropping files onto `mahpastes.exe` or a shortcut to it, or a **Send to** shortcut to
   `mahpastes.exe` (put one in `shell:sendto`).
 - **Linux**: launching the app again from the app menu, KRunner or a dock raises the running window.
-- **macOS**: when the app is installed as a registered bundle, files that Finder opens with mahpastes
-  arrive the same way, including on a cold launch.
+- **macOS**: Finder and the Dock already bring a running app forward. Starting a second copy anyway
+  (`open -n -a mahpastes --args file.png`, or running the binary inside the bundle from a terminal) hands
+  its files to the running window. Finder **Open With** and drops on the Dock icon use the same import
+  once the app bundle declares the file types it accepts, which it does not yet.
 
 Opened files go through the same import as a pasted file path: duplicate detection, the upload expiry
 from the bottom bar and folder auto-tagging all apply, and the archive view switches back to the active
