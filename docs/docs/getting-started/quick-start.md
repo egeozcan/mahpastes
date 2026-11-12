@@ -181,12 +181,19 @@ mp tag list                # List all tags
 
 See [Installation](./installation#install-the-cli-mp) for setup instructions.
 
+## Window Size and Position
+
+mahpastes remembers the window's size, position and maximised state when you close or quit it, and restores them on the next launch.
+
+- If the saved size is larger than the screen the window opens on, it is shrunk to fit.
+- If the saved position would leave the title bar off-screen (for example after unplugging a monitor), the window opens centred instead.
+- On Windows the window comes back on whichever monitor it was on. On macOS and Linux the position is restored relative to the screen the window opens on, so a window last used on a second monitor opens centred.
+- On Wayland the compositor decides where windows go, so only the size and maximised state are restored.
+
+The state is kept in `window.json` in the [data directory](../reference/data-storage#window-state). Delete that file while mahpastes is closed to go back to the default size and placement.
+
 ## What's Next?
 
 - Set up [Watch Folders](../features/watch-folders) for automatic imports
 - Learn about [Image Comparison](../features/image-comparison)
 - Read the full [Features guide](../features/clipboard-management)
-
-## Window size and position
-
-mahpastes remembers the window's size, position and maximised state when you close it and restores them on the next launch. If the saved position would be off-screen (for example after unplugging a monitor) the window opens centred instead. Window position is ignored on Wayland, where the compositor decides placement. The state is stored in `window.json` in the data directory.

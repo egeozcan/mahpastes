@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sync"
 
 	webui "go-clipboard/frontend"
 	coreapp "go-clipboard/internal/app"
@@ -80,7 +81,7 @@ func main() {
 
 	// Restore the last window geometry unless this is a headless run.
 	headless := os.Getenv("MAHPASTES_START_HIDDEN") == "1" || selfTestWorker
-	winW, winH := 1280, 800
+	winW, winH := windowstate.DefaultWidth, windowstate.DefaultHeight
 	startState := options.Normal
 	saved, haveSaved := windowstate.State{}, false
 	if !headless && !generatingBindings {
@@ -91,33 +92,17 @@ func main() {
 			}
 		}
 	}
-	var windowBridge *wailsbridge.Bridge
-	saveWindow := func() {
-		if headless || generatingBindings || windowBridge == nil {
-			return
-		}
-		g, ok := windowBridge.WindowGeometry()
-		if !ok {
-			return
-		}
-		cur := windowstate.State{Width: g.Width, Height: g.Height, X: g.X, Y: g.Y, HasPos: true, Maximised: g.Maximised}
-		prev, hadPrev := windowstate.Load(dataDir)
-		next := windowstate.Merge(prev, hadPrev, cur, g.Normal)
-		if next.Width < windowstate.MinWidth || next.Height < windowstate.MinHeight {
-			return
-		}
-		if err := windowstate.Save(dataDir, next); err != nil {
-			log.Printf("window state: %v", err)
-		}
-	}
+	// OnDomReady fires again whenever the page reloads (settings.js reloads it
+	// after some changes); the saved geometry is applied on the first load only.
+	var restoreOnce sync.Once
 
 	err = wails.Run(&options.App{
 		Title:            "mahpastes",
 		Width:            winW,
 		Height:           winH,
 		WindowStartState: startState,
-		MinWidth:         800,
-		MinHeight:        600,
+		MinWidth:         windowstate.MinWidth,
+		MinHeight:        windowstate.MinHeight,
 		StartHidden:      headless,
 		AssetServer: &assetserver.Options{
 			Assets:  webui.Assets,
@@ -126,7 +111,6 @@ func main() {
 		BackgroundColour: &options.RGBA{R: 248, G: 250, B: 252, A: 1},
 		OnStartup: func(ctx context.Context) {
 			bridge := wailsbridge.New(ctx)
-			windowBridge = bridge
 			desktopApp.setBridge(bridge)
 			pluginService.setBridge(bridge)
 			if selfTest != nil {
@@ -171,21 +155,17 @@ func main() {
 			}
 		},
 		OnDomReady: func(ctx context.Context) {
-			if !haveSaved || !saved.HasPos || windowBridge == nil {
+			if !haveSaved {
 				return
 			}
-			sw, sh, ok := windowBridge.CurrentScreenSize()
-			if !ok {
-				return
-			}
-			w, h := windowstate.ClampSize(saved.Width, saved.Height, &windowstate.Screen{Width: sw, Height: sh})
-			if saved.Maximised || !windowstate.PositionVisible(saved.X, saved.Y, w, h, windowstate.Screen{Width: sw, Height: sh}) {
-				return
-			}
-			windowBridge.WindowSetPosition(saved.X, saved.Y)
+			restoreOnce.Do(func() {
+				restoreWindowGeometry(wailsbridge.New(ctx), saved)
+			})
 		},
 		OnBeforeClose: func(ctx context.Context) bool {
-			saveWindow()
+			if !headless && !generatingBindings {
+				saveWindowGeometry(wailsbridge.New(ctx), dataDir)
+			}
 			return false
 		},
 		OnShutdown: func(ctx context.Context) {

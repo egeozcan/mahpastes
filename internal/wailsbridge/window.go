@@ -32,6 +32,13 @@ func (b *Bridge) WindowSetPosition(x, y int) {
 	}
 }
 
+// WindowSetSize resizes the window (logical pixels).
+func (b *Bridge) WindowSetSize(w, h int) {
+	if b.active() {
+		rt.WindowSetSize(b.ctx, w, h)
+	}
+}
+
 // CurrentScreenSize returns the logical size of the screen the window is on
 // (falling back to the primary one). ok is false when it cannot be determined.
 func (b *Bridge) CurrentScreenSize() (w, h int, ok bool) {

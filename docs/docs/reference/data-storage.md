@@ -34,6 +34,10 @@ Temp files are created for clipboard copy-as-file and drag-out transfers. Manage
 
 Temp files have a 60-minute lease. A prune job runs every 10 minutes to remove stale and orphaned files. All temp files are also deleted on app exit.
 
+### Window State
+
+The main window's size, position and maximised state are saved to `window.json` in the data directory (next to `clips.db`) when the app closes, and read back at the next launch. It is not part of backups. Delete it while mahpastes is closed to reset the window to its default size and placement.
+
 ## What's Stored
 
 ### In the Database

@@ -213,6 +213,9 @@ mahpastes/
 ├── transfer_handler.go   # HTTP handler for drag-out file transfers
 ├── transfer_service.go   # Drag-out preparation and native drag initiation
 ├── transfer_types.go     # Transfer system type definitions
+├── window_geometry.go    # Save/restore window size, position, maximised (internal/windowstate, window.json)
+├── window_position_windows.go # Windows: absolute window placement via user32 (Wails' getter/setter disagree)
+├── window_position_other.go   # Other platforms: position goes through Wails
 ├── thumbnail.go          # Image card thumbnails: generation, hash-keyed disk cache, serving (internal/app)
 ├── tag_hierarchy.go      # Tag tree helpers (parent, root, ancestor, descendant checks)
 ├── watcher.go            # Watch folder implementation

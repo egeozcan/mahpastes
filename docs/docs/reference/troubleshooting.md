@@ -243,6 +243,12 @@ If using Apple Silicon (M-series):
 
 ## Platform-Specific Issues
 
+### Window Opens in the Wrong Place or at the Wrong Size
+
+**Issue:** After changing monitors or display scaling, the window opens somewhere awkward.
+
+**Solution:** Quit mahpastes, delete `window.json` from the [data directory](./data-storage#window-state), and start it again. The window opens centred at its default size, and the new placement is remembered from then on.
+
 ### macOS: Drag and Drop from Safari
 
 **Issue:** Dragging images from Safari doesn't work.
