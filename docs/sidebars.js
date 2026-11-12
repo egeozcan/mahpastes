@@ -84,6 +84,7 @@ const sidebars = {
       label: 'Reference',
       collapsed: true,
       items: [
+        'reference/cli',
         'reference/data-storage',
         'reference/troubleshooting',
       ],

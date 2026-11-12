@@ -6,6 +6,7 @@
 
 # Build output
 /build/bin/
+/build/man/
 /build/file-provider/
 /build/darwin/
 /go-clipboard

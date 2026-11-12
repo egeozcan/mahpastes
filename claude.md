@@ -31,7 +31,8 @@ make test-headed  # Run e2e tests with visible browser
 make test-debug   # Run e2e tests with Playwright inspector
 make screenshots  # Capture documentation screenshots
 make mp            # Build mp CLI for current platform
-make mp-install    # Install mp to a user bin dir (or GOBIN if set)
+make mp-install    # Install mp to a user bin dir (or GOBIN if set) plus shell completions and man pages
+make mp-docs       # Regenerate docs/docs/reference/cli.md and build/man from the command tree (a test fails when cli.md is stale)
 make mp-cross      # Cross-compile mp for all platforms
 make help         # Show all targets
 ```

@@ -59,6 +59,8 @@ Expected output:
 Connected to mahpastes API at http://localhost:44557
 ```
 
+Shell completion and man pages are installed with `make mp-install`; see [Shell Completion](../getting-started/installation.md#shell-completion). Every command and flag is listed in the [CLI Reference](../reference/cli.md).
+
 ## Environment Variables
 
 | Variable | Required | Default | Description |

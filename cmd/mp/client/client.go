@@ -483,3 +483,13 @@ func isConnectionRefused(err error) bool {
 		strings.Contains(s, "No connection could be made") ||
 		strings.Contains(s, "connect: connection refused")
 }
+
+// WithTimeout returns a copy of the client whose connection setup and
+// response-header waits are bounded by d. Shell completion uses it so a
+// stopped app never makes TAB hang.
+func (c *Client) WithTimeout(d time.Duration) *Client {
+	hc := &http.Client{Transport: newTransport(d)}
+	cp := *c
+	cp.HTTPClient = hc
+	return &cp
+}

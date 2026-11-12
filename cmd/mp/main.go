@@ -45,6 +45,7 @@ func init() {
 }
 
 func main() {
+	registerCompletions()
 	if err := rootCmd.Execute(); err != nil {
 		exitCode := client.ExitError
 		errorf("%s", err)

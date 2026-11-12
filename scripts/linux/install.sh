@@ -5,6 +5,8 @@
 #
 # Everything goes under $PREFIX (default ~/.local), so no root access is needed:
 #   $PREFIX/bin/mahpastes                      the app
+#   $PREFIX/bin/mp                             the CLI, with shell completions
+#                                              and man pages (scripts/install-mp.sh)
 #   $PREFIX/share/applications/mahpastes.desktop
 #   $PREFIX/share/icons/hicolor/<size>/apps/mahpastes.png
 # Bundled plugins are copied into the app's data directory, which the app reads
@@ -46,6 +48,7 @@ refresh_desktop_caches() {
 if [[ "${1:-}" == --uninstall ]]; then
     stop_app
     rm -f "$binary" "$desktop"
+    PREFIX="$PREFIX" BINDIR="$BINDIR" DATAROOT="$DATAROOT" bash "$repo/scripts/install-mp.sh" --uninstall >/dev/null
     rm -f "$icon_root"/*/apps/"$APP_NAME".png
     refresh_desktop_caches
     echo "Removed $APP_NAME from $PREFIX (data in $DATA_DIR was kept)"
@@ -63,6 +66,11 @@ stop_app
 
 # install(1) writes a new inode, so a still-mapped old binary is never modified.
 install -Dm755 "build/bin/$APP_NAME" "$binary"
+
+# The CLI is optional: install it (with completions and man pages) when built.
+if [[ -x build/bin/mp ]]; then
+    PREFIX="$PREFIX" BINDIR="$BINDIR" DATAROOT="$DATAROOT" bash "$repo/scripts/install-mp.sh"
+fi
 
 mkdir -p "$DATA_DIR/plugins"
 cp plugins/*.lua "$DATA_DIR/plugins/"

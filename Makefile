@@ -25,7 +25,7 @@ else
     MP_INSTALL_DIR ?= $(if $(GO_BIN),$(GO_BIN),$(HOME)/.local/bin)
 endif
 
-.PHONY: dev build clean install install-bundle install-ready-bundle stop-installed-app stop-file-provider-extension uninstall bindings mp mp-install mp-cross mahpastesd mahpastesd-cross test screenshots
+.PHONY: dev build clean install install-bundle install-ready-bundle stop-installed-app stop-file-provider-extension uninstall bindings mp mp-install mp-uninstall mp-docs mp-cross mahpastesd mahpastesd-cross test screenshots
 
 ## Development
 
@@ -101,10 +101,10 @@ uninstall: ## Remove installed app
 	if exist "$(INSTALL_DIR)" rd /s /q "$(INSTALL_DIR)"
 	@echo Removed $(APP_NAME) from $(INSTALL_DIR)
 else ifeq ($(HOST_OS),Linux)
-install: build ## Build and install to ~/.local (kills running instance)
+install: build mp ## Build and install the app and mp (with completions) to ~/.local (kills running instance)
 	@bash scripts/linux/install.sh
 
-uninstall: ## Remove installed app (keeps data)
+uninstall: ## Remove installed app, mp and completions (keeps data)
 	@bash scripts/linux/install.sh --uninstall
 else
 install: build ## Build and install (kills running instance)
@@ -206,10 +206,18 @@ ifeq ($(OS),Windows_NT)
 	@echo Add $(MP_INSTALL_DIR) to PATH to run mp from a new terminal.
 else
 	@mkdir -p "$(MP_INSTALL_DIR)"
-	@install -m 755 build/bin/mp "$(MP_INSTALL_DIR)/mp"
-	@echo "Installed mp to $(MP_INSTALL_DIR)/mp"
-	@case ":$$PATH:" in *:"$(MP_INSTALL_DIR)":*) ;; *) echo "Add $(MP_INSTALL_DIR) to PATH to run 'mp' directly." ;; esac
+	@BINDIR="$(MP_INSTALL_DIR)" bash scripts/install-mp.sh build/bin/mp
 endif
+
+mp-uninstall: ## Remove mp, its shell completions and man pages
+ifeq ($(OS),Windows_NT)
+	if exist "$(MP_INSTALL_DIR)\mp.exe" del "$(MP_INSTALL_DIR)\mp.exe"
+else
+	@BINDIR="$(MP_INSTALL_DIR)" bash scripts/install-mp.sh --uninstall
+endif
+
+mp-docs: mp ## Regenerate the CLI reference (docs/docs/reference/cli.md) and man pages (build/man)
+	build/bin/mp gendocs --markdown docs/docs/reference/cli.md --man build/man
 
 mp-cross: ## Cross-compile mp for all platforms
 	GOOS=darwin GOARCH=amd64 go build -o build/bin/mp-darwin-amd64 ./cmd/mp
