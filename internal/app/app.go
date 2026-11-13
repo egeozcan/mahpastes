@@ -4433,9 +4433,21 @@ func (a *App) GetWatchedFolderByID(id int64) (*WatchedFolder, error) {
 
 // AddWatchedFolder adds a new folder to watch
 func (a *App) AddWatchedFolder(config WatchedFolderConfig) (*WatchedFolder, error) {
-	// Validate path exists
-	if _, err := os.Stat(config.Path); os.IsNotExist(err) {
+	// The path is typed by hand in the web UI and by API clients (the desktop
+	// goes through a folder picker): it has to name a directory, absolutely.
+	// A relative path would resolve against the process's working directory.
+	if !filepath.IsAbs(config.Path) {
+		return nil, fmt.Errorf("folder path must be absolute: %s", config.Path)
+	}
+	info, err := os.Stat(config.Path)
+	if os.IsNotExist(err) {
 		return nil, fmt.Errorf("folder does not exist: %s", config.Path)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("cannot read folder %s: %w", config.Path, err)
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("not a folder: %s", config.Path)
 	}
 	if a.insideProjectionMount(config.Path) {
 		return nil, errProjectionMount

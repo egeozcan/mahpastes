@@ -157,9 +157,14 @@
     } catch (e) {
       console.error('share: refresh failed', e);
       // Blank lists read as "nothing shared"; say the load failed instead.
-      pubList.innerHTML = '';
-      followList.innerHTML = '';
-      pubList.appendChild(emptyRow('Could not load sharing status: ' + ((e && e.message) || String(e))));
+      // Only over lists that show nothing real: a transient failure must not
+      // replace what a later refresh will confirm.
+      const showsNothing = (list) => !list.querySelector('li:not([data-share-empty])');
+      if (showsNothing(pubList) && showsNothing(followList)) {
+        pubList.innerHTML = '';
+        followList.innerHTML = '';
+        pubList.appendChild(emptyRow('Could not load sharing status: ' + ((e && e.message) || String(e))));
+      }
     }
   }
 

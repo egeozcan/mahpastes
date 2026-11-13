@@ -571,7 +571,9 @@ document.addEventListener('dragover', e => {
 document.addEventListener('dragleave', e => {
     e.preventDefault();
     if (window.__internalDragActive) return;
-    if (!dragCarriesFiles(e)) return;
+    // By the counter, not by the leave event's types: some engines report
+    // none on leave, and the overlay would then never come down.
+    if (dragCounter <= 0) return;
     dragCounter--;
     if (dragCounter <= 0) {
         dragCounter = 0;
