@@ -620,9 +620,29 @@ document.getElementById('gallery-load-more-btn')?.addEventListener('click', () =
 
 // Confirm Dialog Listeners
 document.getElementById('confirm-yes-btn').addEventListener('click', async () => {
-    if (confirmCallback) await confirmCallback();
-    confirmCancelCallback = null; // Prevent cancel callback when confirmed
-    closeConfirmDialog();
+    if (confirmBusy) return;
+    const callback = confirmCallback;
+    const yesBtn = document.getElementById('confirm-yes-btn');
+    const label = yesBtn.textContent;
+    // The label changes only if the action takes long enough to notice.
+    let labelTimer = null;
+    if (callback) {
+        setConfirmBusy(true);
+        labelTimer = setTimeout(() => { if (confirmBusy) yesBtn.textContent = 'Working…'; }, 250);
+    }
+    // Whether the callback opened a dialog of its own in this same element.
+    const opened = confirmCallback;
+    try {
+        if (callback) await callback();
+    } finally {
+        clearTimeout(labelTimer);
+        if (confirmCallback === opened) {
+            if (yesBtn.textContent === 'Working…') yesBtn.textContent = label;
+            setConfirmBusy(false);
+            confirmCancelCallback = null; // Prevent cancel callback when confirmed
+            closeConfirmDialog();
+        }
+    }
 });
 
 document.getElementById('confirm-no-btn').addEventListener('click', closeConfirmDialog);

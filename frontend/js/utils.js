@@ -107,6 +107,27 @@ window.__testHelpers = {};
 
 let confirmCallback = null;
 let confirmCancelCallback = null;
+// True while the confirmed action is running. The dialog stays up, shows it is
+// working, and ignores a second confirm and every way of closing it: those
+// used to run the action twice, or fire the caller's cancel callback for an
+// action already under way.
+let confirmBusy = false;
+
+// The buttons stay focusable while busy (aria-disabled, not disabled), so the
+// focus trap still has somewhere to keep the keyboard.
+function setConfirmBusy(busy) {
+    confirmBusy = busy;
+    const yesBtn = document.getElementById('confirm-yes-btn');
+    const noBtn = document.getElementById('confirm-no-btn');
+    for (const btn of [yesBtn, noBtn]) {
+        if (busy) btn.setAttribute('aria-disabled', 'true');
+        else btn.removeAttribute('aria-disabled');
+        btn.classList.toggle('opacity-50', busy);
+        btn.classList.toggle('cursor-wait', busy);
+    }
+    if (busy) yesBtn.setAttribute('aria-busy', 'true');
+    else yesBtn.removeAttribute('aria-busy');
+}
 let confirmFocusTrapCleanup = null;
 let promptCallback = null;
 let promptFocusTrapCleanup = null;
@@ -141,6 +162,8 @@ function showConfirmDialog(title, message, callback, cancelCallback, options) {
 
     const { variant = 'danger', confirmLabel } = options || {};
     const theme = CONFIRM_VARIANTS[variant] || CONFIRM_VARIANTS.danger;
+    // A dialog opened from inside a running confirm starts clean.
+    setConfirmBusy(false);
     yesBtn.className = theme.button;
     yesBtn.textContent = confirmLabel || theme.label;
     iconCircle.className = theme.iconCircle;
@@ -167,6 +190,7 @@ function showConfirmDialog(title, message, callback, cancelCallback, options) {
 }
 
 function closeConfirmDialog() {
+    if (confirmBusy) return;
     const dialog = document.getElementById('confirm-dialog');
     const dialogContent = dialog.querySelector('div');
 

@@ -15,13 +15,65 @@ test.describe('UI feedback and double-submit guards', () => {
       const w = window as any;
       // Settle anything a test left pending, then put the real bindings back
       // exactly once: a stale restore run by a later test would undo its stub.
-      for (const release of ['__releaseAdd', '__releaseImport', '__releaseTags']) {
+      for (const release of ['__releaseAdd', '__releaseImport', '__releaseTags', '__releaseDelete']) {
         w[release]?.();
         delete w[release];
       }
       w.__restoreStub?.();
       delete w.__restoreStub;
     });
+  });
+
+  test('the confirm dialog shows it is working and cannot be confirmed twice or closed mid-action', async ({ app }) => {
+    await app.page.evaluate(async () => {
+      const w = window as any;
+      const api = w.go.main.App;
+      await api.UploadFiles([{ name: 'held.txt', content_type: 'text/plain', data: btoa('held') }], 0, 0);
+      await w.loadClips();
+      // Hold BulkDelete: every intercepted call is queued and released
+      // together, and calls after the release pass straight through.
+      const original = api.BulkDelete;
+      const waiting: Array<() => void> = [];
+      let released = false;
+      w.__bulkDeleteCalls = 0;
+      api.BulkDelete = (...args: unknown[]) => {
+        w.__bulkDeleteCalls++;
+        if (released) return original(...args);
+        return new Promise((resolve, reject) => {
+          waiting.push(() => original(...args).then(resolve, reject));
+        });
+      };
+      w.__releaseDelete = () => { released = true; waiting.splice(0).forEach(run => run()); };
+      w.__restoreStub = () => { api.BulkDelete = original; };
+    });
+    await app.expectClipCount(1);
+    await app.selectClips(['held.txt']);
+    await app.bulkDelete();
+
+    const dialog = app.page.locator(selectors.confirm.dialog);
+    const yes = app.page.locator(selectors.confirm.confirmButton);
+    await expect(dialog).toHaveClass(/opacity-100/);
+    await yes.click();
+
+    await expect(yes).toHaveAttribute('aria-busy', 'true');
+    await expect(yes).toHaveText('Working…');
+    // A second confirm, Cancel and Escape all do nothing while it runs.
+    await yes.click({ force: true });
+    await app.page.locator(selectors.confirm.cancelButton).click({ force: true });
+    await app.page.keyboard.press('Escape');
+    await expect(dialog).toHaveClass(/opacity-100/);
+    expect(await app.page.evaluate(() => (window as any).__bulkDeleteCalls)).toBe(1);
+
+    await app.page.evaluate(() => (window as any).__releaseDelete());
+    await expect(dialog).toHaveClass(/opacity-0/);
+    await app.expectClipCount(0);
+    expect(await app.page.evaluate(() => (window as any).__bulkDeleteCalls)).toBe(1);
+
+    // The next dialog starts clean.
+    await app.page.evaluate(() => (window as any).showConfirmDialog('Again', 'Sure?', () => {}));
+    await expect(yes).not.toHaveAttribute('aria-busy', 'true');
+    await expect(yes).not.toHaveText('Working…');
+    await app.page.locator(selectors.confirm.cancelButton).click();
   });
 
   test('a failure rejected as a plain string reads as an error toast with its message', async ({ app }) => {
