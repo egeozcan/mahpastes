@@ -44,6 +44,8 @@ const THUMBNAIL_MAX_EDGE = 640;
 const THUMBNAIL_SEEK_MAX_SECONDS = 2;
 const videoMediaURLCache = new Map();
 const pendingVideoMediaURLs = new Map();
+// Full-image reads in flight, keyed `${clipId}:${revision}` (see getImageDataUrl).
+const pendingImageDataUrls = new Map();
 const renderedClipsById = new Map();
 
 // Bumped per clip whenever its bytes change, so a fetch that started before
@@ -2067,10 +2069,23 @@ async function getImageDataUrl(clipId) {
     const cached = imageCacheGet(id);
     if (cached !== undefined) return cached;
 
-    const clipData = await getClipData(id);
-    const dataUrl = `data:${clipData.content_type};base64,${clipData.data}`;
-    if ((mediaRevisions.get(id) || 0) === revision) imageCacheSet(id, dataUrl);
-    return dataUrl;
+    // One read per clip revision at a time: the lightbox warms the next image
+    // while the current one is on screen, and the navigation that follows
+    // joins that read instead of starting a second one.
+    const key = `${id}:${revision}`;
+    if (pendingImageDataUrls.has(key)) return pendingImageDataUrls.get(key);
+    const pending = (async () => {
+        const clipData = await getClipData(id);
+        const dataUrl = `data:${clipData.content_type};base64,${clipData.data}`;
+        if ((mediaRevisions.get(id) || 0) === revision) imageCacheSet(id, dataUrl);
+        return dataUrl;
+    })();
+    pendingImageDataUrls.set(key, pending);
+    try {
+        return await pending;
+    } finally {
+        pendingImageDataUrls.delete(key);
+    }
 }
 
 function updateBulkToolbar() {

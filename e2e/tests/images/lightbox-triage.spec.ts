@@ -98,6 +98,40 @@ test.describe('Lightbox triage', () => {
     )).toBe(true);
   });
 
+  test('the next image is read ahead, and paging to it reads nothing again', async ({ app }) => {
+    const names = await uploadImages(app, 3);
+    await app.page.evaluate(() => {
+      const w = window as any;
+      const api = w.go.main.App;
+      const original = api.GetClipData;
+      w.__clipDataCalls = [];
+      api.GetClipData = (id: number) => { w.__clipDataCalls.push(Number(id)); return original(id); };
+      w.__restoreClipData = () => { api.GetClipData = original; };
+      // Nothing cached from the cards (they show thumbnails), but be sure.
+      w.clearMediaCaches?.();
+    });
+    try {
+      const ids = await app.page.evaluate((list) => list.map((name) =>
+        Number((document.querySelector(`li[data-filename="${name}"]`) as HTMLElement).dataset.id)), names);
+      // Gallery order is newest first: the viewer's sequence is the cards' order.
+      const order = await app.page.evaluate(() => Array.from(document.querySelectorAll('#gallery > li[data-id]'))
+        .map((el) => Number((el as HTMLElement).dataset.id)));
+      const firstName = names[ids.indexOf(order[0])];
+      await app.openLightbox(firstName);
+
+      // The image on screen, then its neighbour.
+      await expect.poll(() => app.page.evaluate(() => (window as any).__clipDataCalls)).toEqual([order[0], order[1]]);
+
+      await app.page.keyboard.press('ArrowRight');
+      await expect(caption(app)).toContainText(names[ids.indexOf(order[1])]);
+      await expect(app.page.locator(selectors.lightbox.viewport)).toHaveAttribute('aria-busy', 'false');
+      // No second read of the image paged to; only the one after it is new.
+      await expect.poll(() => app.page.evaluate(() => (window as any).__clipDataCalls)).toEqual([order[0], order[1], order[2]]);
+    } finally {
+      await app.page.evaluate(() => (window as any).__restoreClipData());
+    }
+  });
+
   test('T opens the tag popover and mod+Enter the Actions menu', async ({ app }) => {
     await app.createTag('triage');
     const [first] = await uploadImages(app, 1);

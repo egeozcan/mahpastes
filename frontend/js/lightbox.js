@@ -284,6 +284,14 @@
                         renderMediaInfo(clip, deps.elements.image);
                         deps.elements.status.textContent = `${clip.filename || 'Image'}, ${currentIndex() + 1} of ${state.clips.length}, ${Math.round(state.scale * 100)}%`;
                     }
+                    // With this one on screen, start on the next in the
+                    // direction of travel, so paging to it does not begin
+                    // with a spinner. Not part of this render: its outcome
+                    // changes nothing here.
+                    const neighbour = state.clips[currentIndex() + (state.lastDelta || 1)];
+                    if (neighbour && !isVideoClip(neighbour) && deps.prefetchMedia) {
+                        try { deps.prefetchMedia(neighbour); } catch (e) { /* a warm-up only */ }
+                    }
                 };
                 const commitError = () => showLoadError(new Error(`${videoClip ? 'Video' : 'Image'} decode failed`), clip, generation);
 
@@ -361,6 +369,7 @@
             const index = currentIndex();
             const target = state.clips[index + delta];
             if (!target) return;
+            state.lastDelta = delta < 0 ? -1 : 1;
             state.currentId = target.id;
             void renderCurrent();
         }

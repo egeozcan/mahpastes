@@ -139,6 +139,9 @@ window.setLightboxCloseOnBackdrop = async (enabled) => {
     }
 };
 
+// Images above this are not read ahead in the lightbox.
+const LIGHTBOX_PREFETCH_MAX_BYTES = 25 * 1024 * 1024;
+
 window.LightboxController = window.createLightboxController({
     elements: {
         root: lightbox,
@@ -174,6 +177,16 @@ window.LightboxController = window.createLightboxController({
     loadMedia: clip => clip.content_type.startsWith('video/')
         ? getVideoMediaUrl(clip.id)
         : getImageDataUrl(clip.id),
+    // Warm the image the user is likely to page to next. Desktop only: there
+    // the read is a base64 round trip over the bridge, where a browser in
+    // server mode fetches and caches by URL itself. A large image is left
+    // for when it is actually wanted: the read costs several times its size
+    // in memory and would evict what is cached.
+    prefetchMedia: clip => {
+        if (window.mahpastesMode === 'server') return;
+        if ((Number(clip.size) || 0) > LIGHTBOX_PREFETCH_MAX_BYTES) return;
+        getImageDataUrl(clip.id).catch(() => {});
+    },
     trapFocus,
     renderPluginActions: clip => renderLightboxPluginButtons(clip),
     renderFileActions: clip => renderLightboxFileActions(clip),
