@@ -68,3 +68,19 @@ func TestNotificationTextDarwin(t *testing.T) {
 		t.Fatalf("darwin text changed beyond the one-line title: %q / %q", title, body)
 	}
 }
+
+// Toast text ends up inside an XML document. Characters XML 1.0 does not
+// allow (most C0 controls: an ESC from coloured tool output in a plugin
+// message, a NUL) make Windows reject the whole toast, and a few rejected
+// toasts switch notifications off.
+func TestNotificationTextWindowsDropsCharactersXMLForbids(t *testing.T) {
+	title, body := notificationText("windows",
+		"build\x1b[31m failed\x00",
+		"tab\tstays, bell\x07 and \x1b[0mESC go, ￾ too; café \U0001F600 stay")
+	if title != "build[31m failed" {
+		t.Errorf("title = %q", title)
+	}
+	if want := "tab\tstays, bell and [0mESC go,  too; café \U0001F600 stay"; body != want {
+		t.Errorf("body = %q, want %q", body, want)
+	}
+}

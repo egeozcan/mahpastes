@@ -17,7 +17,17 @@ ifeq ($(OS),Windows_NT)
     MP_INSTALL_DIR ?= $(if $(GO_BIN),$(GO_BIN),$(if $(GO_PATH),$(GO_PATH)\bin,$(USERPROFILE)\go\bin))
     SHELL := cmd.exe
     .SHELLFLAGS := /c
+    # go build -o adds no .exe by itself, and cmd.exe reads a leading
+    # "build/bin/mp" as the command "build" with switches.
+    MP_BIN := build\bin\mp.exe
+    MAHPASTESD_BIN := build\bin\mahpastesd.exe
+    # cmd.exe has no VAR=value prefix; each recipe line is its own cmd.exe,
+    # so the variables do not outlive the line.
+    crossenv = $(foreach v,$(1),set "$(v)"&&)
 else
+    MP_BIN := build/bin/mp
+    MAHPASTESD_BIN := build/bin/mahpastesd
+    crossenv = $(1)
     HOST_OS := $(shell uname -s)
     GO_BIN := $(strip $(shell go env GOBIN 2>/dev/null))
     WAILS := ~/go/bin/wails
@@ -109,7 +119,11 @@ endif
 ifeq ($(OS),Windows_NT)
 install: build ## Build and install (kills running instance)
 	-taskkill /IM "$(APP_NAME).exe" /F 2>nul
-	timeout /t 1 /nobreak >nul
+	@rem Give Windows a moment to release the killed exe. Not "timeout": it
+	@rem fails without a console (an IDE runner, CI), and from Git Bash cmd.exe
+	@rem finds GNU timeout first; either way the recipe stopped here, with the
+	@rem app killed and nothing installed.
+	powershell -NoProfile -Command "Start-Sleep -Seconds 1"
 	if not exist "$(INSTALL_DIR)" mkdir "$(INSTALL_DIR)"
 	copy /Y "$(subst /,\,$(APP_EXE))" "$(INSTALL_DIR)\$(APP_NAME).exe"
 	@echo Installed to $(INSTALL_DIR)\$(APP_NAME).exe
@@ -125,6 +139,7 @@ install: build ## Build and install (kills running instance)
 
 uninstall: ## Remove installed app (keeps data)
 	-taskkill /IM "$(APP_NAME).exe" /F 2>nul
+	powershell -NoProfile -Command "Start-Sleep -Seconds 1"
 	if exist "$(INSTALL_DIR)" rd /s /q "$(INSTALL_DIR)"
 	-if exist "$(START_MENU_LINK)" del /F /Q "$(START_MENU_LINK)"
 	-if exist "$(DATA_DIR)\$(APP_NAME).exe" del /F /Q "$(DATA_DIR)\$(APP_NAME).exe"
@@ -234,7 +249,7 @@ endif
 ## CLI
 
 mp: ## Build mp CLI for current platform
-	go build -ldflags "$(LDFLAGS)" -o build/bin/mp ./cmd/mp
+	go build -ldflags "$(LDFLAGS)" -o $(MP_BIN) ./cmd/mp
 
 mp-install: mp ## Install mp to MP_INSTALL_DIR (user-writable by default)
 ifeq ($(OS),Windows_NT)
@@ -255,35 +270,35 @@ else
 endif
 
 mp-docs: mp ## Regenerate the CLI reference (docs/docs/reference/cli.md) and man pages (build/man)
-	build/bin/mp gendocs --markdown docs/docs/reference/cli.md --man build/man
+	$(MP_BIN) gendocs --markdown docs/docs/reference/cli.md --man build/man
 
 mp-cross: ## Cross-compile mp for all platforms
-	GOOS=darwin GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o build/bin/mp-darwin-amd64 ./cmd/mp
-	GOOS=darwin GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o build/bin/mp-darwin-arm64 ./cmd/mp
-	GOOS=linux GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o build/bin/mp-linux-amd64 ./cmd/mp
-	GOOS=linux GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o build/bin/mp-linux-arm64 ./cmd/mp
-	GOOS=windows GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o build/bin/mp-windows-amd64.exe ./cmd/mp
-	GOOS=windows GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o build/bin/mp-windows-arm64.exe ./cmd/mp
+	$(call crossenv,GOOS=darwin GOARCH=amd64) go build -ldflags "$(LDFLAGS)" -o build/bin/mp-darwin-amd64 ./cmd/mp
+	$(call crossenv,GOOS=darwin GOARCH=arm64) go build -ldflags "$(LDFLAGS)" -o build/bin/mp-darwin-arm64 ./cmd/mp
+	$(call crossenv,GOOS=linux GOARCH=amd64) go build -ldflags "$(LDFLAGS)" -o build/bin/mp-linux-amd64 ./cmd/mp
+	$(call crossenv,GOOS=linux GOARCH=arm64) go build -ldflags "$(LDFLAGS)" -o build/bin/mp-linux-arm64 ./cmd/mp
+	$(call crossenv,GOOS=windows GOARCH=amd64) go build -ldflags "$(LDFLAGS)" -o build/bin/mp-windows-amd64.exe ./cmd/mp
+	$(call crossenv,GOOS=windows GOARCH=arm64) go build -ldflags "$(LDFLAGS)" -o build/bin/mp-windows-arm64.exe ./cmd/mp
 
 mahpastesd: ## Build headless server for current platform
-	go build -ldflags "$(LDFLAGS)" -o build/bin/mahpastesd ./cmd/mahpastesd
+	go build -ldflags "$(LDFLAGS)" -o $(MAHPASTESD_BIN) ./cmd/mahpastesd
 
 mahpastesd-cross: ## Cross-compile headless server for all platforms (darwin with cgo only on a macOS host)
-	GOOS=linux GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o build/bin/mahpastesd-linux-amd64 ./cmd/mahpastesd
-	GOOS=linux GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o build/bin/mahpastesd-linux-arm64 ./cmd/mahpastesd
-	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o build/bin/mahpastesd-windows-amd64.exe ./cmd/mahpastesd
-	CGO_ENABLED=0 GOOS=windows GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o build/bin/mahpastesd-windows-arm64.exe ./cmd/mahpastesd
+	$(call crossenv,GOOS=linux GOARCH=amd64) go build -ldflags "$(LDFLAGS)" -o build/bin/mahpastesd-linux-amd64 ./cmd/mahpastesd
+	$(call crossenv,GOOS=linux GOARCH=arm64) go build -ldflags "$(LDFLAGS)" -o build/bin/mahpastesd-linux-arm64 ./cmd/mahpastesd
+	$(call crossenv,CGO_ENABLED=0 GOOS=windows GOARCH=amd64) go build -ldflags "$(LDFLAGS)" -o build/bin/mahpastesd-windows-amd64.exe ./cmd/mahpastesd
+	$(call crossenv,CGO_ENABLED=0 GOOS=windows GOARCH=arm64) go build -ldflags "$(LDFLAGS)" -o build/bin/mahpastesd-windows-arm64.exe ./cmd/mahpastesd
 ifeq ($(HOST_OS),Darwin)
 	@# On macOS build with cgo so the import wizard's Finder trash is
 	@# recoverable; Go disables cgo for a foreign GOARCH unless asked, and the
 	@# macOS clang builds either slice.
-	CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o build/bin/mahpastesd-darwin-amd64 ./cmd/mahpastesd
-	CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o build/bin/mahpastesd-darwin-arm64 ./cmd/mahpastesd
+	$(call crossenv,CGO_ENABLED=1 GOOS=darwin GOARCH=amd64) go build -ldflags "$(LDFLAGS)" -o build/bin/mahpastesd-darwin-amd64 ./cmd/mahpastesd
+	$(call crossenv,CGO_ENABLED=1 GOOS=darwin GOARCH=arm64) go build -ldflags "$(LDFLAGS)" -o build/bin/mahpastesd-darwin-arm64 ./cmd/mahpastesd
 else
 	@# Elsewhere the darwin server is built without cgo: everything works, but
 	@# the import wizard deletes originals permanently instead of using the Trash.
-	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o build/bin/mahpastesd-darwin-amd64 ./cmd/mahpastesd
-	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o build/bin/mahpastesd-darwin-arm64 ./cmd/mahpastesd
+	$(call crossenv,CGO_ENABLED=0 GOOS=darwin GOARCH=amd64) go build -ldflags "$(LDFLAGS)" -o build/bin/mahpastesd-darwin-amd64 ./cmd/mahpastesd
+	$(call crossenv,CGO_ENABLED=0 GOOS=darwin GOARCH=arm64) go build -ldflags "$(LDFLAGS)" -o build/bin/mahpastesd-darwin-arm64 ./cmd/mahpastesd
 endif
 
 ifeq ($(HOST_OS),Linux)

@@ -41,6 +41,15 @@ func (d *App) submitOpenRequest(req openrequest.Request) {
 	d.openRequests.Submit(req)
 }
 
+// submitRelaunchRequest takes a request a later launch sent over the instance
+// socket. If the window does not exist yet, its activation waits for it.
+func (d *App) submitRelaunchRequest(req openrequest.Request) {
+	if d.openRequests == nil {
+		return
+	}
+	d.openRequests.SubmitRelaunch(req)
+}
+
 // attachOpenRequests connects the queue to the running window once Wails has
 // started. Requests that arrived earlier are announced now.
 func (d *App) attachOpenRequests(b *wailsbridge.Bridge) {

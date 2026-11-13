@@ -17,6 +17,7 @@ package openrequest
 import (
 	"net/url"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -68,11 +69,22 @@ func (r Request) Empty() bool {
 //   - file:// URLs (what desktop launchers pass for %U) become paths.
 //   - Anything else is a path; relative paths are resolved against cwd, the
 //     working directory of the process that received them.
+//   - A launch that carries a mahpastes: link carries nothing else. The OS
+//     starts the command registered for the scheme with the link put into it,
+//     and Windows does that without escaping: a link with a quote in it can
+//     append arguments of its own ("--paste-clipboard", a file to import).
+//     Links only navigate, so whatever came with one is dropped.
+//   - A COM activation (-Embedding: Windows starting the app for a click on
+//     one of its old toasts) only activates. Its command line is the toast
+//     activator's, whose literal "%1" is not a file.
 //
 // Nothing is checked against the filesystem here: the sender and the receiver
 // are different processes, and the receiver decides what is importable.
 func FromArgs(args []string, cwd string) Request {
 	req := Request{Activate: true}
+	if isCOMActivation(args) {
+		return req
+	}
 	flagsDone := false
 	for _, arg := range args {
 		if arg == "" {
@@ -116,7 +128,31 @@ func FromArgs(args []string, cwd string) Request {
 		}
 		req.Files = append(req.Files, filepath.Clean(p))
 	}
+	if len(req.URLs) > 0 {
+		req.Files = nil
+		req.PasteClipboard = false
+		req.Activate = true
+	}
 	return req
+}
+
+// isCOMActivation reports whether args are those of a COM local-server start:
+// COM appends -Embedding (or /Embedding) to the registered command line.
+// "-Embedding" is a flag everywhere, so skipping it costs nothing; the slash
+// spelling is only read on Windows, where it cannot be an absolute path.
+func isCOMActivation(args []string) bool {
+	for _, arg := range args {
+		if arg == "--" {
+			return false
+		}
+		if strings.EqualFold(arg, "-Embedding") {
+			return true
+		}
+		if runtime.GOOS == "windows" && strings.EqualFold(arg, "/Embedding") {
+			return true
+		}
+	}
+	return false
 }
 
 // StripOwnFlags returns args (a full os.Args, program name first) without the
@@ -138,17 +174,28 @@ func StripOwnFlags(args []string) []string {
 }
 
 // WantsStartHidden reports whether args (os.Args[1:]) carry StartHiddenFlag
-// before any "--".
+// before any "--". A launch that carries a mahpastes: link never starts
+// hidden: the flag may have come with the link (see FromArgs), and whoever
+// followed a link wants to see where it leads.
 func WantsStartHidden(args []string) bool {
+	hidden := false
 	for _, arg := range args {
 		if arg == "--" {
-			return false
+			break
 		}
 		if arg == StartHiddenFlag {
-			return true
+			hidden = true
 		}
 	}
-	return false
+	if !hidden {
+		return false
+	}
+	for _, arg := range args {
+		if _, ok := ParseURL(arg); ok {
+			return false
+		}
+	}
+	return true
 }
 
 // ParseURL reports whether raw is a mahpastes: URL and returns it trimmed.

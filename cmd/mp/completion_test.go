@@ -194,7 +194,8 @@ func TestMarkdownReference(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(committed) != s {
+	// A Windows checkout with core.autocrlf has CRLF line endings.
+	if strings.ReplaceAll(string(committed), "\r\n", "\n") != s {
 		t.Error("docs/docs/reference/cli.md is stale; run `make mp-docs`")
 	}
 }

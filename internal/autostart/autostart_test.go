@@ -187,8 +187,10 @@ func TestXDGBackendReportsDesktopSwitchOff(t *testing.T) {
 }
 
 func TestXDGConfigHome(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", "/custom/config")
-	if got, _ := xdgConfigHome(); got != "/custom/config" {
+	// An absolute path on this OS: "/custom/config" is not one on Windows.
+	custom := filepath.Join(t.TempDir(), "config")
+	t.Setenv("XDG_CONFIG_HOME", custom)
+	if got, _ := xdgConfigHome(); got != custom {
 		t.Errorf("absolute XDG_CONFIG_HOME ignored: %s", got)
 	}
 	t.Setenv("XDG_CONFIG_HOME", "relative/config")

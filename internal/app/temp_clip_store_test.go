@@ -669,3 +669,21 @@ func TestPrepareClipFile_MultibyteTextWeighedInBytes(t *testing.T) {
 		t.Fatalf("published %d bytes, %v; want %d", len(b), err, len(text))
 	}
 }
+
+func TestWindowsSafeTempName(t *testing.T) {
+	for in, want := range map[string]string{
+		"plain.txt":        "plain.txt",
+		"Q3 plan?.md":      "Q3 plan_.md",
+		"notes: todo.txt":  "notes_ todo.txt",
+		`a<b>c|d"e*.txt`:   "a_b_c_d_e_.txt",
+		"trailing dot.":    "trailing dot",
+		"trailing space  ": "trailing space",
+		"tab\tin.txt":      "tab_in.txt",
+		"ünïcödé ’.txt":    "ünïcödé ’.txt",
+		"...":              "",
+	} {
+		if got := windowsSafeTempName(in); got != want {
+			t.Errorf("windowsSafeTempName(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

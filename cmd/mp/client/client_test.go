@@ -330,3 +330,34 @@ func TestNewKeyFileWinsOverMahpastesKey(t *testing.T) {
 		t.Fatalf("APIKey = %q, want the MP_API_KEY_FILE key", c.APIKey)
 	}
 }
+
+// Windows PowerShell 5.1 writes files as UTF-16 with a byte order mark by
+// default (`"mp_..." > key.txt`, Out-File), and as UTF-8 with one for
+// -Encoding utf8. Both hold just the key.
+func TestNewReadsKeyFilesWrittenByPowerShell(t *testing.T) {
+	utf16le := []byte{0xFF, 0xFE}
+	for _, r := range "mp_abc\r\n" {
+		utf16le = append(utf16le, byte(r), 0)
+	}
+	utf16be := []byte{0xFE, 0xFF}
+	for _, r := range "mp_abc\r\n" {
+		utf16be = append(utf16be, 0, byte(r))
+	}
+	for name, content := range map[string][]byte{
+		"UTF-8 with BOM":  append([]byte{0xEF, 0xBB, 0xBF}, "mp_abc\r\n"...),
+		"UTF-16 LE (BOM)": utf16le,
+		"UTF-16 BE (BOM)": utf16be,
+	} {
+		t.Run(name, func(t *testing.T) {
+			clearClientEnv(t)
+			t.Setenv("MP_API_KEY_FILE", writeKeyFile(t, string(content)))
+			c, err := New()
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			if c.APIKey != "mp_abc" {
+				t.Fatalf("APIKey = %q, want mp_abc", c.APIKey)
+			}
+		})
+	}
+}

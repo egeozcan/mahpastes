@@ -8,6 +8,7 @@ import (
 	"mime"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -662,6 +663,15 @@ func (s *TempClipStore) pruneLocked(force bool) error {
 			}
 			continue
 		}
+		if isFileInUseError(err) {
+			// Windows: a program the clip was opened in still has the file
+			// open. It stays on disk until that program closes it and a
+			// later prune gets it, but it is left out of the index (its
+			// lease is over, or its clip is gone), and it must not fail
+			// this prune: PrepareClipFile prunes first, so every Open, Copy
+			// as File and drag-out would fail for as long as it stays open.
+			continue
+		}
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			// This entry and every one not yet examined are still on
 			// disk; leaving them out would make FindExistingClipFile miss
@@ -701,13 +711,35 @@ func TransferFileExtension(filename sql.NullString, contentType string) string {
 func tempFilenameForClip(clipID int64, filename sql.NullString, contentType string) string {
 	safeName := fmt.Sprintf("%d", clipID)
 	if filename.Valid && strings.TrimSpace(filename.String) != "" {
-		return fmt.Sprintf("%d_%s", clipID, filepath.Base(filename.String))
+		base := filepath.Base(filename.String)
+		if runtime.GOOS == "windows" {
+			base = windowsSafeTempName(base)
+		}
+		if base != "" {
+			return fmt.Sprintf("%d_%s", clipID, base)
+		}
 	}
 	exts, _ := mime.ExtensionsByType(contentType)
 	if len(exts) > 0 {
 		safeName += exts[0]
 	}
 	return safeName
+}
+
+// windowsSafeTempName maps a clip's name to one Windows accepts as a file
+// name: clip names come from other systems (shares, backups, REST) where
+// ? * : " < > | are ordinary, while Windows refuses them — and reads a colon
+// as the start of an alternate data stream — and drops trailing dots and
+// spaces. The result may be empty. Device names (NUL, COM1) need no care:
+// the temp name always starts with the clip ID.
+func windowsSafeTempName(name string) string {
+	name = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f || strings.ContainsRune(`<>:"|?*`, r) {
+			return '_'
+		}
+		return r
+	}, name)
+	return strings.TrimRight(name, ". ")
 }
 
 // clipIDForTempFile returns the clip a file in the store's directory belongs

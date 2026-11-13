@@ -97,7 +97,19 @@ var windowsToastReplacer = strings.NewReplacer(
 	"]]>", "]] >",
 )
 
-func windowsToastText(s string) string { return windowsToastReplacer.Replace(s) }
+// windowsToastText makes s safe for a Windows toast, whose text is put into
+// an XML document: besides the replacements above, characters XML 1.0 does
+// not allow at all (C0 controls other than tab, U+FFFE, U+FFFF) are dropped.
+// One of them makes Windows reject the whole toast.
+func windowsToastText(s string) string {
+	s = strings.Map(func(r rune) rune {
+		if (r < 0x20 && r != 0x09 && r != 0x0A && r != 0x0D) || r == 0xFFFE || r == 0xFFFF {
+			return -1
+		}
+		return r
+	}, s)
+	return windowsToastReplacer.Replace(s)
+}
 
 var linuxBodyMarkup = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;")
 

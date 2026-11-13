@@ -41,6 +41,9 @@ type Queue struct {
 	timer    *time.Timer
 	activate func()
 	notify   func()
+	// activateOnAttach records an activation a later launch asked for
+	// before there was a window to activate (SubmitRelaunch).
+	activateOnAttach bool
 }
 
 // NewQueue returns an empty queue that notifies delay after the last Submit.
@@ -50,20 +53,43 @@ func NewQueue(delay time.Duration) *Queue {
 
 // Attach connects the queue to a running window. activate shows and raises it;
 // notify tells the frontend there are requests to take. Either may be nil.
-// Anything submitted before Attach is announced right away.
+// Anything submitted before Attach is announced right away, and an activation
+// a later launch asked for before it (SubmitRelaunch) happens now.
 func (q *Queue) Attach(activate, notify func()) {
 	q.mu.Lock()
-	defer q.mu.Unlock()
 	q.activate = activate
 	q.notify = notify
 	if !q.pending.Empty() {
 		q.scheduleLocked()
 	}
+	replay := q.activateOnAttach && activate != nil
+	if replay {
+		q.activateOnAttach = false
+	}
+	q.mu.Unlock()
+
+	if replay {
+		activate()
+	}
 }
 
 // Submit adds a request. Activation happens at once (before the debounce), so
-// the window comes forward as soon as the user asks for it.
-func (q *Queue) Submit(r Request) {
+// the window comes forward as soon as the user asks for it. Before Attach
+// there is no window to bring forward and the activation is dropped: the
+// requests of this process's own start (its arguments, a macOS file open on
+// a cold launch) come with a window that is about to show by itself.
+func (q *Queue) Submit(r Request) { q.submit(r, false) }
+
+// SubmitRelaunch adds a request another launch sent over the instance socket.
+// Unlike Submit, an activation that arrives before Attach is kept and happens
+// at Attach. That launch was told its request was taken and has exited; when
+// this process started without a window (--hidden at login, WebView2 still
+// loading) and the user then started the app, dropping the activation would
+// leave them with nothing on screen and, on Windows and Linux, no tray icon
+// to recover from.
+func (q *Queue) SubmitRelaunch(r Request) { q.submit(r, true) }
+
+func (q *Queue) submit(r Request, keepActivation bool) {
 	q.mu.Lock()
 	activate := q.activate
 	for _, f := range r.Files {
@@ -91,6 +117,9 @@ func (q *Queue) Submit(r Request) {
 	}
 	if !q.pending.Empty() {
 		q.scheduleLocked()
+	}
+	if r.Activate && activate == nil && keepActivation {
+		q.activateOnAttach = true
 	}
 	q.mu.Unlock()
 
