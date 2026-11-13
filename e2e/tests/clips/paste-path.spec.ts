@@ -275,9 +275,9 @@ test.describe('Pasted File Paths', () => {
       await choose(app, 'file');
 
       // Re-read from the backend, the way a fresh launch would.
-      const stored = await app.page.evaluate(
-        () => (window as any).go.main.App.GetSetting('paste_path_behavior'));
-      expect(stored).toBe('file');
+      // The select saves asynchronously, so the write may still be in flight.
+      await expect.poll(() => app.page.evaluate(
+        () => (window as any).go.main.App.GetSetting('paste_path_behavior'))).toBe('file');
 
       await app.openSettingsModal();
       await expect(app.page.locator(selectors.settings.pastePathSelect)).toHaveValue('file');
