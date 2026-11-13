@@ -773,7 +773,23 @@ const EditorCore = (() => {
             const delta = e.deltaY > 0 ? 0.9 : 1.1;
             setZoom(zoomLevel * delta, e.clientX, e.clientY);
             if (typeof ZoomTool !== 'undefined') ZoomTool.updateZoomDisplay();
+            return;
         }
+        // A plain wheel or two-finger scroll pans, as it does in the lightbox,
+        // but only while the image is larger than its frame: an image that
+        // fits has nowhere to go. Shift turns a mouse wheel sideways.
+        const frame = canvas.closest('.editor-canvas-container');
+        if (!frame) return;
+        const overflowX = canvas.width * zoomLevel > frame.clientWidth;
+        const overflowY = canvas.height * zoomLevel > frame.clientHeight;
+        if (!overflowX && !overflowY) return;
+        e.preventDefault();
+        let dx = e.deltaX;
+        let dy = e.deltaY;
+        if (e.shiftKey && dx === 0) { dx = dy; dy = 0; }
+        if (overflowX) panX -= dx;
+        if (overflowY) panY -= dy;
+        applyTransform();
     }
 
     function handleKeyDown(e) {

@@ -111,6 +111,43 @@ test.describe('Advanced Editor Tools', () => {
       expect(zoomChanged).toBe(true);
     });
 
+    test('a plain wheel pans a zoomed-in image and leaves a fitting one alone', async ({ app }) => {
+      const imagePath = await createTempFile(generateTestImage(200, 200), 'png');
+      const filename = path.basename(imagePath);
+      await app.uploadFile(imagePath);
+      await app.openImageEditor(filename);
+
+      const wheel = (opts: { deltaX?: number; deltaY?: number; shiftKey?: boolean }) => app.page.evaluate(({ sel, o }) => {
+        const canvas = document.querySelector(sel) as HTMLElement;
+        const event = new WheelEvent('wheel', { ...o, bubbles: true, cancelable: true });
+        canvas.dispatchEvent(event);
+        // @ts-ignore - EditorCore is a global
+        return { panX: EditorCore.panX, panY: EditorCore.panY, zoom: EditorCore.zoomLevel, prevented: event.defaultPrevented };
+      }, { sel: selectors.editor.canvas, o: opts });
+
+      // At 100% a 200x200 image fits its frame: the wheel is not taken.
+      // (defaultPrevented says nothing here: the modal scroll lock prevents
+      // every wheel a modal does not consume.)
+      await app.setZoom('100');
+      const before = await wheel({ deltaY: 0 });
+      const idle = await wheel({ deltaY: 40 });
+      expect(idle.panY).toBe(before.panY);
+
+      // Zoomed far in, the wheel pans and the zoom stays put.
+      await app.page.evaluate(() => {
+        // @ts-ignore
+        EditorCore.setZoom(8);
+      });
+      const start = await wheel({ deltaY: 0 });
+      const down = await wheel({ deltaY: 40 });
+      expect(down.panY).toBe(start.panY - 40);
+      expect(down.zoom).toBe(start.zoom);
+
+      const sideways = await wheel({ deltaY: 30, shiftKey: true });
+      expect(sideways.panX).toBe(down.panX - 30);
+      expect(sideways.panY).toBe(down.panY);
+    });
+
     test('should display zoom buttons', async ({ app }) => {
       const imagePath = await createTempFile(generateTestImage(200, 200), 'png');
       const filename = path.basename(imagePath);

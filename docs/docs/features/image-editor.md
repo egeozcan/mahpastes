@@ -232,7 +232,7 @@ Control the view of the canvas without modifying the image.
 | Action | Method |
 |--------|--------|
 | Zoom in/out | <span className="keyboard-key">Ctrl</span>/<span className="keyboard-key">Cmd</span> + scroll wheel, or toolbar buttons |
-| Pan | Hold <span className="keyboard-key">Space</span> and drag |
+| Pan | Scroll (wheel or two fingers) while zoomed in, or hold <span className="keyboard-key">Space</span> and drag |
 | Zoom to fit | Toolbar button (auto-fits on open) |
 | Zoom to 100% | Toolbar button |
 
@@ -274,6 +274,7 @@ Navigate around the canvas, especially at high zoom levels.
 | **100%** button | View at actual pixel size |
 | <span className="keyboard-key">Ctrl</span>/<span className="keyboard-key">Cmd</span> + scroll | Zoom in/out centered on the cursor |
 | Hold <span className="keyboard-key">Space</span> + drag | Pan the canvas (works with any tool active) |
+| Scroll | Pan the canvas while it is larger than its frame (<span className="keyboard-key">Shift</span> + wheel pans sideways) |
 
 The zoom range is 10% to 800%. The current zoom level is displayed as a percentage in the toolbar.
 
