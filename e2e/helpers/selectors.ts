@@ -32,6 +32,8 @@ export const selectors = {
     overlay: '#drawer-overlay',
     panel: '#nav-drawer',
     closeButton: '#drawer-close-btn',
+    shortcutsButton: '#open-shortcuts-btn',
+    docsButton: '#open-docs-btn',
     watchButton: '#view-tab-watch',
     watchIndicator: '#watch-indicator',
     activityIndicator: '#drawer-activity-indicator',

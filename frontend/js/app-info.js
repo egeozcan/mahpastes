@@ -141,6 +141,15 @@
     }
     window.__handleMenuAction = onMenuAction;
 
+    // The same two Help entries in the nav drawer: Windows and Linux have no
+    // menu bar, and on macOS nothing in the window pointed at either. They go
+    // through the menu path, which closes the drawer before acting.
+    document.getElementById('open-shortcuts-btn')?.addEventListener('click', () => onMenuAction('shortcuts'));
+    document.getElementById('open-docs-btn')?.addEventListener('click', () => {
+        if (typeof closeDrawer === 'function') closeDrawer();
+        onMenuAction('documentation');
+    });
+
     if (window.runtime?.EventsOn) {
         window.runtime.EventsOn('app:update_available', showBanner);
         window.runtime.EventsOn('menu:action', onMenuAction);

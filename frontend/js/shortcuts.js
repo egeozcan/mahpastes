@@ -291,6 +291,12 @@ const ShortcutManager = (() => {
             const combo = getEffectiveCombo(el.getAttribute('data-shortcut-hint'));
             el.setAttribute('data-tooltip', combo ? `${base} (${comboToDisplay(combo)})` : base);
         }
+        // data-shortcut-key="<action id>": an element whose whole text is the
+        // key (a <kbd> badge beside a label), empty when the action is unbound.
+        for (const el of root.querySelectorAll('[data-shortcut-key]')) {
+            const combo = getEffectiveCombo(el.getAttribute('data-shortcut-key'));
+            el.textContent = combo ? comboToDisplay(combo) : '';
+        }
     }
 
     function rebuildBindings() {
