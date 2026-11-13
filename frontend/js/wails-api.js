@@ -88,6 +88,7 @@ function showGalleryStatus(message, kind = 'empty') {
     el.classList.toggle('text-stone-400', kind !== 'error');
     el.classList.toggle('text-red-500', kind === 'error');
     el.classList.remove('hidden');
+    delete el.dataset.searchMiss;
 }
 
 function hideGalleryStatus() {
@@ -95,6 +96,35 @@ function hideGalleryStatus() {
     if (!el) return;
     el.classList.add('hidden');
     el.textContent = '';
+    delete el.dataset.searchMiss;
+}
+
+// The plain search filter hid every loaded card: say so, and say how far it
+// looked. The filter only sees loaded cards, so with more pages a miss does
+// not mean the clip is not in the library. The element is shared with the
+// empty and error states; this only ever replaces or clears its own message
+// (data-search-miss), never theirs.
+function renderSearchMiss(query) {
+    const el = document.getElementById('gallery-status');
+    if (!el) return;
+    const own = el.dataset.searchMiss === 'true';
+    const cards = Array.from(gallery.querySelectorAll(':scope > li'));
+    const miss = !!query && !galleryIsSearchResults() && cards.length > 0 &&
+        cards.every(c => c.style.display === 'none');
+    if (!miss) {
+        if (own) hideGalleryStatus();
+        return;
+    }
+    if (!own && !el.classList.contains('hidden')) return;
+    let message = `No clips match "${query}".`;
+    if (_galleryView.hasMore) {
+        const loaded = cards.filter(c => c.dataset.id).length;
+        const total = _galleryView.total;
+        message = `No match for "${query}" in the ${loaded} of ${total} clips loaded. Load more to look further`;
+        message += isFolderMode() ? '.' : ', or turn on a search option to search the whole library.';
+    }
+    showGalleryStatus(message);
+    el.dataset.searchMiss = 'true';
 }
 
 function renderLoadMore() {

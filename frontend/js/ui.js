@@ -2188,6 +2188,7 @@ function applySearchFilter() {
     });
     if (deselected) updateBulkToolbar();
     if (typeof renderGalleryCount === 'function') renderGalleryCount();
+    if (typeof renderSearchMiss === 'function') renderSearchMiss(searchInput.value.trim());
     window.LightboxController?.setClips(getVisibleMediaClips());
 }
 
