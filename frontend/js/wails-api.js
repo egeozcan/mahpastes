@@ -840,6 +840,8 @@ async function upload(files) {
         // Upload new files
         const duplicatesBefore = window.__duplicateUploadEvents || 0;
         if (result.toUpload.length > 0) {
+            // Only now is something certain to be added.
+            if (typeof leaveArchiveForUpload === 'function') leaveArchiveForUpload();
             await window.go.main.App.UploadFiles(result.toUpload, minutes, autoTagID);
         }
         // Content that already exists elsewhere in the library raises a
@@ -858,6 +860,9 @@ async function upload(files) {
             if (result.toOverwrite.length > 0) parts.push(`${result.toOverwrite.length} overwritten`);
             if (result.skippedCount > 0) parts.push(`${result.skippedCount} skipped`);
             summary = parts.join(', ') + '.';
+            // Still on the archive (something is open over it): the new clip
+            // is not in the list behind, so say where it went.
+            if (isViewingArchive && result.toUpload.length > 0) summary += ' Added to the active clips.';
             showToast(summary);
         }
 

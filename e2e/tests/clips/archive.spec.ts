@@ -225,5 +225,24 @@ test.describe('Clip Archive', () => {
       await app.expectClipCount(1);
       await app.expectClipNotVisible(path.basename(archived));
     });
+    test('a paste with the lightbox open over the archive uploads without leaving it', async ({ app }) => {
+      const archived = await createTempFile(generateTestImage(), 'png');
+      const filename = path.basename(archived);
+      await app.uploadFile(archived);
+      await app.archiveClip(filename);
+      await app.toggleArchiveView();
+      await app.openLightbox(filename);
+
+      await app.pasteText(generateTestText('over-lightbox'));
+      await app.waitForToast(/1 uploaded\. Added to the active clips\./);
+
+      // The archived image is still the one on screen, in the archive.
+      await expect(app.page.locator('#lightbox')).toHaveClass(/active/);
+      await expect(archiveToggle(app)).toHaveAttribute('aria-pressed', 'true');
+      await app.closeLightbox();
+      await app.expectClipVisible(filename);
+      await app.toggleArchiveView();
+      await app.expectClipCount(1);
+    });
   });
 });

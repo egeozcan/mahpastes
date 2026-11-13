@@ -287,14 +287,18 @@ function updateClipCount(count, total = null, { filtering = false, loaded = 0 } 
 // --- State ---
 let isViewingArchive = false;
 
-// New clips land in the active list, so an upload started while the archive is
-// showing switches back to it first (as open requests do) instead of refusing
-// and losing what was pasted or dropped. Folder mode and the current folder
-// survive the switch, so a drop is still filed where the user was standing.
+// New clips land in the active list, so an upload about to add something while
+// the archive is showing switches back to it first (as open requests do)
+// instead of refusing and losing what was pasted or dropped. Folder mode and
+// the current folder survive the switch, so a drop is still filed where the
+// user was standing. Only when the gallery is what the user is looking at: a
+// paste with the lightbox, an editor or another view open over the archive
+// uploads without changing what is on screen. Returns whether it switched.
 function leaveArchiveForUpload() {
-    if (!isViewingArchive) return;
+    if (!isViewingArchive) return false;
+    if (!ShortcutManager.getActiveContexts().includes('gallery')) return false;
     toggleViewMode();
-    showToast('Switched to the active view.');
+    return true;
 }
 let selectedIds = new Set();
 
@@ -842,7 +846,6 @@ setupConfirmDialogFocusTrap();
 // --- Upload Handlers ---
 
 async function handleFiles(files) {
-    leaveArchiveForUpload();
     if (files.length === 0) return;
 
     const fileDataArray = [];
@@ -891,7 +894,6 @@ function handlePastedFiles(files) {
 }
 
 async function processPastedFiles(files) {
-    leaveArchiveForUpload();
     if (files.length === 0) return;
 
     const fileDataArray = [];
@@ -1331,8 +1333,6 @@ async function handleFolderDrop(folderFiles, looseFiles, dirPaths) {
 }
 
 async function handleText(text) {
-    leaveArchiveForUpload();
-
     // A pasted path is ambiguous — the text itself, or the file it names. Ask
     // (or apply the standing preference from Settings), but only when the path
     // actually resolves to a file on this machine. Waits out startup so a paste
@@ -1379,7 +1379,6 @@ async function handlePastedText(text, html) {
 }
 
 async function handleHtml(html) {
-    leaveArchiveForUpload();
     const doc = pastedHtmlDocument(html);
     if (!doc) return;
     const fileData = {
