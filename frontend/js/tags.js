@@ -35,6 +35,58 @@ let tagPopoverMode = 'single';
 
 // --- Tag Filter Dropdown ---
 
+// --- Type to narrow a tag list ---
+//
+// Both tag lists are a scroll box over every tag in the library. Typing in the
+// field beside one hides the rows that do not match (case-insensitive, on the
+// full path), keeping the ancestors of a match so the tree still reads. The
+// query is applied again after every re-render: both lists are rebuilt whole.
+function filterTagRows(listEl, query) {
+    if (!listEl) return;
+    const rows = Array.from(listEl.querySelectorAll('[data-tag-name]'));
+    const q = (query || '').trim().toLowerCase();
+    const names = rows.map(row => row.dataset.tagName.toLowerCase());
+    const matched = names.filter(name => q === '' || name.includes(q));
+    let shown = 0;
+    rows.forEach((row, i) => {
+        const name = names[i];
+        const visible = q === '' || name.includes(q) || matched.some(m => m.startsWith(name + '/'));
+        row.style.display = visible ? '' : 'none';
+        if (visible) shown++;
+    });
+    let empty = listEl.querySelector('[data-tag-filter-empty]');
+    if (rows.length > 0 && shown === 0) {
+        if (!empty) {
+            empty = document.createElement('p');
+            empty.setAttribute('data-tag-filter-empty', '');
+            empty.className = 'text-stone-400 text-xs px-3 py-2';
+            listEl.appendChild(empty);
+        }
+        empty.textContent = 'No tag matches.';
+    } else if (empty) {
+        empty.remove();
+    }
+}
+
+const tagFilterSearch = document.getElementById('tag-filter-search');
+if (tagFilterSearch) {
+    tagFilterSearch.addEventListener('input', () => {
+        filterTagRows(tagFilterList, tagFilterSearch.value);
+        if (tagFilterRover) tagFilterRover.update();
+    });
+    tagFilterSearch.addEventListener('keydown', (e) => {
+        // Down from the field moves into the (narrowed) list.
+        if (e.key === 'ArrowDown' && tagFilterRover) {
+            const items = tagFilterRover.getItems();
+            if (items.length > 0) {
+                e.preventDefault();
+                tagFilterRover.setActiveIndex(0);
+                items[0].focus();
+            }
+        }
+    });
+}
+
 function renderTagFilterDropdown() {
     if (!tagFilterList) return;
     // A re-render (a tag created by a plugin, REST or a share) replaces every
@@ -60,6 +112,7 @@ function renderTagFilterDropdown() {
 
         const item = document.createElement('label');
         item.dataset.tagId = String(tag.id);
+        item.dataset.tagName = tag.name;
         item.className = `flex items-center gap-2 py-1.5 hover:bg-stone-100 cursor-pointer transition-colors${isHidden ? ' opacity-50' : ''}`;
         item.style.paddingLeft = `${12 + depth * 16}px`;
         item.style.paddingRight = '12px';
@@ -109,6 +162,7 @@ function renderTagFilterDropdown() {
     for (const root of tree) {
         renderNode(root, 0, false);
     }
+    if (tagFilterSearch) filterTagRows(tagFilterList, tagFilterSearch.value);
 
     // Initialize roving tabindex for tag filter labels
     if (tagFilterRover) tagFilterRover.destroy();
@@ -399,6 +453,11 @@ function openTagFilterDropdown() {
 
 function closeTagFilterDropdown(restoreFocus = true) {
     tagFilterDropdown.classList.add('hidden');
+    // The next visit starts with the whole list.
+    if (tagFilterSearch && tagFilterSearch.value !== '') {
+        tagFilterSearch.value = '';
+        filterTagRows(tagFilterList, '');
+    }
     if (tagFilterFocusTrapCleanup) {
         tagFilterFocusTrapCleanup();
         tagFilterFocusTrapCleanup = null;
@@ -463,6 +522,11 @@ function openBulkTagPopover(anchorElement) {
 
 function showTagPopover(anchorElement) {
     if (tagPopover.classList.contains('hidden')) tagPopoverOpener = document.activeElement;
+    // Each visit starts with the whole list.
+    if (createTagInput && createTagInput.value !== '') {
+        createTagInput.value = '';
+        filterTagRows(tagPopoverList, '');
+    }
     positionPopover(anchorElement);
     tagPopover.classList.remove('hidden');
     // First tag checkbox, or the new-tag field when there are no tags yet.
@@ -552,6 +616,7 @@ async function renderTagPopoverList(clipId) {
         const displayName = depth === 0 ? tag.name : getShortTagName(tag.name);
 
         const item = document.createElement('label');
+        item.dataset.tagName = tag.name;
         item.className = 'flex items-center gap-2 py-1.5 hover:bg-stone-100 cursor-pointer transition-colors';
         item.style.paddingLeft = `${12 + depth * 16}px`;
         item.style.paddingRight = '12px';
@@ -591,6 +656,7 @@ async function renderTagPopoverList(clipId) {
     for (const root of tree) {
         renderNode(root, 0, false);
     }
+    if (createTagInput) filterTagRows(tagPopoverList, createTagInput.value);
 }
 
 // A single clip's popover stays open after a tick, so giving a clip three tags
@@ -690,6 +756,20 @@ if (createTagBtn) {
         const name = createTagInput.value.trim();
         if (!validateTagName(name)) return;
 
+        // The field doubles as the list's filter, so the name typed is often
+        // a tag that exists. That used to fail as a duplicate; it now sets
+        // that tag, as ticking its row would.
+        const existing = allTags.find(t => t.name === name);
+        if (existing) {
+            createTagInput.value = '';
+            if (tagPopoverMode === 'bulk') {
+                await handleBulkTagToggle(existing.id, true);
+            } else if (currentTaggingClipId && !clipTagToggleInFlight) {
+                await handleClipTagToggle(currentTaggingClipId, existing.id, true);
+            }
+            return;
+        }
+
         const tag = await createTag(name);
         if (tag) {
             createTagInput.value = '';
@@ -716,6 +796,7 @@ if (createTagBtn) {
 }
 
 if (createTagInput) {
+    createTagInput.addEventListener('input', () => filterTagRows(tagPopoverList, createTagInput.value));
     createTagInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') {
             e.preventDefault();
