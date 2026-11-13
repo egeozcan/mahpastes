@@ -1369,8 +1369,8 @@ const TextClipEditor = (() => {
         getTextProfile,
         getMode: () => mode,
         getDescriptorID: () => (descriptor ? descriptor.id : null),
-        // Disabling the buttons is not enough on its own: mod+s reaches
-        // saveEditorContent directly, so the save paths ask as well.
+        // Disabling the buttons is not enough on its own: the save shortcuts
+        // reach the save functions directly, so the save paths ask as well.
         isUnavailable: () => !!unavailableReason,
         isDegraded: () => degraded,
         isDirty,

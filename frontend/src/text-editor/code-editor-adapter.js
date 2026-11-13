@@ -270,11 +270,10 @@ export function createCodeEditorAdapter(options = {}) {
                         return true;
                     },
                 },
-                // No Mod-S binding on purpose. ShortcutManager suppresses shortcuts
-                // while an editable element has focus, so keyboard save behaves
-                // inside the editor exactly as it did with the textarea. Adding it
-                // here would change save behavior in a milestone that is only
-                // supposed to change the editing widget.
+                // No Mod-S binding here: saving is a ShortcutManager action
+                // (`editor.save_in_place`, registered with firesInInputs), so
+                // it is rebindable and works from the editor and its header
+                // fields alike.
             ]),
             // Deliberately after the custom keymap so the bindings above win.
             // defaultKeymap does not bind Tab, and no indentWithTab is added: Tab

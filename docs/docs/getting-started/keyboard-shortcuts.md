@@ -153,7 +153,8 @@ When the image editor is open:
 | <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">V</span> | Paste selection |
 | <span className="keyboard-key">Delete</span> | Delete selection |
 | <span className="keyboard-key">Enter</span> | Confirm crop or active selection |
-| <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">S</span> | Save As (create a new clip) |
+| <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">S</span> | Save (overwrite the clip) |
+| <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">Shift</span> + <span className="keyboard-key">S</span> | Save As (create a new clip) |
 | <span className="keyboard-key">]</span> | Increase brush size |
 | <span className="keyboard-key">[</span> | Decrease brush size |
 | <span className="keyboard-key">&#125;</span> | Increase opacity |

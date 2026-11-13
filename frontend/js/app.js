@@ -1884,7 +1884,11 @@ window.addEventListener('load', async () => {
         }});
         ShortcutManager.register({ id: 'editor.rotate_cw',  label: 'Rotate 90° CW',   category: 'editor', context: 'image-editor', defaultKey: 'r', callback: () => TransformTool.rotateCW() });
         ShortcutManager.register({ id: 'editor.rotate_ccw', label: 'Rotate 90° CCW',   category: 'editor', context: 'image-editor', defaultKey: 'shift+r', callback: () => TransformTool.rotateCCW() });
-        ShortcutManager.register({ id: 'editor.save',      label: 'Save as new clip',  category: 'editor', context: 'editor', defaultKey: 'mod+s', callback: () => saveEditorContent() });
+        // Save overwrites the open clip; Save As keeps the older `editor.save` id
+        // so a stored override for it still means "save as new clip". Both fire
+        // with the caret in the text editor or a field of the editor's header.
+        ShortcutManager.register({ id: 'editor.save_in_place', label: 'Save',          category: 'editor', context: 'editor', defaultKey: 'mod+s', firesInInputs: true, callback: () => saveEditorFromShortcut() });
+        ShortcutManager.register({ id: 'editor.save',      label: 'Save as new clip',  category: 'editor', context: 'editor', defaultKey: 'mod+shift+s', firesInInputs: true, callback: () => saveEditorContent() });
         ShortcutManager.register({ id: 'editor.zoom_fit',  label: 'Zoom to fit',       category: 'editor', context: 'image-editor', defaultKey: 'mod+0', callback: () => ZoomTool.zoomToFit() });
         ShortcutManager.register({ id: 'editor.zoom_100',  label: 'Zoom to 100%',      category: 'editor', context: 'image-editor', defaultKey: 'mod+1', callback: () => ZoomTool.zoomTo100() });
         ShortcutManager.register({ id: 'editor.zoom_in',   label: 'Zoom in',           category: 'editor', context: 'image-editor', defaultKey: 'mod+=', callback: () => ZoomTool.zoomIn() });
@@ -1892,7 +1896,7 @@ window.addEventListener('load', async () => {
         // Generalized from the Markdown-only 'editor.markdown_preview'. A stored
         // override for the old ID is migrated once by ShortcutManager; the default
         // binding is unchanged.
-        ShortcutManager.register({ id: 'editor.preview_toggle', label: 'Toggle Preview/Edit', category: 'editor', context: 'text-editor', defaultKey: 'mod+shift+p', callback: () => TextClipEditor.togglePreviewMode() });
+        ShortcutManager.register({ id: 'editor.preview_toggle', label: 'Toggle Preview/Edit', category: 'editor', context: 'text-editor', defaultKey: 'mod+shift+p', firesInInputs: true, callback: () => TextClipEditor.togglePreviewMode() });
         ShortcutManager.register({ id: 'editor.close',     label: 'Close editor',      category: 'editor', context: 'editor', defaultKey: 'Escape', callback: () => {
             // A drag in progress is the innermost thing Escape can back out of.
             if (EditorCore.cancelGesture()) return;

@@ -283,7 +283,8 @@ Fix mistakes with full undo support:
 |--------|----------|
 | Undo | <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">Z</span> |
 | Redo | <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">Shift</span> + <span className="keyboard-key">Z</span> or <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">Y</span> |
-| Save as new clip | <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">S</span> |
+| Save (overwrite the clip) | <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">S</span> |
+| Save as new clip | <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">Shift</span> + <span className="keyboard-key">S</span> |
 
 The editor maintains up to **50 undo steps** within a strict 100 MB budget for undo/redo snapshots. The active canvas and the eraser's aligned source image are separate working buffers. Large images may therefore retain fewer undo steps. No-op clicks are not recorded, and the redo stack is cleared only when pixels actually change. Undo and redo support operations that change canvas dimensions, such as crop and rotate.
 
@@ -314,7 +315,8 @@ Every tool and common action has a keyboard shortcut.
 | <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">Z</span> | Undo |
 | <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">Shift</span> + <span className="keyboard-key">Z</span> | Redo |
 | <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">Y</span> | Redo (alternative) |
-| <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">S</span> | Save as new clip |
+| <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">S</span> | Save (overwrite the clip) |
+| <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">Shift</span> + <span className="keyboard-key">S</span> | Save as new clip |
 | <span className="keyboard-key">R</span> | Rotate 90 CW |
 | <span className="keyboard-key">Shift</span> + <span className="keyboard-key">R</span> | Rotate 90 CCW |
 | <span className="keyboard-key">]</span> | Increase brush size |
@@ -366,11 +368,11 @@ Every tool and common action has a keyboard shortcut.
 
 ### Save (Overwrite)
 
-Click **Save** to overwrite the original clip with your edits. The original clip's content is replaced in place. The filename remains the same.
+Click **Save** (or press <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">S</span>) to overwrite the original clip with your edits. The original clip's content is replaced in place. The filename remains the same.
 
 ### Save as New Clip
 
-Click **Save As** (or press <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">S</span>) to create a new clip with your annotations. The original clip is preserved unchanged, and the new clip is saved with `_edited` appended to the filename.
+Click **Save As** (or press <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">Shift</span> + <span className="keyboard-key">S</span>) to create a new clip with your annotations. The original clip is preserved unchanged, and the new clip is saved with `_edited` appended to the filename.
 
 The editor keeps JPEG, PNG, and WebP when the embedded browser supports the requested encoder. Other formats, including GIF, BMP, and SVG, are rasterized to PNG. The saved filename extension is normalized to the actual encoded format, including for Save As names. JPEG export applies a white background; PNG and WebP preserve transparency.
 

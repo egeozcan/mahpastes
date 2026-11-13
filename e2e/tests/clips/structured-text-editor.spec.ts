@@ -534,11 +534,12 @@ test.describe('Byte-safety and size limits', () => {
     await expect(app.page.locator(selectors.textEditor.saveAsButton)).toBeDisabled();
     expect(await app.page.evaluate('TextClipEditor.getValue()')).toBe('');
 
-    // The keyboard path has to be closed too: mod+s is bound to Save As, which
-    // would otherwise reveal the filename field and then write an empty clip from
-    // an editor that was deliberately never given a value.
+    // The keyboard paths have to be closed too: mod+s would otherwise overwrite
+    // the clip, and mod+shift+s reveal the filename field and then write an empty
+    // clip, from an editor that was deliberately never given a value.
     await app.page.keyboard.press('ControlOrMeta+s');
     await app.waitForToast(/Saving is unavailable/);
+    await app.page.keyboard.press('ControlOrMeta+Shift+s');
     await expect(app.page.locator(selectors.textEditor.saveAsInput)).toBeHidden();
     await expect(app.page.locator(selectors.textEditor.modal)).toHaveClass(/active/);
     await app.cancelTextEditor();

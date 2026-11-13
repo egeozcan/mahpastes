@@ -619,13 +619,31 @@ async function performSaveEditorInPlace(snapshot) {
 }
 
 // The byte-safety screen leaves Save and Save As unavailable, and a disabled
-// button does not achieve that by itself: `mod+s` is bound to saveEditorContent,
-// which would otherwise reveal the Save As field and then write an empty clip
+// button does not achieve that by itself: the save shortcuts would otherwise
+// overwrite the clip, or reveal the Save As field and then write an empty clip,
 // from an editor that was deliberately never given a value.
 function textSaveUnavailable() {
     if (!isTextEditor || !TextClipEditor.isUnavailable()) return false;
     showToast('Saving is unavailable: this clip is not valid UTF-8 text.');
     return true;
+}
+
+// The Save shortcut (mod+s). It does what the primary button on screen does:
+// overwrite the open clip, or, once the Save As field is showing (the Save
+// button is hidden then), create the copy. It respects the Save button's
+// disabled state, so an unchanged clip is not rewritten.
+function saveEditorFromShortcut() {
+    if (editorSaving) return;
+    if (textSaveUnavailable()) return;
+    if (saveAsMode || !editorClipId) {
+        saveEditorContent();
+        return;
+    }
+    if (document.getElementById('editor-save-in-place').disabled) {
+        showToast('No changes to save.');
+        return;
+    }
+    saveEditorInPlace();
 }
 
 async function saveEditorInPlace() {

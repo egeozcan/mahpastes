@@ -161,7 +161,8 @@ Essential shortcuts for power users:
 | <span className="keyboard-key">Esc</span> | Close modal/dialog |
 | <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">Z</span> | Undo (in editor) |
 | <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">Shift</span> + <span className="keyboard-key">Z</span> | Redo (in editor) |
-| <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">S</span> | Save As (in editor) |
+| <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">S</span> | Save (in editor) |
+| <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">Shift</span> + <span className="keyboard-key">S</span> | Save As (in editor) |
 
 See all shortcuts in [Keyboard Shortcuts](./keyboard-shortcuts).
 

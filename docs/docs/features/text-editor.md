@@ -171,7 +171,8 @@ Open the panel with the **Find / Replace** button or <span className="keyboard-k
 | <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">Y</span> | Redo (alternative) |
 | <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">F</span> | Open Find / Replace |
 | <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">Shift</span> + <span className="keyboard-key">P</span> | Toggle Preview/Edit |
-| <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">S</span> | Save as new clip |
+| <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">S</span> | Save (overwrite the clip) |
+| <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">Shift</span> + <span className="keyboard-key">S</span> | Save as new clip |
 | <span className="keyboard-key">Esc</span> | Close editor |
 
 The Preview/Edit toggle is registered as the rebindable action **Toggle Preview/Edit** and applies to every previewable text clip. It was previously Markdown-only; if you had rebound it, your custom binding is carried over automatically the first time this version starts and the old entry is removed.
@@ -299,11 +300,11 @@ The byte-safety screen names the planned recovery path: a future release will ad
 
 ### Save (overwrite)
 
-Click **Save** to overwrite the original clip. The filename and content type stay the same.
+Click **Save** (or press <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">S</span>) to overwrite the original clip. The filename and content type stay the same. The shortcut works while you are typing in the editor; with no unsaved changes it does nothing.
 
 ### Save as new clip
 
-Click **Save As** (or press <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">S</span>) to create a new clip, leaving the original unchanged. The proposed filename has `_edited` appended.
+Click **Save As** (or press <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">Shift</span> + <span className="keyboard-key">S</span>) to create a new clip, leaving the original unchanged. The proposed filename has `_edited` appended.
 
 Save As validates against the filename you propose, not the one you opened. Saving `notes.txt` as `notes.json` is checked as JSON before the upload, and any errors that finds count as newly introduced.
 
