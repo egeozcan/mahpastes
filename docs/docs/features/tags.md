@@ -147,6 +147,7 @@ Each folder card displays the tag's color, the short name (leaf segment), and a 
 
 - Click a folder card to navigate deeper into that subtag
 - A **breadcrumb trail** appears in the active tags area showing the current path (home icon, then each segment separated by `/`)
+- Click a breadcrumb segment's name to jump straight to that folder
 - Click any breadcrumb segment's `x` button to jump back to that segment's parent level
 - Click the **home icon** to return to the root level
 

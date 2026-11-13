@@ -219,10 +219,12 @@ function updateActiveTagsDisplay() {
             // Add label
             const label = document.createElement('span');
             label.className = 'text-[10px] font-medium text-stone-400 uppercase tracking-wide';
-            label.textContent = 'Filtering:';
+            const inFolderMode = typeof isFolderMode === 'function' && isFolderMode();
+            // In folder mode the row is a location, not a set of filters.
+            label.textContent = inFolderMode ? 'Folder:' : 'Filtering:';
             activeTagsContainer.appendChild(label);
 
-            if (typeof isFolderMode === 'function' && isFolderMode()) {
+            if (inFolderMode) {
                 // Folder mode: breadcrumb-style navigation
                 const deepestTag = allTags.find(t => t.id === activeTagFilters[activeTagFilters.length - 1]);
                 if (deepestTag) {
@@ -271,9 +273,16 @@ function updateActiveTagsDisplay() {
                         pill.style.backgroundColor = segTag.color;
                         pill.dataset.testid = `tag-pill-${segTag.name}`;
                         pill.setAttribute('data-drop-target', String(segTag.id));
+                        // The name is the way to that folder: a button on every
+                        // ancestor segment, plain text (the current page) on the
+                        // last one. The x stays a separate button beside it.
+                        const isCurrent = segTag.id === deepestTag.id;
+                        const nameHTML = isCurrent
+                            ? `<span data-crumb aria-current="page">${escapeHTML(segments[i])}</span>`
+                            : `<button type="button" data-crumb class="hover:underline underline-offset-2" aria-label="Go to folder ${escapeHTML(segTag.name)}">${escapeHTML(segments[i])}</button>`;
                         pill.innerHTML = `
-                            ${escapeHTML(segments[i])}
-                            <button class="hover:opacity-75" aria-label="Remove ${escapeHTML(segTag.name)} filter">
+                            ${nameHTML}
+                            <button data-crumb-remove class="hover:opacity-75" aria-label="Remove ${escapeHTML(segTag.name)} filter">
                                 <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
                                 </svg>
@@ -281,7 +290,13 @@ function updateActiveTagsDisplay() {
                         `;
 
                         const capturedSegTag = segTag;
-                        pill.querySelector('button').addEventListener('click', (e) => {
+                        if (!isCurrent) {
+                            pill.querySelector('button[data-crumb]').addEventListener('click', (e) => {
+                                e.stopPropagation();
+                                navigateToFolder(capturedSegTag.id);
+                            });
+                        }
+                        pill.querySelector('[data-crumb-remove]').addEventListener('click', (e) => {
                             e.stopPropagation();
                             // Navigate up: keep ancestors of this tag, remove this and deeper
                             const parentName = getParentTagName(capturedSegTag.name);

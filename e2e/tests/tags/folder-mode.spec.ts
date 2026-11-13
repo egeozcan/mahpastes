@@ -219,6 +219,27 @@ test.describe('Folder Mode', () => {
     await expect(app.page.locator(selectors.tags.tagPill('work/client1'))).toBeVisible();
   });
 
+  test('a breadcrumb segment name jumps straight to that folder', async ({ app }) => {
+    await app.createTag('work/client1/projectA');
+    await app.filterByTag('work/client1/projectA');
+    await app.toggleFolderMode();
+
+    // The row names a location in folder mode.
+    await expect(app.page.locator('#active-tags-container')).toContainText('Folder:');
+    await expect(app.page.locator('#active-tags-container')).not.toContainText('Filtering:');
+
+    // The current folder's name is not a control; its ancestors' are.
+    const current = app.page.locator(selectors.tags.tagPill('work/client1/projectA'));
+    await expect(current.locator('[data-crumb]')).toHaveAttribute('aria-current', 'page');
+    await expect(current.locator('button[data-crumb]')).toHaveCount(0);
+
+    await app.page.locator(selectors.tags.tagPill('work')).locator('button[data-crumb]').click();
+    await expect(app.page.locator(selectors.tags.tagPill('work/client1'))).toHaveCount(0);
+    await expect(app.page.locator(selectors.tags.tagPill('work')).locator('[data-crumb]'))
+      .toHaveAttribute('aria-current', 'page');
+    await app.expectFolderVisible('client1');
+  });
+
   test('folder mode shows full subtag paths on clip cards', async ({ app }) => {
     await app.createTag('work/client1');
     const imagePath = await createTempFile(generateTestImage(), 'png');
