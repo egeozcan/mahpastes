@@ -68,6 +68,36 @@ apiPortInput.addEventListener('change', () => {
 apiShowCreateBtn.addEventListener('click', showCreateKeyForm);
 apiCancelCreateBtn.addEventListener('click', hideCreateKeyForm);
 apiCreateKeyBtn.addEventListener('click', createAPIKey);
+// Enter in the name field creates the key (createAPIKey guards doubles).
+apiKeyNameInput?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        createAPIKey();
+    }
+});
+
+// A backend timestamp as a Date: "YYYY-MM-DD HH:MM:SS" (UTC, no zone) or
+// RFC 3339. Null when it is neither.
+function parseAPITimestamp(value) {
+    if (!value) return null;
+    let text = String(value).trim();
+    if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(text)) {
+        text = text.replace(' ', 'T');
+        if (!/(Z|[+-]\d{2}:?\d{2})$/.test(text)) text += 'Z';
+    }
+    const date = new Date(text);
+    return Number.isFinite(date.getTime()) ? date : null;
+}
+
+// "just now", "5 min ago", "3 h ago", "4 days ago", then the local date.
+function apiTimeAgo(date) {
+    const seconds = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1000));
+    if (seconds < 60) return 'just now';
+    if (seconds < 3600) return `${Math.floor(seconds / 60)} min ago`;
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)} h ago`;
+    if (seconds < 86400 * 14) return `${Math.floor(seconds / 86400)} days ago`;
+    return date.toLocaleDateString();
+}
 apiKeyCopyBtn.addEventListener('click', async () => {
     try {
         if (!navigator.clipboard) throw new Error('clipboard API unavailable');
@@ -228,12 +258,18 @@ function renderAPIKeyCard(key) {
     };
     const badgeClass = roleBadgeColors[key.role] || roleBadgeColors.viewer;
     const scopeLabel = key.scoped_tag_name ? `<span class="text-[10px] text-stone-400">scope: ${escapeHtml(key.scoped_tag_name)}</span>` : '';
-    const lastUsed = key.last_used_at ? `Last used: ${key.last_used_at}` : 'Never used';
+    // The backend's timestamp is UTC and raw ("2026-11-13 09:14:02" or
+    // RFC 3339): shown as how long ago, with the local time in the tooltip.
+    const lastUsedDate = parseAPITimestamp(key.last_used_at);
+    const lastUsed = !key.last_used_at
+        ? 'Never used'
+        : (lastUsedDate ? `Last used: ${apiTimeAgo(lastUsedDate)}` : `Last used: ${key.last_used_at}`);
+    const lastUsedTitle = lastUsedDate ? lastUsedDate.toLocaleString() : '';
     const revokedClass = key.is_revoked ? 'opacity-50' : '';
     // Revoked keys are removed from the DB a week later, so say so rather than
     // letting the card vanish from this list unexplained.
     const revokedTitle = key.revoked_at
-        ? ` title="Revoked ${escapeHtml(key.revoked_at)} — removed from this list 7 days after revoking"`
+        ? ` title="Revoked ${escapeHtml((parseAPITimestamp(key.revoked_at) || { toLocaleString: () => key.revoked_at }).toLocaleString())} — removed from this list 7 days after revoking"`
         : '';
     const revokeBtn = key.is_revoked
         ? `<span class="text-[10px] text-red-400 font-medium"${revokedTitle}>Revoked</span>`
@@ -251,7 +287,7 @@ function renderAPIKeyCard(key) {
             </div>
             <div class="flex items-center justify-between text-[10px] text-stone-400">
                 <code class="font-mono">${escapeHtml(key.key_prefix)}</code>
-                <span>${lastUsed}</span>
+                <span data-testid="api-key-last-used-${key.id}"${lastUsedTitle ? ` title="${escapeHtml(lastUsedTitle)}"` : ''}>${escapeHtml(lastUsed)}</span>
             </div>
         </div>
     `;

@@ -130,9 +130,14 @@ function createPluginCard(plugin) {
     const statusDot = plugin.status === 'error'
         ? 'bg-red-500'
         : (plugin.enabled ? 'bg-emerald-500' : (needsReview ? 'bg-amber-500' : 'bg-stone-300'));
-    const statusTitle = plugin.enabled
-        ? (plugin.status === 'error' ? 'Error' : 'Enabled')
-        : (needsReview ? 'Needs review' : 'Disabled');
+    const errored = plugin.status === 'error';
+    const statusTitle = errored
+        ? 'Stopped after repeated errors'
+        : (plugin.enabled ? 'Enabled' : (needsReview ? 'Needs review' : 'Disabled'));
+    // A plugin stopped for errors keeps its stored "enabled" flag but is not
+    // running. The switch shows off, so switching it on is the retry: enabling
+    // resets the error count and loads it again.
+    const showOn = plugin.enabled && !errored;
 
     li.innerHTML = `
         <div class="p-4 cursor-pointer" data-action="toggle-expand">
@@ -157,7 +162,7 @@ function createPluginCard(plugin) {
                     </button>` : ''}
                     <label class="relative inline-flex items-center cursor-pointer" data-action="toggle-enable">
                         <input type="checkbox" data-testid="plugin-toggle-${plugin.id}"
-                               class="sr-only peer" ${plugin.enabled ? 'checked' : ''}>
+                               class="sr-only peer" ${showOn ? 'checked' : ''}>
                         <div class="w-9 h-5 bg-stone-300 peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-stone-400 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500"></div>
                     </label>
                     <svg class="w-4 h-4 text-stone-400 transition-transform ${isExpanded ? 'rotate-180' : ''}"
@@ -178,8 +183,12 @@ function createPluginCard(plugin) {
                 ` : ''}
 
                 ${needsReview ? `
-                <div class="p-2 bg-amber-50 border border-amber-200 rounded text-amber-700">
+                <div class="p-2 bg-amber-50 border border-amber-200 rounded text-amber-700 flex flex-wrap items-center justify-between gap-2">
                     <span class="text-[11px] font-medium">Restored from a backup. Review its permissions before enabling it.</span>
+                    <button type="button" data-action="review" data-testid="plugin-review-btn-${plugin.id}"
+                        class="border border-amber-200 hover:bg-amber-100 text-amber-700 text-[10px] font-medium py-1 px-2 rounded-md transition-colors">
+                        Review &amp; enable
+                    </button>
                 </div>
                 ` : ''}
 
@@ -189,7 +198,11 @@ function createPluginCard(plugin) {
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                               d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                     </svg>
-                    <span class="text-[11px] font-medium">Plugin has errors and was disabled</span>
+                    <span class="text-[11px] font-medium flex-1" data-testid="plugin-error-note-${plugin.id}">Stopped after repeated errors. The log has the details. Switch it on to try again.</span>
+                    <button type="button" data-action="open-log" data-testid="plugin-open-log-${plugin.id}"
+                        class="desktop-only shrink-0 border border-red-200 hover:bg-red-100 text-red-600 text-[10px] font-medium py-1 px-2 rounded-md transition-colors">
+                        Open log folder
+                    </button>
                 </div>
                 ` : ''}
 
@@ -244,6 +257,31 @@ function createPluginCard(plugin) {
             togglePluginEnabled(plugin.id, e.target.checked);
         }
     });
+
+    const reviewBtn = li.querySelector('[data-action="review"]');
+    if (reviewBtn) {
+        reviewBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            if (reviewBtn.disabled) return;
+            reviewBtn.disabled = true; // one review dialog at a time
+            try {
+                await reviewAndEnablePlugin(plugin.id);
+            } finally {
+                reviewBtn.disabled = false;
+            }
+        });
+    }
+    const openLogBtn = li.querySelector('[data-action="open-log"]');
+    if (openLogBtn) {
+        openLogBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            try {
+                await window.go.main.App.OpenLogFolder();
+            } catch (error) {
+                toastError('Could not open the log folder', error);
+            }
+        });
+    }
 
     const removeBtn = li.querySelector('[data-action="remove"]');
     removeBtn.addEventListener('click', (e) => {

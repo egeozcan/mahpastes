@@ -101,4 +101,37 @@ test.describe('Backup & Restore - Restored plugins', () => {
     expect((await restoredPlugin(app)).status).toBe('enabled');
     await expect(app.page.locator(selectors.plugins.needsReviewBadge(p.id))).toHaveCount(0);
   });
+
+  // The note said "review its permissions" with nothing to press but the
+  // enable switch, which read as the step to avoid.
+  test('the held plugin\'s note has its own Review button', async ({ app, tempDir }) => {
+    const pluginPath = await createTempFile(Buffer.from(pluginSource), 'lua');
+    expect(await app.importPluginFromPath(pluginPath)).toBeTruthy();
+    const backupPath = path.join(tempDir, 'plugin-review-button.zip');
+    await createBackup(app, backupPath);
+    await app.deleteAllPlugins();
+    await restoreBackup(app, backupPath);
+    const p = await restoredPlugin(app);
+
+    await app.openPluginsModal();
+    const card = app.page.locator(selectors.plugins.pluginCard(p.id));
+    await card.locator(selectors.plugins.expandToggle).click();
+    const review = app.page.locator(`[data-testid="plugin-review-btn-${p.id}"]`);
+    const reviewModal = app.page.locator(`${selectors.pluginReview.modal}.opacity-100`);
+
+    await review.click();
+    await expect(reviewModal).toBeVisible();
+    await app.page.locator(selectors.pluginReview.cancelButton).click();
+    await expect(reviewModal).toBeHidden();
+    expect((await restoredPlugin(app)).enabled).toBe(false);
+
+    // The list was redrawn; expand the card again only if that collapsed it.
+    if ((await card.getAttribute('aria-expanded')) !== 'true') {
+      await card.locator(selectors.plugins.expandToggle).click();
+    }
+    await app.page.locator(`[data-testid="plugin-review-btn-${p.id}"]`).click();
+    await expect(reviewModal).toBeVisible();
+    await app.page.locator(selectors.pluginReview.approveButton).click();
+    await expect.poll(async () => (await restoredPlugin(app)).enabled, { timeout: 5000 }).toBe(true);
+  });
 });

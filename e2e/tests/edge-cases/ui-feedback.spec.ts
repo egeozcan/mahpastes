@@ -160,6 +160,33 @@ test.describe('UI feedback and double-submit guards', () => {
     await app.closeSettingsModal();
   });
 
+  test('API keys show when they were last used in local terms, and Enter creates a key', async ({ app }) => {
+    const parsed = await app.page.evaluate(() => {
+      const w = window as any;
+      const fiveMinutesAgo = new Date(Date.now() - 5 * 60000).toISOString().replace('T', ' ').slice(0, 19);
+      return {
+        sqlite: w.apiTimeAgo(w.parseAPITimestamp(fiveMinutesAgo)),
+        rfc: w.apiTimeAgo(w.parseAPITimestamp(new Date(Date.now() - 3 * 3600000).toISOString())),
+        junk: w.parseAPITimestamp('not a time'),
+      };
+    });
+    expect(parsed).toEqual({ sqlite: '5 min ago', rfc: '3 h ago', junk: null });
+
+    const name = `enter-${Date.now()}`;
+    await app.openDrawer();
+    await app.page.locator('#open-api-btn').click();
+    await app.page.waitForSelector('[data-testid="api-modal"].opacity-100');
+    await app.page.locator('#api-show-create-btn').click();
+    await app.page.locator('#api-key-name').fill(name);
+    await app.page.locator('#api-key-name').press('Enter');
+    await app.page.waitForSelector('#api-key-reveal:not(.hidden)');
+    await app.page.locator('#api-key-reveal-close').click();
+    const card = app.page.locator('[data-testid^="api-key-card-"]', { hasText: name });
+    await expect(card).toHaveCount(1);
+    await expect(card).toContainText('Never used');
+    await app.page.locator('#api-modal-close').click();
+  });
+
   test('double-clicking Create Key makes one key', async ({ app }) => {
     const name = `once-${Date.now()}`;
     await app.openDrawer();

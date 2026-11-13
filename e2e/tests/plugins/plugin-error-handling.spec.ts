@@ -138,6 +138,23 @@ test.describe('Plugin Error Handling', () => {
     // The behavior depends on error threshold in manager.go
     expect(errorPlugin).toBeDefined();
     // Note: depending on implementation, it may be disabled or have error status
+
+    // If it was stopped, the card says so, shows the switch off (it is not
+    // running, whatever the stored flag says) and switching it on retries.
+    await expect.poll(async () => (await app.getPlugins()).find(p => p.id === plugin!.id)?.status,
+      { timeout: 5000 }).toBe('error');
+    await app.openPluginsModal();
+    const card = app.page.locator(`[data-testid="plugin-card-${plugin!.id}"]`);
+    const toggle = app.page.locator(`[data-testid="plugin-toggle-${plugin!.id}"]`);
+    await expect(toggle).not.toBeChecked();
+    await card.locator('[data-action="toggle-expand"]').click();
+    await expect(app.page.locator(`[data-testid="plugin-error-note-${plugin!.id}"]`))
+      .toHaveText('Stopped after repeated errors. The log has the details. Switch it on to try again.');
+    await expect(app.page.locator(`[data-testid="plugin-open-log-${plugin!.id}"]`)).toBeVisible();
+
+    await card.locator('[data-action="toggle-enable"]').click();
+    await expect.poll(async () => (await app.getPlugins()).find(p => p.id === plugin!.id)?.status,
+      { timeout: 5000 }).not.toBe('error');
   });
 
   test('plugin remains usable after errors if re-enabled', async ({ app }) => {
