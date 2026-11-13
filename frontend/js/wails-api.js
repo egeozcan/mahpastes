@@ -810,11 +810,7 @@ function offerToShowUploaded(uploaded, summary) {
     showToast(`${summary} Not shown in the current view.`, 'info', {
         label: 'Show',
         onClick: () => {
-            if (searchInput.value !== '') {
-                // Through the input path, so a deep search exits properly.
-                searchInput.value = '';
-                searchInput.dispatchEvent(new Event('input', { bubbles: true }));
-            }
+            clearSearchQuery();
             if (!isFolderMode() && activeTagFilters.length > 0) clearAllTagFilters();
         },
     });

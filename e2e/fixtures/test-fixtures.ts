@@ -1089,6 +1089,7 @@ export class AppHelper {
       // Clear search
       const searchInput = document.getElementById('search-input') as HTMLInputElement;
       if (searchInput) searchInput.value = '';
+      (window as any).syncSearchClearButton?.();
 
       // Reset upload expiration dropdown to "No expiration"
       const expirySelect = document.getElementById('expiry-select') as HTMLSelectElement;

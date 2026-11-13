@@ -7,6 +7,7 @@ export const selectors = {
     root: 'header',
     title: 'header h1',
     searchInput: '#search-input',
+    searchClearButton: '#search-clear-btn',
     searchOptionsButton: '[data-testid="search-options-button"]',
     searchOptionsPopover: '[data-testid="search-options-popover"]',
     searchOptionContent: '[data-testid="search-option-content"]',

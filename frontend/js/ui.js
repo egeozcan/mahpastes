@@ -2215,10 +2215,46 @@ function scheduleSearchReload() {
     searchReloadTimer = setTimeout(() => { loadClips(); }, SEARCH_RELOAD_DELAY_MS);
 }
 
+const searchClearBtn = document.getElementById('search-clear-btn');
+
+function syncSearchClearButton() {
+    if (searchClearBtn) searchClearBtn.hidden = searchInput.value === '';
+}
+
 searchInput.addEventListener('input', () => {
+    syncSearchClearButton();
     applySearchFilter();
     scheduleSearchReload();
 });
+
+// Empties the search box the way typing would: through an input event, so the
+// plain filter is lifted and a deep search leaves with its one final reload.
+function clearSearchQuery() {
+    if (searchInput.value === '') return false;
+    searchInput.value = '';
+    searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+}
+
+// Escape in the search box (called by ShortcutManager once any open layer has
+// had the key): a query is cleared; an empty box hands focus back to the
+// gallery, so single-letter shortcuts stop typing into it.
+function handleSearchEscape() {
+    if (clearSearchQuery()) return true;
+    const rover = window.__galleryRover;
+    const items = rover ? rover.getItems().filter(el => el.style.display !== 'none') : [];
+    const target = items.find(el => el.tabIndex === 0) || items[0];
+    if (target) target.focus();
+    else searchInput.blur();
+    return true;
+}
+
+if (searchClearBtn) {
+    searchClearBtn.addEventListener('click', () => {
+        clearSearchQuery();
+        searchInput.focus();
+    });
+}
 
 searchInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {

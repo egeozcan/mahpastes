@@ -369,6 +369,17 @@ const ShortcutManager = (() => {
             }
         }
 
+        // Escape in the search box, with no layer left to close: the box takes
+        // it (clear the query, or leave the field) before any context action
+        // such as clearing the selection.
+        if (e.key === 'Escape' && e.target.id === 'search-input' && typeof handleSearchEscape === 'function') {
+            if (handleSearchEscape()) {
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                return;
+            }
+        }
+
         // Don't interfere with selected text + browser copy
         if ((e.metaKey || e.ctrlKey) && e.key === 'c') {
             const selection = window.getSelection();

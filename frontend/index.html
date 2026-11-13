@@ -36,9 +36,16 @@
                         </svg>
                     </div>
                     <input type="text" id="search-input"
-                        class="block w-full pl-9 pr-10 py-2 border border-stone-200 rounded-md text-sm bg-white placeholder-stone-400 focus:outline-none focus:border-stone-400 focus:ring-1 focus:ring-stone-400/20 transition-colors"
-                        placeholder="Search clips...">
-                    <div class="absolute inset-y-0 right-0 pr-2 flex items-center">
+                        class="block w-full pl-9 pr-16 py-2 border border-stone-200 rounded-md text-sm bg-white placeholder-stone-400 focus:outline-none focus:border-stone-400 focus:ring-1 focus:ring-stone-400/20 transition-colors"
+                        aria-label="Search clips" placeholder="Search clips...">
+                    <div class="absolute inset-y-0 right-0 pr-2 flex items-center gap-0.5">
+                        <button id="search-clear-btn" type="button" data-testid="search-clear-button" hidden
+                            class="p-1 text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded transition-colors"
+                            aria-label="Clear search" data-tooltip="Clear search (Esc)">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
                         <button id="search-options-btn" data-testid="search-options-button"
                             class="p-1 text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded transition-colors"
                             aria-label="Search options" aria-haspopup="true" aria-expanded="false"
