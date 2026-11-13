@@ -238,14 +238,40 @@ const ShortcutManager = (() => {
         actions.set(def.id, { ...def });
     }
 
-    // Runs a registered action on behalf of a native menu item. The action
-    // runs only when its context is live right now, exactly as if its key had
-    // been pressed, so a menu click cannot open Settings on top of a modal or
-    // the import wizard. Returns whether it ran.
-    function runAction(id) {
+    // Runs a registered action on behalf of a native menu item. Returns
+    // whether it ran.
+    //
+    // By default the action runs only when its context is live right now,
+    // exactly as if its key had been pressed, so a menu click cannot open
+    // Settings on top of a modal or the import wizard.
+    //
+    // A menu bar item (opts.menuBar) is reachable from every main view, where
+    // the gallery's single-letter keys are deliberately not, so it gets two
+    // allowances — neither of which reaches past a dialog or a full-screen
+    // viewer:
+    //   - the nav drawer, itself a menu, is closed first;
+    //   - a 'gallery' action also runs from the Watch, Serve and Share views
+    //     (whenever the 'app' context is live). opts.enterGallery, if given,
+    //     is called first in that case to bring the gallery up; returning
+    //     false skips the action's callback.
+    function runAction(id, opts) {
         const action = actions.get(id);
         if (!action || !action.callback) return false;
-        if (!getActiveContexts().includes(action.context)) return false;
+        let contexts = getActiveContexts();
+        if (opts && opts.menuBar) {
+            const navDrawer = document.getElementById('nav-drawer');
+            if (contexts.length === 0 && !getOpenDialog() && navDrawer
+                && !navDrawer.classList.contains('translate-x-full') && typeof closeDrawer === 'function') {
+                closeDrawer();
+                contexts = getActiveContexts();
+            }
+            if (action.context === 'gallery' && !contexts.includes('gallery') && contexts.includes('app')) {
+                if (opts.enterGallery && opts.enterGallery() === false) return true;
+                action.callback();
+                return true;
+            }
+        }
+        if (!contexts.includes(action.context)) return false;
         action.callback();
         return true;
     }
