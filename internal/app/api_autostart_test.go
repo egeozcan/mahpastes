@@ -1,10 +1,13 @@
 package app
 
 import (
+	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -139,6 +142,69 @@ func TestStartAPIOnLaunch(t *testing.T) {
 	// than panicking or binding elsewhere.
 	if started, err := app.StartAPIOnLaunch(); started || err == nil {
 		t.Fatalf("second start: got (%v, %v), want an error", started, err)
+	}
+}
+
+// A launch start that fails must leave a reason the modal can show: it used to
+// be logged only, so the modal read "Stopped" as if the user had stopped it.
+func TestAPILaunchFailureRemembersWhyTheStartFailed(t *testing.T) {
+	app := newSettingsTestApp(t)
+	app.apiManager = NewAPIManager(app)
+	t.Cleanup(func() { app.apiManager.Stop() })
+
+	// Another program holds the port at launch.
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer l.Close()
+	port := l.Addr().(*net.TCPAddr).Port
+	if err := app.SetAPILaunchSettings(true, port); err != nil {
+		t.Fatalf("enable: %v", err)
+	}
+
+	var failure APILaunchFailure
+	started, err := app.StartAPIOnLaunch()
+	if started || err == nil {
+		t.Fatalf("start on a taken port: got (%v, %v), want an error", started, err)
+	}
+	failure.Record(port, err)
+	if want := fmt.Sprintf("port %d is already in use", port); failure.Message() != want {
+		t.Fatalf("Message() = %q, want %q", failure.Message(), want)
+	}
+	if app.apiManager.GetStatus().Running {
+		t.Fatal("a failed launch start must leave the server stopped")
+	}
+	enabled, savedPort := app.APILaunchSettings()
+	if !enabled || savedPort != port {
+		t.Fatalf("launch settings = (%v, %d), want them left as (true, %d)", enabled, savedPort, port)
+	}
+
+	failure.Clear()
+	if failure.Message() != "" {
+		t.Fatalf("after Clear: %q", failure.Message())
+	}
+	failure.Record(port, nil)
+	if failure.Message() != "" {
+		t.Fatalf("a nil error recorded %q", failure.Message())
+	}
+}
+
+func TestAPILaunchFailureMessage(t *testing.T) {
+	cases := []struct {
+		err  error
+		want string
+	}{
+		{fmt.Errorf("start: %w", syscall.EADDRINUSE), "port 80 is already in use"},
+		{errors.New("listen tcp 127.0.0.1:80: bind: Only one usage of each socket address (protocol/network address/port) is normally permitted."), "port 80 is already in use"},
+		{fmt.Errorf("start: %w", syscall.EACCES), "no permission to listen on port 80"},
+		{errors.New("bind: An attempt was made to access a socket in a way forbidden by its access permissions."), "no permission to listen on port 80"},
+		{errors.New("API server is already running"), "could not listen on port 80"},
+	}
+	for _, c := range cases {
+		if got := apiLaunchFailureMessage(80, c.err); got != c.want {
+			t.Errorf("apiLaunchFailureMessage(%v) = %q, want %q", c.err, got, c.want)
+		}
 	}
 }
 

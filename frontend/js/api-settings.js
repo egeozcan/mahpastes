@@ -102,9 +102,27 @@ async function loadAPIStatus() {
             apiPortInput.disabled = false;
             apiBindToggle.disabled = false;
         }
+        apiStatusText.classList.remove('text-amber-700');
+        if (!status.running) await showAPILaunchError();
         await loadAPILaunchSettings(status, before);
     } catch (err) {
         console.error('Failed to load API status:', err);
+    }
+}
+
+// A failed "Start on launch" (port taken, no permission) leaves the server
+// stopped; say why, or it looks the same as a server the user stopped. The
+// backend forgets the reason at the next manual start or stop. Server mode's
+// APIService has no such method.
+async function showAPILaunchError() {
+    try {
+        const svc = window.go.main.APIService;
+        const reason = svc.GetAPILaunchError ? await svc.GetAPILaunchError() : '';
+        if (!reason || apiServerRunning) return;
+        apiStatusText.textContent = `Stopped \u00b7 start on launch failed: ${reason}`;
+        apiStatusText.classList.add('text-amber-700');
+    } catch (err) {
+        console.error('Failed to load API launch error:', err);
     }
 }
 
@@ -129,13 +147,27 @@ async function loadAPILaunchSettings(status, before) {
 // port save first) cannot land out of order.
 let apiLaunchSaveChain = Promise.resolve();
 
+const API_PORT_INVALID = 'invalid port: must be a whole number between 1 and 65535';
+
+// The port in the field, or null when it is not a whole number in 1..65535.
+// Never a fallback: `parseInt(v) || 44557` saved 44557 for an empty or 0 field
+// and port 1 for "1e3", while the field went on showing something else.
+function readAPIPort() {
+    const text = apiPortInput.value.trim();
+    if (!/^\d{1,5}$/.test(text)) return null;
+    const port = Number(text);
+    return port >= 1 && port <= 65535 ? port : null;
+}
+
 // revertToggle: a failed save from the switch itself flips it back.
 function saveAPILaunchSettings(revertToggle) {
     const enabled = apiAutostartToggle.checked;
-    const port = parseInt(apiPortInput.value, 10) || 44557;
+    const port = readAPIPort();
     apiLaunchSaveChain = apiLaunchSaveChain.then(async () => {
         try {
-            await window.go.main.APIService.SetAPIAutostart(enabled, port);
+            // Switching off stores no port, so a bad field does not block it.
+            if (enabled && port === null) throw new Error(API_PORT_INVALID);
+            await window.go.main.APIService.SetAPIAutostart(enabled, port ?? 0);
         } catch (err) {
             if (revertToggle && apiAutostartToggle.checked === enabled) {
                 apiAutostartToggle.checked = !enabled;
@@ -160,7 +192,8 @@ async function toggleAPIServer() {
             await window.go.main.APIService.StopAPI();
             showToast('API server stopped');
         } else {
-            const port = parseInt(apiPortInput.value, 10) || 44557;
+            const port = readAPIPort();
+            if (port === null) throw new Error(API_PORT_INVALID);
             const bindAll = apiBindToggle.checked;
             await window.go.main.APIService.StartAPI(port, bindAll);
             showToast('API server started');

@@ -114,6 +114,32 @@ var sensitiveSettingPatterns = []string{
 	// Machine-local: switching notifications on prompts (macOS) or writes
 	// registry keys (Windows), so only the user on that machine may do it.
 	"os_notifications",
+	// Machine-local: the release check's own records (isUpdateCheckStateSetting).
+	// A planted "found" row would show an update notice the check never
+	// made, a planted "last" one would put the check off.
+	settingUpdateCheckLast,
+	settingUpdateCheckFound,
+}
+
+// captureLocalOnlySettings returns the settings rows a backup never carries
+// (isSensitiveSetting), which a restore therefore has to leave as they are.
+func captureLocalOnlySettings(tx *sql.Tx) ([][2]string, error) {
+	rows, err := tx.Query("SELECT key, value FROM settings")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var kept [][2]string
+	for rows.Next() {
+		var key, value string
+		if err := rows.Scan(&key, &value); err != nil {
+			return nil, err
+		}
+		if isSensitiveSetting(key) {
+			kept = append(kept, [2]string{key, value})
+		}
+	}
+	return kept, rows.Err()
 }
 
 // isSensitiveSetting checks if a setting key matches sensitive patterns
@@ -987,10 +1013,13 @@ func (a *App) RestoreBackup(backupPath, identityPolicy string) (err error) {
 	//     re-enters no App method, so no drained goroutine can need this lock.
 	//   - ShareManager.Stop waits on the manager's own loop goroutines, which
 	//     likewise only touch the manager, its host and the DB handle.
-	//   - WatcherManager.Stop does not wait for its goroutines at all, and
-	//     processFile releases the watcher lock before importFile reaches
-	//     AddTagToClip, so a watcher import parked at RLock cannot hold
-	//     anything Stop needs.
+	//   - WatcherManager.Stop waits, for at most watchStopRearmWait, for the
+	//     event goroutine and a re-arm pass; neither takes this lock. It does
+	//     not wait for imports (timer goroutines), and processFile releases
+	//     the watcher lock before importFile reaches AddTagToClip, so a
+	//     watcher import parked at RLock cannot hold anything Stop needs.
+	//     The deferred Start never queues behind a pass Stop left behind:
+	//     the refresh lock is per generation.
 	//   - No reader holds the read lock while waiting on the writer: readers
 	//     take it first and only then touch the DB, the hook gate, or files.
 	//     In particular the tag mutations release it before EmitEvent, so no
@@ -1181,6 +1210,14 @@ func (a *App) RestoreBackup(backupPath, identityPolicy string) (err error) {
 	// Clear all existing data. backupTables lists children before parents so
 	// foreign keys hold: share_ring references shares(id), so it goes first;
 	// clip_tags references both clips and tags, so it precedes them.
+	//
+	// Settings a backup never carries (isSensitiveSetting: this machine's
+	// "Start on launch", port and notification choice among them) cannot be
+	// replaced by one, so they are held here and written back after the replay.
+	localSettings, err := captureLocalOnlySettings(tx)
+	if err != nil {
+		return fmt.Errorf("read this machine's settings before restore: %w", err)
+	}
 	for _, table := range backupTables {
 		if _, err := tx.Exec(fmt.Sprintf("DELETE FROM %s", table)); err != nil {
 			return fmt.Errorf("failed to clear %s: %w", table, err)
@@ -1196,6 +1233,13 @@ func (a *App) RestoreBackup(backupPath, identityPolicy string) (err error) {
 	defer rc.Close()
 	if err := restoreBackupRows(tx, rc); err != nil {
 		return fmt.Errorf("failed to restore database.sql: %w", err)
+	}
+	// OR REPLACE: the replay refuses these keys, but this machine's value must
+	// win even if that filter ever lets one through.
+	for _, kv := range localSettings {
+		if _, err := tx.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", kv[0], kv[1]); err != nil {
+			return fmt.Errorf("failed to keep setting %s: %w", kv[0], err)
+		}
 	}
 
 	// Backup SQL may contain legacy or externally supplied MIME values. Apply

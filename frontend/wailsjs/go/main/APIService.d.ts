@@ -6,6 +6,8 @@ export function CreateAPIKey(arg1:string,arg2:string,arg3:number):Promise<app.AP
 
 export function GetAPIAutostart():Promise<boolean>;
 
+export function GetAPILaunchError():Promise<string>;
+
 export function GetAPIPort():Promise<number>;
 
 export function GetAPIStatus():Promise<app.APIStatus>;

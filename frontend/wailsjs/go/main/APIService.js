@@ -10,6 +10,10 @@ export function GetAPIAutostart() {
   return window['go']['main']['APIService']['GetAPIAutostart']();
 }
 
+export function GetAPILaunchError() {
+  return window['go']['main']['APIService']['GetAPILaunchError']();
+}
+
 export function GetAPIPort() {
   return window['go']['main']['APIService']['GetAPIPort']();
 }

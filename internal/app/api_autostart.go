@@ -1,9 +1,13 @@
 package app
 
 import (
+	"errors"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
+	"sync"
+	"syscall"
 )
 
 // Settings keys for the desktop "Start on launch" option. bind_all is never
@@ -75,4 +79,52 @@ func (a *App) StartAPIOnLaunch() (bool, error) {
 		return false, fmt.Errorf("start API server on port %d: %w", port, err)
 	}
 	return true, nil
+}
+
+// APILaunchFailure remembers why "Start on launch" could not start the server,
+// so the API settings modal can say so: without it a failed launch start looks
+// exactly like a server the user stopped. It lives in memory only (never in
+// settings or backups) and is cleared by the next manual start or stop.
+type APILaunchFailure struct {
+	mu  sync.Mutex
+	msg string
+}
+
+// Record keeps a short description of err, the error StartAPIOnLaunch
+// returned for port. A nil err records nothing.
+func (f *APILaunchFailure) Record(port int, err error) {
+	if err == nil {
+		return
+	}
+	f.mu.Lock()
+	f.msg = apiLaunchFailureMessage(port, err)
+	f.mu.Unlock()
+}
+
+// Clear forgets the failure.
+func (f *APILaunchFailure) Clear() {
+	f.mu.Lock()
+	f.msg = ""
+	f.mu.Unlock()
+}
+
+// Message returns the recorded failure, or "" when there is none.
+func (f *APILaunchFailure) Message() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.msg
+}
+
+// apiLaunchFailureMessage turns a listen error into a line short enough for
+// the modal's status text; the full error is in the log. The text matches
+// cover Windows, whose socket errors do not map onto syscall.EADDRINUSE.
+func apiLaunchFailureMessage(port int, err error) string {
+	text := err.Error()
+	switch {
+	case errors.Is(err, syscall.EADDRINUSE), strings.Contains(text, "Only one usage of each socket address"):
+		return fmt.Sprintf("port %d is already in use", port)
+	case errors.Is(err, os.ErrPermission), strings.Contains(text, "forbidden by its access permissions"):
+		return fmt.Sprintf("no permission to listen on port %d", port)
+	}
+	return fmt.Sprintf("could not listen on port %d", port)
 }
