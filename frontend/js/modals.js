@@ -426,6 +426,8 @@ async function openComparisonModal() {
     // Reset state
     comparisonMode = 'fade';
     zoomLevel = 1;
+    comparePanX = 0;
+    comparePanY = 0;
     isStretched = false;
     comparisonRange.value = 50;
 
@@ -562,9 +564,44 @@ function updateComparisonView() {
     }
 
     // Zoom
-    comparisonContainer.style.transform = `scale(${zoomLevel})`;
+    clampComparisonPan();
+    comparisonContainer.style.transform = `translate(${comparePanX}px, ${comparePanY}px) scale(${zoomLevel})`;
     zoomLevelEl.textContent = `${Math.round(zoomLevel * 100)}%`;
 }
+
+// The pair can be moved only as far as it overflows the viewport: an image
+// that fits stays centred, and a zoomed one keeps an edge in view.
+function clampComparisonPan() {
+    const viewport = document.getElementById('comparison-viewport');
+    if (!viewport) return;
+    const maxX = Math.max(0, (comparisonContainer.offsetWidth * zoomLevel - viewport.clientWidth) / 2);
+    const maxY = Math.max(0, (comparisonContainer.offsetHeight * zoomLevel - viewport.clientHeight) / 2);
+    // `|| 0` turns the -0 a zero limit produces into 0.
+    comparePanX = Math.max(-maxX, Math.min(maxX, comparePanX)) || 0;
+    comparePanY = Math.max(-maxY, Math.min(maxY, comparePanY)) || 0;
+}
+
+// Wheel over the comparison: a plain wheel or two-finger scroll pans (Shift
+// turns a mouse wheel sideways), Ctrl/Cmd+wheel — a trackpad pinch — zooms,
+// as in the lightbox and the image editor.
+function onComparisonWheel(e) {
+    if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        zoomLevel = Math.max(0.1, Math.min(5, zoomLevel * (e.deltaY > 0 ? 1 / 1.1 : 1.1)));
+        updateComparisonView();
+        return;
+    }
+    let dx = e.deltaX;
+    let dy = e.deltaY;
+    if (e.shiftKey && dx === 0) { dx = dy; dy = 0; }
+    const beforeX = comparePanX;
+    const beforeY = comparePanY;
+    comparePanX -= dx;
+    comparePanY -= dy;
+    updateComparisonView();
+    if (comparePanX !== beforeX || comparePanY !== beforeY) e.preventDefault();
+}
+document.getElementById('comparison-viewport')?.addEventListener('wheel', onComparisonWheel, { passive: false });
 
 function updateComparisonImageInfo() {
     const imgA = comparisonImgBottom;
@@ -680,6 +717,8 @@ function zoomFit() {
 
     const scale = Math.min(vw / imgW, vh / imgH);
     zoomLevel = Math.min(scale, 1); // Don't upscale past original if it fits
+    comparePanX = 0;
+    comparePanY = 0;
     updateComparisonView();
 }
 

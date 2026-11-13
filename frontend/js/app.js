@@ -305,6 +305,10 @@ let selectedIds = new Set();
 
 let comparisonMode = 'fade';
 let zoomLevel = 1;
+// Comparison view pan, in screen pixels (a zoomed-in pair showed only its
+// centre, with no way to look anywhere else).
+let comparePanX = 0;
+let comparePanY = 0;
 let isStretched = false;
 let lastFocusedElementBeforeComparison = null;
 let comparisonClipIds = []; // [idA, idB] - track which clips are being compared
