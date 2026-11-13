@@ -790,6 +790,22 @@ const EditorCore = (() => {
         if (overflowX) panX -= dx;
         if (overflowY) panY -= dy;
         applyTransform();
+        keepCanvasReachable(frame);
+    }
+
+    // A wheel pan stops with a strip of the image still inside the frame. A
+    // trackpad's momentum would otherwise carry it out of sight, where neither
+    // the wheel nor Space+drag (both start on the canvas) can bring it back.
+    function keepCanvasReachable(frame) {
+        const margin = 48;
+        const r = canvas.getBoundingClientRect();
+        const f = frame.getBoundingClientRect();
+        let moved = false;
+        if (r.right < f.left + margin) { panX += f.left + margin - r.right; moved = true; }
+        else if (r.left > f.right - margin) { panX -= r.left - (f.right - margin); moved = true; }
+        if (r.bottom < f.top + margin) { panY += f.top + margin - r.bottom; moved = true; }
+        else if (r.top > f.bottom - margin) { panY -= r.top - (f.bottom - margin); moved = true; }
+        if (moved) applyTransform();
     }
 
     function handleKeyDown(e) {

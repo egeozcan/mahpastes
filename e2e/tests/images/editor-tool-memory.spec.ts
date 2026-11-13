@@ -50,6 +50,25 @@ test.describe('Image editor remembers its tool settings', () => {
     await app.closeImageEditor();
   });
 
+  test('the option bar matches the restored tool', async ({ app }) => {
+    const imagePath = await createTempFile(generateTestImage(), 'png');
+    const filename = path.basename(imagePath);
+    await app.uploadFile(imagePath);
+
+    await app.openImageEditor(filename);
+    await app.selectTool('text');
+    await expect(app.page.locator('#editor-text-options')).toBeVisible();
+    await app.selectTool('anonymize');
+    await expect(app.page.locator('#editor-text-options')).toBeHidden();
+    await app.closeImageEditor();
+
+    // Reopens on Text, with Text's options and not Anonymize's.
+    await app.openImageEditor(filename);
+    await expect(activeTool(app)).toHaveAttribute('data-tool', 'text');
+    await expect(app.page.locator('#editor-text-options')).toBeVisible();
+    await app.closeImageEditor();
+  });
+
   test('a corrupt stored value falls back to the defaults', async ({ app }) => {
     const imagePath = await createTempFile(generateTestImage(), 'png');
     const filename = path.basename(imagePath);

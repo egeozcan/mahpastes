@@ -438,6 +438,11 @@ const EDITOR_TOOL_DEFAULTS = Object.freeze({ tool: 'brush', color: '#44403c', op
 // one-off tool (eyedropper, crop) still remembers the one used before it.
 let lastDrawingTool = null;
 
+// Back to drawing after a one-off operation (a crop applied or cancelled).
+function selectLastDrawingTool() {
+    selectTool(lastDrawingTool || 'brush');
+}
+
 function loadEditorToolPrefs() {
     const prefs = { ...EDITOR_TOOL_DEFAULTS };
     let stored = null;
@@ -445,9 +450,11 @@ function loadEditorToolPrefs() {
     if (!stored || typeof stored !== 'object') return prefs;
     if (REMEMBERED_EDITOR_TOOLS.includes(stored.tool)) prefs.tool = stored.tool;
     if (typeof stored.color === 'string' && /^#[0-9a-f]{6}$/i.test(stored.color)) prefs.color = stored.color;
-    if (Number.isFinite(stored.opacity) && stored.opacity >= 0 && stored.opacity <= 1) prefs.opacity = stored.opacity;
+    // A near-zero opacity is not carried over: every later stroke would be
+    // invisible, with only a small readout to say why.
+    if (Number.isFinite(stored.opacity) && stored.opacity >= 0.05 && stored.opacity <= 1) prefs.opacity = stored.opacity;
     if (Number.isInteger(stored.brushSize) && stored.brushSize >= 1 && stored.brushSize <= 50) prefs.brushSize = stored.brushSize;
-    if (Number.isInteger(stored.fontSize) && stored.fontSize >= 1 && stored.fontSize <= 500) prefs.fontSize = stored.fontSize;
+    if (Number.isInteger(stored.fontSize) && stored.fontSize >= 8 && stored.fontSize <= 200) prefs.fontSize = stored.fontSize;
     return prefs;
 }
 
@@ -477,8 +484,10 @@ function resetToolState() {
     EditorCore.brushSize = prefs.brushSize;
     EditorCore.fontSize = prefs.fontSize;
 
-    // Update UI controls
+    // Update UI controls. The option bar too: the initial tool is selected on
+    // EditorCore directly, and the bar still shows the last session's tool.
     updateToolButtons();
+    updateContextToolbar();
     document.getElementById('editor-color').value = EditorCore.currentColor;
     document.getElementById('editor-opacity').value = EditorCore.currentOpacity * 100;
     document.getElementById('editor-opacity-value').textContent = Math.round(EditorCore.currentOpacity * 100) + '%';
@@ -925,7 +934,8 @@ function setupEditorListeners() {
 
     // Font size input
     document.getElementById('editor-font-size')?.addEventListener('input', (e) => {
-        EditorCore.fontSize = parseInt(e.target.value) || 24;
+        // Clamped to the control's own range, which is also what is remembered.
+        EditorCore.fontSize = Math.max(8, Math.min(200, parseInt(e.target.value) || 24));
     });
 
     // Text input commit on Enter or blur

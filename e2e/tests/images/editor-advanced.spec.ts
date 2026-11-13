@@ -146,6 +146,16 @@ test.describe('Advanced Editor Tools', () => {
       const sideways = await wheel({ deltaY: 30, shiftKey: true });
       expect(sideways.panX).toBe(down.panX - 30);
       expect(sideways.panY).toBe(down.panY);
+
+      // A fling cannot carry the image out of the frame: part of it stays in.
+      await wheel({ deltaY: 100000 });
+      await wheel({ deltaX: 100000 });
+      const inFrame = await app.page.evaluate((sel) => {
+        const r = (document.querySelector(sel) as HTMLElement).getBoundingClientRect();
+        const f = document.querySelector('.editor-canvas-container')!.getBoundingClientRect();
+        return r.right > f.left && r.left < f.right && r.bottom > f.top && r.top < f.bottom;
+      }, selectors.editor.canvas);
+      expect(inFrame).toBe(true);
     });
 
     test('should display zoom buttons', async ({ app }) => {
