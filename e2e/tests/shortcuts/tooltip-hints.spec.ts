@@ -61,6 +61,18 @@ test.describe('Tooltip key hints', () => {
     await expect(key('open')).toHaveCount(0);
     await app.page.keyboard.press('Escape');
 
+    // The bulk menu names no keys: with a card focused the same keys act on
+    // that one card, not on the selection.
+    await app.selectClips([filename]);
+    const second = await createTempFile(generateTestImage(20, 20, [0, 0, 255]), 'png');
+    await app.uploadFile(second);
+    await app.selectClips([pathMod.basename(second)]);
+    await (await app.getClipByFilename(filename)).click({ button: 'right' });
+    await expect(app.page.locator('.card-menu-dropdown [data-action="bulk-delete"]')).toBeVisible();
+    await expect(app.page.locator('.card-menu-dropdown .card-menu-shortcut')).toHaveCount(0);
+    await app.page.keyboard.press('Escape');
+    await app.page.keyboard.press('Escape');
+
     // In the viewer the same menu shows the viewer's keys: archive is A there.
     await app.openLightbox(filename);
     await app.page.locator('#lightbox-file-menu-trigger').click();

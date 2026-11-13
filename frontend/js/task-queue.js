@@ -339,6 +339,8 @@ queueTaskList?.addEventListener('click', (e) => {
         expandedTaskErrors.delete(id);
         updateQueueBar();
         renderQueueModal();
+        // The button went with its card: keep the keyboard in the dialog.
+        (queueTaskList.querySelector('[data-task-action="dismiss"]') || document.getElementById('queue-modal-done'))?.focus();
     }
 });
 

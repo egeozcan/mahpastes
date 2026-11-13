@@ -69,3 +69,47 @@ test.describe('Background task panel', () => {
     await expect(app.page.locator('[data-task-id="b"]')).toHaveCount(1);
   });
 });
+
+// Update badges only ever appeared if the scheduled check's event arrived
+// while the page was loaded; there was no way to ask.
+test.describe('Plugins: Check for updates', () => {
+  test('the button asks, reports the count and marks the plugins', async ({ app }) => {
+    await app.deleteAllPlugins();
+    const pathMod = await import('path');
+    const { fileURLToPath } = await import('url');
+    const dir = pathMod.resolve(pathMod.dirname(fileURLToPath(import.meta.url)), '../../test-plugins');
+    const plugin = await app.importPluginFromPath(pathMod.join(dir, 'settings-test.lua'));
+    expect(plugin).not.toBeNull();
+    try {
+      await app.page.evaluate((id) => {
+        const w = window as any;
+        const svc = w.go.main.PluginService;
+        const original = svc.CheckForUpdates;
+        w.__restoreCheck = () => { svc.CheckForUpdates = original; };
+        w.__checks = 0;
+        svc.CheckForUpdates = async () => {
+          w.__checks++;
+          return w.__checks === 1 ? [{ plugin_id: id, current_version: '1.0.0', latest_version: '2.0.0' }] : [];
+        };
+      }, plugin!.id);
+      await app.openPluginsModal();
+      const button = app.page.locator('[data-testid="check-plugin-updates-btn"]');
+      const card = app.page.locator(`[data-testid="plugin-card-${plugin!.id}"]`);
+      await expect(card).not.toContainText('Update available');
+
+      await button.click();
+      await app.expectToast('1 plugin update available.');
+      await expect(card).toContainText('Update available');
+      await expect(button).toBeEnabled();
+
+      // The next answer is the truth: a plugin no longer behind loses its badge.
+      await button.click();
+      await app.expectToast('Every plugin is up to date.');
+      await expect(card).not.toContainText('Update available');
+    } finally {
+      await app.page.evaluate(() => (window as any).__restoreCheck?.());
+      await app.removePlugin(plugin!.id).catch(() => undefined);
+    }
+  });
+
+});

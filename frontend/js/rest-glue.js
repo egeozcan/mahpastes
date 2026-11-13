@@ -400,6 +400,8 @@
         PreviewInstalledPlugin: (id) => fetchJSON(`${api}/plugins/${id}/review`),
         DisablePlugin: (id) => putJSON(`${api}/plugins/${id}/disable`, {}),
         UpdatePlugin: (id) => postJSON(`${api}/plugins/${id}/update`, {}),
+        // The route answers {updates: [...]}; the binding returns the list.
+        CheckForUpdates: async () => ((await postJSON(`${api}/plugins/check-updates`, {})) || {}).updates || [],
         ConfirmPluginUpdate: async () => { throw new Error('plugin update confirmation is unavailable in server mode'); },
         GetPluginPermissions: (id) => fetchJSON(`${api}/plugins/${id}/permissions`),
         RevokePluginPermission: (id, type, path) => postJSON(`${api}/plugins/${id}/permissions/revoke`, { type, path }),

@@ -123,6 +123,7 @@ function closeApiModal() {
     apiModal.setAttribute('inert', '');
     hideCreateKeyForm();
     hideKeyReveal();
+    hideKeyReveal();
     apiModalFocus.close();
 }
 
@@ -417,6 +418,10 @@ function hideCreateKeyForm() {
 
 function hideKeyReveal() {
     apiKeyReveal.classList.add('hidden');
+    // Shown once: the key does not stay in the page after its panel closes.
+    apiKeyRevealValue.textContent = '';
+    const snippet = document.getElementById('api-key-usage-snippet');
+    if (snippet) snippet.textContent = '';
 }
 
 async function createAPIKey() {

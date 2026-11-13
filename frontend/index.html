@@ -2036,6 +2036,11 @@
             <div class="p-5 border-b border-stone-100 flex justify-between items-center">
                 <h2 id="plugins-modal-title" class="text-sm font-semibold text-stone-800">Plugins</h2>
                 <div class="flex items-center gap-2">
+                    <button id="check-plugin-updates-btn" data-testid="check-plugin-updates-btn"
+                        class="border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-xs font-medium py-2 px-3 rounded-md transition-colors disabled:opacity-50 disabled:cursor-default"
+                        data-tooltip="Look for newer versions of plugins installed from a URL">
+                        Check for updates
+                    </button>
                     <button id="install-url-btn" data-testid="install-url-btn"
                         class="border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-xs font-medium py-2 px-3 rounded-md transition-colors flex items-center gap-1.5"
                         onclick="toggleURLInput()">

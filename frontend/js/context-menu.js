@@ -86,13 +86,10 @@ const ContextMenu = (() => {
         'archive': 'clip-archive',
         'delete': 'clip-delete',
         'copy-file': 'clip-copy',
-        'bulk-tag': 'bulk-tag',
-        'bulk-expiry': 'bulk-expire',
-        'bulk-copy': 'bulk-copy',
-        'bulk-download': 'bulk-download',
-        'bulk-archive': 'bulk-archive',
-        'bulk-delete': 'bulk-delete',
-        'bulk-deselect': 'bulk-clear',
+        // No hints on the bulk menu. With a card focused (which is how that
+        // menu is opened from the keyboard, and where focus returns), the
+        // same keys belong to the focused card and act on that one clip:
+        // "Delete 3 clips — D" would then delete one.
     };
     const LIGHTBOX_MENU_SHORTCUTS = {
         'tags': 'lightbox-tags',

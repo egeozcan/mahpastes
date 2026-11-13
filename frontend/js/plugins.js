@@ -1045,6 +1045,14 @@ async function updatePlugin(pluginId, pluginName) {
     try {
         const result = await window.go.main.PluginService.UpdatePlugin(pluginId);
 
+        if (result.needs_review && result.preview && window.mahpastesMode === 'server') {
+            // The web UI cannot confirm an update whose permissions changed:
+            // showing the review and then failing on approval was a dead
+            // end. Say what works instead (removing and reinstalling would
+            // lose the plugin's storage and granted permissions).
+            showToast(`${pluginName}'s update changes its permissions. Review and apply it in the desktop app.`, 'error');
+            return;
+        }
         if (result.needs_review && result.preview) {
             const plugin = pluginsCache.find(p => p.id === pluginId);
             const currentVersion = plugin?.version || '?';
@@ -1483,6 +1491,39 @@ document.getElementById('plugin-options-form')?.addEventListener('submit', async
 document.getElementById('plugin-options-modal')?.addEventListener('click', (e) => {
     if (e.target.id === 'plugin-options-modal') closePluginOptionsDialog();
 });
+
+// "Check for updates": updates were only ever shown if the scheduled check's
+// event arrived while this page was loaded, and a reload lost them. The check
+// asks the network for each URL-installed plugin, so it runs when asked.
+async function checkPluginUpdatesNow() {
+    const button = document.getElementById('check-plugin-updates-btn');
+    if (!button || button.disabled) return;
+    const label = button.textContent;
+    button.disabled = true;
+    button.textContent = 'Checking…';
+    try {
+        const updates = await window.go.main.PluginService.CheckForUpdates();
+        // The answer is the whole truth for the plugins it names, and the
+        // only source for badges: rebuild from it, for plugins still here.
+        pluginUpdates = {};
+        const present = new Set(pluginsCache.map(p => p.id));
+        for (const info of updates || []) {
+            if (info && present.has(info.plugin_id)) pluginUpdates[info.plugin_id] = info;
+        }
+        const count = Object.keys(pluginUpdates).length;
+        showToast(count === 0
+            ? 'Every plugin is up to date.'
+            : `${count} plugin update${count === 1 ? '' : 's'} available.`);
+        renderPluginsList();
+    } catch (error) {
+        console.error('Failed to check for plugin updates:', error);
+        toastError('Could not check for plugin updates', error);
+    } finally {
+        button.disabled = false;
+        button.textContent = label.trim();
+    }
+}
+document.getElementById('check-plugin-updates-btn')?.addEventListener('click', checkPluginUpdatesNow);
 
 // Listen for plugin update events
 if (window.runtime && window.runtime.EventsOn) {

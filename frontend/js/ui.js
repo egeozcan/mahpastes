@@ -2513,6 +2513,10 @@ window.applyFolderStatusUpdate = applyFolderStatusUpdate;
 // not use this: it builds the cards before clearing the gallery, so a reload
 // never flashes an empty frame.
 async function renderFolderCards() {
+    // Folder cards belong to folder mode only. Rename, move and hide can now
+    // be done from the tag filter's rows in the normal listing, and their
+    // shared code calls this unconditionally.
+    if (!isFolderMode()) return;
     const myGen = ++_folderRenderGen;
     const cards = await buildFolderCards(() => myGen !== _folderRenderGen);
     if (!cards) return;
