@@ -54,14 +54,11 @@ function closeSettings() {
     loadClips();
 }
 
-async function saveSettings() {
-    try {
-        showToast('Settings saved');
-        closeSettings();
-    } catch (error) {
-        console.error('Failed to save settings:', error);
-        showToast('Failed to save settings', 'error');
-    }
+// The footer button only closes: every setting is saved when it is changed.
+// It used to read "Save Settings" and toast "Settings saved", which said a
+// save had happened even when an earlier one had failed.
+function saveSettings() {
+    closeSettings();
 }
 
 // Event listeners
@@ -97,7 +94,18 @@ async function createBackup() {
         const savedPath = await window.go.main.App.ShowCreateBackupDialog();
 
         if (savedPath) {
-            showToast('Backup created successfully');
+            // Say where it went. On the desktop the toast can show it; in
+            // server mode the "path" is only a download name.
+            const name = String(savedPath).split(/[\\/]/).pop() || 'backup';
+            if (window.mahpastesMode === 'server') {
+                showToast(`Backup created: ${name}`, 'success');
+            } else {
+                showToast(`Backup created: ${name}`, 'success', {
+                    label: 'Show in folder',
+                    onClick: () => window.go.main.App.RevealInFileManager(savedPath).catch(
+                        (e) => showToast('Failed to show file: ' + errText(e), 'error')),
+                });
+            }
         }
     } catch (error) {
         console.error('Failed to create backup:', error);

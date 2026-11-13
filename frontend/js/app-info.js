@@ -66,6 +66,27 @@
         document.body.appendChild(banner);
     }
 
+    // The release the check found, in Settings > About. The banner can be
+    // dismissed for good; this line is where the update can still be found
+    // afterwards. Text only (textContent), like the banner.
+    let aboutUpdate = null;
+    function renderAboutUpdate(update) {
+        aboutUpdate = update && update.version ? update : null;
+        const row = document.getElementById('about-update');
+        const text = document.getElementById('about-update-text');
+        if (!row || !text) return;
+        row.hidden = !aboutUpdate;
+        text.textContent = aboutUpdate ? `Version ${aboutUpdate.version} is available. ` : '';
+    }
+    document.getElementById('about-update-link')?.addEventListener('click', () => {
+        if (aboutUpdate) openExternal(aboutUpdate.url);
+    });
+
+    function onUpdateAvailable(update) {
+        renderAboutUpdate(update);
+        showBanner(update);
+    }
+
     async function init() {
         const svc = service();
         const versionEl = document.getElementById('about-version');
@@ -80,14 +101,14 @@
         if (versionEl) {
             versionEl.textContent = info?.version ? `Version ${info.version}` : 'Version unknown';
         }
-        if (info?.update) showBanner(info.update);
+        if (info?.update) onUpdateAvailable(info.update);
         if (toggle) {
             toggle.checked = info ? !!info.update_check_enabled : true;
             toggle.addEventListener('change', async () => {
                 const want = toggle.checked;
                 try {
                     await svc.SetUpdateCheckEnabled(want);
-                    if (!want) removeBanner();
+                    if (!want) { removeBanner(); renderAboutUpdate(null); }
                 } catch (e) {
                     toggle.checked = !want;
                     if (typeof showToast === 'function') showToast('Failed to save setting: ' + errText(e), 'error');
@@ -151,7 +172,7 @@
     });
 
     if (window.runtime?.EventsOn) {
-        window.runtime.EventsOn('app:update_available', showBanner);
+        window.runtime.EventsOn('app:update_available', onUpdateAvailable);
         window.runtime.EventsOn('menu:action', onMenuAction);
     }
 

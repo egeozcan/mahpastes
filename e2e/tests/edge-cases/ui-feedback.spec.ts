@@ -139,6 +139,27 @@ test.describe('UI feedback and double-submit guards', () => {
     await app.closeSettingsModal();
   });
 
+  test('a created backup is named, and the toast offers to show it', async ({ app }) => {
+    await app.page.evaluate(() => {
+      const w = window as any;
+      const api = w.go.main.App;
+      const originalCreate = api.ShowCreateBackupDialog;
+      const originalReveal = api.RevealInFileManager;
+      w.__revealed = [];
+      api.ShowCreateBackupDialog = async () => '/Users/me/Backups/mahpastes-2026.zip';
+      api.RevealInFileManager = async (p: string) => { w.__revealed.push(p); };
+      w.__restoreStub = () => { api.ShowCreateBackupDialog = originalCreate; api.RevealInFileManager = originalReveal; };
+    });
+    await app.openSettingsModal();
+    await app.page.locator(selectors.backup.createButton).click();
+    await app.expectToast('Backup created: mahpastes-2026.zip');
+    const action = app.page.locator(selectors.toast.action);
+    await expect(action).toHaveText('Show in folder');
+    await action.click();
+    expect(await app.page.evaluate(() => (window as any).__revealed)).toEqual(['/Users/me/Backups/mahpastes-2026.zip']);
+    await app.closeSettingsModal();
+  });
+
   test('double-clicking Create Key makes one key', async ({ app }) => {
     const name = `once-${Date.now()}`;
     await app.openDrawer();

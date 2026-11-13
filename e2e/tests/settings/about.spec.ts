@@ -58,5 +58,36 @@ test.describe('Settings - about and release check', () => {
       (window as any).runtime.EventsEmit('app:update_available', { version: '99.0.0', url: 'https://github.com/egeozcan/mahpastes/releases/tag/v99.0.0' });
     });
     await expect(banner).toHaveCount(0);
+
+    // But the release can still be found: Settings > About names it.
+    await app.page.evaluate(() => {
+      (window as any).__openedURLs = [];
+      (window as any).runtime.BrowserOpenURL = (url: string) => { (window as any).__openedURLs.push(url); };
+    });
+    await app.openSettingsModal();
+    const about = app.page.locator('[data-testid="about-update"]');
+    await expect(about).toContainText('Version 99.0.0 is available.');
+    await app.page.locator('[data-testid="about-update-link"]').click();
+    expect(await app.page.evaluate(() => (window as any).__openedURLs))
+      .toEqual(['https://github.com/egeozcan/mahpastes/releases/tag/v99.0.0']);
+
+    // Switching the check off takes the line away with the banner.
+    const toggle = app.page.locator('[data-testid="update-check-toggle"]');
+    await app.page.locator('[data-testid="update-check-toggle-label"]').click();
+    await expect(toggle).not.toBeChecked();
+    await expect(about).toBeHidden();
+    await app.page.locator('[data-testid="update-check-toggle-label"]').click();
+    await expect(toggle).toBeChecked();
+  });
+
+  test('the footer button closes Settings and says changes are already saved', async ({ app }) => {
+    await app.openSettingsModal();
+    await expect(app.page.locator('[data-testid="settings-autosave-note"]')).toHaveText('Changes are saved as you make them.');
+    const done = app.page.locator('#settings-save');
+    await expect(done).toHaveText('Done');
+    await done.click();
+    await expect(app.page.locator('#settings-modal')).toHaveClass(/opacity-0/);
+    // No "Settings saved" toast for a button that saved nothing.
+    await expect(app.page.locator('#toast')).not.toContainText('Settings saved');
   });
 });
