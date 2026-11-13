@@ -342,8 +342,10 @@ async function handleLightboxFileAction(action, clip) {
         case 'cancel-expiration':
             cancelExpiration(clip.id);
             break;
+        // Archive and delete leave the viewer open: once the card is gone the
+        // gallery hands the viewer its new list, and it moves to the next clip
+        // (or closes after the last). A cancelled delete keeps your place.
         case 'archive':
-            window.LightboxController.close();
             toggleArchiveClip(clip.id);
             break;
         case 'merge-duplicates':
@@ -359,7 +361,6 @@ async function handleLightboxFileAction(action, clip) {
             renameClip(clip.id);
             break;
         case 'delete':
-            window.LightboxController.close();
             deleteClip(clip.id);
             break;
     }

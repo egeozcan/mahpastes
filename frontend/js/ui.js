@@ -2220,6 +2220,8 @@ const searchClearBtn = document.getElementById('search-clear-btn');
 function syncSearchClearButton() {
     if (searchClearBtn) searchClearBtn.hidden = searchInput.value === '';
 }
+// A reload can restore the field's text (a browser in server mode).
+syncSearchClearButton();
 
 searchInput.addEventListener('input', () => {
     syncSearchClearButton();
@@ -2244,8 +2246,13 @@ function handleSearchEscape() {
     const rover = window.__galleryRover;
     const items = rover ? rover.getItems().filter(el => el.style.display !== 'none') : [];
     const target = items.find(el => el.tabIndex === 0) || items[0];
-    if (target) target.focus();
-    else searchInput.blur();
+    if (target) {
+        // Through the rover, so the tab stop moves with the focus.
+        rover.setActiveIndex(rover.getItems().indexOf(target));
+        target.focus();
+    } else {
+        searchInput.blur();
+    }
     return true;
 }
 

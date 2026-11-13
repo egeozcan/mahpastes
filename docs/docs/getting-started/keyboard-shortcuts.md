@@ -95,6 +95,11 @@ When viewing a clip in the lightbox:
 | <span className="keyboard-key">+</span> | Zoom in |
 | <span className="keyboard-key">-</span> | Zoom out |
 | <span className="keyboard-key">E</span> | Open editor |
+| <span className="keyboard-key">D</span> | Delete the clip on screen (asks first; the viewer stays open and moves to the next clip) |
+| <span className="keyboard-key">A</span> | Archive or restore the clip on screen and move to the next |
+| <span className="keyboard-key">T</span> | Edit tags |
+| <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">Enter</span> | Open the Actions menu |
+| <span className="keyboard-key">Space</span> | Play or pause a video |
 | <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">C</span> | Copy clip contents |
 | <span className="keyboard-key">Esc</span> | Close open menu first, then close lightbox |
 | <span className="keyboard-key">Tab</span> / <span className="keyboard-key">Shift</span> + <span className="keyboard-key">Tab</span> | Cycle focus within lightbox buttons (focus trap) |

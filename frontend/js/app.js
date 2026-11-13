@@ -185,6 +185,7 @@ window.LightboxController = window.createLightboxController({
         openEditor(clip.id, { initialMode: 'edit' });
     },
     copyClip: clip => copyClipContents(clip.id),
+    fileAction: (action, clip) => handleLightboxFileAction(action, clip),
     shouldCloseOnBackdrop: () => lightboxCloseOnBackdrop,
     menusOpen: () => Boolean(document.getElementById('lightbox-plugin-menu')) || ContextMenu.isOpen(),
     closeMenus: () => {
@@ -1812,6 +1813,15 @@ window.addEventListener('load', async () => {
         ShortcutManager.register({ id: 'lightbox-pan-up', label: 'Pan Up', category: 'lightbox', defaultKey: 'shift+ArrowUp', context: 'lightbox', callback: () => window.LightboxController.command('pan', { dx: 0, dy: 48 }) });
         ShortcutManager.register({ id: 'lightbox-pan-down', label: 'Pan Down', category: 'lightbox', defaultKey: 'shift+ArrowDown', context: 'lightbox', callback: () => window.LightboxController.command('pan', { dx: 0, dy: -48 }) });
         ShortcutManager.register({ id: 'lightbox-edit', label: 'Open Editor', category: 'lightbox', defaultKey: 'e', context: 'lightbox', callback: () => window.LightboxController.command('edit') });
+        // The card keys do nothing while the viewer is open (their context is
+        // the focused card), so the viewer has its own for the clip on screen.
+        // E stays Edit here; archive is A.
+        ShortcutManager.register({ id: 'lightbox-delete', label: 'Delete Clip', category: 'lightbox', defaultKey: 'd', context: 'lightbox', callback: () => window.LightboxController.command('file-action', { action: 'delete' }) });
+        ShortcutManager.register({ id: 'lightbox-archive', label: 'Archive / Unarchive', category: 'lightbox', defaultKey: 'a', context: 'lightbox', callback: () => window.LightboxController.command('file-action', { action: 'archive' }) });
+        ShortcutManager.register({ id: 'lightbox-tags', label: 'Edit Tags', category: 'lightbox', defaultKey: 't', context: 'lightbox', callback: () => window.LightboxController.command('file-action', { action: 'tags' }) });
+        ShortcutManager.register({ id: 'lightbox-menu', label: 'Open Actions Menu', category: 'lightbox', defaultKey: 'mod+Enter', context: 'lightbox', callback: () => {
+            if (!ContextMenu.isOpen()) document.getElementById('lightbox-file-menu-trigger')?.click();
+        } });
         if (window.mahpastesMode !== 'server') {
             ShortcutManager.register({ id: 'lightbox-copy', label: 'Copy Image', category: 'lightbox', defaultKey: 'mod+c', context: 'lightbox', callback: () => window.LightboxController.command('copy') });
         }

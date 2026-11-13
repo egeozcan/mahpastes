@@ -660,14 +660,17 @@ test.describe('Keyboard Shortcuts', () => {
       await app.openLightbox(path.basename(imagePath));
       await app.page.waitForSelector('#lightbox.active');
 
-      // Press 'a' - should NOT toggle archive view (lightbox context overrides)
-      await app.page.keyboard.press('a');
+      // Press 'f' - should NOT toggle folder mode (lightbox context overrides).
+      // ('a' is the viewer's own archive key, so it is not the one to test.)
+      await app.page.keyboard.press('f');
 
       // Close lightbox
       await app.page.keyboard.press('Escape');
       expect(await app.isLightboxOpen()).toBe(false);
 
-      // Clip should still be there (archive toggle didn't fire)
+      // Folder mode did not switch on, and the clip is still there.
+      await expect(app.page.locator('#toggle-folder-mode-btn, [aria-label="Toggle folder mode"]').first())
+        .toHaveAttribute('aria-pressed', 'false');
       await app.expectClipCount(1);
     });
 

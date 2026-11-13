@@ -878,7 +878,7 @@ async function upload(files) {
             const gen = _clipLoadGen;
             reload.then(() => {
                 if (gen === _clipLoadGen && !galleryLoadFailed()) offerToShowUploaded(result.toUpload, summary);
-            });
+            }).catch(console.error);
         }
     } catch (error) {
         console.error('Error uploading:', error);

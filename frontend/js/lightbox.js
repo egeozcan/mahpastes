@@ -392,6 +392,19 @@
                 if (clip) deps.copyClip(clip);
                 return;
             }
+            // The Actions menu's operations on the clip on screen (delete,
+            // archive, tags, save), for the lightbox's own keys.
+            if (name === 'file-action') {
+                if (clip && deps.fileAction) deps.fileAction(detail.action, clip);
+                return;
+            }
+            if (name === 'toggle-play') {
+                if (state.phase !== 'ready' || !isVideoClip(clip)) return;
+                const video = deps.elements.video;
+                if (video.paused) video.play().catch(() => {});
+                else video.pause();
+                return;
+            }
             if (state.phase !== 'ready') return;
             if (isVideoClip(clip)) return;
 
@@ -661,6 +674,20 @@
         deps.elements.actual.addEventListener('click', () => command('actual-size'));
         deps.elements.retry.addEventListener('click', () => command('retry'));
         deps.elements.slider.addEventListener('input', event => command('slider', { position: event.target.value }));
+        // Space plays or pauses the video. Opening the viewer focuses Close, so
+        // without this the first Space dismissed a video instead of starting
+        // it. Left alone on the video itself (its native controls already
+        // toggle) and on every other control, where Space activates it.
+        deps.elements.root.addEventListener('keydown', event => {
+            if (event.key !== ' ' || event.ctrlKey || event.metaKey || event.altKey) return;
+            if (state.phase !== 'ready' || !isVideoClip(currentClip())) return;
+            const target = event.target;
+            if (target === deps.elements.video) return;
+            if (target !== deps.elements.close && target.closest?.('button, input, select, textarea, a[href], [role="menu"]')) return;
+            event.preventDefault();
+            command('toggle-play');
+        });
+
         deps.elements.slider.addEventListener('keydown', event => {
             if (!['Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) return;
             event.preventDefault();

@@ -293,7 +293,9 @@ function updateActiveTagsDisplay() {
                         if (!isCurrent) {
                             pill.querySelector('button[data-crumb]').addEventListener('click', (e) => {
                                 e.stopPropagation();
-                                navigateToFolder(capturedSegTag.id);
+                                // The row is rebuilt and this button with it: land
+                                // focus on the folder's first item instead of nowhere.
+                                navigateToFolder(capturedSegTag.id, { focusFirst: true });
                             });
                         }
                         pill.querySelector('[data-crumb-remove]').addEventListener('click', (e) => {

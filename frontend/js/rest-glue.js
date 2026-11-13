@@ -91,7 +91,13 @@
             await putJSON(`${api}/clips/${clip.id}/tags/${autoTagID}`, {});
         }
         if (minutes > 0 && status === 201 && clip && clip.id) {
-            await putJSON(`${api}/clips/${clip.id}/expiration`, { minutes });
+            try {
+                await putJSON(`${api}/clips/${clip.id}/expiration`, { minutes });
+            } catch (err) {
+                // The clip is stored, and permanent: say exactly that, or the
+                // user retries, gets the duplicate back and believes it expires.
+                throw new Error(`"${fileData.name || 'clip'}" was uploaded, but its expiry could not be set (${err.message}). It will not delete itself.`);
+            }
         }
         return clip;
     }
