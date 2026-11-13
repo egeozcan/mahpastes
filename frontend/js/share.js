@@ -222,7 +222,7 @@
   confirmBtn.addEventListener('click', async () => {
     const tagID = parseInt(tagSelect.value, 10);
     if (!(tagID > 0)) {
-      if (typeof showToast === 'function') showToast('Pick a tag first', 'error');
+      if (typeof showToast === 'function') showToast('Pick a tag first.', 'error');
       return;
     }
     // A second click while StartShare is in flight would start it twice.
@@ -295,10 +295,10 @@
       try {
         if (paused) {
           await window.go.main.ShareService.ResumeShare(tagID);
-          if (typeof showToast === 'function') showToast('Share resumed');
+          if (typeof showToast === 'function') showToast('Share resumed.');
         } else {
           await window.go.main.ShareService.PauseShare(tagID);
-          if (typeof showToast === 'function') showToast('Share paused');
+          if (typeof showToast === 'function') showToast('Share paused.');
         }
       } catch (err) {
         const msg = (err && err.message) ? err.message : String(err);
@@ -338,7 +338,7 @@
       clearTimeout(parseInt(stop.dataset.armTimer, 10));
       try {
         await window.go.main.ShareService.StopShare(tagID);
-        if (typeof showToast === 'function') showToast('Share stopped');
+        if (typeof showToast === 'function') showToast('Share stopped.');
         await refresh();
       } catch (err) {
         const msg = (err && err.message) ? err.message : String(err);
@@ -575,10 +575,10 @@
       try {
         if (paused) {
           await window.go.main.ShareService.ResumeFollow(id);
-          if (typeof showToast === 'function') showToast('Follow resumed');
+          if (typeof showToast === 'function') showToast('Follow resumed.');
         } else {
           await window.go.main.ShareService.PauseFollow(id);
-          if (typeof showToast === 'function') showToast('Follow paused');
+          if (typeof showToast === 'function') showToast('Follow paused.');
         }
       } catch (err) {
         const msg = (err && err.message) ? err.message : String(err);
@@ -635,7 +635,7 @@
     clearTimeout(parseInt(un.dataset.armTimer, 10));
     try {
       await window.go.main.ShareService.Unfollow(id);
-      if (typeof showToast === 'function') showToast('Unfollowed');
+      if (typeof showToast === 'function') showToast('Unfollowed.');
       await refresh();
     } catch (err) {
       const msg = (err && err.message) ? err.message : String(err);
@@ -706,7 +706,7 @@
     editFollowSaveBtn.textContent = 'Saving…';
     try {
       await window.go.main.ShareService.UpdateFollowTag(editFollowID, newTag);
-      if (typeof showToast === 'function') showToast('Tag updated');
+      if (typeof showToast === 'function') showToast('Tag updated.');
       closeEditFollowModal();
       await refresh();
     } catch (e) {

@@ -60,7 +60,7 @@ async function loadPlugins() {
         renderPluginsList();
     } catch (error) {
         console.error('Failed to load plugins:', error);
-        showToast('Failed to load plugins', 'error');
+        showToast('Failed to load plugins.', 'error');
     }
 }
 
@@ -860,7 +860,7 @@ async function refreshURLGrantStatuses(cardElement, pluginId) {
                     await window.go.main.PluginService.RevokePluginPermission(pluginId, 'network', revokeBtn.dataset.host);
                 } catch (error) {
                     console.error('Failed to revoke network permission:', error);
-                    showToast('Failed to revoke permission', 'error');
+                    showToast('Failed to revoke permission.', 'error');
                 }
                 await refreshURLGrantStatuses(cardElement, pluginId);
                 await loadPluginPermissions(pluginId, cardElement);
@@ -874,17 +874,17 @@ async function togglePluginEnabled(pluginId, enabled) {
     try {
         if (enabled) {
             await window.go.main.PluginService.EnablePlugin(pluginId);
-            showToast('Plugin enabled');
+            showToast('Plugin enabled.');
         } else {
             await window.go.main.PluginService.DisablePlugin(pluginId);
-            showToast('Plugin disabled');
+            showToast('Plugin disabled.');
         }
         await loadPlugins();
         await loadPluginUIActions();
         loadClips(); // re-render cards with updated plugin actions
     } catch (error) {
         console.error('Failed to toggle plugin:', error);
-        showToast('Failed to update plugin', 'error');
+        showToast('Failed to update plugin.', 'error');
         await loadPlugins(); // Refresh to correct UI state
     }
 }
@@ -938,7 +938,7 @@ async function installFromURL() {
     const urlInput = document.getElementById('plugin-url-input');
     const url = urlInput?.value?.trim();
     if (!url) {
-        showToast('Please enter a URL');
+        showToast('Please enter a URL.');
         return;
     }
 
@@ -952,7 +952,7 @@ async function installFromURL() {
 
         const preview = await window.go.main.PluginService.PreviewPluginFromURL(url);
         if (!preview) {
-            showToast('Failed to fetch plugin from URL', 'error');
+            showToast('Failed to fetch plugin from URL.', 'error');
             return;
         }
 
@@ -1022,7 +1022,7 @@ function removePlugin(pluginId, pluginName) {
     showConfirmDialog('Remove Plugin', `Remove "${escapeHTML(pluginName)}"? This cannot be undone.`, async () => {
         try {
             await window.go.main.PluginService.RemovePlugin(pluginId);
-            showToast('Plugin removed');
+            showToast('Plugin removed.');
             if (expandedPluginId === pluginId) {
                 expandedPluginId = null;
             }
@@ -1031,7 +1031,7 @@ function removePlugin(pluginId, pluginName) {
             loadClips();
         } catch (error) {
             console.error('Failed to remove plugin:', error);
-            showToast('Failed to remove plugin', 'error');
+            showToast('Failed to remove plugin.', 'error');
         }
     }, null, { confirmLabel: 'Remove' });
 }
@@ -1088,7 +1088,7 @@ async function updatePlugin(pluginId, pluginName) {
 async function revokePermission(pluginId, permType, path) {
     try {
         await window.go.main.PluginService.RevokePluginPermission(pluginId, permType, path);
-        showToast('Permission revoked');
+        showToast('Permission revoked.');
 
         // Reload permissions for this plugin
         const card = pluginsList.querySelector(`li[data-id="${pluginId}"]`);
@@ -1097,7 +1097,7 @@ async function revokePermission(pluginId, permType, path) {
         }
     } catch (error) {
         console.error('Failed to revoke permission:', error);
-        showToast('Failed to revoke permission', 'error');
+        showToast('Failed to revoke permission.', 'error');
     }
 }
 
@@ -1145,12 +1145,12 @@ async function executePluginAction(pluginId, actionId, clipIds, options, isAsync
                 if (acquired) {
                     showPluginResultModal(result.modal);
                 } else {
-                    showToast('Cannot show result — another modal is open', 'error');
+                    showToast('Cannot show result — another modal is open.', 'error');
                 }
             } else if (isAsync) {
                 showToast('Processing started...');
             } else {
-                showToast('Action completed');
+                showToast('Action completed.');
                 if (typeof loadClips === 'function') {
                     loadClips();
                 }
@@ -1448,7 +1448,7 @@ document.getElementById('plugin-options-form')?.addEventListener('submit', async
         !(document.querySelector(`#plugin-options-form [name="${field.id}"]`)?.value)
     );
     if (missingRequiredSearch.length > 0) {
-        showToast(`Please choose a value for "${missingRequiredSearch[0].label}"`, 'error');
+        showToast(`Please choose a value for "${missingRequiredSearch[0].label}".`, 'error');
         return;
     }
 

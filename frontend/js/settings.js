@@ -260,7 +260,7 @@ async function confirmRestore() {
         restoreInFlight = false;
         hideRestoreConfirmDialog();
         closeSettings();
-        showToast('Backup restored successfully');
+        showToast('Backup restored successfully.');
 
         // Reload the page to refresh all data
         setTimeout(() => {
@@ -382,10 +382,10 @@ if (updateIntervalSelect) {
     updateIntervalSelect.addEventListener('change', async () => {
         try {
             await window.go.main.PluginService.SetUpdateCheckInterval(updateIntervalSelect.value);
-            showToast('Update check interval saved');
+            showToast('Update check interval saved.');
         } catch (error) {
             console.error('Failed to save update interval:', error);
-            showToast('Failed to save setting', 'error');
+            showToast('Failed to save setting.', 'error');
         }
     });
 }
@@ -537,7 +537,7 @@ document.getElementById('shortcuts-reset-btn')?.addEventListener('click', () => 
     if (typeof ShortcutManager !== 'undefined') {
         ShortcutManager.resetAllToDefaults();
         renderShortcutsSettings();
-        if (typeof showToast === 'function') showToast('Shortcuts reset to defaults');
+        if (typeof showToast === 'function') showToast('Shortcuts reset to defaults.');
     }
 });
 

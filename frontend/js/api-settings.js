@@ -168,7 +168,7 @@ function renderAPIKeyUsage() {
 }
 document.getElementById('api-key-usage-copy')?.addEventListener('click', async () => {
     const text = document.getElementById('api-key-usage-snippet')?.textContent || '';
-    if (text && await copyTextQuietly(text)) showToast('Commands copied');
+    if (text && await copyTextQuietly(text)) showToast('Commands copied.');
     else showToast('Could not copy the commands.', 'error');
 });
 
@@ -198,7 +198,7 @@ apiKeyCopyBtn.addEventListener('click', async () => {
     try {
         if (!navigator.clipboard) throw new Error('clipboard API unavailable');
         await navigator.clipboard.writeText(apiKeyRevealValue.textContent);
-        showToast('Key copied to clipboard');
+        showToast('Key copied to clipboard.');
     } catch (err) {
         console.error('Failed to copy key:', err);
         toastError('Failed to copy key', err);
@@ -319,13 +319,13 @@ async function toggleAPIServer() {
     try {
         if (apiServerRunning) {
             await window.go.main.APIService.StopAPI();
-            showToast('API server stopped');
+            showToast('API server stopped.');
         } else {
             const port = readAPIPort();
             if (port === null) throw new Error(API_PORT_INVALID);
             const bindAll = apiBindToggle.checked;
             await window.go.main.APIService.StartAPI(port, bindAll);
-            showToast('API server started');
+            showToast('API server started.');
         }
         await loadAPIStatus();
     } catch (err) {
@@ -427,7 +427,7 @@ function hideKeyReveal() {
 async function createAPIKey() {
     const name = apiKeyNameInput.value.trim();
     if (!name) {
-        showToast('Key name is required');
+        showToast('Key name is required.');
         return;
     }
     const role = apiKeyRoleSelect.value;
@@ -473,7 +473,7 @@ apiKeysList.addEventListener('click', (e) => {
 async function revokeAPIKey(id) {
     try {
         await window.go.main.APIService.RevokeAPIKey(id);
-        showToast('Key revoked');
+        showToast('Key revoked.');
         loadAPIKeys();
     } catch (err) {
         showToast('Failed to revoke key: ' + errText(err), 'error');

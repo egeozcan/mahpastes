@@ -143,7 +143,7 @@
         render();
         try {
             status = await svc.SendTestNotification();
-            showToast('Test notification sent');
+            showToast('Test notification sent.');
         } catch (e) {
             showToast('Could not show a notification: ' + errText(e), 'error');
             busy = false;

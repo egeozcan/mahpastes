@@ -470,7 +470,7 @@ async function showServeTagPicker() {
 
     } catch (error) {
         console.error('Failed to load tags for serve picker:', error);
-        showToast('Failed to load tags', 'error');
+        showToast('Failed to load tags.', 'error');
     }
 }
 
@@ -537,7 +537,7 @@ async function startServingTag(tagID, bindAll = false) {
 async function stopServingTag(tagID) {
     try {
         await window.go.main.ServeService.StopServing(tagID);
-        showToast('Tag server stopped');
+        showToast('Tag server stopped.');
         await loadServeStatus({ force: true });
         updateServeIndicator();
     } catch (error) {
@@ -604,7 +604,7 @@ serveList.addEventListener('click', async (e) => {
     const copyBtn = e.target.closest('.serve-url-copy');
     if (copyBtn) {
         const url = copyBtn.dataset.url;
-        if (await copyTextQuietly(url)) showToast('URL copied');
+        if (await copyTextQuietly(url)) showToast('URL copied.');
         else showToast('Could not copy the URL.', 'error');
         return;
     }

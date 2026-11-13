@@ -131,10 +131,10 @@ async function pluginResultCopyToClipboard() {
     const text = currentModalData.copy_data || currentModalData.content;
     try {
         await window.go.main.App.CopyToClipboard(text);
-        showToast('Copied to clipboard');
+        showToast('Copied to clipboard.');
     } catch (err) {
         console.error('Failed to copy to clipboard:', err);
-        showToast('Failed to copy', 'error');
+        showToast('Failed to copy.', 'error');
     }
 }
 
@@ -151,13 +151,13 @@ async function pluginResultAddAsPaste() {
     // set — the data is already raw base64 bytes, not a URL.
     if (format === 'image' && !currentModalData.paste_data_base64) {
         if (!data.startsWith('https://') && !data.startsWith('data:')) {
-            showToast('Cannot save image — unsupported source', 'error');
+            showToast('Cannot save image — unsupported source.', 'error');
             return;
         }
         // URL paste_data can't be binary-encoded — reject regardless of
         // whether it came from content or an explicit paste_data field.
         if (data.startsWith('https://')) {
-            showToast('Cannot save remote image — plugin should provide paste_data as base64', 'error');
+            showToast('Cannot save remote image — plugin should provide paste_data as base64.', 'error');
             return;
         }
     }
@@ -189,7 +189,7 @@ async function pluginResultAddAsPaste() {
             } else if (format === 'image' && data.startsWith('data:')) {
                 // Non-base64 data URIs (e.g. data:image/svg+xml,<svg...>) can't
                 // be reliably decoded here — reject rather than corrupt the clip.
-                showToast('Cannot save image — non-base64 data URI not supported', 'error');
+                showToast('Cannot save image — non-base64 data URI not supported.', 'error');
                 return;
             } else {
                 encoded = btoa(unescape(encodeURIComponent(data)));
@@ -210,11 +210,11 @@ async function pluginResultAddAsPaste() {
             content_type: contentType,
             data: encoded,
         });
-        showToast('Added as paste');
+        showToast('Added as paste.');
         closePluginResultModal();
     } catch (err) {
         console.error('Failed to add as paste:', err);
-        showToast('Failed to add paste', 'error');
+        showToast('Failed to add paste.', 'error');
     }
 }
 

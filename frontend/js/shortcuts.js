@@ -489,7 +489,7 @@ const ShortcutManager = (() => {
             await window.go.main.App.SetSetting('keyboard_shortcuts', JSON.stringify(userOverrides));
         } catch (err) {
             console.error('Failed to save keyboard shortcut overrides:', err);
-            if (typeof showToast === 'function') showToast('Failed to save shortcut', 'error');
+            if (typeof showToast === 'function') showToast('Failed to save shortcut.', 'error');
         }
     }
 

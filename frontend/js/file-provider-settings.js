@@ -28,7 +28,7 @@
             hidden.textContent = finderText.hidden;
         } else {
             title.textContent = 'File manager access';
-            intro.textContent = `Browse and copy pastes from Active, Archive and Tags in ${folder} with any file manager, file dialog or terminal. The folder is read-only and only available while Mahpastes is running. Edit pastes in Mahpastes.`;
+            intro.textContent = `Browse and copy clips from Active, Archive and Tags in ${folder} with any file manager, file dialog or terminal. The folder is read-only and only available while mahpastes is running. Edit clips in mahpastes.`;
             note.textContent = 'Disabling unmounts the folder. Files you copied out of it are kept.';
             hidden.textContent = 'Pastes with hidden tags are left out of Active and Archive but still appear in the folders of their other tags. Hidden tags appear under Tags as dot-folders, which most file managers hide. Copies saved elsewhere may remain after a paste is hidden or expires.';
         }

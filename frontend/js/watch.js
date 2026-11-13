@@ -215,7 +215,7 @@ async function toggleFolderPause(id, paused) {
         loadWatchFolders();
     } catch (error) {
         console.error('Failed to toggle folder pause:', error);
-        showToast('Failed to update folder', 'error');
+        showToast('Failed to update folder.', 'error');
     }
 }
 
@@ -228,10 +228,10 @@ async function removeWatchFolder(id, folderPath) {
             await window.go.main.App.RemoveWatchedFolder(id);
             await window.go.main.App.RefreshWatches();
             loadWatchFolders();
-            showToast('Folder removed');
+            showToast('Folder removed.');
         } catch (error) {
             console.error('Failed to remove folder:', error);
-            showToast('Failed to remove folder', 'error');
+            showToast('Failed to remove folder.', 'error');
         }
     }, null, { confirmLabel: 'Remove' });
 }
@@ -246,7 +246,7 @@ async function toggleGlobalPause() {
         updateWatchIndicator();
     } catch (error) {
         console.error('Failed to toggle global pause:', error);
-        showToast('Failed to update watch status', 'error');
+        showToast('Failed to update watch status.', 'error');
         globalWatchToggle.checked = !globalWatchToggle.checked; // Revert
     }
 }
@@ -438,7 +438,7 @@ async function saveFolderConfig() {
             loadWatchFolders();
             try {
                 await window.go.main.App.RefreshWatches();
-                showToast('Folder updated');
+                showToast('Folder updated.');
             } catch (error) {
                 console.error('Failed to refresh watches:', error);
                 showToast('Folder updated, but the watcher could not be refreshed: ' + errText(error), 'error');
@@ -472,7 +472,7 @@ async function saveFolderConfig() {
     if (config.process_existing && folder) {
         await importExistingFiles(folder.id);
     } else {
-        showToast('Folder added');
+        showToast('Folder added.');
     }
 }
 
@@ -486,7 +486,7 @@ async function importExistingFiles(folderId) {
     showToast('Folder added — importing existing files…');
     try {
         await window.go.main.App.ProcessExistingFilesInFolder(folderId);
-        showToast('Folder added; existing files imported');
+        showToast('Folder added; existing files imported.');
     } catch (error) {
         console.error('Failed to import existing files:', error);
         showToast('Folder added, but importing existing files failed: ' + errText(error), 'error');
@@ -531,7 +531,7 @@ window.runtime.OnFileDrop(async (x, y, paths) => {
         if (isDir) {
             openFolderModal(path);
         } else {
-            showToast('Please drop a folder, not a file');
+            showToast('Please drop a folder, not a file.');
         }
     }
 }, true); // true = only trigger on elements with --wails-drop-target CSS

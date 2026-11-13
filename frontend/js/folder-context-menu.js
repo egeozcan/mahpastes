@@ -149,7 +149,7 @@ const FolderContextMenu = (() => {
     async function doStopServing(tagID) {
         try {
             await window.go.main.ServeService.StopServing(tagID);
-            if (typeof showToast === 'function') showToast('Stopped serving', 'success');
+            if (typeof showToast === 'function') showToast('Stopped serving.', 'success');
         } catch (e) {
             const msg = (e && e.message) ? e.message : String(e);
             if (/no server running/i.test(msg)) {
@@ -164,7 +164,7 @@ const FolderContextMenu = (() => {
     async function doStopSharing(tagID) {
         try {
             await window.go.main.ShareService.StopShare(tagID);
-            if (typeof showToast === 'function') showToast('Stopped sharing', 'success');
+            if (typeof showToast === 'function') showToast('Stopped sharing.', 'success');
         } catch (e) {
             if (typeof showToast === 'function') showToast('Failed to stop sharing: ' + (e?.message || e), 'error');
         }

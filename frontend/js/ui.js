@@ -827,7 +827,7 @@ function handlePluginCardAction(dataset) {
         } else {
             console.error('Could not find plugin action:', pluginId, actionId);
             if (typeof showToast === 'function') {
-                showToast('Plugin action not found', 'error');
+                showToast('Plugin action not found.', 'error');
             }
         }
     } else if (typeof executePluginAction === 'function') {
@@ -838,7 +838,7 @@ function handlePluginCardAction(dataset) {
     } else {
         console.error('Plugin action handler not available');
         if (typeof showToast === 'function') {
-            showToast('Plugin system not initialized', 'error');
+            showToast('Plugin system not initialized.', 'error');
         }
     }
 }
@@ -956,10 +956,10 @@ async function handleCardAction(action, clipId, triggerButton) {
         case 'merge-duplicates':
             try {
                 await window.go.main.App.MergeDuplicates(id);
-                showToast('Merged duplicates', 'success');
+                showToast('Merged duplicates.', 'success');
                 loadClips();
             } catch (err) {
-                showToast('Failed to merge duplicates', 'error');
+                showToast('Failed to merge duplicates.', 'error');
             }
             break;
         case 'rename':

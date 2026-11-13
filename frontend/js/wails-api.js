@@ -1202,7 +1202,7 @@ async function saveTempFile(id) {
 async function copyFileToClipboard(id) {
     try {
         await window.go.main.ClipboardService.CopyFileToClipboard(id);
-        showToast('File copied to clipboard!');
+        showToast('File copied to clipboard.');
     } catch (error) {
         console.error('Error copying file to clipboard:', error);
         toastError('Failed to copy file', error);
@@ -1214,7 +1214,7 @@ async function copyFileToClipboard(id) {
 async function copyClipLink(id) {
     try {
         await window.go.main.App.CopyToClipboard(`mahpastes://clip/${Number(id)}`);
-        showToast('Link copied to clipboard!');
+        showToast('Link copied to clipboard.');
     } catch (error) {
         console.error('Error copying clip link:', error);
         toastError('Failed to copy link', error);
@@ -1224,7 +1224,7 @@ async function copyClipLink(id) {
 async function copyClipContents(id) {
     try {
         await window.go.main.ClipboardService.CopyClipContents(id);
-        showToast('Contents copied to clipboard!');
+        showToast('Contents copied to clipboard.');
     } catch (error) {
         console.error('Error copying contents:', error);
         toastError('Failed to copy contents', error);
@@ -1234,7 +1234,7 @@ async function copyClipContents(id) {
 async function copyClipAsRichText(id) {
     try {
         await window.go.main.ClipboardService.CopyClipAsRichText(id);
-        showToast('Rich text copied to clipboard!');
+        showToast('Rich text copied to clipboard.');
     } catch (error) {
         console.error('Error copying rich text:', error);
         toastError('Failed to copy rich text', error);
@@ -1349,7 +1349,7 @@ async function bulkCopyFiles() {
     if (selectedIds.size === 0) return;
     try {
         await window.go.main.ClipboardService.BulkCopyFilesToClipboard(Array.from(selectedIds));
-        showToast(`${selectedIds.size} file${selectedIds.size > 1 ? 's' : ''} copied to clipboard!`);
+        showToast(`${selectedIds.size} file${selectedIds.size > 1 ? 's' : ''} copied to clipboard.`);
     } catch (error) {
         console.error('Error copying files to clipboard:', error);
         toastError('Failed to copy files', error);
@@ -1516,7 +1516,7 @@ async function saveClipToFile(id) {
         // Desktop only: in server mode the browser saved a download (the
         // glue resolves to its name), which the host file manager can't show.
         if (savedPath && window.mahpastesMode !== 'server') {
-            showToast('Saved clip to file', 'success', {
+            showToast('Saved clip to file.', 'success', {
                 label: 'Show in folder',
                 onClick: () => window.go.main.App.RevealInFileManager(savedPath).catch(
                     (e) => showToast('Failed to show file: ' + errText(e), 'error')),

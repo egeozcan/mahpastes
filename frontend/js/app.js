@@ -2184,7 +2184,7 @@ window.addEventListener('load', async () => {
             // upload() folds this into its summary toast when the event lands
             // before the upload finishes; one arriving later shows on its own.
             window.__duplicateUploadEvents = (window.__duplicateUploadEvents || 0) + 1;
-            showToast(`Duplicate clip detected — ${data.count} other ${data.count === 1 ? 'copy' : 'copies'} exist`, 'info');
+            showToast(`Duplicate clip detected — ${data.count} other ${data.count === 1 ? 'copy' : 'copies'} exist.`, 'info');
         });
 
         // Re-resolve folder-view and tag-filter state on any tag change.
@@ -2313,7 +2313,7 @@ document.addEventListener('click', (e) => {
             } else {
                 console.error('Could not find plugin action:', pluginId, actionId);
                 if (typeof showToast === 'function') {
-                    showToast('Plugin action not found', 'error');
+                    showToast('Plugin action not found.', 'error');
                 }
             }
         } else if (typeof executePluginAction === 'function') {
@@ -2325,7 +2325,7 @@ document.addEventListener('click', (e) => {
         } else {
             console.error('Plugin action handler not available');
             if (typeof showToast === 'function') {
-                showToast('Plugin system not initialized', 'error');
+                showToast('Plugin system not initialized.', 'error');
             }
         }
     } else {

@@ -123,7 +123,7 @@ mergeTagConfirmBtn?.addEventListener('click', async () => {
     mergeTagConfirmBtn.disabled = true;
     try {
         await window.go.main.App.MergeTag(mergeTagSourceID, destID);
-        if (typeof showToast === 'function') showToast('Tag merged', 'success');
+        if (typeof showToast === 'function') showToast('Tag merged.', 'success');
         closeMergeTagModal();
         // Event handler (tag:merged) reloads state + re-navigates.
     } catch (err) {

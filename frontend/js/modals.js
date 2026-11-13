@@ -360,10 +360,10 @@ async function handleLightboxFileAction(action, clip) {
         case 'merge-duplicates':
             try {
                 await window.go.main.App.MergeDuplicates(clip.id);
-                showToast('Merged duplicates', 'success');
+                showToast('Merged duplicates.', 'success');
                 loadClips();
             } catch (err) {
-                showToast('Failed to merge duplicates', 'error');
+                showToast('Failed to merge duplicates.', 'error');
             }
             break;
         case 'rename':

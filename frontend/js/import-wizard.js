@@ -517,7 +517,7 @@ const ImportWizard = (() => {
         if (s.symlinks) reasons.push(`${s.symlinks} symlink${s.symlinks === 1 ? '' : 's'}`);
         if (s.non_regular) reasons.push(`${s.non_regular} not a regular file`);
         if (s.app_temp) reasons.push(`${s.app_temp} app temp`);
-        if (s.app_clips) reasons.push(`${s.app_clips} Mahpastes clips folder${s.app_clips === 1 ? '' : 's'}`);
+        if (s.app_clips) reasons.push(`${s.app_clips} mahpastes clips folder${s.app_clips === 1 ? '' : 's'}`);
         if (s.unreadable) reasons.push(`${s.unreadable} unreadable`);
         const skippedTotal = reasons.length
             ? (s.dotted || 0) + (s.symlinks || 0) + (s.non_regular || 0) + (s.app_temp || 0) + (s.app_clips || 0) + (s.unreadable || 0)

@@ -607,7 +607,7 @@ function copyToClipboard(text) {
     }
     document.body.removeChild(textArea);
     if (copied) {
-        showToast('Copied to clipboard!');
+        showToast('Copied to clipboard.');
     } else {
         showToast('Failed to copy.', 'error');
     }

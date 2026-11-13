@@ -695,7 +695,7 @@ async function performSaveEditorInPlace(snapshot) {
         } else if (settleImageSave(session, savedRevision, 'Saved.')) {
             return;
         }
-        showToast('Saved!');
+        showToast('Saved.');
         closeEditor({ force: true });
         loadClips();
     } catch (error) {
@@ -820,7 +820,7 @@ async function performSaveEditorContent(snapshot) {
             // As above: the upload is awaited, so ownership is re-checked before
             // touching the editor or its draft.
             if (!TextClipEditor.snapshotStillTargets(snapshot)) {
-                showToast('Saved as new clip!');
+                showToast('Saved as new clip.');
                 loadClips();
                 return;
             }
@@ -850,7 +850,7 @@ async function performSaveEditorContent(snapshot) {
             loadClips();
             return;
         }
-        showToast('Saved as new clip!');
+        showToast('Saved as new clip.');
         closeEditor({ force: true });
         loadClips();
     } catch (error) {

@@ -278,7 +278,9 @@ test.describe('Plugin UI Extensions', () => {
 
       const toolbar = app.page.locator('#bulk-toolbar');
       await expect(toolbar.getByText('AI Edit', { exact: true })).toHaveCount(0);
-      await expect(toolbar.getByText('Compare', { exact: true })).toHaveCount(0);
+      // Plugin actions stay in the More menu. Compare is the app's own action
+      // and has a toolbar button now (it was undiscoverable inside the menu).
+      await expect(toolbar.locator('[data-testid="bulk-compare-btn"]')).toBeVisible();
 
       const moreButton = app.page.locator('#bulk-more-btn');
       await expect(moreButton).toBeVisible();
