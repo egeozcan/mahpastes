@@ -169,6 +169,45 @@ function renderLoadMore() {
         btn.textContent = 'Load more';
         btn.setAttribute('aria-label', `Load more clips (${loaded} of ${total} shown)`);
     }
+    armAutoLoadMore(wrap);
+}
+
+// --- Loading the next page as it comes into view ---
+//
+// Browsing a few hundred clips used to take a click per fifty. The next page
+// is now fetched when the "Load more" row scrolls into range; the button
+// stays, for the keyboard and for the cases below where nothing is fetched
+// automatically:
+//   - a plain search is filtering the loaded cards: hidden cards leave the row
+//     in view, and the chain would walk the whole library page by page;
+//   - the last automatic load failed: a failing backend must not be retried
+//     (and toasted) in a loop. A click, or any reload, clears that.
+// An IntersectionObserver only reports changes, so after each page settles the
+// row is measured again: a short page can leave it in range.
+const AUTO_LOAD_MARGIN_PX = 300;
+let _autoLoadObserver = null;
+let _autoLoadBlocked = false;
+// Off only in tests of the button itself, which would otherwise race it.
+let _autoLoadEnabled = true;
+function setAutoLoadMore(enabled) { _autoLoadEnabled = !!enabled; }
+
+function armAutoLoadMore(wrap) {
+    if (_autoLoadObserver || typeof IntersectionObserver !== 'function') return;
+    _autoLoadObserver = new IntersectionObserver((entries) => {
+        if (entries.some(e => e.isIntersecting)) maybeAutoLoadMore();
+    }, { rootMargin: `0px 0px ${AUTO_LOAD_MARGIN_PX}px 0px` });
+    _autoLoadObserver.observe(wrap);
+}
+
+function maybeAutoLoadMore() {
+    if (!_autoLoadEnabled || _autoLoadBlocked || !_galleryView.hasMore || !_galleryView.request) return;
+    if (_clipLoadInFlight || _loadMoreInFlight) return;
+    if (document.hidden) return;
+    if (searchInput.value.trim() !== '' && !galleryIsSearchResults()) return;
+    const wrap = document.getElementById('gallery-load-more');
+    if (!wrap || wrap.classList.contains('hidden') || wrap.getClientRects().length === 0) return;
+    if (wrap.getBoundingClientRect().top > window.innerHeight + AUTO_LOAD_MARGIN_PX) return;
+    loadMoreClips({ auto: true });
 }
 
 // Where focus was in the gallery before a reload, so a reload of the same
@@ -372,6 +411,10 @@ async function loadClips({ focusFirst = false } = {}) {
         if (typeof applySearchFilter === 'function') applySearchFilter();
         renderGalleryCount();
         renderLoadMore();
+        // A fresh listing may try the next page again, and may already have
+        // the Load more row in range (a short page in a tall window).
+        _autoLoadBlocked = false;
+        requestAnimationFrame(maybeAutoLoadMore);
         // Nothing is being withheld when the search was told to include hidden clips.
         updateHiddenClipsNote(deepSearch && searchOptions.includeHidden ? [] : effectiveHidden);
         window.LightboxController?.setClips(getVisibleMediaClips());
@@ -437,9 +480,14 @@ async function loadClips({ focusFirst = false } = {}) {
 }
 
 // Append the next page of the listing on screen.
-async function loadMoreClips() {
+async function loadMoreClips({ auto = false } = {}) {
     const view = _galleryView;
     if (!view.hasMore || !view.request) return;
+    // One page at a time: a click landing on a load already under way (the
+    // automatic one, most likely) would fetch the same offset twice.
+    if (_loadMoreInFlight) return;
+    if (!auto) _autoLoadBlocked = false;
+    let failed = false;
     const myGen = _clipLoadGen;
     const btn = document.getElementById('gallery-load-more-btn');
     const buttonHadFocus = !!btn && document.activeElement === btn;
@@ -492,6 +540,8 @@ async function loadMoreClips() {
         // on purpose): the gallery belongs to that load now.
         if (myGen !== _clipLoadGen) return;
         console.error('Error loading more clips:', error);
+        failed = true;
+        _autoLoadBlocked = true;
         showToast('Failed to load more clips: ' + errText(error), 'error');
     } finally {
         _loadMoreInFlight--;
@@ -507,6 +557,8 @@ async function loadMoreClips() {
                 if (current.hasMore && nextBtn) nextBtn.focus();
                 else focusGalleryItem(firstNewIndex);
             }
+            // Still in range once the new cards are laid out? Then go on.
+            if (!failed) requestAnimationFrame(maybeAutoLoadMore);
         }
     }
 }

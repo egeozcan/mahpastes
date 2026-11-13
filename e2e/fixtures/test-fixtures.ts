@@ -1087,6 +1087,9 @@ export class AppHelper {
       const gallery = document.getElementById('gallery');
       if (gallery?.parentElement) gallery.parentElement.classList.remove('hidden');
 
+      // Paging tests switch the automatic next-page load off.
+      (window as any).setAutoLoadMore?.(true);
+
       // The image editor remembers its last tool, colour and sizes.
       try { localStorage.removeItem('mahpastes.editor.toolPrefs'); } catch { /* unavailable */ }
 
