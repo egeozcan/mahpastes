@@ -474,7 +474,9 @@ function showToast(message, type = 'info', action = null) {
             hide();
             action.onClick();
         });
-        toast.appendChild(btn);
+        // The space keeps the announced text from running together
+        // ("Clip archived. Undo").
+        toast.append(' ', btn);
     }
     toast.classList.remove('translate-x-full', 'opacity-0');
     toast.classList.add('translate-x-0', 'opacity-100');

@@ -880,13 +880,6 @@ function renameClip(id) {
     });
 }
 
-// The card is removed only when the clip certainly left the view it was
-// toggled from. ToggleArchive flips the stored flag, but a clip:archived /
-// clip:unarchived plugin handler runs inside the call and can flip it straight
-// back, so the stored state is re-read rather than assumed. And the view can
-// change while the call is in flight (the archive toggle, a filter): the card
-// with this id on screen then belongs to another listing, one whose load may
-// have read the library before the write landed. Either way, reload.
 // The Undo on an archive/restore toast. It names the direction (the Bulk
 // calls) rather than toggling again: by the time it is clicked a plugin, the
 // CLI or another window may have moved the clip back already, and a second
@@ -909,6 +902,13 @@ function archiveUndoAction(ids, wasRestore) {
     };
 }
 
+// The card is removed only when the clip certainly left the view it was
+// toggled from. ToggleArchive flips the stored flag, but a clip:archived /
+// clip:unarchived plugin handler runs inside the call and can flip it straight
+// back, so the stored state is re-read rather than assumed. And the view can
+// change while the call is in flight (the archive toggle, a filter): the card
+// with this id on screen then belongs to another listing, one whose load may
+// have read the library before the write landed. Either way, reload.
 async function toggleArchiveClip(id) {
     id = Number(id);
     const fromArchive = isViewingArchive;

@@ -192,4 +192,38 @@ test.describe('Clip Archive', () => {
       await app.expectClipVisible(filename);
     });
   });
+
+  // New clips land in the active list. An upload started from the archive used
+  // to be refused ("Switch to Active view to upload."), losing what was pasted.
+  test.describe('Uploading from the archive view', () => {
+    const archiveToggle = (app: any) => app.page.locator('#toggle-archive-view-btn');
+
+    test('a picked file switches to the active view and is uploaded', async ({ app }) => {
+      await app.toggleArchiveView();
+      await expect(archiveToggle(app)).toHaveAttribute('aria-pressed', 'true');
+
+      const filePath = await createTempFile(generateTestImage(), 'png');
+      await app.uploadFile(filePath);
+
+      await expect(archiveToggle(app)).toHaveAttribute('aria-pressed', 'false');
+      await app.expectClipVisible(path.basename(filePath));
+      await app.expectClipCount(1);
+    });
+
+    test('pasted text switches to the active view and is saved', async ({ app }) => {
+      // An archived clip, so the archive is not empty when the paste arrives.
+      const archived = await createTempFile(generateTestImage(), 'png');
+      await app.uploadFile(archived);
+      await app.archiveClip(path.basename(archived));
+      await app.expectClipCount(0);
+      await app.toggleArchiveView();
+      await app.expectClipCount(1);
+
+      await app.pasteText(generateTestText('from-archive'));
+
+      await expect(archiveToggle(app)).toHaveAttribute('aria-pressed', 'false');
+      await app.expectClipCount(1);
+      await app.expectClipNotVisible(path.basename(archived));
+    });
+  });
 });

@@ -14,6 +14,7 @@ test.describe('Archive undo', () => {
 
     await app.archiveClip(filename);
     await app.expectClipCount(0);
+    await app.expectToast('Clip archived.');
     await expect(undo(app)).toHaveText('Undo');
     await undo(app).click();
 
@@ -33,6 +34,7 @@ test.describe('Archive undo', () => {
 
     await app.archiveClip(filename); // the same control restores in this view
     await app.expectClipCount(0);
+    await app.expectToast('Clip restored.');
     await undo(app).click();
     await app.expectClipVisible(filename);
   });
@@ -68,8 +70,8 @@ test.describe('Archive undo', () => {
     await app.archiveClip(filename);
     await expect(undo(app)).toBeVisible();
 
+    // Straight to the click: the toast is on a timer.
     await app.toggleArchiveView();
-    await app.expectClipVisible(filename);
     await undo(app).click();
     await app.expectClipCount(0);
     await app.toggleArchiveView();

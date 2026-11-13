@@ -262,6 +262,16 @@ function updateClipCount(count, total = null, { filtering = false, loaded = 0 } 
 
 // --- State ---
 let isViewingArchive = false;
+
+// New clips land in the active list, so an upload started while the archive is
+// showing switches back to it first (as open requests do) instead of refusing
+// and losing what was pasted or dropped. Folder mode and the current folder
+// survive the switch, so a drop is still filed where the user was standing.
+function leaveArchiveForUpload() {
+    if (!isViewingArchive) return;
+    toggleViewMode();
+    showToast('Switched to the active view.');
+}
 let selectedIds = new Set();
 
 let comparisonMode = 'fade';
@@ -808,10 +818,7 @@ setupConfirmDialogFocusTrap();
 // --- Upload Handlers ---
 
 async function handleFiles(files) {
-    if (isViewingArchive) {
-        showToast('Switch to Active view to upload.');
-        return;
-    }
+    leaveArchiveForUpload();
     if (files.length === 0) return;
 
     const fileDataArray = [];
@@ -860,10 +867,7 @@ function handlePastedFiles(files) {
 }
 
 async function processPastedFiles(files) {
-    if (isViewingArchive) {
-        showToast('Switch to Active view to upload.');
-        return;
-    }
+    leaveArchiveForUpload();
     if (files.length === 0) return;
 
     const fileDataArray = [];
@@ -1128,10 +1132,7 @@ function confirmFolderDrop(fileCount, maxDepth) {
  * @param {Set<string>} dirPaths - All directory relative paths (including empty dirs)
  */
 async function handleFolderDrop(folderFiles, looseFiles, dirPaths) {
-    if (isViewingArchive) {
-        showToast('Switch to Active view to upload.');
-        return;
-    }
+    leaveArchiveForUpload();
 
     // Determine base tag prefix from current folder context
     let basePrefix = '';
@@ -1306,10 +1307,7 @@ async function handleFolderDrop(folderFiles, looseFiles, dirPaths) {
 }
 
 async function handleText(text) {
-    if (isViewingArchive) {
-        showToast('Switch to Active view to upload.');
-        return;
-    }
+    leaveArchiveForUpload();
 
     // A pasted path is ambiguous — the text itself, or the file it names. Ask
     // (or apply the standing preference from Settings), but only when the path
@@ -1357,10 +1355,7 @@ async function handlePastedText(text, html) {
 }
 
 async function handleHtml(html) {
-    if (isViewingArchive) {
-        showToast('Switch to Active view to upload.');
-        return;
-    }
+    leaveArchiveForUpload();
     const doc = pastedHtmlDocument(html);
     if (!doc) return;
     const fileData = {
