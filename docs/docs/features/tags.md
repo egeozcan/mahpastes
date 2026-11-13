@@ -182,7 +182,7 @@ Tag colors are assigned automatically from a rotating palette when tags are crea
 
 ## Current Limitations
 
-There is no standalone tag-management screen for rename/recolor/delete actions.
+There is no standalone tag-management screen for recolor/delete actions. Renaming, moving, merging and hiding a tag are available from its row in the tag filter dropdown (the `…` button, a right-click, or the keyboard's menu key) and from its folder card in folder mode.
 
 Today, tag management is done through assignment popovers:
 - Assign/unassign tags on clip cards or bulk selection

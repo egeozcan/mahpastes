@@ -843,10 +843,11 @@ function buildTagTree(tags) {
     return roots;
 }
 
-async function openFolderRenameDialog(tagID, currentName) {
+// `title` lets the tag filter's row menu use the same dialog as "Rename Tag".
+async function openFolderRenameDialog(tagID, currentName, title = 'Rename Folder') {
     const shortName = getShortTagName(currentName);
     const parent = currentName.includes('/') ? currentName.substring(0, currentName.lastIndexOf('/')) : '';
-    showPromptDialog('Rename Folder', shortName, async (newShortName) => {
+    showPromptDialog(title, shortName, async (newShortName) => {
         if (!newShortName || newShortName.trim() === '' || newShortName === shortName) return;
         if (newShortName.includes('/')) {
             showToast('Name cannot contain "/". Use Move to change parent.', 'error');

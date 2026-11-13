@@ -64,4 +64,41 @@ test.describe('Type to narrow a tag list', () => {
     await expect(row('invoices')).toBeVisible();
     await expect(card).toContainText('receipts');
   });
+
+  // A tag could be renamed or hidden only from its folder card in folder
+  // mode; its row here offered Merge alone, behind a right-click.
+  test('a tag row has its own menu: rename and hide from where the tag is listed', async ({ app }) => {
+    await app.createTag('drafts');
+    const filePath = await createTempFile(generateTestImage(), 'png');
+    const filename = path.basename(filePath);
+    await app.uploadFile(filePath);
+    await app.addTagToClip(filename, 'drafts');
+    await app.openTagFilterDropdown();
+    const row = app.page.locator('#tag-filter-list [data-tag-name="drafts"]');
+    const checkbox = row.locator('input[type="checkbox"]');
+
+    // The menu button does not tick the row's filter checkbox.
+    await row.locator('[data-tag-menu]').click();
+    await expect(checkbox).not.toBeChecked();
+    await expect(app.page.locator('.card-menu-dropdown [data-action="rename"]')).toBeVisible();
+    await expect(app.page.locator('.card-menu-dropdown [data-action="merge-into"]')).toBeVisible();
+
+    await app.page.locator('.card-menu-dropdown [data-action="rename"]').click();
+    await expect(app.page.locator(selectors.prompt.title)).toHaveText('Rename Tag');
+    await app.page.locator(selectors.prompt.input).fill('sketches');
+    await app.page.locator(selectors.prompt.saveButton).click();
+    await expect(app.page.locator('#tag-filter-list [data-tag-name="sketches"]')).toHaveCount(1);
+    await expect(await app.getClipByFilename(filename)).toContainText('sketches');
+
+    // Hide from the same menu, opened with the keyboard's menu key this time.
+    await app.openTagFilterDropdown();
+    const renamed = app.page.locator('#tag-filter-list [data-tag-name="sketches"]');
+    await renamed.focus();
+    await app.page.keyboard.press('Shift+F10');
+    await app.page.locator('.card-menu-dropdown [data-action="hide"]').click();
+    await app.waitForToast(/Tag hidden/);
+    // The normal listing hides clips carrying a hidden tag.
+    await app.expectClipCount(0);
+    expect(await app.page.evaluate(() => (window as any).getHiddenTags().length)).toBe(1);
+  });
 });
