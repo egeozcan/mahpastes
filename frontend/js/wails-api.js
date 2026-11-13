@@ -871,7 +871,7 @@ async function refreshClipInPlace(id) {
     const renamed = row.filename !== clip.filename;
     clip.filename = row.filename;
     clip.tags = tags;
-    // Server-mode rows carry no expiry, like the server listing.
+    // (A row from an older server may not report an expiry at all.)
     if ('expires_at' in row) clip.expires_at = row.expires_at;
     renderCardFilename(card, clip);
     renderCardExpiry(card, clip);

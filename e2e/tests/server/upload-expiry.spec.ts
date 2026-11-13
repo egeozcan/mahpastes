@@ -35,6 +35,20 @@ test('server-mode upload applies the selected expiry to new clips only', async (
     await expect.poll(() => expirations.length).toBe(1);
     expect(expirations[0].body).toEqual({ minutes: 15 });
 
+    // The REST rows report the expiry, so the web UI shows the badge and can
+    // cancel it; the card is patched from the re-read row, which says null.
+    const card = page.locator('#gallery > li[data-id]').first();
+    await expect(card.locator('.clip-expiration-badge')).toContainText('Temp');
+    await page.evaluate(async () => {
+      const el = document.querySelector('#gallery > li[data-id]') as HTMLElement;
+      // @ts-ignore - app global
+      await cancelExpiration(Number(el.dataset.id));
+    });
+    await expect(card.locator('.clip-expiration-badge')).toHaveCount(0);
+    await page.reload();
+    await expect(page.locator('#gallery > li[data-id]')).toHaveCount(1, { timeout: 30000 });
+    await expect(page.locator('#gallery > li[data-id] .clip-expiration-badge')).toHaveCount(0);
+
     // The same content again: the server answers with the stored clip, and
     // no expiry is put on it.
     const copy = path.join(dir, 'temp-note-copy.txt');
