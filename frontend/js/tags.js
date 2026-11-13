@@ -97,7 +97,7 @@ function renderTagFilterDropdown() {
     tagFilterList.innerHTML = '';
 
     if (allTags.length === 0) {
-        tagFilterList.innerHTML = '<p class="text-stone-400 text-xs px-3 py-2">No tags yet</p>';
+        tagFilterList.innerHTML = '<p class="text-stone-400 text-xs px-3 py-2">No tags yet. Add one from a clip\'s menu (Tags), or create a folder in folder mode.</p>';
         return;
     }
 

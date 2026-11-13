@@ -282,8 +282,9 @@ function openFolderModal(path) {
     folderModalPath.dataset.path = path;
     folderModalSave.textContent = 'Add Folder';
 
-    // Reset form - no filter selected by default
-    filterAll.checked = false;
+    // A new folder starts on "All files": with nothing ticked, Save was
+    // disabled and nothing said why.
+    filterAll.checked = true;
     filterImages.checked = false;
     filterDocuments.checked = false;
     filterVideos.checked = false;
@@ -366,6 +367,8 @@ function updateFilterState() {
                       filterDocuments.checked || filterVideos.checked ||
                       filterRegex.value.trim() !== '';
     folderModalSave.disabled = !hasFilter;
+    const emptyHint = document.getElementById('filter-empty-hint');
+    if (emptyHint) emptyHint.hidden = hasFilter;
     if (hasFilter) {
         folderModalSave.classList.remove('opacity-50', 'cursor-not-allowed');
     } else {
@@ -525,6 +528,28 @@ window.runtime.OnFileDrop(async (x, y, paths) => {
         }
     }
 }, true); // true = only trigger on elements with --wails-drop-target CSS
+
+// The web UI's way to add a folder: its path on the server, typed. The server
+// validates it when the folder is saved (IsDirectory is desktop-only).
+(() => {
+    const input = document.getElementById('add-folder-server-path');
+    const button = document.getElementById('add-folder-server-btn');
+    if (!input || !button) return;
+    const add = () => {
+        const path = input.value.trim();
+        if (!path) {
+            showToast('Enter the folder\'s path on the server.');
+            input.focus();
+            return;
+        }
+        openFolderModal(path);
+        input.value = '';
+    };
+    button.addEventListener('click', add);
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); add(); }
+    });
+})();
 
 // --- Deferred Watch Event Registration ---
 function initWatchEvents() {

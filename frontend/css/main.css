@@ -496,6 +496,14 @@ li[data-folder][data-hidden="true"] {
     display: none !important;
 }
 
+/* The reverse: shown only in the web UI (server mode). */
+.server-only {
+    display: none !important;
+}
+.server-mode .server-only {
+    display: revert !important;
+}
+
 /* Respect reduced-motion preference */
 @media (prefers-reduced-motion: reduce) {
     .folder-status-badges > span { transition: none; }

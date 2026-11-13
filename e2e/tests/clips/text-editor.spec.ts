@@ -170,6 +170,11 @@ test.describe('Text Editor', () => {
     // One step back to the saved version, and nothing left to recover.
     const discard = app.page.locator('[data-testid="text-editor-discard-draft"]');
     await expect(discard).toBeVisible();
+    // It stays: loading the draft must not count as an edit that rewrites it
+    // and swaps this notice for "Draft saved".
+    await app.page.waitForTimeout(700);
+    await expect(app.page.locator(selectors.textEditor.draftStatus)).toHaveText('Recovered draft');
+    await expect(discard).toBeVisible();
     await discard.click();
     await app.expectTextEditorContent('saved content');
     await expect(discard).toBeHidden();

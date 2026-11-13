@@ -556,6 +556,39 @@ function toastTimerFired() {
     hideToast();
 }
 
+// Copy without a toast of its own: resolves true or false, for callers that
+// give their own feedback (a "Copied" label, a specific message). Tries the
+// async clipboard first and falls back to execCommand: the async API does
+// not exist on a plain-http page (the web UI on a LAN address) and can be
+// refused in a WebView.
+async function copyTextQuietly(text) {
+    try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(text);
+            return true;
+        }
+    } catch (err) {
+        console.error('Clipboard write refused, falling back:', err);
+    }
+    const textArea = document.createElement('textarea');
+    textArea.value = text;
+    textArea.style.position = 'fixed';
+    textArea.style.left = '-9999px';
+    const active = document.activeElement;
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+    let copied = false;
+    try {
+        copied = document.execCommand('copy');
+    } catch (err) {
+        console.error('Failed to copy:', err);
+    }
+    document.body.removeChild(textArea);
+    if (active && typeof active.focus === 'function') active.focus();
+    return copied;
+}
+
 function copyToClipboard(text) {
     // Using document.execCommand as it works reliably in iFrames/sandboxed envs
     const textArea = document.createElement("textarea");

@@ -74,8 +74,20 @@
     return '<span class="inline-block w-1.5 h-1.5 rounded-full bg-stone-400 mr-1.5"></span>Offline · will resume';
   }
 
+  // A list with nothing in it says what would be in it.
+  function emptyRow(text) {
+    const li = document.createElement('li');
+    li.className = 'text-xs text-stone-400 py-2';
+    li.setAttribute('data-share-empty', '');
+    li.textContent = text;
+    return li;
+  }
+
   function renderPublications(shares) {
     pubList.innerHTML = '';
+    if (shares.length === 0) {
+      pubList.appendChild(emptyRow('Nothing shared yet. Sharing a tag gives you a link; whoever follows it gets that tag\'s clips, and new ones as you add them.'));
+    }
     shares.forEach(s => {
       const li = document.createElement('li');
       li.className = 'bg-white border border-stone-200 rounded-md px-4 py-3 flex items-center justify-between gap-3';
@@ -108,6 +120,9 @@
 
   function renderFollows(follows) {
     followList.innerHTML = '';
+    if (follows.length === 0) {
+      followList.appendChild(emptyRow('Not following anyone. Paste a share link someone gave you to receive their clips into a tag here.'));
+    }
     follows.forEach(f => {
       const li = document.createElement('li');
       li.className = 'bg-white border border-stone-200 rounded-md px-4 py-3 flex items-center justify-between gap-3';
@@ -141,6 +156,10 @@
       updateIndicator((status.shares && status.shares.length > 0) || (status.follows && status.follows.length > 0));
     } catch (e) {
       console.error('share: refresh failed', e);
+      // Blank lists read as "nothing shared"; say the load failed instead.
+      pubList.innerHTML = '';
+      followList.innerHTML = '';
+      pubList.appendChild(emptyRow('Could not load sharing status: ' + ((e && e.message) || String(e))));
     }
   }
 
@@ -150,6 +169,13 @@
   async function openShareModalForTag(preselectTagID) {
     try {
       const tags = await window.go.main.App.GetTags();
+      if (!tags || tags.length === 0) {
+        // An empty picker whose only answer was "Pick a tag first".
+        if (typeof showToast === 'function') {
+          showToast('No tags yet. Tag a clip from its menu (Tags), or create a folder in folder mode, then share it here.');
+        }
+        return;
+      }
       tagSelect.innerHTML = '';
       (tags || []).forEach(t => {
         const o = document.createElement('option');
@@ -216,12 +242,11 @@
 
   copyBtn.addEventListener('click', async () => {
     const text = stringBox.textContent;
-    try {
-      await navigator.clipboard.writeText(text);
-      copyBtn.textContent = 'Copied ✓';
-      setTimeout(() => copyBtn.textContent = '📋 Copy link', 1500);
-    } catch (e) {
-      console.error('copy failed', e);
+    if (await copyTextQuietly(text)) {
+      copyBtn.textContent = 'Copied';
+      setTimeout(() => copyBtn.textContent = 'Copy link', 1500);
+    } else if (typeof showToast === 'function') {
+      showToast('Could not copy the link.', 'error');
     }
   });
 
@@ -282,12 +307,11 @@
     const copy = e.target.closest('.share-copy-link');
     const stop = e.target.closest('.share-stop');
     if (copy) {
-      try {
-        await navigator.clipboard.writeText(copy.dataset.share);
-        copy.textContent = 'Copied ✓';
+      if (await copyTextQuietly(copy.dataset.share)) {
+        copy.textContent = 'Copied';
         setTimeout(() => copy.textContent = 'Copy link', 1500);
-      } catch (err) {
-        console.error(err);
+      } else if (typeof showToast === 'function') {
+        showToast('Could not copy the link.', 'error');
       }
       return;
     }

@@ -209,7 +209,8 @@ function renderServeCard(info) {
         : '<span class="w-2.5 h-2.5 rounded-full bg-stone-300 flex-shrink-0"></span>';
 
     const urlDisplay = info.running && info.url
-        ? `<button class="serve-url-copy text-[11px] text-stone-500 hover:text-stone-700 underline underline-offset-2 decoration-stone-300 truncate max-w-[200px] transition-colors" data-url="${escapeHTML(info.url)}" title="Click to copy URL">${escapeHTML(info.url)}</button>`
+        ? `<button class="serve-url-copy text-[11px] text-stone-500 hover:text-stone-700 underline underline-offset-2 decoration-stone-300 truncate max-w-[200px] transition-colors" data-url="${escapeHTML(info.url)}" title="Click to copy URL">${escapeHTML(info.url)}</button>
+           <button type="button" class="serve-url-open desktop-only text-[11px] text-stone-500 hover:text-stone-700 underline underline-offset-2 decoration-stone-300 transition-colors" data-url="${escapeHTML(info.url)}" aria-label="Open ${escapeHTML(info.url)} in the browser">Open</button>`
         : '<span class="text-[11px] text-stone-400">Not running</span>';
 
     const requestBadge = info.running
@@ -382,7 +383,10 @@ async function showServeTagPicker() {
         const availableTags = tags.filter(t => !configuredEntries.has(t.id));
 
         if (availableTags.length === 0) {
-            showToast('No available tags to serve');
+            // Two different dead ends used to share one message.
+            showToast(tags.length === 0
+                ? 'No tags yet. Tag a clip from its menu (Tags), or create a folder in folder mode, then serve it here.'
+                : 'Every tag is already in this list.');
             return;
         }
 
@@ -587,16 +591,21 @@ addServeBtn.addEventListener('click', (e) => {
 
 // Serve list event delegation
 serveList.addEventListener('click', async (e) => {
+    // Open the served address in the browser. Desktop only: in the web UI
+    // the address names the server's own loopback, not the viewer's.
+    const openBtn = e.target.closest('.serve-url-open');
+    if (openBtn) {
+        const url = openBtn.dataset.url;
+        if (/^https?:\/\//.test(url) && window.runtime?.BrowserOpenURL) window.runtime.BrowserOpenURL(url);
+        return;
+    }
+
     // Copy URL to clipboard
     const copyBtn = e.target.closest('.serve-url-copy');
     if (copyBtn) {
         const url = copyBtn.dataset.url;
-        try {
-            await navigator.clipboard.writeText(url);
-            showToast('URL copied');
-        } catch (err) {
-            console.error('Failed to copy URL:', err);
-        }
+        if (await copyTextQuietly(url)) showToast('URL copied');
+        else showToast('Could not copy the URL.', 'error');
         return;
     }
 

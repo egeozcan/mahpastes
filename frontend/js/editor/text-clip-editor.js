@@ -387,6 +387,14 @@ const TextClipEditor = (() => {
             // Not undoable: recovering a draft is loading a document, not an edit
             // the user should be able to undo back out of.
             adapter.setValue(draft.text, { undoable: false });
+            // Loading the draft counted as a change and scheduled it to be
+            // written again: that would stamp it with a new time and replace
+            // this notice (and its Discard button) with "Draft saved" a
+            // moment later. It is already stored; nothing needs writing.
+            if (draftTimer) {
+                clearTimeout(draftTimer);
+                draftTimer = null;
+            }
             const age = draftAge(draft.updatedAt);
             setDraftStatus('Recovered draft', {
                 recovered: true,
@@ -717,8 +725,6 @@ const TextClipEditor = (() => {
     // "No matches" and looks like a failure. Cleared by the next thing the
     // user does with the search or the text.
     let replaceResult = '';
-    // The replace is itself a document change; only a later one clears it.
-    let replaceResultAt = 0;
 
     function setSearchStatus() {
         const status = element('text-editor-search-status');
@@ -805,21 +811,18 @@ const TextClipEditor = (() => {
         const before = applyQuery();
         const count = before.matches.length;
         const ran = adapter.replaceAll(element('text-editor-replace').value);
-        if (count > 0 && ran !== false) {
+        if (count > 0 && !(ran && ran.ran === false)) {
             // The match list is capped; the replace covers the whole document.
+            // Set after the replace: its own change event has already run, so
+            // the next change to arrive is a later edit, which clears this.
             const shown = before.truncated ? `${count}+` : `${count}`;
             replaceResult = `Replaced ${shown} occurrence${count === 1 && !before.truncated ? '' : 's'}`;
-            replaceResultAt = performance.now();
         }
         updateCursorStatus();
         setSearchStatus();
     }
 
-    function clearReplaceResult() {
-        if (!replaceResult) return;
-        replaceResult = '';
-        setSearchStatus();
-    }
+
 
     function updateSearchToggle(id, pressed) {
         const button = element(id);
@@ -934,9 +937,8 @@ const TextClipEditor = (() => {
     }
 
     function handleChange() {
-        // An edit after a Replace All makes its message stale (the replace's
-        // own change arrives within the same moment and is not that edit).
-        if (replaceResult && performance.now() - replaceResultAt > 150) replaceResult = '';
+        // An edit after a Replace All makes its message stale.
+        replaceResult = '';
         // Read once and passed down: each read used to be a fresh doc.toString().
         const value = getValue();
         if (refreshDegraded(value)) {
