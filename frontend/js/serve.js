@@ -11,6 +11,66 @@ const apiAccessPreferences = new Map(); // tagID -> "none" | "read" | "readwrite
 // Each entry: { tag_id, tag_name, bind_all }
 const configuredEntries = new Map();
 
+// --- Remembered serve list ---
+//
+// The list, each entry's Local/Network and API choice, and the port it last
+// ran on are kept in one setting, so they survive a restart and a tag's URL
+// stays the same from one start to the next. Nothing is started from it: a
+// server only ever runs because the user pressed Start. The setting is
+// machine-local (the backend keeps it out of backups and refuses it over
+// REST), so in server mode the save simply fails and the list lasts for the
+// session, as before.
+const SERVE_ENTRIES_SETTING = 'serve_entries';
+let serveEntriesRestored = false;
+let lastSavedServeEntries = null;
+
+function serveEntriesSnapshot() {
+    return JSON.stringify(Array.from(configuredEntries.values()).map(entry => ({
+        tag_id: entry.tag_id,
+        bind_all: bindPreferences.has(entry.tag_id) ? !!bindPreferences.get(entry.tag_id) : !!entry.bind_all,
+        api_access: apiAccessPreferences.get(entry.tag_id) || 'none',
+        last_port: Number(entry.last_port) || 0,
+    })));
+}
+
+function persistServeEntries() {
+    if (!serveEntriesRestored) return; // nothing to save over what is stored yet
+    const snapshot = serveEntriesSnapshot();
+    if (snapshot === lastSavedServeEntries) return;
+    lastSavedServeEntries = snapshot;
+    window.go.main.App.SetSetting(SERVE_ENTRIES_SETTING, snapshot).catch(() => { /* session-only */ });
+}
+
+// Once, before the first render: bring back the stored entries whose tag
+// still exists. Entries already present (a server running right now) win.
+async function restoreServeEntries() {
+    if (serveEntriesRestored) return;
+    try {
+        const raw = await window.go.main.App.GetSetting(SERVE_ENTRIES_SETTING);
+        const stored = raw ? JSON.parse(raw) : [];
+        if (Array.isArray(stored) && stored.length > 0) {
+            const tags = await window.go.main.App.GetTags();
+            const names = new Map((tags || []).map(t => [Number(t.id), t.name]));
+            for (const item of stored) {
+                const tagID = Number(item && item.tag_id);
+                if (!names.has(tagID) || configuredEntries.has(tagID)) continue;
+                const port = Number(item.last_port);
+                configuredEntries.set(tagID, {
+                    tag_id: tagID,
+                    tag_name: names.get(tagID),
+                    bind_all: item.bind_all === true,
+                    last_port: Number.isInteger(port) && port > 0 && port < 65536 ? port : 0,
+                });
+                if (['read', 'readwrite'].includes(item.api_access)) apiAccessPreferences.set(tagID, item.api_access);
+            }
+        }
+    } catch (error) {
+        console.error('Failed to restore the serve list:', error);
+    }
+    serveEntriesRestored = true;
+    lastSavedServeEntries = serveEntriesSnapshot();
+}
+
 // --- Serve Elements ---
 const serveView = document.getElementById('serve-view');
 const serveList = document.getElementById('serve-list');
@@ -199,6 +259,7 @@ async function loadServeStatus({ force = false } = {}) {
     if (!force && serveList.contains(document.activeElement)) return;
 
     try {
+        await restoreServeEntries();
         const statuses = await window.go.main.ServeService.GetServeStatus();
         const runningMap = new Map();
         for (const s of (statuses || [])) {
@@ -207,10 +268,14 @@ async function loadServeStatus({ force = false } = {}) {
             if (!configuredEntries.has(s.tag_id)) {
                 configuredEntries.set(s.tag_id, { tag_id: s.tag_id, tag_name: s.tag_name, bind_all: s.bind_all });
             }
+            // The port it runs on now is the one to ask for next time.
+            if (Number(s.port) > 0) configuredEntries.get(s.tag_id).last_port = Number(s.port);
             if (s.api_access && s.api_access !== 'none') {
                 apiAccessPreferences.set(s.tag_id, s.api_access);
             }
         }
+
+        persistServeEntries();
 
         const renderKey = JSON.stringify({
             entries: [...configuredEntries.keys()],
@@ -417,9 +482,23 @@ window.openServeViewForTag = openServeViewForTag;
 async function startServingTag(tagID, bindAll = false) {
     try {
         const apiAccess = apiAccessPreferences.get(tagID) || 'none';
-        const port = await window.go.main.ServeService.GetRandomPort();
-        await window.go.main.ServeService.StartServing(tagID, port, bindAll, apiAccess);
-        showToast('Tag server started');
+        // The port it had last time first, so a bookmarked or shared URL keeps
+        // working; a random one only if that port is taken now.
+        const lastPort = Number(configuredEntries.get(tagID)?.last_port) || 0;
+        let moved = false;
+        if (lastPort > 0) {
+            try {
+                await window.go.main.ServeService.StartServing(tagID, lastPort, bindAll, apiAccess);
+            } catch (error) {
+                if (!/unavailable/i.test(errText(error))) throw error;
+                moved = true;
+            }
+        }
+        if (lastPort === 0 || moved) {
+            const port = await window.go.main.ServeService.GetRandomPort();
+            await window.go.main.ServeService.StartServing(tagID, port, bindAll, apiAccess);
+        }
+        showToast(moved ? `Tag server started. Port ${lastPort} is in use, so its address changed.` : 'Tag server started');
         await loadServeStatus({ force: true });
         updateServeIndicator();
     } catch (error) {
@@ -506,6 +585,7 @@ serveList.addEventListener('click', async (e) => {
         const currentBind = bindBtn.dataset.bindAll === 'true';
         // Store preference per tag for next start
         bindPreferences.set(tagID, !currentBind);
+        persistServeEntries();
         bindBtn.dataset.bindAll = String(!currentBind);
         bindBtn.textContent = !currentBind ? 'Network' : 'Local';
         bindBtn.title = !currentBind ? 'Accessible from network (0.0.0.0)' : 'Local only (127.0.0.1)';
@@ -573,6 +653,7 @@ serveList.addEventListener('change', (e) => {
     if (select) {
         const tagID = parseInt(select.dataset.tagId, 10);
         apiAccessPreferences.set(tagID, select.value);
+        persistServeEntries();
     }
 });
 
@@ -580,6 +661,15 @@ serveList.addEventListener('change', (e) => {
 if (window.__testHelpers) {
     window.__testHelpers.switchView = (view) => switchView(view);
     window.__testHelpers.getCurrentView = () => currentView;
+    // Forget the list in memory and read the stored one again on next use.
+    window.__testHelpers.resetServeEntries = () => {
+        configuredEntries.clear();
+        bindPreferences.clear();
+        apiAccessPreferences.clear();
+        serveEntriesRestored = false;
+        lastSavedServeEntries = null;
+        lastServeRenderKey = null;
+    };
     window.__testHelpers.hasConfiguredServeEntry = (tagName) => {
         for (const entry of configuredEntries.values()) {
             if (entry.tag_name === tagName) return true;

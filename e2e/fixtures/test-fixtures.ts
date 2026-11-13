@@ -768,6 +768,12 @@ export class AppHelper {
         }
       } catch {}
 
+      // The Serve view remembers its list in a setting.
+      try {
+        if (App?.SetSetting) await App.SetSetting('serve_entries', '[]');
+        (window as any).__testHelpers?.resetServeEntries?.();
+      } catch {}
+
       // The worker page is reused, so reset search through the public setter:
       // writing only the DB setting leaves both module-level flags stale.
       try {

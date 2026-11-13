@@ -119,6 +119,10 @@ var sensitiveSettingPatterns = []string{
 	// made, a planted "last" one would put the check off.
 	settingUpdateCheckLast,
 	settingUpdateCheckFound,
+	// Machine-local: which tags this machine offers to serve, on which port
+	// and to whom. A backup restored elsewhere must not bring a "Network"
+	// entry or a read/write API choice with it.
+	SettingServeEntries,
 }
 
 // captureLocalOnlySettings returns the settings rows a backup never carries

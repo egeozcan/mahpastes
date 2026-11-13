@@ -709,6 +709,13 @@ func (sm *ServeManager) CloseAll() {
 	}
 }
 
+// SettingServeEntries is the Serve view's remembered list: one JSON array of
+// {tag_id, bind_all, api_access, last_port}, written by the desktop frontend.
+// Nothing is started from it; it only brings the list, each entry's choices
+// and its last port back after a restart. Machine-local (never in a backup,
+// kept across a restore, refused over REST).
+const SettingServeEntries = "serve_entries"
+
 // GetRandomPort finds an available TCP port on localhost by briefly binding to port 0.
 func GetRandomPort() (int, error) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
