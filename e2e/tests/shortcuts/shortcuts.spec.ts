@@ -958,7 +958,6 @@ test.describe('Keyboard Shortcuts', () => {
       await expect(list).toContainText('Focus Search');
       await expect(list).toContainText('Toggle Archive View');
       await expect(list).toContainText('Open Settings');
-      await expect(list).toContainText('Open in Lightbox');
       await expect(list).toContainText('Delete Clip');
       await expect(list).toContainText('Close Lightbox');
       await expect(list).toContainText('Show Shortcuts');

@@ -1617,7 +1617,7 @@ window.addEventListener('load', async () => {
 
         // Clip actions (when a clip has keyboard focus)
         ShortcutManager.register({
-            id: 'clip-open', label: 'Open in Lightbox', category: 'clip',
+            id: 'clip-open', label: 'Open', category: 'clip',
             defaultKey: 'Enter', context: 'clip',
             callback: () => {
                 const clip = ShortcutManager.getFocusedClip();

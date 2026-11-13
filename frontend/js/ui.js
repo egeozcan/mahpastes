@@ -1537,7 +1537,16 @@ async function createClipCard(clip, options = {}) {
         card.querySelector('[data-action="open-lightbox"]').addEventListener('click', () => {
             if (isTextCandidate(clip.filename || '', clip.content_type || '')) {
                 openEditor(clip.id);
+                return;
             }
+            // Nothing in the app can show this type (a PDF, an archive). The
+            // click says so and offers the way out rather than doing nothing;
+            // it does not launch the other application by itself, because the
+            // system's handler for some types runs the file.
+            showToast('No preview for this file type.', 'info', {
+                label: 'Open',
+                onClick: () => handleCardAction('open', clip.id),
+            });
         });
     }
 
