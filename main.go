@@ -43,8 +43,8 @@ func main() {
 
 	dataDir, err := coreapp.GetDataDir()
 	if err != nil {
-		// No log file yet, and a Windows GUI exe has no console: without the
-		// dialog the app would just not start.
+		// No log file yet, and a Windows GUI exe or a Finder-launched .app has
+		// no console: without the dialog the app would just not start.
 		if !generatingBindings {
 			showStartupError(fmt.Sprintf("mahpastes cannot use its data folder: %v", err))
 		}
@@ -93,7 +93,7 @@ func main() {
 			return
 		}
 		if err != nil {
-			showStartupError(err.Error())
+			showStartupError(startupFailureMessage(err.Error(), logWriter != nil, dataDir))
 			log.Fatalf("%v", err)
 		}
 		defer instanceLock.Release()
@@ -119,6 +119,8 @@ func main() {
 	if !launch.Empty() {
 		desktopApp.submitOpenRequest(launch)
 	}
+	// macOS hands the launch's file arguments to OnFileOpen as well.
+	launchEcho := newLaunchFileEcho(launch)
 	// Later launches reach this window through the instance socket.
 	var instanceServer *openrequest.Server
 	if !generatingBindings {
@@ -205,6 +207,8 @@ func main() {
 	saved, haveSaved := windowstate.State{}, false
 	if !headless && !generatingBindings {
 		if saved, haveSaved = windowstate.Load(dataDir); haveSaved {
+			// No geometry save until OnDomReady has restored this one.
+			geometryRestorePending.Store(true)
 			winW, winH = saved.Width, saved.Height
 			if saved.Maximised {
 				startState = options.Maximised
@@ -246,10 +250,12 @@ func main() {
 			bridge := wailsbridge.New(ctx)
 			desktopApp.setBridge(bridge)
 			menuEvents.set(bridge.Emit)
-			// Wails v2 installs no signal handler, so a SIGTERM (installers,
-			// logout, `kill`) or Ctrl+C would end the process without
-			// OnShutdown: no FUSE unmount, no plugin shutdown, no final share
-			// emissions. Quit through Wails instead.
+			// Wails' own signal handler quits through OnBeforeClose, so a
+			// SIGTERM (installers, logout, `kill`) or Ctrl+C would wait on the
+			// unsaved-changes prompt. Ours skips the prompt (forceQuit), still
+			// quits through Wails so OnShutdown runs (FUSE unmount, plugin
+			// shutdown, final share emissions), and exits after a grace
+			// period or a second signal.
 			if !generatingBindings {
 				sigs := make(chan os.Signal, 2)
 				signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
@@ -385,7 +391,7 @@ func main() {
 			// come before OnStartup; the open-request queue holds them until the
 			// frontend takes them.
 			OnFileOpen: func(path string) {
-				desktopApp.submitOpenRequest(openrequest.Request{Files: []string{path}, Activate: true})
+				desktopApp.submitOpenRequest(launchEcho.request(path))
 			},
 			OnUrlOpen: func(raw string) {
 				if u, ok := openrequest.ParseURL(raw); ok {
@@ -420,6 +426,15 @@ func main() {
 	if selfTest != nil {
 		os.Exit(selfTest.finish())
 	}
+}
+
+// startupFailureMessage is the dialog text for a failure before Wails starts,
+// naming the log folder when a log was opened.
+func startupFailureMessage(msg string, haveLog bool, dataDir string) string {
+	if haveLog {
+		msg += "\n\nDetails are in " + logfile.Dir(dataDir)
+	}
+	return msg
 }
 
 // fatalStartup logs a startup failure, tells the user in a native dialog (the

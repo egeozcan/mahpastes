@@ -1593,7 +1593,9 @@ export namespace main {
 	}
 	export class OpenRequests {
 	    files: string[];
+	    file_sizes: number[];
 	    skipped: string[];
+	    too_large: string[];
 	    links: openrequest.Link[];
 	    unsupported_links: string[];
 	    paste_clipboard: boolean;
@@ -1605,7 +1607,9 @@ export namespace main {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.files = source["files"];
+	        this.file_sizes = source["file_sizes"];
 	        this.skipped = source["skipped"];
+	        this.too_large = source["too_large"];
 	        this.links = this.convertValues(source["links"], openrequest.Link);
 	        this.unsupported_links = source["unsupported_links"];
 	        this.paste_clipboard = source["paste_clipboard"];

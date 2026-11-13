@@ -73,7 +73,11 @@ func (r Request) Empty() bool {
 //     starts the command registered for the scheme with the link put into it,
 //     and Windows does that without escaping: a link with a quote in it can
 //     append arguments of its own ("--paste-clipboard", a file to import).
-//     Links only navigate, so whatever came with one is dropped.
+//     Links only navigate, so whatever came with one is dropped. This is a
+//     rule about arguments. macOS never puts a followed link into them (it
+//     arrives as an Apple Event, OnUrlOpen), and AppKit hands the first
+//     process's file arguments to OnFileOpen by itself, so there a link and
+//     a file typed on one command line still import the file.
 //   - A COM activation (-Embedding: Windows starting the app for a click on
 //     one of its old toasts) only activates. Its command line is the toast
 //     activator's, whose literal "%1" is not a file.

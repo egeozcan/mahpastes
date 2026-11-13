@@ -216,3 +216,48 @@ func TestPlanRestore(t *testing.T) {
 		t.Fatalf("unknown screen: %+v", r)
 	}
 }
+
+// A size saved on a larger display is shrunk; the saved offset must not then
+// push the shrunk window past the screen's edges.
+func TestPlanRestoreClampedSizeFitsScreen(t *testing.T) {
+	screen := &Screen{1512, 982}
+	for _, tc := range []struct {
+		s            State
+		wantX, wantY int
+	}{
+		{State{Width: 4000, Height: 3000, X: 300, Y: 100, HasPos: true}, 0, 0},
+		{State{Width: 1800, Height: 1200, X: 600, Y: 100, HasPos: true}, 0, 0},
+		// Clamped on one axis only: the other keeps its offset when it fits.
+		{State{Width: 1800, Height: 700, X: 600, Y: 100, HasPos: true}, 0, 100},
+		{State{Width: 1000, Height: 1200, X: 300, Y: 100, HasPos: true}, 300, 0},
+		// ...and is pulled back when the shrunk window would not fit there.
+		{State{Width: 1800, Height: 700, X: 600, Y: 400, HasPos: true}, 0, 282},
+	} {
+		r := PlanRestore(tc.s, screen, true)
+		if !r.Resize || !r.Move {
+			t.Fatalf("%+v: want resize and move, got %+v", tc.s, r)
+		}
+		if r.X+r.Width > screen.Width || r.Y+r.Height > screen.Height || r.X < 0 || r.Y < 0 {
+			t.Errorf("%+v: %dx%d at (%d,%d) does not fit %dx%d", tc.s, r.Width, r.Height, r.X, r.Y, screen.Width, screen.Height)
+		}
+		if r.X != tc.wantX || r.Y != tc.wantY {
+			t.Errorf("%+v: placed at (%d,%d), want (%d,%d)", tc.s, r.X, r.Y, tc.wantX, tc.wantY)
+		}
+	}
+
+	// A screen smaller than the minimum window: top-left, not a negative offset.
+	r := PlanRestore(State{Width: 1280, Height: 800, X: 50, Y: 60, HasPos: true}, &Screen{700, 500}, true)
+	if !r.Move || r.X != 0 || r.Y != 0 {
+		t.Errorf("tiny screen: %+v", r)
+	}
+
+	// Not shrunk: a window left partly off-screen but grabbable stays put.
+	r = PlanRestore(State{Width: 1000, Height: 700, X: 900, Y: 400, HasPos: true}, screen, true)
+	if r.Resize || !r.Move || r.X != 900 || r.Y != 400 {
+		t.Errorf("unclamped position must be restored as saved: %+v", r)
+	}
+	r = PlanRestore(State{Width: 1000, Height: 700, X: -7, Y: 0, HasPos: true}, screen, true)
+	if !r.Move || r.X != -7 {
+		t.Errorf("snapped window must keep its offset: %+v", r)
+	}
+}

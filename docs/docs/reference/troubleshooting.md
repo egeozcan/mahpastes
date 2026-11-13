@@ -97,7 +97,7 @@ exists.
 
 ### "Another mahpastes instance is already running"
 
-**Symptoms:** Launching mahpastes shows this error (in a dialog on Windows, on the terminal elsewhere) instead
+**Symptoms:** Launching mahpastes shows this error (in a dialog on Windows and macOS, on the terminal on Linux or when started from one) instead
 of opening a window.
 
 A second launch normally just brings the running window to the front. You see this error only when the
@@ -352,7 +352,7 @@ On Windows, a file too large for the Recycle Bin is still deleted permanently.
 
 **Solutions:**
 1. Verify mahpastes is running
-2. Open **Settings** > **API** and confirm the API is enabled. The server does not start with the app unless **Start on launch** is on
+2. Open the menu drawer, click **API** and confirm the API is enabled. The server does not start with the app unless **Start on launch** is on
 3. Check the port matches your `MP_API_URL` (default `http://localhost:44557`)
 
 ### 401 Unauthorized
@@ -361,7 +361,7 @@ On Windows, a file too large for the Recycle Bin is still deleted permanently.
 
 **Solutions:**
 1. Check your `MP_API_KEY` environment variable (or the file `MP_API_KEY_FILE` names) holds the right key
-2. Verify the key has not been revoked in **Settings** > **API**
+2. Verify the key has not been revoked (menu drawer > **API**)
 3. Confirm the key prefix is `mp_`
 
 ### 403 Forbidden
@@ -370,14 +370,14 @@ On Windows, a file too large for the Recycle Bin is still deleted permanently.
 
 **Solutions:**
 1. The key may lack the required role for the requested operation
-2. Scoped keys can only access clips within their assigned tag -- verify the key's scope in **Settings** > **API**
+2. Scoped keys can only access clips within their assigned tag -- verify the key's scope (menu drawer > **API**)
 
 ### Port Already in Use
 
 **Symptoms:** API fails to start, logs show "address already in use."
 
 **Solutions:**
-1. Change the API port in **Settings** > **API**
+1. Change the API port (menu drawer > **API**)
 2. Find and stop the process using the port:
    ```bash
    lsof -i :44557
@@ -415,7 +415,7 @@ If `MP_API_URL` points at a host that does not answer at all, this message appea
 
 **Solutions:**
 1. Verify the mahpastes desktop app is running
-2. Confirm the API is enabled in **Settings** > **API**. Turn on **Start on launch** there so it starts with the app every time
+2. Confirm the API is enabled (menu drawer > **API**). Turn on **Start on launch** there so it starts with the app every time
 3. If using a custom URL, check `MP_API_URL`:
    ```bash
    export MP_API_URL=http://localhost:44557
@@ -438,7 +438,7 @@ If `MP_API_URL` points at a host that does not answer at all, this message appea
 
 **Solutions:**
 1. Verify `MP_API_KEY` (or the file `MP_API_KEY_FILE` names) holds a valid, non-revoked key
-2. Regenerate the key in **Settings** > **API** if needed
+2. Create a new key (menu drawer > **API**) if needed
 3. Check for extra whitespace or quotes in the key value
 
 ## Plugin Issues

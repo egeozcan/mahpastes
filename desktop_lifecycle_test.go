@@ -108,6 +108,58 @@ func TestBeforeCloseSkipsQuestionOnSignalQuit(t *testing.T) {
 	}
 }
 
+// A signal's Quit while the question is up only tears the dialog down (macOS:
+// abortModal, which reads as "not confirmed" or an error). The call that asked
+// must then let the quit go ahead, or nothing quits until the grace timer.
+func TestBeforeCloseQuitsWhenSignalArrivesDuringQuestion(t *testing.T) {
+	for name, dialogErr := range map[string]error{"dismissed": nil, "error": errors.New("aborted")} {
+		t.Run(name, func(t *testing.T) {
+			b := wailsbridge.NewForTesting()
+			d := &App{bridge: b, lifecycle: &desktopLifecycle{}}
+			b.SetTestShowWindow(func() {})
+			b.SetTestConfirm(func(wailsbridge.ConfirmOptions) (bool, error) {
+				d.signalQuit()
+				return false, dialogErr
+			})
+			d.SetUnsavedChanges(true)
+			if d.beforeClose(context.Background()) {
+				t.Fatal("a signal during the question must not leave the quit cancelled")
+			}
+		})
+	}
+}
+
+// The signal's own quit request (and Wails' signal handler) reach beforeClose
+// while the first call still holds the question: neither may cancel.
+func TestBeforeCloseSecondRequestQuitsAfterSignalDuringQuestion(t *testing.T) {
+	release := make(chan struct{})
+	started := make(chan struct{})
+	b := wailsbridge.NewForTesting()
+	b.SetTestConfirm(func(wailsbridge.ConfirmOptions) (bool, error) {
+		close(started)
+		<-release
+		return false, nil
+	})
+	b.SetTestShowWindow(func() {})
+	d := &App{bridge: b, lifecycle: &desktopLifecycle{}}
+	d.SetUnsavedChanges(true)
+
+	first := make(chan bool, 1)
+	go func() { first <- d.beforeClose(context.Background()) }()
+	<-started
+	if !d.beforeClose(context.Background()) {
+		t.Fatal("without a signal, a second request while the question is up is dropped")
+	}
+	d.signalQuit()
+	if d.beforeClose(context.Background()) {
+		t.Fatal("a signal quit must go ahead although the question is still up")
+	}
+	close(release)
+	if <-first {
+		t.Fatal("the call that asked must quit once a signal arrived")
+	}
+}
+
 func TestBeforeCloseDoesNotStackDialogs(t *testing.T) {
 	release := make(chan struct{})
 	started := make(chan struct{})

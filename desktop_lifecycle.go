@@ -115,13 +115,19 @@ func (d *App) QuitApp() {
 // A dialog that cannot be shown lets the quit go ahead, as does a
 // signal-initiated quit, and a second quit request while the question is up
 // is dropped rather than stacking another dialog.
+//
+// A signal can also arrive while the question is up. Its Quit ends only the
+// dialog's modal loop on macOS (NSApp stop + abortModal), which reads as a
+// dismissal, so forceQuit is checked again after the dialog: the caller that
+// asked then quits with no modal in the way.
 func (d *App) beforeClose(ctx context.Context) (prevent bool) {
 	lc := d.lifecycle
 	if lc.forceQuit.Load() || !lc.unsaved.Load() {
 		return false
 	}
 	if !lc.prompting.CompareAndSwap(false, true) {
-		return true
+		// Dropped, unless a signal set forceQuit after the question went up.
+		return !lc.forceQuit.Load()
 	}
 	defer lc.prompting.Store(false)
 
@@ -133,6 +139,11 @@ func (d *App) beforeClose(ctx context.Context) (prevent bool) {
 		ConfirmLabel: "Quit",
 		CancelLabel:  "Keep Editing",
 	})
+	if lc.forceQuit.Load() {
+		// A signal arrived meanwhile: whatever the dialog returned is its
+		// being torn down, not an answer.
+		return false
+	}
 	if err != nil {
 		log.Printf("quit: could not ask about unsaved changes, quitting anyway: %v", err)
 		return false
@@ -150,7 +161,7 @@ func (d *App) domReady(ctx context.Context) {
 	lc := d.lifecycle
 	lc.unsaved.Store(false)
 	if lc.hideAfterLoad {
-		lc.hideOnce.Do(d.bridge.HideApp)
+		lc.hideOnce.Do(func() { d.hideUnlessWindowAsked(d.bridge.HideApp) })
 	}
 }
 
