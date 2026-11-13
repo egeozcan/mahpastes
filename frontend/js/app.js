@@ -1667,6 +1667,25 @@ window.addEventListener('load', async () => {
             defaultKey: 's', context: 'gallery',
             callback: () => { if (typeof switchView === 'function') switchView(currentView === 'serve' ? 'clips' : 'serve'); }
         });
+        // Share, the REST API dialog and Maintenance were reachable from the
+        // drawer only: no menu bar item, no rebindable action, no cheat-sheet
+        // row. They have no key by default (the free single letters are few);
+        // one can be given in Settings.
+        ShortcutManager.register({
+            id: 'open-share', label: 'Open Share View', category: 'navigation',
+            defaultKey: null, context: 'gallery',
+            callback: () => { if (typeof switchView === 'function') switchView(currentView === 'share' ? 'clips' : 'share'); }
+        });
+        ShortcutManager.register({
+            id: 'open-api', label: 'Open REST API Settings', category: 'navigation',
+            defaultKey: null, context: 'gallery',
+            callback: () => { if (typeof openApiModal === 'function') openApiModal(); }
+        });
+        ShortcutManager.register({
+            id: 'open-maintenance', label: 'Open Maintenance', category: 'navigation',
+            defaultKey: null, context: 'gallery',
+            callback: () => { if (typeof openMaintenance === 'function') openMaintenance(); }
+        });
         // Folder import. Desktop-only: in server mode the bindings throw and
         // the drawer entry is hidden, so the shortcut is a no-op there too.
         ShortcutManager.register({

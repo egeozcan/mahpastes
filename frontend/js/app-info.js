@@ -132,6 +132,9 @@
         'watch': 'open-watch',
         'serve': 'open-serve',
         'plugins': 'open-plugins',
+        'share': 'open-share',
+        'api': 'open-api',
+        'maintenance': 'open-maintenance',
         'shortcuts': 'show-cheatsheet',
     };
 

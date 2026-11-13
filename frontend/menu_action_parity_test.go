@@ -113,7 +113,7 @@ func TestMenuBarItemsRunFromEveryMainView(t *testing.T) {
 	if err := json.Unmarshal(out, &r); err != nil {
 		t.Fatalf("bad harness output %q: %v", out, err)
 	}
-	all := []string{"import-files", "import-folder", "settings", "archive", "folder-mode", "watch", "serve", "plugins", "shortcuts"}
+	all := []string{"import-files", "import-folder", "settings", "archive", "folder-mode", "watch", "serve", "plugins", "share", "api", "maintenance", "shortcuts"}
 	toGallery := map[string][]string{"import-files": {"clips"}, "import-folder": {"clips"}, "folder-mode": {"clips"}}
 
 	for _, state := range []string{"gallery", "serve", "watch", "share", "drawer"} {
