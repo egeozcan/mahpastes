@@ -544,9 +544,19 @@ Object.assign(window.__testHelpers, {
 // Whole-app drag and drop
 let dragCounter = 0;
 
+// The overlay says "drop to upload", so it shows only for a drag that carries
+// files. Dragged text or a link (from another app, or selected text within
+// this one) is not something a drop here does anything with, and the overlay
+// used to promise otherwise.
+function dragCarriesFiles(e) {
+    const types = e.dataTransfer && e.dataTransfer.types;
+    return !!types && Array.from(types).includes('Files');
+}
+
 document.addEventListener('dragenter', e => {
     e.preventDefault();
     if (window.__internalDragActive) return;
+    if (!dragCarriesFiles(e)) return;
     dragCounter++;
     if (dragCounter === 1) {
         dropOverlay.classList.remove('opacity-0');
@@ -561,6 +571,7 @@ document.addEventListener('dragover', e => {
 document.addEventListener('dragleave', e => {
     e.preventDefault();
     if (window.__internalDragActive) return;
+    if (!dragCarriesFiles(e)) return;
     dragCounter--;
     if (dragCounter <= 0) {
         dragCounter = 0;
@@ -1502,17 +1513,24 @@ async function handleHtml(html) {
 // land as duplicates.
 function uploadFilesFromPaths(paths) {
     return enqueuePaste(async () => {
+        // One path that cannot be read (no permission, gone since it was
+        // checked) used to abandon every file of the batch. It is skipped and
+        // named in the upload's summary; the rest go in.
         const fileDataArray = [];
+        const unreadable = [];
         for (const path of paths) {
             try {
                 fileDataArray.push(await window.go.main.App.ReadFileFromPath(path));
             } catch (error) {
                 console.error('Error reading pasted path:', path, error);
-                showToast(`Could not read ${path.split(/[/\\]/).pop()}.`, 'error');
-                return;
+                unreadable.push(path.split(/[/\\]/).pop());
             }
         }
-        await upload(fileDataArray);
+        if (fileDataArray.length === 0) {
+            if (unreadable.length > 0) showToast(unreadableNote(unreadable), 'error');
+            return;
+        }
+        await upload(fileDataArray, { unreadable });
     });
 }
 

@@ -67,4 +67,21 @@ test.describe('Upload feedback', () => {
     await app.page.waitForTimeout(500);
     expect(await app.page.evaluate(() => (window as any).__statusShown)).toBe(false);
   });
+
+  test('the drop overlay appears for dragged files, not for dragged text', async ({ app }) => {
+    const overlayShown = (types: string[]) => app.page.evaluate((list) => {
+      const dt = new DataTransfer();
+      if (list.includes('Files')) dt.items.add(new File(['x'], 'x.txt', { type: 'text/plain' }));
+      else dt.setData('text/plain', 'just some text');
+      document.dispatchEvent(new DragEvent('dragenter', { dataTransfer: dt, bubbles: true, cancelable: true }));
+      const shown = document.getElementById('drop-overlay')!.classList.contains('opacity-100');
+      document.dispatchEvent(new DragEvent('dragleave', { dataTransfer: dt, bubbles: true, cancelable: true }));
+      return shown;
+    }, types);
+
+    expect(await overlayShown(['text/plain'])).toBe(false);
+    expect(await overlayShown(['Files'])).toBe(true);
+    // And it is gone again once the drag leaves.
+    await expect(app.page.locator('#drop-overlay')).not.toHaveClass(/opacity-100/);
+  });
 });

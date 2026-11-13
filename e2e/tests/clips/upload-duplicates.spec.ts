@@ -36,9 +36,19 @@ test.describe('Upload Duplicate Detection', () => {
 
     // Should show toast with "skipped"
     await app.expectToast('skipped');
+    // ...that says why, names the file, and leads to the clip already there.
+    await app.expectToast(`Already in your library: ${path.basename(filePath)} (skipped).`);
 
     // Count should remain at 1
     await app.expectClipCount(1);
+
+    // Show works even with the clip filtered out of view: it opens it.
+    await app.search('zzzznomatch');
+    await uploadViaJS(app, filePath);
+    await app.expectToast('Already in your library');
+    await app.page.locator('#toast [data-testid="toast-action"]').click();
+    await expect(app.page.locator('#lightbox')).toHaveClass(/active/);
+    await expect(app.page.locator('#lightbox-caption')).toContainText(path.basename(filePath));
   });
 
   test('different content same name shows conflict dialog', async ({ app }) => {

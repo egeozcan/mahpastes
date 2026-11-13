@@ -932,6 +932,23 @@ function offerToShowUploaded(uploaded, summary, type = 'info') {
     });
 }
 
+// Lead to a clip that is already stored: its card when it is on screen,
+// otherwise the clip opened as a link to it would open it (viewer or editor).
+function showExistingClip(clipID) {
+    const card = gallery.querySelector(`:scope > li[data-id="${Number(clipID)}"]`);
+    if (card && card.style.display !== 'none' && card.getClientRects().length > 0) {
+        const rover = window.__galleryRover;
+        if (rover) {
+            const index = rover.getItems().indexOf(card);
+            if (index >= 0) rover.setActiveIndex(index);
+        }
+        card.scrollIntoView({ block: 'center' });
+        card.focus({ preventScroll: true });
+        return;
+    }
+    if (typeof openClipFromLink === 'function') openClipFromLink(Number(clipID));
+}
+
 // `unreadable` names files of the same batch that could not be read: they are
 // reported in this upload's summary (a toast of their own would be replaced
 // by it).
@@ -980,13 +997,32 @@ async function upload(files, { unreadable = [] } = {}) {
                     : '') + (minutes > 0 && typeof uploadExpiryNote === 'function' ? uploadExpiryNote() : ''));
             }
             if (result.toOverwrite.length > 0) parts.push(`${result.toOverwrite.length} overwritten`);
-            if (result.skippedCount > 0) parts.push(`${result.skippedCount} skipped`);
+            const already = result.already || [];
+            if (result.skippedCount > 0) {
+                parts.push(already.length === result.skippedCount
+                    ? `${result.skippedCount} skipped (already in your library)`
+                    : `${result.skippedCount} skipped`);
+            }
             summary = parts.join(', ') + '.';
             // Still on the archive (something is open over it): the new clip
             // is not in the list behind, so say where it went.
             if (isViewingArchive && result.toUpload.length > 0) summary += ' Added to the active clips.';
             if (unreadableText) summary = parts.length > 0 ? `${summary} ${unreadableText}` : unreadableText;
-            showToast(summary, unreadableText ? 'error' : 'info');
+            // Nothing new at all, because it is all here already: say that
+            // (a bare "1 skipped." gave no reason) and lead to the clip, which
+            // may be behind a filter or on a page not loaded.
+            if (totalProcessed === 0 && !unreadableText && already.length > 0 && already.length === result.skippedCount) {
+                const first = already[0];
+                const text = already.length === 1
+                    ? `Already in your library: ${first.name} (skipped).`
+                    : `${already.length} files are already in your library (skipped).`;
+                showToast(text, 'info', {
+                    label: already.length === 1 ? 'Show' : 'Show first',
+                    onClick: () => showExistingClip(first.clipID),
+                });
+            } else {
+                showToast(summary, unreadableText ? 'error' : 'info');
+            }
         }
 
         if (!isViewingArchive) {
@@ -1327,6 +1363,9 @@ async function checkAndResolveConflicts(fileDataArray, tagID) {
     if (!matches || matches.length === 0) {
         return { toUpload: fileDataArray, toOverwrite: [], skippedCount: 0 };
     }
+    // Files skipped because the very same clip (name and bytes) is already
+    // here: {clipID, name}, so the caller can say so and point at it.
+    const already = [];
 
     // Build a map: filename → { clipID, existingHash }
     // Results are ordered by id DESC, so first match per filename is the most recent.
@@ -1351,6 +1390,7 @@ async function checkAndResolveConflicts(fileDataArray, tagID) {
         const incomingHash = await computeFileHash(fd.data);
         if (incomingHash === match.existingHash) {
             identical.push(fd);
+            already.push({ clipID: match.clipID, name: fd.name });
         } else {
             conflicts.push({ fileData: fd, clipID: match.clipID });
         }
@@ -1358,10 +1398,7 @@ async function checkAndResolveConflicts(fileDataArray, tagID) {
 
     // If all matches were identical content, skip silently
     if (conflicts.length === 0) {
-        if (identical.length > 0) {
-            showToast(`${identical.length} identical file${identical.length === 1 ? '' : 's'} skipped.`);
-        }
-        return { toUpload: noConflict, toOverwrite: [], skippedCount: identical.length };
+        return { toUpload: noConflict, toOverwrite: [], skippedCount: identical.length, already };
     }
 
     // Show conflict dialog and wait for user choice
@@ -1374,12 +1411,14 @@ async function checkAndResolveConflicts(fileDataArray, tagID) {
             toUpload: noConflict,
             toOverwrite: conflicts.map(c => ({ clipID: c.clipID, fileData: c.fileData })),
             skippedCount: identical.length,
+            already,
         };
     } else if (resolution === 'keep') {
         return {
             toUpload: [...noConflict, ...conflicts.map(c => c.fileData)],
             toOverwrite: [],
             skippedCount: identical.length,
+            already,
         };
     } else {
         // 'skip'
