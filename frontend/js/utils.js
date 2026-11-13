@@ -503,6 +503,7 @@ function showToast(message, type = 'info', action = null) {
     let duration = 3000;
     if (isError) duration = Math.min(12000, Math.max(6000, 3000 + 60 * String(message).length));
     if (hasAction) duration = Math.max(duration, 8000);
+    window.toastShownAt = Date.now();
     window.toastTimeout = setTimeout(toastTimerFired, duration);
 }
 
@@ -517,9 +518,14 @@ function hideToast() {
 
 // The toast's timer ran out. It waits while the pointer is over it or focus
 // is inside it (reading it, reaching for Undo) and looks again shortly.
+const TOAST_MAX_HOLD_MS = 30000;
+
 function toastTimerFired() {
     const toast = document.getElementById('toast');
-    if (toast.matches(':hover') || toast.contains(document.activeElement)) {
+    // Not for ever: a toast that appeared under a parked pointer, or whose
+    // button kept focus while the user went elsewhere, still leaves.
+    const held = toast.matches(':hover') || toast.contains(document.activeElement);
+    if (held && Date.now() - (window.toastShownAt || 0) < TOAST_MAX_HOLD_MS) {
         window.toastTimeout = setTimeout(toastTimerFired, 1000);
         return;
     }

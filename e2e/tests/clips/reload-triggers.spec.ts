@@ -165,6 +165,21 @@ test.describe('Coalesced reload triggers', () => {
     expect(await loads(app)).toBe(1);
   });
 
+  test('a failure early in a long sync is still shown when the sync ends', async ({ app }) => {
+    // One import every 150 ms for ~2.7 s: the max wait cuts this into more
+    // than one burst, and each burst's toast replaces the one before it.
+    await app.page.evaluate(async () => {
+      const w = window as any;
+      w.runtime.EventsEmit('watch:error', { file: 'locked.pdf', error: 'permission denied' });
+      for (let i = 0; i < 18; i++) {
+        w.runtime.EventsEmit('watch:import', { id: i + 1, filename: `stream-${i}.png` });
+        await new Promise(r => setTimeout(r, 150));
+      }
+    });
+    await app.page.waitForTimeout(500);
+    await app.expectToast('Failed to import locked.pdf: permission denied');
+  });
+
   test('a single watch import keeps its own wording', async ({ app }) => {
     await app.page.evaluate(() => {
       (window as any).runtime.EventsEmit('watch:import', { id: 1, filename: 'one.png' });

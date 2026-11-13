@@ -539,7 +539,9 @@ function initWatchEvents() {
             else if (change.recovered) recovered.push(name);
         }
         if (problems.length > 0) {
-            showToast(problems.join(' · '), 'error');
+            // An unmounted volume can take many folders with it: name a few.
+            const shown = problems.slice(0, 2).join(' · ');
+            showToast(problems.length > 2 ? `${shown} · and ${problems.length - 2} more` : shown, 'error');
         } else if (recovered.length > 0) {
             showToast(recovered.length === 1 ? `Watching ${recovered[0]} again` : `Watching ${recovered.length} folders again`);
         }
@@ -568,14 +570,18 @@ function initWatchEvents() {
     let burstFirstAt = 0;
     let burstImported = [];
     let burstFailed = [];
-    const flushWatchBurst = () => {
+    const flushWatchBurst = (quiet) => {
         clearTimeout(burstTimer);
         burstTimer = null;
         burstFirstAt = 0;
         const imported = burstImported;
-        const failed = burstFailed;
         burstImported = [];
-        burstFailed = [];
+        // Failures are kept until the stream goes quiet. A long sync is cut
+        // into several bursts by the max wait, and each one's toast replaces
+        // the last: without this the next burst's plain "Imported N files"
+        // would wipe a failure two seconds after it appeared.
+        const failed = burstFailed;
+        if (quiet) burstFailed = [];
         if (imported.length > 0 && !isViewingWatch) loadClips();
         const importedText = imported.length === 1
             ? `Imported: ${imported[0]}`
@@ -597,8 +603,10 @@ function initWatchEvents() {
         const now = Date.now();
         if (!burstFirstAt) burstFirstAt = now;
         clearTimeout(burstTimer);
-        const wait = Math.min(WATCH_BURST_DEBOUNCE_MS, Math.max(0, burstFirstAt + WATCH_BURST_MAX_WAIT_MS - now));
-        burstTimer = setTimeout(flushWatchBurst, wait);
+        const untilMax = Math.max(0, burstFirstAt + WATCH_BURST_MAX_WAIT_MS - now);
+        // Reached by the debounce, the stream has paused; by the cap, it has not.
+        const quiet = untilMax >= WATCH_BURST_DEBOUNCE_MS;
+        burstTimer = setTimeout(() => flushWatchBurst(quiet), Math.min(WATCH_BURST_DEBOUNCE_MS, untilMax));
     };
     window.runtime.EventsOn('watch:import', (clip) => {
         burstImported.push(clip?.filename || 'a file');
