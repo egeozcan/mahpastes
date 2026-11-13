@@ -48,6 +48,6 @@ mahpastes uses the freedesktop notification service over the session D-Bus, whic
 
 ## Where the Setting Lives
 
-The setting is stored per machine: it is not included in [backups](./backup-restore) and cannot be changed through the REST API, because switching it on prompts (macOS) or writes registry keys (Windows) on that machine.
+The setting is stored per machine: it is not included in [backups](./backup-restore), restoring one leaves it as it was on this machine, and it cannot be changed through the REST API, because switching it on prompts (macOS) or writes registry keys (Windows) on that machine.
 
 Runs with a hidden window (`MAHPASTES_START_HIDDEN=1`, used by the end-to-end tests) never show notifications.

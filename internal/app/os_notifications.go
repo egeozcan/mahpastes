@@ -17,7 +17,7 @@ const SettingOSNotifications = "os_notifications"
 // isDesktopOnlySetting reports whether key may only be changed from the
 // desktop app, never through the REST settings endpoint.
 func isDesktopOnlySetting(key string) bool {
-	return isAPILaunchSetting(key) || key == SettingOSNotifications
+	return isAPILaunchSetting(key) || key == SettingOSNotifications || isUpdateCheckStateSetting(key)
 }
 
 // OSNotificationsEnabled reports the persisted notification setting.

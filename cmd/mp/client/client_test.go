@@ -361,3 +361,57 @@ func TestNewReadsKeyFilesWrittenByPowerShell(t *testing.T) {
 		})
 	}
 }
+
+// A filename is written into the part header by hand; CR and LF in it must be
+// escaped as mime/multipart's CreateFormFile does, or the server cannot parse
+// the upload and a crafted name adds header lines.
+func TestWriteMultipartEscapesFilenameLineBreaks(t *testing.T) {
+	for _, name := range []string{
+		"new\nline.txt",
+		"a\r\nX-Injected: yes\r\nY: .txt",
+		`q"uo\te.txt`,
+	} {
+		var buf strings.Builder
+		w := multipart.NewWriter(&buf)
+		if err := writeMultipart(w, name, strings.NewReader("hello"), map[string]string{"content_type": "text/plain"}); err != nil {
+			t.Fatalf("%q: %v", name, err)
+		}
+		p, err := multipart.NewReader(strings.NewReader(buf.String()), w.Boundary()).NextPart()
+		if err != nil {
+			t.Errorf("%q: server cannot read the part: %v", name, err)
+			continue
+		}
+		b, _ := io.ReadAll(p)
+		if p.FormName() != "file" || p.FileName() == "" || string(b) != "hello" || p.Header.Get("Content-Type") != "text/plain" {
+			t.Errorf("%q: part = (%q, %q, %q, %q)", name, p.FormName(), p.FileName(), b, p.Header.Get("Content-Type"))
+		}
+		if len(p.Header) != 2 {
+			t.Errorf("%q: part headers = %v, want only disposition and type", name, p.Header)
+		}
+	}
+}
+
+func TestWriteMultipartRejectsContentTypeLineBreak(t *testing.T) {
+	var buf strings.Builder
+	err := writeMultipart(multipart.NewWriter(&buf), "a.txt", strings.NewReader("x"), map[string]string{"content_type": "text/plain\r\nX-Injected: yes"})
+	if err == nil || strings.Contains(buf.String(), "X-Injected") {
+		t.Fatalf("err = %v, body = %q; want the content type refused", err, buf.String())
+	}
+}
+
+func TestUploadFileStatusReportsCreatedOrExisting(t *testing.T) {
+	for _, want := range []int{http.StatusCreated, http.StatusOK} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			io.Copy(io.Discard, r.Body)
+			w.WriteHeader(want)
+			w.Write([]byte(`{"id":7}`))
+		}))
+		c := &Client{BaseURL: srv.URL, APIKey: "k", HTTPClient: srv.Client()}
+		var got struct{ ID int64 }
+		status, err := c.UploadFileStatus("/x", "a.txt", strings.NewReader("x"), nil, &got)
+		srv.Close()
+		if err != nil || status != want || got.ID != 7 {
+			t.Fatalf("status = %d, id = %d, err = %v; want %d", status, got.ID, err, want)
+		}
+	}
+}

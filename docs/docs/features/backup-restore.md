@@ -69,8 +69,8 @@ The database has two separate settings tables: `settings` (stores watch folder p
 | `app_settings` table | App preferences are not part of the backup scope |
 | `api_keys` table | API keys are not part of the backup scope (re-create after restore) |
 | `clip_metadata` table | Not exported -- metadata key-value pairs are lost on restore |
-| Sensitive `settings` rows | Any row in the `settings` table whose key contains `api_key`, `secret`, `password`, or `token` is filtered out |
-| Machine-local `settings` rows | `api_autostart`, `api_port` and `os_notifications` ([System Notifications](./notifications)) stay with the machine they were set on |
+| Sensitive `settings` rows | Any row in the `settings` table whose key contains `api_key`, `secret`, `password`, or `token` is filtered out. A restore leaves the target machine's own rows of this kind as they are |
+| Machine-local `settings` rows | `api_autostart`, `api_port`, `os_notifications` ([System Notifications](./notifications)) and the release check's own records (`update_check_last`, `update_check_found`) stay with the machine they were set on: a backup never carries them and a restore leaves the target machine's own values as they are |
 | Temporary files | Regenerated as needed |
 
 ## Backup File Format
@@ -229,7 +229,7 @@ After restore, clips should appear immediately. If not:
 
 1. Backup validated (manifest and `database.sql` checks)
 2. Watch folders stopped
-3. Existing data cleared from these tables (inside a transaction): `clip_tags`, `clips`, `tags`, `settings`, `watched_folders`, `plugin_storage`, `plugin_permissions`, `plugins`
+3. Existing data cleared from these tables (inside a transaction): `clip_tags`, `clips`, `tags`, `settings`, `watched_folders`, `plugin_storage`, `plugin_permissions`, `plugins`. The `settings` rows that backups never carry (sensitive and machine-local keys, see above) are kept
 4. SQL INSERT statements executed from `database.sql`
 5. All plugin permissions marked as `pending_reconfirm`
 6. All watch folders marked as paused

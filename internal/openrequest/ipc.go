@@ -66,14 +66,30 @@ func maxSocketPathLen() int {
 // data directory unless that path is too long for a socket address (deep
 // MAHPASTES_DATA_DIR overrides, long macOS temp dirs); then it is a name
 // derived from the data directory in the per-user runtime directory. Both
-// sides compute it the same way.
+// sides compute it the same way, from the directory's canonical path: the
+// instance lock is per inode, so a launch that spells the directory another
+// way (a symlink such as /tmp on macOS, a relative MAHPASTES_DATA_DIR) loses
+// the lock and must still arrive at the holder's socket.
 func SocketPath(dataDir string) string {
+	dataDir = canonicalDir(dataDir)
 	p := filepath.Join(dataDir, socketName)
 	if len(p) <= maxSocketPathLen() {
 		return p
 	}
-	sum := sha256.Sum256([]byte(filepath.Clean(dataDir)))
+	sum := sha256.Sum256([]byte(dataDir))
 	return filepath.Join(runtimeDir(), "mahpastes-"+hex.EncodeToString(sum[:8])+".sock")
+}
+
+// canonicalDir is dir made absolute with symlinks resolved. A directory that
+// cannot be resolved (it does not exist yet) keeps its absolute spelling.
+func canonicalDir(dir string) string {
+	if abs, err := filepath.Abs(dir); err == nil {
+		dir = abs
+	}
+	if resolved, err := filepath.EvalSymlinks(dir); err == nil {
+		return resolved
+	}
+	return filepath.Clean(dir)
 }
 
 // runtimeDir is a short, per-user directory for the fallback socket path.

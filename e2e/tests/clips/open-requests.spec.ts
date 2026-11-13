@@ -63,7 +63,9 @@ test.describe('Open requests from a second launch', () => {
 
 type OpenBatch = {
   files?: string[];
+  file_sizes?: number[];
   skipped?: string[];
+  too_large?: string[];
   links?: { kind: string; clip_id?: number; url: string }[];
   unsupported_links?: string[];
   paste_clipboard?: boolean;
@@ -98,6 +100,16 @@ test.describe('Open request handling in the window', () => {
 
     await app.expectToast("Skipped 2 items that can't be imported: Folder, gone.txt");
     await app.expectClipCount(0);
+  });
+
+  test('reports files too large to import and still imports the rest', async ({ app }) => {
+    const filePath = await createTempFile(generateTestText('beside-a-big-one'), 'txt');
+
+    await handle(app, { files: [filePath], file_sizes: [16], too_large: ['/videos/huge.mov'] });
+
+    await app.expectToast('Skipped 1 file too large to import (over 1 GB): huge.mov');
+    await app.expectClipCount(1);
+    await app.expectClipVisible(path.basename(filePath));
   });
 
   test('reports links it has no action for', async ({ app }) => {
@@ -193,5 +205,29 @@ test.describe('Clip links', () => {
 
     await app.expectToast('Link copied to clipboard!');
     expect(await app.page.evaluate(() => (window as any).__copiedText)).toBe(`mahpastes://clip/${id}`);
+  });
+
+  // The lightbox Actions menu shows the same items as the card menu; Link
+  // used to close the menu and copy nothing.
+  test('lightbox Actions > Copy > Link copies the same link', async ({ app }) => {
+    const imagePath = await createTempFile(generateTestImage(32, 32, 'blue'), 'png');
+    await app.uploadFile(imagePath);
+    const filename = path.basename(imagePath);
+    const card = await app.getClipByFilename(filename);
+    const id = Number(await card.getAttribute('data-id'));
+    await app.page.evaluate(() => {
+      const api = (window as any).go.main.App;
+      (window as any).__copiedText = null;
+      api.CopyToClipboard = async (text: string) => { (window as any).__copiedText = text; };
+    });
+
+    await app.openLightbox(filename);
+    await app.page.click(selectors.lightbox.fileTrigger);
+    await app.page.locator(selectors.cardMenu.copyTrigger).hover();
+    await app.page.locator(selectors.cardMenu.copyLink).click();
+
+    await app.expectToast('Link copied to clipboard!');
+    expect(await app.page.evaluate(() => (window as any).__copiedText)).toBe(`mahpastes://clip/${id}`);
+    await expect(app.page.locator(selectors.lightbox.overlay)).toHaveClass(/active/);
   });
 });

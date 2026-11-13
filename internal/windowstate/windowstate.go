@@ -136,7 +136,8 @@ func PositionVisible(x, y, w, h int, screen Screen) bool {
 // Restore is what to do with the freshly opened window.
 type Restore struct {
 	// Resize is set when the saved size does not fit the current screen and
-	// the window must be shrunk to Width x Height.
+	// the window must be shrunk to Width x Height. X/Y are then adjusted so
+	// the shrunk window fits.
 	Resize        bool
 	Width, Height int
 	// Move is set when the saved position should be applied.
@@ -161,6 +162,25 @@ func PlanRestore(s State, screen *Screen, relativePos bool) Restore {
 	}
 	if PositionVisible(s.X, s.Y, r.Width, r.Height, *screen) {
 		r.Move, r.X, r.Y = true, s.X, s.Y
+		if r.Resize {
+			// The saved offset belonged to a larger window on a larger
+			// screen: pull it back so the shrunk window fits. A window that
+			// was not shrunk keeps its place, even partly off-screen.
+			r.X = fitOffset(s.X, r.Width, screen.Width)
+			r.Y = fitOffset(s.Y, r.Height, screen.Height)
+		}
 	}
 	return r
+}
+
+// fitOffset returns the offset nearest pos at which size fits within extent,
+// never negative.
+func fitOffset(pos, size, extent int) int {
+	if pos > extent-size {
+		pos = extent - size
+	}
+	if pos < 0 {
+		pos = 0
+	}
+	return pos
 }

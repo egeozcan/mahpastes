@@ -1,7 +1,9 @@
 package plugin
 
 import (
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	lua "github.com/yuin/gopher-lua"
 )
@@ -38,5 +40,38 @@ func TestToastPayloadCarriesPluginID(t *testing.T) {
 	p := sink.payloads[0]
 	if p["plugin_id"] != "42" || p["type"] != "success" || p["message"] != "Saved &lt;b&gt;3&lt;/b&gt; clips" {
 		t.Fatalf("payload = %v", p)
+	}
+}
+
+// The 200-byte cut used to slice bytes, splitting a multi-byte character and
+// emitting invalid UTF-8, which macOS shows as a notification with no body.
+func TestToastTruncationKeepsValidUTF8(t *testing.T) {
+	for name, msg := range map[string]string{
+		"two-byte":   strings.Repeat("\u00fc", 150),
+		"three-byte": strings.Repeat("\u65e5", 100),
+		"raw bytes":  strings.Repeat("a", 250) + "\xff",
+		"short raw":  "abc\xc3",
+	} {
+		sink := &toastSink{}
+		L := lua.NewState()
+		NewToastAPI(sink, 1).Register(L)
+		L.SetGlobal("msg", lua.LString(msg))
+		if err := L.DoString(`toast.show(msg)`); err != nil {
+			t.Fatal(err)
+		}
+		L.Close()
+		got := sink.payloads[0]["message"]
+		if !utf8.ValidString(got) {
+			t.Errorf("%s: emitted invalid UTF-8 %q", name, got)
+		}
+		if len(got) > maxToastMessageLength {
+			t.Errorf("%s: %d bytes, want at most %d", name, len(got), maxToastMessageLength)
+		}
+		if len(msg) > maxToastMessageLength && !strings.HasSuffix(got, "...") {
+			t.Errorf("%s: %q does not end in an ellipsis", name, got)
+		}
+	}
+	if got := truncateToastMessage(strings.Repeat("a", 250)); got != strings.Repeat("a", 197)+"..." {
+		t.Errorf("ASCII truncation changed: %q", got)
 	}
 }

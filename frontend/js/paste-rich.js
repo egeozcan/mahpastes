@@ -67,9 +67,17 @@ function pasteFlavor(text, html, behavior) {
 
 const HTML_DOCUMENT_RE = /<html[\s>]/i;
 const DOCTYPE_RE = /^\s*<!doctype\s+html/i;
-const CHARSET_RE = /<meta[^>]+charset/i;
 const HEAD_OPEN_RE = /<head(\s[^>]*)?>/i;
 const HTML_OPEN_RE = /<html(\s[^>]*)?>/i;
+
+// Whether the markup really declares a charset. Parsed, not pattern-matched:
+// a description meta or a comment that only mentions "charset" declares none.
+function declaresCharset(markup) {
+    const parsed = new DOMParser().parseFromString(markup, 'text/html');
+    if (parsed.querySelector('meta[charset]')) return true;
+    return Array.from(parsed.querySelectorAll('meta[http-equiv="content-type" i]'))
+        .some((meta) => /charset\s*=/i.test(meta.getAttribute('content') || ''));
+}
 
 // Turns the clipboard's HTML flavour into a standalone UTF-8 document.
 // WebKit hands over a bare fragment (often prefixed with its own charset
@@ -84,7 +92,7 @@ function pastedHtmlDocument(html) {
             + markup + '\n</body>\n</html>\n';
     }
     let doc = markup;
-    if (!CHARSET_RE.test(doc)) {
+    if (!declaresCharset(doc)) {
         const open = HEAD_OPEN_RE.test(doc) ? HEAD_OPEN_RE : HTML_OPEN_RE;
         doc = doc.replace(open, (tag) => `${tag}\n<meta charset="utf-8">`);
     }

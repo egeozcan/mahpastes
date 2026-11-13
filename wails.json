@@ -13,7 +13,7 @@
   "info": {
     "companyName": "mahpastes",
     "productName": "mahpastes",
-    "productVersion": "1.5.0",
+    "productVersion": "1.6.0",
     "copyright": "Copyright © mahpastes contributors",
     "comments": "A local clipboard manager",
     "protocols": [

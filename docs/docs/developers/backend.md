@@ -213,9 +213,10 @@ type WatcherManager struct {
 }
 ```
 
-- **Start/Stop**: `Start` creates a new fsnotify watcher and begins a new generation (event goroutine + re-arm loop); `Stop` closes it, clears all state and waits for the event goroutine. Goroutines and timers check their generation, so a Stop/Start pair (backup restore) leaves nothing stale behind.
+- **Start/Stop**: `Start` creates a new fsnotify watcher and begins a new generation (event goroutine + re-arm loop); `Stop` closes it, clears all state and waits (at most 2 seconds) for the event goroutine and a re-arm pass in progress. Goroutines and timers check their generation, so a Stop/Start pair (backup restore) leaves nothing stale behind.
 - **Event handling**: only Create/Write events of files are debounced; hidden names, download-in-progress names (`.crdownload`, `.part`, ...) and empty files are skipped. A Remove/Rename of a watched folder itself drops its watch and asks for an immediate re-arm pass.
-- **Re-arm**: `refreshWatches` runs on start, on config changes, every 30 seconds and after a lost watch. It drops watches whose folder is gone, no longer in `WatchList()` or a different directory (`os.SameFile`), re-adds them when the folder is back, and reports changes as the `watch:status` event.
+- **Re-arm**: `refreshWatches` runs on start, on config changes, every 30 seconds and after a lost watch. It drops watches whose folder is gone, no longer in `WatchList()` or a different directory (`os.SameFile`), re-adds them when the folder is back, and reports changes as the `watch:status` event. One entry per directory is armed: a second entry naming the same directory (another letter case, a symlink) gets the watch error `same folder as <path>`. On macOS an unmount revokes fsnotify's descriptors without an event and fsnotify will not release them; the pass detects this (a failed `Remove` that leaves the path listed, or a dead `dirProbe` descriptor after a remount) and replaces the fsnotify watcher within the same generation, arming every folder on the new one before closing the old.
+- **Writers**: before importing, and again before removing the source, `watchedFileBusy` asks whether another process has the file open for writing (macOS only, via libproc; same-user local processes; one walk of about 10 ms lists every file open for writing, and files checked at the same time share it). A busy file is rechecked with a backoff up to 5 seconds for as long as the writer holds it, and the UI gets one `watch:error` after a minute.
 
 ## Data Types
 
@@ -358,7 +359,7 @@ func (a *App) CreateTempFile(id int64) (string, error) {
 
 ### Watcher Concurrency
 
-`w.mu` (an RWMutex) guards the watcher's maps and is never held across database access, `os.Stat` or fsnotify calls: a stat on an unreachable network volume can block. `refreshWatches` reads a snapshot under `w.mu`, does its filesystem work unlocked, and applies the result only if the generation is unchanged. The event goroutine never calls fsnotify `Add`/`Remove` (on Windows they wait for fsnotify's reader goroutine, which may be blocked handing it an event). `Stop` waits at most 2 seconds for a re-arm pass in progress, so quitting cannot hang on a dead mount.
+`w.mu` (an RWMutex) guards the watcher's maps and is never held across database access, `os.Stat` or fsnotify calls: a stat on an unreachable network volume can block. `refreshWatches` reads a snapshot under `w.mu`, does its filesystem work unlocked, and applies the result only if the generation is unchanged. The event goroutine never calls fsnotify `Add`/`Remove` (on Windows they wait for fsnotify's reader goroutine, which may be blocked handing it an event). `Stop` waits at most 2 seconds for the event goroutine and a re-arm pass in progress, so quitting cannot hang on a dead mount. The refresh lock is per generation, so a pass left behind by `Stop` cannot block the next `Start` (a backup restore runs it holding `backupRestoreMu`) or later refreshes, and each folder stat waits at most 5 seconds (`folder is not responding`), with one stat per folder in flight.
 
 ```go
 func (w *WatcherManager) processFile(gen uint64, filePath string, info os.FileInfo) {
@@ -469,7 +470,7 @@ The version shown in Settings → About, the backup manifest and `GET /api/v1/st
 wails build -ldflags "-X go-clipboard/internal/buildinfo.Version=v1.6.0 -X go-clipboard/internal/buildinfo.Commit=$(git rev-parse --short HEAD)"
 ```
 
-`make build`, `make mp`, `make mahpastesd` (and their `-cross` variants), `scripts/linux/wails.sh build` and `scripts/macos/build-file-provider.sh` add these flags from `git describe --tags` automatically (`make build VERSION=v1.6.0` overrides it). An unstamped `go build` falls back to the module version Go embeds, else `dev`. For Windows, set `info.productVersion` in `wails.json` to the numeric `x.y.z` release (CI rewrites it from the tag); it feeds the file Properties and the manifest.
+`make build`, `make mp`, `make mahpastesd` (and their `-cross` variants), `scripts/linux/wails.sh build` and `scripts/macos/build-file-provider.sh` add these flags from `git describe --tags` automatically (`make build VERSION=v1.6.0` overrides it). An unstamped `go build` falls back to the module version Go embeds, else `dev`. `info.productVersion` in `wails.json` is a separate, numeric `x.y.z` copy of the version: it feeds the macOS `Info.plist` (`CFBundleShortVersionString` and `CFBundleVersion`, copied into the File Provider extension) and the Windows file Properties and manifest. CI rewrites it from the tag, but local builds use the checked-in value, so bump it in the commit you tag; `TestProductVersionNotBehindLatestTag` fails when it is behind the newest tag.
 
 ## Testing
 

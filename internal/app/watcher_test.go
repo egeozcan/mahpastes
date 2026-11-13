@@ -2,11 +2,45 @@ package app
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"sync"
+	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 )
+
+// The busy and stat seams are read by timer and stat goroutines that can
+// outlive a test's watcher, so tests never reassign the variables: they are
+// pointed once at hooks that consult an override.
+var (
+	testFileBusy atomic.Pointer[func(string, os.FileInfo) bool]
+	testStatDir  atomic.Pointer[func(string) (os.FileInfo, error)]
+)
+
+func init() {
+	watchedFileBusy = func(path string, info os.FileInfo, maxAge time.Duration) bool {
+		if f := testFileBusy.Load(); f != nil {
+			return (*f)(path, info)
+		}
+		return fileOpenForWriting(path, info, maxAge)
+	}
+	statWatchDir = func(path string) (os.FileInfo, error) {
+		if f := testStatDir.Load(); f != nil {
+			return (*f)(path)
+		}
+		return os.Stat(path)
+	}
+}
+
+func setTestStatDir(t *testing.T, f func(string) (os.FileInfo, error)) {
+	t.Helper()
+	testStatDir.Store(&f)
+	t.Cleanup(func() { testStatDir.Store(nil) })
+}
 
 // watchEventRecorder is a bridge that records the events the watcher emits.
 type watchEventRecorder struct {
@@ -26,6 +60,19 @@ func (r *watchEventRecorder) Emit(name string, data ...any) {
 }
 
 func (r *watchEventRecorder) On(string, func(...any)) {}
+
+// count returns how many events called name were emitted.
+func (r *watchEventRecorder) count(name string) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	n := 0
+	for _, ev := range r.events {
+		if ev.name == name {
+			n++
+		}
+	}
+	return n
+}
 
 // statusChanges returns every folder change reported by "watch:status".
 func (r *watchEventRecorder) statusChanges() []watchFolderChange {
@@ -689,4 +736,627 @@ func TestWatcherRestartAfterStuckRearmStillRearms(t *testing.T) {
 	waitUntil(t, 5*time.Second, "the kicked pass to report the folder missing", func() bool {
 		return wm.folderWatchError(f.ID) == errFolderMissing
 	})
+}
+
+// The restore sequence while a re-arm pass of the old generation is still
+// stuck: Start (which a restore runs holding backupRestoreMu) and later
+// refreshes must not queue behind it.
+func TestWatcherStartNotBlockedByStuckRearmOfEndedGeneration(t *testing.T) {
+	shrinkWatchTimings(t, 0)
+	oldWait := watchStopRearmWait
+	watchStopRearmWait = 50 * time.Millisecond
+	t.Cleanup(func() { watchStopRearmWait = oldWait })
+	a, cleanup := setupTestApp(t)
+	t.Cleanup(cleanup)
+	wm, _ := startTestWatcher(t, a)
+	dir := t.TempDir()
+	addWatchDir(t, a, dir)
+
+	// Stand-in for a pass stuck in a stat: it holds its generation's lock.
+	stuck := wm.refreshMu
+	stuck.Lock()
+	released := false
+	release := func() {
+		if !released {
+			released = true
+			stuck.Unlock()
+		}
+	}
+	defer release()
+	wm.kickRearm()
+	time.Sleep(30 * time.Millisecond)
+	wm.Stop()
+
+	done := make(chan error, 2)
+	go func() { done <- wm.Start() }()
+	go func() { done <- a.RefreshWatches() }()
+	for i := 0; i < 2; i++ {
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatal(err)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatal("Start/RefreshWatches blocked behind the ended generation's re-arm pass")
+		}
+	}
+	expectImported(t, a, dir, "after-restart.txt")
+
+	// The old pass, once it gets going, applies nothing.
+	release()
+	time.Sleep(100 * time.Millisecond)
+	if armed, failed, running := wm.watchState(); !running || len(armed) != 1 || len(failed) != 0 {
+		t.Fatalf("after the old pass finished: running=%v armed=%v failed=%v", running, armed, failed)
+	}
+	expectImported(t, a, dir, "after-old-pass.txt")
+}
+
+// A stat that hangs (a dead network mount) costs a pass watchStatTimeout, not
+// forever, and only one stat of that folder is ever in flight.
+func TestWatcherRefreshNotStuckBehindHangingStat(t *testing.T) {
+	shrinkWatchTimings(t, 0)
+	oldTimeout := watchStatTimeout
+	watchStatTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { watchStatTimeout = oldTimeout })
+	a, cleanup := setupTestApp(t)
+	t.Cleanup(cleanup)
+	wm, _ := startTestWatcher(t, a)
+
+	dead := filepath.Join(t.TempDir(), "dead")
+	if err := os.Mkdir(dead, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	unblock := make(chan struct{})
+	var deadStats atomic.Int32
+	setTestStatDir(t, func(path string) (os.FileInfo, error) {
+		if path == dead {
+			deadStats.Add(1)
+			<-unblock
+		}
+		return os.Stat(path)
+	})
+	deadFolder := addWatchDir(t, a, dead)
+	live := t.TempDir()
+	addWatchDir(t, a, live)
+
+	done := make(chan error, 1)
+	go func() { done <- wm.refreshWatches() }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("a refresh waited for a hanging stat")
+	}
+	if got := wm.folderWatchError(deadFolder.ID); got != errWatchStatTimeout.Error() {
+		t.Fatalf("watch error = %q, want %q", got, errWatchStatTimeout)
+	}
+	if n := deadStats.Load(); n != 1 {
+		t.Fatalf("%d stats of the hanging folder in flight, want 1", n)
+	}
+	expectImported(t, a, live, "live.txt")
+
+	close(unblock)
+	waitUntil(t, 5*time.Second, "the folder to be watched once its stat returns", func() bool {
+		if err := wm.refreshWatches(); err != nil {
+			t.Fatal(err)
+		}
+		armed, _, _ := wm.watchState()
+		return armed[deadFolder.ID]
+	})
+	expectImported(t, a, dead, "back.txt")
+}
+
+// deadWatchBackend wraps a real watcher and can make one path behave the way
+// fsnotify's kqueue backend does after the volume was unmounted: no events,
+// Remove fails and leaves the path listed, Add re-registers the dead
+// descriptor and fails.
+type deadWatchBackend struct {
+	watchBackend
+	mu   sync.Mutex
+	dead map[string]bool
+}
+
+func (b *deadWatchBackend) kill(path string) {
+	_ = b.watchBackend.Remove(path)
+	b.mu.Lock()
+	b.dead[path] = true
+	b.mu.Unlock()
+}
+
+func (b *deadWatchBackend) isDead(path string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.dead[path]
+}
+
+func (b *deadWatchBackend) Add(name string) error {
+	if b.isDead(name) {
+		return syscall.EBADF
+	}
+	return b.watchBackend.Add(name)
+}
+
+func (b *deadWatchBackend) Remove(name string) error {
+	if b.isDead(name) {
+		return syscall.ENOENT
+	}
+	return b.watchBackend.Remove(name)
+}
+
+func (b *deadWatchBackend) WatchList() []string {
+	list := b.watchBackend.WatchList()
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for p := range b.dead {
+		list = append(list, p)
+	}
+	return list
+}
+
+// useDeadWatchBackends makes every watcher the manager creates killable and
+// returns them in creation order.
+func useDeadWatchBackends(t *testing.T) func() []*deadWatchBackend {
+	t.Helper()
+	orig := newFsWatch
+	var mu sync.Mutex
+	var made []*deadWatchBackend
+	newFsWatch = func() (*fsWatch, error) {
+		fw, err := orig()
+		if err != nil {
+			return nil, err
+		}
+		b := &deadWatchBackend{watchBackend: fw.watchBackend, dead: map[string]bool{}}
+		fw.watchBackend = b
+		mu.Lock()
+		made = append(made, b)
+		mu.Unlock()
+		return fw, nil
+	}
+	t.Cleanup(func() { newFsWatch = orig })
+	return func() []*deadWatchBackend {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]*deadWatchBackend(nil), made...)
+	}
+}
+
+// A pass that runs while the volume is away: fsnotify will not release the
+// dead watch, and re-adding the path later only re-registers it. The watcher
+// has to be replaced, or the folder is dead until the app restarts.
+func TestWatcherReplacesWatcherThatKeepsDeadWatch(t *testing.T) {
+	shrinkWatchTimings(t, 0)
+	backends := useDeadWatchBackends(t)
+	a, cleanup := setupTestApp(t)
+	t.Cleanup(cleanup)
+	wm, rec := startTestWatcher(t, a)
+
+	dir := filepath.Join(t.TempDir(), "volume", "inbox")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	f := addWatchDir(t, a, dir)
+	other := t.TempDir()
+	addWatchDir(t, a, other)
+	expectImported(t, a, dir, "first.txt")
+
+	// Unmount: no event, dead descriptors, and the folder is gone.
+	var away atomic.Bool
+	away.Store(true)
+	setTestStatDir(t, func(path string) (os.FileInfo, error) {
+		if away.Load() && path == dir {
+			return nil, &os.PathError{Op: "stat", Path: path, Err: syscall.ENOENT}
+		}
+		return os.Stat(path)
+	})
+	made := backends()
+	made[len(made)-1].kill(dir)
+	if err := wm.refreshWatches(); err != nil {
+		t.Fatal(err)
+	}
+	if got := wm.folderWatchError(f.ID); got != errFolderMissing {
+		t.Fatalf("while away: watch error = %q, want %q", got, errFolderMissing)
+	}
+	if got := len(backends()); got != len(made)+1 {
+		t.Fatalf("%d watchers created, want %d: the one holding the dead watch must be replaced", got, len(made)+1)
+	}
+	// A folder that was fine keeps importing through the replacement.
+	expectImported(t, a, other, "meanwhile.txt")
+
+	// Remount.
+	away.Store(false)
+	for i := 0; i < 2; i++ {
+		if err := wm.refreshWatches(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := wm.folderWatchError(f.ID); got != "" {
+		t.Fatalf("after remount: watch error = %q, want none", got)
+	}
+	if got := len(backends()); got != len(made)+1 {
+		t.Fatalf("%d watchers created, want %d: a healthy watcher must not be replaced again", got, len(made)+1)
+	}
+	expectImported(t, a, dir, "second.txt")
+
+	// One "not found", one recovery: no new report per pass.
+	var reports int
+	for _, c := range rec.statusChanges() {
+		if c.FolderID == f.ID && c.Error != "" {
+			reports++
+		}
+	}
+	if reports != 1 {
+		t.Fatalf("%d error reports for the folder, want 1: %+v", reports, rec.statusChanges())
+	}
+
+	// Stop still ends the replacement's event loop.
+	wm.Stop()
+	if _, _, running := wm.watchState(); running {
+		t.Fatal("still running after Stop")
+	}
+}
+
+type fakeDirProbe struct{ dead, closed atomic.Bool }
+
+func (p *fakeDirProbe) alive() bool { return !p.dead.Load() && !p.closed.Load() }
+func (p *fakeDirProbe) close()      { p.closed.Store(true) }
+
+// Unmounted and mounted again between two passes: the folder stats the same
+// and fsnotify still lists it, but no event will ever come. Only the probe
+// shows it. The folder used to be reported as watched and import nothing.
+func TestWatcherReplacesWatcherWhenWatchWasRevoked(t *testing.T) {
+	shrinkWatchTimings(t, 0)
+	backends := useDeadWatchBackends(t)
+	oldProbe := openDirProbe
+	var mu sync.Mutex
+	probes := map[string][]*fakeDirProbe{}
+	openDirProbe = func(path string) dirProbe {
+		p := &fakeDirProbe{}
+		mu.Lock()
+		probes[path] = append(probes[path], p)
+		mu.Unlock()
+		return p
+	}
+	t.Cleanup(func() { openDirProbe = oldProbe })
+	a, cleanup := setupTestApp(t)
+	t.Cleanup(cleanup)
+	wm, _ := startTestWatcher(t, a)
+
+	dir := t.TempDir()
+	f := addWatchDir(t, a, dir)
+	expectImported(t, a, dir, "first.txt")
+
+	made := backends()
+	made[len(made)-1].kill(dir)
+	mu.Lock()
+	first := probes[dir][0]
+	mu.Unlock()
+	first.dead.Store(true)
+
+	if err := wm.refreshWatches(); err != nil {
+		t.Fatal(err)
+	}
+	if armed, failed, _ := wm.watchState(); !armed[f.ID] || len(failed) != 0 {
+		t.Fatalf("after the pass: armed=%v failed=%v", armed, failed)
+	}
+	expectImported(t, a, dir, "second.txt")
+
+	if !first.closed.Load() {
+		t.Fatal("the dead watch's probe was not closed")
+	}
+	wm.Stop()
+	mu.Lock()
+	defer mu.Unlock()
+	for path, ps := range probes {
+		for i, p := range ps {
+			if !p.closed.Load() {
+				t.Fatalf("probe %d of %s still open after Stop", i, path)
+			}
+		}
+	}
+}
+
+// The real thing, on a disk image. Opt-in: it mounts a volume.
+func TestWatcherRearmsAfterVolumeUnmountedAndRemounted(t *testing.T) {
+	if runtime.GOOS != "darwin" || os.Getenv("MAHPASTES_TEST_DISKIMAGE") == "" {
+		t.Skip("set MAHPASTES_TEST_DISKIMAGE=1 on macOS to run")
+	}
+	for _, passWhileAway := range []bool{true, false} {
+		name := "remount before the next pass"
+		if passWhileAway {
+			name = "pass while away"
+		}
+		t.Run(name, func(t *testing.T) {
+			shrinkWatchTimings(t, 0)
+			base, err := filepath.EvalSymlinks(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			img, mnt := filepath.Join(base, "v.dmg"), filepath.Join(base, "mnt")
+			if err := os.Mkdir(mnt, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			hdiutil := func(args ...string) {
+				t.Helper()
+				if out, err := exec.Command("hdiutil", args...).CombinedOutput(); err != nil {
+					t.Fatalf("hdiutil %v: %v\n%s", args, err, out)
+				}
+			}
+			hdiutil("create", "-size", "20m", "-fs", "APFS", "-volname", "mpwatchtest", img)
+			attach := func() { hdiutil("attach", img, "-mountpoint", mnt, "-nobrowse") }
+			attach()
+			t.Cleanup(func() { exec.Command("hdiutil", "detach", mnt, "-force").Run() })
+
+			a, cleanup := setupTestApp(t)
+			t.Cleanup(cleanup)
+			wm, _ := startTestWatcher(t, a)
+			dir := filepath.Join(mnt, "inbox")
+			if err := os.Mkdir(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			f := addWatchDir(t, a, dir)
+			expectImported(t, a, dir, "first.txt")
+
+			hdiutil("detach", mnt)
+			if passWhileAway {
+				if err := wm.refreshWatches(); err != nil {
+					t.Fatal(err)
+				}
+				if got := wm.folderWatchError(f.ID); got != errFolderMissing {
+					t.Fatalf("while away: watch error = %q, want %q", got, errFolderMissing)
+				}
+			}
+			attach()
+			if err := wm.refreshWatches(); err != nil {
+				t.Fatal(err)
+			}
+			if got := wm.folderWatchError(f.ID); got != "" {
+				t.Fatalf("after remount: watch error = %q, want none", got)
+			}
+			expectImported(t, a, dir, "second.txt")
+			wm.Stop() // release the volume before the detach in cleanup
+		})
+	}
+}
+
+// One directory listed twice (another letter case on a case-insensitive
+// volume, or through a symlink) used to get two watches, and every file was
+// imported twice.
+func TestWatcherSameDirectoryUnderTwoNamesImportsOnce(t *testing.T) {
+	alias := map[string]func(t *testing.T, dir string) string{
+		"symlink": func(t *testing.T, dir string) string {
+			link := filepath.Join(filepath.Dir(dir), "link")
+			if err := os.Symlink(dir, link); err != nil {
+				t.Skipf("symlinks unavailable: %v", err)
+			}
+			return link
+		},
+		"letter case": func(t *testing.T, dir string) string {
+			other := filepath.Join(filepath.Dir(dir), "INBOX")
+			a, _ := os.Stat(dir)
+			b, err := os.Stat(other)
+			if err != nil || !os.SameFile(a, b) {
+				t.Skip("case-sensitive filesystem")
+			}
+			return other
+		},
+	}
+	for name, makeAlias := range alias {
+		t.Run(name, func(t *testing.T) {
+			shrinkWatchTimings(t, 0)
+			a, cleanup := setupTestApp(t)
+			t.Cleanup(cleanup)
+			wm, _ := startTestWatcher(t, a)
+
+			dir := filepath.Join(t.TempDir(), "inbox")
+			if err := os.Mkdir(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			second := makeAlias(t, dir)
+			f1 := addWatchDir(t, a, dir)
+			f2 := addWatchDir(t, a, second)
+
+			if list := wm.watcher.WatchList(); len(list) != 1 {
+				t.Fatalf("fsnotify watches %v, want one", list)
+			}
+			if got := wm.folderWatchError(f2.ID); got != errSameFolderPrefix+dir {
+				t.Fatalf("second entry's watch error = %q, want %q", got, errSameFolderPrefix+dir)
+			}
+			expectImported(t, a, dir, "once.txt")
+			time.Sleep(6 * watchDebounceDelay)
+			if got := watchClipCount(t, a); got != 1 {
+				t.Fatalf("clip count = %d, want 1", got)
+			}
+
+			// With the first entry paused, the second one takes over.
+			if err := a.SetFolderPaused(f1.ID, true); err != nil {
+				t.Fatal(err)
+			}
+			if err := a.RefreshWatches(); err != nil {
+				t.Fatal(err)
+			}
+			if armed, _, _ := wm.watchState(); !armed[f2.ID] || armed[f1.ID] {
+				t.Fatalf("armed = %v, want only the second entry", armed)
+			}
+			expectImported(t, a, second, "via-second.txt")
+			time.Sleep(6 * watchDebounceDelay)
+			if got := watchClipCount(t, a); got != 2 {
+				t.Fatalf("clip count = %d, want 2", got)
+			}
+		})
+	}
+}
+
+// A file some process still has open for writing is neither imported nor
+// removed, however long the writer pauses; the UI is told why, once.
+func TestWatcherLeavesFileAloneWhileAWriterHoldsIt(t *testing.T) {
+	shrinkWatchTimings(t, 0)
+	oldMax, oldReport := watchBusyRecheckMax, watchBusyReportAfter
+	watchBusyRecheckMax = 100 * time.Millisecond
+	watchBusyReportAfter = 150 * time.Millisecond
+	var busy atomic.Bool
+	busy.Store(true)
+	busyFn := func(path string, _ os.FileInfo) bool {
+		return busy.Load() && strings.HasSuffix(path, ".bin")
+	}
+	testFileBusy.Store(&busyFn)
+	t.Cleanup(func() {
+		testFileBusy.Store(nil)
+		watchBusyRecheckMax, watchBusyReportAfter = oldMax, oldReport
+	})
+	a, cleanup := setupTestApp(t)
+	t.Cleanup(cleanup)
+	wm, rec := startTestWatcher(t, a)
+
+	dir := t.TempDir()
+	f := addWatchDir(t, a, dir)
+	p := filepath.Join(dir, "big.bin")
+	if err := os.WriteFile(p, []byte("first half"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	expectLeftAlone(t, a, p, 0)
+
+	// Neither does the scan of existing files touch it...
+	if err := wm.ProcessExistingFiles(f.ID); err != nil {
+		t.Fatal(err)
+	}
+	expectLeftAlone(t, a, p, 0)
+	// ...nor the removal after an import that raced the writer's open.
+	info, err := os.Stat(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.removeImportedSource(p, pinFileIdentity(info), a.currentRestoreEpoch())
+	if _, err := os.Stat(p); err != nil {
+		t.Fatalf("a file open for writing was removed: %v", err)
+	}
+
+	// Held for longer than watchBusyReportAfter: reported, and only once.
+	waitUntil(t, 5*time.Second, "the held file to be reported", func() bool {
+		return rec.count("watch:error") > 0
+	})
+	time.Sleep(4 * watchBusyRecheckMax)
+	if n := rec.count("watch:error"); n != 1 {
+		t.Fatalf("%d reports of the held file, want 1", n)
+	}
+	if got := watchClipCount(t, a); got != 0 {
+		t.Fatalf("clip count = %d, want 0", got)
+	}
+
+	// The writer closes without writing again: no event, the recheck finds it.
+	busy.Store(false)
+	waitUntil(t, 5*time.Second, "the file to be imported once the writer is done", func() bool {
+		_, err := os.Stat(p)
+		return watchClipCount(t, a) == 1 && os.IsNotExist(err)
+	})
+}
+
+// The real check: a writer that pauses for longer than the debounce with the
+// file open used to get a truncated clip and its file deleted from under it.
+func TestWatcherWaitsForStalledWriter(t *testing.T) {
+	if !fileBusyCheckSupported {
+		t.Skip("this platform cannot tell whether a file is open for writing")
+	}
+	shrinkWatchTimings(t, 0)
+	a, cleanup := setupTestApp(t)
+	t.Cleanup(cleanup)
+	startTestWatcher(t, a)
+
+	dir := t.TempDir()
+	addWatchDir(t, a, dir)
+	p := filepath.Join(dir, "big.bin")
+	w, err := os.Create(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	if _, err := w.WriteString("first half"); err != nil {
+		t.Fatal(err)
+	}
+	expectLeftAlone(t, a, p, 0)
+	if _, err := w.WriteString(" second half"); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, 5*time.Second, "the finished file to be imported", func() bool {
+		_, err := os.Stat(p)
+		return watchClipCount(t, a) == 1 && os.IsNotExist(err)
+	})
+	var size int64
+	if err := a.db.QueryRow(`SELECT octet_length(data) FROM clips`).Scan(&size); err != nil {
+		t.Fatal(err)
+	}
+	if size != int64(len("first half second half")) {
+		t.Fatalf("stored %d bytes, want %d", size, len("first half second half"))
+	}
+}
+
+func TestFileOpenForWriting(t *testing.T) {
+	if !fileBusyCheckSupported {
+		t.Skip("this platform cannot tell whether a file is open for writing")
+	}
+	p := filepath.Join(t.TempDir(), "f.txt")
+	if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fileOpenForWriting(p, info, 0) {
+		t.Fatal("reported open for writing with no handle open")
+	}
+	r, err := os.Open(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	if fileOpenForWriting(p, info, 0) {
+		t.Fatal("a reader counted as a writer")
+	}
+	w, err := os.OpenFile(p, os.O_WRONLY|os.O_APPEND, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !fileOpenForWriting(p, info, 0) {
+		w.Close()
+		t.Fatal("a writer was not seen")
+	}
+	w.Close()
+	if fileOpenForWriting(p, info, 0) {
+		t.Fatal("still reported open for writing after the writer closed")
+	}
+}
+
+// A write that opens and closes while the busy walk runs is never seen as a
+// writer; the source must still be kept.
+func TestRemoveImportedSourceKeepsFileWrittenDuringBusyCheck(t *testing.T) {
+	a, cleanup := setupTestApp(t)
+	defer cleanup()
+
+	p := filepath.Join(t.TempDir(), "report.txt")
+	if err := os.WriteFile(p, []byte("first"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	busyFn := func(path string, _ os.FileInfo) bool {
+		if err := os.WriteFile(path, []byte("first and more"), 0o644); err != nil {
+			t.Errorf("write during the check: %v", err)
+		}
+		return false
+	}
+	testFileBusy.Store(&busyFn)
+	defer testFileBusy.Store(nil)
+
+	a.removeImportedSource(p, pinFileIdentity(info), a.currentRestoreEpoch())
+
+	if got, err := os.ReadFile(p); err != nil || string(got) != "first and more" {
+		t.Fatalf("source after removal = %q, %v; want it kept with the new content", got, err)
+	}
 }

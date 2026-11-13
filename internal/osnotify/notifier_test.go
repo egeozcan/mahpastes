@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"go-clipboard/internal/bridgeiface"
 )
@@ -21,6 +22,8 @@ type fakeSender struct {
 	cleanups  int
 	sent      []sent
 	block     chan struct{} // when set, InitNotifications waits on it
+	sendBlock chan struct{} // when set, SendNotification waits on it
+	sendCalls int
 }
 
 func (f *fakeSender) InitNotifications() error {
@@ -36,6 +39,13 @@ func (f *fakeSender) InitNotifications() error {
 }
 
 func (f *fakeSender) SendNotification(id, title, body string) error {
+	f.mu.Lock()
+	f.sendCalls++
+	block := f.sendBlock
+	f.mu.Unlock()
+	if block != nil {
+		<-block
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.sendErr != nil {
@@ -360,5 +370,141 @@ func TestWrapForwardsEverythingAndTapsBackgroundEvents(t *testing.T) {
 	// Without a notifier the inner bridge is returned as is.
 	if got := Wrap(inner, nil, nil); got != bridgeiface.Bridge(inner) {
 		t.Fatal("Wrap without a notifier changed the bridge")
+	}
+}
+
+// The first background event after launch opens the macOS permission prompt,
+// which blocks init for as long as the user takes. Coming back to the window
+// to answer it must drop what was waiting, and must not have charged it to
+// the per-key cooldown or the overall cap.
+func TestNotifierDropsEventsWhenFocusReturnsDuringInit(t *testing.T) {
+	s := &fakeSender{block: make(chan struct{})}
+	var on atomic.Bool
+	on.Store(true)
+	limits := fastLimits
+	limits.KeyCooldown = time.Hour
+	limits.RateMax = 1
+	limits.RateWindow = time.Hour
+	n := New(Options{Sender: s, Enabled: on.Load, Limits: limits})
+	n.Start()
+	t.Cleanup(func() { n.Stop(2 * time.Second) })
+	n.SetFocused(false)
+	n.Post(notice("k", "stale"))
+	waitFor(t, "init to start", func() bool { inits, _, _ := s.snapshot(); return inits == 1 })
+	n.SetFocused(true)
+	close(s.block)
+	waitFor(t, "init to finish", func() bool { return n.Status().State == StateReady })
+	time.Sleep(100 * time.Millisecond)
+	if _, out, _ := s.snapshot(); len(out) != 0 {
+		t.Fatalf("sent %+v after the window regained focus during init", out)
+	}
+	// The dropped event used no budget: the same key notifies right away.
+	n.SetFocused(false)
+	n.Post(notice("k", "fresh"))
+	waitFor(t, "a notification for the next background event", func() bool { _, out, _ := s.snapshot(); return len(out) == 1 })
+	if _, out, _ := s.snapshot(); out[0].body != "1:fresh" {
+		t.Fatalf("sent %+v, want only the event after focus was lost again", out)
+	}
+}
+
+func TestNotifierDropsEventsWhenSwitchedOffDuringInit(t *testing.T) {
+	s := &fakeSender{block: make(chan struct{})}
+	var on atomic.Bool
+	on.Store(true)
+	n := newTestNotifier(t, s, &on)
+	n.SetFocused(false)
+	n.Post(notice("k", ""))
+	waitFor(t, "init to start", func() bool { inits, _, _ := s.snapshot(); return inits == 1 })
+	on.Store(false)
+	close(s.block)
+	waitFor(t, "init to finish", func() bool { return n.Status().State == StateReady })
+	time.Sleep(100 * time.Millisecond)
+	if _, out, _ := s.snapshot(); len(out) != 0 {
+		t.Fatalf("sent %+v after the setting was switched off during init", out)
+	}
+}
+
+func TestNotifierStopsSendingWhenFocusReturnsMidBatch(t *testing.T) {
+	s := &fakeSender{sendBlock: make(chan struct{})}
+	var on atomic.Bool
+	on.Store(true)
+	n := newTestNotifier(t, s, &on)
+	n.SetFocused(false)
+	n.Post(notice("a", ""))
+	n.Post(notice("b", ""))
+	calls := func() int { s.mu.Lock(); defer s.mu.Unlock(); return s.sendCalls }
+	waitFor(t, "the first send", func() bool { return calls() == 1 })
+	n.SetFocused(true)
+	close(s.sendBlock)
+	time.Sleep(100 * time.Millisecond)
+	if c := calls(); c != 1 {
+		t.Fatalf("%d sends, want the batch to stop after the window regained focus", c)
+	}
+}
+
+// Focus reports are ordered by their sequence, not by arrival.
+func TestNotifierSetFocusedSeqIgnoresStaleReports(t *testing.T) {
+	s := &fakeSender{}
+	var on atomic.Bool
+	on.Store(true)
+	n := newTestNotifier(t, s, &on)
+
+	// blur (1) then focus (2), delivered swapped: the window is focused.
+	n.SetFocusedSeq("p1", 2, true)
+	if n.SetFocusedSeq("p1", 1, false) || n.Accepting() {
+		t.Fatal("a stale blur report was applied over a newer focus report")
+	}
+	// focus (3) then blur (4), delivered swapped: the window is unfocused,
+	// and the stale focus report must not clear what is waiting.
+	n.SetFocusedSeq("p1", 4, false)
+	n.Post(notice("k", ""))
+	if n.SetFocusedSeq("p1", 3, true) || !n.Accepting() {
+		t.Fatal("a stale focus report was applied over a newer blur report")
+	}
+	waitFor(t, "the queued notification", func() bool { _, out, _ := s.snapshot(); return len(out) == 1 })
+	// A page reload restarts the counter under a new session.
+	if !n.SetFocusedSeq("p2", 1, true) || n.Accepting() {
+		t.Fatal("the first report of a new page load was ignored")
+	}
+}
+
+func TestNotifierSetFocusedSeqConcurrent(t *testing.T) {
+	s := &fakeSender{}
+	var on atomic.Bool
+	n := newTestNotifier(t, s, &on)
+	var wg sync.WaitGroup
+	for i := 1; i <= 200; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			n.SetFocusedSeq("p", float64(i), i%2 == 1)
+		}(i)
+	}
+	wg.Wait()
+	// The newest report (200, unfocused) wins whatever the arrival order.
+	if !n.Accepting() {
+		t.Fatal("the newest focus report did not win")
+	}
+}
+
+// Whatever text an event carries, the backend gets valid UTF-8 without NULs.
+func TestNotifierSendsValidUTF8(t *testing.T) {
+	s := &fakeSender{}
+	var on atomic.Bool
+	on.Store(true)
+	n := newTestNotifier(t, s, &on)
+	n.SetFocused(false)
+	n.Post(Notice{Key: "k", Format: func(int, string, string) (string, string) {
+		return "cut\xc3", "a\x00b \xff\xfe " + strings.Repeat("\u00fc", 98) + "\xc3"
+	}})
+	waitFor(t, "a notification", func() bool { _, out, _ := s.snapshot(); return len(out) == 1 })
+	_, out, _ := s.snapshot()
+	for _, text := range []string{out[0].title, out[0].body} {
+		if !utf8.ValidString(text) || strings.ContainsRune(text, 0) {
+			t.Errorf("backend got %q, want valid UTF-8 without NUL", text)
+		}
+	}
+	if out[0].title != "cut\uFFFD" || !strings.HasPrefix(out[0].body, "ab ") {
+		t.Errorf("sent %+v", out[0])
 	}
 }

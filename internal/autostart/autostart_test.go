@@ -336,8 +336,148 @@ func TestCheckRegistrable(t *testing.T) {
 		t.Error("a translocated app must be refused")
 	}
 	if runtime.GOOS != "windows" {
-		if err := checkRegistrable("/usr/local/bin/mahpastes"); err != nil {
-			t.Errorf("an installed path must be accepted: %v", err)
+		for _, p := range []string{
+			"/usr/local/bin/mahpastes",
+			"/Applications/mahpastes.app/Contents/MacOS/mahpastes",
+			"/tmpfoo/mahpastes",
+		} {
+			if err := checkRegistrable(p); err != nil {
+				t.Errorf("an installed path must be accepted: %v", err)
+			}
+		}
+		refused := []string{"/tmp/x/mahpastes", "/var/tmp/x/mahpastes"}
+		if runtime.GOOS == "darwin" {
+			refused = append(refused,
+				"/private/tmp/x/mahpastes.app/Contents/MacOS/mahpastes",
+				"/private/var/tmp/x/mahpastes")
+		}
+		for _, p := range refused {
+			if err := checkRegistrable(p); err == nil {
+				t.Errorf("%s is in a system temp directory and must be refused", p)
+			}
+		}
+	}
+}
+
+// A disk image mounts read-only under /Volumes and is gone after a restart;
+// an external disk mounts there too and is a fine place to keep the app.
+func TestCheckRegistrableVolumes(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("/Volumes is macOS-only")
+	}
+	orig := volumeReadOnly
+	t.Cleanup(func() { volumeReadOnly = orig })
+
+	volumeReadOnly = func(string) bool { return true }
+	if err := checkRegistrable("/Volumes/mahpastes/mahpastes.app/Contents/MacOS/mahpastes"); err == nil {
+		t.Error("an app on a read-only volume under /Volumes (a disk image) must be refused")
+	}
+	// The sealed system volume is read-only too; only /Volumes is judged.
+	if err := checkRegistrable("/Applications/mahpastes.app/Contents/MacOS/mahpastes"); err != nil {
+		t.Errorf("a read-only volume outside /Volumes must not be refused: %v", err)
+	}
+
+	volumeReadOnly = func(string) bool { return false }
+	if err := checkRegistrable("/Volumes/Ext/Applications/mahpastes.app/Contents/MacOS/mahpastes"); err != nil {
+		t.Errorf("an app on a writable external volume must be accepted: %v", err)
+	}
+}
+
+func TestSetRefusesSystemTmpExecutable(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no /tmp on Windows")
+	}
+	tmp, err := os.MkdirTemp("/tmp", "autostart-exe")
+	if err != nil {
+		t.Skipf("cannot create a directory in /tmp: %v", err)
+	}
+	t.Cleanup(func() { os.RemoveAll(tmp) })
+	b := launchAgentBackend{home: t.TempDir()}
+	exe := fakeExe(t, tmp, "mahpastes.app/Contents/MacOS/mahpastes")
+	if err := set(b, exe, false); err == nil {
+		t.Fatalf("registering %s must fail", exe)
+	}
+	if _, err := os.Stat(b.path()); !os.IsNotExist(err) {
+		t.Fatal("a refused registration must not write an entry")
+	}
+}
+
+func TestIsWithinResolvesMissingPaths(t *testing.T) {
+	base := t.TempDir()
+	realDir := filepath.Join(base, "real")
+	if err := os.MkdirAll(filepath.Join(realDir, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(base, "realistic"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	existing := fakeExe(t, realDir, "sub/exe")
+	type tc struct {
+		name, path, dir string
+		want            bool
+	}
+	cases := []tc{
+		{"existing file", existing, realDir, true},
+		{"missing leaf", filepath.Join(realDir, "missing", "a", "b"), realDir, true},
+		{"missing dir on both sides", filepath.Join(base, "gone", "a"), filepath.Join(base, "gone"), true},
+		{"dir itself", realDir, realDir, false},
+		{"parent", base, realDir, false},
+		{"sibling sharing a name prefix", filepath.Join(base, "realistic", "exe"), realDir, false},
+		{"missing sibling sharing a name prefix", filepath.Join(base, "real2", "exe"), realDir, false},
+	}
+	link := filepath.Join(base, "link")
+	if err := os.Symlink(realDir, link); err != nil {
+		t.Logf("symlink cases skipped: %v", err)
+	} else {
+		cases = append(cases,
+			tc{"existing file through the link", filepath.Join(link, "sub", "exe"), realDir, true},
+			tc{"missing leaf through the link", filepath.Join(link, "missing", "a", "b"), realDir, true},
+			tc{"missing leaf, dir given as the link", filepath.Join(realDir, "missing", "a", "b"), link, true},
+			tc{"link itself", link, realDir, false},
+		)
+	}
+	for _, c := range cases {
+		if got := isWithin(c.path, c.dir); got != c.want {
+			t.Errorf("%s: isWithin(%q, %q) = %v, want %v", c.name, c.path, c.dir, got, c.want)
+		}
+	}
+}
+
+func TestLaunchAgentRefusesUnrepresentablePaths(t *testing.T) {
+	home := t.TempDir()
+	b := launchAgentBackend{home: home}
+	good := filepath.Join(home, "Applications", "mahpastes")
+	if err := b.write(Entry{Executable: good}); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(b.path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{"\x01", "\x1b", "\x0b", "\x0c", "\x1f", "\xff", "\uFFFE", "\uFFFF"} {
+		exe := "/Users/u/ctl" + bad + "/mahpastes"
+		if err := b.write(Entry{Executable: exe, Hidden: true}); err == nil {
+			t.Errorf("a path containing %q must be refused, not rewritten", bad)
+		}
+	}
+	if after, _ := os.ReadFile(b.path()); string(after) != string(before) {
+		t.Fatal("a refused registration must leave the existing entry alone")
+	}
+}
+
+func TestLaunchAgentRoundTripsSpecialCharacters(t *testing.T) {
+	b := launchAgentBackend{home: t.TempDir()}
+	for _, exe := range []string{
+		"/Users/u/a\tb c/mahpastes",
+		`/Users/u/&<>'"]]>/mahpastes`,
+		"/Users/u/ünï\uFFFD\x7f/mahpastes",
+	} {
+		if err := b.write(Entry{Executable: exe, Hidden: true}); err != nil {
+			t.Fatalf("write(%q): %v", exe, err)
+		}
+		got, found, _, err := b.read()
+		if err != nil || !found || got.Executable != exe || !got.Hidden {
+			t.Errorf("round trip of %q gave %+v (found=%v, err=%v)", exe, got, found, err)
 		}
 	}
 }

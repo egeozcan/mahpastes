@@ -400,7 +400,7 @@ Click the active sort field to toggle between ascending and descending. Click a 
 ## Limits and Performance
 
 - **Clip limit**: Gallery and deep-search queries return at most 50 clips
-- **File size**: No hard limit, but very large files may slow performance
+- **File size**: A clip can hold just under 1 GB (a database limit). Files opened with mahpastes (Open With, Send To, the command line) that are larger are skipped with a message. Below that there is no limit, but importing a very large file is slow and briefly uses several times its size in memory
 - **Preview size**: Text previews limited to 500 characters
 
 For large collections, use search and archive to keep the main gallery manageable.

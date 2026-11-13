@@ -49,7 +49,7 @@ func absPath(p string) string {
 func TestSendDeliversRequest(t *testing.T) {
 	dataDir := shortDataDir(t)
 	srv, got := startServer(t, dataDir)
-	if srv.Path() != filepath.Join(dataDir, socketName) {
+	if srv.Path() != filepath.Join(canonicalDir(dataDir), socketName) {
 		t.Fatalf("socket at %s, want inside the data dir", srv.Path())
 	}
 
@@ -269,7 +269,8 @@ func TestSocketPathFallsBackForLongDataDirs(t *testing.T) {
 	t.Setenv("TMP", runtimeDir)
 	t.Setenv("TEMP", runtimeDir)
 
-	short := shortDataDir(t)
+	// SocketPath resolves symlinks (macOS temp dirs sit behind /var).
+	short := canonicalDir(shortDataDir(t))
 	if got := SocketPath(short); got != filepath.Join(short, socketName) {
 		t.Fatalf("SocketPath(%s) = %s, want inside the data dir", short, got)
 	}
@@ -316,5 +317,49 @@ func TestSendDeliversPasteClipboard(t *testing.T) {
 	}
 	if r := <-got; !reflect.DeepEqual(r, req) {
 		t.Fatalf("handler got %#v, want %#v", r, req)
+	}
+}
+
+// The instance lock is per inode, so every spelling of one data directory
+// loses it to the holder; each must then reach the holder's socket.
+func TestSocketPathSameForEverySpellingOfADataDir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks need a privilege on Windows")
+	}
+	runtimeDir := shortDataDir(t)
+	t.Setenv("XDG_RUNTIME_DIR", runtimeDir)
+	t.Setenv("TMPDIR", runtimeDir)
+
+	base := shortDataDir(t)
+	for name, sub := range map[string]string{"short": "d", "long": strings.Repeat("d", 120)} {
+		t.Run(name, func(t *testing.T) {
+			real := filepath.Join(base, sub, "data")
+			if err := os.MkdirAll(real, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			link := filepath.Join(base, "link-"+name)
+			if err := os.Symlink(real, link); err != nil {
+				t.Fatal(err)
+			}
+			t.Chdir(filepath.Dir(real))
+
+			want := SocketPath(real)
+			for _, spelling := range []string{real + string(filepath.Separator), link, "data"} {
+				if got := SocketPath(spelling); got != want {
+					t.Errorf("SocketPath(%q) = %s, want %s", spelling, got, want)
+				}
+			}
+
+			_, got := startServer(t, real)
+			for _, spelling := range []string{link, "data"} {
+				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+				err := Send(ctx, spelling, Request{Activate: true})
+				cancel()
+				if err != nil {
+					t.Fatalf("Send via %q: %v", spelling, err)
+				}
+				<-got
+			}
+		})
 	}
 }

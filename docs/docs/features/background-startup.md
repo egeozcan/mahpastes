@@ -42,9 +42,11 @@ the Dock icon to show it; elsewhere launch mahpastes again. A login start that f
 running does nothing visible.
 
 The entry points at the app you turned it on from. mahpastes refuses to register a copy that cannot
-stay where it is: one run from a temporary directory, or on macOS one that macOS runs from a randomised
-"translocated" location because it was opened straight from Downloads or a disk image (move it to
-Applications first).
+stay where it is: one run from a temporary directory (the system's own, `/tmp` or `/var/tmp`), or on
+macOS one that macOS runs from a randomised "translocated" location because it was opened straight from
+Downloads, or one run from a mounted disk image (move it to Applications first). A disk image is
+recognised as a read-only volume under `/Volumes`; a copy on a writable external or secondary disk is
+accepted, and so is one on a writable disk image.
 
 The settings tell you when the entry needs attention instead of changing it behind your back:
 
@@ -57,6 +59,8 @@ The settings tell you when the entry needs attention instead of changing it behi
 
 Uninstalling with `make uninstall` (or `scripts/linux/install.sh --uninstall`), or with the Windows
 installer's uninstaller, removes the entry too (on Linux only when it starts the installed copy).
+A Homebrew cask keeps it on a plain `brew uninstall`, because Homebrew runs the same steps on every
+upgrade; turn the setting off first, or uninstall with `--zap`, which removes it with all other data.
 
 :::note macOS
 macOS may list mahpastes under **System Settings > General > Login Items** as a background item. The

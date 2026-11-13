@@ -6,6 +6,10 @@ export function GetNotificationStatus() {
   return window['go']['main']['NotificationService']['GetNotificationStatus']();
 }
 
+export function ReportWindowFocus(arg1, arg2, arg3) {
+  return window['go']['main']['NotificationService']['ReportWindowFocus'](arg1, arg2, arg3);
+}
+
 export function SendTestNotification() {
   return window['go']['main']['NotificationService']['SendTestNotification']();
 }

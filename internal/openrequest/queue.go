@@ -44,6 +44,11 @@ type Queue struct {
 	// activateOnAttach records an activation a later launch asked for
 	// before there was a window to activate (SubmitRelaunch).
 	activateOnAttach bool
+	// activationAsked is set once any request asked for the window.
+	activationAsked bool
+	// showMu orders activate against HideUnlessAsked's hide, so a load-time
+	// hide can never land after the show a request asked for.
+	showMu sync.Mutex
 }
 
 // NewQueue returns an empty queue that notifies delay after the last Submit.
@@ -69,7 +74,26 @@ func (q *Queue) Attach(activate, notify func()) {
 	q.mu.Unlock()
 
 	if replay {
+		q.showMu.Lock()
 		activate()
+		q.showMu.Unlock()
+	}
+}
+
+// HideUnlessAsked runs hide unless a request has asked for the window since
+// the process started. A hidden start hides once its page has loaded (macOS);
+// a launch or file open that arrived before that was told it was taken, and
+// hiding after it would leave the user with nothing on screen. This process's
+// own --hidden arguments never ask (FromArgs clears Activate). A request that
+// arrives while hide runs is activated after it.
+func (q *Queue) HideUnlessAsked(hide func()) {
+	q.showMu.Lock()
+	defer q.showMu.Unlock()
+	q.mu.Lock()
+	asked := q.activationAsked
+	q.mu.Unlock()
+	if !asked {
+		hide()
 	}
 }
 
@@ -118,13 +142,19 @@ func (q *Queue) submit(r Request, keepActivation bool) {
 	if !q.pending.Empty() {
 		q.scheduleLocked()
 	}
+	if r.Activate {
+		// Set before activate runs: see HideUnlessAsked.
+		q.activationAsked = true
+	}
 	if r.Activate && activate == nil && keepActivation {
 		q.activateOnAttach = true
 	}
 	q.mu.Unlock()
 
 	if r.Activate && activate != nil {
+		q.showMu.Lock()
 		activate()
+		q.showMu.Unlock()
 	}
 }
 

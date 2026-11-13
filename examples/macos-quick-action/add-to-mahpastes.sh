@@ -5,7 +5,7 @@
 # Automator and Shortcuts do not read ~/.zshrc and use a minimal PATH, so the
 # mp path and the API key are set explicitly here. Edit these three lines.
 MP=/usr/local/bin/mp                 # output of `command -v mp` in Terminal
-export MP_API_KEY="paste-your-key"   # an editor key: Settings > API, or `mp api key create quick-action --role editor`
+export MP_API_KEY="paste-your-key"   # an editor key: menu drawer > API, or `mp api key create quick-action --role editor`
 export MP_API_URL="http://localhost:44557"
 
 # Finder items: set "Pass input" to "as arguments" -> files arrive in "$@".

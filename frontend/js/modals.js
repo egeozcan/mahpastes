@@ -310,6 +310,9 @@ async function handleLightboxFileAction(action, clip) {
         case 'copy-rich-text':
             copyClipAsRichText(clip.id);
             break;
+        case 'copy-link':
+            copyClipLink(clip.id);
+            break;
         case 'save-file':
             saveClipToFile(clip.id);
             break;

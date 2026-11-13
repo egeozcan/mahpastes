@@ -138,8 +138,10 @@ func CurrentExecutable() (string, error) {
 }
 
 // checkRegistrable refuses executables that will not be there at the next
-// login: `go run` and test binaries in the temp directory, and a macOS app
-// started from a translocated (quarantined, not yet moved) location.
+// login: `go run` and test binaries in the temp directory, anything else
+// under a system temp directory, a macOS app started from a translocated
+// (quarantined, not yet moved) location, and a macOS app run from a mounted
+// disk image.
 func checkRegistrable(exe string) error {
 	if !filepath.IsAbs(exe) {
 		return fmt.Errorf("executable path %q is not absolute", exe)
@@ -150,26 +152,65 @@ func checkRegistrable(exe string) error {
 	if strings.Contains(filepath.ToSlash(exe), "/AppTranslocation/") {
 		return errors.New("mahpastes is running from a temporary copy macOS made of a downloaded app; move it to Applications and open it from there first")
 	}
-	if tmp := os.TempDir(); tmp != "" && isWithin(exe, tmp) {
-		return fmt.Errorf("this copy of mahpastes runs from a temporary location (%s); install it before turning on launch at login", exe)
+	for _, tmp := range tempRoots() {
+		if isWithin(exe, tmp) {
+			return fmt.Errorf("this copy of mahpastes runs from a temporary location (%s); install it before turning on launch at login", exe)
+		}
+	}
+	// /Volumes also holds external and secondary disks, where an app may
+	// live for good, so only a read-only volume there (what an attached disk
+	// image is) is refused.
+	if runtime.GOOS == "darwin" && isWithin(exe, "/Volumes") && volumeReadOnly(exe) {
+		return fmt.Errorf("this copy of mahpastes runs from a read-only volume, most likely a disk image (%s); copy it to Applications before turning on launch at login", exe)
 	}
 	return nil
 }
 
-// isWithin reports whether path is inside dir, after resolving symlinks in
-// both where possible (macOS's temp directory sits behind /var -> /private/var).
-func isWithin(path, dir string) bool {
-	resolve := func(p string) string {
-		if r, err := filepath.EvalSymlinks(p); err == nil {
-			return r
-		}
-		return filepath.Clean(p)
+// tempRoots lists the directories whose contents the system clears: the
+// process's own temp directory and, outside Windows, the shared ones (macOS
+// empties /tmp at boot; isWithin follows /tmp -> /private/tmp).
+func tempRoots() []string {
+	var roots []string
+	if tmp := os.TempDir(); tmp != "" {
+		roots = append(roots, tmp)
 	}
-	rel, err := filepath.Rel(resolve(dir), resolve(path))
+	if runtime.GOOS != "windows" {
+		roots = append(roots, "/tmp", "/var/tmp")
+	}
+	return roots
+}
+
+// volumeReadOnly reports whether the volume holding path is mounted
+// read-only. A variable so tests can stand in for a mounted disk image.
+var volumeReadOnly = platformVolumeReadOnly
+
+// isWithin reports whether path is inside dir, after resolving symlinks in
+// both (macOS's temp directory sits behind /var -> /private/var).
+func isWithin(path, dir string) bool {
+	rel, err := filepath.Rel(resolveExisting(dir), resolveExisting(path))
 	if err != nil {
 		return false
 	}
 	return rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// resolveExisting resolves the symlinks in p. Where p does not exist it
+// resolves the deepest ancestor that does and re-appends the rest, so the
+// answer does not depend on the leaf being there.
+func resolveExisting(p string) string {
+	p = filepath.Clean(p)
+	rest := ""
+	for cur := p; ; {
+		if r, err := filepath.EvalSymlinks(cur); err == nil {
+			return filepath.Join(r, rest)
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return p
+		}
+		rest = filepath.Join(filepath.Base(cur), rest)
+		cur = parent
+	}
 }
 
 // Get reports the current registration.

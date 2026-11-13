@@ -10,6 +10,9 @@ import (
 // APIService exposes REST API operations to the frontend via Wails.
 type APIService struct {
 	app *coreapp.App
+	// launchFailure is why "Start on launch" did not start the server, if it
+	// did not; the modal shows it next to "Stopped".
+	launchFailure coreapp.APILaunchFailure
 }
 
 // NewAPIService creates a new API service.
@@ -24,6 +27,7 @@ func (s *APIService) StartAPI(port int, bindAll bool) (APIStatus, error) {
 	}
 	status, err := s.app.APIManager().Start(port, bindAll)
 	if err == nil {
+		s.launchFailure.Clear()
 		// Remember the port for "Start on launch". bind_all is deliberately
 		// never persisted: an autostarted listener is always loopback-only.
 		if err := s.app.RememberAPIPort(status.Port); err != nil {
@@ -54,11 +58,24 @@ func (s *APIService) SetAPIAutostart(enabled bool, port int) error {
 
 // startOnLaunch starts the API server at desktop startup when the user opted
 // in. It runs from OnStartup, not the shared Bootstrap, because mahpastesd
-// starts its own listener. Failures (e.g. port in use) are logged, never fatal.
+// starts its own listener. Failures (e.g. port in use) are never fatal: they
+// are logged and kept for GetAPILaunchError.
 func (s *APIService) startOnLaunch() {
 	if _, err := s.app.StartAPIOnLaunch(); err != nil {
 		log.Printf("api: start on launch failed: %v", err)
+		_, port := s.app.APILaunchSettings()
+		s.launchFailure.Record(port, err)
 	}
+}
+
+// GetAPILaunchError returns why "Start on launch" could not start the server
+// this run (e.g. "port 44557 is already in use"), or "" when it did not fail,
+// the server is running, or the user has started or stopped it since.
+func (s *APIService) GetAPILaunchError() string {
+	if am := s.app.APIManager(); am != nil && am.GetStatus().Running {
+		return ""
+	}
+	return s.launchFailure.Message()
 }
 
 // StopAPI stops the REST API server.
@@ -66,7 +83,11 @@ func (s *APIService) StopAPI() error {
 	if s.app.APIManager() == nil {
 		return fmt.Errorf("API manager not initialized")
 	}
-	return s.app.APIManager().Stop()
+	err := s.app.APIManager().Stop()
+	if err == nil {
+		s.launchFailure.Clear()
+	}
+	return err
 }
 
 // GetAPIStatus returns the current API server status.

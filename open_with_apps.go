@@ -57,7 +57,7 @@ func lookupOpenWithApps(ext string) ([]OpenWithApp, error) {
 	openWithAppsCache.Lock()
 	if e, ok := openWithAppsCache.entries[key]; ok && now.Before(e.expires) {
 		openWithAppsCache.Unlock()
-		return append([]OpenWithApp(nil), e.apps...), nil
+		return append([]OpenWithApp{}, e.apps...), nil
 	}
 	openWithAppsCache.Unlock()
 
@@ -71,9 +71,24 @@ func lookupOpenWithApps(ext string) ([]OpenWithApp, error) {
 		return nil, fmt.Errorf("failed to create probe file: %w", err)
 	}
 
-	apps, err := openWithAppLister(probe)
+	// The system may report the probe's directory under another spelling
+	// (/private/var for /var), so match the resolved form too.
+	probeDirs := []string{dir}
+	if resolved, err := filepath.EvalSymlinks(dir); err == nil && resolved != dir {
+		probeDirs = append(probeDirs, resolved)
+	}
+
+	listed, err := openWithAppLister(probe)
 	if err != nil {
 		return nil, err
+	}
+	// A file type the system treats as its own opener (".app") comes back as
+	// the probe itself, which is gone once this returns: never list it.
+	apps := []OpenWithApp{}
+	for _, a := range listed {
+		if !pathInAnyDir(a.Path, probeDirs) {
+			apps = append(apps, a)
+		}
 	}
 
 	openWithAppsCache.Lock()
@@ -84,7 +99,19 @@ func lookupOpenWithApps(ext string) ([]OpenWithApp, error) {
 	}
 	openWithAppsCache.entries[key] = openWithAppsCacheEntry{apps: apps, expires: now.Add(openWithAppsCacheTTL)}
 	openWithAppsCache.Unlock()
-	return append([]OpenWithApp(nil), apps...), nil
+	return append([]OpenWithApp{}, apps...), nil
+}
+
+// pathInAnyDir reports whether path is one of dirs or lies inside one.
+func pathInAnyDir(path string, dirs []string) bool {
+	path = filepath.Clean(path)
+	for _, dir := range dirs {
+		dir = filepath.Clean(dir)
+		if path == dir || strings.HasPrefix(path, dir+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
 }
 
 // openWithScriptApp and openWithScriptResult are the JSON the macOS lookup

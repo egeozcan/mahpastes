@@ -8,7 +8,7 @@ import (
 )
 
 // menuActionEvent carries the id of a clicked application-menu item to the
-// frontend (js/menu-actions.js), which maps it onto the matching keyboard
+// frontend (frontend/js/app-info.js), which maps it onto the matching keyboard
 // shortcut action and runs it only if that action is available right now.
 const menuActionEvent = "menu:action"
 

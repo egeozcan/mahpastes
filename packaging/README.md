@@ -41,5 +41,13 @@ A manifest installed from a URL is not tracked by `scoop update`.
    so the macOS release must be signed and notarized (it is when the signing
    secrets are set). `binary "mp"` needs the notarized `mp` in the zip.
 
+The cask's `uninstall` only quits the app. Homebrew runs every other
+`uninstall` directive on upgrade and reinstall too, so removing the Launch at
+login agent there would switch that setting off with each update; the agent,
+the File Provider containers and the caches are under `zap`, and a caveat tells
+users to turn Launch at login off before a plain uninstall. `depends_on macos:
+:ventura` means "Ventura or newer" on current Homebrew (the `">= :ventura"`
+string form is deprecated). `packaging/cask_test.go` pins all of this.
+
 Pushing to a tap from CI needs a token for that repository; `GITHUB_TOKEN`
 cannot do it, so bumping stays a manual step or a workflow in the tap.

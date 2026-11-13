@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -197,5 +198,73 @@ func TestMarkdownReference(t *testing.T) {
 	// A Windows checkout with core.autocrlf has CRLF line endings.
 	if strings.ReplaceAll(string(committed), "\r\n", "\n") != s {
 		t.Error("docs/docs/reference/cli.md is stale; run `make mp-docs`")
+	}
+}
+
+// Cobra renders man pages through Markdown, which drops <placeholder> as an
+// HTML tag and reads the underscores in MP_API_KEY ... MP_API_URL as emphasis.
+func TestManPagesKeepPlaceholdersAndUnderscores(t *testing.T) {
+	before, err := renderMarkdownReference(rootCmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	rootCmd.SetArgs([]string{"gendocs", "--man", dir})
+	defer rootCmd.SetArgs(nil)
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	read := func(name string) string {
+		t.Helper()
+		b, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	for name, wants := range map[string][]string{
+		"mp-clip-open.1":   {"mp clip open <id> [flags]"},
+		"mp-clip-rename.1": {"mp clip rename <id> <filename> [flags]"},
+		"mp-tag-merge.1":   {"mp tag merge <source-tag> <dest-tag> [flags]"},
+		"mp.1":             {"MP_API_KEY=<your-key>", "MP_API_KEY_FILE=<path>", "MAHPASTES_API_KEY, MAHPASTES_API_URL", "the MP_ variables"},
+	} {
+		page := read(name)
+		for _, want := range wants {
+			if !strings.Contains(page, want) {
+				t.Errorf("%s: missing %q", name, want)
+			}
+		}
+	}
+
+	// Every page: the full usage line survives, and no escape leaks through
+	// as a visible backslash (code blocks are copied verbatim).
+	leaked := regexp.MustCompile(`\\\\[<>_*]`)
+	var walk func(c *cobra.Command)
+	walk = func(c *cobra.Command) {
+		if c != rootCmd && (!c.IsAvailableCommand() || c.IsAdditionalHelpTopicCommand()) {
+			return
+		}
+		name := strings.ReplaceAll(c.CommandPath(), " ", "-") + ".1"
+		page := read(name)
+		if !strings.Contains(page, `\fB`+c.UseLine()+`\fP`) {
+			t.Errorf("%s: SYNOPSIS is not %q", name, c.UseLine())
+		}
+		if m := leaked.FindString(page); m != "" {
+			t.Errorf("%s: escape %q leaked into the page", name, m)
+		}
+		for _, sub := range c.Commands() {
+			walk(sub)
+		}
+	}
+	walk(rootCmd)
+
+	// The escapes are undone: the Markdown reference (and --help) read the
+	// same strings.
+	after, err := renderMarkdownReference(rootCmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Error("generating man pages changed the Markdown reference")
 	}
 }

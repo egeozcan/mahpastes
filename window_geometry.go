@@ -2,10 +2,29 @@ package main
 
 import (
 	"log"
+	"sync/atomic"
+	"time"
 
 	"go-clipboard/internal/wailsbridge"
 	"go-clipboard/internal/windowstate"
 )
+
+// geometryRestorePending is set from the moment a saved state is loaded until
+// restoreWindowGeometry has applied it (first DomReady). It stays false when
+// there is nothing to restore, so a first run's placement is saved.
+var geometryRestorePending atomic.Bool
+
+// How long restoreWindowGeometry waits for the window to report the restored
+// position before saves resume anyway.
+const (
+	geometrySettleTimeout = time.Second
+	geometrySettlePoll    = 10 * time.Millisecond
+)
+
+// windowGeometrySource is the part of wailsbridge.Bridge that saving reads.
+type windowGeometrySource interface {
+	WindowGeometry() (wailsbridge.WindowGeometry, bool)
+}
 
 // saveWindowGeometry records the main window's placement in dataDir. Wails
 // calls OnBeforeClose for the close button, Cmd+Q / the app menu's Quit and
@@ -14,7 +33,12 @@ import (
 // With options.App.HideWindowOnClose (keep running when closed) the close
 // button hides the window natively, without reaching OnBeforeClose, so
 // WindowHidden saves it then. A write is skipped when nothing changed.
-func saveWindowGeometry(b *wailsbridge.Bridge, dataDir string) {
+func saveWindowGeometry(b windowGeometrySource, dataDir string) {
+	// Until the saved position is applied the window sits where Wails centred
+	// it; a quit that early must not replace the saved position with that.
+	if geometryRestorePending.Load() {
+		return
+	}
 	g, ok := b.WindowGeometry()
 	if !ok {
 		return
@@ -39,8 +63,8 @@ func saveWindowGeometry(b *wailsbridge.Bridge, dataDir string) {
 // without calling Go, so the frontend reports it: on window blur, which hiding
 // the active window always causes, and on visibilitychange. Saving on a plain
 // focus loss is harmless, and an unchanged geometry is not written. Does
-// nothing when the window quits on close (OnBeforeClose saves it then) or
-// never shows (headless runs).
+// nothing before the saved geometry has been restored, when the window quits
+// on close (OnBeforeClose saves it then) or never shows (headless runs).
 func (d *App) WindowHidden() {
 	if !d.lifecycle.saveGeometryOnHide || d.bridge == nil {
 		return
@@ -70,7 +94,30 @@ func restoreWindowGeometry(b *wailsbridge.Bridge, saved windowstate.State) {
 	if plan.Resize {
 		b.WindowSetSize(plan.Width, plan.Height)
 	}
-	if plan.Move {
-		b.WindowSetPosition(plan.X, plan.Y)
+	if !plan.Move {
+		geometryRestorePending.Store(false)
+		return
+	}
+	b.WindowSetPosition(plan.X, plan.Y)
+	// Not inline: this runs on Wails' message loop.
+	go func() {
+		awaitWindowPosition(b, plan.X, plan.Y, geometrySettleTimeout)
+		geometryRestorePending.Store(false)
+	}()
+}
+
+// awaitWindowPosition returns once the window reports position x,y, or after
+// timeout. On macOS Wails queues the setters on the main thread while the
+// getters read the window directly, so a save straight after the restore
+// could still see the centred placement. The timeout covers a position the
+// window system adjusts or (Linux, second monitor) reports differently.
+func awaitWindowPosition(b windowGeometrySource, x, y int, timeout time.Duration) {
+	deadline := time.Now().Add(timeout)
+	for {
+		g, ok := b.WindowGeometry()
+		if !ok || (g.X == x && g.Y == y) || !time.Now().Before(deadline) {
+			return
+		}
+		time.Sleep(geometrySettlePoll)
 	}
 }

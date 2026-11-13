@@ -440,6 +440,7 @@
         GetNotificationStatus: async () => ({ supported: false, enabled: false, state: 'unsupported', error: '', platform: '' }),
         SetNotificationsEnabled: async () => { throw new Error('system notifications are desktop-only'); },
         SendTestNotification: async () => { throw new Error('system notifications are desktop-only'); },
+        ReportWindowFocus: async () => {},
     };
     // The server reports its version through /status; the release check is a
     // desktop-app feature (the toggle is .desktop-only).

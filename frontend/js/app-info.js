@@ -97,8 +97,11 @@
     }
 
     // Menu item id -> ShortcutManager action id. Items run through
-    // ShortcutManager.runAction, which checks that the action's context is
-    // live, so a menu click never acts behind a modal.
+    // ShortcutManager.runAction, so a menu click never acts behind a dialog,
+    // the lightbox, an editor, the comparison view or the import wizard. With
+    // menuBar set, the gallery actions also run from the Watch, Serve and
+    // Share views and with the nav drawer open (it is closed first): a menu
+    // bar item that is enabled must not silently do nothing there.
     const MENU_ACTIONS = {
         'import-files': 'upload-clip',
         'import-folder': 'open-import',
@@ -111,13 +114,30 @@
         'shortcuts': 'show-cheatsheet',
     };
 
+    // What a gallery action needs done first when it is picked from another
+    // main view; returning false skips the action itself. Watch Folders and
+    // Serve switch views themselves and Plugins is a dialog that opens over
+    // any view, so they need nothing.
+    const showGallery = () => { if (typeof switchView === 'function') switchView('clips'); };
+    const ENTER_GALLERY = {
+        'import-files': showGallery,
+        'import-folder': showGallery,
+        // From another view these two go to the archive / folder view; a
+        // plain toggle would leave it if it was already on. toggleViewMode
+        // brings the gallery up itself.
+        'archive': () => { if (!isViewingArchive) return true; showGallery(); return false; },
+        'folder-mode': () => { showGallery(); return !folderMode; },
+    };
+
     function onMenuAction(id) {
         if (id === 'documentation') {
             openExternal(DOCS_URL);
             return;
         }
         const actionId = MENU_ACTIONS[id];
-        if (actionId && typeof ShortcutManager !== 'undefined') ShortcutManager.runAction(actionId);
+        if (actionId && typeof ShortcutManager !== 'undefined') {
+            ShortcutManager.runAction(actionId, { menuBar: true, enterGallery: ENTER_GALLERY[id] });
+        }
     }
     window.__handleMenuAction = onMenuAction;
 

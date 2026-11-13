@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"errors"
 	"os"
 	"path/filepath"
@@ -8,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	coreapp "go-clipboard/internal/app"
 )
 
 func TestOpenWithAppsFromScriptOrdersDefaultFirst(t *testing.T) {
@@ -180,5 +183,73 @@ func TestListOpenWithAppsUsesClipExtension(t *testing.T) {
 	}
 	if _, err := d.ListOpenWithApps(99); err == nil || !strings.Contains(err.Error(), "not found") {
 		t.Fatalf("err = %v, want clip not found", err)
+	}
+}
+
+// For a ".app" clip Launch Services names the probe file itself as the
+// default application, and the probe is deleted when the lookup returns.
+func TestLookupOpenWithAppsDropsProbeItself(t *testing.T) {
+	real := OpenWithApp{Name: "Finder", Path: "/System/Library/CoreServices/Finder.app"}
+	variants := map[string]func(probe string) string{
+		"probe path": func(probe string) string { return probe },
+		"resolved probe path": func(probe string) string {
+			resolved, err := filepath.EvalSymlinks(probe)
+			if err != nil {
+				t.Fatalf("resolve probe: %v", err)
+			}
+			return resolved
+		},
+		"inside the probe": func(probe string) string { return filepath.Join(probe, "Contents") },
+	}
+	for name, spell := range variants {
+		t.Run(name, func(t *testing.T) {
+			withReal := false
+			calls := 0
+			fakeOpenWithLister(t, func(probe string) ([]OpenWithApp, error) {
+				calls++
+				apps := []OpenWithApp{{Name: "clip", Path: spell(probe), IsDefault: true}}
+				if withReal {
+					apps = append(apps, real)
+				}
+				return apps, nil
+			})
+
+			apps, err := lookupOpenWithApps(".app")
+			if err != nil {
+				t.Fatalf("lookup: %v", err)
+			}
+			if apps == nil || len(apps) != 0 {
+				t.Fatalf("apps = %#v, want an empty list", apps)
+			}
+			// The filtered list is what was cached.
+			again, err := lookupOpenWithApps(".APP")
+			if err != nil || calls != 1 || len(again) != 0 {
+				t.Fatalf("cached lookup: apps=%+v err=%v calls=%d", again, err, calls)
+			}
+
+			withReal = true
+			apps, err = lookupOpenWithApps(".other")
+			if err != nil {
+				t.Fatalf("lookup: %v", err)
+			}
+			if !reflect.DeepEqual(apps, []OpenWithApp{real}) {
+				t.Fatalf("apps = %+v, want only %+v", apps, real)
+			}
+		})
+	}
+}
+
+// The extension an over-long clip name ends up with still makes a probe name
+// the filesystem accepts.
+func TestLookupOpenWithAppsProbesOverLongExtension(t *testing.T) {
+	fakeOpenWithLister(t, func(probe string) ([]OpenWithApp, error) {
+		if _, err := os.Stat(probe); err != nil {
+			t.Errorf("probe does not exist during the lookup: %v", err)
+		}
+		return nil, nil
+	})
+	ext := coreapp.TransferFileExtension(sql.NullString{String: "a." + strings.Repeat("e", 300), Valid: true}, "text/plain")
+	if _, err := lookupOpenWithApps(ext); err != nil {
+		t.Fatalf("lookup with a %d-byte extension: %v", len(ext), err)
 	}
 }

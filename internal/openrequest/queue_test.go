@@ -2,6 +2,7 @@ package openrequest
 
 import (
 	"reflect"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -158,5 +159,78 @@ func TestQueueDoesNotActivateOnAttachUnasked(t *testing.T) {
 	q.Attach(func() { activated.Add(1) }, nil)
 	if got := activated.Load(); got != 0 {
 		t.Fatalf("activations = %d, want 0", got)
+	}
+}
+
+// A hidden start hides once its page has loaded. A relaunch that reached the
+// socket before the window existed was acknowledged: its activation is
+// replayed at Attach and the later hide must not undo it.
+func TestQueueHideSkippedAfterRelaunchBeforeAttach(t *testing.T) {
+	q := NewQueue(time.Millisecond)
+	q.SubmitRelaunch(Request{Activate: true})
+	var shown, hidden atomic.Int32
+	q.Attach(func() { shown.Add(1) }, nil)
+	q.HideUnlessAsked(func() { hidden.Add(1) })
+	if shown.Load() != 1 || hidden.Load() != 0 {
+		t.Fatalf("shown %d, hidden %d; want 1, 0", shown.Load(), hidden.Load())
+	}
+}
+
+// The same for a request that arrives after Attach but before the page has
+// loaded, and for a file open on a cold launch (Submit before Attach), whose
+// window shows by itself.
+func TestQueueHideSkippedAfterActivationBeforeLoad(t *testing.T) {
+	for name, early := range map[string]bool{"before Attach": true, "after Attach": false} {
+		t.Run(name, func(t *testing.T) {
+			q := NewQueue(time.Millisecond)
+			var hidden atomic.Int32
+			if early {
+				q.Submit(Request{Files: []string{"/a"}, Activate: true})
+			}
+			q.Attach(func() {}, nil)
+			if !early {
+				q.Submit(Request{Activate: true})
+			}
+			q.HideUnlessAsked(func() { hidden.Add(1) })
+			if hidden.Load() != 0 {
+				t.Fatal("hid a window a request had asked for")
+			}
+		})
+	}
+}
+
+// Nobody asked: the hidden start hides. Requests without Activate (this
+// process's own --hidden arguments, a --hidden handoff) do not count.
+func TestQueueHidesWhenNoActivationAsked(t *testing.T) {
+	q := NewQueue(time.Millisecond)
+	q.Submit(Request{Files: []string{"/a"}})
+	q.Attach(func() {}, nil)
+	q.SubmitRelaunch(Request{Files: []string{"/b"}})
+	var hidden atomic.Int32
+	q.HideUnlessAsked(func() { hidden.Add(1) })
+	if hidden.Load() != 1 {
+		t.Fatalf("hidden %d times, want 1", hidden.Load())
+	}
+}
+
+// An activation racing the hide is never followed by it: either the hide is
+// skipped, or the show comes after the hide.
+func TestQueueActivationNeverFollowedByHide(t *testing.T) {
+	for i := 0; i < 200; i++ {
+		q := NewQueue(time.Millisecond)
+		var mu sync.Mutex
+		var order []string
+		record := func(s string) func() {
+			return func() { mu.Lock(); order = append(order, s); mu.Unlock() }
+		}
+		q.Attach(record("show"), nil)
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() { defer wg.Done(); q.SubmitRelaunch(Request{Activate: true}) }()
+		go func() { defer wg.Done(); q.HideUnlessAsked(record("hide")) }()
+		wg.Wait()
+		if order[len(order)-1] != "show" {
+			t.Fatalf("run %d: order %v ends hidden", i, order)
+		}
 	}
 }

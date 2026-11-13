@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -325,5 +327,72 @@ func writeExecutable(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// install and uninstall used to pkill every command line containing
+// "mahpastes.app/Contents/MacOS/mahpastes": dev builds, e2e workers, other
+// checkouts. Only the installed copy may be stopped. The recipes are dry-run
+// (they also stop the real File Provider extension) and their patterns are
+// tried with pgrep against three stand-in processes.
+func TestInstallRecipesOnlyStopTheInstalledApp(t *testing.T) {
+	t.Parallel()
+
+	if _, err := os.Stat("/bin/sleep"); err != nil {
+		t.Skipf("no /bin/sleep to stand in for the app: %v", err)
+	}
+	tmp := t.TempDir()
+	installDir := filepath.Join(tmp, "Applications")
+	// pkill -f reads argv, so /bin/sleep under the app's argv[0] stands in for
+	// it (a copy of a system binary is killed on launch).
+	start := func(argv0 string) string {
+		t.Helper()
+		cmd := &exec.Cmd{Path: "/bin/sleep", Args: []string{argv0, "60"}}
+		if err := cmd.Start(); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+		})
+		return strconv.Itoa(cmd.Process.Pid)
+	}
+	const exe = "zzfake.app/Contents/MacOS/zzfake"
+	installed := start(filepath.Join(installDir, exe))
+	elsewhere := start(filepath.Join(tmp, "build", "bin", exe))
+	// The same path with something appended is another program.
+	helper := start(filepath.Join(installDir, exe+"-helper"))
+
+	out, err := exec.Command("make", "-n", "stop-installed-app", "uninstall",
+		"APP_NAME=zzfake", "INSTALL_DIR="+installDir).CombinedOutput()
+	if err != nil {
+		t.Fatalf("make -n: %v\n%s", err, out)
+	}
+	var patterns []string
+	for _, m := range regexp.MustCompile(`p(?:kill|grep)(?: -[A-Z]+)? -f ("[^"]*")`).FindAllStringSubmatch(string(out), -1) {
+		if strings.Contains(m[1], "zzfake") {
+			patterns = append(patterns, m[1])
+		}
+	}
+	// TERM, two pgrep polls and KILL in stop-installed-app, one in uninstall.
+	if len(patterns) != 5 {
+		t.Fatalf("found %d app kill patterns, want 5:\n%s", len(patterns), out)
+	}
+	for _, quoted := range patterns {
+		// Through sh, quoted as the recipe has it.
+		got, _ := exec.Command("sh", "-c", "pgrep -f "+quoted).Output()
+		pids := map[string]bool{}
+		for _, pid := range strings.Fields(string(got)) {
+			pids[pid] = true
+		}
+		if !pids[installed] {
+			t.Errorf("%s does not match the installed app", quoted)
+		}
+		if pids[elsewhere] {
+			t.Errorf("%s matches a copy running from another directory", quoted)
+		}
+		if pids[helper] {
+			t.Errorf("%s matches a different executable in the bundle", quoted)
+		}
 	}
 }

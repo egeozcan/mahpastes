@@ -34,7 +34,9 @@ else
     APP_BUNDLE := $(BUILD_DIR)/$(APP_NAME).app
     INSTALL_DIR := /Applications
     PLUGIN_DIR := $(HOME)/Library/Application Support/mahpastes/plugins
-    APP_PROCESS_PATTERN := [/]$(APP_NAME).app/Contents/MacOS/$(APP_NAME)
+    # Anchored to the installed executable: pkill -f matches whole command lines,
+    # and dev builds, e2e workers and other checkouts run the same bundle name.
+    APP_PROCESS_PATTERN := ^$(INSTALL_DIR)/$(APP_NAME)\.app/Contents/MacOS/$(APP_NAME)( |$$)
     FILE_PROVIDER_PROCESS_PATTERN := [/]MahpastesFileProvider\.appex/Contents/MacOS/MahpastesFileProvider
     MP_INSTALL_DIR ?= $(if $(GO_BIN),$(GO_BIN),$(HOME)/.local/bin)
 endif
@@ -240,7 +242,7 @@ install-bundle:
 	rm -rf "$$previous"
 
 uninstall: ## Remove installed app
-	@pkill -f "$(APP_NAME).app/Contents/MacOS/$(APP_NAME)" 2>/dev/null || true
+	@pkill -f "$(APP_PROCESS_PATTERN)" 2>/dev/null || true
 	rm -rf $(INSTALL_DIR)/$(APP_NAME).app
 	rm -f "$(HOME)/Library/LaunchAgents/io.github.egeozcan.mahpastes.login.plist"
 	@echo "Removed $(APP_NAME) from $(INSTALL_DIR)"

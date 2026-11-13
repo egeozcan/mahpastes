@@ -19,7 +19,7 @@ The REST API runs a separate HTTP server with key-based authentication. Every re
 
 ## Starting the Server
 
-1. Open the menu drawer and click **API** (or the API button in settings)
+1. Open the menu drawer and click **API**
 2. Set a port (default: `44557`, the port the `mp` CLI uses)
 3. Optionally enable **Network** toggle to bind to `0.0.0.0` instead of `127.0.0.1`
 4. Click **Start Server**
@@ -32,8 +32,8 @@ Turn on **Start on launch** to have the desktop app start the server each time i
 
 - The server starts on the port shown in the modal: the one you last started it on, or the one in the port field when you turn the switch on (editing the port while it is on updates it too).
 - It always listens on `127.0.0.1` only. The **Network** toggle is never remembered, so network access still needs a manual start.
-- If the port is taken at launch, the app opens normally and the server stays stopped; start it from the modal.
-- The choice is local to this computer: backups do not carry it (restoring one turns it off), and API keys cannot change it through `PUT /api/v1/settings/{key}`.
+- If the port is taken at launch, the app opens normally and the server stays stopped. The modal's status line then says why (for example `Stopped · start on launch failed: port 44557 is already in use`) until you start or stop the server from the modal.
+- The choice is local to this computer: backups do not carry it, and restoring one leaves it as it was on this computer, and API keys cannot change it through `PUT /api/v1/settings/{key}`.
 - The headless server (`mahpastesd`) ignores it; it always starts its own listener.
 
 ![API settings](/img/screenshots/api-settings.png)
@@ -236,9 +236,23 @@ Content-Type: multipart/form-data
 
 Send a file part in the multipart body (100 MB max). Optional `?filename=` query parameter overrides the uploaded filename.
 
+The stored content type is chosen in this order:
+
+1. An optional `content_type` form field, anywhere in the body (before or after the file part). It is an explicit override and is stored as given, `application/octet-stream` included. It must be a valid media type (`type/subtype`, optional parameters, 255 bytes at most); anything else is rejected with `400 Bad Request`.
+2. The file part's own `Content-Type` header. A missing, malformed or `application/octet-stream` header counts as unknown.
+3. The filename's extension, then content sniffing.
+
+One exception applies to all three: a file named `*.md` or `*.markdown` is always stored as `text/markdown`.
+
+```bash
+curl -H "Authorization: Bearer $MP_API_KEY" \
+  -F "file=@notes.log" -F "content_type=text/plain" \
+  http://localhost:44557/api/v1/clips
+```
+
 Returns `201 Created` with the clip object on success.
 
-Duplicate uploads (matching content hash) return the existing clip instead of creating a new one. When a tag-scoped key uploads a duplicate, the scoped tag is applied to the existing clip.
+Duplicate uploads (matching content hash) return the existing clip instead of creating a new one, with `200 OK` rather than `201 Created` — check the status before changing the returned clip (the `mp` CLI skips `--tag` and `--expire` on a `200`). A tag-scoped key only matches clips already inside its scope, and the match is returned unchanged.
 
 #### Delete a clip
 

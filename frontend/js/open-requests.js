@@ -17,6 +17,38 @@
 // multi-path paste) rather than all at once.
 const OPEN_REQUEST_IMPORT_BATCH = 32;
 
+// A batch is also bounded by its bytes: every file in it is held as base64 on
+// both sides of the bridge at once, several times its size. A file over this
+// on its own is imported alone.
+const OPEN_REQUEST_IMPORT_BATCH_BYTES = 256 * 1024 * 1024;
+
+// Splits opened files into import batches of at most OPEN_REQUEST_IMPORT_BATCH
+// files and OPEN_REQUEST_IMPORT_BATCH_BYTES bytes, keeping their order. sizes
+// matches files index for index; a missing size counts as 0.
+function openRequestBatches(files, sizes) {
+    const batches = [];
+    let batch = [];
+    let bytes = 0;
+    files.forEach((file, i) => {
+        const size = Number(sizes && sizes[i]) || 0;
+        if (batch.length > 0 && (batch.length >= OPEN_REQUEST_IMPORT_BATCH || bytes + size > OPEN_REQUEST_IMPORT_BATCH_BYTES)) {
+            batches.push(batch);
+            batch = [];
+            bytes = 0;
+        }
+        batch.push(file);
+        bytes += size;
+    });
+    if (batch.length > 0) batches.push(batch);
+    return batches;
+}
+
+// Names the first few paths of a list for a toast.
+function openRequestNames(paths) {
+    const names = paths.map(p => p.split(/[/\\]/).pop() || p);
+    return names.slice(0, 3).join(', ') + (names.length > 3 ? `, +${names.length - 3} more` : '');
+}
+
 // How much of an unsupported link the error toast shows.
 const OPEN_REQUEST_LINK_SHOWN = 80;
 
@@ -51,15 +83,16 @@ async function drainOpenRequests() {
     return openRequestDrain;
 }
 
-// Handles one batch: { files, skipped, links, unsupported_links,
-// paste_clipboard }. Files were already checked by the backend (existing,
-// readable regular files outside the app's temp dir); they import through the
-// same path as a pasted file path, so duplicate detection, the upload expiry
-// and folder auto-tagging all apply.
+// Handles one batch: { files, file_sizes, skipped, too_large, links,
+// unsupported_links, paste_clipboard }. Files were already checked by the
+// backend (existing, readable regular files outside the app's temp dir, small
+// enough to store); they import through the same path as a pasted file path,
+// so duplicate detection, the upload expiry and folder auto-tagging all apply.
 async function handleOpenRequests(batch) {
     if (!batch) return;
     const files = batch.files || [];
     const skipped = batch.skipped || [];
+    const tooLarge = batch.too_large || [];
     const links = batch.links || [];
     const unsupported = batch.unsupported_links || [];
 
@@ -70,21 +103,27 @@ async function handleOpenRequests(batch) {
         }
     }
 
-    if (files.length > 0) {
-        for (let i = 0; i < files.length; i += OPEN_REQUEST_IMPORT_BATCH) {
-            await uploadFilesFromPaths(files.slice(i, i + OPEN_REQUEST_IMPORT_BATCH));
-        }
+    for (const paths of openRequestBatches(files, batch.file_sizes)) {
+        await uploadFilesFromPaths(paths);
     }
 
     if (batch.paste_clipboard) {
         await pasteSystemClipboard();
     }
 
+    // One toast for both kinds: a second toast would replace the first.
+    const notImported = [];
     if (skipped.length > 0) {
-        const names = skipped.map(p => p.split(/[/\\]/).pop() || p);
-        const shown = names.slice(0, 3).join(', ') + (names.length > 3 ? `, +${names.length - 3} more` : '');
         const noun = skipped.length === 1 ? 'item' : 'items';
-        showToast(`Skipped ${skipped.length} ${noun} that can't be imported: ${shown}`, 'error');
+        notImported.push(`Skipped ${skipped.length} ${noun} that can't be imported: ${openRequestNames(skipped)}`);
+    }
+    if (tooLarge.length > 0) {
+        // The limit is maxOpenedFileBytes in open_request.go: the most a clip can hold.
+        const noun = tooLarge.length === 1 ? 'file' : 'files';
+        notImported.push(`Skipped ${tooLarge.length} ${noun} too large to import (over 1 GB): ${openRequestNames(tooLarge)}`);
+    }
+    if (notImported.length > 0) {
+        showToast(notImported.join('. '), 'error');
     }
 
     // Any web page can send a link, so a long one is shortened rather than
@@ -220,6 +259,7 @@ function initOpenRequests() {
 
 Object.assign(window.__testHelpers || (window.__testHelpers = {}), {
     handleOpenRequests: (batch) => handleOpenRequests(batch),
+    openRequestBatches: (files, sizes) => openRequestBatches(files, sizes),
     openClipFromLink: (id) => openClipFromLink(id),
     drainOpenRequests: () => drainOpenRequests(),
 });

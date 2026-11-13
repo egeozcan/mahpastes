@@ -31,7 +31,7 @@ curl -sf -o /dev/null -w "%{http_code}" http://127.0.0.1:44557/api/v1/status 2>/
 
 If unreachable, tell the user to:
 1. Open the mahpastes app
-2. Go to **Settings** (gear icon) → **API** tab
+2. Open the menu drawer (press M) and click **API**
 3. Click **Start API** and note the port number
 
 Ask the user for the port if it differs from 44557, then construct the URL as `http://127.0.0.1:PORT`.
@@ -40,7 +40,7 @@ Ask the user for the port if it differs from 44557, then construct the URL as `h
 
 Tell the user to create an API key in the mahpastes app:
 
-1. Open mahpastes → **Settings** → **API** tab
+1. Open mahpastes, open the menu drawer (press M) and click **API**
 2. Click **Create Key**
 3. Set name to **Claude Code**
 4. Set role to **admin** (required for full functionality including tag-serve)

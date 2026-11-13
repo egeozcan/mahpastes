@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -49,7 +50,9 @@ func TestTakeOpenRequestsSortsImportableFiles(t *testing.T) {
 	}
 	want := OpenRequests{
 		Files:            []string{good},
+		FileSizes:        []int64{3},
 		Skipped:          []string{dir, missing, own},
+		TooLarge:         []string{},
 		Links:            []openrequest.Link{{Kind: openrequest.LinkShow, URL: "mahpastes://show"}},
 		UnsupportedLinks: []string{},
 	}
@@ -59,7 +62,7 @@ func TestTakeOpenRequestsSortsImportableFiles(t *testing.T) {
 
 	// Drained: the next call is empty, never nil slices for the frontend.
 	again, _ := d.TakeOpenRequests()
-	if again.Files == nil || again.Skipped == nil || again.Links == nil || again.UnsupportedLinks == nil ||
+	if again.Files == nil || again.FileSizes == nil || again.TooLarge == nil || again.Skipped == nil || again.Links == nil || again.UnsupportedLinks == nil ||
 		len(again.Files)+len(again.Skipped)+len(again.Links)+len(again.UnsupportedLinks) != 0 || again.PasteClipboard {
 		t.Fatalf("second take = %#v, want empty non-nil slices", again)
 	}
@@ -82,7 +85,9 @@ func TestTakeOpenRequestsParsesLinksAndPaste(t *testing.T) {
 	}
 	want := OpenRequests{
 		Files:            []string{},
+		FileSizes:        []int64{},
 		Skipped:          []string{},
+		TooLarge:         []string{},
 		Links:            []openrequest.Link{{Kind: openrequest.LinkClip, ClipID: 42, URL: "mahpastes://clip/42"}},
 		UnsupportedLinks: []string{"mahpastes://delete/42", "mahpastes://clip/0"},
 		PasteClipboard:   true,
@@ -121,6 +126,45 @@ func TestTakeOpenRequestsSkipsUnreadableFiles(t *testing.T) {
 	}
 }
 
+// A file SQLite could never hold as a clip is reported, not handed to the
+// frontend to be read whole into memory; the other files of the request still
+// import, with their sizes so the frontend can bound a batch.
+func TestTakeOpenRequestsReportsFilesTooLargeToStore(t *testing.T) {
+	d := newOpenRequestTestApp(t)
+	old := maxOpenedFileBytes
+	maxOpenedFileBytes = 8
+	t.Cleanup(func() { maxOpenedFileBytes = old })
+
+	dir := t.TempDir()
+	small := filepath.Join(dir, "small.txt")
+	atLimit := filepath.Join(dir, "limit.bin")
+	big := filepath.Join(dir, "big.mov")
+	for p, n := range map[string]int{small: 2, atLimit: 8, big: 9} {
+		if err := os.WriteFile(p, make([]byte, n), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	d.submitOpenRequest(openrequest.Request{Files: []string{big, small, atLimit}})
+	got, err := d.TakeOpenRequests()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got.Files, []string{small, atLimit}) ||
+		!reflect.DeepEqual(got.FileSizes, []int64{2, 8}) ||
+		!reflect.DeepEqual(got.TooLarge, []string{big}) ||
+		len(got.Skipped) != 0 {
+		t.Fatalf("TakeOpenRequests() = %#v, want big.mov too large and the rest imported with sizes", got)
+	}
+}
+
+// The real limit must stay under what SQLite accepts for one row.
+func TestMaxOpenedFileBytesFitsASQLiteRow(t *testing.T) {
+	if maxOpenedFileBytes <= 0 || maxOpenedFileBytes >= 1_000_000_000 {
+		t.Fatalf("maxOpenedFileBytes = %d, want under SQLite's 1,000,000,000-byte row limit", maxOpenedFileBytes)
+	}
+}
+
 func TestOpenRequestRaisesWindowAndNotifiesFrontend(t *testing.T) {
 	d := newOpenRequestTestApp(t)
 	bridge := wailsbridge.NewForTesting()
@@ -151,6 +195,81 @@ func TestOpenRequestRaisesWindowAndNotifiesFrontend(t *testing.T) {
 	d.submitOpenRequest(openrequest.Request{Activate: true})
 	if shown.Load() != 1 {
 		t.Fatalf("plain activate raised %d times, want 1", shown.Load())
+	}
+}
+
+// A macOS hidden start hides the app once the page has loaded. A launch that
+// was acknowledged before that must leave the window showing.
+func TestDomReadyKeepsWindowARelaunchAskedFor(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		req      *openrequest.Request
+		wantHide int32
+	}{
+		{"relaunch before load", &openrequest.Request{Activate: true}, 0},
+		{"hidden relaunch", &openrequest.Request{Files: []string{"/a.png"}}, 1},
+		{"nothing asked", nil, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := newOpenRequestTestApp(t)
+			bridge := wailsbridge.NewForTesting()
+			var shown, hidden atomic.Int32
+			bridge.SetTestShowWindow(func() { shown.Add(1) })
+			if tc.req != nil {
+				d.submitRelaunchRequest(*tc.req)
+			}
+			d.attachOpenRequests(bridge)
+			d.hideUnlessWindowAsked(func() { hidden.Add(1) })
+			if hidden.Load() != tc.wantHide {
+				t.Fatalf("hidden %d times, want %d", hidden.Load(), tc.wantHide)
+			}
+			if tc.wantHide == 0 && shown.Load() != 1 {
+				t.Fatalf("shown %d times, want 1", shown.Load())
+			}
+		})
+	}
+}
+
+// The second launch may spell the data directory differently (a symlink, as
+// /tmp is on macOS). The lock is per inode, so the handoff must still arrive.
+func TestSecondLaunchHandsOffThroughSymlinkedDataDir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks need a privilege on Windows")
+	}
+	base := shortTempDir(t)
+	t.Setenv("XDG_RUNTIME_DIR", base)
+	t.Setenv("TMPDIR", base)
+	// Long enough that the socket lives at the hashed fallback path.
+	dataDir := filepath.Join(base, strings.Repeat("d", 120))
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "link")
+	if err := os.Symlink(dataDir, link); err != nil {
+		t.Fatal(err)
+	}
+	lock, err := coreapp.AcquireInstanceLock(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Release()
+	srv, err := openrequest.Listen(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer srv.Close()
+	got := make(chan openrequest.Request, 1)
+	go srv.Serve(func(r openrequest.Request) { got <- r })
+
+	second, handedOff, err := acquireInstanceOrHandOff(link, openrequest.Request{Activate: true}, true)
+	if second != nil {
+		second.Release()
+	}
+	if err != nil || !handedOff {
+		t.Fatalf("handedOff = %v, err = %v; want a handoff", handedOff, err)
+	}
+	if r := <-got; !r.Activate {
+		t.Fatalf("holder got %#v", r)
 	}
 }
 
@@ -309,5 +428,62 @@ func waitUntil(t *testing.T, cond func() bool) {
 			t.Fatal("condition not met within 2s")
 		}
 		time.Sleep(2 * time.Millisecond)
+	}
+}
+
+// macOS delivers the files of the process's own command line through
+// application:openFile: as well. For a hidden start that delivery must not
+// count as asking for the window, or `--hidden a.txt` would show it.
+func TestLaunchFileEchoDoesNotAskForTheWindow(t *testing.T) {
+	dir := t.TempDir()
+	arg := filepath.Join(dir, "a.txt")
+	if err := os.WriteFile(arg, []byte("a"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	other := filepath.Join(dir, "b.txt")
+
+	d := newOpenRequestTestApp(t)
+	launch := openrequest.FromArgs([]string{"--hidden", arg}, dir)
+	d.submitOpenRequest(launch)
+	echo := newLaunchFileEcho(launch)
+	d.submitOpenRequest(echo.request(arg))
+	var hidden atomic.Int32
+	d.hideUnlessWindowAsked(func() { hidden.Add(1) })
+	if hidden.Load() != 1 {
+		t.Fatal("the echo of a --hidden launch's own file kept the window")
+	}
+
+	// The argument comes back once; the same file opened later is the user.
+	if r := echo.request(arg); !r.Activate {
+		t.Fatal("a later open of the launch file did not ask for the window")
+	}
+	if r := echo.request(other); !r.Activate {
+		t.Fatal("another file's open did not ask for the window")
+	}
+
+	// A launch that shows its window has no echo to discount.
+	shown := openrequest.FromArgs([]string{arg}, dir)
+	if r := newLaunchFileEcho(shown).request(arg); !r.Activate {
+		t.Fatal("a file open of a visible launch did not ask for the window")
+	}
+}
+
+// AppKit may name the argument by another path to the same file.
+func TestLaunchFileEchoMatchesAnotherSpelling(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks need a privilege on Windows")
+	}
+	dir := t.TempDir()
+	arg := filepath.Join(dir, "a.txt")
+	if err := os.WriteFile(arg, []byte("a"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "link")
+	if err := os.Symlink(dir, link); err != nil {
+		t.Fatal(err)
+	}
+	echo := newLaunchFileEcho(openrequest.Request{Files: []string{arg}})
+	if r := echo.request(filepath.Join(link, "a.txt")); r.Activate {
+		t.Fatal("the launch file under another spelling asked for the window")
 	}
 }

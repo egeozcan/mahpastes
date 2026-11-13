@@ -79,4 +79,41 @@ test.describe('API Settings - start on launch', () => {
     await expect(toggle).not.toBeChecked();
     expect(await getSetting(app, 'api_autostart')).not.toBe('true');
   });
+
+  // These used to be saved as some other port (44557 for 0 or an empty field,
+  // 1 for "1e3", 80 for "80.5") while the field kept showing what was typed.
+  for (const text of ['0', '', '1e3', '80.5']) {
+    test(`refuses port "${text}" instead of saving a different one`, async ({ app }) => {
+      await openApiModal(app);
+      const toggle = app.page.locator(selectors.api.autostartToggle);
+      const portInput = app.page.locator(selectors.api.portInput);
+      const before = await getSetting(app, 'api_port');
+
+      // fill() refuses exponent text on a number input; set it directly.
+      await portInput.evaluate((el: HTMLInputElement, v) => { el.value = v; }, text);
+      await app.page.locator(selectors.api.autostartLabel).click();
+
+      await expect(app.page.locator(selectors.toast.container)).toContainText('invalid port');
+      await expect(toggle).not.toBeChecked();
+      expect(await getSetting(app, 'api_autostart')).not.toBe('true');
+      expect(await getSetting(app, 'api_port')).toBe(before);
+    });
+  }
+
+  test('an invalid port typed while it is on leaves the saved port alone', async ({ app }) => {
+    await openApiModal(app);
+    const toggle = app.page.locator(selectors.api.autostartToggle);
+    const portInput = app.page.locator(selectors.api.portInput);
+
+    await portInput.fill('45123');
+    await app.page.locator(selectors.api.autostartLabel).click();
+    await expect.poll(() => getSetting(app, 'api_port')).toBe('45123');
+
+    await portInput.fill('0');
+    await portInput.blur();
+    await expect(app.page.locator(selectors.toast.container)).toContainText('invalid port');
+    await expect(toggle).toBeChecked();
+    expect(await getSetting(app, 'api_port')).toBe('45123');
+    expect(await getSetting(app, 'api_autostart')).toBe('true');
+  });
 });

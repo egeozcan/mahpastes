@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -23,6 +24,20 @@ const SettingUpdateCheck = "update_check"
 // settingUpdateCheckLast records (unix seconds) when the check last ran, so
 // launching the app repeatedly does not repeat the request.
 const settingUpdateCheckLast = "update_check_last"
+
+// settingUpdateCheckFound holds the newer release the last check found, as
+// ReleaseInfo JSON, so a restart within the daily gate still shows it. Like
+// settingUpdateCheckLast it is this machine's own record: backups do not carry
+// it, a restore cannot set it (sensitiveSettingPatterns) and the REST settings
+// endpoint refuses it (isDesktopOnlySetting). It is still validated on every
+// read.
+const settingUpdateCheckFound = "update_check_found"
+
+// isUpdateCheckStateSetting reports whether key is one of the release check's
+// own records, as opposed to the user's SettingUpdateCheck choice.
+func isUpdateCheckStateSetting(key string) bool {
+	return key == settingUpdateCheckLast || key == settingUpdateCheckFound
+}
 
 // UpdateCheckInterval is the minimum time between two checks.
 const UpdateCheckInterval = 24 * time.Hour
@@ -42,7 +57,8 @@ type ReleaseInfo struct {
 
 // FetchLatestRelease asks the releases endpoint for the newest release. It
 // returns a non-nil ReleaseInfo only when that release is newer than
-// current; a "dev" or otherwise unparsable current version never matches.
+// current (see releaseIsNewer); a "dev" or otherwise unparsable current
+// version never matches.
 func FetchLatestRelease(ctx context.Context, client *http.Client, endpoint, current string) (*ReleaseInfo, error) {
 	if client == nil {
 		client = &http.Client{Timeout: 15 * time.Second}
@@ -73,14 +89,55 @@ func FetchLatestRelease(ctx context.Context, client *http.Client, endpoint, curr
 	if body.Draft || body.Prerelease || body.TagName == "" {
 		return nil, nil
 	}
-	if !isReleaseVersion(current) || !isReleaseVersion(body.TagName) || !plugin.IsNewerVersion(current, body.TagName) {
-		return nil, nil
+	return newerRelease(current, body.TagName, body.HTMLURL), nil
+}
+
+// releasePageURL matches the pages a notice may open: this project's releases
+// page or one of its tags. A tag starts with a letter or digit, so no path
+// segment can be "..", which a browser would resolve out of the project.
+var releasePageURL = regexp.MustCompile(`^` + regexp.QuoteMeta(ReleasesPageURL) + `(/tag/[A-Za-z0-9][A-Za-z0-9._+-]*)?$`)
+
+// newerRelease returns the release to announce when version is newer than
+// current, or nil; a "dev" or otherwise unparsable version never matches. The
+// URL is opened in the browser, so anything but this project's releases page
+// or one of its tags (another github.com repository included) becomes the
+// releases page.
+func newerRelease(current, version, url string) *ReleaseInfo {
+	if !isReleaseVersion(current) || !isReleaseVersion(version) || !releaseIsNewer(current, version) {
+		return nil
 	}
-	url := body.HTMLURL
-	if !strings.HasPrefix(url, "https://github.com/") {
+	if !releasePageURL.MatchString(url) {
 		url = ReleasesPageURL
 	}
-	return &ReleaseInfo{Version: strings.TrimPrefix(body.TagName, "v"), URL: url}, nil
+	return &ReleaseInfo{Version: strings.TrimPrefix(version, "v"), URL: url}
+}
+
+// releaseIsNewer reports whether the published release version is newer than
+// the running build current. The numbers decide first. When they are equal,
+// a pre-release build ("1.6.0-rc1") is older than the final release of its
+// number, while a build made after the tag ("1.6.0-12-gabc1234") is not.
+func releaseIsNewer(current, version string) bool {
+	if c := plugin.CompareSemver(current, version); c != 0 {
+		return c < 0
+	}
+	return isPreReleaseVersion(current) && !isPreReleaseVersion(version)
+}
+
+// describeSuffix is what `git describe` appends to a tag for a build made
+// after it: the commit count and the abbreviated hash.
+var describeSuffix = regexp.MustCompile(`^-[0-9]+-g[0-9a-f]+(-dirty)?$`)
+
+// isPreReleaseVersion reports whether v comes before the release of its own
+// number: any "-" suffix ("-rc1", "-beta.2", a Go pseudo-version's
+// "-0.<time>-<hash>", a describe of a pre-release tag "-rc1-3-gabc1234")
+// except the git-describe one. scripts/version.sh reports builds between
+// releases as "1.6.0-12-gabc1234", which reads like a pre-release identifier
+// but means twelve commits after 1.6.0. Build metadata ("+dirty") says
+// nothing either way.
+func isPreReleaseVersion(v string) bool {
+	v, _, _ = strings.Cut(v, "+")
+	i := strings.IndexByte(v, '-')
+	return i >= 0 && !describeSuffix.MatchString(v[i:])
 }
 
 // isReleaseVersion reports whether v looks like vX.Y.Z (optionally with a
@@ -130,6 +187,31 @@ func (a *App) UpdateCheckDue(now time.Time) bool {
 // MarkUpdateChecked records that a check ran at now.
 func (a *App) MarkUpdateChecked(now time.Time) {
 	_ = a.SetSetting(settingUpdateCheckLast, strconv.FormatInt(now.Unix(), 10))
+}
+
+// storeFoundRelease persists the result of a successful check; nil forgets it.
+func (a *App) storeFoundRelease(rel *ReleaseInfo) {
+	if rel == nil {
+		_, _ = a.db.Exec(`DELETE FROM settings WHERE key = ?`, settingUpdateCheckFound)
+		return
+	}
+	if raw, err := json.Marshal(rel); err == nil {
+		_ = a.SetSetting(settingUpdateCheckFound, string(raw))
+	}
+}
+
+// storedFoundRelease returns the persisted release if it is still newer than
+// current: the app may have been updated since, or the row planted.
+func (a *App) storedFoundRelease(current string) *ReleaseInfo {
+	raw, err := a.GetSetting(settingUpdateCheckFound)
+	if err != nil || raw == "" {
+		return nil
+	}
+	var rel ReleaseInfo
+	if json.Unmarshal([]byte(raw), &rel) != nil {
+		return nil
+	}
+	return newerRelease(current, rel.Version, rel.URL)
 }
 
 // ReleaseChecker runs the opt-out release check for the desktop app. It sends
@@ -217,7 +299,8 @@ func (c *ReleaseChecker) Stop() {
 }
 
 // Latest returns the newer release found so far, or nil (also while the
-// setting is off).
+// setting is off). A release found by an earlier run is read back from
+// settings, without a request, so it survives a restart within the daily gate.
 func (c *ReleaseChecker) Latest() *ReleaseInfo {
 	if !c.app.UpdateCheckEnabled() {
 		return nil
@@ -225,7 +308,7 @@ func (c *ReleaseChecker) Latest() *ReleaseInfo {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.latest == nil {
-		return nil
+		return c.app.storedFoundRelease(c.current)
 	}
 	rel := *c.latest
 	return &rel
@@ -234,13 +317,19 @@ func (c *ReleaseChecker) Latest() *ReleaseInfo {
 // SetEnabled persists the opt-out. Turning it off forgets a release already
 // found; turning it on checks right away, once Start has run.
 func (c *ReleaseChecker) SetEnabled(enabled bool) error {
-	if err := c.app.SetUpdateCheckEnabled(enabled); err != nil {
+	// Under mu, like check's final step, so a check finishing now cannot
+	// store its release after the opt-out cleared it.
+	c.mu.Lock()
+	err := c.app.SetUpdateCheckEnabled(enabled)
+	if err == nil && !enabled {
+		c.latest = nil
+		c.app.storeFoundRelease(nil)
+	}
+	c.mu.Unlock()
+	if err != nil {
 		return err
 	}
 	if !enabled {
-		c.mu.Lock()
-		c.latest = nil
-		c.mu.Unlock()
 		return nil
 	}
 	if c.started() {
@@ -281,11 +370,14 @@ func (c *ReleaseChecker) check(force bool) {
 		}
 		return
 	}
+	c.mu.Lock()
 	if ctx.Err() != nil || !c.app.UpdateCheckEnabled() {
+		c.mu.Unlock()
 		return
 	}
-	c.mu.Lock()
 	c.latest = rel
+	// Also when nil: a pulled release must not leave a stale notice.
+	c.app.storeFoundRelease(rel)
 	c.mu.Unlock()
 	if rel != nil && notify != nil {
 		notify(*rel)

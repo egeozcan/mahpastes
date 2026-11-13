@@ -7,10 +7,12 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"golang.org/x/sync/semaphore"
 	_ "modernc.org/sqlite"
@@ -684,6 +686,96 @@ func TestWindowsSafeTempName(t *testing.T) {
 	} {
 		if got := windowsSafeTempName(in); got != want {
 			t.Errorf("windowsSafeTempName(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// A clip's name is not limited by any filesystem, and a legal 255-byte name
+// overflows once the clip ID is prefixed: the temp name is cut to fit.
+func TestTempFilenameForClipCapsOverLongNames(t *testing.T) {
+	const bigID = int64(1) << 62
+	cases := []struct {
+		name    string
+		file    string
+		wantExt string
+	}{
+		{"250 bytes", strings.Repeat("n", 246) + ".png", ".png"},
+		{"254 bytes", strings.Repeat("n", 250) + ".png", ".png"},
+		{"255 bytes", strings.Repeat("n", 251) + ".png", ".png"},
+		{"300 bytes", strings.Repeat("n", 296) + ".png", ".png"},
+		{"no extension", strings.Repeat("n", 300), ""},
+		// "é" is two bytes and the cut lands inside one after the odd prefix.
+		{"multibyte", "x" + strings.Repeat("é", 200) + ".JPG", ".JPG"},
+		{"four-byte runes", strings.Repeat("😀", 100) + ".tar.gz", ".gz"},
+		// Not a file type: cut like a stem, so "clip"+ext still fits a probe name.
+		{"over-long extension", "a." + strings.Repeat("e", 300), "." + strings.Repeat("e", tempBaseNameMaxBytes-2)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			filename := sql.NullString{String: tc.file, Valid: true}
+			for _, id := range []int64{7, bigID} {
+				got := tempFilenameForClip(id, filename, "image/png")
+				if len(got) > 255 {
+					t.Errorf("id %d: temp name is %d bytes, over the 255-byte limit", id, len(got))
+				}
+				if !utf8.ValidString(got) {
+					t.Errorf("id %d: temp name %q was cut inside a character", id, got)
+				}
+				if ext := filepath.Ext(got); ext != tc.wantExt {
+					t.Errorf("id %d: extension %q, want %q", id, ext, tc.wantExt)
+				}
+				if parsed, ok := parseClipIDFromTempFilename(got); !ok || parsed != id {
+					t.Errorf("id %d: parsed back as %d, %v", id, parsed, ok)
+				}
+				if again := tempFilenameForClip(id, filename, "image/png"); again != got {
+					t.Errorf("id %d: name is not deterministic", id)
+				}
+				if ext := TransferFileExtension(filename, "image/png"); ext != filepath.Ext(got) {
+					t.Errorf("id %d: TransferFileExtension %q, file has %q", id, ext, filepath.Ext(got))
+				}
+			}
+		})
+	}
+
+	// Names within the cap are left exactly as they were.
+	short := sql.NullString{String: strings.Repeat("n", tempBaseNameMaxBytes-4) + ".png", Valid: true}
+	if got, want := tempFilenameForClip(3, short, "image/png"), "3_"+short.String; got != want {
+		t.Errorf("a name at the cap was changed: %q", got)
+	}
+}
+
+func TestPrepareClipFile_OverLongFilename(t *testing.T) {
+	tempDir := t.TempDir()
+	db := newTempStoreTestDB(t, tempDir)
+	names := map[int64]string{
+		12345: strings.Repeat("n", 296) + ".png",
+		12346: strings.Repeat("é", 150) + ".png",
+		12347: "a." + strings.Repeat("e", 300),
+	}
+	for id, name := range names {
+		if _, err := db.Exec(`INSERT INTO clips (id, content_type, data, filename) VALUES (?, ?, ?, ?)`,
+			id, "image/png", []byte("bytes"), name); err != nil {
+			t.Fatalf("failed to insert clip: %v", err)
+		}
+	}
+	store := NewTempClipStore(db, tempDir, 60*time.Minute, 10*time.Minute)
+	for id, name := range names {
+		res, err := store.PrepareClipFile(id)
+		if err != nil {
+			t.Fatalf("clip %d: prepare failed: %v", id, err)
+		}
+		data, err := os.ReadFile(res.AbsPath)
+		if err != nil || string(data) != "bytes" {
+			t.Fatalf("clip %d: prepared file: %q, %v", id, data, err)
+		}
+		want := TransferFileExtension(sql.NullString{String: name, Valid: true}, "image/png")
+		if got := filepath.Ext(res.AbsPath); got != want {
+			t.Errorf("clip %d: file extension %q, TransferFileExtension %q", id, got, want)
+		}
+		// The same file is found again rather than copied under another name.
+		again, err := store.PrepareClipFile(id)
+		if err != nil || again.AbsPath != res.AbsPath {
+			t.Errorf("clip %d: second prepare: %q, %v, want %q", id, again.AbsPath, err, res.AbsPath)
 		}
 	}
 }

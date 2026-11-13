@@ -14,6 +14,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"golang.org/x/sync/semaphore"
 )
@@ -715,6 +716,7 @@ func tempFilenameForClip(clipID int64, filename sql.NullString, contentType stri
 		if runtime.GOOS == "windows" {
 			base = windowsSafeTempName(base)
 		}
+		base = capTempBaseName(base)
 		if base != "" {
 			return fmt.Sprintf("%d_%s", clipID, base)
 		}
@@ -724,6 +726,41 @@ func tempFilenameForClip(clipID int64, filename sql.NullString, contentType stri
 		safeName += exts[0]
 	}
 	return safeName
+}
+
+// Clip names are not bound by any filesystem's limit (REST, plugins, shares),
+// and a legal 255-byte on-disk name no longer fits once the ID is prefixed.
+// The cap is in UTF-8 bytes, well under the 255 that macOS and Linux allow
+// (Windows: 255 UTF-16 units, never more than the bytes), and does not depend
+// on the ID, so TransferFileExtension sees the extension the file really gets.
+const (
+	tempBaseNameMaxBytes = 200
+	// A longer "extension" is not a file type: it is cut like the stem.
+	tempExtensionMaxBytes = 32
+)
+
+// capTempBaseName shortens an over-long name to tempBaseNameMaxBytes: the stem
+// is cut on a rune boundary and the extension kept. It depends on the name
+// alone, so a clip still has one temp name.
+func capTempBaseName(base string) string {
+	if len(base) <= tempBaseNameMaxBytes {
+		return base
+	}
+	ext := filepath.Ext(base)
+	if len(ext) > tempExtensionMaxBytes {
+		ext = ""
+	}
+	stem := base[:len(base)-len(ext)]
+	cut := tempBaseNameMaxBytes - len(ext)
+	for cut > 0 && !utf8.RuneStart(stem[cut]) {
+		cut--
+	}
+	base = stem[:cut] + ext
+	if runtime.GOOS == "windows" {
+		// The cut can expose a trailing dot or space, which Windows drops.
+		base = strings.TrimRight(base, ". ")
+	}
+	return base
 }
 
 // windowsSafeTempName maps a clip's name to one Windows accepts as a file
