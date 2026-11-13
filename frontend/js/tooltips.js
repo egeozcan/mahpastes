@@ -35,7 +35,24 @@
     document.addEventListener('mouseleave', function(e) {
         const el = e.target.closest?.('[data-tooltip]');
         if (!el) return;
+        // Still showing for the keyboard: leave it where it is.
+        if (el.matches(':focus-visible')) return;
 
+        el.removeAttribute('data-tooltip-pos');
+    }, true);
+
+    // A tooltip shown for keyboard focus is positioned like one shown on
+    // hover; near the bottom edge it used to open below, off screen.
+    document.addEventListener('focusin', function(e) {
+        const el = e.target.closest?.('[data-tooltip]');
+        if (!el || !el.matches(':focus-visible')) return;
+        const pos = computePosition(el);
+        if (pos !== 'below') el.setAttribute('data-tooltip-pos', pos);
+    }, true);
+
+    document.addEventListener('focusout', function(e) {
+        const el = e.target.closest?.('[data-tooltip]');
+        if (!el || el.matches(':hover')) return;
         el.removeAttribute('data-tooltip-pos');
     }, true);
 

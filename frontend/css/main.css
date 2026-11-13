@@ -244,6 +244,15 @@ input[type="color"]::-webkit-color-swatch {
     justify-content: flex-start;
 }
 
+.card-menu-shortcut {
+    margin-left: auto;
+    padding-left: 1rem;
+    font-size: 0.625rem;
+    color: #a8a29e; /* stone-400 */
+    line-height: 1;
+    white-space: nowrap;
+}
+
 .card-menu-arrow {
     margin-left: auto;
     font-size: 0.625rem;

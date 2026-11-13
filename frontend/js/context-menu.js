@@ -62,7 +62,50 @@ const ContextMenu = (() => {
         const labelPart = `<span>${item.label}</span>`;
         btn.innerHTML = iconPart + labelPart;
 
+        // The key bound to the same action, at the right edge. Resolved when
+        // the menu is built, so a rebinding shows; nothing when unbound.
+        const combo = shortcutForMenuItem(item.id);
+        if (combo) {
+            const key = document.createElement('span');
+            key.className = 'card-menu-shortcut';
+            key.setAttribute('aria-hidden', 'true');
+            key.textContent = ShortcutManager.comboToDisplay(combo);
+            btn.appendChild(key);
+        }
+
         return btn;
+    }
+
+    // Menu item id -> shortcut action id. The card menu is also the viewer's
+    // Actions menu, where the same items have the viewer's own keys (the card
+    // keys act on the focused card, which the viewer covers), so the map
+    // depends on where the menu was opened.
+    const CARD_MENU_SHORTCUTS = {
+        'save-file': 'clip-download',
+        'tags': 'clip-tag',
+        'archive': 'clip-archive',
+        'delete': 'clip-delete',
+        'copy-file': 'clip-copy',
+        'bulk-tag': 'bulk-tag',
+        'bulk-expiry': 'bulk-expire',
+        'bulk-copy': 'bulk-copy',
+        'bulk-download': 'bulk-download',
+        'bulk-archive': 'bulk-archive',
+        'bulk-delete': 'bulk-delete',
+        'bulk-deselect': 'bulk-clear',
+    };
+    const LIGHTBOX_MENU_SHORTCUTS = {
+        'tags': 'lightbox-tags',
+        'archive': 'lightbox-archive',
+        'delete': 'lightbox-delete',
+    };
+
+    function shortcutForMenuItem(itemId) {
+        if (!itemId || typeof ShortcutManager === 'undefined') return null;
+        const inLightbox = document.getElementById('lightbox')?.classList.contains('active');
+        const actionId = (inLightbox ? LIGHTBOX_MENU_SHORTCUTS : CARD_MENU_SHORTCUTS)[itemId];
+        if (!actionId || !ShortcutManager.actions.has(actionId)) return null;
+        return ShortcutManager.getEffectiveCombo(actionId) || null;
     }
 
     function createSubmenuTrigger(item) {

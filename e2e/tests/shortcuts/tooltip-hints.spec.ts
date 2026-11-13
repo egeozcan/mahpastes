@@ -44,4 +44,41 @@ test.describe('Tooltip key hints', () => {
       });
     }
   });
+
+  test('menus name the key of each action that has one, per context', async ({ app }) => {
+    const { createTempFile, generateTestImage } = await import('../../helpers/test-data');
+    const pathMod = await import('path');
+    const filePath = await createTempFile(generateTestImage(), 'png');
+    const filename = pathMod.basename(filePath);
+    await app.uploadFile(filePath);
+    const key = (action: string) => app.page.locator(`.card-menu-dropdown [data-action="${action}"] .card-menu-shortcut`);
+
+    await app.openCardMenu(filename);
+    await expect(key('delete')).toHaveText('D');
+    await expect(key('archive')).toHaveText('E');
+    await expect(key('tags')).toHaveText('T');
+    // Open has no key of its own (Enter opens the viewer, not another app).
+    await expect(key('open')).toHaveCount(0);
+    await app.page.keyboard.press('Escape');
+
+    // In the viewer the same menu shows the viewer's keys: archive is A there.
+    await app.openLightbox(filename);
+    await app.page.locator('#lightbox-file-menu-trigger').click();
+    await expect(app.page.locator('[data-action="archive"] .card-menu-shortcut').last()).toHaveText('A');
+    await expect(app.page.locator('[data-action="delete"] .card-menu-shortcut').last()).toHaveText('D');
+    await app.page.keyboard.press('Escape');
+    await app.closeLightbox();
+  });
+
+  test('a tooltip shown for keyboard focus near the bottom edge opens upwards', async ({ app }) => {
+    const add = app.page.locator('#add-btn');
+    await add.focus();
+    // focus() from script is not :focus-visible everywhere; Tab away and back is.
+    await app.page.keyboard.press('Shift+Tab');
+    await app.page.keyboard.press('Tab');
+    await expect(add).toBeFocused();
+    await expect(add).toHaveAttribute('data-tooltip-pos', 'above');
+    await app.page.keyboard.press('Tab');
+    await expect(add).not.toHaveAttribute('data-tooltip-pos', 'above');
+  });
 });

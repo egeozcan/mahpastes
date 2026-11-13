@@ -69,6 +69,19 @@ test.describe('Folder context menu a11y', () => {
         }, tag);
     });
 
+    test('the Open Context Menu key works on a focused folder card too', async ({ app }) => {
+        const tag = await setup(app);
+        const card = app.page.locator(selectors.folderCard(tag));
+        await card.focus();
+
+        await app.page.keyboard.press('ControlOrMeta+Enter');
+        await expect(app.page.locator(selectors.folderContextMenu)).toBeVisible();
+
+        await app.page.keyboard.press('Escape');
+        await expect(app.page.locator(selectors.folderContextMenu)).toHaveCount(0);
+        await expect(card).toBeFocused();
+    });
+
     test('Shift+F10 from focused card opens menu; Esc restores focus', async ({ app }) => {
         const tag = await setup(app);
         const card = app.page.locator(selectors.folderCard(tag));

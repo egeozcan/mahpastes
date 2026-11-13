@@ -1841,6 +1841,13 @@ window.addEventListener('load', async () => {
             callback: () => {
                 const focused = ShortcutManager.getFocusedClip();
                 if (!focused) return;
+                // A folder card has its own menu (Open, Move, Rename, Serve,
+                // Share, Hide), which this key used to pass over in silence.
+                if (focused.dataset.folder) {
+                    const tag = allTags.find(t => t.id === parseInt(focused.dataset.folder, 10));
+                    if (tag && typeof FolderContextMenu !== 'undefined') FolderContextMenu.openFor(tag, focused);
+                    return;
+                }
                 const clipId = focused.dataset.id;
                 // Mirror right-click: a multi-selection containing this clip
                 // gets the bulk actions instead of the single-clip menu.
