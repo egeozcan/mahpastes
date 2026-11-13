@@ -97,19 +97,23 @@ function showGalleryStatus(message, kind = 'empty', actions = []) {
 function renderGalleryStatusActions(actions) {
     const wrap = document.getElementById('gallery-status-actions');
     if (!wrap) return;
+    if (!wrap.dataset.bound) {
+        wrap.dataset.bound = 'true';
+        wrap.addEventListener('click', onGalleryStatusAction);
+    }
     for (const btn of wrap.querySelectorAll('[data-status-action]')) {
         btn.hidden = !actions.includes(btn.dataset.statusAction);
     }
     wrap.classList.toggle('hidden', actions.length === 0);
 }
 
-document.getElementById('gallery-status-actions')?.addEventListener('click', (e) => {
+function onGalleryStatusAction(e) {
     const action = e.target.closest('[data-status-action]')?.dataset.statusAction;
     if (action === 'add') document.getElementById('add-btn')?.click();
     else if (action === 'import') document.getElementById('open-import-btn')?.click();
     else if (action === 'new-folder') window.FolderEmptyContextMenu?.newFolder();
     else if (action === 'retry') loadClips();
-});
+}
 
 function hideGalleryStatus() {
     renderGalleryStatusActions([]);
@@ -717,6 +721,10 @@ function refreshExpiryBadges() {
     for (const card of gallery.querySelectorAll(':scope > li[data-id][data-expires-at]')) {
         if (card._clip) renderCardExpiry(card, card._clip);
     }
+    // The same goes for every card's age ("3h").
+    for (const card of gallery.querySelectorAll(':scope > li[data-id]')) {
+        if (card._clip) renderCardMeta(card, card._clip);
+    }
 }
 window.refreshGalleryOnRefocus = refreshGalleryOnRefocus;
 
@@ -806,6 +814,7 @@ async function refreshClipInPlace(id) {
     if ('expires_at' in row) clip.expires_at = row.expires_at;
     renderCardFilename(card, clip);
     renderCardExpiry(card, clip);
+    renderCardMeta(card, clip);
     renderCardTags(card, tags);
     card._renderSig = clipCardSignature(clip);
     // A prepared drag-out item carries the filename it was prepared under

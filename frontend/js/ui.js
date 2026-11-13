@@ -1411,7 +1411,7 @@ async function createClipCard(clip, options = {}) {
                 ${escapeHTML(clip.filename) || '<span class="text-stone-400 font-normal">Pasted</span>'}
             </p>
             <div class="flex justify-between items-center">
-                <div class="flex items-center gap-1.5"><span class="clip-type-label text-[9px] font-medium text-stone-400 uppercase tracking-wide">${escapeHTML(getFriendlyFileType(clip.content_type, clip.filename))}</span>${clip.duplicate_count > 0 ? `<span class="dedup-badge text-[9px] font-medium text-stone-400 bg-stone-100 border border-stone-200 rounded px-1">${clip.duplicate_count + 1} copies</span>` : ''}</div>
+                <div class="flex items-center gap-1.5 min-w-0"><span class="clip-type-label shrink-0 text-[9px] font-medium text-stone-400 uppercase tracking-wide">${escapeHTML(getFriendlyFileType(clip.content_type, clip.filename))}</span><span class="clip-meta-label min-w-0 truncate text-[9px] text-stone-400" data-testid="clip-meta"></span>${clip.duplicate_count > 0 ? `<span class="dedup-badge text-[9px] font-medium text-stone-400 bg-stone-100 border border-stone-200 rounded px-1">${clip.duplicate_count + 1} copies</span>` : ''}</div>
                 <div class="flex items-center gap-1">
                     ${dragHandleHTML}
                     <button class="card-menu-trigger p-1 text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded transition-colors"
@@ -1429,6 +1429,8 @@ async function createClipCard(clip, options = {}) {
             </div>
         </div>
     `;
+
+    renderCardMeta(card, clip);
 
     // Menu trigger listener
     const menuTrigger = card.querySelector('[data-action="menu"]');
@@ -1596,6 +1598,7 @@ function reuseClipCard(card, clip) {
     Object.assign(kept, clip);
     rememberRenderedClip(kept);
     renderCardExpiry(card, kept);
+    renderCardMeta(card, kept);
     const selected = selectedIds.has(Number(kept.id));
     const checkbox = card.querySelector('.clip-checkbox');
     if (checkbox) checkbox.checked = selected;
@@ -1610,6 +1613,44 @@ function expirationBadgeHTML(clip) {
     return `<div class="clip-expiration-badge absolute top-2 left-2 bg-stone-700 text-white text-[8px] font-semibold px-1.5 py-0.5 rounded z-20 uppercase tracking-wide">
             Temp · ${escapeHTML(remaining)}
         </div>`;
+}
+
+// "12s", "5m", "3h", "4d", "7w", "2y": how long ago, as short as the footer
+// needs it. Empty for a missing or unparseable time.
+function shortAge(timestamp) {
+    const then = timestamp ? new Date(timestamp).getTime() : NaN;
+    if (!Number.isFinite(then)) return '';
+    const seconds = Math.max(0, Math.floor((Date.now() - then) / 1000));
+    if (seconds < 60) return 'now';
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;
+    if (seconds < 86400 * 14) return `${Math.floor(seconds / 86400)}d`;
+    if (seconds < 86400 * 365) return `${Math.floor(seconds / (86400 * 7))}w`;
+    return `${Math.floor(seconds / (86400 * 365))}y`;
+}
+
+// The footer's size and age ("1.2 MB · 3d"). The gallery sorts by both, and
+// they were otherwise one Metadata dialog away, a clip at a time. The age is
+// text fixed when written, so this runs again wherever a card is kept across
+// time: a reused card, and a window brought back to the front. The exact
+// values are in the label's own title (never the filename's: the Metadata
+// action reads the filename back from that one).
+function renderCardMeta(card, clip) {
+    const label = card.querySelector('.clip-meta-label');
+    if (!label) return;
+    const size = Number(clip.size);
+    const parts = [];
+    if (Number.isFinite(size) && size > 0) parts.push(formatFileSize(size));
+    const age = shortAge(clip.created_at);
+    if (age) parts.push(age);
+    const text = parts.join(' · ');
+    if (label.textContent !== text) label.textContent = text;
+    const added = clip.created_at ? new Date(clip.created_at) : null;
+    const title = [
+        Number.isFinite(size) && size > 0 ? `${size.toLocaleString()} bytes` : '',
+        added && Number.isFinite(added.getTime()) ? `added ${added.toLocaleString()}` : '',
+    ].filter(Boolean).join(', ');
+    if (label.getAttribute('title') !== title) label.setAttribute('title', title);
 }
 
 // Re-render a card's expiry badge from clip.expires_at.
