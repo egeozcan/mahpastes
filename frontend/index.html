@@ -1145,7 +1145,13 @@
                         <div class="editor-unavailable-card">
                             <h2 id="editor-unavailable-heading">Editing unavailable</h2>
                             <p id="editor-unavailable-reason"></p>
-                            <p class="editor-unavailable-note">Saving is disabled so the original bytes cannot be replaced by a lossy re-encoding. A future release will add a user-initiated, one-way <strong>Reinterpret as Windows-1252 and convert to UTF-8</strong> action that shows the decoded result before writing anything.</p>
+                            <p class="editor-unavailable-note">Saving is disabled so the original bytes cannot be replaced by a lossy re-encoding. Save it to a file or open it in another app to view or convert it.</p>
+                            <div class="mt-4 flex flex-wrap justify-center gap-2">
+                                <button type="button" id="editor-unavailable-save" data-testid="editor-unavailable-save"
+                                    class="border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-xs font-medium py-2 px-3 rounded-md transition-colors">Save to file</button>
+                                <button type="button" id="editor-unavailable-open" data-testid="editor-unavailable-open"
+                                    class="border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-xs font-medium py-2 px-3 rounded-md transition-colors">Open in default app</button>
+                            </div>
                         </div>
                     </section>
                 </div>
@@ -1175,6 +1181,9 @@
                     <span id="text-editor-cursor-status">Ln 1, Col 1</span>
                     <span id="text-editor-character-status">0 characters</span>
                     <span id="text-editor-draft-status" class="ml-auto" role="status" aria-live="polite"></span>
+                    <button type="button" id="text-editor-discard-draft" data-testid="text-editor-discard-draft" hidden
+                        class="underline underline-offset-2 hover:text-stone-200 transition-colors"
+                        data-tooltip="Go back to the saved version of this clip">Discard draft</button>
                 </div>
             </div>
 

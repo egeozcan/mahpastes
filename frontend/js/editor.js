@@ -234,8 +234,15 @@ async function openEditor(clipId, options = {}) {
             // Blob, a base64 string, a decoded string, a CodeMirror document, and
             // possibly a preview simultaneously.
             if (!decoded.ok && decoded.reason === 'too-large') {
-                const megabytes = Math.round(decoded.byteLength / (1024 * 1024));
-                showToast(`Text clip is too large to edit (${megabytes} MB) — download it instead.`);
+                // One decimal: rounded to whole megabytes, a clip just over the
+                // cap read as exactly the cap. The way out is in the toast.
+                const megabytes = (decoded.byteLength / (1024 * 1024)).toFixed(1);
+                const limit = Math.round(window.MahpastesTextEditor.TextCodec.MAX_EDITABLE_BYTES / (1024 * 1024));
+                const tooLargeClipId = clipId;
+                showToast(`Text clip is too large to edit (${megabytes} MB, limit ${limit} MB).`, 'info', {
+                    label: 'Save to file',
+                    onClick: () => saveClipToFile(tooLargeClipId),
+                });
                 editorClipId = null;
                 editorContentType = '';
                 editorFilename = '';
@@ -671,8 +678,7 @@ async function performSaveEditorInPlace(snapshot) {
             TextClipEditor.clearDraft();
             // The draft is gone with the save; its status line must not go on
             // saying "Draft saved" now that the editor stays open.
-            const draftStatus = document.getElementById('text-editor-draft-status');
-            if (draftStatus) draftStatus.textContent = '';
+            TextClipEditor.resetDraftStatus();
             // A text save keeps the editor open: saving as you go must not
             // cost the cursor, the scroll position, the undo history and the
             // find state. (An image save still closes; its canvas is the edit.)

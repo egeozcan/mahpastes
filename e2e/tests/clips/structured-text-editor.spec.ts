@@ -527,7 +527,26 @@ test.describe('Byte-safety and size limits', () => {
     const reason = app.page.locator(selectors.textEditor.unavailableReason);
     await expect(reason).toContainText('not valid UTF-8');
     await expect(reason).not.toContainText('Markdown');
-    await expect(app.page.locator(selectors.textEditor.unavailablePanel)).toContainText('Windows-1252');
+    // It names what to do instead, and offers both ways out.
+    await expect(app.page.locator(selectors.textEditor.unavailablePanel)).toContainText('Save it to a file or open it in another app');
+    await app.page.evaluate(() => {
+      const w = window as any;
+      w.__unavailableCalls = [];
+      w.__origSave = w.saveClipToFile;
+      w.saveClipToFile = (id: number) => { w.__unavailableCalls.push(['save', id]); };
+      w.__origOpen = w.go.main.App.OpenClipWithDefaultApp;
+      w.go.main.App.OpenClipWithDefaultApp = async (id: number) => { w.__unavailableCalls.push(['open', id]); };
+    });
+    await app.page.locator('[data-testid="editor-unavailable-save"]').click();
+    await app.page.locator('[data-testid="editor-unavailable-open"]').click();
+    const calls = await app.page.evaluate(() => {
+      const w = window as any;
+      w.saveClipToFile = w.__origSave;
+      w.go.main.App.OpenClipWithDefaultApp = w.__origOpen;
+      return w.__unavailableCalls;
+    });
+    expect(calls.map((c: any[]) => c[0])).toEqual(['save', 'open']);
+    expect(calls[0][1]).toBe(calls[1][1]);
 
     // Nothing can be written back over the original bytes.
     await expect(app.page.locator(selectors.textEditor.saveButton)).toBeDisabled();
@@ -584,7 +603,9 @@ test.describe('Byte-safety and size limits', () => {
     await app.openCardMenu(filename);
     await app.page.locator(selectors.cardMenu.edit).click();
 
-    await app.waitForToast(/too large to edit \(17 MB\)/);
+    await app.waitForToast(/too large to edit \(17\.\d MB, limit 16 MB\)/);
+    // The way out is one click away, in the toast itself.
+    await expect(app.page.locator(selectors.toast.action)).toHaveText('Save to file');
     // Declines to open, rather than opening into a dead end.
     await expect(app.page.locator(selectors.textEditor.modal)).not.toHaveClass(/active/);
   });
@@ -616,7 +637,7 @@ test.describe('Byte-safety and size limits', () => {
 
     await app.openCardMenu(filename);
     await app.page.locator(selectors.cardMenu.edit).click();
-    await app.waitForToast(/too large to edit \(17 MB\)/);
+    await app.waitForToast(/too large to edit \(17\.\d MB, limit 16 MB\)/);
     await expect(app.page.locator(selectors.textEditor.modal)).not.toHaveClass(/active/);
 
     const reads = await app.page.evaluate(() => (window as any).__clipReads);

@@ -226,6 +226,44 @@ const TextClipEditor = (() => {
             draft.originalHash === originalHash();
     }
 
+    // The footer's draft line. `warn` is for "your edits are no longer being
+    // backed up": the same muted grey as "Draft saved" read as nothing wrong.
+    function setDraftStatus(text, { warn = false, tooltip = '', recovered = false } = {}) {
+        const status = element('text-editor-draft-status');
+        if (status) {
+            status.textContent = text;
+            status.classList.toggle('text-amber-200', warn);
+            if (tooltip) status.setAttribute('data-tooltip', tooltip);
+            else status.removeAttribute('data-tooltip');
+        }
+        // Offered only while the text on screen is the recovered draft.
+        const discard = element('text-editor-discard-draft');
+        if (discard) discard.hidden = !recovered;
+    }
+
+    // "5 minutes ago", for a recovered draft.
+    function draftAge(updatedAt) {
+        const then = Number(updatedAt);
+        if (!Number.isFinite(then) || then <= 0) return '';
+        const minutes = Math.floor((Date.now() - then) / 60000);
+        if (minutes < 1) return 'just now';
+        if (minutes < 60) return `${minutes} min ago`;
+        const hours = Math.floor(minutes / 60);
+        if (hours < 48) return `${hours} h ago`;
+        return `${Math.floor(hours / 24)} days ago`;
+    }
+
+    // Back to the stored text: the one-step way out of a recovered draft
+    // (undo deliberately does not reach behind the recovery).
+    function discardRecoveredDraft() {
+        if (!active || !adapter) return;
+        adapter.setValue(originalValue, { undoable: false });
+        clearDraft();
+        setDraftStatus('');
+        updateSaveState();
+        adapter.focus();
+    }
+
     function persistDraft() {
         if (!active) return;
         const status = element('text-editor-draft-status');
@@ -233,13 +271,16 @@ const TextClipEditor = (() => {
         const text = getValue();
         if (!key || !isDirty(text)) {
             clearDraft();
-            if (status) status.textContent = '';
+            setDraftStatus('');
             return;
         }
         if (text.length > DRAFT_MAX_TEXT) {
             // An older, smaller draft would now recover the wrong text.
             storageRemove(key);
-            if (status) status.textContent = 'Draft unavailable';
+            setDraftStatus('Not backed up: too large', {
+                warn: true,
+                tooltip: 'This document is too large for draft recovery. Save to keep your changes.',
+            });
             return;
         }
 
@@ -259,7 +300,14 @@ const TextClipEditor = (() => {
             record.originalText = originalValue;
         }
         const saved = storageSet(key, JSON.stringify(record));
-        if (status) status.textContent = saved ? 'Draft saved' : 'Draft unavailable';
+        if (saved) {
+            setDraftStatus('Draft saved');
+        } else {
+            setDraftStatus('Not backed up: storage unavailable', {
+                warn: true,
+                tooltip: 'The draft could not be stored. Save to keep your changes.',
+            });
+        }
     }
 
     function scheduleDraft() {
@@ -339,7 +387,11 @@ const TextClipEditor = (() => {
             // Not undoable: recovering a draft is loading a document, not an edit
             // the user should be able to undo back out of.
             adapter.setValue(draft.text, { undoable: false });
-            element('text-editor-draft-status').textContent = 'Recovered draft';
+            const age = draftAge(draft.updatedAt);
+            setDraftStatus('Recovered draft', {
+                recovered: true,
+                tooltip: age ? `Unsaved changes from ${age} were restored` : 'Unsaved changes were restored',
+            });
             return true;
         } catch (_) {
             storageRemove(key);
@@ -660,9 +712,21 @@ const TextClipEditor = (() => {
         return { caseSensitive: searchCaseSensitive, wholeWord: searchWholeWord };
     }
 
+    // What the last Replace All did ("Replaced 37 occurrences"). Shown in
+    // place of the match count, which right after a bulk replace reads
+    // "No matches" and looks like a failure. Cleared by the next thing the
+    // user does with the search or the text.
+    let replaceResult = '';
+    // The replace is itself a document change; only a later one clears it.
+    let replaceResultAt = 0;
+
     function setSearchStatus() {
         const status = element('text-editor-search-status');
         if (!status) return;
+        if (replaceResult) {
+            status.textContent = replaceResult;
+            return;
+        }
         if (!element('text-editor-find').value) {
             status.textContent = '';
             return;
@@ -709,6 +773,7 @@ const TextClipEditor = (() => {
     }
 
     function find(direction) {
+        replaceResult = '';
         if (!element('text-editor-find').value) {
             setSearchStatus();
             return;
@@ -725,6 +790,7 @@ const TextClipEditor = (() => {
     }
 
     function replaceCurrent() {
+        replaceResult = '';
         const query = element('text-editor-find').value;
         if (!query) return;
         applyQuery();
@@ -736,9 +802,22 @@ const TextClipEditor = (() => {
     function replaceAll() {
         const query = element('text-editor-find').value;
         if (!query) return;
-        applyQuery();
-        adapter.replaceAll(element('text-editor-replace').value);
+        const before = applyQuery();
+        const count = before.matches.length;
+        const ran = adapter.replaceAll(element('text-editor-replace').value);
+        if (count > 0 && ran !== false) {
+            // The match list is capped; the replace covers the whole document.
+            const shown = before.truncated ? `${count}+` : `${count}`;
+            replaceResult = `Replaced ${shown} occurrence${count === 1 && !before.truncated ? '' : 's'}`;
+            replaceResultAt = performance.now();
+        }
         updateCursorStatus();
+        setSearchStatus();
+    }
+
+    function clearReplaceResult() {
+        if (!replaceResult) return;
+        replaceResult = '';
         setSearchStatus();
     }
 
@@ -758,6 +837,7 @@ const TextClipEditor = (() => {
     }
 
     function setFindPanelOpen(open, options = {}) {
+        replaceResult = '';
         const panel = element('text-editor-find-panel');
         const toggle = element('text-editor-find-toggle');
         panel.classList.toggle('hidden', !open);
@@ -854,6 +934,9 @@ const TextClipEditor = (() => {
     }
 
     function handleChange() {
+        // An edit after a Replace All makes its message stale (the replace's
+        // own change arrives within the same moment and is not that edit).
+        if (replaceResult && performance.now() - replaceResultAt > 150) replaceResult = '';
         // Read once and passed down: each read used to be a fresh doc.toString().
         const value = getValue();
         if (refreshDegraded(value)) {
@@ -881,6 +964,16 @@ const TextClipEditor = (() => {
             TextDiagnostics.getAuthoritativeErrors().length === 0;
         formatButton.disabled = !canFormat;
         formatButton.classList.toggle('opacity-40', !canFormat);
+        // A greyed-out button with no reason reads as broken. (A disabled
+        // button gets no click, so a toast could never say it.)
+        let formatBlocked = '';
+        if (formatter && !canFormat) {
+            if (savesInFlight > 0) formatBlocked = 'Wait for the save to finish';
+            else if (!assistanceEnabled()) formatBlocked = 'Formatting is unavailable for a document this large';
+            else formatBlocked = `Fix the ${descriptor.label} errors first`;
+        }
+        if (formatBlocked) formatButton.setAttribute('data-tooltip', formatBlocked);
+        else formatButton.removeAttribute('data-tooltip');
 
         const notice = element('text-editor-degraded-notice');
         notice.classList.toggle('hidden', !degraded || !!unavailableReason);
@@ -945,7 +1038,7 @@ const TextClipEditor = (() => {
         element('text-editor-find').value = '';
         element('text-editor-replace').value = '';
         element('text-editor-search-status').textContent = '';
-        element('text-editor-draft-status').textContent = '';
+        setDraftStatus('');
         applySearchToggles();
         setFindPanelOpen(false, { silent: true });
         element('editor-unavailable-panel').classList.add('hidden');
@@ -1314,19 +1407,34 @@ const TextClipEditor = (() => {
         element('text-editor-find-previous').addEventListener('click', () => find(-1));
         element('text-editor-replace-current').addEventListener('click', replaceCurrent);
         element('text-editor-replace-all').addEventListener('click', replaceAll);
-        element('text-editor-find').addEventListener('input', () => refreshSearch(true));
+        element('text-editor-find').addEventListener('input', () => { replaceResult = ''; refreshSearch(true); });
         element('text-editor-match-case').addEventListener('click', () => {
             searchCaseSensitive = !searchCaseSensitive;
+            replaceResult = '';
             applySearchToggles();
             refreshSearch(true);
         });
         element('text-editor-whole-word').addEventListener('click', () => {
             searchWholeWord = !searchWholeWord;
+            replaceResult = '';
             applySearchToggles();
             refreshSearch(true);
         });
         element('text-editor-wrap-toggle').addEventListener('click', toggleWrap);
         element('text-editor-format-json').addEventListener('click', formatDocument);
+        element('text-editor-discard-draft')?.addEventListener('click', discardRecoveredDraft);
+        // The byte-safety screen's two ways out.
+        element('editor-unavailable-save')?.addEventListener('click', () => {
+            if (clipID != null && typeof saveClipToFile === 'function') saveClipToFile(clipID);
+        });
+        element('editor-unavailable-open')?.addEventListener('click', async () => {
+            if (clipID == null) return;
+            try {
+                await window.go.main.App.OpenClipWithDefaultApp(clipID);
+            } catch (error) {
+                toastError('Failed to open clip', error);
+            }
+        });
         element('editor-table-delimiter').addEventListener('change', (event) => {
             // '' is the auto option: back to detection, not a fifth delimiter.
             setTableOptions({ delimiterID: event.target.value || null });
@@ -1388,6 +1496,8 @@ const TextClipEditor = (() => {
         endSave,
         encodeSnapshot,
         commitSavedBaseline,
+        // Blank the footer's draft line (a save removed the draft).
+        resetDraftStatus: () => setDraftStatus(''),
         // The outer controller re-checks this immediately before writing, so a clip
         // that was closed and replaced while the save was pending cannot be written.
         snapshotStillTargets,

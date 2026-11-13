@@ -112,6 +112,10 @@ test.describe('Text Editor', () => {
     await app.page.locator(selectors.textEditor.replaceAllButton).click();
 
     await app.expectTextEditorContent(originalContent.replaceAll('alpha', 'gamma'));
+    // What the replace did, not "No matches" (which read as a failure).
+    await expect(app.page.locator(selectors.textEditor.searchStatus)).toHaveText('Replaced 2 occurrences');
+    // The next search action puts the ordinary count back.
+    await app.page.locator(selectors.textEditor.findNextButton).click();
     await expect(app.page.locator(selectors.textEditor.searchStatus)).toContainText('No matches');
 
     await findInput.focus();
@@ -160,6 +164,58 @@ test.describe('Text Editor', () => {
 
     await app.expectTextEditorContent('recovered unsaved content');
     await expect(app.page.locator(selectors.textEditor.draftStatus)).toHaveText('Recovered draft');
+    await expect(app.page.locator(selectors.textEditor.draftStatus))
+      .toHaveAttribute('data-tooltip', 'Unsaved changes from just now were restored');
+
+    // One step back to the saved version, and nothing left to recover.
+    const discard = app.page.locator('[data-testid="text-editor-discard-draft"]');
+    await expect(discard).toBeVisible();
+    await discard.click();
+    await app.expectTextEditorContent('saved content');
+    await expect(discard).toBeHidden();
+    await expect(app.page.locator(selectors.textEditor.saveButton)).toBeDisabled();
+    await app.page.locator(selectors.textEditor.cancelButton).click();
+    await app.page.waitForSelector(`${selectors.textEditor.modal}:not(.active)`);
+    await app.openTextEditor(filename);
+    await app.expectTextEditorContent('saved content');
+    await expect(app.page.locator(selectors.textEditor.draftStatus)).toHaveText('');
+    await app.cancelTextEditor();
+  });
+
+  test('a draft that cannot be stored says the edits are not backed up', async ({ app }) => {
+    const textPath = await createTempFile('saved', 'txt');
+    const filename = path.basename(textPath);
+    await app.uploadFile(textPath);
+    await app.openTextEditor(filename);
+    await app.page.evaluate(() => {
+      const original = Storage.prototype.setItem;
+      (window as any).__restoreSetItem = () => { Storage.prototype.setItem = original; };
+      Storage.prototype.setItem = () => { throw new DOMException('quota', 'QuotaExceededError'); };
+    });
+    try {
+      await app.setTextEditorContent('edited');
+      const status = app.page.locator(selectors.textEditor.draftStatus);
+      await expect(status).toHaveText('Not backed up: storage unavailable');
+      await expect(status).toHaveClass(/text-amber-200/);
+      await expect(status).toHaveAttribute('data-tooltip', /Save to keep your changes/);
+    } finally {
+      await app.page.evaluate(() => (window as any).__restoreSetItem());
+    }
+    await app.cancelTextEditor();
+  });
+
+  test('a greyed-out Format button says why', async ({ app }) => {
+    const jsonPath = await createTempFile('{"a": 1}', 'json');
+    const filename = path.basename(jsonPath);
+    await app.uploadFile(jsonPath);
+    await app.openTextEditor(filename);
+    const format = app.page.locator(selectors.textEditor.formatJSONButton);
+    await expect(format).toBeEnabled();
+    await expect(format).not.toHaveAttribute('data-tooltip', /.+/);
+
+    await app.setTextEditorContent('{"a": ');
+    await expect(format).toBeDisabled();
+    await expect(format).toHaveAttribute('data-tooltip', 'Fix the JSON errors first');
     await app.cancelTextEditor();
   });
 

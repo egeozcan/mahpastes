@@ -294,7 +294,7 @@ This now applies to **every** text format. Previously, only invalid Markdown was
 
 The clip's stored bytes are untouched, and downloads, REST responses, public links, tag servers, and `mp clip data` still return them exactly.
 
-The byte-safety screen names the planned recovery path: a future release will add a user-initiated, one-way **Reinterpret as Windows-1252 and convert to UTF-8** action that shows the decoded result before writing anything. Until then, a clip in a non-UTF-8 encoding is read-only in the app; download it and convert it with a tool that can do so explicitly.
+The byte-safety screen offers the two ways out: **Save to file** and **Open in default app**. A clip in a non-UTF-8 encoding is read-only in the app; save it and convert it with a tool that can do so explicitly. (A user-initiated, one-way **Reinterpret as Windows-1252 and convert to UTF-8** action is the planned follow-up.)
 
 ## Saving Changes
 
