@@ -81,11 +81,7 @@ test.describe('Sorting', () => {
     await app.uploadFile(fileB);
     await app.expectClipCount(3);
 
-    // Sort by name (first click = desc)
-    await app.openSortPopover();
-    await app.selectSort('name');
-
-    // Toggle to ascending (second click)
+    // Sort by name: a name starts from A
     await app.openSortPopover();
     await app.selectSort('name');
 
@@ -105,7 +101,9 @@ test.describe('Sorting', () => {
     await app.uploadFile(fileC);
     await app.expectClipCount(3);
 
-    // Sort by name (first click = desc)
+    // Sort by name (A to Z), then click the active row to reverse
+    await app.openSortPopover();
+    await app.selectSort('name');
     await app.openSortPopover();
     await app.selectSort('name');
 
@@ -157,12 +155,19 @@ test.describe('Sorting', () => {
     await app.uploadFile(txtFile);
     await app.expectClipCount(2);
 
-    // Sort by type (first click = desc)
+    // Sort by type: a type starts from A
     await app.openSortPopover();
     await app.selectSort('type');
 
+    const namesAsc = await app.getClipFilenames();
+    // image/png < text/plain lexicographically, so the image is first
+    expect(namesAsc[0]).toBe(path.basename(imgFile));
+    expect(namesAsc[1]).toBe(path.basename(txtFile));
+
+    // The active row reverses it
+    await app.openSortPopover();
+    await app.selectSort('type');
     const namesDesc = await app.getClipFilenames();
-    // text/plain > image/png lexicographically, so text first when desc
     expect(namesDesc[0]).toBe(path.basename(txtFile));
     expect(namesDesc[1]).toBe(path.basename(imgFile));
   });
@@ -172,27 +177,28 @@ test.describe('Sorting', () => {
     await app.uploadFile(img);
     await app.expectClipCount(1);
 
-    // Click name to sort desc
+    // Click name: sorted from A
     await app.openSortPopover();
     await app.selectSort('name');
 
-    // Reopen and check the direction indicator shows Desc
+    // Reopen: the row says which way, and the popover says how to reverse
     await app.openSortPopover();
     const nameOption = app.page.locator(selectors.sort.option('name'));
-    await expect(nameOption).toContainText('Desc');
+    await expect(nameOption).toContainText('A to Z');
+    await expect(app.page.locator('[data-testid="sort-hint"]')).toHaveText('Click the active row to reverse');
     await app.closeSortPopover();
 
-    // Click again to toggle to asc
+    // Click again to reverse
     await app.openSortPopover();
     await app.selectSort('name');
 
     await app.openSortPopover();
-    const nameOptionAsc = app.page.locator(selectors.sort.option('name'));
-    await expect(nameOptionAsc).toContainText('Asc');
+    const nameOptionDesc = app.page.locator(selectors.sort.option('name'));
+    await expect(nameOptionDesc).toContainText('Z to A');
     await app.closeSortPopover();
   });
 
-  test('should switch to new field with desc default', async ({ app }) => {
+  test('a newly chosen field starts in its own direction', async ({ app }) => {
     const img = await createTempFile(generateTestImage(), 'png');
     await app.uploadFile(img);
 
@@ -200,14 +206,14 @@ test.describe('Sorting', () => {
     await app.openSortPopover();
     await app.selectSort('name');
 
-    // Switch to size - should default to desc
+    // Switch to size: largest first
     await app.openSortPopover();
     await app.selectSort('size');
 
     await app.openSortPopover();
     const sizeOption = app.page.locator(selectors.sort.option('size'));
     await expect(sizeOption).toHaveClass(/bg-stone-100/);
-    await expect(sizeOption).toContainText('Desc');
+    await expect(sizeOption).toContainText('Largest first');
     await app.closeSortPopover();
   });
 
@@ -215,11 +221,11 @@ test.describe('Sorting', () => {
     const img = await createTempFile(generateTestImage(), 'png');
     await app.uploadFile(img);
 
-    // Set sort to name ascending
+    // Set sort to name, reversed
     await app.openSortPopover();
-    await app.selectSort('name'); // desc
+    await app.selectSort('name'); // A to Z
     await app.openSortPopover();
-    await app.selectSort('name'); // asc
+    await app.selectSort('name'); // Z to A
 
     // Reload the page
     await app.page.reload();
@@ -230,8 +236,21 @@ test.describe('Sorting', () => {
     await app.openSortPopover();
     const nameOption = app.page.locator(selectors.sort.option('name'));
     await expect(nameOption).toHaveClass(/bg-stone-100/);
-    await expect(nameOption).toContainText('Asc');
+    await expect(nameOption).toContainText('Z to A');
     await app.closeSortPopover();
+
+    // The button itself says so, without opening anything.
+    const button = app.page.locator('[data-testid="sort-button"]');
+    await expect(button).toHaveAttribute('data-tooltip', 'Sort: Filename, z to a');
+    await expect(button).toHaveAttribute('data-sort-active', 'true');
+    await expect(button).toHaveClass(/bg-stone-800/);
+  });
+
+  test('the sort button shows the default sort as plain', async ({ app }) => {
+    const button = app.page.locator('[data-testid="sort-button"]');
+    await expect(button).toHaveAttribute('data-tooltip', 'Sort: Date added, newest first');
+    await expect(button).toHaveAttribute('data-sort-active', 'false');
+    await expect(button).not.toHaveClass(/bg-stone-800/);
   });
 
   test('should maintain sort order when new clip is added', async ({ app }) => {
@@ -242,11 +261,9 @@ test.describe('Sorting', () => {
     await app.uploadFile(fileC);
     await app.expectClipCount(2);
 
-    // Sort by name ascending
+    // Sort by name (A to Z)
     await app.openSortPopover();
-    await app.selectSort('name'); // desc
-    await app.openSortPopover();
-    await app.selectSort('name'); // asc
+    await app.selectSort('name');
 
     // Upload a file that goes in the middle alphabetically
     const fileB = await createNamedTempFile(generateTestImage(10, 10, [0, 255, 0]), 'bbb-maintain.png');

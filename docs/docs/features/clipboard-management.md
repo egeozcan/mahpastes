@@ -395,7 +395,7 @@ Control the order of clips in the gallery using the sort popover in the bottom b
 | **File size** | Clip data size in bytes |
 | **Content type** | MIME type string |
 
-Click the active sort field to toggle between ascending and descending. Click a different field to switch to it (defaults to descending). The sort preference (field and direction) is persisted to the settings table and restored on app launch. A secondary tiebreaker of `created_at` + `id` keeps the order stable when two clips share the same value for the primary sort field.
+Click the active sort field to reverse its direction. Click a different field to switch to it: dates start newest first and sizes largest first, filenames and content types from A to Z. The sort button's tooltip names the current sort, and the button is highlighted whenever the sort is not the default (newest first). The sort preference (field and direction) is persisted to the settings table and restored on app launch. A secondary tiebreaker of `created_at` + `id` keeps the order stable when two clips share the same value for the primary sort field.
 
 ## Limits and Performance
 

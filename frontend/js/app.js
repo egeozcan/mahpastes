@@ -474,6 +474,7 @@ function setHiddenTagsState(tags) {
 async function setSort(field, dir) {
     currentSortField = field;
     currentSortDir = dir;
+    if (typeof updateSortButton === 'function') updateSortButton();
     await window.go.main.App.SetSetting('sort_field', field);
     await window.go.main.App.SetSetting('sort_dir', dir);
     await loadClips();
@@ -498,7 +499,7 @@ Object.assign(window.__testHelpers, {
   setHiddenTags: (tags) => setHiddenTagsState(tags),
   getHiddenTags: () => getHiddenTags(),
   setViewingArchive: (val) => { isViewingArchive = val; },
-  setSort: (field, dir) => { currentSortField = field; currentSortDir = dir; },
+  setSort: (field, dir) => { currentSortField = field; currentSortDir = dir; if (typeof updateSortButton === 'function') updateSortButton(); },
   isFolderMode: () => isFolderMode(),
   setFolderMode: (val) => { folderMode = val; },
   getShortcutManager: () => typeof ShortcutManager !== 'undefined' ? ShortcutManager : null,
@@ -1533,6 +1534,7 @@ window.addEventListener('load', async () => {
             if (['date', 'name', 'size', 'type'].includes(savedField)) currentSortField = savedField;
             if (['asc', 'desc'].includes(savedDir)) currentSortDir = savedDir;
         } catch (e) { /* use defaults */ }
+        if (typeof updateSortButton === 'function') updateSortButton();
 
         // Search options (content search persists; "show hidden" is session-only)
         if (typeof initSearchOptions === 'function') {
