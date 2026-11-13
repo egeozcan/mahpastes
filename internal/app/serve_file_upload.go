@@ -108,9 +108,18 @@ func (sm *ServeManager) handleFileUpload(w http.ResponseWriter, r *http.Request,
 	}
 
 	// Determine content type: form field > multipart header > sniffing.
-	contentType := r.FormValue("content_type")
-	if contentType == "" {
-		contentType = header.Header.Get("Content-Type")
+	// Both come from the page and end up as a stored clip type that is later
+	// sent as a response header, so only a well-formed media type is kept.
+	contentType := ""
+	if field := strings.TrimSpace(r.FormValue("content_type")); field != "" {
+		normalized, ok := normalizeClipContentType(field)
+		if !ok {
+			jsonAPIError(w, http.StatusBadRequest, "invalid content_type")
+			return
+		}
+		contentType = normalized
+	} else if normalized, ok := normalizeClipContentType(header.Header.Get("Content-Type")); ok {
+		contentType = normalized
 	}
 	if contentType == "text/plain" || contentType == "" {
 		trimmed := strings.TrimSpace(string(data))

@@ -1926,6 +1926,49 @@ func nextFilePart(reader *multipart.Reader) (*multipart.Part, map[string]string,
 	}
 }
 
+// trailingFormFields collects the plain form fields that follow the file part,
+// so a field means the same wherever a client puts it. A later value replaces
+// an earlier one; further file parts are skipped.
+func trailingFormFields(reader *multipart.Reader, fields map[string]string) error {
+	for {
+		part, err := reader.NextPart()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if name := part.FormName(); name != "" && part.FileName() == "" {
+			v, _ := io.ReadAll(io.LimitReader(part, maxMultipartFieldBytes))
+			fields[name] = string(v)
+		}
+		part.Close()
+	}
+}
+
+// maxClipContentTypeBytes bounds a client-supplied clip content type.
+const maxClipContentTypeBytes = 255
+
+// normalizeClipContentType accepts a client-supplied media type only if it is
+// a well-formed type/subtype with optional parameters, and returns it in
+// canonical form. The value is stored and later sent as a Content-Type header,
+// so free text (markup, line breaks) is refused.
+func normalizeClipContentType(s string) (string, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" || len(s) > maxClipContentTypeBytes {
+		return "", false
+	}
+	mediaType, params, err := mime.ParseMediaType(s)
+	if err != nil {
+		return "", false
+	}
+	if typ, sub, ok := strings.Cut(mediaType, "/"); !ok || typ == "" || sub == "" {
+		return "", false
+	}
+	out := mime.FormatMediaType(mediaType, params)
+	return out, out != ""
+}
+
 func (am *APIManager) handleCreateClip(w http.ResponseWriter, r *http.Request) {
 	keyCtx := getKeyContext(r)
 
@@ -1966,16 +2009,34 @@ func (am *APIManager) handleCreateClip(w http.ResponseWriter, r *http.Request) {
 	if override := r.URL.Query().Get("filename"); override != "" {
 		filename = override
 	}
+	// Read before the trailing fields: NextPart invalidates the part.
+	partHeaderType := part.Header.Get("Content-Type")
 
-	// Detect content type
-	partContentType := part.Header.Get("Content-Type")
-	if override := strings.TrimSpace(fields["content_type"]); override != "" {
-		partContentType = override
+	if err := trailingFormFields(reader, fields); err != nil {
+		am.jsonError(w, http.StatusBadRequest, "failed to read multipart data")
+		return
 	}
-	if partContentType == "" || partContentType == "application/octet-stream" {
-		partContentType = mime.TypeByExtension(filepath.Ext(filename))
-		if partContentType == "" {
-			partContentType = http.DetectContentType(data)
+
+	// Content type: the content_type field is an explicit override and is
+	// stored as given (application/octet-stream included). Without it the file
+	// part's own header is used, and a missing, generic or malformed one falls
+	// back to the extension, then to sniffing. A Markdown filename is Markdown
+	// either way, as everywhere else in the app.
+	var partContentType string
+	if override := strings.TrimSpace(fields["content_type"]); override != "" {
+		normalized, ok := normalizeClipContentType(override)
+		if !ok {
+			am.jsonError(w, http.StatusBadRequest, "content_type must be a media type such as text/plain")
+			return
+		}
+		partContentType = normalized
+	} else {
+		partContentType, _ = normalizeClipContentType(partHeaderType)
+		if partContentType == "" || partContentType == "application/octet-stream" {
+			partContentType = mime.TypeByExtension(filepath.Ext(filename))
+			if partContentType == "" {
+				partContentType = http.DetectContentType(data)
+			}
 		}
 	}
 	partContentType = cliptype.PromoteMarkdown(filename, partContentType)
@@ -4475,11 +4536,18 @@ func (am *APIManager) handleFindClipsByFilenameAndTag(w http.ResponseWriter, r *
 		am.jsonError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	if body.TagID <= 0 {
-		am.jsonError(w, http.StatusBadRequest, "tag_id is required")
+	// tag_id 0 means "untagged", as in the desktop binding: the web UI sends
+	// it for every upload or paste outside a folder.
+	if body.TagID < 0 {
+		am.jsonError(w, http.StatusBadRequest, "tag_id must not be negative")
 		return
 	}
 	keyCtx := getKeyContext(r)
+	if keyCtx.ScopedTagID > 0 && body.TagID == 0 {
+		// Untagged clips are outside every scope: nothing to report.
+		am.jsonOK(w, []ClipMatch{})
+		return
+	}
 	if keyCtx.ScopedTagID > 0 {
 		var name string
 		if err := am.app.db.QueryRow("SELECT name FROM tags WHERE id = ?", body.TagID).Scan(&name); err != nil || !am.isTagInScope(name, keyCtx.ScopedTagID) {

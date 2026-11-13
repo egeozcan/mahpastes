@@ -1,6 +1,10 @@
 package app
 
 import (
+	"bytes"
+	"mime/multipart"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 )
 
@@ -37,5 +41,49 @@ func TestValidateSubtagPath(t *testing.T) {
 				t.Errorf("validateSubtagPath(%q, %q) = %q, want %q", tt.servedTag, tt.relTag, got, tt.wantFull)
 			}
 		})
+	}
+}
+
+func TestServeUploadRefusesMalformedContentType(t *testing.T) {
+	app, cleanup := setupTestApp(t)
+	defer cleanup()
+
+	tag, err := app.CreateTag("uploads")
+	if err != nil {
+		t.Fatalf("CreateTag: %v", err)
+	}
+	ts := &tagServer{tagID: tag.ID, tagName: tag.Name, apiAccess: "readwrite", serveKey: "test-key"}
+
+	upload := func(contentType string) *httptest.ResponseRecorder {
+		var body bytes.Buffer
+		writer := multipart.NewWriter(&body)
+		if err := writer.WriteField("content_type", contentType); err != nil {
+			t.Fatalf("WriteField: %v", err)
+		}
+		part, err := writer.CreateFormFile("file", "data.bin")
+		if err != nil {
+			t.Fatalf("CreateFormFile: %v", err)
+		}
+		if _, err := part.Write([]byte{0, 1, 2, 3}); err != nil {
+			t.Fatalf("write part: %v", err)
+		}
+		if err := writer.Close(); err != nil {
+			t.Fatalf("close multipart writer: %v", err)
+		}
+		req := httptest.NewRequest(http.MethodPost, "/_api/_upload", &body)
+		req.Header.Set("Content-Type", writer.FormDataContentType())
+		req.AddCookie(&http.Cookie{Name: "_mp_serve_key", Value: "test-key"})
+		rec := httptest.NewRecorder()
+		app.serveManager.handleFileUpload(rec, req, ts)
+		return rec
+	}
+
+	for _, bad := range []string{"not a type", "image/png\r\nX-Injected: 1", "<script>"} {
+		if rec := upload(bad); rec.Code != http.StatusBadRequest {
+			t.Errorf("content_type %q: status = %d, want 400; body %q", bad, rec.Code, rec.Body.String())
+		}
+	}
+	if rec := upload("image/png"); rec.Code != http.StatusCreated {
+		t.Fatalf("valid content_type: status = %d, want 201; body %q", rec.Code, rec.Body.String())
 	}
 }

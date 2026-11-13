@@ -638,7 +638,7 @@ type WatchedFolder struct {
 }
 ```
 
-`watch_error` is set while a folder that is neither paused nor globally paused is not being watched: `"folder not found"` (deleted, or on a volume that is not mounted), or the operating system's reason for refusing the watch (for example the inotify watch limit). The watcher re-checks every 30 seconds and clears it once the folder is watched again.
+`watch_error` is set while a folder that is neither paused nor globally paused is not being watched: `"folder not found"` (deleted, or on a volume that is not mounted), `"folder is not responding"` (a network share that hangs), `"same folder as <path>"` (another entry already watches that directory under another name), or the operating system's reason for refusing the watch (for example the inotify watch limit). The watcher re-checks every 30 seconds and clears it once the folder is watched again.
 
 ---
 
@@ -1442,7 +1442,7 @@ Copy an HTML clip as formatted text (macOS).
 func (s *ClipboardService) CopyClipAsRichText(id int64) error
 ```
 
-Puts one pasteboard item holding the clip's HTML (`public.html`, with a `<meta charset="utf-8">` prepended when the document declares no charset) and its rendered text as the plain-string fallback, so Mail, Notes or Pages paste the formatting and plain-text fields get readable text. Returns an error for clips that are not `text/html`, and on platforms where `TransferCapabilities.clipboard_rich_text` is false.
+Puts one pasteboard item holding the clip's HTML (`public.html`, transcoded to UTF-8 from the charset the document declares, with a `<meta charset="utf-8">` prepended unless it already declares UTF-8) and its rendered text as the plain-string fallback, so Mail, Notes or Pages paste the formatting and plain-text fields get readable text. Returns an error for clips that are not `text/html`, and on platforms where `TransferCapabilities.clipboard_rich_text` is false.
 
 ---
 
@@ -1784,7 +1784,7 @@ runtime.EventsEmit(ctx, "watch:import", clip)
 
 ### watch:error
 
-Emitted when a watch folder import fails.
+Emitted when a watch folder import fails, and once when a file has not been imported for a minute because another program still has it open for writing (macOS).
 
 ```go
 runtime.EventsEmit(ctx, "watch:error", map[string]string{
