@@ -127,7 +127,7 @@ func (s *TempClipStore) reuseSnapshot(clipID int64, meta clipStreamMetadata, has
 	if !ok || rec.hash != hash || rec.size != meta.size {
 		return nil
 	}
-	f, err := os.Open(rec.path)
+	f, err := openSnapshotFile(rec.path)
 	if err != nil {
 		return nil // pruned or dropped since; copy again
 	}
@@ -318,7 +318,13 @@ func materializeClipFile(ctx context.Context, db *sql.DB, dir string, clipID int
 	if err := f.Chmod(0444); err != nil {
 		return fail(fmt.Errorf("chmod snapshot: %w", err))
 	}
-	return f, meta, hex.EncodeToString(digest[:]), nil
+	// On Windows the handle the copy was written through would block the
+	// rename that publishes it, and the delete that drops it.
+	rf, err := reopenSnapshotForPublish(f)
+	if err != nil {
+		return nil, meta, "", fmt.Errorf("reopen snapshot: %w", err)
+	}
+	return rf, meta, hex.EncodeToString(digest[:]), nil
 }
 
 // streamSnapshotPrefix starts every published snapshot's name. The leading dot
