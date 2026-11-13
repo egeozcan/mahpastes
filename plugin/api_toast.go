@@ -3,8 +3,10 @@ package plugin
 import (
 	"html"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"go-clipboard/internal/bridgeiface"
 
@@ -41,6 +43,21 @@ func (t *ToastAPI) Register(L *lua.LState) {
 	L.SetGlobal("toast", toastMod)
 }
 
+// truncateToastMessage caps message at maxToastMessageLength bytes. Lua
+// strings are raw bytes and a byte cut can split a character; invalid UTF-8
+// reaches macOS as a notification with no body at all.
+func truncateToastMessage(message string) string {
+	message = strings.ToValidUTF8(message, "\uFFFD")
+	if len(message) <= maxToastMessageLength {
+		return message
+	}
+	cut := maxToastMessageLength - 3
+	for cut > 0 && !utf8.RuneStart(message[cut]) {
+		cut--
+	}
+	return message[:cut] + "..."
+}
+
 func (t *ToastAPI) show(L *lua.LState) int {
 	message := L.CheckString(1)
 	toastType := L.OptString(2, "info")
@@ -51,10 +68,7 @@ func (t *ToastAPI) show(L *lua.LState) int {
 		toastType = "info"
 	}
 
-	// Truncate message if too long
-	if len(message) > maxToastMessageLength {
-		message = message[:maxToastMessageLength-3] + "..."
-	}
+	message = truncateToastMessage(message)
 
 	// HTML escape the message
 	message = html.EscapeString(message)

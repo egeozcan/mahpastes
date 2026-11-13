@@ -142,3 +142,33 @@ func TestNotificationServiceStopIsBounded(t *testing.T) {
 		t.Fatal("stop did not return")
 	}
 }
+
+// Wails hands each frontend event to its own goroutine, so a blur and the
+// focus right after it can reach the listener swapped.
+func TestReportWindowFocusOrdersBySequence(t *testing.T) {
+	core := newNotificationTestCore(t)
+	n := osnotify.New(osnotify.Options{Sender: &stubSender{}, Enabled: core.OSNotificationsEnabled})
+	n.Start()
+	t.Cleanup(func() { n.Stop(2 * time.Second) })
+	s := NewNotificationService(core)
+
+	// Headless runs have no notifier; a report must not panic.
+	s.ReportWindowFocus(false, 1, "early")
+	s.setNotifier(n)
+
+	s.ReportWindowFocus(true, 2, "page")
+	s.ReportWindowFocus(false, 1, "page")
+	if n.Accepting() {
+		t.Fatal("a late blur report overrode the newer focus report")
+	}
+	s.ReportWindowFocus(false, 4, "page")
+	s.ReportWindowFocus(true, 3, "page")
+	if !n.Accepting() {
+		t.Fatal("a late focus report overrode the newer blur report")
+	}
+	// A reload starts a new session with the counter back at 1.
+	s.ReportWindowFocus(true, 1, "reloaded")
+	if n.Accepting() {
+		t.Fatal("the first report after a page reload was ignored")
+	}
+}

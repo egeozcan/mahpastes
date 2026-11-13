@@ -7,15 +7,22 @@
 
     // --- Focus reporting ---
     let reportedFocus = null;
+    // Each bound call runs on its own goroutine, so two reports can reach Go
+    // swapped. The backend orders them by this counter within one page load.
+    let focusSeq = 0;
+    const focusSession = Math.random().toString(36).slice(2) + Date.now().toString(36);
     function reportFocus() {
         const focused = document.hasFocus() && !document.hidden;
         if (focused === reportedFocus) return;
-        const emit = window.runtime?.EventsEmit;
-        // No runtime (yet): the backend treats the window as focused. Leave
+        // A bound call, not EventsEmit: under `wails dev` Wails forwards a
+        // browser page's event to the native window, and crashes if that
+        // window does not exist yet.
+        const report = service()?.ReportWindowFocus;
+        // No backend (yet): it treats the window as focused. Leave
         // reportedFocus alone so the next focus event reports again.
-        if (typeof emit !== 'function') return;
+        if (typeof report !== 'function') return;
         try {
-            emit('window:focus-changed', focused);
+            Promise.resolve(report(focused, ++focusSeq, focusSession)).catch(() => {});
             reportedFocus = focused;
         } catch (e) {
             // Same: retried on the next focus event.

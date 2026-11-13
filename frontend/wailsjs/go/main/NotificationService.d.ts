@@ -4,6 +4,8 @@ import {main} from '../models';
 
 export function GetNotificationStatus():Promise<main.NotificationStatus>;
 
+export function ReportWindowFocus(arg1:boolean,arg2:number,arg3:string):Promise<void>;
+
 export function SendTestNotification():Promise<main.NotificationStatus>;
 
 export function SetNotificationsEnabled(arg1:boolean):Promise<main.NotificationStatus>;

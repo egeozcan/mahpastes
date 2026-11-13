@@ -12,10 +12,6 @@ import (
 	"go-clipboard/internal/wailsbridge"
 )
 
-// focusEvent is emitted by the frontend (os-notifications.js) whenever the
-// window gains or loses focus, with a bool payload.
-const focusEvent = "window:focus-changed"
-
 // activateWait bounds SetNotificationsEnabled(true): macOS keeps the
 // permission prompt open for up to three minutes.
 const activateWait = 190 * time.Second
@@ -50,19 +46,24 @@ func NewNotificationService(core *coreapp.App) *NotificationService {
 	return &NotificationService{core: core}
 }
 
-// newDesktopNotifier builds the notifier for the desktop window and follows
-// the frontend's focus reports. It is started after Bootstrap.
+// newDesktopNotifier builds the notifier for the desktop window. It is
+// started after Bootstrap; the frontend's focus reports reach it through
+// ReportWindowFocus.
 func newDesktopNotifier(bridge *wailsbridge.Bridge, core *coreapp.App) *osnotify.Notifier {
-	n := osnotify.New(osnotify.Options{Sender: bridge, Enabled: core.OSNotificationsEnabled})
-	bridge.On(focusEvent, func(data ...any) {
-		if len(data) == 0 {
-			return
-		}
-		if focused, ok := data[0].(bool); ok {
-			n.SetFocused(focused)
-		}
-	})
-	return n
+	return osnotify.New(osnotify.Options{Sender: bridge, Enabled: core.OSNotificationsEnabled})
+}
+
+// ReportWindowFocus is called by the frontend (os-notifications.js) whenever
+// the window gains or loses focus. It is a bound call, not a Wails event: in
+// `wails dev` a page in an external browser can load before the native window
+// exists, and Wails forwards a browser's event to that window without a nil
+// check, which ends the process. Calls run on their own goroutines, so two
+// reports sent close together can arrive swapped; seq (increasing within one
+// page load, named by session) decides, not the arrival.
+func (s *NotificationService) ReportWindowFocus(focused bool, seq float64, session string) {
+	if n := s.current(); n != nil {
+		n.SetFocusedSeq(session, seq, focused)
+	}
 }
 
 func (s *NotificationService) setNotifier(n *osnotify.Notifier) {

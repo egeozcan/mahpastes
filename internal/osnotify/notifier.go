@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 )
@@ -76,6 +77,9 @@ type Notifier struct {
 	mu           sync.Mutex
 	q            *queue
 	focused      bool
+	focusSeen    bool // a sequenced focus report was applied
+	focusSession string
+	focusSeq     float64
 	started      bool
 	stopped      bool
 	state        State
@@ -179,6 +183,24 @@ func (n *Notifier) SetFocused(focused bool) {
 		n.q.clear()
 	}
 	n.mu.Unlock()
+}
+
+// SetFocusedSeq is SetFocused for reports that can arrive out of order (Wails
+// runs each frontend event on its own goroutine). seq increases within one
+// page load, named by session; a report older than the last one applied for
+// its session is ignored. It reports whether the report was applied.
+func (n *Notifier) SetFocusedSeq(session string, seq float64, focused bool) bool {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.focusSeen && session == n.focusSession && seq <= n.focusSeq {
+		return false
+	}
+	n.focusSeen, n.focusSession, n.focusSeq = true, session, seq
+	n.focused = focused
+	if focused {
+		n.q.clear()
+	}
+	return true
 }
 
 // Discard drops everything waiting (notifications were switched off).
@@ -327,17 +349,37 @@ func (n *Notifier) flush() {
 		n.Discard()
 		return
 	}
+	// Initialise before popping: on macOS this can wait minutes on the
+	// permission prompt, and a pop charges the cooldown and the overall cap.
 	n.mu.Lock()
-	due := n.q.pop(n.now())
+	ready := n.state == StateReady
 	n.mu.Unlock()
-	if len(due) == 0 {
-		return
-	}
 	if n.ensureInit() != nil {
 		n.Discard()
 		return
 	}
+	// The setting may have been switched off while the prompt was open.
+	if !ready && !n.enabled() {
+		n.Discard()
+		return
+	}
+	n.mu.Lock()
+	if n.focused {
+		n.q.clear()
+		n.mu.Unlock()
+		return
+	}
+	due := n.q.pop(n.now())
+	n.mu.Unlock()
 	for _, b := range due {
+		// A send can block for seconds; coming back to the window drops the
+		// rest of the batch like anything else still waiting.
+		n.mu.Lock()
+		focused := n.focused
+		n.mu.Unlock()
+		if focused {
+			return
+		}
 		title, body := render(b)
 		if n.send(title, body) != nil {
 			n.mu.Lock()
@@ -388,7 +430,7 @@ func (n *Notifier) send(title, body string) error {
 	id := fmt.Sprintf("mahpastes-%d-%d", n.now().UnixNano(), n.nextID)
 	n.mu.Unlock()
 
-	err := n.sender.SendNotification(id, truncate(title, 120), truncate(body, 400))
+	err := n.sender.SendNotification(id, truncate(cleanText(title), 120), truncate(cleanText(body), 400))
 
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -403,6 +445,15 @@ func (n *Notifier) send(title, body string) error {
 		n.lastErr = err.Error()
 	}
 	return err
+}
+
+// cleanText makes s safe for every backend. Titles and bodies carry file,
+// tag and plugin text, which can be any bytes: macOS turns a string that is
+// not valid UTF-8 into nil (a notification with no text), and a NUL ends the
+// C string early.
+func cleanText(s string) string {
+	s = strings.ToValidUTF8(s, "\uFFFD")
+	return strings.ReplaceAll(s, "\x00", "")
 }
 
 // truncate shortens s to at most max runes, ending with an ellipsis.
