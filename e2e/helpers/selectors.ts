@@ -362,6 +362,7 @@ export const selectors = {
     container: '#toast',
     message: '#toast', // Toast text is set directly on the container
     action: '#toast [data-testid="toast-action"]',
+    dismiss: '#toast [data-testid="toast-dismiss"]',
   },
 
   // Text editor

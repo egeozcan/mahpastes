@@ -454,12 +454,10 @@ function showToast(message, type = 'info', action = null) {
     const colorClass = colors[type] || colors.info;
     toast.classList.add(colorClass);
 
-    const hide = () => {
-        toast.classList.remove('translate-x-0', 'opacity-100');
-        toast.classList.add('translate-x-full', 'opacity-0');
-        // A hidden toast keeps no focusable action behind it.
-        toast.querySelector('[data-testid="toast-action"]')?.remove();
-    };
+    const isError = type === 'error';
+    // A failure interrupts; everything else is announced when convenient.
+    toast.setAttribute('role', isError ? 'alert' : 'status');
+    toast.setAttribute('aria-live', isError ? 'assertive' : 'polite');
 
     toast.textContent = message;
     const hasAction = !!(action && action.label && typeof action.onClick === 'function');
@@ -471,12 +469,26 @@ function showToast(message, type = 'info', action = null) {
         btn.textContent = action.label;
         btn.addEventListener('click', () => {
             if (window.toastTimeout) clearTimeout(window.toastTimeout);
-            hide();
+            hideToast();
             action.onClick();
         });
         // The space keeps the announced text from running together
         // ("Clip archived. Undo").
         toast.append(' ', btn);
+    }
+    if (isError) {
+        // Icon only, so the toast's text stays the message.
+        const dismiss = document.createElement('button');
+        dismiss.type = 'button';
+        dismiss.className = 'ml-2 align-middle hover:opacity-75 transition-opacity';
+        dismiss.dataset.testid = 'toast-dismiss';
+        dismiss.setAttribute('aria-label', 'Dismiss');
+        dismiss.innerHTML = '<svg class="w-3 h-3 inline" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>';
+        dismiss.addEventListener('click', () => {
+            if (window.toastTimeout) clearTimeout(window.toastTimeout);
+            hideToast();
+        });
+        toast.appendChild(dismiss);
     }
     toast.classList.remove('translate-x-full', 'opacity-0');
     toast.classList.add('translate-x-0', 'opacity-100');
@@ -485,7 +497,33 @@ function showToast(message, type = 'info', action = null) {
         clearTimeout(window.toastTimeout);
     }
 
-    window.toastTimeout = setTimeout(hide, hasAction ? 8000 : 3000);
+    // An error carries the reason for a failure and is often the only record
+    // of it: it stays long enough to read (longer for longer text). A toast
+    // with an action stays long enough to reach the button.
+    let duration = 3000;
+    if (isError) duration = Math.min(12000, Math.max(6000, 3000 + 60 * String(message).length));
+    if (hasAction) duration = Math.max(duration, 8000);
+    window.toastTimeout = setTimeout(toastTimerFired, duration);
+}
+
+function hideToast() {
+    const toast = document.getElementById('toast');
+    toast.classList.remove('translate-x-0', 'opacity-100');
+    toast.classList.add('translate-x-full', 'opacity-0');
+    // A hidden toast keeps no focusable control behind it.
+    toast.querySelector('[data-testid="toast-action"]')?.remove();
+    toast.querySelector('[data-testid="toast-dismiss"]')?.remove();
+}
+
+// The toast's timer ran out. It waits while the pointer is over it or focus
+// is inside it (reading it, reaching for Undo) and looks again shortly.
+function toastTimerFired() {
+    const toast = document.getElementById('toast');
+    if (toast.matches(':hover') || toast.contains(document.activeElement)) {
+        window.toastTimeout = setTimeout(toastTimerFired, 1000);
+        return;
+    }
+    hideToast();
 }
 
 function copyToClipboard(text) {
