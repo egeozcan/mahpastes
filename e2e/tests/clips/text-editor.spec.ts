@@ -69,7 +69,7 @@ test.describe('Text Editor', () => {
     await expect(app.page.locator(selectors.textEditor.modal)).toHaveClass(/active/);
 
     await app.page.locator(selectors.confirm.confirmButton).click();
-    await app.page.waitForSelector(`${selectors.textEditor.modal}:not(.active)`);
+    await app.finishTextSave();
 
     await app.openTextEditor(filename);
     await app.expectTextEditorContent('{"broken": }');

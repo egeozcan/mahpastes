@@ -83,6 +83,8 @@ function openSortPopover() {
     const hint = document.createElement('p');
     hint.className = 'px-3 pt-1.5 pb-0.5 text-[10px] text-stone-400';
     hint.dataset.testid = 'sort-hint';
+    // Not a menu item: kept out of the menu's own content for assistive tech.
+    hint.setAttribute('role', 'presentation');
     hint.textContent = 'Click the active row to reverse';
     popover.appendChild(hint);
 

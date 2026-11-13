@@ -1851,9 +1851,31 @@ export class AppHelper {
     for (let i = 0; i < offset; i++) await this.page.keyboard.press('ArrowRight');
   }
 
+  // Saving a text clip leaves the editor open (clean); this saves and then
+  // closes it, which is what most tests want before looking at the gallery.
   async saveTextEditor(): Promise<void> {
-    await this.page.locator(selectors.textEditor.saveButton).click();
+    await this.saveTextEditorInPlace();
+    await this.page.locator(selectors.textEditor.cancelButton).click();
     await this.page.waitForSelector(`${selectors.textEditor.modal}:not(.active)`);
+  }
+
+  // After a save was started some other way (a key, Save Anyway): waits for
+  // it to land, then closes the editor, which a text save leaves open.
+  async finishTextSave(): Promise<void> {
+    const save = this.page.locator(selectors.textEditor.saveButton);
+    await expect(save).toBeDisabled();
+    await expect(save).toHaveText('Save');
+    await this.page.locator(selectors.textEditor.cancelButton).click();
+    await this.page.waitForSelector(`${selectors.textEditor.modal}:not(.active)`);
+  }
+
+  // Save and stay in the editor: resolves once the write has landed and the
+  // editor is clean again (Save disabled, label back from "Saving…").
+  async saveTextEditorInPlace(): Promise<void> {
+    const save = this.page.locator(selectors.textEditor.saveButton);
+    await save.click();
+    await expect(save).toBeDisabled();
+    await expect(save).toHaveText('Save');
   }
 
   async cancelTextEditor(): Promise<void> {

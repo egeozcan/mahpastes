@@ -1366,6 +1366,9 @@ const TextClipEditor = (() => {
         open,
         close,
         getValue,
+        // Puts the keyboard back in the text (edit mode only; the preview has
+        // its own focus target).
+        focus: () => { if (mode === 'edit' && adapter && !unavailableReason) adapter.focus(); },
         getTextProfile,
         getMode: () => mode,
         getDescriptorID: () => (descriptor ? descriptor.id : null),

@@ -669,6 +669,19 @@ async function performSaveEditorInPlace(snapshot) {
                 return;
             }
             TextClipEditor.clearDraft();
+            // A text save keeps the editor open: saving as you go must not
+            // cost the cursor, the scroll position, the undo history and the
+            // find state. (An image save still closes; its canvas is the edit.)
+            const saveButton = document.getElementById('editor-save-in-place');
+            const hadFocus = document.activeElement === saveButton;
+            showToast('Saved.');
+            setEditorSaving(false);
+            updateEditorSaveState();
+            // The Save button is disabled again (nothing to save), which would
+            // drop the keyboard to <body> if it was pressed to save.
+            if (hadFocus || document.activeElement === document.body) TextClipEditor.focus?.();
+            loadClips();
+            return;
         } else if (settleImageSave(session, savedRevision, 'Saved.')) {
             return;
         }

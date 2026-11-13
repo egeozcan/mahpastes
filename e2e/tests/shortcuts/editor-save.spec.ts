@@ -16,11 +16,41 @@ test.describe('Editor save shortcuts', () => {
     await app.setTextEditorContent('after');
     await expect(app.page.locator(selectors.textEditor.editor)).toBeFocused();
     await app.page.keyboard.press('ControlOrMeta+s');
-    await app.page.waitForSelector(`${selectors.textEditor.modal}:not(.active)`);
+    await app.finishTextSave();
 
     await app.expectClipCount(1);
     await app.openTextEditor(filename);
     await app.expectTextEditorContent('after');
+    await app.cancelTextEditor();
+  });
+
+  test('saving a text clip keeps the editor open, with the caret where it was', async ({ app }) => {
+    const textPath = await createTempFile('one', 'txt');
+    const filename = path.basename(textPath);
+    await app.uploadFile(textPath);
+    await app.openTextEditor(filename);
+
+    await app.setTextEditorContent('one two');
+    await app.page.keyboard.press('ControlOrMeta+s');
+    await app.waitForToast(/Saved\./);
+    const save = app.page.locator(selectors.textEditor.saveButton);
+    await expect(save).toBeDisabled();
+    await expect(app.page.locator(selectors.textEditor.modal)).toHaveClass(/active/);
+    await expect(app.page.locator(selectors.textEditor.editor)).toBeFocused();
+
+    // Keep typing and save again: nothing was lost in between.
+    await app.page.keyboard.type(' three');
+    await expect(save).toBeEnabled();
+    await save.click();
+    await expect(save).toBeDisabled();
+    // Saved with the button: the keyboard goes back to the text, not to <body>.
+    await expect(app.page.locator(selectors.textEditor.editor)).toBeFocused();
+
+    // Clean, so closing asks nothing.
+    await app.page.locator(selectors.textEditor.cancelButton).click();
+    await app.page.waitForSelector(`${selectors.textEditor.modal}:not(.active)`);
+    await app.openTextEditor(filename);
+    await app.expectTextEditorContent('one two three');
     await app.cancelTextEditor();
   });
 

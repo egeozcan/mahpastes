@@ -187,7 +187,9 @@ function renderTagFilterDropdown() {
         const idx = Math.max(0, labels.findIndex(l => l.dataset.tagId === focusedTagId));
         const label = labels[idx];
         if (label) {
-            tagFilterRover?.setActiveIndex(idx);
+            // The rover indexes the rows it can see (a query hides some).
+            const visibleIdx = tagFilterRover ? tagFilterRover.getItems().indexOf(label) : -1;
+            if (visibleIdx !== -1) tagFilterRover.setActiveIndex(visibleIdx);
             (focusedCheckbox ? label.querySelector('input[type="checkbox"]') : label).focus();
         }
     }
@@ -709,8 +711,10 @@ async function refreshOpenTagPopover(clipId, focusTagId) {
         return;
     }
     const focusWasInside = tagPopover.contains(document.activeElement) || document.activeElement === document.body;
+    // Typing names one after another: the field keeps the keyboard.
+    const inField = document.activeElement === createTagInput;
     await renderTagPopoverList(clipId);
-    if (!focusWasInside) return;
+    if (!focusWasInside || inField) return;
     const target = (focusTagId != null && tagPopoverList.querySelector(`input[data-tag-id="${Number(focusTagId)}"]`))
         || tagPopoverList.querySelector('input') || createTagInput;
     target?.focus();
@@ -761,10 +765,13 @@ if (createTagBtn) {
         // that tag, as ticking its row would.
         const existing = allTags.find(t => t.name === name);
         if (existing) {
+            // Left as typed while another change is still landing.
+            if (tagPopoverMode !== 'bulk' && (!currentTaggingClipId || clipTagToggleInFlight)) return;
             createTagInput.value = '';
+            filterTagRows(tagPopoverList, '');
             if (tagPopoverMode === 'bulk') {
                 await handleBulkTagToggle(existing.id, true);
-            } else if (currentTaggingClipId && !clipTagToggleInFlight) {
+            } else {
                 await handleClipTagToggle(currentTaggingClipId, existing.id, true);
             }
             return;

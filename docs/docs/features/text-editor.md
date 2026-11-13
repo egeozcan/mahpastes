@@ -300,7 +300,7 @@ The byte-safety screen names the planned recovery path: a future release will ad
 
 ### Save (overwrite)
 
-Click **Save** (or press <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">S</span>) to overwrite the original clip. The filename and content type stay the same. The shortcut works while you are typing in the editor; with no unsaved changes it does nothing.
+Saving keeps the editor open, with your cursor, scroll position, undo history and find state as they were; close it when you are done. Click **Save** (or press <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">S</span>) to overwrite the original clip. The filename and content type stay the same. The shortcut works while you are typing in the editor; with no unsaved changes it does nothing.
 
 ### Save as new clip
 
@@ -314,7 +314,7 @@ The frontend does not rewrite a clip's content type. The app's existing upload b
 
 ### While a save is running
 
-Save works from an immutable snapshot taken the moment you activate it. You can keep typing while it runs; those edits are simply not part of the save. When the write finishes, the editor stays open with your newer edits still unsaved, and a toast says so. A save with nothing typed after it closes the editor as usual.
+Save works from an immutable snapshot taken the moment you activate it. You can keep typing while it runs; those edits are simply not part of the save. When the write finishes, the editor stays open with your newer edits still unsaved, and a toast says so. A save with nothing typed after it leaves the editor open and clean.
 
 If a save fails, your content, selection, diagnostics, dirty state, and draft are all retained.
 

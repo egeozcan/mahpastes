@@ -939,7 +939,7 @@ test.describe('Change-based Save Anyway policy', () => {
 
     // Unchanged pre-existing errors expand nothing and block nothing.
     await app.page.locator(selectors.textEditor.saveButton).click();
-    await app.page.waitForSelector(`${selectors.textEditor.modal}:not(.active)`);
+    await app.finishTextSave();
 
     // Reopening re-measures against what is now on disk.
     await app.openTextEditor(filename);
@@ -981,7 +981,7 @@ test.describe('Change-based Save Anyway policy', () => {
 
     // No dialog, and the drawer was never opened on the user's behalf.
     await expectNoConfirmDialog(app);
-    await app.page.waitForSelector(`${selectors.textEditor.modal}:not(.active)`);
+    await app.finishTextSave();
   });
 
   test('the baseline comes from the persisted source, not the recovered draft', async ({ app }) => {
@@ -1060,7 +1060,7 @@ test.describe('Change-based Save Anyway policy', () => {
       await app.page.locator(selectors.textEditor.saveButton).click();
 
       await expectNoConfirmDialog(app);
-      await app.page.waitForSelector(`${selectors.textEditor.modal}:not(.active)`);
+      await app.finishTextSave();
     } finally {
       await app.page.evaluate(`(() => {
         if (window.__realMarkdownRender) MarkdownRenderer.render = window.__realMarkdownRender;
@@ -1103,7 +1103,7 @@ test.describe('Change-based Save Anyway policy', () => {
 
       await app.page.locator(selectors.textEditor.saveButton).click();
       await expectNoConfirmDialog(app);
-      await app.page.waitForSelector(`${selectors.textEditor.modal}:not(.active)`);
+      await app.finishTextSave();
     } finally {
       await app.page.evaluate(async () => {
         const executor = await (window as any).MahpastesTextEditor.getExecutor();
@@ -1706,7 +1706,7 @@ test.describe('CSV/TSV findings are always nonblocking', () => {
     await expect(summary).toContainText('possible issue');
     await app.page.locator(selectors.textEditor.saveButton).click();
     await expectNoConfirmDialog(app);
-    await app.page.waitForSelector(`${selectors.textEditor.modal}:not(.active)`);
+    await app.finishTextSave();
     await app.expectClipVisible(filename);
   });
 
@@ -1726,7 +1726,7 @@ test.describe('CSV/TSV findings are always nonblocking', () => {
     await app.page.locator(selectors.textEditor.editor).pressSequentially('4;5;6\n');
     await app.page.locator(selectors.textEditor.saveButton).click();
     await expectNoConfirmDialog(app);
-    await app.page.waitForSelector(`${selectors.textEditor.modal}:not(.active)`);
+    await app.finishTextSave();
   });
 
   test('a truncated table says so and points at Edit', async ({ app }) => {
@@ -1871,7 +1871,7 @@ test.describe('Language modes in the editor', () => {
     // authoritative syntax error was ever established.
     await app.page.locator(selectors.textEditor.saveButton).click();
     await expectNoConfirmDialog(app);
-    await app.page.waitForSelector(`${selectors.textEditor.modal}:not(.active)`);
+    await app.finishTextSave();
   });
 
   test('shell, .env and INI are highlighted and produce no diagnostics at all', async ({ app }) => {
