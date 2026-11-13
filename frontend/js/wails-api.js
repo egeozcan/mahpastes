@@ -416,7 +416,8 @@ async function loadClips({ focusFirst = false } = {}) {
             updateClipCount(0);
             // With the reason, and a way to try again that does not depend on
             // knowing that changing a filter would.
-            showGalleryStatus(`Error loading clips: ${errText(error)}`, 'error', ['retry']);
+            const reason = errText(error);
+            showGalleryStatus(`Error loading clips: ${reason.length > 200 ? reason.slice(0, 199) + '…' : reason}`, 'error', ['retry']);
             clearHiddenClipsNote();
             // The gallery is empty now; a viewer left open would go on
             // showing (and acting on) a clip that may no longer exist.
@@ -933,10 +934,12 @@ async function upload(files) {
     }
 }
 
-async function deleteClip(id) {
+// `knownName` is for a caller that holds the clip but whose card may not be
+// rendered (the lightbox on a clip opened from a link).
+async function deleteClip(id, knownName) {
     // Name the clip: the dialog is reached from a key press too, where it is
     // easy to be on a different card than intended. The message is HTML.
-    const name = galleryClipCard(id)?._clip?.filename;
+    const name = galleryClipCard(id)?._clip?.filename || knownName;
     const what = name ? `<strong class="break-all">${escapeHTML(name)}</strong>` : 'this clip';
     showConfirmDialog('Delete Clip', `Delete ${what} permanently?`, async () => {
         try {

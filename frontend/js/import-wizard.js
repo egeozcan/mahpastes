@@ -1064,7 +1064,9 @@ const ImportWizard = (() => {
               + `${state.trashRecoverable ? (/Windows/.test(navigator.userAgent) ? 'moved to the Recycle Bin' : 'moved to the Trash') : 'permanently deleted'}.`
             : `${counts.imports} file${counts.imports === 1 ? '' : 's'} will be imported.`;
 
-        showConfirmDialog('Apply import plan?', message, runApply, null, {
+        // Not awaited by the dialog: the wizard shows its own progress in the
+        // footer, which a confirm held open over it would cover.
+        showConfirmDialog('Apply import plan?', message, () => { runApply(); }, null, {
             variant: counts.deletes ? 'danger' : 'primary',
             confirmLabel: 'Apply',
         });

@@ -844,7 +844,8 @@ export class AppHelper {
         const isShown = (el: Element | null) => !!el && !el.hasAttribute('inert')
           && !el.classList.contains('opacity-0') && !el.classList.contains('hidden');
         const closers: Array<[string, () => unknown]> = [
-          ['#confirm-dialog', () => w.closeConfirmDialog?.()],
+          // A confirm whose action is still running refuses to close.
+          ['#confirm-dialog', () => { w.setConfirmBusy?.(false); w.closeConfirmDialog?.(); }],
           ['#restore-confirm-dialog', () => w.hideRestoreConfirmDialog?.({ force: true })],
           ['#prompt-dialog', () => w.closePromptDialog?.()],
           ['#conflict-dialog', () => w.closeConflictDialog?.('skip')],

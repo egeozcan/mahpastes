@@ -371,7 +371,7 @@ async function handleLightboxFileAction(action, clip) {
             break;
         case 'delete':
             closeStandaloneLightbox(clip);
-            deleteClip(clip.id);
+            deleteClip(clip.id, clip.filename);
             break;
     }
 }

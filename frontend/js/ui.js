@@ -1411,7 +1411,7 @@ async function createClipCard(clip, options = {}) {
                 ${escapeHTML(clip.filename) || '<span class="text-stone-400 font-normal">Pasted</span>'}
             </p>
             <div class="flex justify-between items-center">
-                <div class="flex items-center gap-1.5 min-w-0"><span class="clip-type-label shrink-0 text-[9px] font-medium text-stone-400 uppercase tracking-wide">${escapeHTML(getFriendlyFileType(clip.content_type, clip.filename))}</span><span class="clip-meta-label min-w-0 truncate text-[9px] text-stone-400" data-testid="clip-meta"></span>${clip.duplicate_count > 0 ? `<span class="dedup-badge text-[9px] font-medium text-stone-400 bg-stone-100 border border-stone-200 rounded px-1">${clip.duplicate_count + 1} copies</span>` : ''}</div>
+                <div class="flex items-center gap-1.5 min-w-0"><span class="clip-type-label shrink-0 text-[9px] font-medium text-stone-400 uppercase tracking-wide">${escapeHTML(getFriendlyFileType(clip.content_type, clip.filename))}</span><span class="clip-meta-label min-w-0 truncate text-[9px] text-stone-400" data-testid="clip-meta"></span>${clip.duplicate_count > 0 ? `<span class="dedup-badge shrink-0 whitespace-nowrap text-[9px] font-medium text-stone-400 bg-stone-100 border border-stone-200 rounded px-1">${clip.duplicate_count + 1} copies</span>` : ''}</div>
                 <div class="flex items-center gap-1">
                     ${dragHandleHTML}
                     <button class="card-menu-trigger p-1 text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded transition-colors"
