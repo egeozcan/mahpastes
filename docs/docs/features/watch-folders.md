@@ -212,17 +212,20 @@ Imported files are automatically removed from the watched folder after they are 
 Files are imported after 500ms of stability:
 - Prevents importing partially-written files
 - Waits for large files to finish writing (a file whose size or modification time is still changing gets another 500ms, even if the system sent no event for the change)
+- On macOS, also waits while another program still has the file open for writing, so a copy or download that pauses is not imported half-written. The file is imported as soon as that program closes it; if it is still open after a minute, a notice says why the file has not been imported
 - Handles rapid file creation gracefully
 
 ### Downloads in Progress
 
 Browsers and download tools write a download under a temporary name and rename it when it is complete. Files ending in `.crdownload`, `.part`, `.partial`, `.download`, `.opdownload`, `.tmp`, `.!qb`, `.aria2` or `.filepart`, and files ending in `~`, are never imported, whatever the folder's filter. The finished file is imported once it appears under its final name.
 
+A tool that writes straight to the final name (`curl -o`, `scp`, a copy from a slow drive) is only covered by the checks under Debouncing. Where mahpastes cannot see the writer — on Windows and Linux, or on macOS when the writer runs as another user or on another machine (a network share) — a file whose writer pauses for longer than 500ms can be imported short and removed. Prefer tools that write to a temporary name and rename.
+
 Firefox also creates an empty placeholder under the final name while it downloads. Empty files are never imported, so the placeholder is left alone and the real file is imported when the download completes. If you really want an empty file stored, add it with drag and drop or `mp` instead.
 
 ### Folders That Disappear
 
-A watch is tied to the folder that existed when watching started. If the folder is deleted and recreated, moved away, or is on a drive or network share that is disconnected, mahpastes notices (immediately when the system reports it, otherwise within 30 seconds), marks the folder as not watched, and starts watching it again once a folder is back at that path. Restoring a backup also restarts watching; restored folders come back paused until you resume them.
+A watch is tied to the folder that existed when watching started. If the folder is deleted and recreated, moved away, or is on a drive or network share that is disconnected, mahpastes notices (immediately when the system reports it, otherwise within 30 seconds), marks the folder as not watched, and starts watching it again once a folder is back at that path. A drive that was ejected and reconnected is picked up within 30 seconds; files that arrived in between are not imported, like files already in a folder when you add it. Restoring a backup also restarts watching; restored folders come back paused until you resume them.
 
 ### Plugin Events
 

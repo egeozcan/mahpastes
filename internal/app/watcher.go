@@ -30,8 +30,20 @@ var (
 	watchDebounceDelay = 500 * time.Millisecond
 	// watchRearmInterval is how often the watches are reconciled with the
 	// configured folders: a folder that was missing, unmounted, or deleted and
-	// recreated is watched again on the next pass.
+	// recreated is watched again on the next pass. Files that arrived while a
+	// folder's watch was dead are not picked up, like files already there when
+	// a folder is added.
 	watchRearmInterval = 30 * time.Second
+	// watchBusyRecheckMax caps the backoff between checks of a file another
+	// process still has open for writing.
+	watchBusyRecheckMax = 5 * time.Second
+	// watchBusyReportAfter is how long a file may stay open for writing,
+	// unchanged, before the UI is told (once) why it has not been imported.
+	// It keeps being rechecked after that.
+	watchBusyReportAfter = time.Minute
+	// watchStatTimeout bounds how long a re-arm pass waits for one folder's
+	// stat: on a dead network mount it can block for minutes.
+	watchStatTimeout = 5 * time.Second
 	// watchErrorToastInterval rate-limits how often a watcher-level error
 	// (such as a kernel event-queue overflow) is reported to the UI.
 	watchErrorToastInterval = 30 * time.Second
@@ -41,7 +53,9 @@ var (
 // while they are still writing it. The finished file appears under its final
 // name (a rename, which is a Create event), so these are never imported:
 // importing one would store a truncated copy and then delete it from under the
-// downloader.
+// downloader. A tool that writes straight to the final name is covered only by
+// the debounce and, where the platform can tell (watchedFileBusy), by not
+// touching a file some process still has open for writing.
 var inProgressSuffixes = []string{
 	".crdownload", // Chrome, Edge, Brave
 	".part",       // Firefox, wget, curl -C, many others
@@ -80,17 +94,109 @@ func skipWatchedName(name string) bool {
 // watched but is not on disk (deleted, or on a volume that is not mounted).
 const errFolderMissing = "folder not found"
 
+// errWatchStatTimeout is the watch error for a folder whose stat did not
+// return within watchStatTimeout.
+var errWatchStatTimeout = errors.New("folder is not responding")
+
+// errSameFolderPrefix starts the watch error of a folder entry that names a
+// directory another entry already watches (another letter case, a symlink).
+const errSameFolderPrefix = "same folder as "
+
+// watchBackend is the part of an fsnotify watcher the manager calls.
+type watchBackend interface {
+	Add(name string) error
+	Remove(name string) error
+	WatchList() []string
+	Close() error
+}
+
+// fsWatch is one fsnotify watcher and its channels.
+type fsWatch struct {
+	watchBackend
+	events <-chan fsnotify.Event
+	errors <-chan error
+}
+
+// newFsWatch creates the OS watcher. A variable so tests can wrap it.
+var newFsWatch = func() (*fsWatch, error) {
+	fw, err := fsnotify.NewWatcher()
+	if err != nil {
+		return nil, err
+	}
+	return &fsWatch{watchBackend: fw, events: fw.Events, errors: fw.Errors}, nil
+}
+
+// dirProbe tells whether the OS still delivers events for a watched directory.
+// macOS revokes a watcher's descriptors when the volume is unmounted, without
+// any event, and the remounted directory has the same device and inode: only
+// a descriptor opened before the unmount shows it. Both methods are safe to
+// call concurrently and after close.
+type dirProbe interface {
+	alive() bool
+	close()
+}
+
+// openDirProbe opens a probe for a directory just armed; nil where the
+// platform needs none. A variable so tests can replace it.
+var openDirProbe = openPlatformDirProbe
+
+// statWatchDir stats a watched folder. A variable so tests can block it.
+var statWatchDir = os.Stat
+
+// watchedFileBusy reports whether another process still has the file open for
+// writing (always false where the platform cannot tell), going by a look at
+// the system's open files begun no more than maxAge before the call. Checks
+// are shared rather than run per file (writeOpenSnapshots), so a caller may
+// wait for one in progress. A variable so tests can replace it.
+var watchedFileBusy = fileOpenForWriting
+
+// watchBusySettleMaxAge is how old a look a settling file accepts. It stays a
+// fraction of the debounce, so the look always postdates the file's last
+// change event, and files settling in a stream share a few looks a second
+// rather than running them back to back. The check before a deletion
+// (removeImportedSource) accepts none older than itself.
+func watchBusySettleMaxAge() time.Duration { return watchDebounceDelay / 5 }
+
 // activeWatch is one armed fsnotify watch.
 type activeWatch struct {
-	path string      // cleaned folder path, as fsnotify reports it in events
-	info os.FileInfo // the directory's identity when the watch was added
+	path  string      // cleaned folder path, as fsnotify reports it in events
+	info  os.FileInfo // the directory's identity when the watch was added
+	probe dirProbe    // nil where the platform needs none
+}
+
+// closeProbesExcept closes the probes of from that keep does not hold.
+func closeProbesExcept(from, keep map[int64]activeWatch) {
+	kept := make(map[dirProbe]bool, len(keep))
+	for _, aw := range keep {
+		if aw.probe != nil {
+			kept[aw.probe] = true
+		}
+	}
+	for _, aw := range from {
+		if aw.probe != nil && !kept[aw.probe] {
+			aw.probe.close()
+		}
+	}
 }
 
 // pendingFile is a file waiting out its debounce.
 type pendingFile struct {
-	timer   *time.Timer
-	size    int64
-	modTime time.Time
+	timer    *time.Timer
+	size     int64
+	modTime  time.Time
+	busyWait time.Duration // current backoff while a writer holds the file open
+	// busySince is when a writer was first found holding the file (zero: not
+	// held); busyReported says the UI was told.
+	busySince    time.Time
+	busyReported bool
+}
+
+// statFlight is one stat of a watched folder in progress.
+type statFlight struct {
+	started time.Time
+	done    chan struct{}
+	info    os.FileInfo
+	err     error
 }
 
 // watchFolderChange describes one folder whose watch state changed. It is the
@@ -114,17 +220,22 @@ type watchFolderChange struct {
 type WatcherManager struct {
 	app *App
 
-	// refreshMu serialises refreshWatches from reading the configuration to
-	// applying it, so a periodic re-arm can never apply a configuration read
-	// before a concurrent pause/remove committed.
-	refreshMu sync.Mutex
+	// statMu guards statFlights: at most one stat per folder is in flight,
+	// however many passes time out waiting for it.
+	statMu      sync.Mutex
+	statFlights map[string]*statFlight
 
 	// mu guards everything below. It is never held across database access,
 	// filesystem calls or fsnotify Close.
-	mu            sync.RWMutex
-	running       bool
-	gen           uint64
-	watcher       *fsnotify.Watcher
+	mu      sync.RWMutex
+	running bool
+	gen     uint64
+	watcher *fsWatch
+	// refreshMu serialises refreshWatches from reading the configuration to
+	// applying it, so a periodic re-arm can never apply a configuration read
+	// before a concurrent pause/remove committed. A new one per generation: a
+	// pass left behind by Stop (stuck on a slow folder) holds only its own.
+	refreshMu     refreshLock
 	stopCh        chan struct{} // closed by Stop; ends the re-arm loop
 	eventsDone    chan struct{} // closed when this generation's handleEvents returns
 	rearmDone     chan struct{} // closed when this generation's re-arm loop returns
@@ -144,7 +255,7 @@ type WatcherManager struct {
 // fsnotify watcher up front so a platform that cannot watch at all is
 // reported at startup.
 func NewWatcherManager(app *App) (*WatcherManager, error) {
-	watcher, err := fsnotify.NewWatcher()
+	watcher, err := newFsWatch()
 	if err != nil {
 		return nil, err
 	}
@@ -152,6 +263,8 @@ func NewWatcherManager(app *App) (*WatcherManager, error) {
 	return &WatcherManager{
 		watcher:       watcher,
 		app:           app,
+		refreshMu:     make(refreshLock, 1),
+		statFlights:   make(map[string]*statFlight),
 		activeWatches: make(map[int64]activeWatch),
 		watchErrors:   make(map[int64]string),
 		debounceMap:   make(map[string]*pendingFile),
@@ -169,7 +282,7 @@ func (w *WatcherManager) Start() error {
 	fw := w.watcher
 	if fw == nil {
 		var err error
-		fw, err = fsnotify.NewWatcher()
+		fw, err = newFsWatch()
 		if err != nil {
 			w.mu.Unlock()
 			return err
@@ -179,6 +292,7 @@ func (w *WatcherManager) Start() error {
 	w.running = true
 	w.gen++
 	gen := w.gen
+	w.refreshMu = make(refreshLock, 1)
 	w.activeWatches = make(map[int64]activeWatch)
 	w.watchErrors = make(map[int64]string)
 	w.debounceMap = make(map[string]*pendingFile)
@@ -202,16 +316,16 @@ func (w *WatcherManager) Start() error {
 	return w.refreshWatches()
 }
 
-// watchStopRearmWait bounds how long Stop waits for a re-arm pass in progress.
-// A pass stats every folder, and a stat on a dead network mount can hang; Stop
-// (and so quitting the app) must not hang with it. A pass that finishes after
-// Stop applies nothing: its generation has ended.
+// watchStopRearmWait bounds how long Stop waits for the event goroutine and a
+// re-arm pass in progress. Both stat files, and a stat on a dead network mount
+// can hang; Stop (and so quitting the app) must not hang with it. Whatever
+// finishes after Stop applies nothing: its generation has ended, and the pass
+// holds only that generation's refresh lock.
 var watchStopRearmWait = 2 * time.Second
 
-// Stop stops all watching and waits for the event goroutine to exit (and,
-// briefly, for a re-arm pass in progress). Imports already running finish on
-// their own: they may need locks the caller holds (a backup restore holds
-// backupRestoreMu).
+// Stop stops all watching and waits, briefly, for the event goroutine and a
+// re-arm pass in progress. Imports already running finish on their own: they
+// may need locks the caller holds (a backup restore holds backupRestoreMu).
 func (w *WatcherManager) Stop() {
 	w.mu.Lock()
 	if !w.running {
@@ -233,6 +347,7 @@ func (w *WatcherManager) Stop() {
 		p.timer.Stop()
 	}
 	w.debounceMap = make(map[string]*pendingFile)
+	stopped := w.activeWatches
 	w.activeWatches = make(map[int64]activeWatch)
 	w.watchErrors = make(map[int64]string)
 
@@ -245,10 +360,17 @@ func (w *WatcherManager) Stop() {
 	if fw != nil {
 		fw.Close()
 	}
-	<-eventsDone
+	closeProbesExcept(stopped, nil)
+	timeout := time.After(watchStopRearmWait)
+	select {
+	case <-eventsDone:
+	case <-timeout:
+		log.Printf("Watch folders: the event loop is still busy (slow folder?); not waiting for it")
+		return
+	}
 	select {
 	case <-rearmDone:
-	case <-time.After(watchStopRearmWait):
+	case <-timeout:
 		log.Printf("Watch folders: a re-arm pass is still running (slow folder?); not waiting for it")
 	}
 }
@@ -339,28 +461,125 @@ func watchListHas(list []string, path string) bool {
 	return false
 }
 
+// forgetWatch removes path from fw and reports whether fsnotify let go of it.
+// It does not when the watch's descriptor is dead (macOS, after the volume was
+// unmounted): the entry stays, and every later Add of that path re-registers
+// the dead descriptor instead of opening the directory. Such a watcher cannot
+// be repaired, only replaced.
+func forgetWatch(fw *fsWatch, path string) bool {
+	// Errors are expected: fsnotify has usually dropped it already.
+	_ = fw.Remove(path)
+	return !watchListHas(fw.WatchList(), path)
+}
+
+// statDir stats a watched folder, waiting at most watchStatTimeout. A stat
+// that outlives the wait keeps running; later calls for the same folder join
+// it rather than start another, so a dead mount costs one goroutine.
+func (w *WatcherManager) statDir(path string) (os.FileInfo, error) {
+	w.statMu.Lock()
+	fl := w.statFlights[path]
+	if fl == nil {
+		fl = &statFlight{started: time.Now(), done: make(chan struct{})}
+		w.statFlights[path] = fl
+		stat := statWatchDir
+		go func() {
+			fl.info, fl.err = stat(path)
+			w.statMu.Lock()
+			delete(w.statFlights, path)
+			w.statMu.Unlock()
+			close(fl.done)
+		}()
+	}
+	w.statMu.Unlock()
+
+	wait := watchStatTimeout - time.Since(fl.started)
+	if wait < 0 {
+		wait = 0
+	}
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	select {
+	case <-fl.done:
+		return fl.info, fl.err
+	case <-timer.C:
+		return nil, errWatchStatTimeout
+	}
+}
+
+// sameDirWatch returns the path of the watch in watches on the directory info
+// describes, if there is one.
+func sameDirWatch(watches map[int64]activeWatch, info os.FileInfo) (string, bool) {
+	for _, aw := range watches {
+		if os.SameFile(aw.info, info) {
+			return aw.path, true
+		}
+	}
+	return "", false
+}
+
+// refreshLock is one generation's refresh lock. A channel, so a caller
+// waiting for it can give up when the generation ends.
+type refreshLock chan struct{}
+
+func (l refreshLock) Lock()   { l <- struct{}{} }
+func (l refreshLock) Unlock() { <-l }
+
+// lockRefresh takes the running generation's refresh lock; nil when the
+// manager is stopped. It never waits behind a pass of an ended generation.
+func (w *WatcherManager) lockRefresh() refreshLock {
+	for {
+		w.mu.RLock()
+		running, lock, stop := w.running, w.refreshMu, w.stopCh
+		w.mu.RUnlock()
+		if !running {
+			return nil
+		}
+		select {
+		case lock <- struct{}{}:
+			w.mu.RLock()
+			current := w.running && w.refreshMu == lock
+			w.mu.RUnlock()
+			if current {
+				return lock
+			}
+			lock.Unlock()
+		case <-stop:
+			// The generation ended while this call waited.
+		}
+	}
+}
+
 // refreshWatches reloads watched folders from the DB and reconciles the
 // active watches with them:
 //   - folders that are paused or removed stop being watched;
 //   - an armed watch whose folder was deleted, moved, replaced or unmounted
-//     (fsnotify dropped it, or the path now names a different directory) is
-//     dropped and re-added if the folder is back;
+//     (fsnotify dropped it, the path now names a different directory, or the
+//     watch's descriptor was revoked) is dropped and re-added if the folder is
+//     back;
 //   - folders that should be watched but are not are armed, and the reason is
 //     recorded when that fails.
 //
+// A watcher holding a dead descriptor it will not release is replaced by a
+// new one within the same generation (see forgetWatch).
+//
 // Changes are reported to the UI with a "watch:status" event.
 func (w *WatcherManager) refreshWatches() error {
-	w.refreshMu.Lock()
-	defer w.refreshMu.Unlock()
+	lock := w.lockRefresh()
+	if lock == nil {
+		return nil
+	}
+	defer lock.Unlock()
 
 	w.mu.RLock()
-	running, gen, fw := w.running, w.gen, w.watcher
+	running, gen, fw := w.running && w.refreshMu == lock, w.gen, w.watcher
 	current := make(map[int64]activeWatch, len(w.activeWatches))
 	for id, aw := range w.activeWatches {
 		current[id] = aw
 	}
 	w.mu.RUnlock()
 	if !running || fw == nil {
+		// Stopped, or restarted since the lock was taken: the new generation
+		// does its own refresh, under its own lock.
 		return nil
 	}
 
@@ -378,73 +597,31 @@ func (w *WatcherManager) refreshWatches() error {
 		}
 	}
 
-	// Verify the armed watches. Filesystem and fsnotify calls happen outside
-	// w.mu: a stat on an unreachable network volume can block.
-	watchList := fw.WatchList()
-	next := make(map[int64]activeWatch, len(shouldWatch))
-	var drop []activeWatch
-	for id, aw := range current {
-		path, ok := shouldWatch[id]
-		if !ok || path != aw.path {
-			drop = append(drop, aw)
-			continue
+	next, errs, healthy := w.reconcile(fw, current, shouldWatch)
+	var replacement *fsWatch
+	var replacementDone chan struct{}
+	if !healthy {
+		// Arm everything on a new watcher before the old one is closed, so
+		// folders that were fine miss nothing. At most once per pass.
+		log.Printf("Watch folders: the system watcher holds a dead watch; replacing it")
+		replacement, err = newFsWatch()
+		if err != nil {
+			return fmt.Errorf("replace the file watcher: %w", err)
 		}
-		info, statErr := os.Stat(path)
-		if statErr != nil || !info.IsDir() || !os.SameFile(info, aw.info) || !watchListHas(watchList, path) {
-			log.Printf("Watch on %s was lost; re-arming", path)
-			drop = append(drop, aw)
-			continue
+		replacementDone = make(chan struct{})
+		go func(nfw *fsWatch, done chan struct{}) {
+			defer close(done)
+			w.handleEvents(nfw, gen)
+		}(replacement, replacementDone)
+		var ok bool
+		if next, errs, ok = w.reconcile(replacement, nil, shouldWatch); !ok {
+			// Not expected of a new watcher. Report every folder as unwatched;
+			// the next pass replaces this watcher too.
+			next, errs = map[int64]activeWatch{}, make(map[int64]string, len(shouldWatch))
+			for id := range shouldWatch {
+				errs[id] = "the system file watcher failed"
+			}
 		}
-		next[id] = aw
-	}
-
-	inUse := make(map[string]bool, len(next))
-	for _, aw := range next {
-		inUse[aw.path] = true
-	}
-	for _, aw := range drop {
-		if !inUse[aw.path] {
-			// Errors are expected: fsnotify has usually dropped it already.
-			_ = fw.Remove(aw.path)
-		}
-	}
-
-	// Arm folders that should be watched but are not.
-	errs := make(map[int64]string)
-	ids := make([]int64, 0, len(shouldWatch))
-	for id := range shouldWatch {
-		ids = append(ids, id)
-	}
-	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
-	for _, id := range ids {
-		if _, ok := next[id]; ok {
-			continue
-		}
-		path := shouldWatch[id]
-		info, statErr := os.Stat(path)
-		switch {
-		case statErr != nil && errors.Is(statErr, os.ErrNotExist):
-			errs[id] = errFolderMissing
-			continue
-		case statErr != nil:
-			errs[id] = statErr.Error()
-			continue
-		case !info.IsDir():
-			errs[id] = "not a folder"
-			continue
-		}
-		pinFileIdentity(info)
-		if inUse[path] {
-			// Another folder entry already watches this directory.
-			next[id] = activeWatch{path: path, info: info}
-			continue
-		}
-		if err := fw.Add(path); err != nil {
-			errs[id] = err.Error()
-			continue
-		}
-		next[id] = activeWatch{path: path, info: info}
-		inUse[path] = true
 	}
 
 	w.mu.Lock()
@@ -452,12 +629,30 @@ func (w *WatcherManager) refreshWatches() error {
 		// Stopped (or restarted) meanwhile: this pass worked on a closed
 		// watcher, and the new generation does its own refresh.
 		w.mu.Unlock()
+		if replacement != nil {
+			replacement.Close()
+		}
+		closeProbesExcept(next, nil)
 		return nil
 	}
 	prevActive, prevErrs := w.activeWatches, w.watchErrors
-	w.activeWatches = next
+	// A copy: dropLostWatch edits the installed map while next is still read
+	// below.
+	w.activeWatches = make(map[int64]activeWatch, len(next))
+	for id, aw := range next {
+		w.activeWatches[id] = aw
+	}
 	w.watchErrors = errs
+	if replacement != nil {
+		w.watcher, w.eventsDone = replacement, replacementDone
+	}
 	w.mu.Unlock()
+
+	if replacement != nil {
+		// Ends the old watcher's handleEvents.
+		fw.Close()
+	}
+	closeProbesExcept(current, next)
 
 	changes := diffWatchState(shouldWatch, prevActive, prevErrs, next, errs)
 	for _, c := range changes {
@@ -474,6 +669,104 @@ func (w *WatcherManager) refreshWatches() error {
 		w.app.emitWatchStatus(changes, "")
 	}
 	return nil
+}
+
+// reconcile brings fw's watches in line with shouldWatch, starting from the
+// armed watches in current. It returns the watches now armed and, per folder,
+// why one that should be watched is not. healthy is false when fw holds a dead
+// watch (see forgetWatch); the caller then replaces fw and the other results
+// are not to be used.
+//
+// Filesystem and fsnotify calls happen here, outside w.mu: a stat on an
+// unreachable network volume can block.
+func (w *WatcherManager) reconcile(fw *fsWatch, current map[int64]activeWatch, shouldWatch map[int64]string) (next map[int64]activeWatch, errs map[int64]string, healthy bool) {
+	next = make(map[int64]activeWatch, len(shouldWatch))
+	errs = make(map[int64]string)
+	// Probes opened here belong to nobody yet if the pass is abandoned.
+	unhealthy := func() (map[int64]activeWatch, map[int64]string, bool) {
+		closeProbesExcept(next, current)
+		return nil, nil, false
+	}
+
+	// Verify the armed watches.
+	watchList := fw.WatchList()
+	var drop []activeWatch
+	for id, aw := range current {
+		path, ok := shouldWatch[id]
+		if !ok || path != aw.path {
+			drop = append(drop, aw)
+			continue
+		}
+		info, statErr := w.statDir(path)
+		if errors.Is(statErr, errWatchStatTimeout) {
+			// Unknown, not lost: keep the watch rather than tear it down.
+			next[id] = aw
+			continue
+		}
+		if statErr != nil || !info.IsDir() || !os.SameFile(info, aw.info) || !watchListHas(watchList, path) {
+			log.Printf("Watch on %s was lost; re-arming", path)
+			drop = append(drop, aw)
+			continue
+		}
+		if aw.probe != nil && !aw.probe.alive() {
+			// Unmounted and mounted again: the folder looks the same, but
+			// fsnotify's descriptors for it are dead.
+			log.Printf("Watch on %s was revoked (volume remounted?)", path)
+			return unhealthy()
+		}
+		next[id] = aw
+	}
+
+	for _, aw := range drop {
+		if !forgetWatch(fw, aw.path) {
+			return unhealthy()
+		}
+	}
+
+	// Arm folders that should be watched but are not, lowest id first.
+	ids := make([]int64, 0, len(shouldWatch))
+	for id := range shouldWatch {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	for _, id := range ids {
+		if _, ok := next[id]; ok {
+			continue
+		}
+		path := shouldWatch[id]
+		info, statErr := w.statDir(path)
+		switch {
+		case statErr != nil && errors.Is(statErr, os.ErrNotExist):
+			errs[id] = errFolderMissing
+			continue
+		case statErr != nil:
+			errs[id] = statErr.Error()
+			continue
+		case !info.IsDir():
+			errs[id] = "not a folder"
+			continue
+		}
+		pinFileIdentity(info)
+		// One entry per directory, whatever it is called: a second watch under
+		// another spelling would deliver, and import, every file twice.
+		if owner, ok := sameDirWatch(next, info); ok {
+			errs[id] = errSameFolderPrefix + owner
+			continue
+		}
+		// fsnotify must not already hold this path: nothing here owns it.
+		if watchListHas(fw.WatchList(), path) && !forgetWatch(fw, path) {
+			return unhealthy()
+		}
+		if err := fw.Add(path); err != nil {
+			if watchListHas(fw.WatchList(), path) {
+				return unhealthy()
+			}
+			errs[id] = err.Error()
+			continue
+		}
+		next[id] = activeWatch{path: path, info: info, probe: openDirProbe(path)}
+	}
+	return next, errs, true
 }
 
 // diffWatchState lists the folders whose armed/error state differs between two
@@ -522,10 +815,10 @@ func diffWatchState(shouldWatch map[int64]string, prevActive map[int64]activeWat
 // make it read another generation's channels. It must never call into
 // fsnotify (Add/Remove): on Windows those wait for fsnotify's reader
 // goroutine, which can be blocked handing this goroutine an event.
-func (w *WatcherManager) handleEvents(fw *fsnotify.Watcher, gen uint64) {
+func (w *WatcherManager) handleEvents(fw *fsWatch, gen uint64) {
 	for {
 		select {
-		case event, ok := <-fw.Events:
+		case event, ok := <-fw.events:
 			if !ok {
 				return
 			}
@@ -556,7 +849,7 @@ func (w *WatcherManager) handleEvents(fw *fsnotify.Watcher, gen uint64) {
 			// Debounce: wait until the file has stopped changing
 			w.debounceFile(gen, event.Name, info)
 
-		case err, ok := <-fw.Errors:
+		case err, ok := <-fw.errors:
 			if !ok {
 				return
 			}
@@ -595,18 +888,19 @@ func (w *WatcherManager) dropLostWatch(gen uint64, path string) bool {
 		w.mu.Unlock()
 		return false
 	}
-	found := false
+	lost := make(map[int64]activeWatch)
 	for id, aw := range w.activeWatches {
 		if aw.path == path {
 			delete(w.activeWatches, id)
-			found = true
+			lost[id] = aw
 		}
 	}
 	kick := w.kick
 	w.mu.Unlock()
-	if !found {
+	if len(lost) == 0 {
 		return false
 	}
+	closeProbesExcept(lost, nil)
 
 	// No fw.Remove here: fsnotify has already dropped a watch whose folder
 	// was removed or moved, and on Windows Remove waits for fsnotify's reader
@@ -638,7 +932,9 @@ func (w *WatcherManager) debounceFile(gen uint64, path string, info os.FileInfo)
 
 // settleFile runs when a file's debounce expires. A file still changing
 // (some writers produce no event per write, e.g. on network filesystems) is
-// given another round; an empty file is left alone, since a downloader may
+// given another round, and so is one a process still has open for writing: a
+// writer that merely paused would otherwise get a truncated clip and its file
+// deleted from under it. An empty file is left alone, since a downloader may
 // create an empty placeholder under the final name (Firefox does) and replace
 // it when the download completes, which is a new event.
 func (w *WatcherManager) settleFile(gen uint64, path string, p *pendingFile) {
@@ -651,9 +947,41 @@ func (w *WatcherManager) settleFile(gen uint64, path string, p *pendingFile) {
 		return
 	}
 	if statErr == nil && !info.IsDir() && (info.Size() != p.size || !info.ModTime().Equal(p.modTime)) {
-		p.size, p.modTime = info.Size(), info.ModTime()
+		p.size, p.modTime, p.busyWait, p.busySince = info.Size(), info.ModTime(), 0, time.Time{}
 		p.timer = time.AfterFunc(watchDebounceDelay, func() { w.settleFile(gen, path, p) })
 		w.mu.Unlock()
+		return
+	}
+	w.mu.Unlock()
+
+	// Outside w.mu: the check walks other processes' open files, or waits
+	// for a walk another file started.
+	busy := statErr == nil && !info.IsDir() && info.Size() > 0 && watchedFileBusy(path, info, watchBusySettleMaxAge())
+
+	w.mu.Lock()
+	if gen != w.gen || !w.running || w.debounceMap[path] != p {
+		w.mu.Unlock()
+		return
+	}
+	if busy {
+		if p.busyWait == 0 {
+			log.Printf("Still open for writing; waiting for the writer to finish: %s", path)
+			p.busyWait = watchDebounceDelay
+		} else if p.busyWait *= 2; p.busyWait > watchBusyRecheckMax {
+			p.busyWait = watchBusyRecheckMax
+		}
+		if p.busySince.IsZero() {
+			p.busySince = time.Now()
+		}
+		report := !p.busyReported && time.Since(p.busySince) >= watchBusyReportAfter
+		if report {
+			p.busyReported = true
+		}
+		p.timer = time.AfterFunc(p.busyWait, func() { w.settleFile(gen, path, p) })
+		w.mu.Unlock()
+		if report {
+			w.app.emitWatchError(path, "another app still has it open for writing; it is imported once that app closes it")
+		}
 		return
 	}
 	delete(w.debounceMap, path)
@@ -671,7 +999,8 @@ func (w *WatcherManager) settleFile(gen uint64, path string, p *pendingFile) {
 
 // removeImportedSource deletes a watched file once it is safely stored,
 // unless it changed while it was being imported (the stored clip would then be
-// a partial copy, and deleting the file would lose the rest) or a backup
+// a partial copy, and deleting the file would lose the rest), a process has
+// it open for writing (what it writes next would go to an unlinked file), or a backup
 // restore replaced the library since the clip was stored (epoch is the
 // restore epoch read before the upload): the clip is gone, and the file is
 // then the only copy. A restore stops the watcher but does not wait for
@@ -690,6 +1019,18 @@ func (a *App) removeImportedSource(filePath string, before os.FileInfo, epoch ui
 	}
 	after, err := os.Stat(filePath)
 	if err != nil || !sameFileState(before, after) {
+		log.Printf("File changed while it was imported; leaving it in place: %s", filePath)
+		return
+	}
+	// Age 0: a writer that opened the file at any point before this check
+	// must be seen, since the next step is the unlink.
+	if watchedFileBusy(filePath, after, 0) {
+		log.Printf("File is open for writing; leaving it in place: %s", filePath)
+		return
+	}
+	// The walk takes milliseconds: a write that opened and closed during it
+	// was not seen as busy, so compare once more right before the unlink.
+	if final, err := os.Stat(filePath); err != nil || !sameFileState(before, final) {
 		log.Printf("File changed while it was imported; leaving it in place: %s", filePath)
 		return
 	}
@@ -863,8 +1204,8 @@ func (w *WatcherManager) importFile(filePath string, folder *WatchedFolder) (int
 }
 
 // ProcessExistingFiles imports all existing files in a watched folder. Hidden
-// files, downloads still in progress and empty files are left alone, as they
-// are for live events.
+// files, downloads still in progress, empty files and files open for writing
+// are left alone, as they are for live events.
 func (w *WatcherManager) ProcessExistingFiles(folderID int64) error {
 	folders, err := w.app.GetWatchedFolders()
 	if err != nil {
@@ -912,6 +1253,12 @@ func (w *WatcherManager) ProcessExistingFiles(folderID int64) error {
 			continue
 		}
 		pinFileIdentity(info)
+		// Usually answered by the look removeImportedSource just took for
+		// the previous file.
+		if watchedFileBusy(filePath, info, watchBusySettleMaxAge()) {
+			log.Printf("Skipping file still open for writing: %s", filePath)
+			continue
+		}
 
 		clipID, epoch, err := w.importFile(filePath, folder)
 		if err != nil {
