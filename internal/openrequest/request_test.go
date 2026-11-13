@@ -179,6 +179,9 @@ func TestWantsStartHidden(t *testing.T) {
 		{[]string{"-loglevel", "debug", "--hidden"}, true},
 		{[]string{"--", "--hidden"}, false},
 		{[]string{"--hidden-not"}, false},
+		// A link's own text can add the flag on Windows; links never hide.
+		{[]string{"mahpastes://clip/1", "--hidden"}, false},
+		{[]string{"--hidden", "mahpastes:show"}, false},
 	} {
 		if got := WantsStartHidden(tt.args); got != tt.want {
 			t.Errorf("WantsStartHidden(%q) = %v, want %v", tt.args, got, tt.want)
@@ -192,5 +195,64 @@ func TestPasteOnlyRequestIsNotEmpty(t *testing.T) {
 	}
 	if !(Request{Activate: true}).Empty() {
 		t.Fatal("a plain activate carries nothing for the frontend")
+	}
+}
+
+// A mahpastes: link reaches the app as an argument of the command the OS
+// registered for the scheme. Windows pastes the link into that command line
+// unescaped, so a link containing a quote can add arguments of its own: a
+// launch that carries a link carries nothing else.
+func TestFromArgsLinkLaunchCarriesNothingElse(t *testing.T) {
+	secret := filepath.FromSlash("/home/u/secret.txt")
+	if runtime.GOOS == "windows" {
+		secret = `C:\Users\u\secret.txt`
+	}
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{"flag after the link", []string{"mahpastes://clip/1", PasteClipboardFlag}},
+		{"flag before the link", []string{PasteClipboardFlag, "mahpastes://clip/1"}},
+		{"file after the link", []string{"mahpastes://clip/1", secret}},
+		{"file URL after the link", []string{"mahpastes://clip/1", "file:///etc/passwd"}},
+		{"after a flag terminator", []string{"mahpastes://clip/1", "--", secret}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := FromArgs(tc.args, filepath.Dir(secret))
+			want := Request{Activate: true, URLs: []string{"mahpastes://clip/1"}}
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("FromArgs(%q) = %#v, want %#v", tc.args, got, want)
+			}
+		})
+	}
+}
+
+// Clicking a toast after the app that showed it has gone makes Windows start
+// the registered COM activator: `mahpastes.exe %1 -Embedding`, with the %1
+// left as it is. That launch only brings the window forward.
+func TestFromArgsCOMActivationOnlyActivates(t *testing.T) {
+	cwd := filepath.FromSlash("/home/u")
+	if runtime.GOOS == "windows" {
+		cwd = `C:\Users\u`
+	}
+	for _, args := range [][]string{
+		{"%1", "-Embedding"},
+		{"-Embedding"},
+		{"%1", "-embedding"},
+	} {
+		got := FromArgs(args, cwd)
+		if want := (Request{Activate: true}); !reflect.DeepEqual(got, want) {
+			t.Errorf("FromArgs(%q) = %#v, want %#v", args, got, want)
+		}
+	}
+	// COM's other spelling is an ordinary absolute path outside Windows.
+	got := FromArgs([]string{"/Embedding"}, cwd)
+	if runtime.GOOS == "windows" {
+		if want := (Request{Activate: true}); !reflect.DeepEqual(got, want) {
+			t.Errorf("FromArgs(/Embedding) = %#v, want %#v", got, want)
+		}
+	} else if !reflect.DeepEqual(got.Files, []string{"/Embedding"}) {
+		t.Errorf("a file named /Embedding was dropped: %#v", got)
 	}
 }

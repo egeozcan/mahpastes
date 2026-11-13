@@ -43,6 +43,11 @@ func main() {
 
 	dataDir, err := coreapp.GetDataDir()
 	if err != nil {
+		// No log file yet, and a Windows GUI exe has no console: without the
+		// dialog the app would just not start.
+		if !generatingBindings {
+			showStartupError(fmt.Sprintf("mahpastes cannot use its data folder: %v", err))
+		}
 		log.Fatalf("data dir: %v", err)
 	}
 	// Keep a log in the data directory: stderr is discarded for a Windows GUI
@@ -122,7 +127,7 @@ func main() {
 			log.Printf("instance socket unavailable; a second launch cannot reach this window: %v", err)
 			instanceServer = nil
 		} else {
-			go instanceServer.Serve(desktopApp.submitOpenRequest)
+			go instanceServer.Serve(desktopApp.submitRelaunchRequest)
 			defer instanceServer.Close()
 		}
 	}

@@ -127,3 +127,36 @@ func TestQueuePasteClipboard(t *testing.T) {
 		t.Fatal("paste survived Take")
 	}
 }
+
+// A second launch can reach the instance socket while the first is still
+// starting (a login start, the user clicking the shortcut meanwhile): the
+// request is acknowledged, so its activation must not be lost.
+func TestQueueReplaysRelaunchActivationRequestedBeforeAttach(t *testing.T) {
+	q := NewQueue(time.Millisecond)
+	q.SubmitRelaunch(Request{Activate: true})
+
+	var activated atomic.Int32
+	q.Attach(func() { activated.Add(1) }, nil)
+	if got := activated.Load(); got != 1 {
+		t.Fatalf("activations after Attach = %d, want 1", got)
+	}
+	// Replayed once, not on every later Attach.
+	q.Attach(func() { activated.Add(1) }, nil)
+	if got := activated.Load(); got != 1 {
+		t.Fatalf("activations after a second Attach = %d, want 1", got)
+	}
+}
+
+// This process's own start requests never raise at Attach, and neither does
+// a relaunch that asked for no activation (--hidden).
+func TestQueueDoesNotActivateOnAttachUnasked(t *testing.T) {
+	q := NewQueue(time.Millisecond)
+	q.Submit(Request{Files: []string{"/a"}, Activate: true})
+	q.SubmitRelaunch(Request{Files: []string{"/b"}})
+
+	var activated atomic.Int32
+	q.Attach(func() { activated.Add(1) }, nil)
+	if got := activated.Load(); got != 0 {
+		t.Fatalf("activations = %d, want 0", got)
+	}
+}
