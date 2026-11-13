@@ -61,7 +61,7 @@
                 <div class="relative">
                     <button id="tag-filter-btn" data-testid="tag-filter-button"
                         class="relative border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-500 p-2 rounded-md transition-colors"
-                        aria-label="Filter by tags" data-tooltip="Filter clips by tag (F)">
+                        aria-label="Filter by tags" data-tooltip="Filter clips by tag">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                                 d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
@@ -107,7 +107,7 @@
                 <!-- Archive Toggle Button -->
                 <button id="header-archive-btn"
                     class="relative border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-500 p-2 rounded-md transition-colors"
-                    aria-label="Toggle archive view" aria-pressed="false" data-tooltip="Show archived clips (A)"
+                    aria-label="Toggle archive view" aria-pressed="false" data-tooltip="Show archived clips" data-shortcut-hint="toggle-archive"
                     style="--wails-draggable: no-drag">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
@@ -118,7 +118,7 @@
                 <!-- Folder Mode Button -->
                 <button id="folder-mode-btn" data-testid="folder-mode-button"
                     class="relative border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-500 p-2 rounded-md transition-colors"
-                    aria-label="Toggle folder mode" aria-pressed="false" data-tooltip="Toggle folder view (F)">
+                    aria-label="Toggle folder mode" aria-pressed="false" data-tooltip="Toggle folder view" data-shortcut-hint="toggle-folder">
                     <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.06-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" />
                     </svg>
@@ -834,12 +834,12 @@
     <div id="lightbox" class="lightbox-backdrop" role="dialog" aria-modal="true"
         aria-labelledby="lightbox-caption" tabindex="-1" inert>
         <div id="lightbox-viewport" class="lightbox-viewport" aria-busy="false">
-            <button id="lightbox-close" class="lightbox-close" aria-label="Close lightbox" data-tooltip="Close viewer (Esc)">
+            <button id="lightbox-close" class="lightbox-close" aria-label="Close lightbox" data-tooltip="Close viewer" data-shortcut-hint="lightbox-close">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12"></path>
                 </svg>
             </button>
-            <button id="lightbox-prev" class="lightbox-nav lightbox-nav-prev" aria-label="Previous media" data-tooltip="Previous clip (Left)">
+            <button id="lightbox-prev" class="lightbox-nav lightbox-nav-prev" aria-label="Previous media" data-tooltip="Previous clip" data-shortcut-hint="lightbox-prev">
                 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 19l-7-7 7-7"></path>
                 </svg>
@@ -848,7 +848,7 @@
                 <img id="lightbox-img" src="" alt="" class="lightbox-image" draggable="false">
             </div>
             <video id="lightbox-video" class="lightbox-video" controls playsinline preload="metadata" draggable="false" hidden></video>
-            <button id="lightbox-next" class="lightbox-nav lightbox-nav-next" aria-label="Next media" data-tooltip="Next clip (Right)">
+            <button id="lightbox-next" class="lightbox-nav lightbox-nav-next" aria-label="Next media" data-tooltip="Next clip" data-shortcut-hint="lightbox-next">
                 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5l7 7-7 7"></path>
                 </svg>
@@ -876,13 +876,13 @@
             </div>
             <div id="lightbox-image-info" class="lightbox-image-info"></div>
             <div id="lightbox-zoom-control" class="lightbox-zoom-control" role="group" aria-label="Image zoom controls">
-                <button id="lightbox-zoom-out" class="lightbox-zoom-button" aria-label="Zoom out" data-tooltip="Zoom out (-)">−</button>
+                <button id="lightbox-zoom-out" class="lightbox-zoom-button" aria-label="Zoom out" data-tooltip="Zoom out" data-shortcut-hint="lightbox-zoom-out">−</button>
                 <label class="sr-only" for="lightbox-zoom-slider">Image zoom</label>
                 <input type="range" id="lightbox-zoom-slider" class="lightbox-range" min="0" max="100" step="1" value="0"
                     aria-describedby="lightbox-zoom-info" aria-valuetext="100% actual; Fit is 100%">
-                <button id="lightbox-zoom-in" class="lightbox-zoom-button" aria-label="Zoom in" data-tooltip="Zoom in (+)">+</button>
-                <button id="lightbox-zoom-fit" class="lightbox-zoom-mode" aria-label="Fit image to window" aria-pressed="true" data-tooltip="Fit image (0)">Fit</button>
-                <button id="lightbox-zoom-actual" class="lightbox-zoom-mode" aria-label="Show image at actual size" aria-pressed="true" data-tooltip="Actual size (1)">1:1</button>
+                <button id="lightbox-zoom-in" class="lightbox-zoom-button" aria-label="Zoom in" data-tooltip="Zoom in" data-shortcut-hint="lightbox-zoom-in">+</button>
+                <button id="lightbox-zoom-fit" class="lightbox-zoom-mode" aria-label="Fit image to window" aria-pressed="true" data-tooltip="Fit image" data-shortcut-hint="lightbox-fit">Fit</button>
+                <button id="lightbox-zoom-actual" class="lightbox-zoom-mode" aria-label="Show image at actual size" aria-pressed="true" data-tooltip="Actual size" data-shortcut-hint="lightbox-actual">1:1</button>
                 <span id="lightbox-zoom-info" class="lightbox-zoom-info">100%</span>
             </div>
         </div>
@@ -897,14 +897,14 @@
             <div class="flex items-center gap-2">
                 <span id="comparison-image-info" class="text-[10px] font-medium text-stone-500 hidden md:inline"></span>
                 <button id="comparison-swap" class="p-1.5 hover:bg-white/10 rounded-md transition-colors"
-                    aria-label="Swap images" data-tooltip="Swap left and right images (S)">
+                    aria-label="Swap images" data-tooltip="Swap left and right images" data-shortcut-hint="compare-swap">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                             d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
                     </svg>
                 </button>
                 <button id="comparison-close" class="p-1.5 hover:bg-white/10 rounded-md transition-colors"
-                    aria-label="Close comparison" data-tooltip="Close comparison (Esc)">
+                    aria-label="Close comparison" data-tooltip="Close comparison" data-shortcut-hint="compare-close">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12">
                         </path>
@@ -940,13 +940,13 @@
                 <div class="flex bg-stone-100 p-0.5 rounded-md">
                     <button id="mode-fade"
                         class="px-3 py-1 rounded text-xs font-medium transition-all bg-white shadow-sm text-stone-800"
-                        data-tooltip="Crossfade opacity between both images (1)">Fade</button>
+                        data-tooltip="Crossfade opacity between both images" data-shortcut-hint="compare-mode-fade">Fade</button>
                     <button id="mode-slider"
                         class="px-3 py-1 rounded text-xs font-medium transition-all text-stone-500 hover:text-stone-700"
-                        data-tooltip="Drag a divider to reveal each image (2)">Slider</button>
+                        data-tooltip="Drag a divider to reveal each image" data-shortcut-hint="compare-mode-slider">Slider</button>
                     <button id="mode-diff"
                         class="px-3 py-1 rounded text-xs font-medium transition-all text-stone-500 hover:text-stone-700"
-                        data-tooltip="Compute and highlight pixel-level differences (3)">Diff</button>
+                        data-tooltip="Compute and highlight pixel-level differences" data-shortcut-hint="compare-mode-diff">Diff</button>
                 </div>
             </div>
 
@@ -984,21 +984,21 @@
                 <span class="control-label">Zoom</span>
                 <div class="flex items-center gap-2">
                     <button id="zoom-out" aria-label="Zoom out" class="p-1.5 bg-stone-100 rounded-md hover:bg-stone-200 transition-colors"
-                        data-tooltip="Zoom out (-)">
+                        data-tooltip="Zoom out" data-shortcut-hint="compare-zoom-out">
                         <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4" />
                         </svg>
                     </button>
                     <span id="zoom-level" class="text-xs font-medium text-stone-600 min-w-[2.5rem] text-center">100%</span>
                     <button id="zoom-in" aria-label="Zoom in" class="p-1.5 bg-stone-100 rounded-md hover:bg-stone-200 transition-colors"
-                        data-tooltip="Zoom in (+)">
+                        data-tooltip="Zoom in" data-shortcut-hint="compare-zoom-in">
                         <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
                         </svg>
                     </button>
                     <button id="zoom-fit"
                         class="text-xs font-medium px-2 py-1.5 bg-stone-800 text-white rounded-md hover:bg-stone-700 transition-colors"
-                        data-tooltip="Fit image to view (0)">Fit</button>
+                        data-tooltip="Fit image to view" data-shortcut-hint="compare-zoom-fit">Fit</button>
                 </div>
             </div>
         </div>
@@ -1044,7 +1044,7 @@
                         <span id="editor-save-as-label">Save As</span>
                     </button>
                     <button id="editor-close" class="p-1.5 hover:bg-white/10 rounded-md transition-colors"
-                        aria-label="Close editor" data-tooltip="Discard all edits and close editor (Esc)">
+                        aria-label="Close editor" data-tooltip="Discard all edits and close editor" data-shortcut-hint="editor.close">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                                 d="M6 18L18 6M6 6l12 12"></path>
@@ -1186,12 +1186,12 @@
                     <!-- Row 1: Tools -->
                     <div class="flex items-center gap-1 flex-wrap" role="toolbar" aria-label="Drawing tools">
                         <!-- Selection & Crop -->
-                        <button class="editor-tool-btn" data-tool="select" aria-label="Select and move" aria-pressed="false" data-tooltip="Select and move (V)">
+                        <button class="editor-tool-btn" data-tool="select" aria-label="Select and move" aria-pressed="false" data-tooltip="Select and move" data-shortcut-hint="editor.select">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"></path>
                             </svg>
                         </button>
-                        <button class="editor-tool-btn" data-tool="crop" aria-label="Crop image" aria-pressed="false" data-tooltip="Crop image (C)">
+                        <button class="editor-tool-btn" data-tool="crop" aria-label="Crop image" aria-pressed="false" data-tooltip="Crop image" data-shortcut-hint="editor.crop">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6.13 1L6.13 6.13 1 6.13M6.13 6.13L6.13 17.87 17.87 17.87M17.87 23L17.87 17.87 23 17.87M17.87 17.87L17.87 6.13 6.13 6.13"></path>
                             </svg>
@@ -1200,14 +1200,14 @@
                         <div class="h-5 w-px bg-stone-300" role="separator"></div>
 
                         <!-- Drawing tools -->
-                        <button class="editor-tool-btn active" data-tool="brush" aria-label="Freehand brush" aria-pressed="true" data-tooltip="Freehand brush (B)">
+                        <button class="editor-tool-btn active" data-tool="brush" aria-label="Freehand brush" aria-pressed="true" data-tooltip="Freehand brush" data-shortcut-hint="editor.brush">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                                     d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z">
                                 </path>
                             </svg>
                         </button>
-                        <button class="editor-tool-btn" data-tool="eraser" aria-label="Erase drawn content" aria-pressed="false" data-tooltip="Erase drawn content (E)">
+                        <button class="editor-tool-btn" data-tool="eraser" aria-label="Erase drawn content" aria-pressed="false" data-tooltip="Erase drawn content" data-shortcut-hint="editor.eraser">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                                     d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16">
@@ -1218,24 +1218,24 @@
                         <div class="h-5 w-px bg-stone-300" role="separator"></div>
 
                         <!-- Shape tools -->
-                        <button class="editor-tool-btn" data-tool="line" aria-label="Draw straight line" aria-pressed="false" data-tooltip="Draw straight line (L)">
+                        <button class="editor-tool-btn" data-tool="line" aria-label="Draw straight line" aria-pressed="false" data-tooltip="Draw straight line" data-shortcut-hint="editor.line">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 20L20 4">
                                 </path>
                             </svg>
                         </button>
-                        <button class="editor-tool-btn" data-tool="arrow" aria-label="Draw arrow" aria-pressed="false" data-tooltip="Draw arrow (W)">
+                        <button class="editor-tool-btn" data-tool="arrow" aria-label="Draw arrow" aria-pressed="false" data-tooltip="Draw arrow" data-shortcut-hint="editor.arrow">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 19L19 5m0 0v10m0-10H9"></path>
                             </svg>
                         </button>
-                        <button class="editor-tool-btn" data-tool="rectangle" aria-label="Draw rectangle" aria-pressed="false" data-tooltip="Draw rectangle (U)">
+                        <button class="editor-tool-btn" data-tool="rectangle" aria-label="Draw rectangle" aria-pressed="false" data-tooltip="Draw rectangle" data-shortcut-hint="editor.rectangle">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                                     d="M4 6a2 2 0 012-2h12a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V6z"></path>
                             </svg>
                         </button>
-                        <button class="editor-tool-btn" data-tool="circle" aria-label="Draw circle" aria-pressed="false" data-tooltip="Draw circle (O)">
+                        <button class="editor-tool-btn" data-tool="circle" aria-label="Draw circle" aria-pressed="false" data-tooltip="Draw circle" data-shortcut-hint="editor.circle">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <circle cx="12" cy="12" r="9" stroke-width="1.5" fill="none"></circle>
                             </svg>
@@ -1244,12 +1244,12 @@
                         <div class="h-5 w-px bg-stone-300" role="separator"></div>
 
                         <!-- Annotation tools -->
-                        <button class="editor-tool-btn" data-tool="text" aria-label="Add text" aria-pressed="false" data-tooltip="Add text (T)">
+                        <button class="editor-tool-btn" data-tool="text" aria-label="Add text" aria-pressed="false" data-tooltip="Add text" data-shortcut-hint="editor.text">
                             <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
                                 <path d="M7 5h10V3H7v2zm3.5 2H11v12h2V7h1.5z"></path>
                             </svg>
                         </button>
-                        <button class="editor-tool-btn" data-tool="anonymize" aria-label="Anonymize region" aria-pressed="false" data-tooltip="Anonymize region (X)">
+                        <button class="editor-tool-btn" data-tool="anonymize" aria-label="Anonymize region" aria-pressed="false" data-tooltip="Anonymize region" data-shortcut-hint="editor.anonymize">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 4h4v4H4V4zm6 0h4v4h-4V4zm6 0h4v4h-4V4zM4 10h4v4H4v-4zm6 0h4v4h-4v-4zm6 0h4v4h-4v-4zM4 16h4v4H4v-4zm6 0h4v4h-4v-4zm6 0h4v4h-4v-4z"></path>
                             </svg>
@@ -1258,7 +1258,7 @@
                         <div class="h-5 w-px bg-stone-300" role="separator"></div>
 
                         <!-- Utility tools -->
-                        <button class="editor-tool-btn" data-tool="eyedropper" aria-label="Pick color" aria-pressed="false" data-tooltip="Pick color (I)">
+                        <button class="editor-tool-btn" data-tool="eyedropper" aria-label="Pick color" aria-pressed="false" data-tooltip="Pick color" data-shortcut-hint="editor.eyedropper">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 4l-2-2-4 4-1-1-3 3 1 1-6 6v3h3l6-6 1 1 3-3-1-1 4-4z"></path>
                             </svg>
@@ -1291,14 +1291,14 @@
                         <!-- Undo/Redo -->
                         <div class="flex items-center gap-1">
                             <button id="editor-undo" class="p-1.5 bg-stone-100 hover:bg-stone-200 rounded-md transition-colors"
-                                aria-label="Undo last action" data-tooltip="Undo last action (Ctrl+Z)">
+                                aria-label="Undo last action" data-tooltip="Undo last action" data-shortcut-hint="editor.undo">
                                 <svg class="w-4 h-4 text-stone-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                                         d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"></path>
                                 </svg>
                             </button>
                             <button id="editor-redo" class="p-1.5 bg-stone-100 hover:bg-stone-200 rounded-md transition-colors"
-                                aria-label="Redo last action" data-tooltip="Redo last action (Ctrl+Y)">
+                                aria-label="Redo last action" data-tooltip="Redo last action" data-shortcut-hint="editor.redo">
                                 <svg class="w-4 h-4 text-stone-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                                         d="M21 10h-10a8 8 0 00-8 8v2M21 10l-6 6m6-6l-6-6"></path>
@@ -1310,13 +1310,13 @@
 
                         <!-- Rotate/Flip buttons -->
                         <div class="flex items-center gap-1">
-                            <button id="editor-rotate-cw" class="p-1.5 bg-stone-100 hover:bg-stone-200 rounded-md transition-colors" aria-label="Rotate 90° clockwise" data-tooltip="Rotate 90° clockwise (R)">
+                            <button id="editor-rotate-cw" class="p-1.5 bg-stone-100 hover:bg-stone-200 rounded-md transition-colors" aria-label="Rotate 90° clockwise" data-tooltip="Rotate 90° clockwise" data-shortcut-hint="editor.rotate_cw">
                                 <svg class="w-3.5 h-3.5 text-stone-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 3l4 4-4 4"></path>
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 7h-8a5 5 0 00-5 5v8"></path>
                                 </svg>
                             </button>
-                            <button id="editor-rotate-ccw" class="p-1.5 bg-stone-100 hover:bg-stone-200 rounded-md transition-colors" aria-label="Rotate 90° counter-clockwise" data-tooltip="Rotate 90° counter-clockwise (Shift+R)">
+                            <button id="editor-rotate-ccw" class="p-1.5 bg-stone-100 hover:bg-stone-200 rounded-md transition-colors" aria-label="Rotate 90° counter-clockwise" data-tooltip="Rotate 90° counter-clockwise" data-shortcut-hint="editor.rotate_ccw">
                                 <svg class="w-3.5 h-3.5 text-stone-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 3L5 7l4 4"></path>
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 7h8a5 5 0 015 5v8"></path>
@@ -1339,18 +1339,18 @@
                         <!-- Zoom controls -->
                         <div class="flex items-center gap-1">
                             <button id="editor-zoom-fit" class="p-1.5 bg-stone-100 hover:bg-stone-200 rounded-md transition-colors text-[10px] font-medium text-stone-600"
-                                aria-label="Zoom to fit" data-tooltip="Zoom to fit (Ctrl+0)">Fit</button>
+                                aria-label="Zoom to fit" data-tooltip="Zoom to fit" data-shortcut-hint="editor.zoom_fit">Fit</button>
                             <button id="editor-zoom-100" class="p-1.5 bg-stone-100 hover:bg-stone-200 rounded-md transition-colors text-[10px] font-medium text-stone-600"
-                                aria-label="Zoom to 100%" data-tooltip="Zoom to 100% (Ctrl+1)">100%</button>
+                                aria-label="Zoom to 100%" data-tooltip="Zoom to 100%" data-shortcut-hint="editor.zoom_100">100%</button>
                             <button id="editor-zoom-out" class="p-1.5 bg-stone-100 hover:bg-stone-200 rounded-md transition-colors"
-                                aria-label="Zoom out" data-tooltip="Zoom out (Ctrl+-)">
+                                aria-label="Zoom out" data-tooltip="Zoom out" data-shortcut-hint="editor.zoom_out">
                                 <svg class="w-3.5 h-3.5 text-stone-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 12H4"></path>
                                 </svg>
                             </button>
                             <output id="editor-zoom-display" class="text-[10px] font-medium text-stone-600 w-8 text-center" aria-label="Zoom level" aria-live="polite" data-tooltip="When zoomed in: scroll, or hold Space and drag, to pan">100%</output>
                             <button id="editor-zoom-in" class="p-1.5 bg-stone-100 hover:bg-stone-200 rounded-md transition-colors"
-                                aria-label="Zoom in" data-tooltip="Zoom in (Ctrl+=)">
+                                aria-label="Zoom in" data-tooltip="Zoom in" data-shortcut-hint="editor.zoom_in">
                                 <svg class="w-3.5 h-3.5 text-stone-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 4v16m8-8H4"></path>
                                 </svg>
