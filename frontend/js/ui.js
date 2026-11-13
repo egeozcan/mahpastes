@@ -2083,7 +2083,30 @@ function updateBulkToolbar() {
             bulkToolbarRover = null;
         }
     }
+    reserveBulkToolbarSpace(count > 0);
+}
 
+// The toolbar floats over the bottom of the page. While it shows, the page
+// gets that much more room to scroll, so the last row of cards, "Load more"
+// and the hidden-clips note can be brought clear of it. Measured, not fixed:
+// the toolbar wraps on a narrow window and gains buttons with the selection.
+// Extra bottom padding only lengthens the scroll range; nothing on screen
+// moves unless the user is already at the end.
+let bulkToolbarSpaceObserver = null;
+
+function reserveBulkToolbarSpace(active) {
+    const main = document.querySelector('main');
+    if (!main) return;
+    // Set up on first use: the toolbar element is declared by a later script.
+    if (!bulkToolbarSpaceObserver && typeof ResizeObserver === 'function') {
+        bulkToolbarSpaceObserver = new ResizeObserver(() => {
+            if (selectedIds.size > 0) reserveBulkToolbarSpace(true);
+        });
+        bulkToolbarSpaceObserver.observe(bulkToolbar);
+    }
+    // 64px: the toolbar's offset from the bottom (bottom-16). 16px: breathing room.
+    const padding = active ? `${bulkToolbar.offsetHeight + 64 + 16}px` : '';
+    if (main.style.paddingBottom !== padding) main.style.paddingBottom = padding;
 }
 
 function toggleSelectAll() {
