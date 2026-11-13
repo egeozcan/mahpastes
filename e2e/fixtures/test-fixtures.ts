@@ -1889,6 +1889,8 @@ export class AppHelper {
     // not an empty gallery.
     await expect(emptyState).not.toHaveClass(/text-red-500/);
     await expect(emptyState).not.toContainText('Error loading clips');
+    // Nor is a search that merely hid the loaded cards.
+    await expect(emptyState).not.toHaveAttribute('data-search-miss', 'true');
   }
 
   // ==================== Tags ====================

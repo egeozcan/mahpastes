@@ -109,7 +109,10 @@ function renderSearchMiss(query) {
     if (!el) return;
     const own = el.dataset.searchMiss === 'true';
     const cards = Array.from(gallery.querySelectorAll(':scope > li'));
-    const miss = !!query && !galleryIsSearchResults() && cards.length > 0 &&
+    // A deep search that is on but has not rendered yet will answer for the
+    // whole library: until it does, the loaded cards say nothing.
+    const deepPending = typeof isDeepSearchActive === 'function' && isDeepSearchActive();
+    const miss = !!query && !galleryIsSearchResults() && !deepPending && cards.length > 0 &&
         cards.every(c => c.style.display === 'none');
     if (!miss) {
         if (own) hideGalleryStatus();
@@ -123,6 +126,9 @@ function renderSearchMiss(query) {
         message = `No match for "${query}" in the ${loaded} of ${total} clips loaded. Load more to look further`;
         message += isFolderMode() ? '.' : ', or turn on a search option to search the whole library.';
     }
+    // role=status: an unchanged message is not written again, or a screen
+    // reader repeats it on every patch and reload.
+    if (own && el.textContent === message) return;
     showGalleryStatus(message);
     el.dataset.searchMiss = 'true';
 }
@@ -881,6 +887,28 @@ function renameClip(id) {
 // change while the call is in flight (the archive toggle, a filter): the card
 // with this id on screen then belongs to another listing, one whose load may
 // have read the library before the write landed. Either way, reload.
+// The Undo on an archive/restore toast. It names the direction (the Bulk
+// calls) rather than toggling again: by the time it is clicked a plugin, the
+// CLI or another window may have moved the clip back already, and a second
+// toggle would then redo what the user is undoing. Like every bulk
+// archive, it emits no clip:archived / clip:unarchived plugin event. It
+// reloads rather than patches: the card is gone from this view.
+function archiveUndoAction(ids, wasRestore) {
+    return {
+        label: 'Undo',
+        onClick: async () => {
+            try {
+                if (wasRestore) await window.go.main.App.BulkArchive(ids);
+                else await window.go.main.App.BulkUnarchive(ids);
+            } catch (error) {
+                console.error('Error undoing archive change:', error);
+                showToast('Could not undo: ' + errText(error), 'error');
+            }
+            loadClips();
+        },
+    };
+}
+
 async function toggleArchiveClip(id) {
     id = Number(id);
     const fromArchive = isViewingArchive;
@@ -892,9 +920,10 @@ async function toggleArchiveClip(id) {
         showToast('Failed to change archive status.', 'error');
         return;
     }
-    showToast(fromArchive ? 'Clip restored.' : 'Clip archived.');
+    const done = fromArchive ? 'Clip restored.' : 'Clip archived.';
     // A load begun while the toggle was in flight may predate the write.
     if (gen !== _clipLoadGen || isViewingArchive !== fromArchive) {
+        showToast(done);
         loadClips();
         return;
     }
@@ -908,6 +937,10 @@ async function toggleArchiveClip(id) {
     } catch (error) {
         row = null; // gone or unreadable: unsure, so reload below
     }
+    // Undo is offered only when the stored row shows the flag really flipped:
+    // a clip:archived handler may have put it straight back.
+    const flipped = !!row && !!row.is_archived !== fromArchive;
+    showToast(done, 'info', flipped ? archiveUndoAction([id], fromArchive) : null);
     // A load begun after the toggle returned reads the stored state itself.
     if (gen !== _clipLoadGen) return;
     // A clip:archived handler that changed other clips (archived another,
@@ -1027,13 +1060,14 @@ async function bulkArchive() {
     if (selectedIds.size === 0) return;
     try {
         const ids = Array.from(selectedIds);
-        if (isViewingArchive) {
+        const fromArchive = isViewingArchive;
+        const count = `${ids.length} ${ids.length === 1 ? 'clip' : 'clips'}`;
+        if (fromArchive) {
             await window.go.main.App.BulkUnarchive(ids);
-            showToast(`Restored ${selectedIds.size} clips.`);
         } else {
             await window.go.main.App.BulkArchive(ids);
-            showToast(`Archived ${selectedIds.size} clips.`);
         }
+        showToast(`${fromArchive ? 'Restored' : 'Archived'} ${count}.`, 'info', archiveUndoAction(ids, fromArchive));
         selectedIds.clear();
         loadClips();
     } catch (error) {
