@@ -37,7 +37,7 @@ make mp-install MP_INSTALL_DIR=/usr/local/bin
 
 ### Configure
 
-Set your API key as an environment variable. Create a key in the desktop app under **Settings** > **API** — or, once you already hold an admin key, with [`mp api key create`](#api-keys).
+Set your API key as an environment variable. Create a key in the desktop app (menu drawer > **API**) — or, once you already hold an admin key, with [`mp api key create`](#api-keys).
 
 ```bash
 export MP_API_KEY=mp_your_key_here

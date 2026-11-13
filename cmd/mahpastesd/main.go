@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/signal"
@@ -13,9 +14,48 @@ import (
 
 	webui "go-clipboard/frontend"
 	coreapp "go-clipboard/internal/app"
+	"go-clipboard/internal/buildinfo"
 )
 
+const usage = `Usage: mahpastesd [--help | --version]
+
+Runs the mahpastes headless server. It takes no other arguments and is
+configured through environment variables:
+
+  MAHPASTESD_PORT            TCP port to listen on (default 44557)
+  MAHPASTESD_BIND_ALL        1 listens on 0.0.0.0 instead of 127.0.0.1
+  MAHPASTESD_TRUST_PROXY     1 behind a TLS-terminating reverse proxy
+  MAHPASTESD_SECURE_COOKIES  1 always marks session cookies Secure
+  MAHPASTESD_BOOTSTRAP_KEY   0 skips creating the first admin key
+  MAHPASTES_DATA_DIR         Directory for the database, keys and files
+`
+
+// handleArgs answers --help and --version and refuses everything else. It
+// reports whether the server should start, and the exit code if not. It runs
+// before anything touches the data dir: starting on a stray argument opens
+// the library, mints the first admin key and listens.
+func handleArgs(args []string, stdout, stderr io.Writer) (start bool, code int) {
+	if len(args) == 0 {
+		return true, 0
+	}
+	if len(args) == 1 {
+		switch args[0] {
+		case "-h", "-help", "--help", "help":
+			fmt.Fprint(stdout, usage)
+			return false, 0
+		case "-v", "-version", "--version", "version":
+			fmt.Fprintf(stdout, "mahpastesd %s\n", buildinfo.Current())
+			return false, 0
+		}
+	}
+	fmt.Fprintf(stderr, "mahpastesd: unexpected argument %q\n\n%s", args[0], usage)
+	return false, 2
+}
+
 func main() {
+	if start, code := handleArgs(os.Args[1:], os.Stdout, os.Stderr); !start {
+		os.Exit(code)
+	}
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
 	dataDir, err := coreapp.GetDataDir()

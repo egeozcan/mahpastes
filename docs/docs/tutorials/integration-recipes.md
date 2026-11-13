@@ -36,9 +36,9 @@ git diff | mpcopy change.diff
 mpcopy < screenshot.png # no name: the type is sniffed, stored as an image
 ```
 
-Without `--filename`, the clip is named `paste-<timestamp>.<ext>` with the extension sniffed from the content. With `--filename`, the extension decides the type, so do not give binary data a `.txt` name. Identical content is de-duplicated, so re-uploading the same text returns the existing clip ID.
+Without `--filename`, the clip is named `paste-<timestamp>.<ext>` with the extension sniffed from the content. With `--filename`, the extension decides the type, so do not give binary data a `.txt` name. Identical content is de-duplicated, so re-uploading the same text returns the existing clip ID. `mp` reports that clip as `Already exists` and leaves it as it is: `--tag` and `--expire` only apply to clips the upload created, so a temporary upload never puts an expiry on a clip you already keep.
 
-For binary clips, `mp clip data` refuses to write to a terminal; redirect it (`mppaste > out.png`) or add `--force`.
+For binary clips, text that is not valid UTF-8, and text clips carrying control characters (escape sequences other than colours, a carriage return without a line feed, bidirectional overrides), `mp clip data` refuses to write to a terminal; redirect it (`mppaste > out.png`) or add `--force`. Piped and redirected output is never filtered.
 
 ## fzf picker
 
@@ -172,7 +172,7 @@ Replace the `mp.exe` path with the output of `where mp` (the path above is where
 A Finder / Services Quick Action that adds selected files or selected text to mahpastes.
 
 :::warning
-Automator and Shortcuts shell steps do not read `~/.zshrc`, and their `PATH` is minimal. `mp` only reads its credentials from the environment (`MP_API_KEY`, `MP_API_URL`), so the script must set them itself, and it must call `mp` by absolute path. The API must also be enabled in **Settings > API**. The key ends up in the workflow, so create a dedicated key for it (`mp api key create quick-action --role editor`; a `viewer` key cannot upload) and revoke that key if the workflow is shared.
+Automator and Shortcuts shell steps do not read `~/.zshrc`, and their `PATH` is minimal. `mp` only reads its credentials from the environment (`MP_API_KEY`, `MP_API_URL`), so the script must set them itself, and it must call `mp` by absolute path. The API must also be enabled (menu drawer > **API**). The key ends up in the workflow, so create a dedicated key for it (`mp api key create quick-action --role editor`; a `viewer` key cannot upload) and revoke that key if the workflow is shared.
 :::
 
 1. Find the path to `mp`: run `command -v mp` in Terminal (for example `/usr/local/bin/mp`, or `/Users/you/.local/bin/mp` after `make mp-install`).

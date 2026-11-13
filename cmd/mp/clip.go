@@ -2,7 +2,9 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 
@@ -276,7 +279,12 @@ var clipDataCmd = &cobra.Command{
 	Use:   "data [id]",
 	Short: "Output raw clip content to stdout",
 	Long: `Download and write the raw binary content of a clip to stdout.
-Useful for piping clip data to other commands or saving to a file.`,
+Useful for piping clip data to other commands or saving to a file.
+
+Redirected or piped output is always written byte for byte. On a terminal,
+binary data, text that is not valid UTF-8 and text carrying control characters
+(escape sequences other than colours, a carriage return without a line feed,
+bidirectional overrides) are refused unless --force is given.`,
 	Example: `  # Save clip to a file
   mp clip data 42 > image.png
 
@@ -302,7 +310,7 @@ var (
 func init() {
 	clipDataCmd.Flags().BoolVar(&clipDataLatest, "latest", false, "Use the newest non-archived clip instead of an ID")
 	clipDataCmd.Flags().StringVar(&clipDataTag, "tag", "", "With --latest, restrict to a tag (name or ID)")
-	clipDataCmd.Flags().BoolVar(&clipDataForce, "force", false, "Write binary data even when stdout is a terminal")
+	clipDataCmd.Flags().BoolVar(&clipDataForce, "force", false, "Write binary data and control characters even when stdout is a terminal")
 }
 
 // latestClipID returns the ID of the newest non-archived clip, optionally
@@ -375,9 +383,20 @@ func runClipData(cmd *cobra.Command, args []string) error {
 	return copyToStdout(r)
 }
 
-// guardTerminal refuses binary content when it would land on a terminal
-// (check is true), where it garbles the screen and can send control
-// sequences. The returned reader replays the bytes it peeked at.
+// errTerminalControl is the refusal for text that carries terminal control
+// characters or is not UTF-8.
+var errTerminalControl = errors.New("refusing to write control characters or text that is not UTF-8 to a terminal (redirect the output or use --force)")
+
+// guardTerminal refuses content that should not land on a terminal (check is
+// true): binary data, judged from the first 512 bytes before anything is
+// written, and anything terminalSafeReader refuses anywhere in the stream.
+// Clips also come from other people (followed shares, other API keys,
+// plugins, watch folders), and an escape sequence in one can retitle the
+// window, rewrite what is on screen or, in terminals that honour OSC 52, set
+// the clipboard. Colour (SGR) sequences are let through, so saved terminal
+// output still prints. The returned reader replays the bytes peeked at; it
+// fails with errTerminalControl at the first refused byte, after the text
+// before it.
 func guardTerminal(body io.Reader, check bool) (io.Reader, error) {
 	if !check {
 		return body, nil
@@ -390,7 +409,209 @@ func guardTerminal(body io.Reader, check bool) (io.Reader, error) {
 	if looksBinary(head) {
 		return nil, fmt.Errorf("refusing to write binary data to a terminal (redirect the output or use --force)")
 	}
-	return br, nil
+	// Refuse before printing anything when the head already shows it.
+	var probe terminalSafeReader
+	if !probe.feed(head) {
+		return nil, errTerminalControl
+	}
+	return &terminalSafeReader{src: br}, nil
+}
+
+// maxSGRSequence bounds a colour sequence held back while it is checked;
+// a 24-bit foreground plus background is under 40 bytes.
+const maxSGRSequence = 64
+
+// terminalSafeReader passes UTF-8 text through and stops at the first byte
+// that could do more on a terminal than print a character or pick a colour:
+//
+//   - any C0 control except tab, newline, form feed and a carriage return
+//     that is part of CR LF (a lone one lets the text after it overprint the
+//     line), and DEL;
+//   - a C1 control (U+0080-U+009F), which terminals read as CSI/OSC/DCS
+//     introducers;
+//   - any byte that is not part of a valid UTF-8 sequence: a terminal in
+//     8-bit mode reads a bare 0x80-0x9F as the same C1 controls, and what
+//     another terminal makes of malformed input is its own business;
+//   - the bidirectional embedding, override and isolate controls
+//     (U+202A-U+202E, U+2066-U+2069), which show text in an order other than
+//     the one it is stored in;
+//   - any escape sequence other than SGR ("ESC [ <digits ; :> m"), and SGR 8
+//     (conceal), which prints text nobody can see.
+//
+// It does not judge what the visible characters say (look-alike letters,
+// zero-width characters, colours chosen to match the background). A sequence
+// is held back until it is known to be allowed, so no part of a refused one
+// is ever returned.
+type terminalSafeReader struct {
+	src   io.Reader
+	buf   []byte
+	out   []byte // checked bytes not yet returned
+	pend  []byte // a sequence still undecided: escape, UTF-8 or CR
+	state int
+	err   error
+}
+
+const (
+	termText = iota
+	termEsc  // after ESC
+	termCSI  // after ESC [
+	termUTF8 // inside a multi-byte UTF-8 sequence
+	termCR   // after a carriage return
+)
+
+func (t *terminalSafeReader) Read(p []byte) (int, error) {
+	for len(t.out) == 0 && t.err == nil {
+		if t.buf == nil {
+			t.buf = make([]byte, 32*1024)
+		}
+		n, err := t.src.Read(t.buf)
+		t.out = t.out[:0]
+		if !t.feed(t.buf[:n]) {
+			t.err = errTerminalControl
+			break
+		}
+		if err == io.EOF && t.state != termText {
+			// An unfinished escape sequence would swallow whatever the
+			// shell prints next; a cut-off UTF-8 sequence is not UTF-8;
+			// a final CR leaves the prompt on top of the last line.
+			t.err = errTerminalControl
+			break
+		}
+		if err != nil {
+			t.err = err
+		}
+	}
+	if len(t.out) > 0 {
+		n := copy(p, t.out)
+		t.out = t.out[n:]
+		return n, nil
+	}
+	return 0, t.err
+}
+
+// feed appends the terminal-safe bytes of data to t.out and reports false
+// at the first byte that must not reach a terminal. Sequences may straddle
+// calls.
+func (t *terminalSafeReader) feed(data []byte) bool {
+	for _, b := range data {
+		switch t.state {
+		case termEsc:
+			if b != '[' {
+				return false
+			}
+			t.pend = append(t.pend, b)
+			t.state = termCSI
+		case termCSI:
+			switch {
+			case b == 'm':
+				if sgrConceals(t.pend[2:]) {
+					return false
+				}
+				t.out = append(append(t.out, t.pend...), b)
+				t.pend, t.state = t.pend[:0], termText
+			case (b >= '0' && b <= '9' || b == ';' || b == ':') && len(t.pend) < maxSGRSequence:
+				t.pend = append(t.pend, b)
+			default:
+				return false
+			}
+		case termUTF8:
+			t.pend = append(t.pend, b)
+			// FullRune is also true for a sequence that can no longer
+			// become valid, which then decodes as a one-byte error.
+			if !utf8.FullRune(t.pend) {
+				continue
+			}
+			r, size := utf8.DecodeRune(t.pend)
+			if r == utf8.RuneError && size <= 1 || size != len(t.pend) || !terminalSafeRune(r) {
+				return false
+			}
+			t.out = append(t.out, t.pend...)
+			t.pend, t.state = t.pend[:0], termText
+		case termCR:
+			if b != '\n' {
+				return false
+			}
+			t.out = append(t.out, '\r', '\n')
+			t.pend, t.state = t.pend[:0], termText
+		default:
+			switch {
+			case b == 0x1b:
+				t.pend, t.state = append(t.pend[:0], b), termEsc
+			case b == '\r':
+				t.pend, t.state = append(t.pend[:0], b), termCR
+			case b >= utf8.RuneSelf:
+				// A lone byte here is never valid: continuation bytes
+				// and 0xF8-0xFF are refused when the next byte arrives,
+				// or at the end of the stream.
+				if !utf8.RuneStart(b) {
+					return false
+				}
+				t.pend, t.state = append(t.pend[:0], b), termUTF8
+			case b == '\t' || b == '\n' || b == '\f':
+				t.out = append(t.out, b)
+			case b < 0x20 || b == 0x7f:
+				return false
+			default:
+				t.out = append(t.out, b)
+			}
+		}
+	}
+	return true
+}
+
+// terminalSafeRune reports whether a decoded non-ASCII character may be
+// printed: not a C1 control and not a bidirectional embedding, override or
+// isolate control.
+func terminalSafeRune(r rune) bool {
+	switch {
+	case r >= 0x80 && r <= 0x9f:
+		return false
+	case r >= 0x202a && r <= 0x202e, r >= 0x2066 && r <= 0x2069:
+		return false
+	}
+	return true
+}
+
+// sgrConceals reports whether the parameters of an SGR sequence (the bytes
+// between "ESC [" and "m") switch on conceal, parameter 8. An 8 that is an
+// argument of an extended colour ("38;5;8", "48;2;8;8;8") is a colour.
+func sgrConceals(params []byte) bool {
+	fields := bytes.Split(params, []byte{';'})
+	for i := 0; i < len(fields); i++ {
+		code, _, hasSub := bytes.Cut(fields[i], []byte{':'})
+		n := sgrNumber(code)
+		if n == 8 {
+			return true
+		}
+		if (n == 38 || n == 48 || n == 58) && !hasSub && i+1 < len(fields) {
+			// The colon form carries its arguments in sub; this one
+			// takes them from the fields that follow.
+			switch sgrNumber(fields[i+1]) {
+			case 5:
+				i += 2
+			case 2:
+				i += 4
+			}
+		}
+	}
+	return false
+}
+
+// sgrNumber reads an SGR parameter: digits, where empty means 0. Anything
+// longer than a real parameter is -1.
+func sgrNumber(digits []byte) int {
+	digits = bytes.TrimLeft(digits, "0")
+	if len(digits) > 4 {
+		return -1
+	}
+	n := 0
+	for _, d := range digits {
+		if d < '0' || d > '9' {
+			return -1
+		}
+		n = n*10 + int(d-'0')
+	}
+	return n
 }
 
 // --- clip upload ---
@@ -401,9 +622,15 @@ var clipUploadCmd = &cobra.Command{
 	Long: `Upload one or more files to mahpastes as new clips.
 If no file arguments are given (or the argument is "-"), reads from stdin. The
 clip is named paste-<timestamp>.<ext> with the extension sniffed from the
-content unless --filename is given. With --quiet, only the new clip IDs are
+content unless --filename is given. With --quiet, only the clip IDs are
 printed, one per line.
-Optionally tag the uploaded clips and set an expiration duration.`,
+Optionally tag the uploaded clips and set an expiration duration.
+
+Uploads are deduplicated by content. When identical content is already in the
+library nothing is created: the existing clip is reported as "Already exists"
+(its ID is still printed with --quiet, and --json marks it "duplicate": true),
+it keeps its own filename, and --tag and --expire are not applied to it, so an
+upload never retags or puts an expiry on a clip it did not create.`,
 	Example: `  # Upload a single file
   mp clip upload photo.png
 
@@ -416,7 +643,7 @@ Optionally tag the uploaded clips and set an expiration duration.`,
   # Upload from stdin
   echo "hello" | mp clip upload --filename hello.txt
 
-  # Pipe filter: capture the new clip's ID
+  # Pipe filter: capture the clip's ID
   echo "hello" | mp clip upload -q
   some-command | mp clip upload - --tag logs -q
 
@@ -434,11 +661,11 @@ var (
 )
 
 func init() {
-	clipUploadCmd.Flags().StringVar(&clipUploadTag, "tag", "", "Tag to apply to uploaded clips (name or ID)")
-	clipUploadCmd.Flags().StringVar(&clipUploadExpire, "expire", "", "Expiration duration (e.g. 30m, 2h, 7d)")
+	clipUploadCmd.Flags().StringVar(&clipUploadTag, "tag", "", "Tag to apply to newly created clips (name or ID)")
+	clipUploadCmd.Flags().StringVar(&clipUploadExpire, "expire", "", "Expiration duration for newly created clips (e.g. 30m, 2h, 7d)")
 	clipUploadCmd.Flags().StringVar(&clipUploadFilename, "filename", "", "Filename for stdin input")
 	clipUploadCmd.Flags().StringVar(&clipUploadContentType, "content-type", "", "Content type for stdin input")
-	clipUploadCmd.Flags().BoolVarP(&clipUploadQuiet, "quiet", "q", false, "Print only the new clip IDs, one per line")
+	clipUploadCmd.Flags().BoolVarP(&clipUploadQuiet, "quiet", "q", false, "Print only the clip IDs, one per line")
 }
 
 func runClipUpload(cmd *cobra.Command, args []string) error {
@@ -485,6 +712,9 @@ func runClipUpload(cmd *cobra.Command, args []string) error {
 		Filename    string `json:"filename"`
 		ContentType string `json:"content_type"`
 		Size        int64  `json:"size"`
+		// Duplicate: the server answered 200, not 201 — identical content
+		// already existed and this is that clip, not a new one.
+		Duplicate bool `json:"duplicate"`
 	}
 
 	var uploaded []uploadedClip
@@ -502,9 +732,11 @@ func runClipUpload(cmd *cobra.Command, args []string) error {
 		}
 
 		var clip uploadedClip
-		if err := c.UploadFile("/api/v1/clips", name, in, extra, &clip); err != nil {
+		status, err := c.UploadFileStatus("/api/v1/clips", name, in, extra, &clip)
+		if err != nil {
 			return err
 		}
+		clip.Duplicate = status == http.StatusOK
 		uploaded = append(uploaded, clip)
 	} else {
 		// Upload each file
@@ -518,19 +750,43 @@ func runClipUpload(cmd *cobra.Command, args []string) error {
 
 			filename := filepath.Base(filePath)
 			var clip uploadedClip
-			uploadErr := c.UploadFile("/api/v1/clips", filename, f, nil, &clip)
+			status, uploadErr := c.UploadFileStatus("/api/v1/clips", filename, f, nil, &clip)
 			f.Close()
 			if uploadErr != nil {
 				errorf("failed to upload %s: %s", filePath, uploadErr)
 				failed++
 				continue
 			}
+			clip.Duplicate = status == http.StatusOK
 			uploaded = append(uploaded, clip)
 		}
 	}
 
-	// Apply tag and expiration to uploaded clips
+	// Apply tag and expiration to the clips this command created. A duplicate
+	// is someone's existing clip (or one created and handled above): tagging
+	// it would move it out of its folder in that tree, and an expiry would
+	// have the reaper delete a clip that was meant to be kept.
+	var skipped []string
+	if tagID > 0 {
+		skipped = append(skipped, "--tag")
+	}
+	if expireMinutes > 0 {
+		skipped = append(skipped, "--expire")
+	}
+	created := map[int64]bool{}
 	for _, clip := range uploaded {
+		if !clip.Duplicate {
+			created[clip.ID] = true
+		}
+	}
+	for _, clip := range uploaded {
+		if clip.Duplicate {
+			// A copy of a file uploaded in this same run is already handled.
+			if len(skipped) > 0 && !created[clip.ID] {
+				fmt.Fprintf(os.Stderr, "Warning: clip %d already existed with identical content; %s not applied\n", clip.ID, strings.Join(skipped, " and "))
+			}
+			continue
+		}
 		ok := true
 		if tagID > 0 {
 			if err := c.PutJSON(fmt.Sprintf("/api/v1/clips/%d/tags/%d", clip.ID, tagID), nil, nil); err != nil {
@@ -561,6 +817,10 @@ func runClipUpload(cmd *cobra.Command, args []string) error {
 		}
 	default:
 		for _, clip := range uploaded {
+			if clip.Duplicate {
+				fmt.Printf("Already exists: %s (ID: %d)\n", clip.Filename, clip.ID)
+				continue
+			}
 			fmt.Printf("Uploaded: %s (ID: %d)\n", clip.Filename, clip.ID)
 		}
 	}

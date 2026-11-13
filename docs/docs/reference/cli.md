@@ -19,9 +19,9 @@ It communicates with the mahpastes REST API to manage clips, tags,
 and other resources from your terminal.
 
 Getting started:
-  1. Open mahpastes and enable the API in Settings > API
+  1. Open mahpastes and enable the API under menu drawer > API
      (turn on "Start on launch" to keep it running across restarts)
-  2. Create an API key in Settings > API
+  2. Create an API key in the same panel
   3. Export your key:  export MP_API_KEY=&lt;your-key>
      (or keep it in a file:  export MP_API_KEY_FILE=&lt;path>)
   4. (Optional) Set a custom URL:  export MP_API_URL=`http://host:port`
@@ -490,6 +490,11 @@ Output raw clip content to stdout
 Download and write the raw binary content of a clip to stdout.
 Useful for piping clip data to other commands or saving to a file.
 
+Redirected or piped output is always written byte for byte. On a terminal,
+binary data, text that is not valid UTF-8 and text carrying control characters
+(escape sequences other than colours, a carriage return without a line feed,
+bidirectional overrides) are refused unless --force is given.
+
 ```
 mp clip data [id] [flags]
 ```
@@ -514,7 +519,7 @@ mp clip data [id] [flags]
 ### Options
 
 ```
-      --force        Write binary data even when stdout is a terminal
+      --force        Write binary data and control characters even when stdout is a terminal
   -h, --help         help for data
       --latest       Use the newest non-archived clip instead of an ID
       --tag string   With --latest, restrict to a tag (name or ID)
@@ -1105,9 +1110,15 @@ Upload files as clips
 Upload one or more files to mahpastes as new clips.
 If no file arguments are given (or the argument is "-"), reads from stdin. The
 clip is named paste-&lt;timestamp>.&lt;ext> with the extension sniffed from the
-content unless --filename is given. With --quiet, only the new clip IDs are
+content unless --filename is given. With --quiet, only the clip IDs are
 printed, one per line.
 Optionally tag the uploaded clips and set an expiration duration.
+
+Uploads are deduplicated by content. When identical content is already in the
+library nothing is created: the existing clip is reported as "Already exists"
+(its ID is still printed with --quiet, and --json marks it "duplicate": true),
+it keeps its own filename, and --tag and --expire are not applied to it, so an
+upload never retags or puts an expiry on a clip it did not create.
 
 ```
 mp clip upload [files...] [flags]
@@ -1128,7 +1139,7 @@ mp clip upload [files...] [flags]
   # Upload from stdin
   echo "hello" | mp clip upload --filename hello.txt
 
-  # Pipe filter: capture the new clip's ID
+  # Pipe filter: capture the clip's ID
   echo "hello" | mp clip upload -q
   some-command | mp clip upload - --tag logs -q
 
@@ -1140,11 +1151,11 @@ mp clip upload [files...] [flags]
 
 ```
       --content-type string   Content type for stdin input
-      --expire string         Expiration duration (e.g. 30m, 2h, 7d)
+      --expire string         Expiration duration for newly created clips (e.g. 30m, 2h, 7d)
       --filename string       Filename for stdin input
   -h, --help                  help for upload
-  -q, --quiet                 Print only the new clip IDs, one per line
-      --tag string            Tag to apply to uploaded clips (name or ID)
+  -q, --quiet                 Print only the clip IDs, one per line
+      --tag string            Tag to apply to newly created clips (name or ID)
 ```
 
 ### Options inherited from parent commands

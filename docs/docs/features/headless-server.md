@@ -23,7 +23,7 @@ Or build it directly with `CGO_ENABLED=0 go build -o mahpastesd ./cmd/mahpastesd
 
 ## Configuration
 
-`mahpastesd` takes **no command-line flags**. It is configured only through environment variables:
+`mahpastesd` takes **no command-line flags**: `--help` and `--version` print and exit, and any other argument is refused (exit code 2) before the data directory is touched. It is configured only through environment variables:
 
 | Variable | Default | Meaning |
 | --- | --- | --- |

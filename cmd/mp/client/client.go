@@ -106,7 +106,7 @@ func New() (*Client, error) {
 		// an invalid or revoked key, as documented.
 		return nil, &APIError{
 			StatusCode: http.StatusUnauthorized,
-			Message:    "MP_API_KEY environment variable (or MP_API_KEY_FILE) is required.\n\nTo get started:\n  1. Open mahpastes Settings > API\n  2. Create an API key\n  3. export MP_API_KEY=<your-key>\n     (or save it to a file and export MP_API_KEY_FILE=<path>)",
+			Message:    "MP_API_KEY environment variable (or MP_API_KEY_FILE) is required.\n\nTo get started:\n  1. Open the mahpastes menu drawer and click API\n  2. Create an API key\n  3. export MP_API_KEY=<your-key>\n     (or save it to a file and export MP_API_KEY_FILE=<path>)",
 		}
 	}
 
@@ -169,7 +169,9 @@ func (c *Client) Long() *Client {
 	return &cp
 }
 
-var quoteEscaper = strings.NewReplacer("\\", "\\\\", `"`, "\\\"")
+// quoteEscaper matches mime/multipart's own: CR and LF must not reach the part
+// header raw, where they break the upload and can add header lines.
+var quoteEscaper = strings.NewReplacer("\\", "\\\\", `"`, "\\\"", "\r", "%0D", "\n", "%0A")
 
 func escapeQuotes(s string) string { return quoteEscaper.Replace(s) }
 
@@ -385,6 +387,14 @@ func (c *Client) DeleteJSON(path string, result interface{}) error {
 // UploadFile uploads a file via multipart form POST.
 // extraFields are added as form fields alongside the file.
 func (c *Client) UploadFile(path string, filename string, reader io.Reader, extraFields map[string]string, result interface{}) error {
+	_, err := c.UploadFileStatus(path, filename, reader, extraFields, result)
+	return err
+}
+
+// UploadFileStatus is UploadFile that also returns the HTTP status of a
+// successful upload. POST /api/v1/clips answers 201 for a clip it created and
+// 200 when identical content already existed and that clip came back instead.
+func (c *Client) UploadFileStatus(path string, filename string, reader io.Reader, extraFields map[string]string, result interface{}) (int, error) {
 	pr, pw := io.Pipe()
 	w := multipart.NewWriter(pw)
 
@@ -404,7 +414,7 @@ func (c *Client) UploadFile(path string, filename string, reader io.Reader, extr
 	if err != nil {
 		pr.Close()
 		<-done
-		return err
+		return 0, err
 	}
 	req.Header.Set("Content-Type", w.FormDataContentType())
 
@@ -417,11 +427,11 @@ func (c *Client) UploadFile(path string, filename string, reader io.Reader, extr
 		select {
 		case <-done:
 			if writeErr != nil && !errors.Is(writeErr, io.ErrClosedPipe) {
-				return writeErr // e.g. a local read error that aborted the request
+				return 0, writeErr // e.g. a local read error that aborted the request
 			}
 		default:
 		}
-		return err
+		return 0, err
 	}
 	defer resp.Body.Close()
 	if err := checkResponse(resp); err != nil {
@@ -429,18 +439,18 @@ func (c *Client) UploadFile(path string, filename string, reader io.Reader, extr
 		// message explains more than the writer's closed-pipe error would.
 		// writeErr is not needed, so do not wait for the writer.
 		pr.Close()
-		return err
+		return 0, err
 	}
 	// On success the transport finishes sending (or closes) the body, which
 	// lets the writer return.
 	<-done
 	if writeErr != nil {
-		return writeErr
+		return 0, writeErr
 	}
 	if result != nil {
-		return json.NewDecoder(resp.Body).Decode(result)
+		return resp.StatusCode, json.NewDecoder(resp.Body).Decode(result)
 	}
-	return nil
+	return resp.StatusCode, nil
 }
 
 // writeMultipart writes extraFields followed by the file part. The file part
@@ -460,6 +470,10 @@ func writeMultipart(w *multipart.Writer, filename string, reader io.Reader, extr
 	h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="file"; filename="%s"`, escapeQuotes(filename)))
 	ctype := "application/octet-stream"
 	if ct := extraFields["content_type"]; ct != "" {
+		// It goes into the part header as is.
+		if strings.ContainsAny(ct, "\r\n") {
+			return fmt.Errorf("content type %q contains a line break", ct)
+		}
 		ctype = ct
 	}
 	h.Set("Content-Type", ctype)
