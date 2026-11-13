@@ -223,6 +223,8 @@ test.describe('Search and Filtering', () => {
     });
 
     test('with more pages, the message says how many clips it looked at', async ({ app }) => {
+      // Exactly one page loaded is the premise; keep the next from arriving by itself.
+      await app.page.evaluate(() => (window as any).setAutoLoadMore(false));
       await app.page.evaluate(async () => {
         const files = [];
         for (let i = 0; i < 60; i++) {

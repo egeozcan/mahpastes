@@ -484,15 +484,6 @@
                     </svg>
                     Tag
                 </button>
-                <button id="bulk-compare-btn" data-testid="bulk-compare-btn"
-                    class="hidden flex items-center gap-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 px-3 py-1.5 rounded-md text-xs font-medium transition-colors"
-                    data-tooltip="Compare the two selected images">
-                    <svg class="w-4 h-4 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
-                            d="M9 4H5a1 1 0 00-1 1v14a1 1 0 001 1h4m6-16h4a1 1 0 011 1v14a1 1 0 01-1 1h-4M12 2v20" />
-                    </svg>
-                    Compare
-                </button>
                 <button id="bulk-expiry-btn"
                     class="flex items-center gap-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 px-3 py-1.5 rounded-md text-xs font-medium transition-colors"
                     data-tooltip="Set expiration on selected clips">
@@ -629,7 +620,7 @@
 
     <!-- Toast Notification -->
     <div id="toast" role="status" aria-live="polite"
-        class="fixed bottom-16 right-4 max-w-md break-words bg-stone-800 text-white text-xs py-2.5 px-4 rounded-md shadow-lg transition-all translate-x-full opacity-0 z-[260]">
+        class="fixed bottom-16 right-4 max-w-md break-words pointer-events-none bg-stone-800 text-white text-xs py-2.5 px-4 rounded-md shadow-lg transition-all translate-x-full opacity-0 z-[260]">
         <!-- Message will be set by JS -->
     </div>
 

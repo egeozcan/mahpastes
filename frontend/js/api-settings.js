@@ -123,7 +123,6 @@ function closeApiModal() {
     apiModal.setAttribute('inert', '');
     hideCreateKeyForm();
     hideKeyReveal();
-    hideKeyReveal();
     apiModalFocus.close();
 }
 

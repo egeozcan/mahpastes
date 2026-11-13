@@ -1450,7 +1450,7 @@ async function handleFolderDrop(folderFiles, looseFiles, dirPaths) {
         if (failedCount > 0) parts.push(`${failedCount} failed`);
         showToast(`Folder import: ${parts.join(', ')}.`);
     } else if (uploadedCount > 0) {
-        showToast(uploadExpiryNote() ? `Folder uploaded${uploadExpiryNote()}.` : 'Folder uploaded!');
+        showToast(`Folder uploaded${uploadExpiryNote()}.`);
     } else {
         showToast('No files to upload.');
     }

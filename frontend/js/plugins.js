@@ -1512,7 +1512,7 @@ async function checkPluginUpdatesNow() {
         }
         const count = Object.keys(pluginUpdates).length;
         showToast(count === 0
-            ? 'Every plugin is up to date.'
+            ? 'No plugin updates found.'
             : `${count} plugin update${count === 1 ? '' : 's'} available.`);
         renderPluginsList();
     } catch (error) {

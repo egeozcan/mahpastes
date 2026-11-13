@@ -488,7 +488,7 @@ function showToast(message, type = 'info', action = null) {
     if (hasAction) {
         const btn = document.createElement('button');
         btn.type = 'button';
-        btn.className = 'ml-2 underline underline-offset-2 font-medium hover:opacity-80 transition-opacity';
+        btn.className = 'pointer-events-auto ml-2 underline underline-offset-2 font-medium hover:opacity-80 transition-opacity';
         btn.dataset.testid = 'toast-action';
         btn.textContent = action.label;
         btn.addEventListener('click', () => {
@@ -504,7 +504,7 @@ function showToast(message, type = 'info', action = null) {
         // Icon only, so the toast's text stays the message.
         const dismiss = document.createElement('button');
         dismiss.type = 'button';
-        dismiss.className = 'ml-2 align-middle hover:opacity-75 transition-opacity';
+        dismiss.className = 'pointer-events-auto ml-2 align-middle hover:opacity-75 transition-opacity';
         dismiss.dataset.testid = 'toast-dismiss';
         dismiss.setAttribute('aria-label', 'Dismiss');
         dismiss.innerHTML = '<svg class="w-3 h-3 inline" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>';
@@ -540,15 +540,18 @@ function hideToast() {
     toast.querySelector('[data-testid="toast-dismiss"]')?.remove();
 }
 
-// The toast's timer ran out. It waits while the pointer is over it or focus
-// is inside it (reading it, reaching for Undo) and looks again shortly.
+// The toast's timer ran out. It waits while the pointer is on one of its
+// buttons or focus is inside it (reaching for Undo) and looks again shortly.
+// The toast's body lets clicks through (pointer-events: none): it sits over
+// the bottom-right of the page, bulk toolbar included, and a toast that stays
+// for eight seconds must not swallow a click meant for what is under it.
 const TOAST_MAX_HOLD_MS = 30000;
 
 function toastTimerFired() {
     const toast = document.getElementById('toast');
     // Not for ever: a toast that appeared under a parked pointer, or whose
     // button kept focus while the user went elsewhere, still leaves.
-    const held = toast.matches(':hover') || toast.contains(document.activeElement);
+    const held = !!toast.querySelector(':hover') || toast.contains(document.activeElement);
     if (held && Date.now() - (window.toastShownAt || 0) < TOAST_MAX_HOLD_MS) {
         window.toastTimeout = setTimeout(toastTimerFired, 1000);
         return;

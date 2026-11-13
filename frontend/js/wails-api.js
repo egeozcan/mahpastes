@@ -1031,7 +1031,7 @@ async function upload(files, { unreadable = [] } = {}) {
             summary = parts.join(', ') + '.';
             // Still on the archive (something is open over it): the new clip
             // is not in the list behind, so say where it went.
-            if (isViewingArchive && result.toUpload.length > 0) summary += ' Added to the active clips.';
+            if (isViewingArchive && stored > 0) summary += ' Added to the active clips.';
             if (unreadableText) summary = parts.length > 0 ? `${summary} ${unreadableText}` : unreadableText;
             // Nothing new at all, because it is all here already: say that
             // (a bare "1 skipped." gave no reason) and lead to the clip, which
@@ -1057,7 +1057,9 @@ async function upload(files, { unreadable = [] } = {}) {
             const reload = loadClips();
             const gen = _clipLoadGen;
             reload.then(() => {
-                if (gen === _clipLoadGen && !galleryLoadFailed()) offerToShowUploaded(result.toUpload, summary, unreadableText ? 'error' : 'info');
+                // Not when some were refused: which names failed is not known
+                // here, and "not shown" would be offered for clips that do not exist.
+                if (gen === _clipLoadGen && !galleryLoadFailed() && storeFailed === 0) offerToShowUploaded(result.toUpload, summary, unreadableText ? 'error' : 'info');
             }).catch(console.error);
         }
     } catch (error) {
@@ -1264,6 +1266,7 @@ async function createAndCopyPublicLink(id) {
                 try {
                     await window.go.main.LinkService.RevokeShareLink(linkID);
                     showToast('Public link revoked.');
+                    if (typeof loadPublicLinks === 'function') loadPublicLinks();
                 } catch (error) {
                     toastError('Could not revoke the link', error);
                 }
@@ -1271,7 +1274,7 @@ async function createAndCopyPublicLink(id) {
         } : null;
         showToast(copied
             ? 'Public link copied. Anyone with it can download this clip.'
-            : 'Public link created, but it could not be copied. Find it under Public Links in the API settings.',
+            : 'Public link created, but it could not be copied. Revoke it here or under Public Links in the API settings, then try again.',
         copied ? 'info' : 'error', revoke);
     } catch (error) {
         console.error('Error creating public link:', error);

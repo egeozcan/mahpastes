@@ -34,13 +34,22 @@ test.describe('Error toasts', () => {
     await expect(dismiss).toHaveCount(0);
   });
 
-  test('a toast stays while the pointer is over it and leaves afterwards', async ({ app }) => {
-    await show(app, 'Clip archived.', 'info');
-    await toast(app).hover();
-    await app.page.waitForTimeout(3600);
+  test('a toast stays while the pointer is on its button, and its body lets clicks through', async ({ app }) => {
+    await app.page.evaluate(() => (window as any).showToast('Clip archived.', 'info', { label: 'Undo', onClick: () => {} }));
+    await app.page.locator(selectors.toast.action).hover();
+    await app.page.waitForTimeout(8600);
     await expect(toast(app)).toHaveClass(/opacity-100/);
 
     await app.page.mouse.move(5, 5);
     await expect(toast(app)).toHaveClass(/opacity-0/, { timeout: 5000 });
+
+    // The body does not take clicks: what is under the toast stays reachable.
+    await show(app, 'A message over the bottom-right corner of the page', 'info');
+    const through = await app.page.evaluate(() => {
+      const r = document.getElementById('toast')!.getBoundingClientRect();
+      const hit = document.elementFromPoint(r.left + 10, r.top + r.height / 2);
+      return !!hit && hit.id !== 'toast' && !document.getElementById('toast')!.contains(hit);
+    });
+    expect(through).toBe(true);
   });
 });

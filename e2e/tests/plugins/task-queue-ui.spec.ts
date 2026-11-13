@@ -104,7 +104,7 @@ test.describe('Plugins: Check for updates', () => {
 
       // The next answer is the truth: a plugin no longer behind loses its badge.
       await button.click();
-      await app.expectToast('Every plugin is up to date.');
+      await app.expectToast('No plugin updates found.');
       await expect(card).not.toContainText('Update available');
     } finally {
       await app.page.evaluate(() => (window as any).__restoreCheck?.());

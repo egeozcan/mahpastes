@@ -40,37 +40,36 @@ test.describe('Bulk toolbar clearance', () => {
   });
 });
 
-// Comparison existed only inside the "more" menu, once exactly two images
-// were already selected.
-test.describe('Bulk toolbar: Compare', () => {
-  test('Compare shows with one image selected, says what it needs, and opens with two', async ({ app }) => {
+// Comparison appeared nowhere until exactly two images were already selected.
+test.describe('Bulk More menu: Compare', () => {
+  test('the More menu offers Compare as soon as an image is selected, and says what it needs', async ({ app }) => {
     const { createTempFile, generateTestImage, generateTestText } = await import('../../helpers/test-data');
     const pathMod = await import('path');
     const a = await createTempFile(generateTestImage(40, 40, [255, 0, 0]), 'png');
     const b = await createTempFile(generateTestImage(40, 40, [0, 255, 0]), 'png');
     const t = await createTempFile(generateTestText('not-an-image'), 'txt');
     for (const f of [a, b, t]) await app.uploadFile(f);
-    const compare = app.page.locator('[data-testid="bulk-compare-btn"]');
+    const more = app.page.locator('#bulk-more-btn');
+    // It stays off the toolbar itself (the toolbar has a width budget).
+    await expect(app.page.locator('#bulk-toolbar').getByText('Compare', { exact: true })).toHaveCount(0);
 
-    // No image selected: no button.
+    // No image selected: nothing to offer.
     await app.selectClips([pathMod.basename(t)]);
-    await expect(compare).toBeHidden();
+    await expect(more).toBeHidden();
 
     await app.selectClips([pathMod.basename(a)]);
-    await expect(compare).toBeVisible();
-    await expect(compare).toHaveAttribute('aria-disabled', 'true');
-    await expect(compare).toHaveAttribute('data-tooltip', 'Select exactly two images to compare');
-    // Playwright treats aria-disabled as not clickable; a person can click it.
-    await compare.click({ force: true });
+    await expect(more).toBeVisible();
+    await more.click();
+    const hint = app.page.locator('.card-menu-dropdown [data-action="compare-hint"]');
+    await expect(hint).toHaveText('Compare (select exactly two images)');
+    await hint.click();
     await app.expectToast('Select exactly two images to compare.');
     await expect(app.page.locator(selectors.comparison.modal)).not.toHaveClass(/active/);
 
-    // The text clip is still selected: a text clip and two images is not a pair.
-    await app.selectClips([pathMod.basename(b)]);
-    await expect(compare).toHaveAttribute('aria-disabled', 'true');
     await app.deselectClip(pathMod.basename(t));
-    await expect(compare).toHaveAttribute('aria-disabled', 'false');
-    await compare.click();
+    await app.selectClips([pathMod.basename(b)]);
+    await more.click();
+    await app.page.locator('.card-menu-dropdown [data-action="compare"]').click();
     await expect(app.page.locator(selectors.comparison.modal)).toHaveClass(/active/);
   });
 });

@@ -354,45 +354,26 @@ function canCompareBulkSelection() {
     });
 }
 
-// Comparison was reachable only from the "more" menu, and only once exactly
-// two images were already selected: nothing said it existed. The button shows
-// as soon as an image is selected, and says what it needs when the selection
-// is not yet two images.
-function updateBulkCompareButton() {
-    const button = document.getElementById('bulk-compare-btn');
-    if (!button) return;
-    if (!button.dataset.initialized) {
-        button.dataset.initialized = 'true';
-        button.addEventListener('click', () => {
-            if (button.getAttribute('aria-disabled') === 'true') {
-                showToast('Select exactly two images to compare.');
-                return;
-            }
-            openComparisonModal();
-        });
-    }
-    const anyImage = Array.from(selectedIds).some(id => {
+// Is any selected clip an image? Then the "more" menu shows, with Compare in
+// it: enabled for exactly two images, and otherwise saying what it needs.
+// (Comparison used to appear nowhere until exactly two images were already
+// selected. It stays in the menu, not on the toolbar: the toolbar has a width
+// budget on narrow windows.)
+function anySelectedImage() {
+    return Array.from(selectedIds).some(id => {
         const card = gallery.querySelector(`li[data-id="${id}"]`);
         return card && (card.dataset.type || '').startsWith('image/');
     });
-    const ready = canCompareBulkSelection();
-    button.classList.toggle('hidden', !anyImage);
-    button.setAttribute('aria-disabled', ready ? 'false' : 'true');
-    button.classList.toggle('opacity-50', !ready);
-    button.setAttribute('data-tooltip', ready
-        ? 'Compare the two selected images'
-        : 'Select exactly two images to compare');
 }
 
 function updateBulkMoreButton() {
-    updateBulkCompareButton();
     const button = document.getElementById('bulk-more-btn');
     if (!button) return;
     if (!button.dataset.menuInitialized) {
         button.addEventListener('click', () => openBulkMoreMenu(button));
         button.dataset.menuInitialized = 'true';
     }
-    const hasActions = canCompareBulkSelection() || getApplicableBulkPluginActions().length > 0;
+    const hasActions = anySelectedImage() || getApplicableBulkPluginActions().length > 0;
     button.classList.toggle('hidden', !hasActions);
 }
 
@@ -432,14 +413,15 @@ function openBulkMoreMenu(anchor) {
     const canCompare = canCompareBulkSelection();
     const pluginActions = getApplicableBulkPluginActions();
 
-    if (canCompare) {
+    const offerCompare = canCompare || anySelectedImage();
+    if (offerCompare) {
         items.push({
-            id: 'compare',
-            label: 'Compare',
+            id: canCompare ? 'compare' : 'compare-hint',
+            label: canCompare ? 'Compare' : 'Compare (select exactly two images)',
             iconHtml: getMenuIcon('compare'),
         });
     }
-    if (canCompare && pluginActions.length > 0) items.push({ type: 'divider' });
+    if (offerCompare && pluginActions.length > 0) items.push({ type: 'divider' });
 
     items.push(...buildBulkPluginItems(pluginActions));
 
@@ -447,6 +429,10 @@ function openBulkMoreMenu(anchor) {
     ContextMenu.open(items, null, anchor, (menuAction, _id, item) => {
         if (menuAction === 'compare') {
             openComparisonModal();
+            return;
+        }
+        if (menuAction === 'compare-hint') {
+            showToast('Select exactly two images to compare.');
             return;
         }
         if (menuAction !== 'plugin') return;

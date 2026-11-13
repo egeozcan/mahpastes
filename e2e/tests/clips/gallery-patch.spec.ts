@@ -136,6 +136,8 @@ test.describe('Gallery in-place patches', () => {
   });
 
   test('deleting with more pages keeps "N of M" and Load more consistent', async ({ app }) => {
+    // Paging is driven by hand here; the automatic next-page load would race it.
+    await app.page.evaluate(() => (window as any).setAutoLoadMore(false));
     const names = Array.from({ length: 55 }, (_, i) => `pg-${String(i).padStart(3, '0')}.txt`);
     await seedTextClips(app, names);
     await app.expectClipCount(50);
