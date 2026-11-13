@@ -211,15 +211,22 @@ function renderTaskCard(task) {
     const progressPercent = task.total > 0 ? (task.progress / task.total) * 100 : 0;
     const showProgress = task.status === 'running';
     const timeAgo = getTimeAgo(task.created_at);
+    const finished = task.status === 'completed' || task.status === 'cancelled' || task.status === 'failed';
 
     // Build error details section
     let errorDetailsHtml = '';
     if (task.error) {
+        // The error once, in full when asked for. A long one is clamped to two
+        // lines with a real button to expand it; a short one has none (it
+        // used to say "Click to expand" under every error, clamped or not).
         const errorId = `error-${task.id}-fallback`;
+        const long = String(task.error).length > 140 || String(task.error).includes('\n');
+        const expanded = expandedTaskErrors.has(String(task.id));
         errorDetailsHtml = `
             <div class="mt-2 pt-2 border-t border-stone-200">
-                <p id="${errorId}" class="text-xs text-red-500 line-clamp-2 cursor-pointer" onclick="toggleErrorExpand('${errorId}')">${escapeHTML(task.error)}</p>
-                <p class="text-xs text-stone-400 mt-1">Click to expand</p>
+                <p id="${errorId}" data-testid="task-error" class="text-xs text-red-500 break-words${long && !expanded ? ' line-clamp-2' : ''}">${escapeHTML(task.error)}</p>
+                ${long ? `<button type="button" data-task-action="toggle-error" aria-expanded="${expanded ? 'true' : 'false'}" aria-controls="${errorId}"
+                    class="text-xs text-stone-400 hover:text-stone-600 underline underline-offset-2 mt-1 transition-colors">${expanded ? 'Show less' : 'Show all'}</button>` : ''}
             </div>
         `;
     }
@@ -231,6 +238,12 @@ function renderTaskCard(task) {
                     ${statusIcon}
                     <span class="text-sm font-medium text-stone-700">${escapeHTML(task.task_name)}</span>
                 </div>
+                ${finished ? `<button type="button" data-task-action="dismiss" aria-label="Dismiss task"
+                    class="p-1 text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded transition-colors">
+                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>` : ''}
             </div>
 
             ${showProgress ? `
@@ -244,7 +257,6 @@ function renderTaskCard(task) {
 
             <div class="text-xs text-stone-500">
                 <span class="task-status">${getStatusText(task.status)}</span>
-                ${task.error ? `<span class="text-red-500"> - ${escapeHTML(task.error)}</span>` : ''}
                 <span class="ml-2">${timeAgo}</span>
             </div>
             ${errorDetailsHtml}
@@ -300,17 +312,35 @@ function getTimeAgo(dateStr) {
     return `${Math.floor(seconds / 86400)}d ago`;
 }
 
-// Toggle error text expansion
-function toggleErrorExpand(errorId) {
-    const el = document.getElementById(errorId);
-    if (el) {
-        if (el.classList.contains('line-clamp-2')) {
-            el.classList.remove('line-clamp-2');
-        } else {
-            el.classList.add('line-clamp-2');
-        }
+// Which tasks' errors are expanded. The list is redrawn on every progress
+// event, so the state lives here and not in the markup.
+const expandedTaskErrors = new Set();
+
+// One listener for the cards' buttons: the cards are rebuilt wholesale.
+queueTaskList?.addEventListener('click', (e) => {
+    const button = e.target.closest('[data-task-action]');
+    if (!button) return;
+    const card = button.closest('[data-task-id]');
+    const id = card ? card.dataset.taskId : null;
+    if (id == null) return;
+    if (button.dataset.taskAction === 'toggle-error') {
+        if (expandedTaskErrors.has(id)) expandedTaskErrors.delete(id);
+        else expandedTaskErrors.add(id);
+        renderQueueModal();
+        queueTaskList.querySelector(`[data-task-id="${CSS.escape(id)}"] [data-task-action="toggle-error"]`)?.focus();
+        return;
     }
-}
+    if (button.dataset.taskAction === 'dismiss') {
+        // A finished task goes away on its own button: a failure used to stay
+        // on the bar until "Clear completed", which did not sound like it.
+        for (const key of taskQueue.tasks.keys()) {
+            if (String(key) === id) taskQueue.tasks.delete(key);
+        }
+        expandedTaskErrors.delete(id);
+        updateQueueBar();
+        renderQueueModal();
+    }
+});
 
 // Clear completed/failed tasks (local only)
 function clearCompletedTasksAction() {
