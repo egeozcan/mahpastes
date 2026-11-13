@@ -3,6 +3,7 @@ package app
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -32,7 +33,9 @@ func TestBootstrapAPIKeyWritesFileOnceAndIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("bootstrap key file missing: %v", err)
 	}
-	if perm := info.Mode().Perm(); perm != 0600 {
+	// Windows has no mode bits (Go reports 0666 for any writable file); the
+	// data directory under %APPDATA% is private to the user by its ACL.
+	if perm := info.Mode().Perm(); runtime.GOOS != "windows" && perm != 0600 {
 		t.Fatalf("bootstrap key file mode = %o, want 600", perm)
 	}
 	body, _ := os.ReadFile(path)

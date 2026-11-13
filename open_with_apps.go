@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	posixpath "path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -114,7 +115,9 @@ func openWithAppsFromScript(out []byte) ([]OpenWithApp, error) {
 		if path == "" {
 			return
 		}
-		path = filepath.Clean(path)
+		// The script reports macOS paths: clean them as slash paths whatever
+		// the host, so the parser behaves (and tests) the same everywhere.
+		path = posixpath.Clean(path)
 		if seen[path] {
 			return
 		}
@@ -148,7 +151,7 @@ func openWithAppsFromScript(out []byte) ([]OpenWithApp, error) {
 func openWithAppName(displayName, path string) string {
 	name := strings.TrimSpace(displayName)
 	if name == "" {
-		name = filepath.Base(path)
+		name = posixpath.Base(path)
 	}
 	if strings.HasSuffix(strings.ToLower(name), ".app") {
 		name = name[:len(name)-len(".app")]

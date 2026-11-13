@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -19,12 +20,18 @@ func TestProjectionMountIsExcludedFromWatchAndImport(t *testing.T) {
 	writeFile(t, home, "notes.txt", "keep me")
 	// A symlink to the mount must not get around the check.
 	link := filepath.Join(t.TempDir(), "clips-link")
-	if err := os.Symlink(mount, link); err != nil {
+	guarded := []string{mount, filepath.Join(mount, "Active")}
+	if err := os.Symlink(mount, link); err == nil {
+		guarded = append(guarded, link)
+	} else if runtime.GOOS == "windows" {
+		// Creating a symlink needs Developer Mode or elevation on Windows.
+		t.Logf("symlink case not covered: %v", err)
+	} else {
 		t.Fatal(err)
 	}
 	app.SetProjectionMount(mount)
 
-	for _, path := range []string{mount, filepath.Join(mount, "Active"), link} {
+	for _, path := range guarded {
 		if _, err := app.AddWatchedFolder(WatchedFolderConfig{Path: path}); !errors.Is(err, errProjectionMount) {
 			t.Errorf("AddWatchedFolder(%s) error = %v", path, err)
 		}
