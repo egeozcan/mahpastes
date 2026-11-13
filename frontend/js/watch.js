@@ -524,24 +524,24 @@ window.runtime.OnFileDrop(async (x, y, paths) => {
 function initWatchEvents() {
     if (typeof window.runtime === 'undefined') return;
 
-    window.runtime.EventsOn('watch:error', (data) => {
-        showToast(`Failed to import ${data.file}: ${data.error}`, 'error');
-    });
-
     // A folder started or stopped being watched (deleted, unmounted, moved,
     // back again), or the watcher itself reported a problem.
     window.runtime.EventsOn('watch:status', (data) => {
         const changes = Array.isArray(data?.changes) ? data.changes : [];
-        if (data?.error) {
-            showToast(`Watch folders: ${data.error}`, 'error');
-        }
+        // One toast for the whole event: there is a single toast element, so
+        // a toast per folder showed only the last one.
+        const problems = [];
+        const recovered = [];
+        if (data?.error) problems.push(`Watch folders: ${data.error}`);
         for (const change of changes) {
             const name = change.path || 'a watched folder';
-            if (change.error) {
-                showToast(`Not watching ${name}: ${change.error}`, 'error');
-            } else if (change.recovered) {
-                showToast(`Watching ${name} again`);
-            }
+            if (change.error) problems.push(`Not watching ${name}: ${change.error}`);
+            else if (change.recovered) recovered.push(name);
+        }
+        if (problems.length > 0) {
+            showToast(problems.join(' · '), 'error');
+        } else if (recovered.length > 0) {
+            showToast(recovered.length === 1 ? `Watching ${recovered[0]} again` : `Watching ${recovered.length} folders again`);
         }
         if (isViewingWatch) {
             loadWatchFolders();
@@ -550,16 +550,63 @@ function initWatchEvents() {
         }
     });
 
+    // A folder sync fires one watch:import (and, for a file that cannot be
+    // read, one watch:error) per file. They are collected into bursts — a
+    // trailing debounce, capped so a steady trickle still lands every
+    // WATCH_BURST_MAX_WAIT_MS — and each burst ends in one gallery reload and
+    // one toast. A toast per file flickered through the names and, worse,
+    // replaced a "Failed to import" toast with the next success before it
+    // could be read; failures are reported nowhere else.
+    //
     // An import may or may not belong in the view on screen — folder level,
-    // descendant tag filters, search and sort all decide that — so reload the
-    // listing rather than guessing. Debounced: a folder sync fires one event
-    // per file. loadClips keeps the selection and the focused card.
-    let watchReloadTimer = null;
+    // descendant tag filters, search and sort all decide that — so the listing
+    // is reloaded rather than guessed at. loadClips keeps the selection and
+    // the focused card.
+    const WATCH_BURST_DEBOUNCE_MS = 300;
+    const WATCH_BURST_MAX_WAIT_MS = 2000;
+    let burstTimer = null;
+    let burstFirstAt = 0;
+    let burstImported = [];
+    let burstFailed = [];
+    const flushWatchBurst = () => {
+        clearTimeout(burstTimer);
+        burstTimer = null;
+        burstFirstAt = 0;
+        const imported = burstImported;
+        const failed = burstFailed;
+        burstImported = [];
+        burstFailed = [];
+        if (imported.length > 0 && !isViewingWatch) loadClips();
+        const importedText = imported.length === 1
+            ? `Imported: ${imported[0]}`
+            : `Imported ${imported.length} files`;
+        if (failed.length === 0) {
+            if (imported.length > 0) showToast(importedText);
+            return;
+        }
+        let failedText;
+        if (failed.length === 1) {
+            failedText = `Failed to import ${failed[0].file}: ${failed[0].error}`;
+        } else {
+            const names = failed.slice(0, 3).map(f => f.file).join(', ');
+            failedText = `${failed.length} files failed to import: ${names}${failed.length > 3 ? ', …' : ''}`;
+        }
+        showToast(imported.length > 0 ? `${importedText}. ${failedText}` : failedText, 'error');
+    };
+    const scheduleWatchBurst = () => {
+        const now = Date.now();
+        if (!burstFirstAt) burstFirstAt = now;
+        clearTimeout(burstTimer);
+        const wait = Math.min(WATCH_BURST_DEBOUNCE_MS, Math.max(0, burstFirstAt + WATCH_BURST_MAX_WAIT_MS - now));
+        burstTimer = setTimeout(flushWatchBurst, wait);
+    };
     window.runtime.EventsOn('watch:import', (clip) => {
-        showToast(`Imported: ${clip.filename}`);
-        if (isViewingWatch) return;
-        clearTimeout(watchReloadTimer);
-        watchReloadTimer = setTimeout(() => { loadClips(); }, 300);
+        burstImported.push(clip?.filename || 'a file');
+        scheduleWatchBurst();
+    });
+    window.runtime.EventsOn('watch:error', (data) => {
+        burstFailed.push({ file: data?.file || 'a file', error: data?.error || 'unknown error' });
+        scheduleWatchBurst();
     });
 }
 
