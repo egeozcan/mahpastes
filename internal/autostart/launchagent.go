@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"encoding/xml"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 )
 
 // launchAgentBackend is a per-user launchd agent. It runs the app's own
@@ -49,6 +51,11 @@ func (b launchAgentBackend) read() (Entry, bool, bool, error) {
 }
 
 func (b launchAgentBackend) write(e Entry) error {
+	// xml.EscapeText would silently turn these into U+FFFD and the entry
+	// would name a path that does not exist.
+	if !xmlRepresentable(e.Executable) {
+		return fmt.Errorf("executable path %q contains characters a login item cannot record", e.Executable)
+	}
 	return writeFileAtomic(b.path(), launchAgentPlist(e), 0o644)
 }
 
@@ -104,6 +111,24 @@ func launchAgentPlist(e Entry) []byte {
 
 func xmlText(b *bytes.Buffer, s string) {
 	_ = xml.EscapeText(b, []byte(s))
+}
+
+// xmlRepresentable reports whether XML 1.0 character data can carry s
+// exactly: valid UTF-8, no control character but tab, LF and CR, and neither
+// U+FFFE nor U+FFFF.
+func xmlRepresentable(s string) bool {
+	if !utf8.ValidString(s) {
+		return false
+	}
+	for _, r := range s {
+		if r < 0x20 && r != '\t' && r != '\n' && r != '\r' {
+			return false
+		}
+		if r == 0xFFFE || r == 0xFFFF {
+			return false
+		}
+	}
+	return true
 }
 
 // parseLaunchAgent reads ProgramArguments (and the legacy Disabled key) from
