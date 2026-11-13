@@ -98,9 +98,9 @@ async function handleOpenRequests(batch) {
 
     if (files.length > 0 || batch.paste_clipboard) {
         // New clips land in the active list; showing the archive would hide them.
-        if (isViewingArchive && typeof toggleViewMode === 'function') {
-            toggleViewMode();
-        }
+        // Only from the gallery: with the lightbox or an editor open over the
+        // archive, the upload's toast says where the clip went instead.
+        if (typeof leaveArchiveForUpload === 'function') leaveArchiveForUpload();
     }
 
     for (const paths of openRequestBatches(files, batch.file_sizes)) {

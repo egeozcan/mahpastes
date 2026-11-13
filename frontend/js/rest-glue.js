@@ -20,9 +20,10 @@
             err.status = res.status;
             throw err;
         }
-        if (res.status === 204) return null;
+        if (res.status === 204) return opts.withStatus ? { status: 204, body: null } : null;
         const text = await res.text();
-        return text ? JSON.parse(text) : null;
+        const body = text ? JSON.parse(text) : null;
+        return opts.withStatus ? { status: res.status, body } : body;
     }
 
     const postJSON = (url, body) => fetchJSON(url, { method: 'POST', headers: jsonHeaders, body: JSON.stringify(body || {}) });
@@ -75,14 +76,22 @@
         return filename;
     }
 
-    async function uploadOne(fileData, autoTagID) {
+    // `minutes` is the bottom bar's upload expiry. The upload route takes none,
+    // so it is set by a second request, and only on a clip this upload created
+    // (201): identical content answers 200 with the clip already stored, and
+    // putting an expiry on that would delete something the user meant to keep
+    // (the mp CLI follows the same rule).
+    async function uploadOne(fileData, autoTagID, minutes) {
         const fd = new FormData();
         fd.append('file', base64ToBlob(fileData.data, fileData.content_type), fileData.name || 'clip');
         const params = new URLSearchParams();
         if (fileData.name) params.set('filename', fileData.name);
-        const clip = await fetchJSON(`${api}/clips?${params.toString()}`, { method: 'POST', body: fd });
+        const { status, body: clip } = await fetchJSON(`${api}/clips?${params.toString()}`, { method: 'POST', body: fd, withStatus: true });
         if (autoTagID && clip && clip.id) {
             await putJSON(`${api}/clips/${clip.id}/tags/${autoTagID}`, {});
+        }
+        if (minutes > 0 && status === 201 && clip && clip.id) {
+            await putJSON(`${api}/clips/${clip.id}/expiration`, { minutes });
         }
         return clip;
     }
@@ -199,7 +208,7 @@
             }
             return await res.json();
         },
-        UploadFiles: async (files, minutes, autoTagID) => Promise.all((files || []).map((f) => uploadOne(f, autoTagID))),
+        UploadFiles: async (files, minutes, autoTagID) => Promise.all((files || []).map((f) => uploadOne(f, autoTagID, minutes))),
         UploadFileAndGetID: async (file) => {
             const clip = await uploadOne(file, 0);
             return clip.id;

@@ -798,11 +798,19 @@ function focusGalleryItem(index) {
 // toast says so and offers to clear what is hiding them. Judged from the cards
 // actually rendered, so a clip a plugin tagged into the filter is not reported
 // as missing. Folder mode files uploads into the folder, so it never applies.
+function galleryLoadFailed() {
+    const el = document.getElementById('gallery-status');
+    return !!el && !el.classList.contains('hidden') && el.classList.contains('text-red-500');
+}
+
 function offerToShowUploaded(uploaded, summary) {
     if (!uploaded || uploaded.length === 0) return;
     const filtered = !isFolderMode() && activeTagFilters.length > 0;
     const searching = searchInput.value.trim() !== '';
     if (!filtered && !searching) return;
+    // With more pages unloaded the clip may simply be further down: clearing
+    // the search would not bring it on screen, so make no claim.
+    if (_galleryView.hasMore) return;
     const names = new Set(uploaded.map(f => (f.name || '').toLowerCase()));
     const shown = Array.from(gallery.querySelectorAll(':scope > li[data-id]'))
         .some(card => card.style.display !== 'none' && names.has(card.dataset.filename));
@@ -863,8 +871,14 @@ async function upload(files) {
         }
 
         if (!isViewingArchive) {
-            await loadClips();
-            offerToShowUploaded(result.toUpload, summary);
+            // Not awaited: a queued paste behind this one must not wait for a
+            // listing. The offer is made only if this very load rendered: a
+            // superseded or failed one says nothing about where the clip is.
+            const reload = loadClips();
+            const gen = _clipLoadGen;
+            reload.then(() => {
+                if (gen === _clipLoadGen && !galleryLoadFailed()) offerToShowUploaded(result.toUpload, summary);
+            });
         }
     } catch (error) {
         console.error('Error uploading:', error);
