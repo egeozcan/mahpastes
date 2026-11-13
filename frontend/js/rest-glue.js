@@ -214,7 +214,23 @@
             }
             return await res.json();
         },
-        UploadFiles: async (files, minutes, autoTagID) => Promise.all((files || []).map((f) => uploadOne(f, autoTagID, minutes))),
+        // Every file is attempted; the ones that failed are reported in the
+        // desktop binding's words ("N of M files could not be stored: …"), so
+        // the caller knows the rest went in.
+        UploadFiles: async (files, minutes, autoTagID) => {
+            const list = files || [];
+            const results = await Promise.allSettled(list.map((f) => uploadOne(f, autoTagID, minutes)));
+            const failed = [];
+            results.forEach((r, i) => {
+                if (r.status === 'rejected') failed.push(`${list[i].name || 'unnamed clip'} (${(r.reason && r.reason.message) || r.reason})`);
+            });
+            if (failed.length > 0) {
+                const shown = failed.slice(0, 3);
+                if (failed.length > 3) shown.push(`and ${failed.length - 3} more`);
+                throw new Error(`${failed.length} of ${list.length} files could not be stored: ${shown.join(', ')}`);
+            }
+            return results.map((r) => r.value);
+        },
         UploadFileAndGetID: async (file) => {
             const clip = await uploadOne(file, 0);
             return clip.id;

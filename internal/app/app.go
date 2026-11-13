@@ -1965,7 +1965,6 @@ func (a *App) UploadFileAndGetID(file FileData) (int64, error) {
 	return id, nil
 }
 
-// UploadFiles handles file uploads
 // expiryTimestamp converts a relative minutes-from-now expiry into canonical UTC
 // text ("YYYY-MM-DD HH:MM:SS", the same form SQLite's CURRENT_TIMESTAMP uses) so
 // expires_at comparisons are correct regardless of the server's local timezone.
@@ -1980,14 +1979,30 @@ func expiryTimestamp(minutes int) *string {
 	return &s
 }
 
+// UploadFiles stores each file as a new clip.
+//
+// One file failing does not stop the others, but it is no longer swallowed:
+// the callers used to report "N uploaded" from the number of files they sent,
+// so a file the database refused (disk full, a blob over SQLite's row limit,
+// a restore racing the insert) was announced as saved. The error returned
+// after the loop is an *UploadFilesError naming each file that was not stored;
+// every other file of the batch was.
 func (a *App) UploadFiles(files []FileData, expirationMinutes int, autoTagID int64) error {
 	expiresAt := expiryTimestamp(expirationMinutes)
+	var failed []UploadFailure
+	fail := func(name string, reason error) {
+		if name == "" {
+			name = "unnamed clip"
+		}
+		failed = append(failed, UploadFailure{Name: name, Reason: reason.Error()})
+	}
 
 	for _, file := range files {
 		// Decode base64 data
 		data, err := base64.StdEncoding.DecodeString(file.Data)
 		if err != nil {
 			log.Printf("Failed to decode base64 data for file %s: %v", file.Name, err)
+			fail(file.Name, fmt.Errorf("invalid data"))
 			continue
 		}
 
@@ -2013,6 +2028,7 @@ func (a *App) UploadFiles(files []FileData, expirationMinutes int, autoTagID int
 			contentType, data, file.Name, expiresAt, contentHash)
 		if err != nil {
 			log.Printf("Failed to insert into db: %v\n", err)
+			fail(file.Name, err)
 			continue
 		}
 
@@ -2024,6 +2040,7 @@ func (a *App) UploadFiles(files []FileData, expirationMinutes int, autoTagID int
 				log.Printf("Failed to auto-tag clip %d with tag %d: %v", clipID, autoTagID, err)
 				if errors.Is(err, errRestoredSinceInsert) {
 					// The clip is gone; clipID names a restored one now.
+					fail(file.Name, fmt.Errorf("a backup was restored while it was being added"))
 					continue
 				}
 			}
@@ -2054,7 +2071,37 @@ func (a *App) UploadFiles(files []FileData, expirationMinutes int, autoTagID int
 		// received the same clip twice with different envelope seqs.
 	}
 
+	if len(failed) > 0 {
+		return &UploadFilesError{Total: len(files), Failed: failed}
+	}
 	return nil
+}
+
+// UploadFailure is one file of an UploadFiles batch that was not stored.
+type UploadFailure struct {
+	Name   string
+	Reason string
+}
+
+// UploadFilesError reports the files of a batch that were not stored. Its
+// text is what the upload toast shows ("1 of 3 files could not be stored:
+// big.mov (...)"); the frontend recognises it by that wording and knows the
+// rest of the batch went in.
+type UploadFilesError struct {
+	Total  int
+	Failed []UploadFailure
+}
+
+func (e *UploadFilesError) Error() string {
+	parts := make([]string, 0, len(e.Failed))
+	for i, f := range e.Failed {
+		if i == 3 {
+			parts = append(parts, fmt.Sprintf("and %d more", len(e.Failed)-3))
+			break
+		}
+		parts = append(parts, fmt.Sprintf("%s (%s)", f.Name, f.Reason))
+	}
+	return fmt.Sprintf("%d of %d files could not be stored: %s", len(e.Failed), e.Total, strings.Join(parts, ", "))
 }
 
 // UpdateClipData replaces the content of an existing clip in place,

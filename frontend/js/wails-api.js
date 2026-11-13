@@ -932,6 +932,14 @@ function offerToShowUploaded(uploaded, summary, type = 'info') {
     });
 }
 
+// How many files of an UploadFiles batch were refused, when the error is the
+// backend's partial-failure report ("2 of 5 files could not be stored: …");
+// null for any other error, which means the whole call failed.
+function partialStoreFailure(error) {
+    const match = /^(\d+) of (\d+) files could not be stored: /.exec(errText(error));
+    return match ? Number(match[1]) : null;
+}
+
 // Lead to a clip that is already stored: its card when it is on screen,
 // otherwise the clip opened as a link to it would open it (viewer or editor).
 function showExistingClip(clipID) {
@@ -974,13 +982,24 @@ async function upload(files, { unreadable = [] } = {}) {
 
         // Upload new files
         const duplicatesBefore = window.__duplicateUploadEvents || 0;
+        let storeFailed = 0;
+        let storeError = '';
         if (result.toUpload.length > 0) {
             // Only now is something certain to be added.
             if (typeof leaveArchiveForUpload === 'function') leaveArchiveForUpload();
             if (typeof setUploadStatus === 'function') {
                 setUploadStatus(result.toUpload.length === 1 ? 'Uploading…' : `Uploading ${result.toUpload.length} files…`);
             }
-            await window.go.main.App.UploadFiles(result.toUpload, minutes, autoTagID);
+            try {
+                await window.go.main.App.UploadFiles(result.toUpload, minutes, autoTagID);
+            } catch (error) {
+                // "N of M files could not be stored: …": the backend stored
+                // the rest. Anything else is a failure of the whole call.
+                const refused = partialStoreFailure(error);
+                if (refused === null) throw error;
+                storeFailed = refused;
+                storeError = errText(error);
+            }
         }
         // Content that already exists elsewhere in the library raises a
         // clip:duplicate toast; this summary would immediately replace it.
@@ -988,11 +1007,17 @@ async function upload(files, { unreadable = [] } = {}) {
 
         let summary = '';
         const totalProcessed = result.toUpload.length + result.toOverwrite.length;
-        const unreadableText = typeof unreadableNote === 'function' ? unreadableNote(unreadable) : '';
+        // What went wrong, in one text: files the backend could not store and
+        // files that could not be read. Either makes the summary an error.
+        const unreadableText = [
+            storeError ? storeError + '.' : '',
+            typeof unreadableNote === 'function' ? unreadableNote(unreadable) : '',
+        ].filter(Boolean).join(' ');
         if (totalProcessed > 0 || result.skippedCount > 0 || unreadableText) {
             const parts = [];
-            if (result.toUpload.length > 0) {
-                parts.push(`${result.toUpload.length} uploaded` + (duplicates > 0
+            const stored = result.toUpload.length - storeFailed;
+            if (stored > 0) {
+                parts.push(`${stored} uploaded` + (duplicates > 0
                     ? ` (${duplicates} duplicate${duplicates === 1 ? '' : 's'} of existing clips)`
                     : '') + (minutes > 0 && typeof uploadExpiryNote === 'function' ? uploadExpiryNote() : ''));
             }

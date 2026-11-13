@@ -1393,7 +1393,11 @@ async function handleFolderDrop(folderFiles, looseFiles, dirPaths) {
                 uploadedCount += result.toUpload.length;
             } catch (error) {
                 console.error('Error uploading folder group:', error);
-                failedCount += result.toUpload.length;
+                // A partial failure names how many were refused; the rest went in.
+                const refused = typeof partialStoreFailure === 'function' ? partialStoreFailure(error) : null;
+                const lost = refused === null ? result.toUpload.length : Math.min(refused, result.toUpload.length);
+                failedCount += lost;
+                uploadedCount += result.toUpload.length - lost;
             }
         }
     }
@@ -1426,7 +1430,10 @@ async function handleFolderDrop(folderFiles, looseFiles, dirPaths) {
                     uploadedCount += result.toUpload.length;
                 } catch (error) {
                     console.error('Error uploading loose files:', error);
-                    failedCount += result.toUpload.length;
+                    const refused = typeof partialStoreFailure === 'function' ? partialStoreFailure(error) : null;
+                    const lost = refused === null ? result.toUpload.length : Math.min(refused, result.toUpload.length);
+                    failedCount += lost;
+                    uploadedCount += result.toUpload.length - lost;
                 }
             }
         } else {

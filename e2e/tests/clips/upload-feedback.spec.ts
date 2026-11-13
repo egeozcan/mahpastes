@@ -84,4 +84,30 @@ test.describe('Upload feedback', () => {
     // And it is gone again once the drag leaves.
     await expect(app.page.locator('#drop-overlay')).not.toHaveClass(/opacity-100/);
   });
+
+  test('a file the backend could not store is not announced as uploaded', async ({ app }) => {
+    const good = await createTempFile(generateTestImage(), 'png');
+    const bad = await createTempFile(generateTestImage(20, 20, [0, 0, 255]), 'png');
+    const badName = path.basename(bad);
+    await app.page.evaluate((name) => {
+      const api = (window as any).go.main.App;
+      const original = api.UploadFiles;
+      (window as any).__restoreUpload = () => { api.UploadFiles = original; };
+      // As the backend does: store what it can, then report the rest.
+      api.UploadFiles = async (files: any[], minutes: number, tag: number) => {
+        await original(files.filter((f) => f.name !== name), minutes, tag);
+        throw `1 of ${files.length} files could not be stored: ${name} (database or disk is full)`;
+      };
+    }, badName);
+    try {
+      await app.page.locator('#file-input').setInputFiles([good, bad]);
+      await app.expectClipVisible(path.basename(good));
+      await app.expectToast(`1 uploaded. 1 of 2 files could not be stored: ${badName} (database or disk is full).`);
+      await expect(app.page.locator('#toast')).toHaveClass(/bg-red-600/);
+      await app.expectClipCount(1);
+    } finally {
+      await app.page.evaluate(() => (window as any).__restoreUpload());
+    }
+  });
 });
+
