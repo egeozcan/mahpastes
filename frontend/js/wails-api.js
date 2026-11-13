@@ -793,6 +793,33 @@ function focusGalleryItem(index) {
     target.focus();
 }
 
+// After an upload's reload: when a tag filter or the search box is narrowing
+// the gallery and none of the new clips made it into the view, the summary
+// toast says so and offers to clear what is hiding them. Judged from the cards
+// actually rendered, so a clip a plugin tagged into the filter is not reported
+// as missing. Folder mode files uploads into the folder, so it never applies.
+function offerToShowUploaded(uploaded, summary) {
+    if (!uploaded || uploaded.length === 0) return;
+    const filtered = !isFolderMode() && activeTagFilters.length > 0;
+    const searching = searchInput.value.trim() !== '';
+    if (!filtered && !searching) return;
+    const names = new Set(uploaded.map(f => (f.name || '').toLowerCase()));
+    const shown = Array.from(gallery.querySelectorAll(':scope > li[data-id]'))
+        .some(card => card.style.display !== 'none' && names.has(card.dataset.filename));
+    if (shown) return;
+    showToast(`${summary} Not shown in the current view.`, 'info', {
+        label: 'Show',
+        onClick: () => {
+            if (searchInput.value !== '') {
+                // Through the input path, so a deep search exits properly.
+                searchInput.value = '';
+                searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+            if (!isFolderMode() && activeTagFilters.length > 0) clearAllTagFilters();
+        },
+    });
+}
+
 async function upload(files) {
     try {
         const minutes = typeof getUploadExpirationMinutes === 'function' ? getUploadExpirationMinutes() : 0;
@@ -819,6 +846,7 @@ async function upload(files) {
         // clip:duplicate toast; this summary would immediately replace it.
         const duplicates = (window.__duplicateUploadEvents || 0) - duplicatesBefore;
 
+        let summary = '';
         const totalProcessed = result.toUpload.length + result.toOverwrite.length;
         if (totalProcessed > 0 || result.skippedCount > 0) {
             const parts = [];
@@ -829,11 +857,13 @@ async function upload(files) {
             }
             if (result.toOverwrite.length > 0) parts.push(`${result.toOverwrite.length} overwritten`);
             if (result.skippedCount > 0) parts.push(`${result.skippedCount} skipped`);
-            showToast(parts.join(', ') + '.');
+            summary = parts.join(', ') + '.';
+            showToast(summary);
         }
 
         if (!isViewingArchive) {
-            loadClips();
+            await loadClips();
+            offerToShowUploaded(result.toUpload, summary);
         }
     } catch (error) {
         console.error('Error uploading:', error);
