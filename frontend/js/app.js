@@ -243,6 +243,30 @@ function getUploadExpirationMinutes() {
     return parseInt(uploadExpirySelect.value, 10) || 0;
 }
 
+// " expiring in 15m" while the expiry select is set, else "". Appended to
+// upload toasts: the select stays set for the whole session, and nothing else
+// says that what was just added will delete itself.
+function uploadExpiryNote() {
+    if (getUploadExpirationMinutes() <= 0) return '';
+    const label = uploadExpirySelect.selectedOptions[0]?.textContent.trim();
+    return label ? `, expiring in ${label}` : '';
+}
+
+// A set expiry is shown in the warning colours so it is not mistaken for the
+// resting "No Expiry". Classes are toggled one by one: serve.js owns `hidden`.
+function syncExpirySelectStyle() {
+    const active = getUploadExpirationMinutes() > 0;
+    uploadExpirySelect.dataset.active = String(active);
+    for (const cls of ['bg-amber-50', 'border-amber-200', 'text-amber-700']) {
+        uploadExpirySelect.classList.toggle(cls, active);
+    }
+    for (const cls of ['bg-white', 'border-stone-200', 'hover:border-stone-300', 'text-stone-500']) {
+        uploadExpirySelect.classList.toggle(cls, !active);
+    }
+}
+uploadExpirySelect.addEventListener('change', syncExpirySelectStyle);
+syncExpirySelectStyle();
+
 // `count` clips shown. With `total` (more exist than are loaded) it reads
 // "50 of 120 clips"; while the plain search filter hides loaded cards it reads
 // "3 of 50 loaded clips" (or "3 of 12 clips" once everything is loaded).
@@ -1293,13 +1317,13 @@ async function handleFolderDrop(folderFiles, looseFiles, dirPaths) {
     // Report results accurately
     if (failedCount > 0 || skippedCount > 0 || overwrittenCount > 0) {
         const parts = [];
-        if (uploadedCount > 0) parts.push(`${uploadedCount} uploaded`);
+        if (uploadedCount > 0) parts.push(`${uploadedCount} uploaded${uploadExpiryNote()}`);
         if (overwrittenCount > 0) parts.push(`${overwrittenCount} overwritten`);
         if (skippedCount > 0) parts.push(`${skippedCount} skipped`);
         if (failedCount > 0) parts.push(`${failedCount} failed`);
         showToast(`Folder import: ${parts.join(', ')}.`);
     } else if (uploadedCount > 0) {
-        showToast('Folder uploaded!');
+        showToast(uploadExpiryNote() ? `Folder uploaded${uploadExpiryNote()}.` : 'Folder uploaded!');
     } else {
         showToast('No files to upload.');
     }

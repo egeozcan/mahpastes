@@ -853,7 +853,7 @@ async function upload(files) {
             if (result.toUpload.length > 0) {
                 parts.push(`${result.toUpload.length} uploaded` + (duplicates > 0
                     ? ` (${duplicates} duplicate${duplicates === 1 ? '' : 's'} of existing clips)`
-                    : ''));
+                    : '') + (minutes > 0 && typeof uploadExpiryNote === 'function' ? uploadExpiryNote() : ''));
             }
             if (result.toOverwrite.length > 0) parts.push(`${result.toOverwrite.length} overwritten`);
             if (result.skippedCount > 0) parts.push(`${result.skippedCount} skipped`);

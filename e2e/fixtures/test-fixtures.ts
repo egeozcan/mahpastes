@@ -1092,7 +1092,11 @@ export class AppHelper {
 
       // Reset upload expiration dropdown to "No expiration"
       const expirySelect = document.getElementById('expiry-select') as HTMLSelectElement;
-      if (expirySelect) expirySelect.value = '0';
+      if (expirySelect) {
+        expirySelect.value = '0';
+        // The select restyles itself from its value on change.
+        expirySelect.dispatchEvent(new Event('change', { bubbles: true }));
+      }
 
       // --- 4. Reload gallery and caches with clean state ---
 
