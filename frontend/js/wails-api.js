@@ -1221,12 +1221,33 @@ async function copyClipAsRichText(id) {
 // revoke it from the CLI (`mp link revoke <id>`) or LinkService at any time.
 async function createAndCopyPublicLink(id) {
     try {
-        const link = await window.go.main.LinkService.CreateShareLink(id, '', 0, 0);
+        // Named after the clip, so the list of links (API modal) says what
+        // each one gives away.
+        const name = galleryClipCard(id)?._clip?.filename || '';
+        const link = await window.go.main.LinkService.CreateShareLink(id, name, 0, 0);
         const path = (link && link.path) || (link && link.token ? '/s/' + link.token : '');
         if (!path) {
             throw new Error('Invalid response');
         }
-        copyToClipboard(window.location.origin + path);
+        const copied = await copyTextQuietly(window.location.origin + path);
+        const linkID = link.info && link.info.id;
+        // What was just made, in words: a download address that needs no
+        // sign-in. Revoke is one click here, and later in the API modal.
+        const revoke = linkID ? {
+            label: 'Revoke',
+            onClick: async () => {
+                try {
+                    await window.go.main.LinkService.RevokeShareLink(linkID);
+                    showToast('Public link revoked.');
+                } catch (error) {
+                    toastError('Could not revoke the link', error);
+                }
+            },
+        } : null;
+        showToast(copied
+            ? 'Public link copied. Anyone with it can download this clip.'
+            : 'Public link created, but it could not be copied. Find it under Public Links in the API settings.',
+        copied ? 'info' : 'error', revoke);
     } catch (error) {
         console.error('Error creating public link:', error);
         toastError('Failed to create public link', error);

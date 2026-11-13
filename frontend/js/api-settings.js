@@ -28,9 +28,84 @@ const apiKeysList = document.getElementById('api-keys-list');
 let apiServerRunning = false;
 const apiModalFocus = createModalFocus(apiModal);
 
+// --- Public links (web UI) ---
+// The list of unauthenticated download links, with Revoke. The link itself
+// is shown once, when made: only its prefix is stored.
+async function loadPublicLinks() {
+    const list = document.getElementById('public-links-list');
+    if (!list || window.mahpastesMode !== 'server') return;
+    const note = (text, cls = 'text-stone-400') => {
+        const p = document.createElement('p');
+        p.className = `text-xs ${cls}`;
+        p.textContent = text;
+        list.replaceChildren(p);
+    };
+    let links;
+    try {
+        links = await window.go.main.LinkService.ListShareLinks();
+    } catch (err) {
+        // Admin keys only: say so rather than show an empty list.
+        note(err && err.status === 403
+            ? 'Public links can be listed with an admin key only.'
+            : 'Failed to load public links: ' + errText(err), err && err.status === 403 ? 'text-stone-400' : 'text-red-500');
+        return;
+    }
+    const live = (links || []).filter(l => !l.is_revoked);
+    if (live.length === 0) {
+        note('No public links.');
+        return;
+    }
+    list.replaceChildren(...live.map(link => {
+        const row = document.createElement('div');
+        row.className = 'p-2.5 border border-stone-200 rounded-md';
+        row.dataset.testid = `public-link-${link.id}`;
+        const created = parseAPITimestamp(link.created_at);
+        const expires = parseAPITimestamp(link.expires_at);
+        const downloads = link.max_downloads
+            ? `${link.download_count} of ${link.max_downloads} downloads`
+            : `${link.download_count} download${link.download_count === 1 ? '' : 's'}`;
+        const top = document.createElement('div');
+        top.className = 'flex items-center justify-between mb-1 gap-2';
+        const name = document.createElement('span');
+        name.className = 'text-xs font-medium text-stone-700 truncate';
+        name.textContent = link.name || `Clip ${link.clip_id}`;
+        const revoke = document.createElement('button');
+        revoke.type = 'button';
+        revoke.className = 'shrink-0 text-[10px] text-stone-400 hover:text-red-500 transition-colors';
+        revoke.textContent = 'Revoke';
+        revoke.dataset.testid = `revoke-public-link-${link.id}`;
+        revoke.addEventListener('click', async () => {
+            revoke.disabled = true;
+            try {
+                await window.go.main.LinkService.RevokeShareLink(link.id);
+                showToast('Public link revoked.');
+            } catch (err) {
+                toastError('Could not revoke the link', err);
+            }
+            loadPublicLinks();
+        });
+        top.append(name, revoke);
+        const bottom = document.createElement('div');
+        bottom.className = 'flex items-center justify-between text-[10px] text-stone-400 gap-2';
+        const prefix = document.createElement('code');
+        prefix.className = 'font-mono';
+        prefix.textContent = link.token_prefix || '';
+        const meta = document.createElement('span');
+        meta.textContent = [
+            downloads,
+            created ? `made ${apiTimeAgo(created)}` : '',
+            expires ? `expires ${expires.toLocaleString()}` : 'no expiry',
+        ].filter(Boolean).join(' · ');
+        bottom.append(prefix, meta);
+        row.append(top, bottom);
+        return row;
+    }));
+}
+
 function openApiModal() {
     loadAPIStatus();
     loadAPIKeys();
+    loadPublicLinks();
     populateTagScopeOptions();
     apiModal.removeAttribute('inert');
     apiModal.classList.remove('opacity-0', 'pointer-events-none');
