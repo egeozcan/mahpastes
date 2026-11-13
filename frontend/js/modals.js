@@ -574,11 +574,20 @@ function updateComparisonView() {
 function clampComparisonPan() {
     const viewport = document.getElementById('comparison-viewport');
     if (!viewport) return;
-    const maxX = Math.max(0, (comparisonContainer.offsetWidth * zoomLevel - viewport.clientWidth) / 2);
-    const maxY = Math.max(0, (comparisonContainer.offsetHeight * zoomLevel - viewport.clientHeight) / 2);
-    // `|| 0` turns the -0 a zero limit produces into 0.
-    comparePanX = Math.max(-maxX, Math.min(maxX, comparePanX)) || 0;
-    comparePanY = Math.max(-maxY, Math.min(maxY, comparePanY)) || 0;
+    // Per side, from where the pair sits before any pan: the Align selects
+    // can put it against an edge, and it scales about its own centre, so the
+    // overflow is not the same on both sides.
+    const limit = (offset, size, room, pan) => {
+        const scaled = size * zoomLevel;
+        if (scaled <= room) return 0;
+        const centre = offset + size / 2;
+        const max = -(centre - scaled / 2);      // its near edge at the viewport's
+        const min = room - (centre + scaled / 2); // its far edge at the viewport's
+        // `|| 0` turns a -0 into 0.
+        return Math.max(min, Math.min(max, pan)) || 0;
+    };
+    comparePanX = limit(comparisonContainer.offsetLeft, comparisonContainer.offsetWidth, viewport.clientWidth, comparePanX);
+    comparePanY = limit(comparisonContainer.offsetTop, comparisonContainer.offsetHeight, viewport.clientHeight, comparePanY);
 }
 
 // Wheel over the comparison: a plain wheel or two-finger scroll pans (Shift

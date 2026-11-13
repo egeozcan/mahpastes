@@ -1863,8 +1863,10 @@ export class AppHelper {
   // it to land, then closes the editor, which a text save leaves open.
   async finishTextSave(): Promise<void> {
     const save = this.page.locator(selectors.textEditor.saveButton);
-    await expect(save).toBeDisabled();
+    // Label first: the button is disabled while "Saving…" too, and only
+    // "Save" + disabled means the write landed and the editor is clean.
     await expect(save).toHaveText('Save');
+    await expect(save).toBeDisabled();
     await this.page.locator(selectors.textEditor.cancelButton).click();
     await this.page.waitForSelector(`${selectors.textEditor.modal}:not(.active)`);
   }
@@ -1874,8 +1876,8 @@ export class AppHelper {
   async saveTextEditorInPlace(): Promise<void> {
     const save = this.page.locator(selectors.textEditor.saveButton);
     await save.click();
-    await expect(save).toBeDisabled();
     await expect(save).toHaveText('Save');
+    await expect(save).toBeDisabled();
   }
 
   async cancelTextEditor(): Promise<void> {

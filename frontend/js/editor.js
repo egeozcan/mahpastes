@@ -669,6 +669,10 @@ async function performSaveEditorInPlace(snapshot) {
                 return;
             }
             TextClipEditor.clearDraft();
+            // The draft is gone with the save; its status line must not go on
+            // saying "Draft saved" now that the editor stays open.
+            const draftStatus = document.getElementById('text-editor-draft-status');
+            if (draftStatus) draftStatus.textContent = '';
             // A text save keeps the editor open: saving as you go must not
             // cost the cursor, the scroll position, the undo history and the
             // find state. (An image save still closes; its canvas is the edit.)

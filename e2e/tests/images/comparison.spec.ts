@@ -51,6 +51,39 @@ test.describe('Image Comparison', () => {
       await app.page.locator(selectors.comparison.fitButton).click();
       expect(await wheel({ deltaY: 0 })).toMatchObject({ x: 0, y: 0 });
     });
+
+    test('an edge-aligned pair can still be panned to both of its sides', async ({ app }) => {
+      const files = await Promise.all([
+        createTempFile(generateTestImage(300, 300, [255, 0, 0]), 'png'),
+        createTempFile(generateTestImage(300, 300, [0, 255, 0]), 'png'),
+      ]);
+      await app.uploadFiles(files);
+      await app.selectClips(files.map((f) => path.basename(f)));
+      await app.openComparison();
+
+      // Put the pair against the left edge, as the Align select does, and zoom.
+      const edges = await app.page.evaluate(() => {
+        const viewport = document.getElementById('comparison-viewport')!;
+        viewport.style.justifyContent = 'flex-start';
+        // @ts-ignore - app.js top-level lets and modals.js function
+        zoomLevel = 5; updateComparisonView();
+        const read = () => {
+          const c = document.getElementById('comparison-container')!.getBoundingClientRect();
+          const v = viewport.getBoundingClientRect();
+          return { left: Math.round(c.left - v.left), right: Math.round(v.right - c.right) };
+        };
+        const wheel = (deltaX: number) => viewport.dispatchEvent(new WheelEvent('wheel', { deltaX, bubbles: true, cancelable: true }));
+        wheel(-1000000);
+        const atLeft = read();
+        wheel(1000000);
+        const atRight = read();
+        return { atLeft, atRight };
+      });
+      // Its left edge can be brought to the viewport's left edge, and its
+      // right edge to the right one, with no empty band beyond either.
+      expect(Math.abs(edges.atLeft.left)).toBeLessThanOrEqual(1);
+      expect(Math.abs(edges.atRight.right)).toBeLessThanOrEqual(1);
+    });
   });
 
   test.describe('Open and Close', () => {
