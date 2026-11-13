@@ -320,6 +320,8 @@
         async function open({ clips, currentId, opener }) {
             if (!Array.isArray(clips) || clips.length === 0) return;
             const wasClosed = state.phase === 'closed';
+            // A new visit reads ahead forwards, whichever way the last one ended.
+            if (wasClosed) state.lastDelta = 1;
             state.clips = [...clips];
             state.currentId = currentId;
             if (!currentClip()) state.currentId = state.clips[0].id;

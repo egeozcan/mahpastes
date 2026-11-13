@@ -1511,6 +1511,7 @@ func (am *APIManager) handleListClipsViaApp(w http.ResponseWriter, r *http.Reque
 			CreatedAt:   p.CreatedAt.Format(time.RFC3339),
 			Tags:        p.Tags,
 			ContentHash: p.ContentHash,
+			ExpiresAt:   p.ExpiresAt,
 		})
 	}
 	total := len(clips)

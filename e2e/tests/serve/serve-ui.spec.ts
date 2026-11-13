@@ -64,6 +64,21 @@ test.describe('Serve - UI', () => {
     expect(status.api_access).toBe('read');
   });
 
+  test('a remembered entry does not follow its id to a tag with another name', async ({ app }) => {
+    const { tagID } = await app.createTag('public-site');
+    await app.page.evaluate(async (id) => {
+      // What a restore that reassigned this id would leave behind: choices
+      // made for a tag of another name.
+      // @ts-ignore - Wails runtime
+      await window.go.main.App.SetSetting('serve_entries', JSON.stringify([
+        { tag_id: id, tag_name: 'private-notes', bind_all: true, api_access: 'readwrite', last_port: 45123 },
+      ]));
+      (window as any).__testHelpers.resetServeEntries();
+    }, tagID);
+    await app.switchToServeView();
+    await expect(app.page.locator(selectors.serve.list)).toContainText('No tags being served');
+  });
+
   test('a removed entry stays removed after a reload', async ({ app }) => {
     const { tagID } = await app.createTag('gone');
     await app.switchToServeView();

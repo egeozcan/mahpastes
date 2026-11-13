@@ -116,6 +116,7 @@ function clearMediaCaches() {
     imageCacheBytes = 0;
     videoMediaURLCache.clear();
     pendingVideoMediaURLs.clear();
+    pendingImageDataUrls.clear();
     // Captured frames stay: each is checked against its clip's revision.
 }
 

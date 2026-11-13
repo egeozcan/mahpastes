@@ -27,6 +27,10 @@ let lastSavedServeEntries = null;
 function serveEntriesSnapshot() {
     return JSON.stringify(Array.from(configuredEntries.values()).map(entry => ({
         tag_id: entry.tag_id,
+        // The name the choices were made for: an id can come to mean another
+        // tag (a backup restored over the library), and "Network, read/write"
+        // must not follow the id to a tag nobody configured.
+        tag_name: entry.tag_name,
         bind_all: bindPreferences.has(entry.tag_id) ? !!bindPreferences.get(entry.tag_id) : !!entry.bind_all,
         api_access: apiAccessPreferences.get(entry.tag_id) || 'none',
         last_port: Number(entry.last_port) || 0,
@@ -42,9 +46,19 @@ function persistServeEntries() {
 }
 
 // Once, before the first render: bring back the stored entries whose tag
-// still exists. Entries already present (a server running right now) win.
-async function restoreServeEntries() {
-    if (serveEntriesRestored) return;
+// still exists under the same name. An entry already present (a server
+// running right now) keeps its live state and only takes the remembered port.
+// Single-flight: every caller waits for the same restore.
+let serveEntriesRestoring = null;
+function restoreServeEntries() {
+    if (serveEntriesRestored) return Promise.resolve();
+    if (!serveEntriesRestoring) {
+        serveEntriesRestoring = doRestoreServeEntries().finally(() => { serveEntriesRestoring = null; });
+    }
+    return serveEntriesRestoring;
+}
+
+async function doRestoreServeEntries() {
     try {
         const raw = await window.go.main.App.GetSetting(SERVE_ENTRIES_SETTING);
         const stored = raw ? JSON.parse(raw) : [];
@@ -53,13 +67,19 @@ async function restoreServeEntries() {
             const names = new Map((tags || []).map(t => [Number(t.id), t.name]));
             for (const item of stored) {
                 const tagID = Number(item && item.tag_id);
-                if (!names.has(tagID) || configuredEntries.has(tagID)) continue;
+                if (!names.has(tagID) || names.get(tagID) !== item.tag_name) continue;
                 const port = Number(item.last_port);
+                const lastPort = Number.isInteger(port) && port > 0 && port < 65536 ? port : 0;
+                const present = configuredEntries.get(tagID);
+                if (present) {
+                    if (!present.last_port) present.last_port = lastPort;
+                    continue;
+                }
                 configuredEntries.set(tagID, {
                     tag_id: tagID,
                     tag_name: names.get(tagID),
                     bind_all: item.bind_all === true,
-                    last_port: Number.isInteger(port) && port > 0 && port < 65536 ? port : 0,
+                    last_port: lastPort,
                 });
                 if (['read', 'readwrite'].includes(item.api_access)) apiAccessPreferences.set(tagID, item.api_access);
             }
@@ -340,6 +360,8 @@ function stopServePolling() {
 // Shared helper: add a tag to configuredEntries (stopped state) and refresh the view.
 // Used by the tag-picker selectOption and by openServeViewForTag (folder-context-menu entry point).
 async function addConfiguredServeEntry(tagID, tagName) {
+    // First, so a remembered entry for this tag is not shadowed by a default one.
+    await restoreServeEntries();
     if (!configuredEntries.has(tagID)) {
         configuredEntries.set(tagID, { tag_id: tagID, tag_name: tagName, bind_all: false });
     }
@@ -663,6 +685,7 @@ if (window.__testHelpers) {
     window.__testHelpers.getCurrentView = () => currentView;
     // Forget the list in memory and read the stored one again on next use.
     window.__testHelpers.resetServeEntries = () => {
+        serveEntriesRestoring = null;
         configuredEntries.clear();
         bindPreferences.clear();
         apiAccessPreferences.clear();
