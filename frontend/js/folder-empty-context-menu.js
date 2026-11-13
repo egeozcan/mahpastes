@@ -115,7 +115,7 @@ const FolderEmptyContextMenu = (() => {
         });
     }
 
-    return { attach };
+    return { attach, newFolder: handleNewFolder };
 })();
 
 window.FolderEmptyContextMenu = FolderEmptyContextMenu;

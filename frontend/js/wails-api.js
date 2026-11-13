@@ -81,9 +81,12 @@ function renderGalleryCount() {
 
 // Empty and error states live beside the gallery, never inside it: the
 // gallery's children are cards, and everything that walks it assumes so.
-function showGalleryStatus(message, kind = 'empty') {
+// `actions` names the buttons to offer under the message ('add', 'import',
+// 'new-folder', 'retry'); none by default.
+function showGalleryStatus(message, kind = 'empty', actions = []) {
     const el = document.getElementById('gallery-status');
     if (!el) return;
+    renderGalleryStatusActions(actions);
     el.textContent = message;
     el.classList.toggle('text-stone-400', kind !== 'error');
     el.classList.toggle('text-red-500', kind === 'error');
@@ -91,7 +94,25 @@ function showGalleryStatus(message, kind = 'empty') {
     delete el.dataset.searchMiss;
 }
 
+function renderGalleryStatusActions(actions) {
+    const wrap = document.getElementById('gallery-status-actions');
+    if (!wrap) return;
+    for (const btn of wrap.querySelectorAll('[data-status-action]')) {
+        btn.hidden = !actions.includes(btn.dataset.statusAction);
+    }
+    wrap.classList.toggle('hidden', actions.length === 0);
+}
+
+document.getElementById('gallery-status-actions')?.addEventListener('click', (e) => {
+    const action = e.target.closest('[data-status-action]')?.dataset.statusAction;
+    if (action === 'add') document.getElementById('add-btn')?.click();
+    else if (action === 'import') document.getElementById('open-import-btn')?.click();
+    else if (action === 'new-folder') window.FolderEmptyContextMenu?.newFolder();
+    else if (action === 'retry') loadClips();
+});
+
 function hideGalleryStatus() {
+    renderGalleryStatusActions([]);
     const el = document.getElementById('gallery-status');
     if (!el) return;
     el.classList.add('hidden');
@@ -342,7 +363,7 @@ async function loadClips({ focusFirst = false } = {}) {
         updateBulkToolbar();
 
         if (page.clips.length === 0 && folderCards.length === 0) {
-            showGalleryStatus(galleryEmptyMessage(deepSearch));
+            showGalleryEmptyState(deepSearch);
         }
         if (typeof applySearchFilter === 'function') applySearchFilter();
         renderGalleryCount();
@@ -389,7 +410,9 @@ async function loadClips({ focusFirst = false } = {}) {
             updateBulkToolbar();
             renderLoadMore();
             updateClipCount(0);
-            showGalleryStatus('Error loading clips.', 'error');
+            // With the reason, and a way to try again that does not depend on
+            // knowing that changing a filter would.
+            showGalleryStatus(`Error loading clips: ${errText(error)}`, 'error', ['retry']);
             clearHiddenClipsNote();
             // The gallery is empty now; a viewer left open would go on
             // showing (and acting on) a clip that may no longer exist.
@@ -483,11 +506,23 @@ async function loadMoreClips() {
     }
 }
 
-function galleryEmptyMessage(deepSearch) {
-    if (deepSearch) return 'No clips match your search.';
-    if (activeTagFilters.length > 0) return 'No clips match the selected tags.';
-    if (isViewingArchive) return 'No archived clips.';
-    return 'No active clips. Paste or drop something!';
+// The message for an empty listing, and the ways in it offers. A filter that
+// matched nothing has no action: the filter is the thing to change. An empty
+// library or an empty folder gets the entry points a new user cannot guess
+// (the Add button is in the bottom bar, Import in the drawer, New Folder was
+// a right-click on a gallery that has no height when empty).
+function showGalleryEmptyState(deepSearch) {
+    if (deepSearch) return showGalleryStatus('No clips match your search.');
+    const inFolderMode = isFolderMode();
+    if (inFolderMode && activeTagFilters.length > 0) {
+        // A folder is held as a tag filter, but it is a place, not a miss.
+        if (isViewingArchive) return showGalleryStatus('No archived clips in this folder.');
+        return showGalleryStatus('This folder is empty. Paste or drop something to add it here.', 'empty', ['add', 'new-folder']);
+    }
+    if (activeTagFilters.length > 0) return showGalleryStatus('No clips match the selected tags.');
+    if (isViewingArchive) return showGalleryStatus('No archived clips.');
+    showGalleryStatus('No active clips. Paste or drop something!', 'empty',
+        inFolderMode ? ['add', 'import', 'new-folder'] : ['add', 'import']);
 }
 
 // --- In-place gallery patches ---
@@ -517,7 +552,7 @@ function afterGalleryPatch() {
     const checkboxes = Array.from(gallery.querySelectorAll('.clip-checkbox'));
     selectAllCheckbox.checked = selectedIds.size > 0 && checkboxes.length > 0 && checkboxes.every(cb => cb.checked);
     updateBulkToolbar();
-    if (!gallery.querySelector(':scope > li')) showGalleryStatus(galleryEmptyMessage(false));
+    if (!gallery.querySelector(':scope > li')) showGalleryEmptyState(false);
     // Re-applies the plain search filter (a rename can change whether a card
     // matches), recounts, and hands the lightbox the new media list.
     if (typeof applySearchFilter === 'function') applySearchFilter();

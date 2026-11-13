@@ -536,6 +536,13 @@
             <!-- Empty / error state for the gallery (kept outside the card list) -->
             <p id="gallery-status" data-testid="gallery-status" role="status"
                 class="hidden text-xs font-medium text-stone-400 text-center py-8"></p>
+            <!-- What to do about the state above: ways in for an empty library or folder, Retry for a failed load -->
+            <div id="gallery-status-actions" data-testid="gallery-status-actions" class="hidden flex flex-wrap justify-center gap-2 -mt-4 pb-6">
+                <button type="button" data-status-action="add" data-testid="gallery-status-add" hidden class="border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-xs font-medium py-2 px-3 rounded-md transition-colors">Add files</button>
+                <button type="button" data-status-action="import" data-testid="gallery-status-import" hidden class="desktop-only border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-xs font-medium py-2 px-3 rounded-md transition-colors">Import a folder</button>
+                <button type="button" data-status-action="new-folder" data-testid="gallery-status-new-folder" hidden class="border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-xs font-medium py-2 px-3 rounded-md transition-colors">New folder</button>
+                <button type="button" data-status-action="retry" data-testid="gallery-status-retry" hidden class="border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-xs font-medium py-2 px-3 rounded-md transition-colors">Retry</button>
+            </div>
             <!-- Next page of the listing; select-all and bulk actions cover loaded clips only -->
             <div id="gallery-load-more" data-testid="gallery-load-more" class="hidden flex flex-col items-center gap-1.5 mt-6">
                 <button id="gallery-load-more-btn" type="button" data-testid="gallery-load-more-btn"

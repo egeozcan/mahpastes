@@ -150,6 +150,7 @@ Each folder card displays the tag's color, the short name (leaf segment), and a 
 - Click a breadcrumb segment's name to jump straight to that folder
 - Click any breadcrumb segment's `x` button to jump back to that segment's parent level
 - Click the **home icon** to return to the root level
+- An empty folder (and the empty root) offers a **New folder** button; anywhere else in folder mode, right-click empty space in the gallery for the same action
 
 ### Auto-Tagging on Upload
 
