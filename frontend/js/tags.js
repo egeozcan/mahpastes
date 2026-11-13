@@ -680,13 +680,16 @@ async function renderTagPopoverList(clipId) {
         checkbox.addEventListener('change', () => {
             if (tagPopoverMode === 'bulk') {
                 handleBulkTagToggle(tag.id, checkbox.checked);
-            } else if (clipTagToggleInFlight) {
-                // One change at a time: the list is redrawn from the stored
-                // tags when the first settles. The box is put back rather than
-                // disabled, which would drop the keyboard focus.
-                checkbox.checked = !checkbox.checked;
             } else {
-                handleClipTagToggle(currentTaggingClipId, tag.id, checkbox.checked);
+                // One change at a time, in the order ticked: a second tick
+                // made while the first is still being saved waits for it (the
+                // list is redrawn from the stored tags in between) instead of
+                // being dropped.
+                const clipId = currentTaggingClipId;
+                const add = checkbox.checked;
+                clipTagToggleQueue = clipTagToggleQueue
+                    .then(() => handleClipTagToggle(clipId, tag.id, add))
+                    .catch((error) => console.error('Tag change failed:', error));
             }
         });
 
@@ -709,6 +712,7 @@ async function renderTagPopoverList(clipId) {
 // tags of the same tree, and that has to show), and closes by itself only when
 // the clip is no longer on screen to be tagged.
 let clipTagToggleInFlight = false;
+let clipTagToggleQueue = Promise.resolve();
 
 async function handleClipTagToggle(clipId, tagId, add) {
     clipTagToggleInFlight = true;
