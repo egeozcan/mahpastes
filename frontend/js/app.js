@@ -866,18 +866,89 @@ setupConfirmDialogFocusTrap();
 
 // --- Upload Handlers ---
 
+// --- Upload progress ---
+//
+// Between a drop and the final toast every file is read into memory and sent
+// over the bridge; for a large video or a few dozen files that takes long
+// enough to look like nothing is happening. The bottom bar says what stage it
+// is at, but only once the work has taken UPLOAD_STATUS_DELAY_MS, so a quick
+// paste shows nothing. Its own element: #loading-status belongs to the plugin
+// task queue.
+const UPLOAD_STATUS_DELAY_MS = 300;
+let uploadStatusTimer = null;
+let uploadStatusText = '';
+
+function setUploadStatus(text) {
+    const el = document.getElementById('upload-status');
+    if (!el) return;
+    uploadStatusText = text;
+    if (!el.hidden) {
+        el.textContent = text;
+        return;
+    }
+    if (uploadStatusTimer) return;
+    uploadStatusTimer = setTimeout(() => {
+        uploadStatusTimer = null;
+        if (!uploadStatusText) return;
+        el.textContent = uploadStatusText;
+        el.hidden = false;
+    }, UPLOAD_STATUS_DELAY_MS);
+}
+
+function clearUploadStatus() {
+    uploadStatusText = '';
+    clearTimeout(uploadStatusTimer);
+    uploadStatusTimer = null;
+    const el = document.getElementById('upload-status');
+    if (el) { el.hidden = true; el.textContent = ''; }
+}
+
+// Reads dropped, picked or pasted files for upload. A file that cannot be read
+// (deleted meanwhile, no permission, a directory in disguise) is skipped and
+// named in `unreadable`; it used to reject the whole batch without a word,
+// taking the readable files with it. `prepare` may adjust each result.
+async function readFilesForUpload(files, prepare) {
+    const read = [];
+    const unreadable = [];
+    const list = Array.from(files);
+    try {
+        for (let i = 0; i < list.length; i++) {
+            setUploadStatus(list.length === 1 ? 'Reading file…' : `Reading ${i + 1} of ${list.length}…`);
+            try {
+                const fileData = await fileToFileData(list[i]);
+                if (prepare) await prepare(fileData);
+                read.push(fileData);
+            } catch (error) {
+                console.error('Could not read file for upload:', list[i]?.name, error);
+                unreadable.push(list[i]?.name || 'a file');
+            }
+        }
+    } finally {
+        clearUploadStatus();
+    }
+    return { read, unreadable };
+}
+
+// "Could not read a.png." / "3 files could not be read."
+function unreadableNote(unreadable) {
+    if (!unreadable || unreadable.length === 0) return '';
+    return unreadable.length === 1
+        ? `Could not read ${unreadable[0]}.`
+        : `${unreadable.length} files could not be read.`;
+}
+
 async function handleFiles(files) {
     if (files.length === 0) return;
 
-    const fileDataArray = [];
-    for (let i = 0; i < files.length; i++) {
-        const fileData = await fileToFileData(files[i]);
-        fileDataArray.push(fileData);
+    const { read, unreadable } = await readFilesForUpload(files);
+    if (read.length === 0) {
+        showToast(unreadableNote(unreadable), 'error');
+        return;
     }
 
     // Same queue as pastes: one upload's conflict prompt must be answered
     // before the next upload checks for conflicts of its own.
-    return enqueuePaste(() => upload(fileDataArray));
+    return enqueuePaste(() => upload(read, { unreadable }));
 }
 
 // The system WebView hands clipboard bitmap data (screen captures, "Copy Image")
@@ -917,14 +988,15 @@ function handlePastedFiles(files) {
 async function processPastedFiles(files) {
     if (files.length === 0) return;
 
-    const fileDataArray = [];
-    for (let i = 0; i < files.length; i++) {
-        const fileData = await fileToFileData(files[i]);
+    const { read, unreadable } = await readFilesForUpload(files, async (fileData) => {
         fileData.name = await pastedImageName(fileData);
-        fileDataArray.push(fileData);
+    });
+    if (read.length === 0) {
+        showToast(unreadableNote(unreadable), 'error');
+        return;
     }
 
-    await upload(fileDataArray);
+    await upload(read, { unreadable });
 }
 
 // --- Directory Traversal Helpers ---
@@ -1260,11 +1332,8 @@ async function handleFolderDrop(folderFiles, looseFiles, dirPaths) {
             continue;
         }
         const tagId = tagNameToId[tagName] || 0;
-        const fileDataArray = [];
-        for (const file of files) {
-            const fileData = await fileToFileData(file);
-            fileDataArray.push(fileData);
-        }
+        const { read: fileDataArray, unreadable } = await readFilesForUpload(files);
+        failedCount += unreadable.length;
 
         const result = await checkAndResolveConflicts(fileDataArray, tagId);
         if (!result) {
@@ -1304,11 +1373,8 @@ async function handleFolderDrop(folderFiles, looseFiles, dirPaths) {
         if (activeTagFilters.length > 0) {
             autoTagID = activeTagFilters[activeTagFilters.length - 1];
         }
-        const fileDataArray = [];
-        for (const file of looseFiles) {
-            const fileData = await fileToFileData(file);
-            fileDataArray.push(fileData);
-        }
+        const { read: fileDataArray, unreadable } = await readFilesForUpload(looseFiles);
+        failedCount += unreadable.length;
 
         const result = await checkAndResolveConflicts(fileDataArray, autoTagID);
         if (result) {

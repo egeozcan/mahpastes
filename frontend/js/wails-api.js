@@ -924,7 +924,10 @@ function offerToShowUploaded(uploaded, summary) {
     });
 }
 
-async function upload(files) {
+// `unreadable` names files of the same batch that could not be read: they are
+// reported in this upload's summary (a toast of their own would be replaced
+// by it).
+async function upload(files, { unreadable = [] } = {}) {
     try {
         const minutes = typeof getUploadExpirationMinutes === 'function' ? getUploadExpirationMinutes() : 0;
         let autoTagID = 0;
@@ -946,6 +949,9 @@ async function upload(files) {
         if (result.toUpload.length > 0) {
             // Only now is something certain to be added.
             if (typeof leaveArchiveForUpload === 'function') leaveArchiveForUpload();
+            if (typeof setUploadStatus === 'function') {
+                setUploadStatus(result.toUpload.length === 1 ? 'Uploading…' : `Uploading ${result.toUpload.length} files…`);
+            }
             await window.go.main.App.UploadFiles(result.toUpload, minutes, autoTagID);
         }
         // Content that already exists elsewhere in the library raises a
@@ -954,7 +960,8 @@ async function upload(files) {
 
         let summary = '';
         const totalProcessed = result.toUpload.length + result.toOverwrite.length;
-        if (totalProcessed > 0 || result.skippedCount > 0) {
+        const unreadableText = typeof unreadableNote === 'function' ? unreadableNote(unreadable) : '';
+        if (totalProcessed > 0 || result.skippedCount > 0 || unreadableText) {
             const parts = [];
             if (result.toUpload.length > 0) {
                 parts.push(`${result.toUpload.length} uploaded` + (duplicates > 0
@@ -967,7 +974,8 @@ async function upload(files) {
             // Still on the archive (something is open over it): the new clip
             // is not in the list behind, so say where it went.
             if (isViewingArchive && result.toUpload.length > 0) summary += ' Added to the active clips.';
-            showToast(summary);
+            if (unreadableText) summary = parts.length > 0 ? `${summary} ${unreadableText}` : unreadableText;
+            showToast(summary, unreadableText ? 'error' : 'info');
         }
 
         if (!isViewingArchive) {
@@ -983,6 +991,8 @@ async function upload(files) {
     } catch (error) {
         console.error('Error uploading:', error);
         showToast('Upload failed: ' + errText(error), 'error');
+    } finally {
+        if (typeof clearUploadStatus === 'function') clearUploadStatus();
     }
 }
 
