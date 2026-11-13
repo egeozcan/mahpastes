@@ -7,8 +7,11 @@ import (
 	"image/png"
 	"regexp"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"golang.org/x/net/html"
+	"golang.org/x/net/html/charset"
 )
 
 // Platform writers for clipboards that hold several flavours of one item.
@@ -60,8 +63,13 @@ func encodeClipboardPNG(data []byte) ([]byte, error) {
 // it get the original compression and animation. When the image cannot be
 // converted, the original flavour alone is still published there.
 func copyImageContents(contentType string, data []byte) error {
-	if strings.EqualFold(contentType, "image/png") {
-		return pngImageWriter(data)
+	if strings.EqualFold(strings.TrimSpace(contentType), "image/png") {
+		// Published as stored (APNG frames and metadata survive), but only if
+		// it is a PNG: an empty or mislabelled clip goes through the decode
+		// path below, which converts it or reports the failure.
+		if _, err := png.DecodeConfig(bytes.NewReader(data)); err == nil {
+			return pngImageWriter(data)
+		}
 	}
 	pngData, convErr := encodeClipboardPNG(data)
 	nativeType := ""
@@ -80,25 +88,161 @@ func copyImageContents(contentType string, data []byte) error {
 	return nativeImageFlavorWriter(data, nativeType, pngData)
 }
 
-var metaCharsetRE = regexp.MustCompile(`(?i)<meta[^>]+charset`)
+const utf8CharsetMeta = `<meta charset="utf-8">`
 
-// richTextHTML prepares an HTML clip for the pasteboard. Without a charset
-// declaration Cocoa's HTML reader assumes a legacy encoding and garbles
-// anything outside ASCII, so one is prepended (as WebKit does when it copies
-// a selection). NUL bytes cannot cross the C boundary and are dropped, and
-// invalid UTF-8 is replaced so the string converts.
-func richTextHTML(data []byte) string {
-	doc := strings.ToValidUTF8(strings.ReplaceAll(string(data), "\x00", ""), "�")
-	if !metaCharsetRE.MatchString(doc) {
-		doc = `<meta charset="utf-8">` + doc
+var contentCharsetRE = regexp.MustCompile(`(?i)charset\s*=\s*["']?([^"'\s;]*)`)
+
+// charsetDecl is a <meta> tag that declares the document's encoding.
+type charsetDecl struct {
+	start, end int // byte range of the tag in the scanned string
+	label      string
+}
+
+// htmlCharsetDecls finds the real charset declarations in doc: a <meta> with
+// a charset attribute, or an http-equiv Content-Type whose content names one.
+// The tokenizer keeps comments, script text and other attributes that merely
+// mention "charset" out of it.
+func htmlCharsetDecls(doc string) []charsetDecl {
+	var decls []charsetDecl
+	z := html.NewTokenizer(strings.NewReader(doc))
+	pos := 0
+	for {
+		tt := z.Next()
+		if tt == html.ErrorToken {
+			return decls
+		}
+		start := pos
+		pos += len(z.Raw())
+		if tt != html.StartTagToken && tt != html.SelfClosingTagToken {
+			continue
+		}
+		name, hasAttr := z.TagName()
+		if string(name) != "meta" {
+			continue
+		}
+		var label, httpEquiv, content string
+		hasCharset := false
+		for hasAttr {
+			var key, val []byte
+			key, val, hasAttr = z.TagAttr()
+			switch string(key) {
+			case "charset":
+				if !hasCharset {
+					hasCharset, label = true, string(val)
+				}
+			case "http-equiv":
+				httpEquiv = string(val)
+			case "content":
+				content = string(val)
+			}
+		}
+		if !hasCharset && strings.EqualFold(strings.TrimSpace(httpEquiv), "content-type") {
+			if m := contentCharsetRE.FindStringSubmatch(content); m != nil {
+				hasCharset, label = true, m[1]
+			}
+		}
+		if hasCharset {
+			decls = append(decls, charsetDecl{start: start, end: pos, label: strings.TrimSpace(label)})
+		}
+	}
+}
+
+func isUTF8Label(label string) bool {
+	_, name := charset.Lookup(label)
+	return name == "utf-8"
+}
+
+// decodeHTMLClip returns an HTML clip's bytes as a UTF-8 string. A byte order
+// mark decides; otherwise bytes that are valid UTF-8 are taken as UTF-8
+// whatever the document claims, and only bytes that are not are decoded with
+// the charset the document declares. NUL bytes are dropped once any UTF-16
+// has been decoded.
+func decodeHTMLClip(data []byte) string {
+	bomName := ""
+	switch {
+	case bytes.HasPrefix(data, []byte("\xEF\xBB\xBF")):
+		data = data[3:]
+	case bytes.HasPrefix(data, []byte("\xFF\xFE")):
+		bomName, data = "utf-16le", data[2:]
+	case bytes.HasPrefix(data, []byte("\xFE\xFF")):
+		bomName, data = "utf-16be", data[2:]
+	}
+	if bomName != "" {
+		if enc, _ := charset.Lookup(bomName); enc != nil {
+			if out, err := enc.NewDecoder().Bytes(data); err == nil {
+				data = out
+			}
+		}
+	}
+	doc := strings.ReplaceAll(string(data), "\x00", "")
+	if bomName != "" || utf8.ValidString(doc) {
+		return doc
+	}
+	for _, d := range htmlCharsetDecls(doc) {
+		enc, name := charset.Lookup(d.label)
+		// A meta cannot truthfully declare UTF-16: it was read as ASCII.
+		if enc == nil || name == "utf-8" || strings.HasPrefix(name, "utf-16") {
+			continue
+		}
+		if out, err := enc.NewDecoder().String(doc); err == nil {
+			return out
+		}
+		break
 	}
 	return doc
 }
 
+// richTextHTML prepares an HTML clip for the pasteboard, which takes it as
+// UTF-8. The clip is transcoded from its own encoding, and its charset
+// declarations must then say UTF-8: Cocoa's HTML reader decodes by the
+// declaration, and without one assumes a legacy encoding, garbling anything
+// outside ASCII. So unless the document already declares UTF-8 (and nothing
+// else), its declarations are removed and one is prepended (as WebKit does
+// when it copies a selection). NUL bytes cannot cross the C boundary and are
+// dropped, and invalid UTF-8 is replaced so the string converts.
+func richTextHTML(data []byte) string {
+	doc := strings.ToValidUTF8(decodeHTMLClip(data), "\uFFFD")
+	decls := htmlCharsetDecls(doc)
+	truthful := len(decls) > 0
+	for _, d := range decls {
+		if !isUTF8Label(d.label) {
+			truthful = false
+		}
+	}
+	if truthful {
+		return doc
+	}
+	var b strings.Builder
+	b.WriteString(utf8CharsetMeta)
+	last := 0
+	for _, d := range decls {
+		b.WriteString(doc[last:d.start])
+		last = d.end
+	}
+	b.WriteString(doc[last:])
+	return b.String()
+}
+
 // Elements whose text is not part of the rendered page.
 var htmlSkippedElements = map[string]bool{
-	"head": true, "title": true, "script": true, "style": true,
+	"title": true, "script": true, "style": true,
 	"template": true, "noscript": true,
+}
+
+// Elements that may sit in <head>; any other start tag ends the head, as it
+// does in a browser.
+var htmlHeadElements = map[string]bool{
+	"html": true, "head": true, "title": true, "meta": true, "link": true,
+	"style": true, "script": true, "noscript": true, "base": true,
+	"template": true,
+}
+
+// htmlEdgeSpace reports whether text starts and ends with white space, by the
+// definition strings.Fields splits on (which includes U+00A0).
+func htmlEdgeSpace(text string) (leading, trailing bool) {
+	first, _ := utf8.DecodeRuneInString(text)
+	last, _ := utf8.DecodeLastRuneInString(text)
+	return text != "" && unicode.IsSpace(first), text != "" && unicode.IsSpace(last)
 }
 
 // Elements that start on a new line; those mapped to 2 are set off by a blank
@@ -121,6 +265,7 @@ func htmlPlainText(src string) string {
 	var b strings.Builder
 	z := html.NewTokenizer(strings.NewReader(src))
 	skip, pre := 0, 0
+	inHead := false
 	pendingBreaks := 0
 	pendingSpace := false
 	atLineStart := true
@@ -159,6 +304,12 @@ func htmlPlainText(src string) string {
 				continue
 			}
 			text := string(z.Text())
+			if inHead {
+				if strings.TrimSpace(text) == "" {
+					continue
+				}
+				inHead = false
+			}
 			if pre > 0 {
 				flush()
 				b.WriteString(text)
@@ -166,7 +317,8 @@ func htmlPlainText(src string) string {
 				pendingSpace = false
 				continue
 			}
-			if text != "" && strings.TrimLeft(text, " \t\r\n\f") != text {
+			leading, trailing := htmlEdgeSpace(text)
+			if leading {
 				pendingSpace = true
 			}
 			for i, w := range strings.Fields(text) {
@@ -175,27 +327,36 @@ func htmlPlainText(src string) string {
 				}
 				writeWord(w)
 			}
-			if text != "" && strings.TrimRight(text, " \t\r\n\f") != text {
+			if trailing {
 				pendingSpace = true
 			}
 		case html.StartTagToken, html.SelfClosingTagToken, html.EndTagToken:
 			nameBytes, _ := z.TagName()
 			name := string(nameBytes)
 			start := tt != html.EndTagToken
-			if name == "body" {
-				// A missing </head> must not hide the whole body.
-				skip = 0
-				continue
-			}
 			if htmlSkippedElements[name] {
-				if tt == html.StartTagToken {
+				// The "/" of a self-closing tag means nothing on these: a
+				// <script/> still swallows text up to its end tag.
+				if start {
 					skip++
-				} else if tt == html.EndTagToken && skip > 0 {
+				} else if skip > 0 {
 					skip--
 				}
 				continue
 			}
 			if skip > 0 {
+				continue
+			}
+			if name == "head" {
+				inHead = start
+				continue
+			}
+			// A missing </head> must not hide the body: <body>, or any
+			// element that cannot be in a head, ends it.
+			if start && !htmlHeadElements[name] {
+				inHead = false
+			}
+			if name == "body" {
 				continue
 			}
 			switch {

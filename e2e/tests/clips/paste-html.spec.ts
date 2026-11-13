@@ -106,6 +106,23 @@ test.describe('Rich Text Paste', () => {
       expect(await wrap(app, full)).toBe(full + '\n');
     });
 
+    test('adds a charset when the document only mentions the word', async ({ app }) => {
+      const meta = '<html><head><meta name="description" content="about charset"></head><body>é</body></html>';
+      expect(await wrap(app, meta)).toBe(
+        '<!DOCTYPE html>\n<html><head>\n<meta charset="utf-8"><meta name="description" content="about charset"></head><body>é</body></html>\n');
+
+      const commented = await wrap(app, '<html><head><!-- <meta charset="utf-8"> --></head><body>é</body></html>');
+      expect(commented).toContain('<head>\n<meta charset="utf-8"><!--');
+    });
+
+    test('leaves a document with an http-equiv charset alone', async ({ app }) => {
+      const full = '<!DOCTYPE html><html><head><meta http-equiv="Content-Type" content="text/html; charset=utf-8"></head><body>x</body></html>';
+      expect(await wrap(app, full)).toBe(full + '\n');
+
+      const spaced = '<!DOCTYPE html><html><head><meta content="text/html; charset = utf-8" http-equiv="content-type"></head><body>x</body></html>';
+      expect(await wrap(app, spaced)).toBe(spaced + '\n');
+    });
+
     test('picks the flavour from the preference', async ({ app }) => {
       const flavor = (text: string, html: string, behavior: string) =>
         app.page.evaluate(([t, h, b]: string[]) => (window as any).__testHelpers.pasteFlavor(t, h, b), [text, html, behavior]);
