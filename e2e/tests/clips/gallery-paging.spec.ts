@@ -281,6 +281,25 @@ test.describe('Gallery paging: automatic load', () => {
     expect(new Set(ids).size).toBe(120);
   });
 
+  test('focus on the Load more button does not run through every page', async ({ app }) => {
+    await seedTextClips(app, 220);
+    await app.page.evaluate(() => (window as any).setAutoLoadMore(false));
+    await reload(app);
+    await app.expectClipCount(50);
+    await app.page.evaluate(() => (window as any).setAutoLoadMore(true));
+
+    // A keyboard user reaches the button and presses Enter once.
+    const button = app.page.locator(selectors.gallery.loadMoreButton);
+    await button.focus();
+    await app.page.keyboard.press('Enter');
+    await expect.poll(() => app.page.locator(selectors.gallery.clipCard).count()).toBeGreaterThanOrEqual(100);
+    await app.page.waitForTimeout(1200);
+    // Focus went back to the button without scrolling it into range again,
+    // so the listing did not chain through the remaining pages.
+    expect(await app.page.locator(selectors.gallery.clipCard).count()).toBeLessThan(220);
+    await expect(button).toBeFocused();
+  });
+
   test('a plain search does not page through the library', async ({ app }) => {
     // The query is in place before the listing loads: every card is hidden,
     // which leaves the Load more row in view, and it must wait there.

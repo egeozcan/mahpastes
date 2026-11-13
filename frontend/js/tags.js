@@ -557,6 +557,7 @@ async function renderTagPopoverList(clipId) {
         item.style.paddingRight = '12px';
         item.innerHTML = `
             <input type="checkbox"
+                   data-tag-id="${Number(tag.id)}"
                    data-testid="tag-checkbox-${escapeHTML(tag.name)}"
                    class="rounded border-stone-300 text-stone-600 focus:ring-stone-500"
                    ${hasTag ? 'checked' : ''}>
@@ -570,6 +571,11 @@ async function renderTagPopoverList(clipId) {
         checkbox.addEventListener('change', () => {
             if (tagPopoverMode === 'bulk') {
                 handleBulkTagToggle(tag.id, checkbox.checked);
+            } else if (clipTagToggleInFlight) {
+                // One change at a time: the list is redrawn from the stored
+                // tags when the first settles. The box is put back rather than
+                // disabled, which would drop the keyboard focus.
+                checkbox.checked = !checkbox.checked;
             } else {
                 handleClipTagToggle(currentTaggingClipId, tag.id, checkbox.checked);
             }
@@ -587,28 +593,61 @@ async function renderTagPopoverList(clipId) {
     }
 }
 
+// A single clip's popover stays open after a tick, so giving a clip three tags
+// is three ticks and not three trips through the card menu. It is redrawn from
+// the card once the change has landed (adding a tag removes the clip's other
+// tags of the same tree, and that has to show), and closes by itself only when
+// the clip is no longer on screen to be tagged.
+let clipTagToggleInFlight = false;
+
 async function handleClipTagToggle(clipId, tagId, add) {
-    if (add) {
-        await addTagToClip(clipId, tagId);
-    } else {
-        await removeTagFromClip(clipId, tagId);
-        // Reload tags in case the tag was auto-deleted (no more clips)
-        await loadTags();
-        // Remove from active filters if it no longer exists
-        if (!allTags.find(t => t.id === tagId)) {
-            const idx = activeTagFilters.indexOf(tagId);
-            if (idx !== -1) {
-                activeTagFilters.splice(idx, 1);
-                updateActiveTagsDisplay();
+    clipTagToggleInFlight = true;
+    tagPopoverList?.setAttribute('aria-busy', 'true');
+    try {
+        if (add) {
+            await addTagToClip(clipId, tagId);
+        } else {
+            await removeTagFromClip(clipId, tagId);
+            // Reload tags in case the tag was auto-deleted (no more clips)
+            await loadTags();
+            // Remove from active filters if it no longer exists
+            if (!allTags.find(t => t.id === tagId)) {
+                const idx = activeTagFilters.indexOf(tagId);
+                if (idx !== -1) {
+                    activeTagFilters.splice(idx, 1);
+                    updateActiveTagsDisplay();
+                }
             }
         }
+        // Re-render the card's pills in place; reload when the change moved the
+        // clip out of the view (or the view cannot be patched).
+        if (!(typeof refreshClipInPlace === 'function' && await refreshClipInPlace(clipId))) {
+            await loadClips();
+        }
+    } finally {
+        clipTagToggleInFlight = false;
+        tagPopoverList?.removeAttribute('aria-busy');
     }
-    closeTagPopover();
-    // Re-render the card's pills in place; reload when the change moved the
-    // clip out of the view (or the view cannot be patched).
-    if (!(typeof refreshClipInPlace === 'function' && await refreshClipInPlace(clipId))) {
-        loadClips();
+    await refreshOpenTagPopover(clipId, tagId);
+}
+
+// Redraw the open single-clip popover after a change and keep the keyboard
+// where it was: on the tag just toggled, else the first one, else the
+// new-tag field. Closes it when the clip's card is gone.
+async function refreshOpenTagPopover(clipId, focusTagId) {
+    if (tagPopover.classList.contains('hidden') || tagPopoverMode !== 'single'
+        || Number(currentTaggingClipId) !== Number(clipId)) return;
+    const card = document.querySelector(`#gallery > li[data-id="${Number(clipId)}"]`);
+    if (!card) {
+        closeTagPopover();
+        return;
     }
+    const focusWasInside = tagPopover.contains(document.activeElement) || document.activeElement === document.body;
+    await renderTagPopoverList(clipId);
+    if (!focusWasInside) return;
+    const target = (focusTagId != null && tagPopoverList.querySelector(`input[data-tag-id="${Number(focusTagId)}"]`))
+        || tagPopoverList.querySelector('input') || createTagInput;
+    target?.focus();
 }
 
 async function handleBulkTagToggle(tagId, add) {
@@ -661,8 +700,11 @@ if (createTagBtn) {
                 const clipId = currentTaggingClipId;
                 await addTagToClip(clipId, tag.id);
                 if (!(typeof refreshClipInPlace === 'function' && await refreshClipInPlace(clipId))) {
-                    loadClips();
+                    await loadClips();
                 }
+                // Stays open, like a tick: the new tag shows as set.
+                await refreshOpenTagPopover(clipId, tag.id);
+                return;
             } else if (tagPopoverMode === 'bulk') {
                 await bulkAddTag(Array.from(selectedIds), tag.id);
                 loadClips();

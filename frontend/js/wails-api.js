@@ -523,6 +523,9 @@ async function loadMoreClips({ auto = false } = {}) {
                 await createClipCard(clip);
                 if (myGen !== _clipLoadGen) return;
             }
+            // A page that brought nothing while more is promised (a run of
+            // unreadable rows) must not be asked for again and again.
+            if (((page && page.clips) || []).length === 0) _autoLoadBlocked = true;
             view.loaded += ((page && page.clips) || []).length;
             view.total = page ? page.total : view.total;
             view.hasMore = !!(page && page.has_more);
@@ -554,12 +557,17 @@ async function loadMoreClips({ auto = false } = {}) {
             const active = document.activeElement;
             if (buttonHadFocus && (active === btn || active === document.body || !active)) {
                 const nextBtn = document.getElementById('gallery-load-more-btn');
-                if (current.hasMore && nextBtn) nextBtn.focus();
+                // Without scrolling: the button is now below the new cards,
+                // and bringing it back into view would put it in range of the
+                // automatic load, which would then run through every page.
+                if (current.hasMore && nextBtn) nextBtn.focus({ preventScroll: true });
                 else focusGalleryItem(firstNewIndex);
             }
-            // Still in range once the new cards are laid out? Then go on.
-            if (!failed) requestAnimationFrame(maybeAutoLoadMore);
         }
+        // Still in range once the new cards are laid out? Then go on. Also for
+        // a view opened while this (now superseded) load was running: its own
+        // check found a load in flight and stood down.
+        if (!failed && _loadMoreInFlight === 0) requestAnimationFrame(maybeAutoLoadMore);
     }
 }
 
@@ -903,7 +911,7 @@ function galleryLoadFailed() {
     return !!el && !el.classList.contains('hidden') && el.classList.contains('text-red-500');
 }
 
-function offerToShowUploaded(uploaded, summary) {
+function offerToShowUploaded(uploaded, summary, type = 'info') {
     if (!uploaded || uploaded.length === 0) return;
     const filtered = !isFolderMode() && activeTagFilters.length > 0;
     const searching = searchInput.value.trim() !== '';
@@ -915,7 +923,7 @@ function offerToShowUploaded(uploaded, summary) {
     const shown = Array.from(gallery.querySelectorAll(':scope > li[data-id]'))
         .some(card => card.style.display !== 'none' && names.has(card.dataset.filename));
     if (shown) return;
-    showToast(`${summary} Not shown in the current view.`, 'info', {
+    showToast(`${summary} Not shown in the current view.`, type, {
         label: 'Show',
         onClick: () => {
             clearSearchQuery();
@@ -936,7 +944,10 @@ async function upload(files, { unreadable = [] } = {}) {
         }
 
         const result = await checkAndResolveConflicts(files, autoTagID);
-        if (!result) return; // user cancelled
+        if (!result) { // user cancelled
+            if (typeof unreadableNote === 'function' && unreadable.length > 0) showToast(unreadableNote(unreadable), 'error');
+            return;
+        }
 
         // Overwrite existing clips
         for (const { clipID, fileData } of result.toOverwrite) {
@@ -985,7 +996,7 @@ async function upload(files, { unreadable = [] } = {}) {
             const reload = loadClips();
             const gen = _clipLoadGen;
             reload.then(() => {
-                if (gen === _clipLoadGen && !galleryLoadFailed()) offerToShowUploaded(result.toUpload, summary);
+                if (gen === _clipLoadGen && !galleryLoadFailed()) offerToShowUploaded(result.toUpload, summary, unreadableText ? 'error' : 'info');
             }).catch(console.error);
         }
     } catch (error) {

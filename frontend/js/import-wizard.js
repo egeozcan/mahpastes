@@ -381,11 +381,16 @@ const ImportWizard = (() => {
         return decisionChain;
     }
 
+    // None of these act while the plan is being applied: the plan is already
+    // on its way, and a decision changed now would show in the summary as
+    // something that was not done.
     function chooseAction(action) {
+        if (state.applying) return;
         return queueDecision(() => applyChoice(action));
     }
 
     function repeatLast() {
+        if (state.applying) return;
         return queueDecision(applyRepeat);
     }
 
@@ -454,6 +459,7 @@ const ImportWizard = (() => {
     }
 
     function goNext() {
+        if (state.applying) return;
         if (state.index < state.entries.length - 1) {
             state.index++;
             render();
@@ -463,6 +469,7 @@ const ImportWizard = (() => {
     }
 
     function goPrev() {
+        if (state.applying) return;
         if (state.index > 0) {
             state.index--;
             render();
@@ -470,6 +477,7 @@ const ImportWizard = (() => {
     }
 
     function showSummary() {
+        if (state.applying) return;
         state.pane = 'summary';
         render();
     }
@@ -1066,7 +1074,7 @@ const ImportWizard = (() => {
 
         // Not awaited by the dialog: the wizard shows its own progress in the
         // footer, which a confirm held open over it would cover.
-        showConfirmDialog('Apply import plan?', message, () => { runApply(); }, null, {
+        showConfirmDialog('Apply import plan?', message, () => { runApply().catch(console.error); }, null, {
             variant: counts.deletes ? 'danger' : 'primary',
             confirmLabel: 'Apply',
         });
