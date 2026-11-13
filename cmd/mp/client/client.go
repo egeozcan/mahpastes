@@ -3,6 +3,7 @@ package client
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf16"
 )
 
 // Exit codes used by the CLI.
@@ -191,7 +193,7 @@ func readKeyFile(path string) (string, error) {
 	if len(data) > maxKeyFileSize {
 		return "", fmt.Errorf("MP_API_KEY_FILE %q is too large to hold an API key", path)
 	}
-	key := strings.TrimSpace(string(data))
+	key := strings.TrimSpace(decodeKeyFile(data))
 	if key == "" {
 		return "", fmt.Errorf("MP_API_KEY_FILE %q is empty", path)
 	}
@@ -199,6 +201,29 @@ func readKeyFile(path string) (string, error) {
 		return "", fmt.Errorf("MP_API_KEY_FILE %q must contain only the API key", path)
 	}
 	return key, nil
+}
+
+// decodeKeyFile returns the text of a key file. Windows PowerShell 5.1
+// writes UTF-16 with a byte order mark by default (`"mp_..." > key.txt`) and
+// UTF-8 with one for -Encoding utf8; a file with either mark is decoded
+// rather than refused or, worse, sent with the mark as part of the key.
+func decodeKeyFile(data []byte) string {
+	switch {
+	case bytes.HasPrefix(data, []byte{0xEF, 0xBB, 0xBF}):
+		return string(data[3:])
+	case bytes.HasPrefix(data, []byte{0xFF, 0xFE}), bytes.HasPrefix(data, []byte{0xFE, 0xFF}):
+		order := binary.ByteOrder(binary.LittleEndian)
+		if data[0] == 0xFE {
+			order = binary.BigEndian
+		}
+		data = data[2:]
+		units := make([]uint16, 0, len(data)/2)
+		for ; len(data) >= 2; data = data[2:] {
+			units = append(units, order.Uint16(data))
+		}
+		return string(utf16.Decode(units))
+	}
+	return string(data)
 }
 
 // do executes an HTTP request with auth headers and handles common errors.
