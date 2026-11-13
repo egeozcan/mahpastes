@@ -105,11 +105,15 @@ function renderWatchFolderList() {
     // Initialize roving tabindex for watch folder cards
     if (watchFolderRover) watchFolderRover.destroy();
     if (watchFolderList.children.length > 0) {
+        // Arrows move between folders; Enter opens the focused one for editing
+        // (as a click does) and Tab reaches its Pause and Remove buttons.
         watchFolderRover = RovingTabindex.create({
             container: watchFolderList,
             itemSelector: ':scope > li',
             orientation: 'vertical',
             wrap: false,
+            keepActiveChildren: true,
+            onActivate: (item) => item.click(),
         });
     }
 }

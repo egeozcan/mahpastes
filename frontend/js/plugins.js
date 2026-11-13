@@ -77,6 +77,10 @@ function renderPluginsList() {
     }
 
     pluginsEmptyState.classList.add('hidden');
+    // The list is rebuilt whole (expanding a card does it too): remember which
+    // card had the keyboard, to hand it back below.
+    const activeCard = document.activeElement?.closest?.('#' + pluginsList.id + ' > li');
+    const focusedId = activeCard ? activeCard.dataset.id : null;
     pluginsList.innerHTML = '';
 
     for (const plugin of pluginsCache) {
@@ -87,12 +91,24 @@ function renderPluginsList() {
     // Initialize roving tabindex for plugin list
     if (pluginListRover) pluginListRover.destroy();
     if (pluginsList.children.length > 0) {
+        // Arrows move between plugins; Enter expands or collapses the focused
+        // one and Tab reaches its toggle, buttons and settings.
         pluginListRover = RovingTabindex.create({
             container: pluginsList,
             itemSelector: ':scope > li',
             orientation: 'vertical',
             wrap: false,
+            keepActiveChildren: true,
+            onActivate: (item) => togglePluginExpand(Number(item.dataset.id)),
         });
+        if (focusedId !== null) {
+            const cards = Array.from(pluginsList.children);
+            const index = cards.findIndex(li => li.dataset.id === focusedId);
+            if (index !== -1) {
+                pluginListRover.setActiveIndex(index);
+                cards[index].focus();
+            }
+        }
     }
 }
 
@@ -113,7 +129,7 @@ function createPluginCard(plugin) {
         : (needsReview ? 'Needs review' : 'Disabled');
 
     li.innerHTML = `
-        <div class="p-4 cursor-pointer" data-action="toggle-expand">
+        <div class="p-4 cursor-pointer" data-action="toggle-expand" aria-expanded="${isExpanded ? 'true' : 'false'}">
             <div class="flex items-center justify-between">
                 <div class="flex items-center gap-3 min-w-0 flex-1">
                     <span class="w-2 h-2 rounded-full ${statusDot} flex-shrink-0"
@@ -245,8 +261,11 @@ function createPluginCard(plugin) {
 
     // Load permissions and settings if expanded
     if (isExpanded) {
-        loadPluginPermissions(plugin.id, li);
-        loadPluginSettings(plugin.id, li);
+        // Both arrive after the rover was built: let it see the new controls.
+        Promise.allSettled([
+            loadPluginPermissions(plugin.id, li),
+            loadPluginSettings(plugin.id, li),
+        ]).then(() => { if (pluginListRover) pluginListRover.update(); });
     }
 
     return li;
