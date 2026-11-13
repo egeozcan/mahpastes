@@ -76,6 +76,26 @@ apiKeyNameInput?.addEventListener('keydown', (e) => {
     }
 });
 
+// The commands that use the key just created: the mp CLI reads both from the
+// environment. The address is this page's own in the web UI; on the desktop
+// it is the API server's (running, or the port it is set to start on).
+let apiServerURL = '';
+function renderAPIKeyUsage() {
+    const snippet = document.getElementById('api-key-usage-snippet');
+    const stopped = document.getElementById('api-key-usage-stopped');
+    if (!snippet || apiKeyReveal.classList.contains('hidden')) return;
+    const server = window.mahpastesMode === 'server';
+    const port = parseInt(apiPortInput.value, 10) || 44557;
+    const url = server ? window.location.origin : (apiServerURL || `http://localhost:${port}`);
+    snippet.textContent = `export MP_API_KEY=${apiKeyRevealValue.textContent}\nexport MP_API_URL=${url}\nmp clip list`;
+    if (stopped) stopped.hidden = server || apiServerRunning;
+}
+document.getElementById('api-key-usage-copy')?.addEventListener('click', async () => {
+    const text = document.getElementById('api-key-usage-snippet')?.textContent || '';
+    if (text && await copyTextQuietly(text)) showToast('Commands copied');
+    else showToast('Could not copy the commands.', 'error');
+});
+
 // A backend timestamp as a Date: "YYYY-MM-DD HH:MM:SS" (UTC, no zone) or
 // RFC 3339. Null when it is neither.
 function parseAPITimestamp(value) {
@@ -117,6 +137,7 @@ async function loadAPIStatus() {
     try {
         const status = await window.go.main.APIService.GetAPIStatus();
         apiServerRunning = status.running;
+        apiServerURL = status.running && status.url ? status.url : '';
         if (status.running) {
             apiToggleBtn.textContent = 'Stop Server';
             apiToggleBtn.classList.remove('bg-stone-800', 'hover:bg-stone-700');
@@ -137,7 +158,9 @@ async function loadAPIStatus() {
         await loadAPILaunchSettings(status, before);
     } catch (err) {
         console.error('Failed to load API status:', err);
+        apiStatusText.textContent = 'Could not read the server status: ' + errText(err);
     }
+    renderAPIKeyUsage();
 }
 
 // A failed "Start on launch" (port taken, no permission) leaves the server
@@ -247,6 +270,10 @@ async function loadAPIKeys() {
         apiKeysList.innerHTML = keys.map(renderAPIKeyCard).join('');
     } catch (err) {
         console.error('Failed to load API keys:', err);
+        const note = document.createElement('p');
+        note.className = 'text-xs text-red-500';
+        note.textContent = 'Failed to load API keys: ' + errText(err);
+        apiKeysList.replaceChildren(note);
     }
 }
 
@@ -336,6 +363,7 @@ async function createAPIKey() {
         // Show key reveal
         apiKeyRevealValue.textContent = result.key;
         apiKeyReveal.classList.remove('hidden');
+        renderAPIKeyUsage();
 
         loadAPIKeys();
     } catch (err) {

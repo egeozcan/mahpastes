@@ -180,6 +180,13 @@ test.describe('UI feedback and double-submit guards', () => {
     await app.page.locator('#api-key-name').fill(name);
     await app.page.locator('#api-key-name').press('Enter');
     await app.page.waitForSelector('#api-key-reveal:not(.hidden)');
+    // The reveal says how the key is used: nothing else in the app names mp.
+    const snippet = app.page.locator('[data-testid="api-key-usage-snippet"]');
+    await expect(snippet).toContainText('export MP_API_KEY=mp_');
+    await expect(snippet).toContainText(/export MP_API_URL=http:\/\/(localhost|127\.0\.0\.1):\d+/);
+    await expect(snippet).toContainText('mp clip list');
+    const running = await app.page.evaluate(async () => (await (window as any).go.main.APIService.GetAPIStatus()).running);
+    await expect(app.page.locator('[data-testid="api-key-usage-stopped"]'))[running ? 'toBeHidden' : 'toBeVisible']();
     await app.page.locator('#api-key-reveal-close').click();
     const card = app.page.locator('[data-testid^="api-key-card-"]', { hasText: name });
     await expect(card).toHaveCount(1);

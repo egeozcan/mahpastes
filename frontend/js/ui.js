@@ -354,7 +354,38 @@ function canCompareBulkSelection() {
     });
 }
 
+// Comparison was reachable only from the "more" menu, and only once exactly
+// two images were already selected: nothing said it existed. The button shows
+// as soon as an image is selected, and says what it needs when the selection
+// is not yet two images.
+function updateBulkCompareButton() {
+    const button = document.getElementById('bulk-compare-btn');
+    if (!button) return;
+    if (!button.dataset.initialized) {
+        button.dataset.initialized = 'true';
+        button.addEventListener('click', () => {
+            if (button.getAttribute('aria-disabled') === 'true') {
+                showToast('Select exactly two images to compare.');
+                return;
+            }
+            openComparisonModal();
+        });
+    }
+    const anyImage = Array.from(selectedIds).some(id => {
+        const card = gallery.querySelector(`li[data-id="${id}"]`);
+        return card && (card.dataset.type || '').startsWith('image/');
+    });
+    const ready = canCompareBulkSelection();
+    button.classList.toggle('hidden', !anyImage);
+    button.setAttribute('aria-disabled', ready ? 'false' : 'true');
+    button.classList.toggle('opacity-50', !ready);
+    button.setAttribute('data-tooltip', ready
+        ? 'Compare the two selected images'
+        : 'Select exactly two images to compare');
+}
+
 function updateBulkMoreButton() {
+    updateBulkCompareButton();
     const button = document.getElementById('bulk-more-btn');
     if (!button) return;
     if (!button.dataset.menuInitialized) {

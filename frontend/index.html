@@ -482,6 +482,15 @@
                     </svg>
                     Tag
                 </button>
+                <button id="bulk-compare-btn" data-testid="bulk-compare-btn"
+                    class="hidden flex items-center gap-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 px-3 py-1.5 rounded-md text-xs font-medium transition-colors"
+                    data-tooltip="Compare the two selected images">
+                    <svg class="w-4 h-4 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                            d="M9 4H5a1 1 0 00-1 1v14a1 1 0 001 1h4m6-16h4a1 1 0 011 1v14a1 1 0 01-1 1h-4M12 2v20" />
+                    </svg>
+                    Compare
+                </button>
                 <button id="bulk-expiry-btn"
                     class="flex items-center gap-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 px-3 py-1.5 rounded-md text-xs font-medium transition-colors"
                     data-tooltip="Set expiration on selected clips">
@@ -2486,6 +2495,23 @@
                             </button>
                         </div>
                         <p class="text-[10px] text-stone-400">This key will not be shown again.</p>
+                        <!-- How to use it: nothing else in the app mentions the mp CLI -->
+                        <div id="api-key-usage" data-testid="api-key-usage" class="space-y-1">
+                            <p class="text-[10px] font-semibold text-stone-500 uppercase tracking-wide">Use it with the mp command line tool</p>
+                            <div class="flex items-start gap-2">
+                                <pre id="api-key-usage-snippet" data-testid="api-key-usage-snippet"
+                                    class="flex-1 text-[11px] bg-white border border-stone-200 rounded px-2.5 py-1.5 font-mono text-stone-700 whitespace-pre-wrap break-all select-all"></pre>
+                                <button type="button" id="api-key-usage-copy" aria-label="Copy these commands"
+                                    class="p-1.5 text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded transition-colors"
+                                    data-tooltip="Copy these commands">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                                            d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                    </svg>
+                                </button>
+                            </div>
+                            <p id="api-key-usage-stopped" data-testid="api-key-usage-stopped" hidden class="text-[10px] text-amber-700">The API server is stopped. Start it above before using this key.</p>
+                        </div>
                         <button id="api-key-reveal-close"
                             class="border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-xs font-medium py-1 px-2.5 rounded-md transition-colors">
                             Done

@@ -85,6 +85,12 @@ async function loadWatchFolders() {
         updateWatchIndicator();
     } catch (error) {
         console.error('Failed to load watch folders:', error);
+        // A blank or stale list reads as "nothing is watched".
+        watchFolderList.innerHTML = '';
+        const row = document.createElement('li');
+        row.className = 'text-center text-sm text-stone-400 py-8';
+        row.textContent = 'Failed to load watch folders: ' + errText(error);
+        watchFolderList.appendChild(row);
     }
 }
 
@@ -254,6 +260,7 @@ async function openAddFolderDialog() {
         openFolderModal(path);
     } catch (error) {
         console.error('Failed to select folder:', error);
+        toastError('Could not open the folder picker', error);
     }
 }
 
