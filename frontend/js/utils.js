@@ -593,6 +593,25 @@ function safeTagColor(color) {
 
 // Message text of a rejected binding call. Wails v2 rejects with a plain
 // string (the Go error text), REST glue and JS code with an Error object.
+// "1 clip", "3 clips".
+function countOf(n, noun) {
+    return `${n} ${noun}${n === 1 ? '' : 's'}`;
+}
+
+// An error toast that carries the reason: "Failed to rename clip: filename
+// contains path separator". The backend's message is usually the one thing
+// the user needs (a validation rule, a permission), and it used to go to the
+// console only. Without a usable reason it reads "Failed to rename clip.".
+function toastError(prefix, error) {
+    let reason = errText(error);
+    if (!reason || reason === 'undefined' || reason === 'null' || reason === '[object Object]') {
+        showToast(`${prefix}.`, 'error');
+        return;
+    }
+    if (reason.length > 200) reason = reason.slice(0, 199) + '…';
+    showToast(`${prefix}: ${reason}`, 'error');
+}
+
 function errText(e) {
     return (e && e.message) ? e.message : String(e);
 }

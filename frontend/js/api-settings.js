@@ -75,7 +75,7 @@ apiKeyCopyBtn.addEventListener('click', async () => {
         showToast('Key copied to clipboard');
     } catch (err) {
         console.error('Failed to copy key:', err);
-        showToast('Failed to copy key.', 'error');
+        toastError('Failed to copy key', err);
     }
 });
 apiKeyRevealClose.addEventListener('click', hideKeyReveal);

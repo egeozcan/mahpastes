@@ -76,6 +76,54 @@ test.describe('UI feedback and double-submit guards', () => {
     await app.page.locator(selectors.confirm.cancelButton).click();
   });
 
+  test('the delete dialog names the clip, escaped, and a failed rename says why', async ({ app }) => {
+    await app.page.evaluate(async () => {
+      const w = window as any;
+      await w.go.main.App.UploadFiles([{ name: '<b>bold</b>.txt', content_type: 'text/plain', data: btoa('x') }], 0, 0);
+      await w.loadClips();
+      const card = document.querySelector('#gallery > li[data-id]') as HTMLElement;
+      w.deleteClip(Number(card.dataset.id));
+    });
+    const message = app.page.locator(selectors.confirm.message);
+    await expect(message).toHaveText('Delete <b>bold</b>.txt permanently?');
+    await expect(message.locator('b')).toHaveCount(0);
+    await app.page.locator(selectors.confirm.cancelButton).click();
+
+    // The backend's validation message reaches the toast.
+    await app.page.evaluate(async () => {
+      const w = window as any;
+      const card = document.querySelector('#gallery > li[data-id]') as HTMLElement;
+      try {
+        await w.go.main.App.RenameClip(Number(card.dataset.id), 'a/b.txt');
+      } catch (error) {
+        w.toastError('Failed to rename clip', error);
+      }
+    });
+    await app.expectToast('Failed to rename clip: filename contains path separator');
+  });
+
+  test('bulk messages count one clip as one clip', async ({ app }) => {
+    await app.page.evaluate(async () => {
+      const w = window as any;
+      await w.go.main.App.UploadFiles([{ name: 'single.txt', content_type: 'text/plain', data: btoa('1') }], 0, 0);
+      await w.loadClips();
+    });
+    await app.selectClips(['single.txt']);
+    await app.bulkDelete();
+    await expect(app.page.locator(selectors.confirm.message)).toHaveText('Delete 1 clip permanently?');
+    await app.page.locator(selectors.confirm.confirmButton).click();
+    await app.expectToast('Deleted 1 clip.');
+  });
+
+  test('the remove-folder dialog shows the path and says clips are kept', async ({ app }) => {
+    await app.page.evaluate(() => (window as any).removeWatchFolder(999999, '/tmp/<i>inbox</i>'));
+    const message = app.page.locator(selectors.confirm.message);
+    await expect(message).toContainText('Stop watching /tmp/<i>inbox</i>?');
+    await expect(message).toContainText('Clips already imported stay in your library');
+    await expect(message.locator('i')).toHaveCount(0);
+    await app.page.locator(selectors.confirm.cancelButton).click();
+  });
+
   test('a failure rejected as a plain string reads as an error toast with its message', async ({ app }) => {
     await app.page.evaluate(() => {
       const api = (window as any).go.main.App;

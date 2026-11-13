@@ -192,7 +192,7 @@ function createWatchFolderCard(folder) {
     });
     li.querySelector('[data-action="remove"]').addEventListener('click', (e) => {
         e.stopPropagation();
-        removeWatchFolder(folder.id);
+        removeWatchFolder(folder.id, folder.path);
     });
 
     // Click card to edit
@@ -214,8 +214,10 @@ async function toggleFolderPause(id, paused) {
 }
 
 // --- Remove Folder ---
-async function removeWatchFolder(id) {
-    showConfirmDialog('Remove Folder', 'Stop watching this folder?', async () => {
+async function removeWatchFolder(id, folderPath) {
+    // The message is HTML: the path is escaped.
+    const what = folderPath ? `<strong class="break-all">${escapeHTML(folderPath)}</strong>` : 'this folder';
+    showConfirmDialog('Remove Folder', `Stop watching ${what}? Clips already imported stay in your library, and the folder's files are not touched.`, async () => {
         try {
             await window.go.main.App.RemoveWatchedFolder(id);
             await window.go.main.App.RefreshWatches();

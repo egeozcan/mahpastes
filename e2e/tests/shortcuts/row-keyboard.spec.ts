@@ -18,12 +18,11 @@ test.describe('Rows whose controls have no shortcuts', () => {
     try {
       await app.openPluginsModal();
       const card = app.page.locator(selectors.plugins.pluginCard(plugin!.id));
-      const header = card.locator(selectors.plugins.expandToggle);
       await card.focus();
-      await expect(header).toHaveAttribute('aria-expanded', 'false');
+      await expect(card).toHaveAttribute('aria-expanded', 'false');
 
       await app.page.keyboard.press('Enter');
-      await expect(header).toHaveAttribute('aria-expanded', 'true');
+      await expect(card).toHaveAttribute('aria-expanded', 'true');
       await expect(card.locator(selectors.pluginSettings.section)).toBeVisible({ timeout: 5000 });
       // The list was rebuilt; the same card still has the keyboard.
       await expect(card).toBeFocused();
@@ -41,7 +40,7 @@ test.describe('Rows whose controls have no shortcuts', () => {
 
       await card.focus();
       await app.page.keyboard.press('Enter');
-      await expect(header).toHaveAttribute('aria-expanded', 'false');
+      await expect(card).toHaveAttribute('aria-expanded', 'false');
     } finally {
       await app.removePlugin(plugin!.id).catch(() => undefined);
     }

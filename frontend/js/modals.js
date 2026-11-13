@@ -286,7 +286,7 @@ async function handleLightboxFileAction(action, clip) {
             try {
                 await window.go.main.App.OpenClipWithDefaultApp(clip.id);
             } catch (err) {
-                showToast('Failed to open clip.', 'error');
+                toastError('Failed to open clip', err);
             }
             break;
         case 'open-with':
@@ -300,7 +300,7 @@ async function handleLightboxFileAction(action, clip) {
                     await window.go.main.App.OpenClipWithApp(clip.id, appPath);
                 }
             } catch (err) {
-                showToast('Failed to open clip.', 'error');
+                toastError('Failed to open clip', err);
             }
             break;
         case 'copy-path':

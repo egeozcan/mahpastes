@@ -59,7 +59,7 @@ test.describe('Copy Actions', () => {
       await app.page.locator(selectors.cardMenu.copyFile).click();
       const toast = app.page.locator(selectors.toast.message);
       await expect(toast).toBeVisible();
-      await expect(toast).toContainText(/File copied to clipboard!|Failed to copy file\./);
+      await expect(toast).toContainText(/File copied to clipboard!|Failed to copy file/);
     });
   });
 
@@ -188,7 +188,7 @@ test.describe('Copy Actions', () => {
 
       await app.hoverCopySubmenu(filename);
       await app.page.locator(selectors.cardMenu.copyRichText).click();
-      await app.expectToast('Failed to copy rich text.');
+      await app.expectToast('Failed to copy rich text');
     });
 
     test('is not offered for other text clips', async ({ app }) => {

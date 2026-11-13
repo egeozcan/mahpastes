@@ -657,7 +657,7 @@ async function openClipWithListedApp(clipId, appPath) {
         await window.go.main.App.OpenClipWithApp(Number(clipId), appPath);
     } catch (err) {
         console.error('Failed to open clip with application:', err);
-        showToast('Failed to open clip.', 'error');
+        toastError('Failed to open clip', err);
     }
 }
 
@@ -843,7 +843,7 @@ async function handleCardAction(action, clipId, triggerButton) {
             try {
                 await window.go.main.App.OpenClipWithDefaultApp(id);
             } catch (err) {
-                showToast('Failed to open clip.', 'error');
+                toastError('Failed to open clip', err);
             }
             break;
         case 'open-with':
@@ -857,7 +857,7 @@ async function handleCardAction(action, clipId, triggerButton) {
                     await window.go.main.App.OpenClipWithApp(id, appPath);
                 }
             } catch (err) {
-                showToast('Failed to open clip.', 'error');
+                toastError('Failed to open clip', err);
             }
             break;
         case 'copy-path':

@@ -79,8 +79,12 @@ function renderPluginsList() {
     pluginsEmptyState.classList.add('hidden');
     // The list is rebuilt whole (expanding a card does it too): remember which
     // card had the keyboard, to hand it back below.
-    const activeCard = document.activeElement?.closest?.('#' + pluginsList.id + ' > li');
-    const focusedId = activeCard ? activeCard.dataset.id : null;
+    // Only when the card itself held it: on the card Enter and Space mean
+    // "expand", so moving focus there from a control inside it (a toggle just
+    // flipped, a settings field mid-edit) would turn the next key into a
+    // collapse.
+    const active = document.activeElement;
+    const focusedId = active && active.parentElement === pluginsList ? active.dataset.id : null;
     pluginsList.innerHTML = '';
 
     for (const plugin of pluginsCache) {
@@ -106,7 +110,7 @@ function renderPluginsList() {
             const index = cards.findIndex(li => li.dataset.id === focusedId);
             if (index !== -1) {
                 pluginListRover.setActiveIndex(index);
-                cards[index].focus();
+                cards[index].focus({ preventScroll: true });
             }
         }
     }
@@ -120,6 +124,8 @@ function createPluginCard(plugin) {
     li.dataset.testid = `plugin-card-${plugin.id}`;
 
     const isExpanded = expandedPluginId === plugin.id;
+    // On the element that takes focus and Enter, so it is announced.
+    li.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
     const needsReview = plugin.status === 'needs_review';
     const statusDot = plugin.status === 'error'
         ? 'bg-red-500'
@@ -129,7 +135,7 @@ function createPluginCard(plugin) {
         : (needsReview ? 'Needs review' : 'Disabled');
 
     li.innerHTML = `
-        <div class="p-4 cursor-pointer" data-action="toggle-expand" aria-expanded="${isExpanded ? 'true' : 'false'}">
+        <div class="p-4 cursor-pointer" data-action="toggle-expand">
             <div class="flex items-center justify-between">
                 <div class="flex items-center gap-3 min-w-0 flex-1">
                     <span class="w-2 h-2 rounded-full ${statusDot} flex-shrink-0"

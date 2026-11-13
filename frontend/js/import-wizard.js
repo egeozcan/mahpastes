@@ -799,6 +799,18 @@ const ImportWizard = (() => {
         return combo ? ShortcutManager.comboToDisplay(combo) : '';
     }
 
+    // aria-keyshortcuts wants key names ("Control+K", "ArrowRight"), not the
+    // glyphs shown on screen.
+    function ariaKeyShortcut(combo) {
+        const mac = /Mac|iPhone|iPad/.test(navigator.platform || '');
+        return combo.split('+').map(part => {
+            if (part === 'mod') return mac ? 'Meta' : 'Control';
+            if (part === 'shift') return 'Shift';
+            if (part === 'alt') return 'Alt';
+            return part.length === 1 ? part.toUpperCase() : part;
+        }).join('+');
+    }
+
     function setKeyHint(btn, actionId) {
         const label = shortcutLabel(actionId);
         let hint = btn.querySelector('.import-key-hint');
@@ -814,7 +826,7 @@ const ImportWizard = (() => {
             btn.appendChild(hint);
         }
         hint.textContent = label;
-        btn.setAttribute('aria-keyshortcuts', label);
+        btn.setAttribute('aria-keyshortcuts', ariaKeyShortcut(ShortcutManager.getEffectiveCombo(actionId)));
     }
 
     function renderActionButtons(entry, insp) {

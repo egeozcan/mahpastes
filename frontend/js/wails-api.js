@@ -890,7 +890,11 @@ async function upload(files) {
 }
 
 async function deleteClip(id) {
-    showConfirmDialog('Delete Clip', 'Are you sure you want to delete this clip permanently?', async () => {
+    // Name the clip: the dialog is reached from a key press too, where it is
+    // easy to be on a different card than intended. The message is HTML.
+    const name = galleryClipCard(id)?._clip?.filename;
+    const what = name ? `<strong class="break-all">${escapeHTML(name)}</strong>` : 'this clip';
+    showConfirmDialog('Delete Clip', `Delete ${what} permanently?`, async () => {
         try {
             await window.go.main.App.DeleteClip(id);
             // The clip is gone: free its cached video frame now, not at eviction.
@@ -907,7 +911,7 @@ async function deleteClip(id) {
             }, 0);
         } catch (error) {
             console.error('Error deleting clip:', error);
-            showToast('Failed to delete clip.', 'error');
+            toastError('Failed to delete clip', error);
         }
     });
 }
@@ -923,7 +927,7 @@ function renameClip(id) {
             if (!(await refreshClipInPlace(id))) loadClips();
         } catch (error) {
             console.error('Error renaming clip:', error);
-            showToast('Failed to rename clip.', 'error');
+            toastError('Failed to rename clip', error);
         }
     });
 }
@@ -965,7 +969,7 @@ async function toggleArchiveClip(id) {
         await window.go.main.App.ToggleArchive(id);
     } catch (error) {
         console.error('Error toggling archive:', error);
-        showToast('Failed to change archive status.', 'error');
+        toastError('Failed to change archive status', error);
         return;
     }
     const done = fromArchive ? 'Clip restored.' : 'Clip archived.';
@@ -1010,7 +1014,7 @@ async function saveTempFile(id) {
         }
     } catch (error) {
         console.error('Error saving temp file:', error);
-        showToast('Failed to save temp file.', 'error');
+        toastError('Failed to save temp file', error);
     }
 }
 
@@ -1020,7 +1024,7 @@ async function copyFileToClipboard(id) {
         showToast('File copied to clipboard!');
     } catch (error) {
         console.error('Error copying file to clipboard:', error);
-        showToast('Failed to copy file.', 'error');
+        toastError('Failed to copy file', error);
     }
 }
 
@@ -1032,7 +1036,7 @@ async function copyClipLink(id) {
         showToast('Link copied to clipboard!');
     } catch (error) {
         console.error('Error copying clip link:', error);
-        showToast('Failed to copy link.', 'error');
+        toastError('Failed to copy link', error);
     }
 }
 
@@ -1042,7 +1046,7 @@ async function copyClipContents(id) {
         showToast('Contents copied to clipboard!');
     } catch (error) {
         console.error('Error copying contents:', error);
-        showToast('Failed to copy contents.', 'error');
+        toastError('Failed to copy contents', error);
     }
 }
 
@@ -1052,7 +1056,7 @@ async function copyClipAsRichText(id) {
         showToast('Rich text copied to clipboard!');
     } catch (error) {
         console.error('Error copying rich text:', error);
-        showToast('Failed to copy rich text.', 'error');
+        toastError('Failed to copy rich text', error);
     }
 }
 
@@ -1069,12 +1073,12 @@ async function createAndCopyPublicLink(id) {
         copyToClipboard(window.location.origin + path);
     } catch (error) {
         console.error('Error creating public link:', error);
-        showToast('Failed to create public link.', 'error');
+        toastError('Failed to create public link', error);
     }
 }
 
 async function deleteAllTempFiles() {
-    showConfirmDialog('Delete All Temp Files', 'Are you sure you want to delete ALL temporary files?', async () => {
+    showConfirmDialog('Delete All Temp Files', 'Removes the temporary files prepared for drag-out, copy-as-file and playback. Your clips are not affected.', async () => {
         try {
             await window.go.main.App.DeleteAllTempFiles();
             if (typeof clearPreparedDragState === 'function') {
@@ -1083,23 +1087,23 @@ async function deleteAllTempFiles() {
             showToast('All temp files deleted.');
         } catch (error) {
             console.error('Error deleting temp files:', error);
-            showToast('Failed to delete temp files.', 'error');
+            toastError('Failed to delete temp files', error);
         }
     });
 }
 
 async function bulkDelete() {
     if (selectedIds.size === 0) return;
-    showConfirmDialog('Bulk Delete', `Are you sure you want to delete ${selectedIds.size} clips permanently?`, async () => {
+    showConfirmDialog('Bulk Delete', `Delete ${countOf(selectedIds.size, 'clip')} permanently?`, async () => {
         try {
             await window.go.main.App.BulkDelete(Array.from(selectedIds));
             selectedIds.forEach(id => videoFrameCacheDelete(Number(id)));
-            showToast(`Deleted ${selectedIds.size} clips.`);
+            showToast(`Deleted ${countOf(selectedIds.size, 'clip')}.`);
             selectedIds.clear();
             loadClips();
         } catch (error) {
             console.error('Error in bulk delete:', error);
-            showToast('Bulk delete failed.', 'error');
+            toastError('Bulk delete failed', error);
         }
     });
 }
@@ -1109,7 +1113,7 @@ async function bulkArchive() {
     try {
         const ids = Array.from(selectedIds);
         const fromArchive = isViewingArchive;
-        const count = `${ids.length} ${ids.length === 1 ? 'clip' : 'clips'}`;
+        const count = countOf(ids.length, 'clip');
         if (fromArchive) {
             await window.go.main.App.BulkUnarchive(ids);
         } else {
@@ -1146,7 +1150,7 @@ async function bulkCopyFiles() {
         showToast(`${selectedIds.size} file${selectedIds.size > 1 ? 's' : ''} copied to clipboard!`);
     } catch (error) {
         console.error('Error copying files to clipboard:', error);
-        showToast('Failed to copy files.', 'error');
+        toastError('Failed to copy files', error);
     }
 }
 
@@ -1375,7 +1379,7 @@ async function deleteTag(id) {
         showToast('Tag deleted.');
     } catch (error) {
         console.error('Error deleting tag:', error);
-        showToast('Failed to delete tag.', 'error');
+        toastError('Failed to delete tag', error);
     }
 }
 
@@ -1384,7 +1388,7 @@ async function addTagToClip(clipId, tagId) {
         await window.go.main.App.AddTagToClip(clipId, tagId);
     } catch (error) {
         console.error('Error adding tag to clip:', error);
-        showToast('Failed to add tag.', 'error');
+        toastError('Failed to add tag', error);
     }
 }
 
@@ -1393,27 +1397,27 @@ async function removeTagFromClip(clipId, tagId) {
         await window.go.main.App.RemoveTagFromClip(clipId, tagId);
     } catch (error) {
         console.error('Error removing tag from clip:', error);
-        showToast('Failed to remove tag.', 'error');
+        toastError('Failed to remove tag', error);
     }
 }
 
 async function bulkAddTag(clipIds, tagId) {
     try {
         await window.go.main.App.BulkAddTag(clipIds, tagId);
-        showToast(`Tag added to ${clipIds.length} clips.`);
+        showToast(`Tag added to ${countOf(clipIds.length, 'clip')}.`);
     } catch (error) {
         console.error('Error in bulk add tag:', error);
-        showToast('Failed to add tag to clips.', 'error');
+        toastError('Failed to add tag to clips', error);
     }
 }
 
 async function bulkRemoveTag(clipIds, tagId) {
     try {
         await window.go.main.App.BulkRemoveTag(clipIds, tagId);
-        showToast(`Tag removed from ${clipIds.length} clips.`);
+        showToast(`Tag removed from ${countOf(clipIds.length, 'clip')}.`);
     } catch (error) {
         console.error('Error in bulk remove tag:', error);
-        showToast('Failed to remove tag from clips.', 'error');
+        toastError('Failed to remove tag from clips', error);
     }
 }
 
@@ -1535,7 +1539,7 @@ async function setExpiration(id, minutes) {
         if (!(await refreshClipInPlace(id))) loadClips();
     } catch (error) {
         console.error('Error setting expiration:', error);
-        showToast('Failed to set expiration.', 'error');
+        toastError('Failed to set expiration', error);
     }
 }
 
@@ -1546,14 +1550,14 @@ async function cancelExpiration(id) {
         if (!(await refreshClipInPlace(id))) loadClips();
     } catch (error) {
         console.error('Error canceling expiration:', error);
-        showToast('Failed to cancel expiration.', 'error');
+        toastError('Failed to cancel expiration', error);
     }
 }
 
 async function bulkSetExpiration(ids, minutes) {
     try {
         await window.go.main.App.BulkSetExpiration(ids, minutes);
-        showToast(`Expiration set on ${ids.length} clips.`);
+        showToast(`Expiration set on ${countOf(ids.length, 'clip')}.`);
         selectedIds.clear();
         updateBulkToolbar();
         loadClips();
@@ -1567,7 +1571,7 @@ async function bulkSetExpiration(ids, minutes) {
 async function bulkCancelExpiration(ids) {
     try {
         await window.go.main.App.BulkCancelExpiration(ids);
-        showToast(`Expiration canceled on ${ids.length} clips.`);
+        showToast(`Expiration canceled on ${countOf(ids.length, 'clip')}.`);
         selectedIds.clear();
         updateBulkToolbar();
         loadClips();

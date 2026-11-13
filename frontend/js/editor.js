@@ -281,7 +281,7 @@ async function openEditor(clipId, options = {}) {
         editorFocusTrapCleanup = null;
         editorModal.classList.remove('active');
         editorModal.setAttribute('inert', '');
-        showToast('Failed to open editor.', 'error');
+        toastError('Failed to open editor', error);
     }
 }
 

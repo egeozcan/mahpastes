@@ -352,7 +352,7 @@ async function toggleHiddenTag(tagId, hidden) {
         await window.go.main.App.SetHiddenTags(getHiddenTags());
     } catch (error) {
         console.error('Error saving hidden tags:', error);
-        showToast('Failed to save hidden tags setting.', 'error');
+        toastError('Failed to save hidden tags setting', error);
     }
 }
 
