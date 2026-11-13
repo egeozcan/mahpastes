@@ -6,8 +6,10 @@ import (
 	"encoding/xml"
 	"fmt"
 	"os"
+	"os/exec"
 	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"text/template"
@@ -225,6 +227,60 @@ func TestInfoPlistVersionComesFromWailsJSON(t *testing.T) {
 	}
 	if s, _ := p["NSHumanReadableCopyright"].(string); s == "" || strings.Contains(s, "....") {
 		t.Errorf("NSHumanReadableCopyright = %q, want the wails.json copyright", s)
+	}
+}
+
+// dottedVersionLess compares the leading dotted numbers of a and b
+// ("v1.6.0-rc1" counts as 1.6.0); missing components are zero.
+func dottedVersionLess(a, b string) bool {
+	parse := func(v string) [3]int {
+		var n [3]int
+		lead := regexp.MustCompile(`^[0-9]+(\.[0-9]+){0,2}`).FindString(strings.TrimPrefix(v, "v"))
+		for i, part := range strings.Split(lead, ".") {
+			n[i], _ = strconv.Atoi(part)
+		}
+		return n
+	}
+	x, y := parse(a), parse(b)
+	for i := range x {
+		if x[i] != y[i] {
+			return x[i] < y[i]
+		}
+	}
+	return false
+}
+
+func TestDottedVersionLess(t *testing.T) {
+	for _, c := range []struct {
+		a, b string
+		want bool
+	}{
+		{"1.5.0", "v1.6.0", true},
+		{"1.6.0", "v1.6.0", false},
+		{"1.7.0", "v1.6.0", false},
+		{"1.9.0", "v1.10.0", true},
+		{"1.6", "v1.6.1", true},
+		{"1.6.0", "v1.6.0-rc1", false},
+		{"2.0.0", "v1.99.99", false},
+	} {
+		if got := dottedVersionLess(c.a, c.b); got != c.want {
+			t.Errorf("dottedVersionLess(%q, %q) = %v, want %v", c.a, c.b, got, c.want)
+		}
+	}
+}
+
+// v1.6.0 was tagged with productVersion still 1.5.0. Only CI stamps the tag
+// into wails.json, so every bundle built from source called itself 1.5.0 in
+// Info.plist. The checked-in value may run ahead of the newest tag (the bump
+// precedes the tag) but never behind it.
+func TestProductVersionNotBehindLatestTag(t *testing.T) {
+	out, err := exec.Command("git", "describe", "--tags", "--match", "v[0-9]*", "--abbrev=0").Output()
+	tag := strings.TrimSpace(string(out))
+	if err != nil || tag == "" {
+		t.Skip("no git or no reachable v* tag (tarball or shallow checkout)")
+	}
+	if version := readWailsProject(t).Info.ProductVersion; dottedVersionLess(version, tag) {
+		t.Errorf("wails.json info.productVersion is %s but this commit is at or after %s: bump it to the release being tagged", version, tag)
 	}
 }
 
