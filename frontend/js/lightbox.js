@@ -680,10 +680,12 @@
         // toggle) and on every other control, where Space activates it.
         deps.elements.root.addEventListener('keydown', event => {
             if (event.key !== ' ' || event.ctrlKey || event.metaKey || event.altKey) return;
-            if (state.phase !== 'ready' || !isVideoClip(currentClip())) return;
+            if (state.phase === 'closed' || !isVideoClip(currentClip())) return;
             const target = event.target;
             if (target === deps.elements.video) return;
             if (target !== deps.elements.close && target.closest?.('button, input, select, textarea, a[href], [role="menu"]')) return;
+            // Swallowed even while the video is still loading (the command
+            // then does nothing): Space must not close a video that is slow.
             event.preventDefault();
             command('toggle-play');
         });

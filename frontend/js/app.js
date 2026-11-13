@@ -1816,8 +1816,10 @@ window.addEventListener('load', async () => {
         // The card keys do nothing while the viewer is open (their context is
         // the focused card), so the viewer has its own for the clip on screen.
         // E stays Edit here; archive is A.
-        ShortcutManager.register({ id: 'lightbox-delete', label: 'Delete Clip', category: 'lightbox', defaultKey: 'd', context: 'lightbox', callback: () => window.LightboxController.command('file-action', { action: 'delete' }) });
-        ShortcutManager.register({ id: 'lightbox-archive', label: 'Archive / Unarchive', category: 'lightbox', defaultKey: 'a', context: 'lightbox', callback: () => window.LightboxController.command('file-action', { action: 'archive' }) });
+        // A held key does not repeat: each press archives one clip and moves on,
+        // so a repeat would run through the list.
+        ShortcutManager.register({ id: 'lightbox-delete', label: 'Delete Clip', category: 'lightbox', defaultKey: 'd', context: 'lightbox', callback: (e) => { if (!e?.repeat) window.LightboxController.command('file-action', { action: 'delete' }); } });
+        ShortcutManager.register({ id: 'lightbox-archive', label: 'Archive / Unarchive', category: 'lightbox', defaultKey: 'a', context: 'lightbox', callback: (e) => { if (!e?.repeat) window.LightboxController.command('file-action', { action: 'archive' }); } });
         ShortcutManager.register({ id: 'lightbox-tags', label: 'Edit Tags', category: 'lightbox', defaultKey: 't', context: 'lightbox', callback: () => window.LightboxController.command('file-action', { action: 'tags' }) });
         ShortcutManager.register({ id: 'lightbox-menu', label: 'Open Actions Menu', category: 'lightbox', defaultKey: 'mod+Enter', context: 'lightbox', callback: () => {
             if (!ContextMenu.isOpen()) document.getElementById('lightbox-file-menu-trigger')?.click();

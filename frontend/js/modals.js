@@ -62,6 +62,9 @@ function openLightboxPluginMenu(trigger, actions, clip) {
     menu.className = 'lightbox-plugin-menu';
     menu.setAttribute('role', 'menu');
     menu.setAttribute('aria-label', 'Plugin actions');
+    // Keys typed with focus in the menu are the menu's: without this the
+    // viewer's single-letter shortcuts (archive, delete, edit) act behind it.
+    menu.setAttribute('data-owns-keys', '');
 
     // Group actions by plugin_name
     const grouped = new Map();
@@ -210,6 +213,10 @@ function renderLightboxFileActions(clip) {
     const container = document.getElementById('lightbox-file-actions');
     if (!container) return;
 
+    // Moving to another clip rebuilds the trigger. If it held focus (the
+    // confirm dialog of a delete hands focus back to it), the new one takes
+    // it, or focus falls to <body> and out of the viewer's focus trap.
+    const hadFocus = container.contains(document.activeElement);
     container.innerHTML = '';
     if (!clip) return;
 
@@ -235,6 +242,7 @@ function renderLightboxFileActions(clip) {
     });
 
     container.appendChild(btn);
+    if (hadFocus) btn.focus();
 }
 
 // `anchor` defaults to the trigger button; right-clicking the image passes a
@@ -346,6 +354,7 @@ async function handleLightboxFileAction(action, clip) {
         // gallery hands the viewer its new list, and it moves to the next clip
         // (or closes after the last). A cancelled delete keeps your place.
         case 'archive':
+            closeStandaloneLightbox(clip);
             toggleArchiveClip(clip.id);
             break;
         case 'merge-duplicates':
@@ -361,9 +370,20 @@ async function handleLightboxFileAction(action, clip) {
             renameClip(clip.id);
             break;
         case 'delete':
+            closeStandaloneLightbox(clip);
             deleteClip(clip.id);
             break;
     }
+}
+
+// A viewer opened on a clip that is not one of the gallery's cards (an image
+// referenced from Markdown, a link to a clip on an unloaded page or behind the
+// search filter) has nothing to move on to: after the action the gallery would
+// hand it its own list and it would show a clip the user never opened. That
+// viewer closes first, as every viewer used to.
+function closeStandaloneLightbox(clip) {
+    const inGallery = getVisibleMediaClips().some(c => Number(c.id) === Number(clip.id));
+    if (!inGallery) window.LightboxController.close();
 }
 
 // --- Comparison Functions ---

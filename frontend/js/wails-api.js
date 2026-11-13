@@ -391,6 +391,9 @@ async function loadClips({ focusFirst = false } = {}) {
             updateClipCount(0);
             showGalleryStatus('Error loading clips.', 'error');
             clearHiddenClipsNote();
+            // The gallery is empty now; a viewer left open would go on
+            // showing (and acting on) a clip that may no longer exist.
+            window.LightboxController?.setClips([]);
         }
     } finally {
         // Render-completion signal. Several callers (folder-mode toggle, folder

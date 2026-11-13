@@ -63,6 +63,41 @@ test.describe('Lightbox triage', () => {
     await app.expectClipNotVisible(first);
   });
 
+  test('a viewer opened on a clip outside the gallery list closes instead of moving to another clip', async ({ app }) => {
+    const [first, second] = await uploadImages(app, 2);
+    // Hide `first` behind the plain search filter, then open it alone, as a
+    // link to a clip that is not on screen does.
+    await app.search(second.replace('.png', ''));
+    await app.page.evaluate((name) => {
+      const card = document.querySelector(`li[data-filename="${name}"]`) as any;
+      (window as any).LightboxController.openSingle({ clip: card._clip, opener: null });
+    }, first);
+    await expect(caption(app)).toContainText(first);
+    await expect(app.page.locator(selectors.lightbox.viewport)).toHaveAttribute('aria-busy', 'false');
+
+    await app.page.keyboard.press('a');
+    await expect(overlay(app)).not.toHaveClass(/active/);
+
+    // Only the clip that was open was archived.
+    await app.clearSearch();
+    await app.expectClipCount(1);
+    await app.expectClipVisible(second);
+  });
+
+  test('Delete from the Actions menu keeps focus inside the viewer as it moves on', async ({ app }) => {
+    const [first, second] = await uploadImages(app, 2);
+    await app.openLightbox(first);
+
+    await app.page.locator('#lightbox-file-menu-trigger').click();
+    await app.page.locator('[data-action="delete"]').last().click();
+    await app.page.locator(selectors.confirm.confirmButton).click();
+
+    await expect(caption(app)).toContainText(second);
+    await expect.poll(() => app.page.evaluate(
+      () => !!document.activeElement && document.getElementById('lightbox')!.contains(document.activeElement),
+    )).toBe(true);
+  });
+
   test('T opens the tag popover and mod+Enter the Actions menu', async ({ app }) => {
     await app.createTag('triage');
     const [first] = await uploadImages(app, 1);
