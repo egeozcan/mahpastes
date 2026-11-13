@@ -198,8 +198,9 @@ async function openEditor(clipId, options = {}) {
             // Fit image to container and show the correct zoom percentage
             ZoomTool.zoomToFit();
 
-            // Select default tool
-            EditorCore.selectTool('brush');
+            // Select the drawing tool last used (brush the first time)
+            lastDrawingTool = loadEditorToolPrefs().tool;
+            EditorCore.selectTool(lastDrawingTool);
             if (EditorCore.wasDownscaled) {
                 downscaleWarning.textContent = `${EditorCore.originalWidth}×${EditorCore.originalHeight} resized to ${EditorCore.canvas.width}×${EditorCore.canvas.height} for editing`;
                 downscaleWarning.classList.remove('hidden');
@@ -375,6 +376,9 @@ function closeEditor(options) {
 
     editorSession++;
     const editorModal = document.getElementById('editor-modal');
+    // closeEditor also runs with nothing open (an open that failed, a second
+    // close): EditorCore then holds reset defaults, which are not a preference.
+    const wasOpen = editorModal.classList.contains('active');
     if (editorFocusTrapCleanup) editorFocusTrapCleanup();
     editorFocusTrapCleanup = null;
     editorModal.classList.remove('active');
@@ -382,6 +386,8 @@ function closeEditor(options) {
 
     if (isTextEditor) {
         TextClipEditor.close({ discardDraft: options?.discardDraft === true });
+    } else if (wasOpen) {
+        rememberEditorToolPrefs();
     }
 
     // Reset EditorCore (detaches listeners, clears canvases, clears undo/redo)
@@ -414,18 +420,68 @@ function closeEditor(options) {
 
 // --- Tool State UI ---
 
+// --- Remembered tool settings ---
+//
+// The image editor used to open on Brush, dark grey, 8px every time, so a
+// user who annotates in red arrows set that up again for every screenshot.
+// The last drawing tool, colour, opacity and sizes are kept per browser
+// profile (localStorage: a view preference, not library data, so it stays
+// out of settings, backups and the REST API). Every value is validated on the
+// way back in; anything missing or odd falls back to the old default.
+const EDITOR_TOOL_PREFS_KEY = 'mahpastes.editor.toolPrefs';
+// Tools that draw. Crop, select, eyedropper and anonymize are one-off
+// operations: reopening on them would surprise, so they fall back to brush.
+const REMEMBERED_EDITOR_TOOLS = ['brush', 'eraser', 'line', 'arrow', 'rectangle', 'circle', 'text'];
+const EDITOR_TOOL_DEFAULTS = Object.freeze({ tool: 'brush', color: '#44403c', opacity: 1, brushSize: 8, fontSize: 16 });
+
+// The drawing tool last selected in the open editor: closing while on a
+// one-off tool (eyedropper, crop) still remembers the one used before it.
+let lastDrawingTool = null;
+
+function loadEditorToolPrefs() {
+    const prefs = { ...EDITOR_TOOL_DEFAULTS };
+    let stored = null;
+    try { stored = JSON.parse(localStorage.getItem(EDITOR_TOOL_PREFS_KEY) || 'null'); } catch (e) { stored = null; }
+    if (!stored || typeof stored !== 'object') return prefs;
+    if (REMEMBERED_EDITOR_TOOLS.includes(stored.tool)) prefs.tool = stored.tool;
+    if (typeof stored.color === 'string' && /^#[0-9a-f]{6}$/i.test(stored.color)) prefs.color = stored.color;
+    if (Number.isFinite(stored.opacity) && stored.opacity >= 0 && stored.opacity <= 1) prefs.opacity = stored.opacity;
+    if (Number.isInteger(stored.brushSize) && stored.brushSize >= 1 && stored.brushSize <= 50) prefs.brushSize = stored.brushSize;
+    if (Number.isInteger(stored.fontSize) && stored.fontSize >= 1 && stored.fontSize <= 500) prefs.fontSize = stored.fontSize;
+    return prefs;
+}
+
+// Called as the image editor closes, before EditorCore.reset() wipes the
+// state: one place that sees every way the values change (the inputs, the
+// bracket keys, the eyedropper).
+function rememberEditorToolPrefs() {
+    const tool = REMEMBERED_EDITOR_TOOLS.includes(EditorCore.activeToolName)
+        ? EditorCore.activeToolName
+        : (lastDrawingTool || loadEditorToolPrefs().tool);
+    try {
+        localStorage.setItem(EDITOR_TOOL_PREFS_KEY, JSON.stringify({
+            tool,
+            color: EditorCore.currentColor,
+            opacity: EditorCore.currentOpacity,
+            brushSize: EditorCore.brushSize,
+            fontSize: EditorCore.fontSize,
+        }));
+    } catch (e) { /* not persisted */ }
+}
+
 function resetToolState() {
-    // Reset drawing properties on EditorCore
-    EditorCore.currentColor = '#44403c';
-    EditorCore.currentOpacity = 1;
-    EditorCore.brushSize = 8;
-    EditorCore.fontSize = 16;
+    // Drawing properties: the ones last used, else the defaults
+    const prefs = loadEditorToolPrefs();
+    EditorCore.currentColor = prefs.color;
+    EditorCore.currentOpacity = prefs.opacity;
+    EditorCore.brushSize = prefs.brushSize;
+    EditorCore.fontSize = prefs.fontSize;
 
     // Update UI controls
     updateToolButtons();
     document.getElementById('editor-color').value = EditorCore.currentColor;
     document.getElementById('editor-opacity').value = EditorCore.currentOpacity * 100;
-    document.getElementById('editor-opacity-value').textContent = '100%';
+    document.getElementById('editor-opacity-value').textContent = Math.round(EditorCore.currentOpacity * 100) + '%';
     document.getElementById('editor-brush-size').value = EditorCore.brushSize;
     document.getElementById('editor-brush-size-value').textContent = EditorCore.brushSize + 'px';
     const fontSizeInput = document.getElementById('editor-font-size');
@@ -499,6 +555,7 @@ function selectTool(tool) {
     }
 
     EditorCore.selectTool(tool);
+    if (REMEMBERED_EDITOR_TOOLS.includes(tool)) lastDrawingTool = tool;
     updateToolButtons();
     updateContextToolbar();
     updateEditorSaveState();

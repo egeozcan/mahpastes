@@ -1086,6 +1086,9 @@ export class AppHelper {
       const gallery = document.getElementById('gallery');
       if (gallery?.parentElement) gallery.parentElement.classList.remove('hidden');
 
+      // The image editor remembers its last tool, colour and sizes.
+      try { localStorage.removeItem('mahpastes.editor.toolPrefs'); } catch { /* unavailable */ }
+
       // Clear search
       const searchInput = document.getElementById('search-input') as HTMLInputElement;
       if (searchInput) searchInput.value = '';

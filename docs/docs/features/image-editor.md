@@ -20,6 +20,8 @@ Clicking an image preview opens the lightbox, not the editor. Use the context me
 
 ## Drawing Tools
 
+The editor opens with the drawing tool, colour, opacity and sizes you used last. One-off tools (crop, select, eyedropper, anonymize) are not reopened; the drawing tool used before them is.
+
 ### Brush Tool
 
 Freehand drawing for annotations and highlights.
