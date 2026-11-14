@@ -768,6 +768,12 @@ export class AppHelper {
         }
       } catch {}
 
+      // The Serve view remembers its list in a setting.
+      try {
+        if (App?.SetSetting) await App.SetSetting('serve_entries', '[]');
+        (window as any).__testHelpers?.resetServeEntries?.();
+      } catch {}
+
       // The worker page is reused, so reset search through the public setter:
       // writing only the DB setting leaves both module-level flags stale.
       try {
@@ -844,7 +850,8 @@ export class AppHelper {
         const isShown = (el: Element | null) => !!el && !el.hasAttribute('inert')
           && !el.classList.contains('opacity-0') && !el.classList.contains('hidden');
         const closers: Array<[string, () => unknown]> = [
-          ['#confirm-dialog', () => w.closeConfirmDialog?.()],
+          // A confirm whose action is still running refuses to close.
+          ['#confirm-dialog', () => { w.setConfirmBusy?.(false); w.closeConfirmDialog?.(); }],
           ['#restore-confirm-dialog', () => w.hideRestoreConfirmDialog?.({ force: true })],
           ['#prompt-dialog', () => w.closePromptDialog?.()],
           ['#conflict-dialog', () => w.closeConflictDialog?.('skip')],
@@ -1086,13 +1093,24 @@ export class AppHelper {
       const gallery = document.getElementById('gallery');
       if (gallery?.parentElement) gallery.parentElement.classList.remove('hidden');
 
+      // Paging tests switch the automatic next-page load off.
+      (window as any).setAutoLoadMore?.(true);
+
+      // The image editor remembers its last tool, colour and sizes.
+      try { localStorage.removeItem('mahpastes.editor.toolPrefs'); } catch { /* unavailable */ }
+
       // Clear search
       const searchInput = document.getElementById('search-input') as HTMLInputElement;
       if (searchInput) searchInput.value = '';
+      (window as any).syncSearchClearButton?.();
 
       // Reset upload expiration dropdown to "No expiration"
       const expirySelect = document.getElementById('expiry-select') as HTMLSelectElement;
-      if (expirySelect) expirySelect.value = '0';
+      if (expirySelect) {
+        expirySelect.value = '0';
+        // The select restyles itself from its value on change.
+        expirySelect.dispatchEvent(new Event('change', { bubbles: true }));
+      }
 
       // --- 4. Reload gallery and caches with clean state ---
 
@@ -1839,9 +1857,33 @@ export class AppHelper {
     for (let i = 0; i < offset; i++) await this.page.keyboard.press('ArrowRight');
   }
 
+  // Saving a text clip leaves the editor open (clean); this saves and then
+  // closes it, which is what most tests want before looking at the gallery.
   async saveTextEditor(): Promise<void> {
-    await this.page.locator(selectors.textEditor.saveButton).click();
+    await this.saveTextEditorInPlace();
+    await this.page.locator(selectors.textEditor.cancelButton).click();
     await this.page.waitForSelector(`${selectors.textEditor.modal}:not(.active)`);
+  }
+
+  // After a save was started some other way (a key, Save Anyway): waits for
+  // it to land, then closes the editor, which a text save leaves open.
+  async finishTextSave(): Promise<void> {
+    const save = this.page.locator(selectors.textEditor.saveButton);
+    // Label first: the button is disabled while "Saving…" too, and only
+    // "Save" + disabled means the write landed and the editor is clean.
+    await expect(save).toHaveText('Save');
+    await expect(save).toBeDisabled();
+    await this.page.locator(selectors.textEditor.cancelButton).click();
+    await this.page.waitForSelector(`${selectors.textEditor.modal}:not(.active)`);
+  }
+
+  // Save and stay in the editor: resolves once the write has landed and the
+  // editor is clean again (Save disabled, label back from "Saving…").
+  async saveTextEditorInPlace(): Promise<void> {
+    const save = this.page.locator(selectors.textEditor.saveButton);
+    await save.click();
+    await expect(save).toHaveText('Save');
+    await expect(save).toBeDisabled();
   }
 
   async cancelTextEditor(): Promise<void> {
@@ -1889,6 +1931,8 @@ export class AppHelper {
     // not an empty gallery.
     await expect(emptyState).not.toHaveClass(/text-red-500/);
     await expect(emptyState).not.toContainText('Error loading clips');
+    // Nor is a search that merely hid the loaded cards.
+    await expect(emptyState).not.toHaveAttribute('data-search-miss', 'true');
   }
 
   // ==================== Tags ====================

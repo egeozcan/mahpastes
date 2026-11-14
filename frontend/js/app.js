@@ -139,6 +139,9 @@ window.setLightboxCloseOnBackdrop = async (enabled) => {
     }
 };
 
+// Images above this are not read ahead in the lightbox.
+const LIGHTBOX_PREFETCH_MAX_BYTES = 25 * 1024 * 1024;
+
 window.LightboxController = window.createLightboxController({
     elements: {
         root: lightbox,
@@ -174,6 +177,16 @@ window.LightboxController = window.createLightboxController({
     loadMedia: clip => clip.content_type.startsWith('video/')
         ? getVideoMediaUrl(clip.id)
         : getImageDataUrl(clip.id),
+    // Warm the image the user is likely to page to next. Desktop only: there
+    // the read is a base64 round trip over the bridge, where a browser in
+    // server mode fetches and caches by URL itself. A large image is left
+    // for when it is actually wanted: the read costs several times its size
+    // in memory and would evict what is cached.
+    prefetchMedia: clip => {
+        if (window.mahpastesMode === 'server') return;
+        if ((Number(clip.size) || 0) > LIGHTBOX_PREFETCH_MAX_BYTES) return;
+        getImageDataUrl(clip.id).catch(() => {});
+    },
     trapFocus,
     renderPluginActions: clip => renderLightboxPluginButtons(clip),
     renderFileActions: clip => renderLightboxFileActions(clip),
@@ -185,6 +198,7 @@ window.LightboxController = window.createLightboxController({
         openEditor(clip.id, { initialMode: 'edit' });
     },
     copyClip: clip => copyClipContents(clip.id),
+    fileAction: (action, clip) => handleLightboxFileAction(action, clip),
     shouldCloseOnBackdrop: () => lightboxCloseOnBackdrop,
     menusOpen: () => Boolean(document.getElementById('lightbox-plugin-menu')) || ContextMenu.isOpen(),
     closeMenus: () => {
@@ -243,6 +257,30 @@ function getUploadExpirationMinutes() {
     return parseInt(uploadExpirySelect.value, 10) || 0;
 }
 
+// " expiring in 15m" while the expiry select is set, else "". Appended to
+// upload toasts: the select stays set for the whole session, and nothing else
+// says that what was just added will delete itself.
+function uploadExpiryNote() {
+    if (getUploadExpirationMinutes() <= 0) return '';
+    const label = uploadExpirySelect.selectedOptions[0]?.textContent.trim();
+    return label ? `, expiring in ${label}` : '';
+}
+
+// A set expiry is shown in the warning colours so it is not mistaken for the
+// resting "No Expiry". Classes are toggled one by one: serve.js owns `hidden`.
+function syncExpirySelectStyle() {
+    const active = getUploadExpirationMinutes() > 0;
+    uploadExpirySelect.dataset.active = String(active);
+    for (const cls of ['bg-amber-50', 'border-amber-200', 'text-amber-700']) {
+        uploadExpirySelect.classList.toggle(cls, active);
+    }
+    for (const cls of ['bg-white', 'border-stone-200', 'hover:border-stone-300', 'text-stone-500']) {
+        uploadExpirySelect.classList.toggle(cls, !active);
+    }
+}
+uploadExpirySelect.addEventListener('change', syncExpirySelectStyle);
+syncExpirySelectStyle();
+
 // `count` clips shown. With `total` (more exist than are loaded) it reads
 // "50 of 120 clips"; while the plain search filter hides loaded cards it reads
 // "3 of 50 loaded clips" (or "3 of 12 clips" once everything is loaded).
@@ -262,10 +300,28 @@ function updateClipCount(count, total = null, { filtering = false, loaded = 0 } 
 
 // --- State ---
 let isViewingArchive = false;
+
+// New clips land in the active list, so an upload about to add something while
+// the archive is showing switches back to it first (as open requests do)
+// instead of refusing and losing what was pasted or dropped. Folder mode and
+// the current folder survive the switch, so a drop is still filed where the
+// user was standing. Only when the gallery is what the user is looking at: a
+// paste with the lightbox, an editor or another view open over the archive
+// uploads without changing what is on screen. Returns whether it switched.
+function leaveArchiveForUpload() {
+    if (!isViewingArchive) return false;
+    if (!ShortcutManager.getActiveContexts().includes('gallery')) return false;
+    toggleViewMode();
+    return true;
+}
 let selectedIds = new Set();
 
 let comparisonMode = 'fade';
 let zoomLevel = 1;
+// Comparison view pan, in screen pixels (a zoomed-in pair showed only its
+// centre, with no way to look anywhere else).
+let comparePanX = 0;
+let comparePanY = 0;
 let isStretched = false;
 let lastFocusedElementBeforeComparison = null;
 let comparisonClipIds = []; // [idA, idB] - track which clips are being compared
@@ -435,6 +491,7 @@ function setHiddenTagsState(tags) {
 async function setSort(field, dir) {
     currentSortField = field;
     currentSortDir = dir;
+    if (typeof updateSortButton === 'function') updateSortButton();
     await window.go.main.App.SetSetting('sort_field', field);
     await window.go.main.App.SetSetting('sort_dir', dir);
     await loadClips();
@@ -459,7 +516,7 @@ Object.assign(window.__testHelpers, {
   setHiddenTags: (tags) => setHiddenTagsState(tags),
   getHiddenTags: () => getHiddenTags(),
   setViewingArchive: (val) => { isViewingArchive = val; },
-  setSort: (field, dir) => { currentSortField = field; currentSortDir = dir; },
+  setSort: (field, dir) => { currentSortField = field; currentSortDir = dir; if (typeof updateSortButton === 'function') updateSortButton(); },
   isFolderMode: () => isFolderMode(),
   setFolderMode: (val) => { folderMode = val; },
   getShortcutManager: () => typeof ShortcutManager !== 'undefined' ? ShortcutManager : null,
@@ -487,9 +544,19 @@ Object.assign(window.__testHelpers, {
 // Whole-app drag and drop
 let dragCounter = 0;
 
+// The overlay says "drop to upload", so it shows only for a drag that carries
+// files. Dragged text or a link (from another app, or selected text within
+// this one) is not something a drop here does anything with, and the overlay
+// used to promise otherwise.
+function dragCarriesFiles(e) {
+    const types = e.dataTransfer && e.dataTransfer.types;
+    return !!types && Array.from(types).includes('Files');
+}
+
 document.addEventListener('dragenter', e => {
     e.preventDefault();
     if (window.__internalDragActive) return;
+    if (!dragCarriesFiles(e)) return;
     dragCounter++;
     if (dragCounter === 1) {
         dropOverlay.classList.remove('opacity-0');
@@ -504,6 +571,9 @@ document.addEventListener('dragover', e => {
 document.addEventListener('dragleave', e => {
     e.preventDefault();
     if (window.__internalDragActive) return;
+    // By the counter, not by the leave event's types: some engines report
+    // none on leave, and the overlay would then never come down.
+    if (dragCounter <= 0) return;
     dragCounter--;
     if (dragCounter <= 0) {
         dragCounter = 0;
@@ -581,9 +651,29 @@ document.getElementById('gallery-load-more-btn')?.addEventListener('click', () =
 
 // Confirm Dialog Listeners
 document.getElementById('confirm-yes-btn').addEventListener('click', async () => {
-    if (confirmCallback) await confirmCallback();
-    confirmCancelCallback = null; // Prevent cancel callback when confirmed
-    closeConfirmDialog();
+    if (confirmBusy) return;
+    const callback = confirmCallback;
+    const yesBtn = document.getElementById('confirm-yes-btn');
+    const label = yesBtn.textContent;
+    // The label changes only if the action takes long enough to notice.
+    let labelTimer = null;
+    if (callback) {
+        setConfirmBusy(true);
+        labelTimer = setTimeout(() => { if (confirmBusy) yesBtn.textContent = 'Working…'; }, 250);
+    }
+    // Whether the callback opened a dialog of its own in this same element.
+    const opened = confirmCallback;
+    try {
+        if (callback) await callback();
+    } finally {
+        clearTimeout(labelTimer);
+        if (confirmCallback === opened) {
+            if (yesBtn.textContent === 'Working…') yesBtn.textContent = label;
+            setConfirmBusy(false);
+            confirmCancelCallback = null; // Prevent cancel callback when confirmed
+            closeConfirmDialog();
+        }
+    }
 });
 
 document.getElementById('confirm-no-btn').addEventListener('click', closeConfirmDialog);
@@ -807,22 +897,89 @@ setupConfirmDialogFocusTrap();
 
 // --- Upload Handlers ---
 
-async function handleFiles(files) {
-    if (isViewingArchive) {
-        showToast('Switch to Active view to upload.');
+// --- Upload progress ---
+//
+// Between a drop and the final toast every file is read into memory and sent
+// over the bridge; for a large video or a few dozen files that takes long
+// enough to look like nothing is happening. The bottom bar says what stage it
+// is at, but only once the work has taken UPLOAD_STATUS_DELAY_MS, so a quick
+// paste shows nothing. Its own element: #loading-status belongs to the plugin
+// task queue.
+const UPLOAD_STATUS_DELAY_MS = 300;
+let uploadStatusTimer = null;
+let uploadStatusText = '';
+
+function setUploadStatus(text) {
+    const el = document.getElementById('upload-status');
+    if (!el) return;
+    uploadStatusText = text;
+    if (!el.hidden) {
+        el.textContent = text;
         return;
     }
+    if (uploadStatusTimer) return;
+    uploadStatusTimer = setTimeout(() => {
+        uploadStatusTimer = null;
+        if (!uploadStatusText) return;
+        el.textContent = uploadStatusText;
+        el.hidden = false;
+    }, UPLOAD_STATUS_DELAY_MS);
+}
+
+function clearUploadStatus() {
+    uploadStatusText = '';
+    clearTimeout(uploadStatusTimer);
+    uploadStatusTimer = null;
+    const el = document.getElementById('upload-status');
+    if (el) { el.hidden = true; el.textContent = ''; }
+}
+
+// Reads dropped, picked or pasted files for upload. A file that cannot be read
+// (deleted meanwhile, no permission, a directory in disguise) is skipped and
+// named in `unreadable`; it used to reject the whole batch without a word,
+// taking the readable files with it. `prepare` may adjust each result.
+async function readFilesForUpload(files, prepare) {
+    const read = [];
+    const unreadable = [];
+    const list = Array.from(files);
+    try {
+        for (let i = 0; i < list.length; i++) {
+            setUploadStatus(list.length === 1 ? 'Reading file…' : `Reading ${i + 1} of ${list.length}…`);
+            try {
+                const fileData = await fileToFileData(list[i]);
+                if (prepare) await prepare(fileData);
+                read.push(fileData);
+            } catch (error) {
+                console.error('Could not read file for upload:', list[i]?.name, error);
+                unreadable.push(list[i]?.name || 'a file');
+            }
+        }
+    } finally {
+        clearUploadStatus();
+    }
+    return { read, unreadable };
+}
+
+// "Could not read a.png." / "3 files could not be read."
+function unreadableNote(unreadable) {
+    if (!unreadable || unreadable.length === 0) return '';
+    return unreadable.length === 1
+        ? `Could not read ${unreadable[0]}.`
+        : `${unreadable.length} files could not be read.`;
+}
+
+async function handleFiles(files) {
     if (files.length === 0) return;
 
-    const fileDataArray = [];
-    for (let i = 0; i < files.length; i++) {
-        const fileData = await fileToFileData(files[i]);
-        fileDataArray.push(fileData);
+    const { read, unreadable } = await readFilesForUpload(files);
+    if (read.length === 0) {
+        showToast(unreadableNote(unreadable), 'error');
+        return;
     }
 
     // Same queue as pastes: one upload's conflict prompt must be answered
     // before the next upload checks for conflicts of its own.
-    return enqueuePaste(() => upload(fileDataArray));
+    return enqueuePaste(() => upload(read, { unreadable }));
 }
 
 // The system WebView hands clipboard bitmap data (screen captures, "Copy Image")
@@ -860,20 +1017,17 @@ function handlePastedFiles(files) {
 }
 
 async function processPastedFiles(files) {
-    if (isViewingArchive) {
-        showToast('Switch to Active view to upload.');
-        return;
-    }
     if (files.length === 0) return;
 
-    const fileDataArray = [];
-    for (let i = 0; i < files.length; i++) {
-        const fileData = await fileToFileData(files[i]);
+    const { read, unreadable } = await readFilesForUpload(files, async (fileData) => {
         fileData.name = await pastedImageName(fileData);
-        fileDataArray.push(fileData);
+    });
+    if (read.length === 0) {
+        showToast(unreadableNote(unreadable), 'error');
+        return;
     }
 
-    await upload(fileDataArray);
+    await upload(read, { unreadable });
 }
 
 // --- Directory Traversal Helpers ---
@@ -1128,10 +1282,7 @@ function confirmFolderDrop(fileCount, maxDepth) {
  * @param {Set<string>} dirPaths - All directory relative paths (including empty dirs)
  */
 async function handleFolderDrop(folderFiles, looseFiles, dirPaths) {
-    if (isViewingArchive) {
-        showToast('Switch to Active view to upload.');
-        return;
-    }
+    leaveArchiveForUpload();
 
     // Determine base tag prefix from current folder context
     let basePrefix = '';
@@ -1212,11 +1363,8 @@ async function handleFolderDrop(folderFiles, looseFiles, dirPaths) {
             continue;
         }
         const tagId = tagNameToId[tagName] || 0;
-        const fileDataArray = [];
-        for (const file of files) {
-            const fileData = await fileToFileData(file);
-            fileDataArray.push(fileData);
-        }
+        const { read: fileDataArray, unreadable } = await readFilesForUpload(files);
+        failedCount += unreadable.length;
 
         const result = await checkAndResolveConflicts(fileDataArray, tagId);
         if (!result) {
@@ -1245,7 +1393,11 @@ async function handleFolderDrop(folderFiles, looseFiles, dirPaths) {
                 uploadedCount += result.toUpload.length;
             } catch (error) {
                 console.error('Error uploading folder group:', error);
-                failedCount += result.toUpload.length;
+                // A partial failure names how many were refused; the rest went in.
+                const refused = typeof partialStoreFailure === 'function' ? partialStoreFailure(error) : null;
+                const lost = refused === null ? result.toUpload.length : Math.min(refused, result.toUpload.length);
+                failedCount += lost;
+                uploadedCount += result.toUpload.length - lost;
             }
         }
     }
@@ -1256,11 +1408,8 @@ async function handleFolderDrop(folderFiles, looseFiles, dirPaths) {
         if (activeTagFilters.length > 0) {
             autoTagID = activeTagFilters[activeTagFilters.length - 1];
         }
-        const fileDataArray = [];
-        for (const file of looseFiles) {
-            const fileData = await fileToFileData(file);
-            fileDataArray.push(fileData);
-        }
+        const { read: fileDataArray, unreadable } = await readFilesForUpload(looseFiles);
+        failedCount += unreadable.length;
 
         const result = await checkAndResolveConflicts(fileDataArray, autoTagID);
         if (result) {
@@ -1281,7 +1430,10 @@ async function handleFolderDrop(folderFiles, looseFiles, dirPaths) {
                     uploadedCount += result.toUpload.length;
                 } catch (error) {
                     console.error('Error uploading loose files:', error);
-                    failedCount += result.toUpload.length;
+                    const refused = typeof partialStoreFailure === 'function' ? partialStoreFailure(error) : null;
+                    const lost = refused === null ? result.toUpload.length : Math.min(refused, result.toUpload.length);
+                    failedCount += lost;
+                    uploadedCount += result.toUpload.length - lost;
                 }
             }
         } else {
@@ -1292,13 +1444,13 @@ async function handleFolderDrop(folderFiles, looseFiles, dirPaths) {
     // Report results accurately
     if (failedCount > 0 || skippedCount > 0 || overwrittenCount > 0) {
         const parts = [];
-        if (uploadedCount > 0) parts.push(`${uploadedCount} uploaded`);
+        if (uploadedCount > 0) parts.push(`${uploadedCount} uploaded${uploadExpiryNote()}`);
         if (overwrittenCount > 0) parts.push(`${overwrittenCount} overwritten`);
         if (skippedCount > 0) parts.push(`${skippedCount} skipped`);
         if (failedCount > 0) parts.push(`${failedCount} failed`);
         showToast(`Folder import: ${parts.join(', ')}.`);
     } else if (uploadedCount > 0) {
-        showToast('Folder uploaded!');
+        showToast(`Folder uploaded${uploadExpiryNote()}.`);
     } else {
         showToast('No files to upload.');
     }
@@ -1306,11 +1458,6 @@ async function handleFolderDrop(folderFiles, looseFiles, dirPaths) {
 }
 
 async function handleText(text) {
-    if (isViewingArchive) {
-        showToast('Switch to Active view to upload.');
-        return;
-    }
-
     // A pasted path is ambiguous — the text itself, or the file it names. Ask
     // (or apply the standing preference from Settings), but only when the path
     // actually resolves to a file on this machine. Waits out startup so a paste
@@ -1357,10 +1504,6 @@ async function handlePastedText(text, html) {
 }
 
 async function handleHtml(html) {
-    if (isViewingArchive) {
-        showToast('Switch to Active view to upload.');
-        return;
-    }
     const doc = pastedHtmlDocument(html);
     if (!doc) return;
     const fileData = {
@@ -1379,17 +1522,24 @@ async function handleHtml(html) {
 // land as duplicates.
 function uploadFilesFromPaths(paths) {
     return enqueuePaste(async () => {
+        // One path that cannot be read (no permission, gone since it was
+        // checked) used to abandon every file of the batch. It is skipped and
+        // named in the upload's summary; the rest go in.
         const fileDataArray = [];
+        const unreadable = [];
         for (const path of paths) {
             try {
                 fileDataArray.push(await window.go.main.App.ReadFileFromPath(path));
             } catch (error) {
                 console.error('Error reading pasted path:', path, error);
-                showToast(`Could not read ${path.split(/[/\\]/).pop()}.`, 'error');
-                return;
+                unreadable.push(path.split(/[/\\]/).pop());
             }
         }
-        await upload(fileDataArray);
+        if (fileDataArray.length === 0) {
+            if (unreadable.length > 0) showToast(unreadableNote(unreadable), 'error');
+            return;
+        }
+        await upload(fileDataArray, { unreadable });
     });
 }
 
@@ -1428,6 +1578,7 @@ window.addEventListener('load', async () => {
             if (['date', 'name', 'size', 'type'].includes(savedField)) currentSortField = savedField;
             if (['asc', 'desc'].includes(savedDir)) currentSortDir = savedDir;
         } catch (e) { /* use defaults */ }
+        if (typeof updateSortButton === 'function') updateSortButton();
 
         // Search options (content search persists; "show hidden" is session-only)
         if (typeof initSearchOptions === 'function') {
@@ -1523,6 +1674,25 @@ window.addEventListener('load', async () => {
             defaultKey: 's', context: 'gallery',
             callback: () => { if (typeof switchView === 'function') switchView(currentView === 'serve' ? 'clips' : 'serve'); }
         });
+        // Share, the REST API dialog and Maintenance were reachable from the
+        // drawer only: no menu bar item, no rebindable action, no cheat-sheet
+        // row. They have no key by default (the free single letters are few);
+        // one can be given in Settings.
+        ShortcutManager.register({
+            id: 'open-share', label: 'Open Share View', category: 'navigation',
+            defaultKey: null, context: 'gallery',
+            callback: () => { if (typeof switchView === 'function') switchView(currentView === 'share' ? 'clips' : 'share'); }
+        });
+        ShortcutManager.register({
+            id: 'open-api', label: 'Open REST API Settings', category: 'navigation',
+            defaultKey: null, context: 'gallery',
+            callback: () => { if (typeof openApiModal === 'function') openApiModal(); }
+        });
+        ShortcutManager.register({
+            id: 'open-maintenance', label: 'Open Maintenance', category: 'navigation',
+            defaultKey: null, context: 'gallery',
+            callback: () => { if (typeof openMaintenance === 'function') openMaintenance(); }
+        });
         // Folder import. Desktop-only: in server mode the bindings throw and
         // the drawer entry is hidden, so the shortcut is a no-op there too.
         ShortcutManager.register({
@@ -1617,7 +1787,7 @@ window.addEventListener('load', async () => {
 
         // Clip actions (when a clip has keyboard focus)
         ShortcutManager.register({
-            id: 'clip-open', label: 'Open in Lightbox', category: 'clip',
+            id: 'clip-open', label: 'Open', category: 'clip',
             defaultKey: 'Enter', context: 'clip',
             callback: () => {
                 const clip = ShortcutManager.getFocusedClip();
@@ -1697,6 +1867,13 @@ window.addEventListener('load', async () => {
             callback: () => {
                 const focused = ShortcutManager.getFocusedClip();
                 if (!focused) return;
+                // A folder card has its own menu (Open, Move, Rename, Serve,
+                // Share, Hide), which this key used to pass over in silence.
+                if (focused.dataset.folder) {
+                    const tag = allTags.find(t => t.id === parseInt(focused.dataset.folder, 10));
+                    if (tag && typeof FolderContextMenu !== 'undefined') FolderContextMenu.openFor(tag, focused);
+                    return;
+                }
                 const clipId = focused.dataset.id;
                 // Mirror right-click: a multi-selection containing this clip
                 // gets the bulk actions instead of the single-clip menu.
@@ -1794,6 +1971,17 @@ window.addEventListener('load', async () => {
         ShortcutManager.register({ id: 'lightbox-pan-up', label: 'Pan Up', category: 'lightbox', defaultKey: 'shift+ArrowUp', context: 'lightbox', callback: () => window.LightboxController.command('pan', { dx: 0, dy: 48 }) });
         ShortcutManager.register({ id: 'lightbox-pan-down', label: 'Pan Down', category: 'lightbox', defaultKey: 'shift+ArrowDown', context: 'lightbox', callback: () => window.LightboxController.command('pan', { dx: 0, dy: -48 }) });
         ShortcutManager.register({ id: 'lightbox-edit', label: 'Open Editor', category: 'lightbox', defaultKey: 'e', context: 'lightbox', callback: () => window.LightboxController.command('edit') });
+        // The card keys do nothing while the viewer is open (their context is
+        // the focused card), so the viewer has its own for the clip on screen.
+        // E stays Edit here; archive is A.
+        // A held key does not repeat: each press archives one clip and moves on,
+        // so a repeat would run through the list.
+        ShortcutManager.register({ id: 'lightbox-delete', label: 'Delete Clip', category: 'lightbox', defaultKey: 'd', context: 'lightbox', callback: (e) => { if (!e?.repeat) window.LightboxController.command('file-action', { action: 'delete' }); } });
+        ShortcutManager.register({ id: 'lightbox-archive', label: 'Archive / Unarchive', category: 'lightbox', defaultKey: 'a', context: 'lightbox', callback: (e) => { if (!e?.repeat) window.LightboxController.command('file-action', { action: 'archive' }); } });
+        ShortcutManager.register({ id: 'lightbox-tags', label: 'Edit Tags', category: 'lightbox', defaultKey: 't', context: 'lightbox', callback: () => window.LightboxController.command('file-action', { action: 'tags' }) });
+        ShortcutManager.register({ id: 'lightbox-menu', label: 'Open Actions Menu', category: 'lightbox', defaultKey: 'mod+Enter', context: 'lightbox', callback: () => {
+            if (!ContextMenu.isOpen()) document.getElementById('lightbox-file-menu-trigger')?.click();
+        } });
         if (window.mahpastesMode !== 'server') {
             ShortcutManager.register({ id: 'lightbox-copy', label: 'Copy Image', category: 'lightbox', defaultKey: 'mod+c', context: 'lightbox', callback: () => window.LightboxController.command('copy') });
         }
@@ -1884,7 +2072,11 @@ window.addEventListener('load', async () => {
         }});
         ShortcutManager.register({ id: 'editor.rotate_cw',  label: 'Rotate 90° CW',   category: 'editor', context: 'image-editor', defaultKey: 'r', callback: () => TransformTool.rotateCW() });
         ShortcutManager.register({ id: 'editor.rotate_ccw', label: 'Rotate 90° CCW',   category: 'editor', context: 'image-editor', defaultKey: 'shift+r', callback: () => TransformTool.rotateCCW() });
-        ShortcutManager.register({ id: 'editor.save',      label: 'Save as new clip',  category: 'editor', context: 'editor', defaultKey: 'mod+s', callback: () => saveEditorContent() });
+        // Save overwrites the open clip; Save As keeps the older `editor.save` id
+        // so a stored override for it still means "save as new clip". Both fire
+        // with the caret in the text editor or a field of the editor's header.
+        ShortcutManager.register({ id: 'editor.save_in_place', label: 'Save',          category: 'editor', context: 'editor', defaultKey: 'mod+s', firesInInputs: true, callback: () => saveEditorFromShortcut() });
+        ShortcutManager.register({ id: 'editor.save',      label: 'Save as new clip',  category: 'editor', context: 'editor', defaultKey: 'mod+shift+s', firesInInputs: true, callback: () => saveEditorContent() });
         ShortcutManager.register({ id: 'editor.zoom_fit',  label: 'Zoom to fit',       category: 'editor', context: 'image-editor', defaultKey: 'mod+0', callback: () => ZoomTool.zoomToFit() });
         ShortcutManager.register({ id: 'editor.zoom_100',  label: 'Zoom to 100%',      category: 'editor', context: 'image-editor', defaultKey: 'mod+1', callback: () => ZoomTool.zoomTo100() });
         ShortcutManager.register({ id: 'editor.zoom_in',   label: 'Zoom in',           category: 'editor', context: 'image-editor', defaultKey: 'mod+=', callback: () => ZoomTool.zoomIn() });
@@ -1892,7 +2084,7 @@ window.addEventListener('load', async () => {
         // Generalized from the Markdown-only 'editor.markdown_preview'. A stored
         // override for the old ID is migrated once by ShortcutManager; the default
         // binding is unchanged.
-        ShortcutManager.register({ id: 'editor.preview_toggle', label: 'Toggle Preview/Edit', category: 'editor', context: 'text-editor', defaultKey: 'mod+shift+p', callback: () => TextClipEditor.togglePreviewMode() });
+        ShortcutManager.register({ id: 'editor.preview_toggle', label: 'Toggle Preview/Edit', category: 'editor', context: 'text-editor', defaultKey: 'mod+shift+p', firesInInputs: true, callback: () => TextClipEditor.togglePreviewMode() });
         ShortcutManager.register({ id: 'editor.close',     label: 'Close editor',      category: 'editor', context: 'editor', defaultKey: 'Escape', callback: () => {
             // A drag in progress is the innermost thing Escape can back out of.
             if (EditorCore.cancelGesture()) return;
@@ -1992,7 +2184,7 @@ window.addEventListener('load', async () => {
             // upload() folds this into its summary toast when the event lands
             // before the upload finishes; one arriving later shows on its own.
             window.__duplicateUploadEvents = (window.__duplicateUploadEvents || 0) + 1;
-            showToast(`Duplicate clip detected — ${data.count} other ${data.count === 1 ? 'copy' : 'copies'} exist`, 'info');
+            showToast(`Duplicate clip detected — ${data.count} other ${data.count === 1 ? 'copy' : 'copies'} exist.`, 'info');
         });
 
         // Re-resolve folder-view and tag-filter state on any tag change.
@@ -2121,7 +2313,7 @@ document.addEventListener('click', (e) => {
             } else {
                 console.error('Could not find plugin action:', pluginId, actionId);
                 if (typeof showToast === 'function') {
-                    showToast('Plugin action not found', 'error');
+                    showToast('Plugin action not found.', 'error');
                 }
             }
         } else if (typeof executePluginAction === 'function') {
@@ -2133,7 +2325,7 @@ document.addEventListener('click', (e) => {
         } else {
             console.error('Plugin action handler not available');
             if (typeof showToast === 'function') {
-                showToast('Plugin system not initialized', 'error');
+                showToast('Plugin system not initialized.', 'error');
             }
         }
     } else {

@@ -204,7 +204,7 @@ const ImportWizard = (() => {
             openWithScan(scan);
         } catch (err) {
             console.error('Failed to start folder import:', err);
-            showToast('Could not open that folder.', 'error');
+            showToast('Could not open that folder: ' + errText(err), 'error');
         }
     }
 
@@ -284,7 +284,7 @@ const ImportWizard = (() => {
             render();
         } catch (err) {
             console.error('Failed to rescan folder:', err);
-            showToast('Could not rescan that folder.', 'error');
+            showToast('Could not rescan that folder: ' + errText(err), 'error');
         }
     }
 
@@ -381,11 +381,16 @@ const ImportWizard = (() => {
         return decisionChain;
     }
 
+    // None of these act while the plan is being applied: the plan is already
+    // on its way, and a decision changed now would show in the summary as
+    // something that was not done.
     function chooseAction(action) {
+        if (state.applying) return;
         return queueDecision(() => applyChoice(action));
     }
 
     function repeatLast() {
+        if (state.applying) return;
         return queueDecision(applyRepeat);
     }
 
@@ -454,6 +459,7 @@ const ImportWizard = (() => {
     }
 
     function goNext() {
+        if (state.applying) return;
         if (state.index < state.entries.length - 1) {
             state.index++;
             render();
@@ -463,6 +469,7 @@ const ImportWizard = (() => {
     }
 
     function goPrev() {
+        if (state.applying) return;
         if (state.index > 0) {
             state.index--;
             render();
@@ -470,6 +477,7 @@ const ImportWizard = (() => {
     }
 
     function showSummary() {
+        if (state.applying) return;
         state.pane = 'summary';
         render();
     }
@@ -509,7 +517,7 @@ const ImportWizard = (() => {
         if (s.symlinks) reasons.push(`${s.symlinks} symlink${s.symlinks === 1 ? '' : 's'}`);
         if (s.non_regular) reasons.push(`${s.non_regular} not a regular file`);
         if (s.app_temp) reasons.push(`${s.app_temp} app temp`);
-        if (s.app_clips) reasons.push(`${s.app_clips} Mahpastes clips folder${s.app_clips === 1 ? '' : 's'}`);
+        if (s.app_clips) reasons.push(`${s.app_clips} mahpastes clips folder${s.app_clips === 1 ? '' : 's'}`);
         if (s.unreadable) reasons.push(`${s.unreadable} unreadable`);
         const skippedTotal = reasons.length
             ? (s.dotted || 0) + (s.symlinks || 0) + (s.non_regular || 0) + (s.app_temp || 0) + (s.app_clips || 0) + (s.unreadable || 0)
@@ -782,6 +790,53 @@ const ImportWizard = (() => {
         if (state.last) state.last = { ...state.last, tagName: value, tagEdited: true };
     }
 
+    // The wizard's single-key shortcuts were shown nowhere (and the cheat
+    // sheet cannot open over it). Each control names its key, read from
+    // ShortcutManager so a rebinding shows, and omitted when unbound. The hint
+    // is decoration: the key is announced through aria-keyshortcuts instead.
+    const ACTION_SHORTCUTS = {
+        import: 'import.import',
+        delete: 'import.delete',
+        import_delete: 'import.both',
+        skip: 'import.skip',
+    };
+
+    function shortcutLabel(actionId) {
+        if (!actionId || typeof ShortcutManager === 'undefined') return '';
+        const combo = ShortcutManager.getEffectiveCombo(actionId);
+        return combo ? ShortcutManager.comboToDisplay(combo) : '';
+    }
+
+    // aria-keyshortcuts wants key names ("Control+K", "ArrowRight"), not the
+    // glyphs shown on screen.
+    function ariaKeyShortcut(combo) {
+        const mac = /Mac|iPhone|iPad/.test(navigator.platform || '');
+        return combo.split('+').map(part => {
+            if (part === 'mod') return mac ? 'Meta' : 'Control';
+            if (part === 'shift') return 'Shift';
+            if (part === 'alt') return 'Alt';
+            return part.length === 1 ? part.toUpperCase() : part;
+        }).join('+');
+    }
+
+    function setKeyHint(btn, actionId) {
+        const label = shortcutLabel(actionId);
+        let hint = btn.querySelector('.import-key-hint');
+        if (!label) {
+            if (hint) hint.remove();
+            btn.removeAttribute('aria-keyshortcuts');
+            return;
+        }
+        if (!hint) {
+            hint = document.createElement('span');
+            hint.className = 'import-key-hint ml-1.5 text-[10px] opacity-60';
+            hint.setAttribute('aria-hidden', 'true');
+            btn.appendChild(hint);
+        }
+        hint.textContent = label;
+        btn.setAttribute('aria-keyshortcuts', ariaKeyShortcut(ShortcutManager.getEffectiveCombo(actionId)));
+    }
+
     function renderActionButtons(entry, insp) {
         const decision = decisionFor(entry.rel_path);
         // Offering to delete a file the app could not even read is hostile, so
@@ -798,6 +853,7 @@ const ImportWizard = (() => {
             btn.disabled = blocked && action !== 'skip';
             btn.classList.toggle('opacity-40', btn.disabled);
             btn.classList.toggle('cursor-not-allowed', btn.disabled);
+            setKeyHint(btn, ACTION_SHORTCUTS[action]);
         });
 
         // This runs twice per file — once immediately, once when the inspection
@@ -822,14 +878,32 @@ const ImportWizard = (() => {
                 if (d.action.includes('delete')) deletes++;
             }
         }
-        summaryCountsEl.textContent =
-            `${imports} to import · ${deletes} to delete · ${skips} skipped`;
+        // Before Apply the header is the plan; after it, what happened.
+        if (state.results) {
+            const r = state.results;
+            summaryCountsEl.textContent =
+                `${r.imported || 0} imported · ${r.trashed || 0} deleted · ${r.failed || 0} failed`;
+        } else {
+            summaryCountsEl.textContent =
+                `${imports} to import · ${deletes} to delete · ${skips} skipped`;
+        }
 
         // Index the results once: at the 10k entry cap, a linear find per row
         // inside the rAF chunks would be quadratic.
         state.resultsByPath = state.results
             ? new Map(state.results.results.map(r => [r.rel_path, r]))
             : null;
+
+        // Failed rows first: among thousands in scan order they were not
+        // findable. Otherwise scan order, as before (the sort is stable).
+        state.summaryEntries = state.entries;
+        if (state.resultsByPath) {
+            const failed = (e) => {
+                const res = state.resultsByPath.get(e.rel_path);
+                return res && res.status !== 'ok' && res.status !== 'skipped' ? 0 : 1;
+            };
+            state.summaryEntries = [...state.entries].sort((a, b) => failed(a) - failed(b));
+        }
 
         summaryListEl.replaceChildren();
         renderSummaryChunk(0);
@@ -839,12 +913,13 @@ const ImportWizard = (() => {
     // virtualization would be over-engineering at that cap.
     function renderSummaryChunk(start) {
         const frag = document.createDocumentFragment();
-        const end = Math.min(start + SUMMARY_CHUNK, state.entries.length);
+        const rows = state.summaryEntries || state.entries;
+        const end = Math.min(start + SUMMARY_CHUNK, rows.length);
         for (let i = start; i < end; i++) {
-            frag.appendChild(summaryRow(state.entries[i]));
+            frag.appendChild(summaryRow(rows[i]));
         }
         summaryListEl.appendChild(frag);
-        if (end < state.entries.length) {
+        if (end < rows.length) {
             requestAnimationFrame(() => renderSummaryChunk(end));
         }
     }
@@ -865,6 +940,9 @@ const ImportWizard = (() => {
             <span class="flex-1 min-w-0">
                 <span class="block text-xs font-medium text-stone-700 break-all">${escapeHTML(entry.rel_path)}</span>
                 <span class="block text-[10px] text-stone-400">${escapeHTML(formatFileSize(entry.size))}</span>
+                ${result && result.error
+                    ? `<span data-testid="import-row-error" class="block text-[10px] text-red-600 break-words">${escapeHTML(result.error)}</span>`
+                    : ''}
             </span>
             ${d.tagName && d.action.includes('import')
                 ? `<span class="shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded bg-stone-100 text-stone-500">${escapeHTML(d.tagName)}</span>`
@@ -907,14 +985,14 @@ const ImportWizard = (() => {
         if (state.pane === 'review') {
             const left = document.createElement('div');
             left.className = 'flex gap-2';
-            left.appendChild(secondaryBtn('← Prev', goPrev, state.index === 0, 'import-prev'));
-            left.appendChild(secondaryBtn('Next →', goNext, false, 'import-next'));
+            left.appendChild(secondaryBtn('← Prev', goPrev, state.index === 0, 'import-prev', 'import.prev'));
+            left.appendChild(secondaryBtn('Next →', goNext, false, 'import-next', 'import.next'));
             footer.appendChild(left);
 
             const right = document.createElement('div');
             right.className = 'flex gap-2';
-            right.appendChild(secondaryBtn(repeatLabel(), repeatLast, !state.last, 'import-repeat'));
-            right.appendChild(primaryBtn('Review all →', showSummary, false, 'import-goto-summary'));
+            right.appendChild(secondaryBtn(repeatLabel(), repeatLast, !state.last, 'import-repeat', 'import.repeat'));
+            right.appendChild(primaryBtn('Review all →', showSummary, false, 'import-goto-summary', 'import.summary'));
             footer.appendChild(right);
             return;
         }
@@ -930,11 +1008,18 @@ const ImportWizard = (() => {
         const right = document.createElement('div');
         right.className = 'flex gap-2 items-center';
         const counts = planCounts();
-        const label = counts.imports || counts.deletes
+        let label = counts.imports || counts.deletes
             ? `Apply — import ${counts.imports}, delete ${counts.deletes}`
             : 'Apply';
+        if (state.applying) label = applyingLabel();
         right.appendChild(primaryBtn(label, apply, state.applying || (!counts.imports && !counts.deletes), 'import-apply'));
         footer.appendChild(right);
+    }
+
+    // "Applying… 37 of 300" from the backend's per-file import:progress events.
+    function applyingLabel() {
+        const p = state.progress;
+        return p && p.total > 0 ? `Applying… ${p.index} of ${p.total}` : 'Applying…';
     }
 
     function planCounts() {
@@ -951,10 +1036,11 @@ const ImportWizard = (() => {
         return el;
     }
 
-    function primaryBtn(label, onClick, disabled, testid) {
+    function primaryBtn(label, onClick, disabled, testid, shortcutId) {
         const b = document.createElement('button');
         b.type = 'button';
         b.textContent = label;
+        if (shortcutId) setKeyHint(b, shortcutId);
         b.dataset.testid = testid;
         b.disabled = !!disabled;
         b.className = 'bg-stone-800 hover:bg-stone-700 text-white text-xs font-medium py-2 px-4 rounded-md transition-colors'
@@ -963,10 +1049,11 @@ const ImportWizard = (() => {
         return b;
     }
 
-    function secondaryBtn(label, onClick, disabled, testid) {
+    function secondaryBtn(label, onClick, disabled, testid, shortcutId) {
         const b = document.createElement('button');
         b.type = 'button';
         b.textContent = label;
+        if (shortcutId) setKeyHint(b, shortcutId);
         b.dataset.testid = testid;
         b.disabled = !!disabled;
         b.className = 'border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-xs font-medium py-2 px-3 rounded-md transition-colors'
@@ -985,7 +1072,9 @@ const ImportWizard = (() => {
               + `${state.trashRecoverable ? (/Windows/.test(navigator.userAgent) ? 'moved to the Recycle Bin' : 'moved to the Trash') : 'permanently deleted'}.`
             : `${counts.imports} file${counts.imports === 1 ? '' : 's'} will be imported.`;
 
-        showConfirmDialog('Apply import plan?', message, runApply, null, {
+        // Not awaited by the dialog: the wizard shows its own progress in the
+        // footer, which a confirm held open over it would cover.
+        showConfirmDialog('Apply import plan?', message, () => { runApply().catch(console.error); }, null, {
             variant: counts.deletes ? 'danger' : 'primary',
             confirmLabel: 'Apply',
         });
@@ -1005,8 +1094,17 @@ const ImportWizard = (() => {
         });
 
         state.applying = true;
+        state.progress = null;
         closeBtn.disabled = true;
         renderFooter();
+
+        // Progress is display only: the plan still goes to Go in one call.
+        const stopProgress = window.runtime?.EventsOn?.('import:progress', (p) => {
+            if (!state.applying || !p) return;
+            state.progress = { index: Number(p.index) || 0, total: Number(p.total) || 0 };
+            const btn = footer.querySelector('[data-testid="import-apply"]');
+            if (btn) btn.textContent = applyingLabel();
+        });
 
         try {
             state.results = await window.go.main.App.ImportApply(plan);
@@ -1027,9 +1125,11 @@ const ImportWizard = (() => {
             if (typeof loadTags === 'function') await loadTags();
         } catch (err) {
             console.error('Import apply failed:', err);
-            showToast('Import failed.', 'error');
+            showToast('Import failed: ' + errText(err), 'error');
         } finally {
+            if (typeof stopProgress === 'function') stopProgress();
             state.applying = false;
+            state.progress = null;
             closeBtn.disabled = false;
             renderFooter();
         }

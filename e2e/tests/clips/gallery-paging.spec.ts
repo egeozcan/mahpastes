@@ -27,6 +27,13 @@ async function reload(app: any): Promise<void> {
 }
 
 test.describe('Gallery paging', () => {
+  // These tests drive the Load more button by hand. Scrolling it into view
+  // (which a click does) would also start the automatic load; that has its
+  // own tests at the end of the file.
+  test.beforeEach(async ({ app }) => {
+    await app.page.evaluate(() => (window as any).setAutoLoadMore(false));
+  });
+
   test('shows "50 of N" and loads the rest on demand', async ({ app }) => {
     await seedTextClips(app, 120);
     await reload(app);
@@ -163,6 +170,10 @@ test.describe('Gallery paging', () => {
 });
 
 test.describe('Gallery render cost', () => {
+  test.beforeEach(async ({ app }) => {
+    await app.page.evaluate(() => (window as any).setAutoLoadMore(false));
+  });
+
   // The roving-tabindex update lays out the whole grid and walks every card.
   // It used to run after each appended card, making a render quadratic in
   // the number of clips; a batch render must re-index once.
@@ -246,5 +257,86 @@ test.describe('Gallery render cost', () => {
     expect(toasts.filter((t: any) => t.type === 'error')).toEqual([]);
     await app.expectClipCount(50);
     await expect(app.page.locator(selectors.bottomBar.clipCount)).toHaveText('50 of 70 clips');
+  });
+});
+
+test.describe('Gallery paging: automatic load', () => {
+  const scrollToEnd = (app: any) => app.page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+
+  test('the rest of the listing loads as the end of the page is reached, with no click', async ({ app }) => {
+    await seedTextClips(app, 120);
+    await reload(app);
+
+    // Small cards can leave the Load more row in range straight away, so how
+    // many pages arrive before the first scroll depends on the window. What
+    // matters: scrolling to the end, and nothing else, brings every clip in.
+    await expect.poll(async () => {
+      await scrollToEnd(app);
+      return app.page.locator(selectors.gallery.clipCard).count();
+    }, { timeout: 15000 }).toBe(120);
+    await expect(app.page.locator(selectors.gallery.loadMoreButton)).toBeHidden();
+    await expect(app.page.locator(selectors.bottomBar.clipCount)).toHaveText('120 clips');
+    const ids = await app.page.locator(selectors.gallery.clipCard).evaluateAll(
+      (cards: Element[]) => cards.map(c => (c as HTMLElement).dataset.id));
+    expect(new Set(ids).size).toBe(120);
+  });
+
+  test('focus on the Load more button does not run through every page', async ({ app }) => {
+    await seedTextClips(app, 220);
+    await app.page.evaluate(() => (window as any).setAutoLoadMore(false));
+    await reload(app);
+    await app.expectClipCount(50);
+    await app.page.evaluate(() => (window as any).setAutoLoadMore(true));
+
+    // A keyboard user reaches the button and presses Enter once.
+    const button = app.page.locator(selectors.gallery.loadMoreButton);
+    await button.focus();
+    await app.page.keyboard.press('Enter');
+    await expect.poll(() => app.page.locator(selectors.gallery.clipCard).count()).toBeGreaterThanOrEqual(100);
+    await app.page.waitForTimeout(1200);
+    // Focus went back to the button without scrolling it into range again,
+    // so the listing did not chain through the remaining pages.
+    expect(await app.page.locator(selectors.gallery.clipCard).count()).toBeLessThan(220);
+    await expect(button).toBeFocused();
+  });
+
+  test('a plain search does not page through the library', async ({ app }) => {
+    // The query is in place before the listing loads: every card is hidden,
+    // which leaves the Load more row in view, and it must wait there.
+    await app.search('zzzznomatch');
+    await seedTextClips(app, 120);
+    await reload(app);
+    await expect(app.page.locator(selectors.gallery.loadMoreButton)).toBeVisible();
+    await app.page.waitForTimeout(800);
+    await app.expectClipCount(50);
+  });
+
+  test('a failed automatic load is not retried in a loop, and the button still works', async ({ app }) => {
+    await seedTextClips(app, 120);
+    await app.page.evaluate(() => {
+      const w = window as any;
+      const api = w.go.main.App;
+      const original = api.ListClipsPage;
+      w.__pageCalls = 0;
+      api.ListClipsPage = (req: any) => {
+        if (req && req.offset > 0) { w.__pageCalls++; return Promise.reject('database is locked'); }
+        return original(req);
+      };
+      w.__restorePaging = () => { api.ListClipsPage = original; };
+    });
+    try {
+      await reload(app);
+      await scrollToEnd(app);
+      await app.waitForToast(/Failed to load more clips/);
+      await app.page.waitForTimeout(800);
+      await scrollToEnd(app);
+      await app.page.waitForTimeout(400);
+      expect(await app.page.evaluate(() => (window as any).__pageCalls)).toBe(1);
+      await app.expectClipCount(50);
+    } finally {
+      await app.page.evaluate(() => (window as any).__restorePaging());
+    }
+    await app.page.locator(selectors.gallery.loadMoreButton).click();
+    await expect.poll(() => app.page.locator(selectors.gallery.clipCard).count()).toBeGreaterThanOrEqual(100);
   });
 });

@@ -7,6 +7,85 @@ import { selectors } from '../../helpers/selectors';
 import * as path from 'path';
 
 test.describe('Image Comparison', () => {
+  test.describe('Panning', () => {
+    test('a zoomed-in pair can be panned with the wheel, within limits, and Fit recentres it', async ({ app }) => {
+      const files = await Promise.all([
+        createTempFile(generateTestImage(400, 400, [255, 0, 0]), 'png'),
+        createTempFile(generateTestImage(400, 400, [0, 255, 0]), 'png'),
+      ]);
+      await app.uploadFiles(files);
+      await app.selectClips(files.map((f) => path.basename(f)));
+      await app.openComparison();
+
+      const wheel = (opts: any) => app.page.evaluate((o) => {
+        const viewport = document.getElementById('comparison-viewport')!;
+        viewport.dispatchEvent(new WheelEvent('wheel', { ...o, bubbles: true, cancelable: true }));
+        // @ts-ignore - app.js top-level lets
+        return { x: comparePanX, y: comparePanY, zoom: zoomLevel };
+      }, opts);
+
+      // Fitted: nothing overflows, so the wheel moves nothing.
+      const fitted = await wheel({ deltaY: 80 });
+      expect(fitted).toMatchObject({ x: 0, y: 0 });
+
+      // Ctrl+wheel zooms; then the wheel pans.
+      for (let i = 0; i < 20; i++) await wheel({ deltaY: -100, ctrlKey: true });
+      const zoomed = await wheel({ deltaY: 0 });
+      expect(zoomed.zoom).toBeGreaterThan(fitted.zoom);
+      const down = await wheel({ deltaY: 60 });
+      expect(down.y).toBe(-60);
+      const side = await wheel({ deltaY: 40, shiftKey: true });
+      expect(side.x).toBe(-40);
+
+      // It stops at the edge instead of leaving the viewport.
+      const far = await wheel({ deltaY: 1000000 });
+      expect(far.y).toBeLessThan(0);
+      expect(Math.abs(far.y)).toBeLessThan(100000);
+      const inView = await app.page.evaluate(() => {
+        const c = document.getElementById('comparison-container')!.getBoundingClientRect();
+        const v = document.getElementById('comparison-viewport')!.getBoundingClientRect();
+        return c.bottom >= v.bottom - 1 && c.top <= v.top + 1;
+      });
+      expect(inView).toBe(true);
+
+      await app.page.locator(selectors.comparison.fitButton).click();
+      expect(await wheel({ deltaY: 0 })).toMatchObject({ x: 0, y: 0 });
+    });
+
+    test('an edge-aligned pair can still be panned to both of its sides', async ({ app }) => {
+      const files = await Promise.all([
+        createTempFile(generateTestImage(300, 300, [255, 0, 0]), 'png'),
+        createTempFile(generateTestImage(300, 300, [0, 255, 0]), 'png'),
+      ]);
+      await app.uploadFiles(files);
+      await app.selectClips(files.map((f) => path.basename(f)));
+      await app.openComparison();
+
+      // Put the pair against the left edge, as the Align select does, and zoom.
+      const edges = await app.page.evaluate(() => {
+        const viewport = document.getElementById('comparison-viewport')!;
+        viewport.style.justifyContent = 'flex-start';
+        // @ts-ignore - app.js top-level lets and modals.js function
+        zoomLevel = 5; updateComparisonView();
+        const read = () => {
+          const c = document.getElementById('comparison-container')!.getBoundingClientRect();
+          const v = viewport.getBoundingClientRect();
+          return { left: Math.round(c.left - v.left), right: Math.round(v.right - c.right) };
+        };
+        const wheel = (deltaX: number) => viewport.dispatchEvent(new WheelEvent('wheel', { deltaX, bubbles: true, cancelable: true }));
+        wheel(-1000000);
+        const atLeft = read();
+        wheel(1000000);
+        const atRight = read();
+        return { atLeft, atRight };
+      });
+      // Its left edge can be brought to the viewport's left edge, and its
+      // right edge to the right one, with no empty band beyond either.
+      expect(Math.abs(edges.atLeft.left)).toBeLessThanOrEqual(1);
+      expect(Math.abs(edges.atRight.right)).toBeLessThanOrEqual(1);
+    });
+  });
+
   test.describe('Open and Close', () => {
     test('should open comparison modal with two selected images', async ({ app }) => {
       const files = await Promise.all([

@@ -58,7 +58,11 @@ func buildAppMenu(m *menuEmitter) *menu.Menu {
 		menu.Separator(),
 		item("Watch Folders", "watch", nil),
 		item("Serve", "serve", nil),
+		item("Share", "share", nil),
 		item("Plugins", "plugins", nil),
+		menu.Separator(),
+		item("REST API…", "api", nil),
+		item("Maintenance…", "maintenance", nil),
 	)
 	help := menu.NewMenuFromItems(
 		item("Keyboard Shortcuts", "shortcuts", nil),

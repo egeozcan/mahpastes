@@ -278,6 +278,27 @@ const ShortcutManager = (() => {
 
     // --- Binding Resolution ---
 
+    // Elements marked data-shortcut-hint="<action id>" show that action's
+    // current key in their tooltip, so a hint follows a rebinding and the
+    // platform's modifier names. The tooltip text without the hint is kept in
+    // data-tooltip-base (taken from data-tooltip the first time).
+    function refreshShortcutHints(root = document) {
+        for (const el of root.querySelectorAll('[data-shortcut-hint]')) {
+            if (!el.hasAttribute('data-tooltip-base')) {
+                el.setAttribute('data-tooltip-base', el.getAttribute('data-tooltip') || '');
+            }
+            const base = el.getAttribute('data-tooltip-base');
+            const combo = getEffectiveCombo(el.getAttribute('data-shortcut-hint'));
+            el.setAttribute('data-tooltip', combo ? `${base} (${comboToDisplay(combo)})` : base);
+        }
+        // data-shortcut-key="<action id>": an element whose whole text is the
+        // key (a <kbd> badge beside a label), empty when the action is unbound.
+        for (const el of root.querySelectorAll('[data-shortcut-key]')) {
+            const combo = getEffectiveCombo(el.getAttribute('data-shortcut-key'));
+            el.textContent = combo ? comboToDisplay(combo) : '';
+        }
+    }
+
     function rebuildBindings() {
         bindingsByContext = new Map();
 
@@ -297,6 +318,7 @@ const ShortcutManager = (() => {
             }
             bindingsByContext.get(ctx).set(combo, id);
         }
+        refreshShortcutHints();
     }
 
     // --- Dispatch ---
@@ -327,6 +349,7 @@ const ShortcutManager = (() => {
         const isEditable = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable;
         const handlesEscapeLocally = e.target.matches?.('#editor-filename, #text-editor-find, #text-editor-replace, #canvas-text-input');
         if (isEditable && (e.key !== 'Escape' || handlesEscapeLocally) && !firesInInputs(e)) return;
+        const typingTarget = isEditable && e.key !== 'Escape';
 
         // Escape inside something that dismisses itself — an autocomplete with
         // its suggestions showing, or a picker marked data-owns-escape — is
@@ -346,6 +369,17 @@ const ShortcutManager = (() => {
         // handled through it.
         if (e.key === 'Escape') {
             if (closeTopModalOverlay()) {
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                return;
+            }
+        }
+
+        // Escape in the search box, with no layer left to close: the box takes
+        // it (clear the query, or leave the field) before any context action
+        // such as clearing the selection.
+        if (e.key === 'Escape' && e.target.id === 'search-input' && typeof handleSearchEscape === 'function') {
+            if (handleSearchEscape()) {
                 e.preventDefault();
                 e.stopImmediatePropagation();
                 return;
@@ -393,6 +427,10 @@ const ShortcutManager = (() => {
 
             const action = actions.get(actionId);
             if (!action || !action.callback) continue;
+            // firesInInputs() above only says some action owns this combo
+            // while typing; it may be one in another context. An action that
+            // did not ask for it never runs from a field.
+            if (typingTarget && !action.firesInInputs) continue;
 
             e.preventDefault();
             e.stopPropagation();
@@ -451,7 +489,7 @@ const ShortcutManager = (() => {
             await window.go.main.App.SetSetting('keyboard_shortcuts', JSON.stringify(userOverrides));
         } catch (err) {
             console.error('Failed to save keyboard shortcut overrides:', err);
-            if (typeof showToast === 'function') showToast('Failed to save shortcut', 'error');
+            if (typeof showToast === 'function') showToast('Failed to save shortcut.', 'error');
         }
     }
 
@@ -740,6 +778,7 @@ const ShortcutManager = (() => {
         register,
         init,
         rebuildBindings,
+        refreshShortcutHints,
         getActiveContexts,
         eventToCombo,
         comboToDisplay,

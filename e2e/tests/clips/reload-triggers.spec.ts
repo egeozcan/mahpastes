@@ -149,6 +149,52 @@ test.describe('Coalesced reload triggers', () => {
     expect(await app.page.evaluate(() => (window as any).__shareStatusCalls)).toBe(1);
   });
 
+  test('a burst of watch imports reloads once, and a failure in it is not overwritten', async ({ app }) => {
+    await countLoads(app);
+    await app.page.evaluate(() => {
+      const w = window as any;
+      for (let i = 0; i < 5; i++) w.runtime.EventsEmit('watch:import', { id: i + 1, filename: `synced-${i}.png` });
+      w.runtime.EventsEmit('watch:error', { file: 'locked.pdf', error: 'permission denied' });
+      w.runtime.EventsEmit('watch:import', { id: 9, filename: 'synced-last.png' });
+    });
+    await expect.poll(() => loads(app), { timeout: 3000 }).toBe(1);
+    // One toast for the burst; the failure is still on screen although a
+    // successful import came after it.
+    await app.expectToast('Imported 6 files. Failed to import locked.pdf: permission denied');
+    await app.page.waitForTimeout(600);
+    expect(await loads(app)).toBe(1);
+  });
+
+  test('a failure early in a long sync is still shown when the sync ends', async ({ app }) => {
+    // One import every 150 ms for ~2.7 s: the max wait cuts this into more
+    // than one burst, and each burst's toast replaces the one before it.
+    await app.page.evaluate(async () => {
+      const w = window as any;
+      w.runtime.EventsEmit('watch:error', { file: 'locked.pdf', error: 'permission denied' });
+      for (let i = 0; i < 18; i++) {
+        w.runtime.EventsEmit('watch:import', { id: i + 1, filename: `stream-${i}.png` });
+        await new Promise(r => setTimeout(r, 150));
+      }
+    });
+    await app.page.waitForTimeout(500);
+    await app.expectToast('Failed to import locked.pdf: permission denied');
+  });
+
+  test('a single watch import keeps its own wording', async ({ app }) => {
+    await app.page.evaluate(() => {
+      (window as any).runtime.EventsEmit('watch:import', { id: 1, filename: 'one.png' });
+    });
+    await app.expectToast('Imported: one.png');
+  });
+
+  test('several failed watch imports are summarised by name', async ({ app }) => {
+    await app.page.evaluate(() => {
+      const w = window as any;
+      for (const file of ['a.pdf', 'b.pdf', 'c.pdf', 'd.pdf']) w.runtime.EventsEmit('watch:error', { file, error: 'unreadable' });
+    });
+    await app.expectToast('4 files failed to import: a.pdf, b.pdf, c.pdf, …');
+  });
+
   test('a steady stream of shared clips still reloads within the max wait', async ({ app }) => {
     await countLoads(app);
     // One event every 150 ms for ~2.7 s never lets the 300 ms debounce settle.

@@ -192,13 +192,13 @@ async function saveMetadata() {
     });
 
     if (hasDuplicate) {
-        showToast('Duplicate keys found — please use unique keys', 'error');
+        showToast('Duplicate keys found — please use unique keys.', 'error');
         return;
     }
 
     try {
         await window.go.main.App.SetClipMetadataBulk(currentMetadataClipId, meta);
-        showToast('Metadata saved');
+        showToast('Metadata saved.');
         closeMetadataModal();
     } catch (err) {
         console.error('Failed to save metadata:', err);

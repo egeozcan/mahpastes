@@ -12,11 +12,18 @@ const RovingTabindex = (() => {
      * @param {boolean}    [opts.wrap=false]      - Wrap at edges
      * @param {Function}   [opts.onFocus]         - Called with (item, index) on focus
      * @param {Function}   [opts.onActivate]      - Called with (item, index) on Enter/Space
+     * @param {boolean}    [opts.keepActiveChildren=false] - Leave the active
+     *        item's own controls in the tab order. By default an item is one
+     *        tab stop and everything inside it is unreachable by Tab, which
+     *        suits items whose controls have shortcuts (clip cards). For rows
+     *        that have none (plugin cards, watch folders), arrows move between
+     *        rows and Tab walks the controls of the row that has focus.
      */
     function create(opts) {
         const { container, itemSelector, onFocus, onActivate } = opts;
         const orientation = opts.orientation || 'vertical';
         const wrap = opts.wrap || false;
+        const keepActiveChildren = opts.keepActiveChildren === true;
         const getColumns = typeof opts.columns === 'function'
             ? opts.columns
             : () => (opts.columns || 1);
@@ -33,9 +40,25 @@ const RovingTabindex = (() => {
                 item.setAttribute('tabindex', i === focusIdx ? '0' : '-1');
                 // Remove nested interactive elements from sequential tab order
                 // so Tab skips the entire composite widget as a single stop.
-                item.querySelectorAll(
+                const children = item.querySelectorAll(
                     'button, [href], input, select, textarea, [tabindex]'
-                ).forEach(child => {
+                );
+                if (keepActiveChildren && i === focusIdx) {
+                    // Give back what an earlier pass took, and nothing else:
+                    // a control that set its own tabindex keeps it.
+                    children.forEach(child => {
+                        if (!child.hasAttribute('data-rover-stripped')) return;
+                        const previous = child.getAttribute('data-rover-stripped');
+                        if (previous === '') child.removeAttribute('tabindex');
+                        else child.setAttribute('tabindex', previous);
+                        child.removeAttribute('data-rover-stripped');
+                    });
+                    return;
+                }
+                children.forEach(child => {
+                    if (keepActiveChildren && !child.hasAttribute('data-rover-stripped')) {
+                        child.setAttribute('data-rover-stripped', child.getAttribute('tabindex') ?? '');
+                    }
                     child.setAttribute('tabindex', '-1');
                 });
             });
@@ -120,6 +143,18 @@ const RovingTabindex = (() => {
         function handleFocusin(e) {
             const items = getItems();
             if (items.length === 0) return;
+            if (keepActiveChildren) {
+                // Focus landed in a row (a click on it or on one of its
+                // controls): that row becomes the active one, so Tab continues
+                // through its controls and not another row's.
+                const rowIdx = items.findIndex(item => item.contains(e.target));
+                if (rowIdx !== -1 && rowIdx !== activeIndex) {
+                    activeIndex = rowIdx;
+                    setTabIndexes(items, rowIdx);
+                    if (onFocus && items[rowIdx] === e.target) onFocus(items[rowIdx], rowIdx);
+                    return;
+                }
+            }
             if (container.contains(e.relatedTarget)) return;
             const targetIdx = items.indexOf(e.target);
             if (targetIdx !== -1) {

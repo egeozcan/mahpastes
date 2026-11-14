@@ -126,6 +126,15 @@ test.describe('Gallery state across reloads and edits', () => {
     // @ts-ignore - app.js top-level let
     expect(await app.page.evaluate(() => selectedIds.size)).toBe(0);
     await expect(app.page.locator(selectors.bulk.toolbar)).not.toHaveClass(/pointer-events-auto/);
+
+    // The failure says why, and Retry brings the listing back.
+    await expect(app.page.locator(selectors.gallery.emptyState)).toHaveText('Error loading clips: database is locked');
+    const retry = app.page.locator('[data-testid="gallery-status-retry"]');
+    await expect(retry).toBeVisible();
+    await retry.click();
+    await app.expectClipCount(1);
+    await expect(retry).toBeHidden();
+    await expect(app.page.locator(selectors.gallery.emptyState)).toBeHidden();
     await app.refreshClips();
   });
 

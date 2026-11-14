@@ -81,20 +81,81 @@ function renderGalleryCount() {
 
 // Empty and error states live beside the gallery, never inside it: the
 // gallery's children are cards, and everything that walks it assumes so.
-function showGalleryStatus(message, kind = 'empty') {
+// `actions` names the buttons to offer under the message ('add', 'import',
+// 'new-folder', 'retry'); none by default.
+function showGalleryStatus(message, kind = 'empty', actions = []) {
     const el = document.getElementById('gallery-status');
     if (!el) return;
+    renderGalleryStatusActions(actions);
     el.textContent = message;
     el.classList.toggle('text-stone-400', kind !== 'error');
     el.classList.toggle('text-red-500', kind === 'error');
     el.classList.remove('hidden');
+    delete el.dataset.searchMiss;
+}
+
+function renderGalleryStatusActions(actions) {
+    const wrap = document.getElementById('gallery-status-actions');
+    if (!wrap) return;
+    if (!wrap.dataset.bound) {
+        wrap.dataset.bound = 'true';
+        wrap.addEventListener('click', onGalleryStatusAction);
+    }
+    for (const btn of wrap.querySelectorAll('[data-status-action]')) {
+        btn.hidden = !actions.includes(btn.dataset.statusAction);
+    }
+    wrap.classList.toggle('hidden', actions.length === 0);
+}
+
+function onGalleryStatusAction(e) {
+    const action = e.target.closest('[data-status-action]')?.dataset.statusAction;
+    if (action === 'add') document.getElementById('add-btn')?.click();
+    else if (action === 'import') document.getElementById('open-import-btn')?.click();
+    else if (action === 'new-folder') window.FolderEmptyContextMenu?.newFolder();
+    else if (action === 'retry') loadClips();
 }
 
 function hideGalleryStatus() {
+    renderGalleryStatusActions([]);
     const el = document.getElementById('gallery-status');
     if (!el) return;
     el.classList.add('hidden');
     el.textContent = '';
+    delete el.dataset.searchMiss;
+}
+
+// The plain search filter hid every loaded card: say so, and say how far it
+// looked. The filter only sees loaded cards, so with more pages a miss does
+// not mean the clip is not in the library. The element is shared with the
+// empty and error states; this only ever replaces or clears its own message
+// (data-search-miss), never theirs.
+function renderSearchMiss(query) {
+    const el = document.getElementById('gallery-status');
+    if (!el) return;
+    const own = el.dataset.searchMiss === 'true';
+    const cards = Array.from(gallery.querySelectorAll(':scope > li'));
+    // A deep search that is on but has not rendered yet will answer for the
+    // whole library: until it does, the loaded cards say nothing.
+    const deepPending = typeof isDeepSearchActive === 'function' && isDeepSearchActive();
+    const miss = !!query && !galleryIsSearchResults() && !deepPending && cards.length > 0 &&
+        cards.every(c => c.style.display === 'none');
+    if (!miss) {
+        if (own) hideGalleryStatus();
+        return;
+    }
+    if (!own && !el.classList.contains('hidden')) return;
+    let message = `No clips match "${query}".`;
+    if (_galleryView.hasMore) {
+        const loaded = cards.filter(c => c.dataset.id).length;
+        const total = _galleryView.total;
+        message = `No match for "${query}" in the ${loaded} of ${total} clips loaded. Load more to look further`;
+        message += isFolderMode() ? '.' : ', or turn on a search option to search the whole library.';
+    }
+    // role=status: an unchanged message is not written again, or a screen
+    // reader repeats it on every patch and reload.
+    if (own && el.textContent === message) return;
+    showGalleryStatus(message);
+    el.dataset.searchMiss = 'true';
 }
 
 function renderLoadMore() {
@@ -108,6 +169,45 @@ function renderLoadMore() {
         btn.textContent = 'Load more';
         btn.setAttribute('aria-label', `Load more clips (${loaded} of ${total} shown)`);
     }
+    armAutoLoadMore(wrap);
+}
+
+// --- Loading the next page as it comes into view ---
+//
+// Browsing a few hundred clips used to take a click per fifty. The next page
+// is now fetched when the "Load more" row scrolls into range; the button
+// stays, for the keyboard and for the cases below where nothing is fetched
+// automatically:
+//   - a plain search is filtering the loaded cards: hidden cards leave the row
+//     in view, and the chain would walk the whole library page by page;
+//   - the last automatic load failed: a failing backend must not be retried
+//     (and toasted) in a loop. A click, or any reload, clears that.
+// An IntersectionObserver only reports changes, so after each page settles the
+// row is measured again: a short page can leave it in range.
+const AUTO_LOAD_MARGIN_PX = 300;
+let _autoLoadObserver = null;
+let _autoLoadBlocked = false;
+// Off only in tests of the button itself, which would otherwise race it.
+let _autoLoadEnabled = true;
+function setAutoLoadMore(enabled) { _autoLoadEnabled = !!enabled; }
+
+function armAutoLoadMore(wrap) {
+    if (_autoLoadObserver || typeof IntersectionObserver !== 'function') return;
+    _autoLoadObserver = new IntersectionObserver((entries) => {
+        if (entries.some(e => e.isIntersecting)) maybeAutoLoadMore();
+    }, { rootMargin: `0px 0px ${AUTO_LOAD_MARGIN_PX}px 0px` });
+    _autoLoadObserver.observe(wrap);
+}
+
+function maybeAutoLoadMore() {
+    if (!_autoLoadEnabled || _autoLoadBlocked || !_galleryView.hasMore || !_galleryView.request) return;
+    if (_clipLoadInFlight || _loadMoreInFlight) return;
+    if (document.hidden) return;
+    if (searchInput.value.trim() !== '' && !galleryIsSearchResults()) return;
+    const wrap = document.getElementById('gallery-load-more');
+    if (!wrap || wrap.classList.contains('hidden') || wrap.getClientRects().length === 0) return;
+    if (wrap.getBoundingClientRect().top > window.innerHeight + AUTO_LOAD_MARGIN_PX) return;
+    loadMoreClips({ auto: true });
 }
 
 // Where focus was in the gallery before a reload, so a reload of the same
@@ -306,11 +406,15 @@ async function loadClips({ focusFirst = false } = {}) {
         updateBulkToolbar();
 
         if (page.clips.length === 0 && folderCards.length === 0) {
-            showGalleryStatus(galleryEmptyMessage(deepSearch));
+            showGalleryEmptyState(deepSearch);
         }
         if (typeof applySearchFilter === 'function') applySearchFilter();
         renderGalleryCount();
         renderLoadMore();
+        // A fresh listing may try the next page again, and may already have
+        // the Load more row in range (a short page in a tall window).
+        _autoLoadBlocked = false;
+        requestAnimationFrame(maybeAutoLoadMore);
         // Nothing is being withheld when the search was told to include hidden clips.
         updateHiddenClipsNote(deepSearch && searchOptions.includeHidden ? [] : effectiveHidden);
         window.LightboxController?.setClips(getVisibleMediaClips());
@@ -353,8 +457,14 @@ async function loadClips({ focusFirst = false } = {}) {
             updateBulkToolbar();
             renderLoadMore();
             updateClipCount(0);
-            showGalleryStatus('Error loading clips.', 'error');
+            // With the reason, and a way to try again that does not depend on
+            // knowing that changing a filter would.
+            const reason = errText(error);
+            showGalleryStatus(`Error loading clips: ${reason.length > 200 ? reason.slice(0, 199) + '…' : reason}`, 'error', ['retry']);
             clearHiddenClipsNote();
+            // The gallery is empty now; a viewer left open would go on
+            // showing (and acting on) a clip that may no longer exist.
+            window.LightboxController?.setClips([]);
         }
     } finally {
         // Render-completion signal. Several callers (folder-mode toggle, folder
@@ -370,9 +480,14 @@ async function loadClips({ focusFirst = false } = {}) {
 }
 
 // Append the next page of the listing on screen.
-async function loadMoreClips() {
+async function loadMoreClips({ auto = false } = {}) {
     const view = _galleryView;
     if (!view.hasMore || !view.request) return;
+    // One page at a time: a click landing on a load already under way (the
+    // automatic one, most likely) would fetch the same offset twice.
+    if (_loadMoreInFlight) return;
+    if (!auto) _autoLoadBlocked = false;
+    let failed = false;
     const myGen = _clipLoadGen;
     const btn = document.getElementById('gallery-load-more-btn');
     const buttonHadFocus = !!btn && document.activeElement === btn;
@@ -408,6 +523,9 @@ async function loadMoreClips() {
                 await createClipCard(clip);
                 if (myGen !== _clipLoadGen) return;
             }
+            // A page that brought nothing while more is promised (a run of
+            // unreadable rows) must not be asked for again and again.
+            if (((page && page.clips) || []).length === 0) _autoLoadBlocked = true;
             view.loaded += ((page && page.clips) || []).length;
             view.total = page ? page.total : view.total;
             view.hasMore = !!(page && page.has_more);
@@ -425,6 +543,8 @@ async function loadMoreClips() {
         // on purpose): the gallery belongs to that load now.
         if (myGen !== _clipLoadGen) return;
         console.error('Error loading more clips:', error);
+        failed = true;
+        _autoLoadBlocked = true;
         showToast('Failed to load more clips: ' + errText(error), 'error');
     } finally {
         _loadMoreInFlight--;
@@ -437,18 +557,37 @@ async function loadMoreClips() {
             const active = document.activeElement;
             if (buttonHadFocus && (active === btn || active === document.body || !active)) {
                 const nextBtn = document.getElementById('gallery-load-more-btn');
-                if (current.hasMore && nextBtn) nextBtn.focus();
+                // Without scrolling: the button is now below the new cards,
+                // and bringing it back into view would put it in range of the
+                // automatic load, which would then run through every page.
+                if (current.hasMore && nextBtn) nextBtn.focus({ preventScroll: true });
                 else focusGalleryItem(firstNewIndex);
             }
         }
+        // Still in range once the new cards are laid out? Then go on. Also for
+        // a view opened while this (now superseded) load was running: its own
+        // check found a load in flight and stood down.
+        if (!failed && _loadMoreInFlight === 0) requestAnimationFrame(maybeAutoLoadMore);
     }
 }
 
-function galleryEmptyMessage(deepSearch) {
-    if (deepSearch) return 'No clips match your search.';
-    if (activeTagFilters.length > 0) return 'No clips match the selected tags.';
-    if (isViewingArchive) return 'No archived clips.';
-    return 'No active clips. Paste or drop something!';
+// The message for an empty listing, and the ways in it offers. A filter that
+// matched nothing has no action: the filter is the thing to change. An empty
+// library or an empty folder gets the entry points a new user cannot guess
+// (the Add button is in the bottom bar, Import in the drawer, New Folder was
+// a right-click on a gallery that has no height when empty).
+function showGalleryEmptyState(deepSearch) {
+    if (deepSearch) return showGalleryStatus('No clips match your search.');
+    const inFolderMode = isFolderMode();
+    if (inFolderMode && activeTagFilters.length > 0) {
+        // A folder is held as a tag filter, but it is a place, not a miss.
+        if (isViewingArchive) return showGalleryStatus('No archived clips in this folder.');
+        return showGalleryStatus('This folder is empty. Paste or drop something to add it here.', 'empty', ['add', 'new-folder']);
+    }
+    if (activeTagFilters.length > 0) return showGalleryStatus('No clips match the selected tags.');
+    if (isViewingArchive) return showGalleryStatus('No archived clips.');
+    showGalleryStatus('No active clips. Paste or drop something!', 'empty',
+        inFolderMode ? ['add', 'import', 'new-folder'] : ['add', 'import']);
 }
 
 // --- In-place gallery patches ---
@@ -478,7 +617,7 @@ function afterGalleryPatch() {
     const checkboxes = Array.from(gallery.querySelectorAll('.clip-checkbox'));
     selectAllCheckbox.checked = selectedIds.size > 0 && checkboxes.length > 0 && checkboxes.every(cb => cb.checked);
     updateBulkToolbar();
-    if (!gallery.querySelector(':scope > li')) showGalleryStatus(galleryEmptyMessage(false));
+    if (!gallery.querySelector(':scope > li')) showGalleryEmptyState(false);
     // Re-applies the plain search filter (a rename can change whether a card
     // matches), recounts, and hands the lightbox the new media list.
     if (typeof applySearchFilter === 'function') applySearchFilter();
@@ -643,6 +782,10 @@ function refreshExpiryBadges() {
     for (const card of gallery.querySelectorAll(':scope > li[data-id][data-expires-at]')) {
         if (card._clip) renderCardExpiry(card, card._clip);
     }
+    // The same goes for every card's age ("3h").
+    for (const card of gallery.querySelectorAll(':scope > li[data-id]')) {
+        if (card._clip) renderCardMeta(card, card._clip);
+    }
 }
 window.refreshGalleryOnRefocus = refreshGalleryOnRefocus;
 
@@ -728,10 +871,11 @@ async function refreshClipInPlace(id) {
     const renamed = row.filename !== clip.filename;
     clip.filename = row.filename;
     clip.tags = tags;
-    // Server-mode rows carry no expiry, like the server listing.
+    // (A row from an older server may not report an expiry at all.)
     if ('expires_at' in row) clip.expires_at = row.expires_at;
     renderCardFilename(card, clip);
     renderCardExpiry(card, clip);
+    renderCardMeta(card, clip);
     renderCardTags(card, tags);
     card._renderSig = clipCardSignature(clip);
     // A prepared drag-out item carries the filename it was prepared under
@@ -757,7 +901,66 @@ function focusGalleryItem(index) {
     target.focus();
 }
 
-async function upload(files) {
+// After an upload's reload: when a tag filter or the search box is narrowing
+// the gallery and none of the new clips made it into the view, the summary
+// toast says so and offers to clear what is hiding them. Judged from the cards
+// actually rendered, so a clip a plugin tagged into the filter is not reported
+// as missing. Folder mode files uploads into the folder, so it never applies.
+function galleryLoadFailed() {
+    const el = document.getElementById('gallery-status');
+    return !!el && !el.classList.contains('hidden') && el.classList.contains('text-red-500');
+}
+
+function offerToShowUploaded(uploaded, summary, type = 'info') {
+    if (!uploaded || uploaded.length === 0) return;
+    const filtered = !isFolderMode() && activeTagFilters.length > 0;
+    const searching = searchInput.value.trim() !== '';
+    if (!filtered && !searching) return;
+    // With more pages unloaded the clip may simply be further down: clearing
+    // the search would not bring it on screen, so make no claim.
+    if (_galleryView.hasMore) return;
+    const names = new Set(uploaded.map(f => (f.name || '').toLowerCase()));
+    const shown = Array.from(gallery.querySelectorAll(':scope > li[data-id]'))
+        .some(card => card.style.display !== 'none' && names.has(card.dataset.filename));
+    if (shown) return;
+    showToast(`${summary} Not shown in the current view.`, type, {
+        label: 'Show',
+        onClick: () => {
+            clearSearchQuery();
+            if (!isFolderMode() && activeTagFilters.length > 0) clearAllTagFilters();
+        },
+    });
+}
+
+// How many files of an UploadFiles batch were refused, when the error is the
+// backend's partial-failure report ("2 of 5 files could not be stored: …");
+// null for any other error, which means the whole call failed.
+function partialStoreFailure(error) {
+    const match = /^(\d+) of (\d+) files could not be stored: /.exec(errText(error));
+    return match ? Number(match[1]) : null;
+}
+
+// Lead to a clip that is already stored: its card when it is on screen,
+// otherwise the clip opened as a link to it would open it (viewer or editor).
+function showExistingClip(clipID) {
+    const card = gallery.querySelector(`:scope > li[data-id="${Number(clipID)}"]`);
+    if (card && card.style.display !== 'none' && card.getClientRects().length > 0) {
+        const rover = window.__galleryRover;
+        if (rover) {
+            const index = rover.getItems().indexOf(card);
+            if (index >= 0) rover.setActiveIndex(index);
+        }
+        card.scrollIntoView({ block: 'center' });
+        card.focus({ preventScroll: true });
+        return;
+    }
+    if (typeof openClipFromLink === 'function') openClipFromLink(Number(clipID));
+}
+
+// `unreadable` names files of the same batch that could not be read: they are
+// reported in this upload's summary (a toast of their own would be replaced
+// by it).
+async function upload(files, { unreadable = [] } = {}) {
     try {
         const minutes = typeof getUploadExpirationMinutes === 'function' ? getUploadExpirationMinutes() : 0;
         let autoTagID = 0;
@@ -766,7 +969,10 @@ async function upload(files) {
         }
 
         const result = await checkAndResolveConflicts(files, autoTagID);
-        if (!result) return; // user cancelled
+        if (!result) { // user cancelled
+            if (typeof unreadableNote === 'function' && unreadable.length > 0) showToast(unreadableNote(unreadable), 'error');
+            return;
+        }
 
         // Overwrite existing clips
         for (const { clipID, fileData } of result.toOverwrite) {
@@ -776,37 +982,102 @@ async function upload(files) {
 
         // Upload new files
         const duplicatesBefore = window.__duplicateUploadEvents || 0;
+        let storeFailed = 0;
+        let storeError = '';
         if (result.toUpload.length > 0) {
-            await window.go.main.App.UploadFiles(result.toUpload, minutes, autoTagID);
+            // Only now is something certain to be added.
+            if (typeof leaveArchiveForUpload === 'function') leaveArchiveForUpload();
+            if (typeof setUploadStatus === 'function') {
+                setUploadStatus(result.toUpload.length === 1 ? 'Uploading…' : `Uploading ${result.toUpload.length} files…`);
+            }
+            try {
+                await window.go.main.App.UploadFiles(result.toUpload, minutes, autoTagID);
+            } catch (error) {
+                // "N of M files could not be stored: …": the backend stored
+                // the rest. Anything else is a failure of the whole call.
+                const refused = partialStoreFailure(error);
+                if (refused === null) throw error;
+                storeFailed = refused;
+                storeError = errText(error);
+            }
         }
         // Content that already exists elsewhere in the library raises a
         // clip:duplicate toast; this summary would immediately replace it.
         const duplicates = (window.__duplicateUploadEvents || 0) - duplicatesBefore;
 
+        let summary = '';
         const totalProcessed = result.toUpload.length + result.toOverwrite.length;
-        if (totalProcessed > 0 || result.skippedCount > 0) {
+        // What went wrong, in one text: files the backend could not store and
+        // files that could not be read. Either makes the summary an error.
+        const unreadableText = [
+            storeError ? storeError + '.' : '',
+            typeof unreadableNote === 'function' ? unreadableNote(unreadable) : '',
+        ].filter(Boolean).join(' ');
+        if (totalProcessed > 0 || result.skippedCount > 0 || unreadableText) {
             const parts = [];
-            if (result.toUpload.length > 0) {
-                parts.push(`${result.toUpload.length} uploaded` + (duplicates > 0
+            const stored = result.toUpload.length - storeFailed;
+            if (stored > 0) {
+                parts.push(`${stored} uploaded` + (duplicates > 0
                     ? ` (${duplicates} duplicate${duplicates === 1 ? '' : 's'} of existing clips)`
-                    : ''));
+                    : '') + (minutes > 0 && typeof uploadExpiryNote === 'function' ? uploadExpiryNote() : ''));
             }
             if (result.toOverwrite.length > 0) parts.push(`${result.toOverwrite.length} overwritten`);
-            if (result.skippedCount > 0) parts.push(`${result.skippedCount} skipped`);
-            showToast(parts.join(', ') + '.');
+            const already = result.already || [];
+            if (result.skippedCount > 0) {
+                parts.push(already.length === result.skippedCount
+                    ? `${result.skippedCount} skipped (already in your library)`
+                    : `${result.skippedCount} skipped`);
+            }
+            summary = parts.join(', ') + '.';
+            // Still on the archive (something is open over it): the new clip
+            // is not in the list behind, so say where it went.
+            if (isViewingArchive && stored > 0) summary += ' Added to the active clips.';
+            if (unreadableText) summary = parts.length > 0 ? `${summary} ${unreadableText}` : unreadableText;
+            // Nothing new at all, because it is all here already: say that
+            // (a bare "1 skipped." gave no reason) and lead to the clip, which
+            // may be behind a filter or on a page not loaded.
+            if (totalProcessed === 0 && !unreadableText && already.length > 0 && already.length === result.skippedCount) {
+                const first = already[0];
+                const text = already.length === 1
+                    ? `Already in your library: ${first.name} (skipped).`
+                    : `${already.length} files are already in your library (skipped).`;
+                showToast(text, 'info', {
+                    label: already.length === 1 ? 'Show' : 'Show first',
+                    onClick: () => showExistingClip(first.clipID),
+                });
+            } else {
+                showToast(summary, unreadableText ? 'error' : 'info');
+            }
         }
 
         if (!isViewingArchive) {
-            loadClips();
+            // Not awaited: a queued paste behind this one must not wait for a
+            // listing. The offer is made only if this very load rendered: a
+            // superseded or failed one says nothing about where the clip is.
+            const reload = loadClips();
+            const gen = _clipLoadGen;
+            reload.then(() => {
+                // Not when some were refused: which names failed is not known
+                // here, and "not shown" would be offered for clips that do not exist.
+                if (gen === _clipLoadGen && !galleryLoadFailed() && storeFailed === 0) offerToShowUploaded(result.toUpload, summary, unreadableText ? 'error' : 'info');
+            }).catch(console.error);
         }
     } catch (error) {
         console.error('Error uploading:', error);
         showToast('Upload failed: ' + errText(error), 'error');
+    } finally {
+        if (typeof clearUploadStatus === 'function') clearUploadStatus();
     }
 }
 
-async function deleteClip(id) {
-    showConfirmDialog('Delete Clip', 'Are you sure you want to delete this clip permanently?', async () => {
+// `knownName` is for a caller that holds the clip but whose card may not be
+// rendered (the lightbox on a clip opened from a link).
+async function deleteClip(id, knownName) {
+    // Name the clip: the dialog is reached from a key press too, where it is
+    // easy to be on a different card than intended. The message is HTML.
+    const name = galleryClipCard(id)?._clip?.filename || knownName;
+    const what = name ? `<strong class="break-all">${escapeHTML(name)}</strong>` : 'this clip';
+    showConfirmDialog('Delete Clip', `Delete ${what} permanently?`, async () => {
         try {
             await window.go.main.App.DeleteClip(id);
             // The clip is gone: free its cached video frame now, not at eviction.
@@ -823,7 +1094,7 @@ async function deleteClip(id) {
             }, 0);
         } catch (error) {
             console.error('Error deleting clip:', error);
-            showToast('Failed to delete clip.', 'error');
+            toastError('Failed to delete clip', error);
         }
     });
 }
@@ -839,9 +1110,31 @@ function renameClip(id) {
             if (!(await refreshClipInPlace(id))) loadClips();
         } catch (error) {
             console.error('Error renaming clip:', error);
-            showToast('Failed to rename clip.', 'error');
+            toastError('Failed to rename clip', error);
         }
     });
+}
+
+// The Undo on an archive/restore toast. It names the direction (the Bulk
+// calls) rather than toggling again: by the time it is clicked a plugin, the
+// CLI or another window may have moved the clip back already, and a second
+// toggle would then redo what the user is undoing. Like every bulk
+// archive, it emits no clip:archived / clip:unarchived plugin event. It
+// reloads rather than patches: the card is gone from this view.
+function archiveUndoAction(ids, wasRestore) {
+    return {
+        label: 'Undo',
+        onClick: async () => {
+            try {
+                if (wasRestore) await window.go.main.App.BulkArchive(ids);
+                else await window.go.main.App.BulkUnarchive(ids);
+            } catch (error) {
+                console.error('Error undoing archive change:', error);
+                showToast('Could not undo: ' + errText(error), 'error');
+            }
+            loadClips();
+        },
+    };
 }
 
 // The card is removed only when the clip certainly left the view it was
@@ -859,12 +1152,13 @@ async function toggleArchiveClip(id) {
         await window.go.main.App.ToggleArchive(id);
     } catch (error) {
         console.error('Error toggling archive:', error);
-        showToast('Failed to change archive status.', 'error');
+        toastError('Failed to change archive status', error);
         return;
     }
-    showToast(fromArchive ? 'Clip restored.' : 'Clip archived.');
+    const done = fromArchive ? 'Clip restored.' : 'Clip archived.';
     // A load begun while the toggle was in flight may predate the write.
     if (gen !== _clipLoadGen || isViewingArchive !== fromArchive) {
+        showToast(done);
         loadClips();
         return;
     }
@@ -878,6 +1172,10 @@ async function toggleArchiveClip(id) {
     } catch (error) {
         row = null; // gone or unreadable: unsure, so reload below
     }
+    // Undo is offered only when the stored row shows the flag really flipped:
+    // a clip:archived handler may have put it straight back.
+    const flipped = !!row && !!row.is_archived !== fromArchive;
+    showToast(done, 'info', flipped ? archiveUndoAction([id], fromArchive) : null);
     // A load begun after the toggle returned reads the stored state itself.
     if (gen !== _clipLoadGen) return;
     // A clip:archived handler that changed other clips (archived another,
@@ -899,17 +1197,17 @@ async function saveTempFile(id) {
         }
     } catch (error) {
         console.error('Error saving temp file:', error);
-        showToast('Failed to save temp file.', 'error');
+        toastError('Failed to save temp file', error);
     }
 }
 
 async function copyFileToClipboard(id) {
     try {
         await window.go.main.ClipboardService.CopyFileToClipboard(id);
-        showToast('File copied to clipboard!');
+        showToast('File copied to clipboard.');
     } catch (error) {
         console.error('Error copying file to clipboard:', error);
-        showToast('Failed to copy file.', 'error');
+        toastError('Failed to copy file', error);
     }
 }
 
@@ -918,30 +1216,30 @@ async function copyFileToClipboard(id) {
 async function copyClipLink(id) {
     try {
         await window.go.main.App.CopyToClipboard(`mahpastes://clip/${Number(id)}`);
-        showToast('Link copied to clipboard!');
+        showToast('Link copied to clipboard.');
     } catch (error) {
         console.error('Error copying clip link:', error);
-        showToast('Failed to copy link.', 'error');
+        toastError('Failed to copy link', error);
     }
 }
 
 async function copyClipContents(id) {
     try {
         await window.go.main.ClipboardService.CopyClipContents(id);
-        showToast('Contents copied to clipboard!');
+        showToast('Contents copied to clipboard.');
     } catch (error) {
         console.error('Error copying contents:', error);
-        showToast('Failed to copy contents.', 'error');
+        toastError('Failed to copy contents', error);
     }
 }
 
 async function copyClipAsRichText(id) {
     try {
         await window.go.main.ClipboardService.CopyClipAsRichText(id);
-        showToast('Rich text copied to clipboard!');
+        showToast('Rich text copied to clipboard.');
     } catch (error) {
         console.error('Error copying rich text:', error);
-        showToast('Failed to copy rich text.', 'error');
+        toastError('Failed to copy rich text', error);
     }
 }
 
@@ -950,20 +1248,42 @@ async function copyClipAsRichText(id) {
 // revoke it from the CLI (`mp link revoke <id>`) or LinkService at any time.
 async function createAndCopyPublicLink(id) {
     try {
-        const link = await window.go.main.LinkService.CreateShareLink(id, '', 0, 0);
+        // Named after the clip, so the list of links (API modal) says what
+        // each one gives away.
+        const name = galleryClipCard(id)?._clip?.filename || '';
+        const link = await window.go.main.LinkService.CreateShareLink(id, name, 0, 0);
         const path = (link && link.path) || (link && link.token ? '/s/' + link.token : '');
         if (!path) {
             throw new Error('Invalid response');
         }
-        copyToClipboard(window.location.origin + path);
+        const copied = await copyTextQuietly(window.location.origin + path);
+        const linkID = link.info && link.info.id;
+        // What was just made, in words: a download address that needs no
+        // sign-in. Revoke is one click here, and later in the API modal.
+        const revoke = linkID ? {
+            label: 'Revoke',
+            onClick: async () => {
+                try {
+                    await window.go.main.LinkService.RevokeShareLink(linkID);
+                    showToast('Public link revoked.');
+                    if (typeof loadPublicLinks === 'function') loadPublicLinks();
+                } catch (error) {
+                    toastError('Could not revoke the link', error);
+                }
+            },
+        } : null;
+        showToast(copied
+            ? 'Public link copied. Anyone with it can download this clip.'
+            : 'Public link created, but it could not be copied. Revoke it here or under Public Links in the API settings, then try again.',
+        copied ? 'info' : 'error', revoke);
     } catch (error) {
         console.error('Error creating public link:', error);
-        showToast('Failed to create public link.', 'error');
+        toastError('Failed to create public link', error);
     }
 }
 
 async function deleteAllTempFiles() {
-    showConfirmDialog('Delete All Temp Files', 'Are you sure you want to delete ALL temporary files?', async () => {
+    showConfirmDialog('Delete All Temp Files', 'Removes the temporary files prepared for drag-out, copy-as-file and playback. Your clips are not affected.', async () => {
         try {
             await window.go.main.App.DeleteAllTempFiles();
             if (typeof clearPreparedDragState === 'function') {
@@ -972,23 +1292,23 @@ async function deleteAllTempFiles() {
             showToast('All temp files deleted.');
         } catch (error) {
             console.error('Error deleting temp files:', error);
-            showToast('Failed to delete temp files.', 'error');
+            toastError('Failed to delete temp files', error);
         }
     });
 }
 
 async function bulkDelete() {
     if (selectedIds.size === 0) return;
-    showConfirmDialog('Bulk Delete', `Are you sure you want to delete ${selectedIds.size} clips permanently?`, async () => {
+    showConfirmDialog('Bulk Delete', `Delete ${countOf(selectedIds.size, 'clip')} permanently?`, async () => {
         try {
             await window.go.main.App.BulkDelete(Array.from(selectedIds));
             selectedIds.forEach(id => videoFrameCacheDelete(Number(id)));
-            showToast(`Deleted ${selectedIds.size} clips.`);
+            showToast(`Deleted ${countOf(selectedIds.size, 'clip')}.`);
             selectedIds.clear();
             loadClips();
         } catch (error) {
             console.error('Error in bulk delete:', error);
-            showToast('Bulk delete failed.', 'error');
+            toastError('Bulk delete failed', error);
         }
     });
 }
@@ -997,13 +1317,14 @@ async function bulkArchive() {
     if (selectedIds.size === 0) return;
     try {
         const ids = Array.from(selectedIds);
-        if (isViewingArchive) {
+        const fromArchive = isViewingArchive;
+        const count = countOf(ids.length, 'clip');
+        if (fromArchive) {
             await window.go.main.App.BulkUnarchive(ids);
-            showToast(`Restored ${selectedIds.size} clips.`);
         } else {
             await window.go.main.App.BulkArchive(ids);
-            showToast(`Archived ${selectedIds.size} clips.`);
         }
+        showToast(`${fromArchive ? 'Restored' : 'Archived'} ${count}.`, 'info', archiveUndoAction(ids, fromArchive));
         selectedIds.clear();
         loadClips();
     } catch (error) {
@@ -1031,10 +1352,10 @@ async function bulkCopyFiles() {
     if (selectedIds.size === 0) return;
     try {
         await window.go.main.ClipboardService.BulkCopyFilesToClipboard(Array.from(selectedIds));
-        showToast(`${selectedIds.size} file${selectedIds.size > 1 ? 's' : ''} copied to clipboard!`);
+        showToast(`${selectedIds.size} file${selectedIds.size > 1 ? 's' : ''} copied to clipboard.`);
     } catch (error) {
         console.error('Error copying files to clipboard:', error);
-        showToast('Failed to copy files.', 'error');
+        toastError('Failed to copy files', error);
     }
 }
 
@@ -1091,6 +1412,9 @@ async function checkAndResolveConflicts(fileDataArray, tagID) {
     if (!matches || matches.length === 0) {
         return { toUpload: fileDataArray, toOverwrite: [], skippedCount: 0 };
     }
+    // Files skipped because the very same clip (name and bytes) is already
+    // here: {clipID, name}, so the caller can say so and point at it.
+    const already = [];
 
     // Build a map: filename → { clipID, existingHash }
     // Results are ordered by id DESC, so first match per filename is the most recent.
@@ -1115,6 +1439,7 @@ async function checkAndResolveConflicts(fileDataArray, tagID) {
         const incomingHash = await computeFileHash(fd.data);
         if (incomingHash === match.existingHash) {
             identical.push(fd);
+            already.push({ clipID: match.clipID, name: fd.name });
         } else {
             conflicts.push({ fileData: fd, clipID: match.clipID });
         }
@@ -1122,10 +1447,7 @@ async function checkAndResolveConflicts(fileDataArray, tagID) {
 
     // If all matches were identical content, skip silently
     if (conflicts.length === 0) {
-        if (identical.length > 0) {
-            showToast(`${identical.length} identical file${identical.length === 1 ? '' : 's'} skipped.`);
-        }
-        return { toUpload: noConflict, toOverwrite: [], skippedCount: identical.length };
+        return { toUpload: noConflict, toOverwrite: [], skippedCount: identical.length, already };
     }
 
     // Show conflict dialog and wait for user choice
@@ -1138,12 +1460,14 @@ async function checkAndResolveConflicts(fileDataArray, tagID) {
             toUpload: noConflict,
             toOverwrite: conflicts.map(c => ({ clipID: c.clipID, fileData: c.fileData })),
             skippedCount: identical.length,
+            already,
         };
     } else if (resolution === 'keep') {
         return {
             toUpload: [...noConflict, ...conflicts.map(c => c.fileData)],
             toOverwrite: [],
             skippedCount: identical.length,
+            already,
         };
     } else {
         // 'skip'
@@ -1195,7 +1519,7 @@ async function saveClipToFile(id) {
         // Desktop only: in server mode the browser saved a download (the
         // glue resolves to its name), which the host file manager can't show.
         if (savedPath && window.mahpastesMode !== 'server') {
-            showToast('Saved clip to file', 'success', {
+            showToast('Saved clip to file.', 'success', {
                 label: 'Show in folder',
                 onClick: () => window.go.main.App.RevealInFileManager(savedPath).catch(
                     (e) => showToast('Failed to show file: ' + errText(e), 'error')),
@@ -1263,7 +1587,7 @@ async function deleteTag(id) {
         showToast('Tag deleted.');
     } catch (error) {
         console.error('Error deleting tag:', error);
-        showToast('Failed to delete tag.', 'error');
+        toastError('Failed to delete tag', error);
     }
 }
 
@@ -1272,7 +1596,7 @@ async function addTagToClip(clipId, tagId) {
         await window.go.main.App.AddTagToClip(clipId, tagId);
     } catch (error) {
         console.error('Error adding tag to clip:', error);
-        showToast('Failed to add tag.', 'error');
+        toastError('Failed to add tag', error);
     }
 }
 
@@ -1281,27 +1605,27 @@ async function removeTagFromClip(clipId, tagId) {
         await window.go.main.App.RemoveTagFromClip(clipId, tagId);
     } catch (error) {
         console.error('Error removing tag from clip:', error);
-        showToast('Failed to remove tag.', 'error');
+        toastError('Failed to remove tag', error);
     }
 }
 
 async function bulkAddTag(clipIds, tagId) {
     try {
         await window.go.main.App.BulkAddTag(clipIds, tagId);
-        showToast(`Tag added to ${clipIds.length} clips.`);
+        showToast(`Tag added to ${countOf(clipIds.length, 'clip')}.`);
     } catch (error) {
         console.error('Error in bulk add tag:', error);
-        showToast('Failed to add tag to clips.', 'error');
+        toastError('Failed to add tag to clips', error);
     }
 }
 
 async function bulkRemoveTag(clipIds, tagId) {
     try {
         await window.go.main.App.BulkRemoveTag(clipIds, tagId);
-        showToast(`Tag removed from ${clipIds.length} clips.`);
+        showToast(`Tag removed from ${countOf(clipIds.length, 'clip')}.`);
     } catch (error) {
         console.error('Error in bulk remove tag:', error);
-        showToast('Failed to remove tag from clips.', 'error');
+        toastError('Failed to remove tag from clips', error);
     }
 }
 
@@ -1423,7 +1747,7 @@ async function setExpiration(id, minutes) {
         if (!(await refreshClipInPlace(id))) loadClips();
     } catch (error) {
         console.error('Error setting expiration:', error);
-        showToast('Failed to set expiration.', 'error');
+        toastError('Failed to set expiration', error);
     }
 }
 
@@ -1434,14 +1758,14 @@ async function cancelExpiration(id) {
         if (!(await refreshClipInPlace(id))) loadClips();
     } catch (error) {
         console.error('Error canceling expiration:', error);
-        showToast('Failed to cancel expiration.', 'error');
+        toastError('Failed to cancel expiration', error);
     }
 }
 
 async function bulkSetExpiration(ids, minutes) {
     try {
         await window.go.main.App.BulkSetExpiration(ids, minutes);
-        showToast(`Expiration set on ${ids.length} clips.`);
+        showToast(`Expiration set on ${countOf(ids.length, 'clip')}.`);
         selectedIds.clear();
         updateBulkToolbar();
         loadClips();
@@ -1455,7 +1779,7 @@ async function bulkSetExpiration(ids, minutes) {
 async function bulkCancelExpiration(ids) {
     try {
         await window.go.main.App.BulkCancelExpiration(ids);
-        showToast(`Expiration canceled on ${ids.length} clips.`);
+        showToast(`Expiration canceled on ${countOf(ids.length, 'clip')}.`);
         selectedIds.clear();
         updateBulkToolbar();
         loadClips();

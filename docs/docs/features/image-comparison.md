@@ -83,6 +83,8 @@ Displays dimensions, file size, and content type for both images in the comparis
 | **Zoom In** button | Multiply zoom by 1.2x (max 500%) |
 | **Zoom Out** button | Divide zoom by 1.2x (min 10%) |
 | **Fit** button | Fit images to viewport (capped at 100%) |
+| Scroll (wheel or two fingers) | Pan a zoomed-in pair; <span className="keyboard-key">Shift</span> + wheel pans sideways |
+| <span className="keyboard-key">Ctrl</span>/<span className="keyboard-key">Cmd</span> + wheel | Zoom |
 
 The current zoom level is displayed as a percentage. Zoom is applied via CSS transform.
 

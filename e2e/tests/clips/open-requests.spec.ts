@@ -203,7 +203,7 @@ test.describe('Clip links', () => {
     await app.hoverCopySubmenu(filename);
     await app.page.locator(selectors.cardMenu.copyLink).click();
 
-    await app.expectToast('Link copied to clipboard!');
+    await app.expectToast('Link copied to clipboard.');
     expect(await app.page.evaluate(() => (window as any).__copiedText)).toBe(`mahpastes://clip/${id}`);
   });
 
@@ -226,7 +226,7 @@ test.describe('Clip links', () => {
     await app.page.locator(selectors.cardMenu.copyTrigger).hover();
     await app.page.locator(selectors.cardMenu.copyLink).click();
 
-    await app.expectToast('Link copied to clipboard!');
+    await app.expectToast('Link copied to clipboard.');
     expect(await app.page.evaluate(() => (window as any).__copiedText)).toBe(`mahpastes://clip/${id}`);
     await expect(app.page.locator(selectors.lightbox.overlay)).toHaveClass(/active/);
   });

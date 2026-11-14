@@ -198,8 +198,9 @@ async function openEditor(clipId, options = {}) {
             // Fit image to container and show the correct zoom percentage
             ZoomTool.zoomToFit();
 
-            // Select default tool
-            EditorCore.selectTool('brush');
+            // Select the drawing tool last used (brush the first time)
+            lastDrawingTool = loadEditorToolPrefs().tool;
+            EditorCore.selectTool(lastDrawingTool);
             if (EditorCore.wasDownscaled) {
                 downscaleWarning.textContent = `${EditorCore.originalWidth}×${EditorCore.originalHeight} resized to ${EditorCore.canvas.width}×${EditorCore.canvas.height} for editing`;
                 downscaleWarning.classList.remove('hidden');
@@ -233,8 +234,15 @@ async function openEditor(clipId, options = {}) {
             // Blob, a base64 string, a decoded string, a CodeMirror document, and
             // possibly a preview simultaneously.
             if (!decoded.ok && decoded.reason === 'too-large') {
-                const megabytes = Math.round(decoded.byteLength / (1024 * 1024));
-                showToast(`Text clip is too large to edit (${megabytes} MB) — download it instead.`);
+                // One decimal: rounded to whole megabytes, a clip just over the
+                // cap read as exactly the cap. The way out is in the toast.
+                const megabytes = (decoded.byteLength / (1024 * 1024)).toFixed(1);
+                const limit = Math.round(window.MahpastesTextEditor.TextCodec.MAX_EDITABLE_BYTES / (1024 * 1024));
+                const tooLargeClipId = clipId;
+                showToast(`Text clip is too large to edit (${megabytes} MB, limit ${limit} MB).`, 'info', {
+                    label: 'Save to file',
+                    onClick: () => saveClipToFile(tooLargeClipId),
+                });
                 editorClipId = null;
                 editorContentType = '';
                 editorFilename = '';
@@ -280,7 +288,7 @@ async function openEditor(clipId, options = {}) {
         editorFocusTrapCleanup = null;
         editorModal.classList.remove('active');
         editorModal.setAttribute('inert', '');
-        showToast('Failed to open editor.', 'error');
+        toastError('Failed to open editor', error);
     }
 }
 
@@ -375,6 +383,9 @@ function closeEditor(options) {
 
     editorSession++;
     const editorModal = document.getElementById('editor-modal');
+    // closeEditor also runs with nothing open (an open that failed, a second
+    // close): EditorCore then holds reset defaults, which are not a preference.
+    const wasOpen = editorModal.classList.contains('active');
     if (editorFocusTrapCleanup) editorFocusTrapCleanup();
     editorFocusTrapCleanup = null;
     editorModal.classList.remove('active');
@@ -382,6 +393,8 @@ function closeEditor(options) {
 
     if (isTextEditor) {
         TextClipEditor.close({ discardDraft: options?.discardDraft === true });
+    } else if (wasOpen) {
+        rememberEditorToolPrefs();
     }
 
     // Reset EditorCore (detaches listeners, clears canvases, clears undo/redo)
@@ -414,18 +427,77 @@ function closeEditor(options) {
 
 // --- Tool State UI ---
 
-function resetToolState() {
-    // Reset drawing properties on EditorCore
-    EditorCore.currentColor = '#44403c';
-    EditorCore.currentOpacity = 1;
-    EditorCore.brushSize = 8;
-    EditorCore.fontSize = 16;
+// --- Remembered tool settings ---
+//
+// The image editor used to open on Brush, dark grey, 8px every time, so a
+// user who annotates in red arrows set that up again for every screenshot.
+// The last drawing tool, colour, opacity and sizes are kept per browser
+// profile (localStorage: a view preference, not library data, so it stays
+// out of settings, backups and the REST API). Every value is validated on the
+// way back in; anything missing or odd falls back to the old default.
+const EDITOR_TOOL_PREFS_KEY = 'mahpastes.editor.toolPrefs';
+// Tools that draw. Crop, select, eyedropper and anonymize are one-off
+// operations: reopening on them would surprise, so they fall back to brush.
+const REMEMBERED_EDITOR_TOOLS = ['brush', 'eraser', 'line', 'arrow', 'rectangle', 'circle', 'text'];
+const EDITOR_TOOL_DEFAULTS = Object.freeze({ tool: 'brush', color: '#44403c', opacity: 1, brushSize: 8, fontSize: 16 });
 
-    // Update UI controls
+// The drawing tool last selected in the open editor: closing while on a
+// one-off tool (eyedropper, crop) still remembers the one used before it.
+let lastDrawingTool = null;
+
+// Back to drawing after a one-off operation (a crop applied or cancelled).
+function selectLastDrawingTool() {
+    selectTool(lastDrawingTool || 'brush');
+}
+
+function loadEditorToolPrefs() {
+    const prefs = { ...EDITOR_TOOL_DEFAULTS };
+    let stored = null;
+    try { stored = JSON.parse(localStorage.getItem(EDITOR_TOOL_PREFS_KEY) || 'null'); } catch (e) { stored = null; }
+    if (!stored || typeof stored !== 'object') return prefs;
+    if (REMEMBERED_EDITOR_TOOLS.includes(stored.tool)) prefs.tool = stored.tool;
+    if (typeof stored.color === 'string' && /^#[0-9a-f]{6}$/i.test(stored.color)) prefs.color = stored.color;
+    // A near-zero opacity is not carried over: every later stroke would be
+    // invisible, with only a small readout to say why.
+    if (Number.isFinite(stored.opacity) && stored.opacity >= 0.05 && stored.opacity <= 1) prefs.opacity = stored.opacity;
+    if (Number.isInteger(stored.brushSize) && stored.brushSize >= 1 && stored.brushSize <= 50) prefs.brushSize = stored.brushSize;
+    if (Number.isInteger(stored.fontSize) && stored.fontSize >= 8 && stored.fontSize <= 200) prefs.fontSize = stored.fontSize;
+    return prefs;
+}
+
+// Called as the image editor closes, before EditorCore.reset() wipes the
+// state: one place that sees every way the values change (the inputs, the
+// bracket keys, the eyedropper).
+function rememberEditorToolPrefs() {
+    const tool = REMEMBERED_EDITOR_TOOLS.includes(EditorCore.activeToolName)
+        ? EditorCore.activeToolName
+        : (lastDrawingTool || loadEditorToolPrefs().tool);
+    try {
+        localStorage.setItem(EDITOR_TOOL_PREFS_KEY, JSON.stringify({
+            tool,
+            color: EditorCore.currentColor,
+            opacity: EditorCore.currentOpacity,
+            brushSize: EditorCore.brushSize,
+            fontSize: EditorCore.fontSize,
+        }));
+    } catch (e) { /* not persisted */ }
+}
+
+function resetToolState() {
+    // Drawing properties: the ones last used, else the defaults
+    const prefs = loadEditorToolPrefs();
+    EditorCore.currentColor = prefs.color;
+    EditorCore.currentOpacity = prefs.opacity;
+    EditorCore.brushSize = prefs.brushSize;
+    EditorCore.fontSize = prefs.fontSize;
+
+    // Update UI controls. The option bar too: the initial tool is selected on
+    // EditorCore directly, and the bar still shows the last session's tool.
     updateToolButtons();
+    updateContextToolbar();
     document.getElementById('editor-color').value = EditorCore.currentColor;
     document.getElementById('editor-opacity').value = EditorCore.currentOpacity * 100;
-    document.getElementById('editor-opacity-value').textContent = '100%';
+    document.getElementById('editor-opacity-value').textContent = Math.round(EditorCore.currentOpacity * 100) + '%';
     document.getElementById('editor-brush-size').value = EditorCore.brushSize;
     document.getElementById('editor-brush-size-value').textContent = EditorCore.brushSize + 'px';
     const fontSizeInput = document.getElementById('editor-font-size');
@@ -499,6 +571,7 @@ function selectTool(tool) {
     }
 
     EditorCore.selectTool(tool);
+    if (REMEMBERED_EDITOR_TOOLS.includes(tool)) lastDrawingTool = tool;
     updateToolButtons();
     updateContextToolbar();
     updateEditorSaveState();
@@ -603,10 +676,26 @@ async function performSaveEditorInPlace(snapshot) {
                 return;
             }
             TextClipEditor.clearDraft();
+            // The draft is gone with the save; its status line must not go on
+            // saying "Draft saved" now that the editor stays open.
+            TextClipEditor.resetDraftStatus();
+            // A text save keeps the editor open: saving as you go must not
+            // cost the cursor, the scroll position, the undo history and the
+            // find state. (An image save still closes; its canvas is the edit.)
+            const saveButton = document.getElementById('editor-save-in-place');
+            const hadFocus = document.activeElement === saveButton;
+            showToast('Saved.');
+            setEditorSaving(false);
+            updateEditorSaveState();
+            // The Save button is disabled again (nothing to save), which would
+            // drop the keyboard to <body> if it was pressed to save.
+            if (hadFocus || document.activeElement === document.body) TextClipEditor.focus?.();
+            loadClips();
+            return;
         } else if (settleImageSave(session, savedRevision, 'Saved.')) {
             return;
         }
-        showToast('Saved!');
+        showToast('Saved.');
         closeEditor({ force: true });
         loadClips();
     } catch (error) {
@@ -619,13 +708,31 @@ async function performSaveEditorInPlace(snapshot) {
 }
 
 // The byte-safety screen leaves Save and Save As unavailable, and a disabled
-// button does not achieve that by itself: `mod+s` is bound to saveEditorContent,
-// which would otherwise reveal the Save As field and then write an empty clip
+// button does not achieve that by itself: the save shortcuts would otherwise
+// overwrite the clip, or reveal the Save As field and then write an empty clip,
 // from an editor that was deliberately never given a value.
 function textSaveUnavailable() {
     if (!isTextEditor || !TextClipEditor.isUnavailable()) return false;
     showToast('Saving is unavailable: this clip is not valid UTF-8 text.');
     return true;
+}
+
+// The Save shortcut (mod+s). It does what the primary button on screen does:
+// overwrite the open clip, or, once the Save As field is showing (the Save
+// button is hidden then), create the copy. It respects the Save button's
+// disabled state, so an unchanged clip is not rewritten.
+function saveEditorFromShortcut() {
+    if (editorSaving) return;
+    if (textSaveUnavailable()) return;
+    if (saveAsMode || !editorClipId) {
+        saveEditorContent();
+        return;
+    }
+    if (document.getElementById('editor-save-in-place').disabled) {
+        showToast('No changes to save.');
+        return;
+    }
+    saveEditorInPlace();
 }
 
 async function saveEditorInPlace() {
@@ -713,7 +820,7 @@ async function performSaveEditorContent(snapshot) {
             // As above: the upload is awaited, so ownership is re-checked before
             // touching the editor or its draft.
             if (!TextClipEditor.snapshotStillTargets(snapshot)) {
-                showToast('Saved as new clip!');
+                showToast('Saved as new clip.');
                 loadClips();
                 return;
             }
@@ -743,7 +850,7 @@ async function performSaveEditorContent(snapshot) {
             loadClips();
             return;
         }
-        showToast('Saved as new clip!');
+        showToast('Saved as new clip.');
         closeEditor({ force: true });
         loadClips();
     } catch (error) {
@@ -850,7 +957,8 @@ function setupEditorListeners() {
 
     // Font size input
     document.getElementById('editor-font-size')?.addEventListener('input', (e) => {
-        EditorCore.fontSize = parseInt(e.target.value) || 24;
+        // Clamped to the control's own range, which is also what is remembered.
+        EditorCore.fontSize = Math.max(8, Math.min(200, parseInt(e.target.value) || 24));
     });
 
     // Text input commit on Enter or blur

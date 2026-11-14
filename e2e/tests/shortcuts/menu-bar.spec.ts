@@ -25,6 +25,32 @@ test.describe('Menu bar actions', () => {
     });
   });
 
+  // Share, the REST API dialog and Maintenance had no menu item and no
+  // rebindable action: the nav drawer was the only way to them.
+  test('View > Share, REST API and Maintenance open from any main view', async ({ app }) => {
+    await app.switchToServeView();
+    await menu(app, 'share');
+    await expect(app.page.locator('#share-view')).toBeVisible();
+    await expect(app.page.locator('[data-testid="share-intro"]')).toContainText('peer to peer');
+
+    await menu(app, 'api');
+    await expect(app.page.locator('[data-testid="api-modal"]')).toHaveClass(/opacity-100/);
+    await app.page.keyboard.press('Escape');
+    await expect(app.page.locator('[data-testid="api-modal"]')).toHaveClass(/opacity-0/);
+
+    await menu(app, 'maintenance');
+    await expect(app.page.locator('[data-testid="maintenance-modal"]')).toHaveClass(/opacity-100/);
+    await app.page.keyboard.press('Escape');
+
+    // The three are rebindable actions too, listed with the other navigation keys.
+    const ids = await app.page.evaluate(() => {
+      // @ts-ignore - app global
+      const actions = ShortcutManager.actions;
+      return ['open-share', 'open-api', 'open-maintenance'].map((id) => actions.has(id) && actions.get(id).category);
+    });
+    expect(ids).toEqual(['navigation', 'navigation', 'navigation']);
+  });
+
   test('View > Watch Folders switches from the Serve view, and View > Serve toggles back', async ({ app }) => {
     await app.switchToServeView();
 

@@ -44,6 +44,8 @@ const THUMBNAIL_MAX_EDGE = 640;
 const THUMBNAIL_SEEK_MAX_SECONDS = 2;
 const videoMediaURLCache = new Map();
 const pendingVideoMediaURLs = new Map();
+// Full-image reads in flight, keyed `${clipId}:${revision}` (see getImageDataUrl).
+const pendingImageDataUrls = new Map();
 const renderedClipsById = new Map();
 
 // Bumped per clip whenever its bytes change, so a fetch that started before
@@ -114,6 +116,7 @@ function clearMediaCaches() {
     imageCacheBytes = 0;
     videoMediaURLCache.clear();
     pendingVideoMediaURLs.clear();
+    pendingImageDataUrls.clear();
     // Captured frames stay: each is checked against its clip's revision.
 }
 
@@ -351,6 +354,18 @@ function canCompareBulkSelection() {
     });
 }
 
+// Is any selected clip an image? Then the "more" menu shows, with Compare in
+// it: enabled for exactly two images, and otherwise saying what it needs.
+// (Comparison used to appear nowhere until exactly two images were already
+// selected. It stays in the menu, not on the toolbar: the toolbar has a width
+// budget on narrow windows.)
+function anySelectedImage() {
+    return Array.from(selectedIds).some(id => {
+        const card = gallery.querySelector(`li[data-id="${id}"]`);
+        return card && (card.dataset.type || '').startsWith('image/');
+    });
+}
+
 function updateBulkMoreButton() {
     const button = document.getElementById('bulk-more-btn');
     if (!button) return;
@@ -358,7 +373,7 @@ function updateBulkMoreButton() {
         button.addEventListener('click', () => openBulkMoreMenu(button));
         button.dataset.menuInitialized = 'true';
     }
-    const hasActions = canCompareBulkSelection() || getApplicableBulkPluginActions().length > 0;
+    const hasActions = anySelectedImage() || getApplicableBulkPluginActions().length > 0;
     button.classList.toggle('hidden', !hasActions);
 }
 
@@ -398,14 +413,15 @@ function openBulkMoreMenu(anchor) {
     const canCompare = canCompareBulkSelection();
     const pluginActions = getApplicableBulkPluginActions();
 
-    if (canCompare) {
+    const offerCompare = canCompare || anySelectedImage();
+    if (offerCompare) {
         items.push({
-            id: 'compare',
-            label: 'Compare',
+            id: canCompare ? 'compare' : 'compare-hint',
+            label: canCompare ? 'Compare' : 'Compare (select exactly two images)',
             iconHtml: getMenuIcon('compare'),
         });
     }
-    if (canCompare && pluginActions.length > 0) items.push({ type: 'divider' });
+    if (offerCompare && pluginActions.length > 0) items.push({ type: 'divider' });
 
     items.push(...buildBulkPluginItems(pluginActions));
 
@@ -413,6 +429,10 @@ function openBulkMoreMenu(anchor) {
     ContextMenu.open(items, null, anchor, (menuAction, _id, item) => {
         if (menuAction === 'compare') {
             openComparisonModal();
+            return;
+        }
+        if (menuAction === 'compare-hint') {
+            showToast('Select exactly two images to compare.');
             return;
         }
         if (menuAction !== 'plugin') return;
@@ -657,7 +677,7 @@ async function openClipWithListedApp(clipId, appPath) {
         await window.go.main.App.OpenClipWithApp(Number(clipId), appPath);
     } catch (err) {
         console.error('Failed to open clip with application:', err);
-        showToast('Failed to open clip.', 'error');
+        toastError('Failed to open clip', err);
     }
 }
 
@@ -793,7 +813,7 @@ function handlePluginCardAction(dataset) {
         } else {
             console.error('Could not find plugin action:', pluginId, actionId);
             if (typeof showToast === 'function') {
-                showToast('Plugin action not found', 'error');
+                showToast('Plugin action not found.', 'error');
             }
         }
     } else if (typeof executePluginAction === 'function') {
@@ -804,7 +824,7 @@ function handlePluginCardAction(dataset) {
     } else {
         console.error('Plugin action handler not available');
         if (typeof showToast === 'function') {
-            showToast('Plugin system not initialized', 'error');
+            showToast('Plugin system not initialized.', 'error');
         }
     }
 }
@@ -843,7 +863,7 @@ async function handleCardAction(action, clipId, triggerButton) {
             try {
                 await window.go.main.App.OpenClipWithDefaultApp(id);
             } catch (err) {
-                showToast('Failed to open clip.', 'error');
+                toastError('Failed to open clip', err);
             }
             break;
         case 'open-with':
@@ -857,7 +877,7 @@ async function handleCardAction(action, clipId, triggerButton) {
                     await window.go.main.App.OpenClipWithApp(id, appPath);
                 }
             } catch (err) {
-                showToast('Failed to open clip.', 'error');
+                toastError('Failed to open clip', err);
             }
             break;
         case 'copy-path':
@@ -922,10 +942,10 @@ async function handleCardAction(action, clipId, triggerButton) {
         case 'merge-duplicates':
             try {
                 await window.go.main.App.MergeDuplicates(id);
-                showToast('Merged duplicates', 'success');
+                showToast('Merged duplicates.', 'success');
                 loadClips();
             } catch (err) {
-                showToast('Failed to merge duplicates', 'error');
+                showToast('Failed to merge duplicates.', 'error');
             }
             break;
         case 'rename':
@@ -1411,7 +1431,7 @@ async function createClipCard(clip, options = {}) {
                 ${escapeHTML(clip.filename) || '<span class="text-stone-400 font-normal">Pasted</span>'}
             </p>
             <div class="flex justify-between items-center">
-                <div class="flex items-center gap-1.5"><span class="clip-type-label text-[9px] font-medium text-stone-400 uppercase tracking-wide">${escapeHTML(getFriendlyFileType(clip.content_type, clip.filename))}</span>${clip.duplicate_count > 0 ? `<span class="dedup-badge text-[9px] font-medium text-stone-400 bg-stone-100 border border-stone-200 rounded px-1">${clip.duplicate_count + 1} copies</span>` : ''}</div>
+                <div class="flex items-center gap-1.5 min-w-0"><span class="clip-type-label shrink-0 text-[9px] font-medium text-stone-400 uppercase tracking-wide">${escapeHTML(getFriendlyFileType(clip.content_type, clip.filename))}</span><span class="clip-meta-label min-w-0 truncate text-[9px] text-stone-400" data-testid="clip-meta"></span>${clip.duplicate_count > 0 ? `<span class="dedup-badge shrink-0 whitespace-nowrap text-[9px] font-medium text-stone-400 bg-stone-100 border border-stone-200 rounded px-1">${clip.duplicate_count + 1} copies</span>` : ''}</div>
                 <div class="flex items-center gap-1">
                     ${dragHandleHTML}
                     <button class="card-menu-trigger p-1 text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded transition-colors"
@@ -1429,6 +1449,8 @@ async function createClipCard(clip, options = {}) {
             </div>
         </div>
     `;
+
+    renderCardMeta(card, clip);
 
     // Menu trigger listener
     const menuTrigger = card.querySelector('[data-action="menu"]');
@@ -1537,7 +1559,16 @@ async function createClipCard(clip, options = {}) {
         card.querySelector('[data-action="open-lightbox"]').addEventListener('click', () => {
             if (isTextCandidate(clip.filename || '', clip.content_type || '')) {
                 openEditor(clip.id);
+                return;
             }
+            // Nothing in the app can show this type (a PDF, an archive). The
+            // click says so and offers the way out rather than doing nothing;
+            // it does not launch the other application by itself, because the
+            // system's handler for some types runs the file.
+            showToast('No preview for this file type.', 'info', {
+                label: 'Open',
+                onClick: () => handleCardAction('open', clip.id),
+            });
         });
     }
 
@@ -1587,6 +1618,7 @@ function reuseClipCard(card, clip) {
     Object.assign(kept, clip);
     rememberRenderedClip(kept);
     renderCardExpiry(card, kept);
+    renderCardMeta(card, kept);
     const selected = selectedIds.has(Number(kept.id));
     const checkbox = card.querySelector('.clip-checkbox');
     if (checkbox) checkbox.checked = selected;
@@ -1601,6 +1633,44 @@ function expirationBadgeHTML(clip) {
     return `<div class="clip-expiration-badge absolute top-2 left-2 bg-stone-700 text-white text-[8px] font-semibold px-1.5 py-0.5 rounded z-20 uppercase tracking-wide">
             Temp · ${escapeHTML(remaining)}
         </div>`;
+}
+
+// "12s", "5m", "3h", "4d", "7w", "2y": how long ago, as short as the footer
+// needs it. Empty for a missing or unparseable time.
+function shortAge(timestamp) {
+    const then = timestamp ? new Date(timestamp).getTime() : NaN;
+    if (!Number.isFinite(then)) return '';
+    const seconds = Math.max(0, Math.floor((Date.now() - then) / 1000));
+    if (seconds < 60) return 'now';
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;
+    if (seconds < 86400 * 14) return `${Math.floor(seconds / 86400)}d`;
+    if (seconds < 86400 * 365) return `${Math.floor(seconds / (86400 * 7))}w`;
+    return `${Math.floor(seconds / (86400 * 365))}y`;
+}
+
+// The footer's size and age ("1.2 MB · 3d"). The gallery sorts by both, and
+// they were otherwise one Metadata dialog away, a clip at a time. The age is
+// text fixed when written, so this runs again wherever a card is kept across
+// time: a reused card, and a window brought back to the front. The exact
+// values are in the label's own title (never the filename's: the Metadata
+// action reads the filename back from that one).
+function renderCardMeta(card, clip) {
+    const label = card.querySelector('.clip-meta-label');
+    if (!label) return;
+    const size = Number(clip.size);
+    const parts = [];
+    if (Number.isFinite(size) && size > 0) parts.push(formatFileSize(size));
+    const age = shortAge(clip.created_at);
+    if (age) parts.push(age);
+    const text = parts.join(' · ');
+    if (label.textContent !== text) label.textContent = text;
+    const added = clip.created_at ? new Date(clip.created_at) : null;
+    const title = [
+        Number.isFinite(size) && size > 0 ? `${size.toLocaleString()} bytes` : '',
+        added && Number.isFinite(added.getTime()) ? `added ${added.toLocaleString()}` : '',
+    ].filter(Boolean).join(', ');
+    if (label.getAttribute('title') !== title) label.setAttribute('title', title);
 }
 
 // Re-render a card's expiry badge from clip.expires_at.
@@ -2017,10 +2087,23 @@ async function getImageDataUrl(clipId) {
     const cached = imageCacheGet(id);
     if (cached !== undefined) return cached;
 
-    const clipData = await getClipData(id);
-    const dataUrl = `data:${clipData.content_type};base64,${clipData.data}`;
-    if ((mediaRevisions.get(id) || 0) === revision) imageCacheSet(id, dataUrl);
-    return dataUrl;
+    // One read per clip revision at a time: the lightbox warms the next image
+    // while the current one is on screen, and the navigation that follows
+    // joins that read instead of starting a second one.
+    const key = `${id}:${revision}`;
+    if (pendingImageDataUrls.has(key)) return pendingImageDataUrls.get(key);
+    const pending = (async () => {
+        const clipData = await getClipData(id);
+        const dataUrl = `data:${clipData.content_type};base64,${clipData.data}`;
+        if ((mediaRevisions.get(id) || 0) === revision) imageCacheSet(id, dataUrl);
+        return dataUrl;
+    })();
+    pendingImageDataUrls.set(key, pending);
+    try {
+        return await pending;
+    } finally {
+        pendingImageDataUrls.delete(key);
+    }
 }
 
 function updateBulkToolbar() {
@@ -2074,7 +2157,30 @@ function updateBulkToolbar() {
             bulkToolbarRover = null;
         }
     }
+    reserveBulkToolbarSpace(count > 0);
+}
 
+// The toolbar floats over the bottom of the page. While it shows, the page
+// gets that much more room to scroll, so the last row of cards, "Load more"
+// and the hidden-clips note can be brought clear of it. Measured, not fixed:
+// the toolbar wraps on a narrow window and gains buttons with the selection.
+// Extra bottom padding only lengthens the scroll range; nothing on screen
+// moves unless the user is already at the end.
+let bulkToolbarSpaceObserver = null;
+
+function reserveBulkToolbarSpace(active) {
+    const main = document.querySelector('main');
+    if (!main) return;
+    // Set up on first use: the toolbar element is declared by a later script.
+    if (!bulkToolbarSpaceObserver && typeof ResizeObserver === 'function') {
+        bulkToolbarSpaceObserver = new ResizeObserver(() => {
+            if (selectedIds.size > 0) reserveBulkToolbarSpace(true);
+        });
+        bulkToolbarSpaceObserver.observe(bulkToolbar);
+    }
+    // 64px: the toolbar's offset from the bottom (bottom-16). 16px: breathing room.
+    const padding = active ? `${bulkToolbar.offsetHeight + 64 + 16}px` : '';
+    if (main.style.paddingBottom !== padding) main.style.paddingBottom = padding;
 }
 
 function toggleSelectAll() {
@@ -2188,6 +2294,7 @@ function applySearchFilter() {
     });
     if (deselected) updateBulkToolbar();
     if (typeof renderGalleryCount === 'function') renderGalleryCount();
+    if (typeof renderSearchMiss === 'function') renderSearchMiss(searchInput.value.trim());
     window.LightboxController?.setClips(getVisibleMediaClips());
 }
 
@@ -2205,10 +2312,53 @@ function scheduleSearchReload() {
     searchReloadTimer = setTimeout(() => { loadClips(); }, SEARCH_RELOAD_DELAY_MS);
 }
 
+const searchClearBtn = document.getElementById('search-clear-btn');
+
+function syncSearchClearButton() {
+    if (searchClearBtn) searchClearBtn.hidden = searchInput.value === '';
+}
+// A reload can restore the field's text (a browser in server mode).
+syncSearchClearButton();
+
 searchInput.addEventListener('input', () => {
+    syncSearchClearButton();
     applySearchFilter();
     scheduleSearchReload();
 });
+
+// Empties the search box the way typing would: through an input event, so the
+// plain filter is lifted and a deep search leaves with its one final reload.
+function clearSearchQuery() {
+    if (searchInput.value === '') return false;
+    searchInput.value = '';
+    searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+}
+
+// Escape in the search box (called by ShortcutManager once any open layer has
+// had the key): a query is cleared; an empty box hands focus back to the
+// gallery, so single-letter shortcuts stop typing into it.
+function handleSearchEscape() {
+    if (clearSearchQuery()) return true;
+    const rover = window.__galleryRover;
+    const items = rover ? rover.getItems().filter(el => el.style.display !== 'none') : [];
+    const target = items.find(el => el.tabIndex === 0) || items[0];
+    if (target) {
+        // Through the rover, so the tab stop moves with the focus.
+        rover.setActiveIndex(rover.getItems().indexOf(target));
+        target.focus();
+    } else {
+        searchInput.blur();
+    }
+    return true;
+}
+
+if (searchClearBtn) {
+    searchClearBtn.addEventListener('click', () => {
+        clearSearchQuery();
+        searchInput.focus();
+    });
+}
 
 searchInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
@@ -2349,6 +2499,10 @@ window.applyFolderStatusUpdate = applyFolderStatusUpdate;
 // not use this: it builds the cards before clearing the gallery, so a reload
 // never flashes an empty frame.
 async function renderFolderCards() {
+    // Folder cards belong to folder mode only. Rename, move and hide can now
+    // be done from the tag filter's rows in the normal listing, and their
+    // shared code calls this unconditionally.
+    if (!isFolderMode()) return;
     const myGen = ++_folderRenderGen;
     const cards = await buildFolderCards(() => myGen !== _folderRenderGen);
     if (!cards) return;

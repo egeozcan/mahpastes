@@ -7,6 +7,7 @@ export const selectors = {
     root: 'header',
     title: 'header h1',
     searchInput: '#search-input',
+    searchClearButton: '#search-clear-btn',
     searchOptionsButton: '[data-testid="search-options-button"]',
     searchOptionsPopover: '[data-testid="search-options-popover"]',
     searchOptionContent: '[data-testid="search-option-content"]',
@@ -31,6 +32,8 @@ export const selectors = {
     overlay: '#drawer-overlay',
     panel: '#nav-drawer',
     closeButton: '#drawer-close-btn',
+    shortcutsButton: '#open-shortcuts-btn',
+    docsButton: '#open-docs-btn',
     watchButton: '#view-tab-watch',
     watchIndicator: '#watch-indicator',
     activityIndicator: '#drawer-activity-indicator',
@@ -361,6 +364,7 @@ export const selectors = {
     container: '#toast',
     message: '#toast', // Toast text is set directly on the container
     action: '#toast [data-testid="toast-action"]',
+    dismiss: '#toast [data-testid="toast-dismiss"]',
   },
 
   // Text editor

@@ -17,7 +17,9 @@ const appSrc = read('app.js');
 const MENU = {
     'import-files': 'upload-clip', 'import-folder': 'open-import', 'settings': 'open-settings',
     'archive': 'toggle-archive', 'folder-mode': 'toggle-folder', 'watch': 'open-watch',
-    'serve': 'open-serve', 'plugins': 'open-plugins', 'shortcuts': 'show-cheatsheet',
+    'serve': 'open-serve', 'plugins': 'open-plugins',
+    'share': 'open-share', 'api': 'open-api', 'maintenance': 'open-maintenance',
+    'shortcuts': 'show-cheatsheet',
 };
 
 function el(id, classes = []) {

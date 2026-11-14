@@ -171,7 +171,8 @@ Open the panel with the **Find / Replace** button or <span className="keyboard-k
 | <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">Y</span> | Redo (alternative) |
 | <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">F</span> | Open Find / Replace |
 | <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">Shift</span> + <span className="keyboard-key">P</span> | Toggle Preview/Edit |
-| <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">S</span> | Save as new clip |
+| <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">S</span> | Save (overwrite the clip) |
+| <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">Shift</span> + <span className="keyboard-key">S</span> | Save as new clip |
 | <span className="keyboard-key">Esc</span> | Close editor |
 
 The Preview/Edit toggle is registered as the rebindable action **Toggle Preview/Edit** and applies to every previewable text clip. It was previously Markdown-only; if you had rebound it, your custom binding is carried over automatically the first time this version starts and the old entry is removed.
@@ -293,17 +294,17 @@ This now applies to **every** text format. Previously, only invalid Markdown was
 
 The clip's stored bytes are untouched, and downloads, REST responses, public links, tag servers, and `mp clip data` still return them exactly.
 
-The byte-safety screen names the planned recovery path: a future release will add a user-initiated, one-way **Reinterpret as Windows-1252 and convert to UTF-8** action that shows the decoded result before writing anything. Until then, a clip in a non-UTF-8 encoding is read-only in the app; download it and convert it with a tool that can do so explicitly.
+The byte-safety screen offers the two ways out: **Save to file** and **Open in default app**. A clip in a non-UTF-8 encoding is read-only in the app; save it and convert it with a tool that can do so explicitly. (A user-initiated, one-way **Reinterpret as Windows-1252 and convert to UTF-8** action is the planned follow-up.)
 
 ## Saving Changes
 
 ### Save (overwrite)
 
-Click **Save** to overwrite the original clip. The filename and content type stay the same.
+Saving keeps the editor open, with your cursor, scroll position, undo history and find state as they were; close it when you are done. Click **Save** (or press <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">S</span>) to overwrite the original clip. The filename and content type stay the same. The shortcut works while you are typing in the editor; with no unsaved changes it does nothing.
 
 ### Save as new clip
 
-Click **Save As** (or press <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">S</span>) to create a new clip, leaving the original unchanged. The proposed filename has `_edited` appended.
+Click **Save As** (or press <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">Shift</span> + <span className="keyboard-key">S</span>) to create a new clip, leaving the original unchanged. The proposed filename has `_edited` appended.
 
 Save As validates against the filename you propose, not the one you opened. Saving `notes.txt` as `notes.json` is checked as JSON before the upload, and any errors that finds count as newly introduced.
 
@@ -313,7 +314,7 @@ The frontend does not rewrite a clip's content type. The app's existing upload b
 
 ### While a save is running
 
-Save works from an immutable snapshot taken the moment you activate it. You can keep typing while it runs; those edits are simply not part of the save. When the write finishes, the editor stays open with your newer edits still unsaved, and a toast says so. A save with nothing typed after it closes the editor as usual.
+Save works from an immutable snapshot taken the moment you activate it. You can keep typing while it runs; those edits are simply not part of the save. When the write finishes, the editor stays open with your newer edits still unsaved, and a toast says so. A save with nothing typed after it leaves the editor open and clean.
 
 If a save fails, your content, selection, diagnostics, dirty state, and draft are all retained.
 

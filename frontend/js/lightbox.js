@@ -284,6 +284,14 @@
                         renderMediaInfo(clip, deps.elements.image);
                         deps.elements.status.textContent = `${clip.filename || 'Image'}, ${currentIndex() + 1} of ${state.clips.length}, ${Math.round(state.scale * 100)}%`;
                     }
+                    // With this one on screen, start on the next in the
+                    // direction of travel, so paging to it does not begin
+                    // with a spinner. Not part of this render: its outcome
+                    // changes nothing here.
+                    const neighbour = state.clips[currentIndex() + (state.lastDelta || 1)];
+                    if (neighbour && !isVideoClip(neighbour) && deps.prefetchMedia) {
+                        try { deps.prefetchMedia(neighbour); } catch (e) { /* a warm-up only */ }
+                    }
                 };
                 const commitError = () => showLoadError(new Error(`${videoClip ? 'Video' : 'Image'} decode failed`), clip, generation);
 
@@ -312,6 +320,8 @@
         async function open({ clips, currentId, opener }) {
             if (!Array.isArray(clips) || clips.length === 0) return;
             const wasClosed = state.phase === 'closed';
+            // A new visit reads ahead forwards, whichever way the last one ended.
+            if (wasClosed) state.lastDelta = 1;
             state.clips = [...clips];
             state.currentId = currentId;
             if (!currentClip()) state.currentId = state.clips[0].id;
@@ -361,6 +371,7 @@
             const index = currentIndex();
             const target = state.clips[index + delta];
             if (!target) return;
+            state.lastDelta = delta < 0 ? -1 : 1;
             state.currentId = target.id;
             void renderCurrent();
         }
@@ -390,6 +401,19 @@
             }
             if (name === 'copy') {
                 if (clip) deps.copyClip(clip);
+                return;
+            }
+            // The Actions menu's operations on the clip on screen (delete,
+            // archive, tags, save), for the lightbox's own keys.
+            if (name === 'file-action') {
+                if (clip && deps.fileAction) deps.fileAction(detail.action, clip);
+                return;
+            }
+            if (name === 'toggle-play') {
+                if (state.phase !== 'ready' || !isVideoClip(clip)) return;
+                const video = deps.elements.video;
+                if (video.paused) video.play().catch(() => {});
+                else video.pause();
                 return;
             }
             if (state.phase !== 'ready') return;
@@ -661,6 +685,22 @@
         deps.elements.actual.addEventListener('click', () => command('actual-size'));
         deps.elements.retry.addEventListener('click', () => command('retry'));
         deps.elements.slider.addEventListener('input', event => command('slider', { position: event.target.value }));
+        // Space plays or pauses the video. Opening the viewer focuses Close, so
+        // without this the first Space dismissed a video instead of starting
+        // it. Left alone on the video itself (its native controls already
+        // toggle) and on every other control, where Space activates it.
+        deps.elements.root.addEventListener('keydown', event => {
+            if (event.key !== ' ' || event.ctrlKey || event.metaKey || event.altKey) return;
+            if ((state.phase !== 'ready' && state.phase !== 'loading') || !isVideoClip(currentClip())) return;
+            const target = event.target;
+            if (target === deps.elements.video) return;
+            if (target !== deps.elements.close && target.closest?.('button, input, select, textarea, a[href], [role="menu"]')) return;
+            // Swallowed even while the video is still loading (the command
+            // then does nothing): Space must not close a video that is slow.
+            event.preventDefault();
+            command('toggle-play');
+        });
+
         deps.elements.slider.addEventListener('keydown', event => {
             if (!['Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) return;
             event.preventDefault();

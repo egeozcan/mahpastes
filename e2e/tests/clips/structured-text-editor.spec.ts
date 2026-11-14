@@ -527,18 +527,38 @@ test.describe('Byte-safety and size limits', () => {
     const reason = app.page.locator(selectors.textEditor.unavailableReason);
     await expect(reason).toContainText('not valid UTF-8');
     await expect(reason).not.toContainText('Markdown');
-    await expect(app.page.locator(selectors.textEditor.unavailablePanel)).toContainText('Windows-1252');
+    // It names what to do instead, and offers both ways out.
+    await expect(app.page.locator(selectors.textEditor.unavailablePanel)).toContainText('Save it to a file or open it in another app');
+    await app.page.evaluate(() => {
+      const w = window as any;
+      w.__unavailableCalls = [];
+      w.__origSave = w.saveClipToFile;
+      w.saveClipToFile = (id: number) => { w.__unavailableCalls.push(['save', id]); };
+      w.__origOpen = w.go.main.App.OpenClipWithDefaultApp;
+      w.go.main.App.OpenClipWithDefaultApp = async (id: number) => { w.__unavailableCalls.push(['open', id]); };
+    });
+    await app.page.locator('[data-testid="editor-unavailable-save"]').click();
+    await app.page.locator('[data-testid="editor-unavailable-open"]').click();
+    const calls = await app.page.evaluate(() => {
+      const w = window as any;
+      w.saveClipToFile = w.__origSave;
+      w.go.main.App.OpenClipWithDefaultApp = w.__origOpen;
+      return w.__unavailableCalls;
+    });
+    expect(calls.map((c: any[]) => c[0])).toEqual(['save', 'open']);
+    expect(calls[0][1]).toBe(calls[1][1]);
 
     // Nothing can be written back over the original bytes.
     await expect(app.page.locator(selectors.textEditor.saveButton)).toBeDisabled();
     await expect(app.page.locator(selectors.textEditor.saveAsButton)).toBeDisabled();
     expect(await app.page.evaluate('TextClipEditor.getValue()')).toBe('');
 
-    // The keyboard path has to be closed too: mod+s is bound to Save As, which
-    // would otherwise reveal the filename field and then write an empty clip from
-    // an editor that was deliberately never given a value.
+    // The keyboard paths have to be closed too: mod+s would otherwise overwrite
+    // the clip, and mod+shift+s reveal the filename field and then write an empty
+    // clip, from an editor that was deliberately never given a value.
     await app.page.keyboard.press('ControlOrMeta+s');
     await app.waitForToast(/Saving is unavailable/);
+    await app.page.keyboard.press('ControlOrMeta+Shift+s');
     await expect(app.page.locator(selectors.textEditor.saveAsInput)).toBeHidden();
     await expect(app.page.locator(selectors.textEditor.modal)).toHaveClass(/active/);
     await app.cancelTextEditor();
@@ -583,7 +603,9 @@ test.describe('Byte-safety and size limits', () => {
     await app.openCardMenu(filename);
     await app.page.locator(selectors.cardMenu.edit).click();
 
-    await app.waitForToast(/too large to edit \(17 MB\)/);
+    await app.waitForToast(/too large to edit \(17\.\d MB, limit 16 MB\)/);
+    // The way out is one click away, in the toast itself.
+    await expect(app.page.locator(selectors.toast.action)).toHaveText('Save to file');
     // Declines to open, rather than opening into a dead end.
     await expect(app.page.locator(selectors.textEditor.modal)).not.toHaveClass(/active/);
   });
@@ -615,7 +637,7 @@ test.describe('Byte-safety and size limits', () => {
 
     await app.openCardMenu(filename);
     await app.page.locator(selectors.cardMenu.edit).click();
-    await app.waitForToast(/too large to edit \(17 MB\)/);
+    await app.waitForToast(/too large to edit \(17\.\d MB, limit 16 MB\)/);
     await expect(app.page.locator(selectors.textEditor.modal)).not.toHaveClass(/active/);
 
     const reads = await app.page.evaluate(() => (window as any).__clipReads);
@@ -938,7 +960,7 @@ test.describe('Change-based Save Anyway policy', () => {
 
     // Unchanged pre-existing errors expand nothing and block nothing.
     await app.page.locator(selectors.textEditor.saveButton).click();
-    await app.page.waitForSelector(`${selectors.textEditor.modal}:not(.active)`);
+    await app.finishTextSave();
 
     // Reopening re-measures against what is now on disk.
     await app.openTextEditor(filename);
@@ -980,7 +1002,7 @@ test.describe('Change-based Save Anyway policy', () => {
 
     // No dialog, and the drawer was never opened on the user's behalf.
     await expectNoConfirmDialog(app);
-    await app.page.waitForSelector(`${selectors.textEditor.modal}:not(.active)`);
+    await app.finishTextSave();
   });
 
   test('the baseline comes from the persisted source, not the recovered draft', async ({ app }) => {
@@ -1059,7 +1081,7 @@ test.describe('Change-based Save Anyway policy', () => {
       await app.page.locator(selectors.textEditor.saveButton).click();
 
       await expectNoConfirmDialog(app);
-      await app.page.waitForSelector(`${selectors.textEditor.modal}:not(.active)`);
+      await app.finishTextSave();
     } finally {
       await app.page.evaluate(`(() => {
         if (window.__realMarkdownRender) MarkdownRenderer.render = window.__realMarkdownRender;
@@ -1102,7 +1124,7 @@ test.describe('Change-based Save Anyway policy', () => {
 
       await app.page.locator(selectors.textEditor.saveButton).click();
       await expectNoConfirmDialog(app);
-      await app.page.waitForSelector(`${selectors.textEditor.modal}:not(.active)`);
+      await app.finishTextSave();
     } finally {
       await app.page.evaluate(async () => {
         const executor = await (window as any).MahpastesTextEditor.getExecutor();
@@ -1705,7 +1727,7 @@ test.describe('CSV/TSV findings are always nonblocking', () => {
     await expect(summary).toContainText('possible issue');
     await app.page.locator(selectors.textEditor.saveButton).click();
     await expectNoConfirmDialog(app);
-    await app.page.waitForSelector(`${selectors.textEditor.modal}:not(.active)`);
+    await app.finishTextSave();
     await app.expectClipVisible(filename);
   });
 
@@ -1725,7 +1747,7 @@ test.describe('CSV/TSV findings are always nonblocking', () => {
     await app.page.locator(selectors.textEditor.editor).pressSequentially('4;5;6\n');
     await app.page.locator(selectors.textEditor.saveButton).click();
     await expectNoConfirmDialog(app);
-    await app.page.waitForSelector(`${selectors.textEditor.modal}:not(.active)`);
+    await app.finishTextSave();
   });
 
   test('a truncated table says so and points at Edit', async ({ app }) => {
@@ -1870,7 +1892,7 @@ test.describe('Language modes in the editor', () => {
     // authoritative syntax error was ever established.
     await app.page.locator(selectors.textEditor.saveButton).click();
     await expectNoConfirmDialog(app);
-    await app.page.waitForSelector(`${selectors.textEditor.modal}:not(.active)`);
+    await app.finishTextSave();
   });
 
   test('shell, .env and INI are highlighted and produce no diagnostics at all', async ({ app }) => {

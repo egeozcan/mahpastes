@@ -35,6 +35,89 @@ let tagPopoverMode = 'single';
 
 // --- Tag Filter Dropdown ---
 
+// A tag's own actions, from its row in the filter list. Until now a tag could
+// be renamed, moved or hidden only from its folder card in folder mode (and a
+// subtag could not be hidden from Settings at all); here the only action was
+// Merge, behind a right-click.
+function openTagRowMenu(tag, anchor, hidden) {
+    if (typeof ContextMenu === 'undefined' || !ContextMenu.open) return;
+    const icon = (d) => `<svg class="w-3 h-3 opacity-60" stroke="currentColor" stroke-width="1.5" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="${d}"/></svg>`;
+    const menuItems = [
+        { id: 'rename', label: 'Rename\u2026', iconHtml: icon('M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z') },
+        { id: 'move', label: 'Move\u2026', iconHtml: icon('M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5') },
+        { id: 'merge-into', label: 'Merge into\u2026', iconHtml: icon('M7 7h10v10M7 7l10 10') },
+        { type: 'divider' },
+        { id: 'hide', label: hidden ? 'Unhide' : 'Hide', iconHtml: icon('M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88') },
+    ];
+    ContextMenu.open(menuItems, null, anchor, async (actionId) => {
+        if (actionId === 'merge-into') {
+            if (typeof window.openMergeTagModal === 'function') window.openMergeTagModal(tag.id, tag.name);
+        } else if (actionId === 'rename') {
+            if (typeof openFolderRenameDialog === 'function') openFolderRenameDialog(tag.id, tag.name, 'Rename Tag');
+        } else if (actionId === 'move') {
+            if (typeof FolderMoveModal !== 'undefined') FolderMoveModal.show(tag);
+        } else if (actionId === 'hide') {
+            if (typeof FolderContextMenu === 'undefined' || !FolderContextMenu.toggleHidden) return;
+            await FolderContextMenu.toggleHidden(tag.id, !hidden, 'Tag');
+            // Hiding changes what the normal listing shows, and the row's own look.
+            renderTagFilterDropdown();
+            if (typeof loadClips === 'function') loadClips();
+        }
+    });
+}
+
+// --- Type to narrow a tag list ---
+//
+// Both tag lists are a scroll box over every tag in the library. Typing in the
+// field beside one hides the rows that do not match (case-insensitive, on the
+// full path), keeping the ancestors of a match so the tree still reads. The
+// query is applied again after every re-render: both lists are rebuilt whole.
+function filterTagRows(listEl, query) {
+    if (!listEl) return;
+    const rows = Array.from(listEl.querySelectorAll('[data-tag-name]'));
+    const q = (query || '').trim().toLowerCase();
+    const names = rows.map(row => row.dataset.tagName.toLowerCase());
+    const matched = names.filter(name => q === '' || name.includes(q));
+    let shown = 0;
+    rows.forEach((row, i) => {
+        const name = names[i];
+        const visible = q === '' || name.includes(q) || matched.some(m => m.startsWith(name + '/'));
+        row.style.display = visible ? '' : 'none';
+        if (visible) shown++;
+    });
+    let empty = listEl.querySelector('[data-tag-filter-empty]');
+    if (rows.length > 0 && shown === 0) {
+        if (!empty) {
+            empty = document.createElement('p');
+            empty.setAttribute('data-tag-filter-empty', '');
+            empty.className = 'text-stone-400 text-xs px-3 py-2';
+            listEl.appendChild(empty);
+        }
+        empty.textContent = 'No tag matches.';
+    } else if (empty) {
+        empty.remove();
+    }
+}
+
+const tagFilterSearch = document.getElementById('tag-filter-search');
+if (tagFilterSearch) {
+    tagFilterSearch.addEventListener('input', () => {
+        filterTagRows(tagFilterList, tagFilterSearch.value);
+        if (tagFilterRover) tagFilterRover.update();
+    });
+    tagFilterSearch.addEventListener('keydown', (e) => {
+        // Down from the field moves into the (narrowed) list.
+        if (e.key === 'ArrowDown' && tagFilterRover) {
+            const items = tagFilterRover.getItems();
+            if (items.length > 0) {
+                e.preventDefault();
+                tagFilterRover.setActiveIndex(0);
+                items[0].focus();
+            }
+        }
+    });
+}
+
 function renderTagFilterDropdown() {
     if (!tagFilterList) return;
     // A re-render (a tag created by a plugin, REST or a share) replaces every
@@ -45,7 +128,7 @@ function renderTagFilterDropdown() {
     tagFilterList.innerHTML = '';
 
     if (allTags.length === 0) {
-        tagFilterList.innerHTML = '<p class="text-stone-400 text-xs px-3 py-2">No tags yet</p>';
+        tagFilterList.innerHTML = '<p class="text-stone-400 text-xs px-3 py-2">No tags yet. Add one from a clip\'s menu (Tags), or create a folder in folder mode.</p>';
         return;
     }
 
@@ -60,6 +143,7 @@ function renderTagFilterDropdown() {
 
         const item = document.createElement('label');
         item.dataset.tagId = String(tag.id);
+        item.dataset.tagName = tag.name;
         item.className = `flex items-center gap-2 py-1.5 hover:bg-stone-100 cursor-pointer transition-colors${isHidden ? ' opacity-50' : ''}`;
         item.style.paddingLeft = `${12 + depth * 16}px`;
         item.style.paddingRight = '12px';
@@ -73,28 +157,39 @@ function renderTagFilterDropdown() {
                 ${escapeHTML(displayName)}
             </span>
             ${isHidden ? '<svg class="w-3 h-3 text-stone-400 ml-auto flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.878 9.878L3 3m6.878 6.878L21 21"/></svg>' : `<span class="text-stone-400 text-[10px] ml-auto">${tag.count}</span>`}
+            <button type="button" data-tag-menu data-testid="tag-row-menu-${escapeHTML(tag.name)}"
+                class="p-0.5 text-stone-400 hover:text-stone-600 hover:bg-stone-200 rounded transition-colors flex-shrink-0"
+                aria-label="Actions for tag ${escapeHTML(tag.name)}" aria-haspopup="true">
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 12.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 18.75a.75.75 0 110-1.5.75.75 0 010 1.5z" />
+                </svg>
+            </button>
         `;
 
         item.querySelector('input').addEventListener('change', () => toggleTagFilter(tag.id));
+
+        // The row's actions (rename, move, hide, merge) on a visible button
+        // and on the keyboard's menu key, not only behind a right-click. The
+        // row is a <label>: the button must not toggle its checkbox.
+        const openRowMenu = (anchor) => openTagRowMenu(tag, anchor, hiddenTagIds.includes(tag.id));
+        item.querySelector('[data-tag-menu]').addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            openRowMenu(e.currentTarget);
+        });
+        item.addEventListener('keydown', (e) => {
+            if (e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey)) {
+                e.preventDefault();
+                e.stopPropagation();
+                openRowMenu(item);
+            }
+        });
 
         // Right-click → context menu with merge action.
         item.addEventListener('contextmenu', (e) => {
             e.preventDefault();
             e.stopPropagation();
-            if (typeof ContextMenu === 'undefined' || !ContextMenu.open) return;
-            const menuItems = [
-                {
-                    id: 'merge-into',
-                    label: 'Merge into\u2026',
-                    iconHtml: '<svg class="w-3 h-3 opacity-60" stroke="currentColor" stroke-width="1.5" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M7 7h10v10M7 7l10 10"/></svg>',
-                },
-            ];
-            const capturedTag = tag;
-            ContextMenu.open(menuItems, null, item, (actionId) => {
-                if (actionId === 'merge-into' && typeof window.openMergeTagModal === 'function') {
-                    window.openMergeTagModal(capturedTag.id, capturedTag.name);
-                }
-            });
+            openRowMenu(item);
         });
 
         tagFilterList.appendChild(item);
@@ -109,6 +204,7 @@ function renderTagFilterDropdown() {
     for (const root of tree) {
         renderNode(root, 0, false);
     }
+    if (tagFilterSearch) filterTagRows(tagFilterList, tagFilterSearch.value);
 
     // Initialize roving tabindex for tag filter labels
     if (tagFilterRover) tagFilterRover.destroy();
@@ -133,7 +229,9 @@ function renderTagFilterDropdown() {
         const idx = Math.max(0, labels.findIndex(l => l.dataset.tagId === focusedTagId));
         const label = labels[idx];
         if (label) {
-            tagFilterRover?.setActiveIndex(idx);
+            // The rover indexes the rows it can see (a query hides some).
+            const visibleIdx = tagFilterRover ? tagFilterRover.getItems().indexOf(label) : -1;
+            if (visibleIdx !== -1) tagFilterRover.setActiveIndex(visibleIdx);
             (focusedCheckbox ? label.querySelector('input[type="checkbox"]') : label).focus();
         }
     }
@@ -219,10 +317,12 @@ function updateActiveTagsDisplay() {
             // Add label
             const label = document.createElement('span');
             label.className = 'text-[10px] font-medium text-stone-400 uppercase tracking-wide';
-            label.textContent = 'Filtering:';
+            const inFolderMode = typeof isFolderMode === 'function' && isFolderMode();
+            // In folder mode the row is a location, not a set of filters.
+            label.textContent = inFolderMode ? 'Folder:' : 'Filtering:';
             activeTagsContainer.appendChild(label);
 
-            if (typeof isFolderMode === 'function' && isFolderMode()) {
+            if (inFolderMode) {
                 // Folder mode: breadcrumb-style navigation
                 const deepestTag = allTags.find(t => t.id === activeTagFilters[activeTagFilters.length - 1]);
                 if (deepestTag) {
@@ -271,9 +371,16 @@ function updateActiveTagsDisplay() {
                         pill.style.backgroundColor = segTag.color;
                         pill.dataset.testid = `tag-pill-${segTag.name}`;
                         pill.setAttribute('data-drop-target', String(segTag.id));
+                        // The name is the way to that folder: a button on every
+                        // ancestor segment, plain text (the current page) on the
+                        // last one. The x stays a separate button beside it.
+                        const isCurrent = segTag.id === deepestTag.id;
+                        const nameHTML = isCurrent
+                            ? `<span data-crumb aria-current="page">${escapeHTML(segments[i])}</span>`
+                            : `<button type="button" data-crumb class="hover:underline underline-offset-2" aria-label="Go to folder ${escapeHTML(segTag.name)}">${escapeHTML(segments[i])}</button>`;
                         pill.innerHTML = `
-                            ${escapeHTML(segments[i])}
-                            <button class="hover:opacity-75" aria-label="Remove ${escapeHTML(segTag.name)} filter">
+                            ${nameHTML}
+                            <button data-crumb-remove class="hover:opacity-75" aria-label="Remove ${escapeHTML(segTag.name)} filter">
                                 <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
                                 </svg>
@@ -281,7 +388,15 @@ function updateActiveTagsDisplay() {
                         `;
 
                         const capturedSegTag = segTag;
-                        pill.querySelector('button').addEventListener('click', (e) => {
+                        if (!isCurrent) {
+                            pill.querySelector('button[data-crumb]').addEventListener('click', (e) => {
+                                e.stopPropagation();
+                                // The row is rebuilt and this button with it: land
+                                // focus on the folder's first item instead of nowhere.
+                                navigateToFolder(capturedSegTag.id, { focusFirst: true });
+                            });
+                        }
+                        pill.querySelector('[data-crumb-remove]').addEventListener('click', (e) => {
                             e.stopPropagation();
                             // Navigate up: keep ancestors of this tag, remove this and deeper
                             const parentName = getParentTagName(capturedSegTag.name);
@@ -382,6 +497,11 @@ function openTagFilterDropdown() {
 
 function closeTagFilterDropdown(restoreFocus = true) {
     tagFilterDropdown.classList.add('hidden');
+    // The next visit starts with the whole list.
+    if (tagFilterSearch && tagFilterSearch.value !== '') {
+        tagFilterSearch.value = '';
+        filterTagRows(tagFilterList, '');
+    }
     if (tagFilterFocusTrapCleanup) {
         tagFilterFocusTrapCleanup();
         tagFilterFocusTrapCleanup = null;
@@ -446,6 +566,11 @@ function openBulkTagPopover(anchorElement) {
 
 function showTagPopover(anchorElement) {
     if (tagPopover.classList.contains('hidden')) tagPopoverOpener = document.activeElement;
+    // Each visit starts with the whole list.
+    if (createTagInput && createTagInput.value !== '') {
+        createTagInput.value = '';
+        filterTagRows(tagPopoverList, '');
+    }
     positionPopover(anchorElement);
     tagPopover.classList.remove('hidden');
     // First tag checkbox, or the new-tag field when there are no tags yet.
@@ -535,11 +660,13 @@ async function renderTagPopoverList(clipId) {
         const displayName = depth === 0 ? tag.name : getShortTagName(tag.name);
 
         const item = document.createElement('label');
+        item.dataset.tagName = tag.name;
         item.className = 'flex items-center gap-2 py-1.5 hover:bg-stone-100 cursor-pointer transition-colors';
         item.style.paddingLeft = `${12 + depth * 16}px`;
         item.style.paddingRight = '12px';
         item.innerHTML = `
             <input type="checkbox"
+                   data-tag-id="${Number(tag.id)}"
                    data-testid="tag-checkbox-${escapeHTML(tag.name)}"
                    class="rounded border-stone-300 text-stone-600 focus:ring-stone-500"
                    ${hasTag ? 'checked' : ''}>
@@ -554,7 +681,15 @@ async function renderTagPopoverList(clipId) {
             if (tagPopoverMode === 'bulk') {
                 handleBulkTagToggle(tag.id, checkbox.checked);
             } else {
-                handleClipTagToggle(currentTaggingClipId, tag.id, checkbox.checked);
+                // One change at a time, in the order ticked: a second tick
+                // made while the first is still being saved waits for it (the
+                // list is redrawn from the stored tags in between) instead of
+                // being dropped.
+                const clipId = currentTaggingClipId;
+                const add = checkbox.checked;
+                clipTagToggleQueue = clipTagToggleQueue
+                    .then(() => handleClipTagToggle(clipId, tag.id, add))
+                    .catch((error) => console.error('Tag change failed:', error));
             }
         });
 
@@ -568,30 +703,67 @@ async function renderTagPopoverList(clipId) {
     for (const root of tree) {
         renderNode(root, 0, false);
     }
+    if (createTagInput) filterTagRows(tagPopoverList, createTagInput.value);
 }
 
+// A single clip's popover stays open after a tick, so giving a clip three tags
+// is three ticks and not three trips through the card menu. It is redrawn from
+// the card once the change has landed (adding a tag removes the clip's other
+// tags of the same tree, and that has to show), and closes by itself only when
+// the clip is no longer on screen to be tagged.
+let clipTagToggleInFlight = false;
+let clipTagToggleQueue = Promise.resolve();
+
 async function handleClipTagToggle(clipId, tagId, add) {
-    if (add) {
-        await addTagToClip(clipId, tagId);
-    } else {
-        await removeTagFromClip(clipId, tagId);
-        // Reload tags in case the tag was auto-deleted (no more clips)
-        await loadTags();
-        // Remove from active filters if it no longer exists
-        if (!allTags.find(t => t.id === tagId)) {
-            const idx = activeTagFilters.indexOf(tagId);
-            if (idx !== -1) {
-                activeTagFilters.splice(idx, 1);
-                updateActiveTagsDisplay();
+    clipTagToggleInFlight = true;
+    tagPopoverList?.setAttribute('aria-busy', 'true');
+    try {
+        if (add) {
+            await addTagToClip(clipId, tagId);
+        } else {
+            await removeTagFromClip(clipId, tagId);
+            // Reload tags in case the tag was auto-deleted (no more clips)
+            await loadTags();
+            // Remove from active filters if it no longer exists
+            if (!allTags.find(t => t.id === tagId)) {
+                const idx = activeTagFilters.indexOf(tagId);
+                if (idx !== -1) {
+                    activeTagFilters.splice(idx, 1);
+                    updateActiveTagsDisplay();
+                }
             }
         }
+        // Re-render the card's pills in place; reload when the change moved the
+        // clip out of the view (or the view cannot be patched).
+        if (!(typeof refreshClipInPlace === 'function' && await refreshClipInPlace(clipId))) {
+            await loadClips();
+        }
+    } finally {
+        clipTagToggleInFlight = false;
+        tagPopoverList?.removeAttribute('aria-busy');
     }
-    closeTagPopover();
-    // Re-render the card's pills in place; reload when the change moved the
-    // clip out of the view (or the view cannot be patched).
-    if (!(typeof refreshClipInPlace === 'function' && await refreshClipInPlace(clipId))) {
-        loadClips();
+    await refreshOpenTagPopover(clipId, tagId);
+}
+
+// Redraw the open single-clip popover after a change and keep the keyboard
+// where it was: on the tag just toggled, else the first one, else the
+// new-tag field. Closes it when the clip's card is gone.
+async function refreshOpenTagPopover(clipId, focusTagId) {
+    if (tagPopover.classList.contains('hidden') || tagPopoverMode !== 'single'
+        || Number(currentTaggingClipId) !== Number(clipId)) return;
+    const card = document.querySelector(`#gallery > li[data-id="${Number(clipId)}"]`);
+    if (!card) {
+        closeTagPopover();
+        return;
     }
+    const focusWasInside = tagPopover.contains(document.activeElement) || document.activeElement === document.body;
+    // Typing names one after another: the field keeps the keyboard.
+    const inField = document.activeElement === createTagInput;
+    await renderTagPopoverList(clipId);
+    if (!focusWasInside || inField) return;
+    const target = (focusTagId != null && tagPopoverList.querySelector(`input[data-tag-id="${Number(focusTagId)}"]`))
+        || tagPopoverList.querySelector('input') || createTagInput;
+    target?.focus();
 }
 
 async function handleBulkTagToggle(tagId, add) {
@@ -634,6 +806,23 @@ if (createTagBtn) {
         const name = createTagInput.value.trim();
         if (!validateTagName(name)) return;
 
+        // The field doubles as the list's filter, so the name typed is often
+        // a tag that exists. That used to fail as a duplicate; it now sets
+        // that tag, as ticking its row would.
+        const existing = allTags.find(t => t.name === name);
+        if (existing) {
+            // Left as typed while another change is still landing.
+            if (tagPopoverMode !== 'bulk' && (!currentTaggingClipId || clipTagToggleInFlight)) return;
+            createTagInput.value = '';
+            filterTagRows(tagPopoverList, '');
+            if (tagPopoverMode === 'bulk') {
+                await handleBulkTagToggle(existing.id, true);
+            } else {
+                await handleClipTagToggle(currentTaggingClipId, existing.id, true);
+            }
+            return;
+        }
+
         const tag = await createTag(name);
         if (tag) {
             createTagInput.value = '';
@@ -644,8 +833,11 @@ if (createTagBtn) {
                 const clipId = currentTaggingClipId;
                 await addTagToClip(clipId, tag.id);
                 if (!(typeof refreshClipInPlace === 'function' && await refreshClipInPlace(clipId))) {
-                    loadClips();
+                    await loadClips();
                 }
+                // Stays open, like a tick: the new tag shows as set.
+                await refreshOpenTagPopover(clipId, tag.id);
+                return;
             } else if (tagPopoverMode === 'bulk') {
                 await bulkAddTag(Array.from(selectedIds), tag.id);
                 loadClips();
@@ -657,6 +849,7 @@ if (createTagBtn) {
 }
 
 if (createTagInput) {
+    createTagInput.addEventListener('input', () => filterTagRows(tagPopoverList, createTagInput.value));
     createTagInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') {
             e.preventDefault();

@@ -201,18 +201,57 @@ test.describe('Search and Filtering', () => {
   });
 
   test.describe('No Results State', () => {
-    test('should show appropriate state when no clips match', async ({ app }) => {
+    const status = (app: any) => app.page.locator(selectors.gallery.emptyState);
+
+    test('says so when the plain search hides every clip, and clears when it matches again', async ({ app }) => {
       const file = await createTempFile(generateTestImage(), 'png');
-
       await app.uploadFile(file);
-      await app.search('zzzznonexistentzzzz');
 
-      // Should show no results - clips may be hidden but still in DOM
-      // Check that no clips are visible
-      const visibleClips = app.page.locator(selectors.gallery.clipCard).filter({ hasNot: app.page.locator('.hidden') });
-      const visibleCount = await visibleClips.count();
-      // Either 0 visible clips or empty state should be shown
-      expect(visibleCount).toBeLessThanOrEqual(1);
+      await app.search('zzzznonexistentzzzz');
+      await expect(app.page.locator(`${selectors.gallery.clipCard}:visible`)).toHaveCount(0);
+      await expect(status(app)).toBeVisible();
+      await expect(status(app)).toHaveText('No clips match "zzzznonexistentzzzz".');
+
+      // A query that matches again removes the message; so does clearing it.
+      await app.search('png');
+      await expect(status(app)).toBeHidden();
+      await app.search('zzzz');
+      await expect(status(app)).toBeVisible();
+      await app.clearSearch();
+      await expect(status(app)).toBeHidden();
+      await app.expectClipCount(1);
+    });
+
+    test('with more pages, the message says how many clips it looked at', async ({ app }) => {
+      // Exactly one page loaded is the premise; keep the next from arriving by itself.
+      await app.page.evaluate(() => (window as any).setAutoLoadMore(false));
+      await app.page.evaluate(async () => {
+        const files = [];
+        for (let i = 0; i < 60; i++) {
+          files.push({ name: `paged-${String(i).padStart(3, '0')}.txt`, content_type: 'text/plain', data: btoa(`clip ${i}`) });
+        }
+        // @ts-ignore - Wails runtime
+        await window.go.main.App.UploadFiles(files, 0, 0);
+        // @ts-ignore
+        await loadClips();
+      });
+      await app.expectClipCount(50);
+
+      await app.search('zzzznonexistentzzzz');
+      await expect(status(app)).toHaveText(
+        'No match for "zzzznonexistentzzzz" in the 50 of 60 clips loaded. Load more to look further, or turn on a search option to search the whole library.');
+      await expect(app.page.locator(selectors.gallery.loadMoreButton)).toBeVisible();
+
+      // Loading the rest leaves nothing unsearched, so the caveat goes.
+      await app.page.locator(selectors.gallery.loadMoreButton).click();
+      await expect(status(app)).toHaveText('No clips match "zzzznonexistentzzzz".');
+    });
+
+    test('the empty-library message is not replaced by the search message', async ({ app }) => {
+      await app.search('anything');
+      await expect(status(app)).toHaveText('No active clips. Paste or drop something!');
+      await app.clearSearch();
+      await expect(status(app)).toHaveText('No active clips. Paste or drop something!');
     });
   });
 

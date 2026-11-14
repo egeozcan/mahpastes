@@ -85,6 +85,12 @@ async function loadWatchFolders() {
         updateWatchIndicator();
     } catch (error) {
         console.error('Failed to load watch folders:', error);
+        // A blank or stale list reads as "nothing is watched".
+        watchFolderList.innerHTML = '';
+        const row = document.createElement('li');
+        row.className = 'text-center text-sm text-stone-400 py-8';
+        row.textContent = 'Failed to load watch folders: ' + errText(error);
+        watchFolderList.appendChild(row);
     }
 }
 
@@ -105,11 +111,15 @@ function renderWatchFolderList() {
     // Initialize roving tabindex for watch folder cards
     if (watchFolderRover) watchFolderRover.destroy();
     if (watchFolderList.children.length > 0) {
+        // Arrows move between folders; Enter opens the focused one for editing
+        // (as a click does) and Tab reaches its Pause and Remove buttons.
         watchFolderRover = RovingTabindex.create({
             container: watchFolderList,
             itemSelector: ':scope > li',
             orientation: 'vertical',
             wrap: false,
+            keepActiveChildren: true,
+            onActivate: (item) => item.click(),
         });
     }
 }
@@ -188,7 +198,7 @@ function createWatchFolderCard(folder) {
     });
     li.querySelector('[data-action="remove"]').addEventListener('click', (e) => {
         e.stopPropagation();
-        removeWatchFolder(folder.id);
+        removeWatchFolder(folder.id, folder.path);
     });
 
     // Click card to edit
@@ -205,21 +215,23 @@ async function toggleFolderPause(id, paused) {
         loadWatchFolders();
     } catch (error) {
         console.error('Failed to toggle folder pause:', error);
-        showToast('Failed to update folder', 'error');
+        showToast('Failed to update folder.', 'error');
     }
 }
 
 // --- Remove Folder ---
-async function removeWatchFolder(id) {
-    showConfirmDialog('Remove Folder', 'Stop watching this folder?', async () => {
+async function removeWatchFolder(id, folderPath) {
+    // The message is HTML: the path is escaped.
+    const what = folderPath ? `<strong class="break-all">${escapeHTML(folderPath)}</strong>` : 'this folder';
+    showConfirmDialog('Remove Folder', `Stop watching ${what}? Clips already imported stay in your library, and the folder's files are not touched.`, async () => {
         try {
             await window.go.main.App.RemoveWatchedFolder(id);
             await window.go.main.App.RefreshWatches();
             loadWatchFolders();
-            showToast('Folder removed');
+            showToast('Folder removed.');
         } catch (error) {
             console.error('Failed to remove folder:', error);
-            showToast('Failed to remove folder', 'error');
+            showToast('Failed to remove folder.', 'error');
         }
     }, null, { confirmLabel: 'Remove' });
 }
@@ -234,7 +246,7 @@ async function toggleGlobalPause() {
         updateWatchIndicator();
     } catch (error) {
         console.error('Failed to toggle global pause:', error);
-        showToast('Failed to update watch status', 'error');
+        showToast('Failed to update watch status.', 'error');
         globalWatchToggle.checked = !globalWatchToggle.checked; // Revert
     }
 }
@@ -248,6 +260,7 @@ async function openAddFolderDialog() {
         openFolderModal(path);
     } catch (error) {
         console.error('Failed to select folder:', error);
+        toastError('Could not open the folder picker', error);
     }
 }
 
@@ -276,8 +289,9 @@ function openFolderModal(path) {
     folderModalPath.dataset.path = path;
     folderModalSave.textContent = 'Add Folder';
 
-    // Reset form - no filter selected by default
-    filterAll.checked = false;
+    // A new folder starts on "All files": with nothing ticked, Save was
+    // disabled and nothing said why.
+    filterAll.checked = true;
     filterImages.checked = false;
     filterDocuments.checked = false;
     filterVideos.checked = false;
@@ -360,6 +374,8 @@ function updateFilterState() {
                       filterDocuments.checked || filterVideos.checked ||
                       filterRegex.value.trim() !== '';
     folderModalSave.disabled = !hasFilter;
+    const emptyHint = document.getElementById('filter-empty-hint');
+    if (emptyHint) emptyHint.hidden = hasFilter;
     if (hasFilter) {
         folderModalSave.classList.remove('opacity-50', 'cursor-not-allowed');
     } else {
@@ -422,7 +438,7 @@ async function saveFolderConfig() {
             loadWatchFolders();
             try {
                 await window.go.main.App.RefreshWatches();
-                showToast('Folder updated');
+                showToast('Folder updated.');
             } catch (error) {
                 console.error('Failed to refresh watches:', error);
                 showToast('Folder updated, but the watcher could not be refreshed: ' + errText(error), 'error');
@@ -456,7 +472,7 @@ async function saveFolderConfig() {
     if (config.process_existing && folder) {
         await importExistingFiles(folder.id);
     } else {
-        showToast('Folder added');
+        showToast('Folder added.');
     }
 }
 
@@ -470,7 +486,7 @@ async function importExistingFiles(folderId) {
     showToast('Folder added — importing existing files…');
     try {
         await window.go.main.App.ProcessExistingFilesInFolder(folderId);
-        showToast('Folder added; existing files imported');
+        showToast('Folder added; existing files imported.');
     } catch (error) {
         console.error('Failed to import existing files:', error);
         showToast('Folder added, but importing existing files failed: ' + errText(error), 'error');
@@ -515,33 +531,57 @@ window.runtime.OnFileDrop(async (x, y, paths) => {
         if (isDir) {
             openFolderModal(path);
         } else {
-            showToast('Please drop a folder, not a file');
+            showToast('Please drop a folder, not a file.');
         }
     }
 }, true); // true = only trigger on elements with --wails-drop-target CSS
+
+// The web UI's way to add a folder: its path on the server, typed. The server
+// validates it when the folder is saved (IsDirectory is desktop-only).
+(() => {
+    const input = document.getElementById('add-folder-server-path');
+    const button = document.getElementById('add-folder-server-btn');
+    if (!input || !button) return;
+    const add = () => {
+        const path = input.value.trim();
+        if (!path) {
+            showToast('Enter the folder\'s path on the server.');
+            input.focus();
+            return;
+        }
+        openFolderModal(path);
+        input.value = '';
+    };
+    button.addEventListener('click', add);
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); add(); }
+    });
+})();
 
 // --- Deferred Watch Event Registration ---
 function initWatchEvents() {
     if (typeof window.runtime === 'undefined') return;
 
-    window.runtime.EventsOn('watch:error', (data) => {
-        showToast(`Failed to import ${data.file}: ${data.error}`, 'error');
-    });
-
     // A folder started or stopped being watched (deleted, unmounted, moved,
     // back again), or the watcher itself reported a problem.
     window.runtime.EventsOn('watch:status', (data) => {
         const changes = Array.isArray(data?.changes) ? data.changes : [];
-        if (data?.error) {
-            showToast(`Watch folders: ${data.error}`, 'error');
-        }
+        // One toast for the whole event: there is a single toast element, so
+        // a toast per folder showed only the last one.
+        const problems = [];
+        const recovered = [];
+        if (data?.error) problems.push(`Watch folders: ${data.error}`);
         for (const change of changes) {
             const name = change.path || 'a watched folder';
-            if (change.error) {
-                showToast(`Not watching ${name}: ${change.error}`, 'error');
-            } else if (change.recovered) {
-                showToast(`Watching ${name} again`);
-            }
+            if (change.error) problems.push(`Not watching ${name}: ${change.error}`);
+            else if (change.recovered) recovered.push(name);
+        }
+        if (problems.length > 0) {
+            // An unmounted volume can take many folders with it: name a few.
+            const shown = problems.slice(0, 2).join(' · ');
+            showToast(problems.length > 2 ? `${shown} · and ${problems.length - 2} more` : shown, 'error');
+        } else if (recovered.length > 0) {
+            showToast(recovered.length === 1 ? `Watching ${recovered[0]} again` : `Watching ${recovered.length} folders again`);
         }
         if (isViewingWatch) {
             loadWatchFolders();
@@ -550,16 +590,69 @@ function initWatchEvents() {
         }
     });
 
+    // A folder sync fires one watch:import (and, for a file that cannot be
+    // read, one watch:error) per file. They are collected into bursts — a
+    // trailing debounce, capped so a steady trickle still lands every
+    // WATCH_BURST_MAX_WAIT_MS — and each burst ends in one gallery reload and
+    // one toast. A toast per file flickered through the names and, worse,
+    // replaced a "Failed to import" toast with the next success before it
+    // could be read; failures are reported nowhere else.
+    //
     // An import may or may not belong in the view on screen — folder level,
-    // descendant tag filters, search and sort all decide that — so reload the
-    // listing rather than guessing. Debounced: a folder sync fires one event
-    // per file. loadClips keeps the selection and the focused card.
-    let watchReloadTimer = null;
+    // descendant tag filters, search and sort all decide that — so the listing
+    // is reloaded rather than guessed at. loadClips keeps the selection and
+    // the focused card.
+    const WATCH_BURST_DEBOUNCE_MS = 300;
+    const WATCH_BURST_MAX_WAIT_MS = 2000;
+    let burstTimer = null;
+    let burstFirstAt = 0;
+    let burstImported = [];
+    let burstFailed = [];
+    const flushWatchBurst = (quiet) => {
+        clearTimeout(burstTimer);
+        burstTimer = null;
+        burstFirstAt = 0;
+        const imported = burstImported;
+        burstImported = [];
+        // Failures are kept until the stream goes quiet. A long sync is cut
+        // into several bursts by the max wait, and each one's toast replaces
+        // the last: without this the next burst's plain "Imported N files"
+        // would wipe a failure two seconds after it appeared.
+        const failed = burstFailed;
+        if (quiet) burstFailed = [];
+        if (imported.length > 0 && !isViewingWatch) loadClips();
+        const importedText = imported.length === 1
+            ? `Imported: ${imported[0]}`
+            : `Imported ${imported.length} files`;
+        if (failed.length === 0) {
+            if (imported.length > 0) showToast(importedText);
+            return;
+        }
+        let failedText;
+        if (failed.length === 1) {
+            failedText = `Failed to import ${failed[0].file}: ${failed[0].error}`;
+        } else {
+            const names = failed.slice(0, 3).map(f => f.file).join(', ');
+            failedText = `${failed.length} files failed to import: ${names}${failed.length > 3 ? ', …' : ''}`;
+        }
+        showToast(imported.length > 0 ? `${importedText}. ${failedText}` : failedText, 'error');
+    };
+    const scheduleWatchBurst = () => {
+        const now = Date.now();
+        if (!burstFirstAt) burstFirstAt = now;
+        clearTimeout(burstTimer);
+        const untilMax = Math.max(0, burstFirstAt + WATCH_BURST_MAX_WAIT_MS - now);
+        // Reached by the debounce, the stream has paused; by the cap, it has not.
+        const quiet = untilMax >= WATCH_BURST_DEBOUNCE_MS;
+        burstTimer = setTimeout(() => flushWatchBurst(quiet), Math.min(WATCH_BURST_DEBOUNCE_MS, untilMax));
+    };
     window.runtime.EventsOn('watch:import', (clip) => {
-        showToast(`Imported: ${clip.filename}`);
-        if (isViewingWatch) return;
-        clearTimeout(watchReloadTimer);
-        watchReloadTimer = setTimeout(() => { loadClips(); }, 300);
+        burstImported.push(clip?.filename || 'a file');
+        scheduleWatchBurst();
+    });
+    window.runtime.EventsOn('watch:error', (data) => {
+        burstFailed.push({ file: data?.file || 'a file', error: data?.error || 'unknown error' });
+        scheduleWatchBurst();
     });
 }
 

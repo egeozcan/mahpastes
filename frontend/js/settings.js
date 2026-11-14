@@ -54,14 +54,11 @@ function closeSettings() {
     loadClips();
 }
 
-async function saveSettings() {
-    try {
-        showToast('Settings saved');
-        closeSettings();
-    } catch (error) {
-        console.error('Failed to save settings:', error);
-        showToast('Failed to save settings', 'error');
-    }
+// The footer button only closes: every setting is saved when it is changed.
+// It used to read "Save Settings" and toast "Settings saved", which said a
+// save had happened even when an earlier one had failed.
+function saveSettings() {
+    closeSettings();
 }
 
 // Event listeners
@@ -97,7 +94,18 @@ async function createBackup() {
         const savedPath = await window.go.main.App.ShowCreateBackupDialog();
 
         if (savedPath) {
-            showToast('Backup created successfully');
+            // Say where it went. On the desktop the toast can show it; in
+            // server mode the "path" is only a download name.
+            const name = String(savedPath).split(/[\\/]/).pop() || 'backup';
+            if (window.mahpastesMode === 'server') {
+                showToast(`Backup created: ${name}`, 'success');
+            } else {
+                showToast(`Backup created: ${name}`, 'success', {
+                    label: 'Show in folder',
+                    onClick: () => window.go.main.App.RevealInFileManager(savedPath).catch(
+                        (e) => showToast('Failed to show file: ' + errText(e), 'error')),
+                });
+            }
         }
     } catch (error) {
         console.error('Failed to create backup:', error);
@@ -252,7 +260,7 @@ async function confirmRestore() {
         restoreInFlight = false;
         hideRestoreConfirmDialog();
         closeSettings();
-        showToast('Backup restored successfully');
+        showToast('Backup restored successfully.');
 
         // Reload the page to refresh all data
         setTimeout(() => {
@@ -352,7 +360,7 @@ async function toggleHiddenTag(tagId, hidden) {
         await window.go.main.App.SetHiddenTags(getHiddenTags());
     } catch (error) {
         console.error('Error saving hidden tags:', error);
-        showToast('Failed to save hidden tags setting.', 'error');
+        toastError('Failed to save hidden tags setting', error);
     }
 }
 
@@ -374,10 +382,10 @@ if (updateIntervalSelect) {
     updateIntervalSelect.addEventListener('change', async () => {
         try {
             await window.go.main.PluginService.SetUpdateCheckInterval(updateIntervalSelect.value);
-            showToast('Update check interval saved');
+            showToast('Update check interval saved.');
         } catch (error) {
             console.error('Failed to save update interval:', error);
-            showToast('Failed to save setting', 'error');
+            showToast('Failed to save setting.', 'error');
         }
     });
 }
@@ -529,7 +537,7 @@ document.getElementById('shortcuts-reset-btn')?.addEventListener('click', () => 
     if (typeof ShortcutManager !== 'undefined') {
         ShortcutManager.resetAllToDefaults();
         renderShortcutsSettings();
-        if (typeof showToast === 'function') showToast('Shortcuts reset to defaults');
+        if (typeof showToast === 'function') showToast('Shortcuts reset to defaults.');
     }
 });
 

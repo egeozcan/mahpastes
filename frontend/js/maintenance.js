@@ -66,7 +66,7 @@ async function runDeduplicate() {
     try {
         const groups = await window.go.main.App.GetDuplicateGroups();
         if (!groups || groups.length === 0) {
-            showToast('No duplicates found');
+            showToast('No duplicates found.');
             return;
         }
 
@@ -88,11 +88,11 @@ async function runDeduplicate() {
                 showToast(`Deduplicated: removed ${removed} clip${removed !== 1 ? 's' : ''}`, 'success');
                 loadClips();
             } catch (err) {
-                showToast('Failed to deduplicate', 'error');
+                showToast('Failed to deduplicate.', 'error');
             }
         }, null, { confirmLabel: 'Deduplicate' });
     } catch (err) {
-        showToast('Failed to check duplicates', 'error');
+        showToast('Failed to check duplicates.', 'error');
     }
 }
 
@@ -103,12 +103,12 @@ async function runRemoveEmptyTags() {
         // transaction, so this list is exactly what a commit will remove.
         candidates = await window.go.main.App.GetRemovableEmptyTags();
     } catch (err) {
-        showToast('Failed to scan for empty tags', 'error');
+        showToast('Failed to scan for empty tags.', 'error');
         return;
     }
 
     if (!candidates || candidates.length === 0) {
-        showToast('No empty tags to remove');
+        showToast('No empty tags to remove.');
         return;
     }
 
@@ -134,7 +134,7 @@ async function runRemoveEmptyTags() {
             }
             loadClips();
         } catch (err) {
-            showToast('Failed to remove empty tags', 'error');
+            showToast('Failed to remove empty tags.', 'error');
         }
     }, null, { confirmLabel: 'Remove' });
 }
@@ -144,7 +144,7 @@ async function runCompactDatabase() {
     try {
         sizeBefore = await window.go.main.App.GetDatabaseSize();
     } catch (err) {
-        showToast('Failed to read DB size', 'error');
+        showToast('Failed to read DB size.', 'error');
         return;
     }
     const humanBefore = formatBytes(sizeBefore);
@@ -158,9 +158,9 @@ async function runCompactDatabase() {
             try {
                 const { before = 0, after = 0 } = await window.go.main.App.CompactDatabase() || {};
                 const reclaimed = before - after;
-                showToast(`Reclaimed ${formatBytes(reclaimed)} (was ${formatBytes(before)}, now ${formatBytes(after)})`, 'success');
+                showToast(`Reclaimed ${formatBytes(reclaimed)} (was ${formatBytes(before)}, now ${formatBytes(after)}).`, 'success');
             } catch (err) {
-                showToast('Compact failed', 'error');
+                showToast('Compact failed.', 'error');
             }
         },
         null,
@@ -173,11 +173,11 @@ async function runStaleFileSweep() {
     try {
         files = await window.go.main.App.GetStaleFiles();
     } catch (err) {
-        showToast('Failed to scan stale files', 'error');
+        showToast('Failed to scan stale files.', 'error');
         return;
     }
     if (!files || files.length === 0) {
-        showToast('No stale files to clean');
+        showToast('No stale files to clean.');
         return;
     }
     const totalBytes = files.reduce((sum, f) => sum + (f.size || 0), 0);
@@ -198,9 +198,9 @@ async function runStaleFileSweep() {
         async () => {
             try {
                 const { count = 0, bytes = 0 } = await window.go.main.App.CleanStaleFiles() || {};
-                showToast(`Removed ${count} file${count !== 1 ? 's' : ''} (${formatFileSize(bytes)})`, 'success');
+                showToast(`Removed ${count} file${count !== 1 ? 's' : ''} (${formatFileSize(bytes)}).`, 'success');
             } catch (err) {
-                showToast('Sweep failed', 'error');
+                showToast('Sweep failed.', 'error');
             }
         },
         null,
@@ -213,14 +213,14 @@ async function runOrphanRowsSweep() {
     try {
         report = await window.go.main.App.GetOrphanDBRows();
     } catch (err) {
-        showToast('Failed to scan orphans', 'error');
+        showToast('Failed to scan orphans.', 'error');
         return;
     }
     const total = (report.plugin_storage||0) + (report.plugin_permissions||0)
         + (report.stale_follows||0) + (report.stale_auto_tags||0)
         + (report.stale_hidden_tag_ids||0);
     if (total === 0) {
-        showToast('No orphan rows to clean');
+        showToast('No orphan rows to clean.');
         return;
     }
     const listHTML = [
@@ -244,7 +244,7 @@ async function runOrphanRowsSweep() {
                     + (cleaned.stale_hidden_tag_ids||0);
                 showToast(`Cleaned ${cleanedTotal} orphan row${cleanedTotal !== 1 ? 's' : ''}`, 'success');
             } catch (err) {
-                showToast('Orphan cleanup failed', 'error');
+                showToast('Orphan cleanup failed.', 'error');
             }
         },
         null,
@@ -278,9 +278,9 @@ maintenanceClearMarkdownCacheBtn?.addEventListener('click', () => {
         async () => {
             try {
                 await window.go.main.MarkdownService.ClearImageCache();
-                showToast('Markdown image cache cleared', 'success');
+                showToast('Markdown image cache cleared.', 'success');
             } catch (error) {
-                showToast('Failed to clear Markdown image cache', 'error');
+                showToast('Failed to clear Markdown image cache.', 'error');
             }
         },
         null,

@@ -594,9 +594,10 @@ const CropTool = (() => {
             oc.clearRect(0, 0, overlay.width, overlay.height);
         }
 
-        // Switch back to brush tool
+        // Switch back to the drawing tool in use before the crop
         if (typeof selectTool === 'function') {
-            selectTool('brush');
+            if (typeof selectLastDrawingTool === 'function') selectLastDrawingTool();
+            else selectTool('brush');
             if (typeof updateToolButtons === 'function') updateToolButtons();
         }
 
@@ -616,9 +617,10 @@ const CropTool = (() => {
         originalRect = null;
         rotationAngle = 0;
 
-        // Switch back to brush tool
+        // Switch back to the drawing tool in use before the crop
         if (typeof selectTool === 'function') {
-            selectTool('brush');
+            if (typeof selectLastDrawingTool === 'function') selectLastDrawingTool();
+            else selectTool('brush');
             if (typeof updateToolButtons === 'function') updateToolButtons();
         }
     }

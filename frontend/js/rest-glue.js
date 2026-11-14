@@ -20,9 +20,10 @@
             err.status = res.status;
             throw err;
         }
-        if (res.status === 204) return null;
+        if (res.status === 204) return opts.withStatus ? { status: 204, body: null } : null;
         const text = await res.text();
-        return text ? JSON.parse(text) : null;
+        const body = text ? JSON.parse(text) : null;
+        return opts.withStatus ? { status: res.status, body } : body;
     }
 
     const postJSON = (url, body) => fetchJSON(url, { method: 'POST', headers: jsonHeaders, body: JSON.stringify(body || {}) });
@@ -75,14 +76,28 @@
         return filename;
     }
 
-    async function uploadOne(fileData, autoTagID) {
+    // `minutes` is the bottom bar's upload expiry. The upload route takes none,
+    // so it is set by a second request, and only on a clip this upload created
+    // (201): identical content answers 200 with the clip already stored, and
+    // putting an expiry on that would delete something the user meant to keep
+    // (the mp CLI follows the same rule).
+    async function uploadOne(fileData, autoTagID, minutes) {
         const fd = new FormData();
         fd.append('file', base64ToBlob(fileData.data, fileData.content_type), fileData.name || 'clip');
         const params = new URLSearchParams();
         if (fileData.name) params.set('filename', fileData.name);
-        const clip = await fetchJSON(`${api}/clips?${params.toString()}`, { method: 'POST', body: fd });
+        const { status, body: clip } = await fetchJSON(`${api}/clips?${params.toString()}`, { method: 'POST', body: fd, withStatus: true });
         if (autoTagID && clip && clip.id) {
             await putJSON(`${api}/clips/${clip.id}/tags/${autoTagID}`, {});
+        }
+        if (minutes > 0 && status === 201 && clip && clip.id) {
+            try {
+                await putJSON(`${api}/clips/${clip.id}/expiration`, { minutes });
+            } catch (err) {
+                // The clip is stored, and permanent: say exactly that, or the
+                // user retries, gets the duplicate back and believes it expires.
+                throw new Error(`"${fileData.name || 'clip'}" was uploaded, but its expiry could not be set (${err.message}). It will not delete itself.`);
+            }
         }
         return clip;
     }
@@ -199,7 +214,23 @@
             }
             return await res.json();
         },
-        UploadFiles: async (files, minutes, autoTagID) => Promise.all((files || []).map((f) => uploadOne(f, autoTagID))),
+        // Every file is attempted; the ones that failed are reported in the
+        // desktop binding's words ("N of M files could not be stored: …"), so
+        // the caller knows the rest went in.
+        UploadFiles: async (files, minutes, autoTagID) => {
+            const list = files || [];
+            const results = await Promise.allSettled(list.map((f) => uploadOne(f, autoTagID, minutes)));
+            const failed = [];
+            results.forEach((r, i) => {
+                if (r.status === 'rejected') failed.push(`${list[i].name || 'unnamed clip'} (${(r.reason && r.reason.message) || r.reason})`);
+            });
+            if (failed.length > 0) {
+                const shown = failed.slice(0, 3);
+                if (failed.length > 3) shown.push(`and ${failed.length - 3} more`);
+                throw new Error(`${failed.length} of ${list.length} files could not be stored: ${shown.join(', ')}`);
+            }
+            return results.map((r) => r.value);
+        },
         UploadFileAndGetID: async (file) => {
             const clip = await uploadOne(file, 0);
             return clip.id;
@@ -229,8 +260,8 @@
         // The clip's tags, as the desktop binding returns them (the gallery
         // re-renders a card's pills from this after a tag change on it).
         GetClipTags: async (clipID) => ((await fetchJSON(`${api}/clips/${clipID}`)) || {}).tags || [],
-        // One clip as the gallery shows it. The REST row carries no
-        // expires_at, matching the server listing, which has none either.
+        // One clip as the gallery shows it, expires_at included (null when the
+        // clip has none), as in the server listing.
         GetClipPreview: (clipID) => fetchJSON(`${api}/clips/${clipID}`),
         GetChildTags: (id) => fetchJSON(`${api}/tags/${id}/children`),
         // Tags with no existing ancestor, matching the desktop binding.
@@ -385,6 +416,8 @@
         PreviewInstalledPlugin: (id) => fetchJSON(`${api}/plugins/${id}/review`),
         DisablePlugin: (id) => putJSON(`${api}/plugins/${id}/disable`, {}),
         UpdatePlugin: (id) => postJSON(`${api}/plugins/${id}/update`, {}),
+        // The route answers {updates: [...]}; the binding returns the list.
+        CheckForUpdates: async () => ((await postJSON(`${api}/plugins/check-updates`, {})) || {}).updates || [],
         ConfirmPluginUpdate: async () => { throw new Error('plugin update confirmation is unavailable in server mode'); },
         GetPluginPermissions: (id) => fetchJSON(`${api}/plugins/${id}/permissions`),
         RevokePluginPermission: (id, type, path) => postJSON(`${api}/plugins/${id}/permissions/revoke`, { type, path }),

@@ -36,9 +36,16 @@
                         </svg>
                     </div>
                     <input type="text" id="search-input"
-                        class="block w-full pl-9 pr-10 py-2 border border-stone-200 rounded-md text-sm bg-white placeholder-stone-400 focus:outline-none focus:border-stone-400 focus:ring-1 focus:ring-stone-400/20 transition-colors"
-                        placeholder="Search clips...">
-                    <div class="absolute inset-y-0 right-0 pr-2 flex items-center">
+                        class="block w-full pl-9 pr-16 py-2 border border-stone-200 rounded-md text-sm bg-white placeholder-stone-400 focus:outline-none focus:border-stone-400 focus:ring-1 focus:ring-stone-400/20 transition-colors"
+                        aria-label="Search clips" placeholder="Search clips...">
+                    <div class="absolute inset-y-0 right-0 pr-2 flex items-center gap-0.5">
+                        <button id="search-clear-btn" type="button" data-testid="search-clear-button" hidden
+                            class="p-1 text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded transition-colors"
+                            aria-label="Clear search" data-tooltip="Clear search (Esc)">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
                         <button id="search-options-btn" data-testid="search-options-button"
                             class="p-1 text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded transition-colors"
                             aria-label="Search options" aria-haspopup="true" aria-expanded="false"
@@ -54,7 +61,7 @@
                 <div class="relative">
                     <button id="tag-filter-btn" data-testid="tag-filter-button"
                         class="relative border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-500 p-2 rounded-md transition-colors"
-                        aria-label="Filter by tags" data-tooltip="Filter clips by tag (F)">
+                        aria-label="Filter by tags" data-tooltip="Filter clips by tag">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                                 d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
@@ -68,7 +75,12 @@
                         <div class="p-2 border-b border-stone-100">
                             <span class="text-[10px] font-semibold text-stone-400 uppercase tracking-wide">Filter by Tags</span>
                         </div>
-                        <div id="tag-filter-list" class="max-h-48 overflow-y-auto py-1">
+                        <div class="px-2 pt-2">
+                            <input type="text" id="tag-filter-search" data-testid="tag-filter-search" autocomplete="off"
+                                class="block w-full text-xs border border-stone-200 rounded px-2 py-1 bg-white placeholder-stone-400 focus:outline-none focus:border-stone-400 focus:ring-1 focus:ring-stone-400/20 transition-colors"
+                                placeholder="Find tag..." aria-label="Find tag">
+                        </div>
+                        <div id="tag-filter-list" class="max-h-64 overflow-y-auto py-1">
                             <!-- Tags inserted by JS -->
                         </div>
                         <div class="p-2 border-t border-stone-100">
@@ -95,7 +107,7 @@
                 <!-- Archive Toggle Button -->
                 <button id="header-archive-btn"
                     class="relative border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-500 p-2 rounded-md transition-colors"
-                    aria-label="Toggle archive view" aria-pressed="false" data-tooltip="Show archived clips (A)"
+                    aria-label="Toggle archive view" aria-pressed="false" data-tooltip="Show archived clips" data-shortcut-hint="toggle-archive"
                     style="--wails-draggable: no-drag">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
@@ -106,7 +118,7 @@
                 <!-- Folder Mode Button -->
                 <button id="folder-mode-btn" data-testid="folder-mode-button"
                     class="relative border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-500 p-2 rounded-md transition-colors"
-                    aria-label="Toggle folder mode" aria-pressed="false" data-tooltip="Toggle folder view (F)">
+                    aria-label="Toggle folder mode" aria-pressed="false" data-tooltip="Toggle folder view" data-shortcut-hint="toggle-folder">
                     <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.06-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" />
                     </svg>
@@ -204,7 +216,7 @@
             </button>
             <button id="delete-all-temp-btn"
                 class="border border-stone-200 hover:border-red-300 hover:bg-red-50 text-stone-500 hover:text-red-600 text-xs font-medium py-2.5 px-3 rounded-md transition-colors flex items-center w-full"
-                data-tooltip="Remove all clips that were marked temporary">
+                data-tooltip="Remove temporary files made for drag-out, copy and playback (clips are not affected)">
                 <svg class="w-4 h-4 mr-2 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                         d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -259,6 +271,26 @@
                 </svg>
                 Import Folder
             </button>
+            <button id="open-shortcuts-btn" data-testid="open-shortcuts-btn"
+                class="border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-500 text-xs font-medium py-2.5 px-3 rounded-md transition-colors flex items-center w-full"
+                data-tooltip="Show every keyboard shortcut">
+                <svg class="w-4 h-4 mr-2 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                        d="M4 6h16a1 1 0 011 1v10a1 1 0 01-1 1H4a1 1 0 01-1-1V7a1 1 0 011-1zm3 4h.01M11 10h.01M15 10h.01M7 14h10" />
+                </svg>
+                Keyboard Shortcuts
+                <kbd data-shortcut-key="show-cheatsheet" aria-hidden="true"
+                    class="ml-auto text-[10px] font-medium text-stone-400 border border-stone-200 rounded px-1.5 py-0.5 empty:hidden"></kbd>
+            </button>
+            <button id="open-docs-btn" data-testid="open-docs-btn"
+                class="border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-500 text-xs font-medium py-2.5 px-3 rounded-md transition-colors flex items-center w-full"
+                data-tooltip="Open the documentation in your browser">
+                <svg class="w-4 h-4 mr-2 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                        d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                </svg>
+                Documentation
+            </button>
             <div id="drawer-plugin-actions" class="hidden">
                 <div class="my-1 border-t border-stone-100"></div>
             </div>
@@ -295,6 +327,7 @@
         <!-- Watch View (hidden by default) -->
         <section id="watch-view" class="hidden mb-10" aria-labelledby="watch-heading">
             <h2 id="watch-heading" class="sr-only">Watched Folders</h2>
+            <p class="text-xs text-stone-400 mb-4" data-testid="watch-intro">New files that appear in a watched folder are imported as clips automatically.</p>
 
             <!-- Back to Pastes -->
             <button id="watch-back-btn"
@@ -335,6 +368,18 @@
                     + Add Folder
                 </button>
                 <p class="text-[10px] text-stone-400 mt-3">Files in subfolders are not watched</p>
+            </div>
+            <!-- The web UI has no folder picker: the path is typed, and it names a folder on the server -->
+            <div id="add-folder-server" data-testid="add-folder-server" class="server-only border border-dashed border-stone-300 rounded-lg p-5">
+                <label for="add-folder-server-path" class="block text-xs font-medium text-stone-600 mb-2">Watch a folder on the server</label>
+                <div class="flex gap-2">
+                    <input type="text" id="add-folder-server-path" data-testid="add-folder-server-path" autocomplete="off"
+                        class="block w-full border border-stone-200 rounded-md text-sm bg-white placeholder-stone-400 focus:outline-none focus:border-stone-400 focus:ring-1 focus:ring-stone-400/20 transition-colors px-3 py-2"
+                        placeholder="/path/on/the/server">
+                    <button type="button" id="add-folder-server-btn" data-testid="add-folder-server-btn"
+                        class="shrink-0 bg-stone-800 hover:bg-stone-700 text-white text-xs font-medium py-2 px-4 rounded-md transition-colors">Add</button>
+                </div>
+                <p class="text-[10px] text-stone-400 mt-2">The path is on the machine running mahpastes, not this one. Files in subfolders are not watched. Needs an admin key.</p>
             </div>
         </section>
 
@@ -382,6 +427,7 @@
                 Back to Pastes
             </button>
 
+            <p class="text-xs text-stone-400 mb-4" data-testid="share-intro">Sync a tag's clips directly with another mahpastes, peer to peer. You share a tag and hand over its link; they follow it.</p>
             <h3 class="text-xs font-semibold text-stone-400 uppercase tracking-wide mb-3">Sharing</h3>
             <ul id="share-publications-list" class="space-y-3 mb-4">
                 <!-- cards injected by share.js -->
@@ -509,6 +555,13 @@
             <!-- Empty / error state for the gallery (kept outside the card list) -->
             <p id="gallery-status" data-testid="gallery-status" role="status"
                 class="hidden text-xs font-medium text-stone-400 text-center py-8"></p>
+            <!-- What to do about the state above: ways in for an empty library or folder, Retry for a failed load -->
+            <div id="gallery-status-actions" data-testid="gallery-status-actions" class="hidden flex flex-wrap justify-center gap-2 -mt-4 pb-6">
+                <button type="button" data-status-action="add" data-testid="gallery-status-add" hidden class="border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-xs font-medium py-2 px-3 rounded-md transition-colors">Add files</button>
+                <button type="button" data-status-action="import" data-testid="gallery-status-import" hidden class="desktop-only border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-xs font-medium py-2 px-3 rounded-md transition-colors">Import a folder</button>
+                <button type="button" data-status-action="new-folder" data-testid="gallery-status-new-folder" hidden class="border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-xs font-medium py-2 px-3 rounded-md transition-colors">New folder</button>
+                <button type="button" data-status-action="retry" data-testid="gallery-status-retry" hidden class="border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-xs font-medium py-2 px-3 rounded-md transition-colors">Retry</button>
+            </div>
             <!-- Next page of the listing; select-all and bulk actions cover loaded clips only -->
             <div id="gallery-load-more" data-testid="gallery-load-more" class="hidden flex flex-col items-center gap-1.5 mt-6">
                 <button id="gallery-load-more-btn" type="button" data-testid="gallery-load-more-btn"
@@ -546,6 +599,9 @@
                 <option value="1440">24h</option>
                 <option value="10080">7d</option>
             </select>
+            <!-- Reading / uploading files (shown only when it takes a moment) -->
+            <span id="upload-status" data-testid="upload-status" role="status" hidden
+                class="text-xs font-medium text-stone-500 whitespace-nowrap truncate" style="--wails-draggable: no-drag"></span>
             <span id="loading-status" class="hidden ml-auto flex items-center gap-2 text-xs font-medium text-stone-500 cursor-pointer"
                 style="--wails-draggable: no-drag">
                 <svg id="loading-spinner" class="animate-spin h-3 w-3 text-stone-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -564,7 +620,7 @@
 
     <!-- Toast Notification -->
     <div id="toast" role="status" aria-live="polite"
-        class="fixed bottom-16 right-4 bg-stone-800 text-white text-xs py-2.5 px-4 rounded-md shadow-lg transition-all translate-x-full opacity-0 z-[260]">
+        class="fixed bottom-16 right-4 max-w-md break-words pointer-events-none bg-stone-800 text-white text-xs py-2.5 px-4 rounded-md shadow-lg transition-all translate-x-full opacity-0 z-[260]">
         <!-- Message will be set by JS -->
     </div>
 
@@ -772,14 +828,14 @@
         <div class="p-2 border-b border-stone-100">
             <span class="text-[10px] font-semibold text-stone-400 uppercase tracking-wide">Manage Tags</span>
         </div>
-        <div id="tag-popover-list" class="max-h-40 overflow-y-auto py-1">
+        <div id="tag-popover-list" class="max-h-64 overflow-y-auto py-1">
             <!-- Tags inserted by JS -->
         </div>
         <div class="p-2 border-t border-stone-100">
             <div class="flex gap-1">
                 <input type="text" id="create-tag-input" data-testid="create-tag-input"
                     class="flex-1 text-xs border border-stone-200 rounded px-2 py-1 focus:outline-none focus:border-stone-400"
-                    placeholder="New tag name..." maxlength="50">
+                    placeholder="Find or create tag..." aria-label="Find or create tag" maxlength="50">
                 <button id="create-tag-btn"
                     class="bg-stone-800 hover:bg-stone-700 text-white text-xs px-2 py-1 rounded transition-colors">
                     Add
@@ -792,12 +848,12 @@
     <div id="lightbox" class="lightbox-backdrop" role="dialog" aria-modal="true"
         aria-labelledby="lightbox-caption" tabindex="-1" inert>
         <div id="lightbox-viewport" class="lightbox-viewport" aria-busy="false">
-            <button id="lightbox-close" class="lightbox-close" aria-label="Close lightbox" data-tooltip="Close viewer (Esc)">
+            <button id="lightbox-close" class="lightbox-close" aria-label="Close lightbox" data-tooltip="Close viewer" data-shortcut-hint="lightbox-close">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12"></path>
                 </svg>
             </button>
-            <button id="lightbox-prev" class="lightbox-nav lightbox-nav-prev" aria-label="Previous media" data-tooltip="Previous clip (Left)">
+            <button id="lightbox-prev" class="lightbox-nav lightbox-nav-prev" aria-label="Previous media" data-tooltip="Previous clip" data-shortcut-hint="lightbox-prev">
                 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 19l-7-7 7-7"></path>
                 </svg>
@@ -806,7 +862,7 @@
                 <img id="lightbox-img" src="" alt="" class="lightbox-image" draggable="false">
             </div>
             <video id="lightbox-video" class="lightbox-video" controls playsinline preload="metadata" draggable="false" hidden></video>
-            <button id="lightbox-next" class="lightbox-nav lightbox-nav-next" aria-label="Next media" data-tooltip="Next clip (Right)">
+            <button id="lightbox-next" class="lightbox-nav lightbox-nav-next" aria-label="Next media" data-tooltip="Next clip" data-shortcut-hint="lightbox-next">
                 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5l7 7-7 7"></path>
                 </svg>
@@ -834,13 +890,13 @@
             </div>
             <div id="lightbox-image-info" class="lightbox-image-info"></div>
             <div id="lightbox-zoom-control" class="lightbox-zoom-control" role="group" aria-label="Image zoom controls">
-                <button id="lightbox-zoom-out" class="lightbox-zoom-button" aria-label="Zoom out" data-tooltip="Zoom out (-)">−</button>
+                <button id="lightbox-zoom-out" class="lightbox-zoom-button" aria-label="Zoom out" data-tooltip="Zoom out" data-shortcut-hint="lightbox-zoom-out">−</button>
                 <label class="sr-only" for="lightbox-zoom-slider">Image zoom</label>
                 <input type="range" id="lightbox-zoom-slider" class="lightbox-range" min="0" max="100" step="1" value="0"
                     aria-describedby="lightbox-zoom-info" aria-valuetext="100% actual; Fit is 100%">
-                <button id="lightbox-zoom-in" class="lightbox-zoom-button" aria-label="Zoom in" data-tooltip="Zoom in (+)">+</button>
-                <button id="lightbox-zoom-fit" class="lightbox-zoom-mode" aria-label="Fit image to window" aria-pressed="true" data-tooltip="Fit image (0)">Fit</button>
-                <button id="lightbox-zoom-actual" class="lightbox-zoom-mode" aria-label="Show image at actual size" aria-pressed="true" data-tooltip="Actual size (1)">1:1</button>
+                <button id="lightbox-zoom-in" class="lightbox-zoom-button" aria-label="Zoom in" data-tooltip="Zoom in" data-shortcut-hint="lightbox-zoom-in">+</button>
+                <button id="lightbox-zoom-fit" class="lightbox-zoom-mode" aria-label="Fit image to window" aria-pressed="true" data-tooltip="Fit image" data-shortcut-hint="lightbox-fit">Fit</button>
+                <button id="lightbox-zoom-actual" class="lightbox-zoom-mode" aria-label="Show image at actual size" aria-pressed="true" data-tooltip="Actual size" data-shortcut-hint="lightbox-actual">1:1</button>
                 <span id="lightbox-zoom-info" class="lightbox-zoom-info">100%</span>
             </div>
         </div>
@@ -855,14 +911,14 @@
             <div class="flex items-center gap-2">
                 <span id="comparison-image-info" class="text-[10px] font-medium text-stone-500 hidden md:inline"></span>
                 <button id="comparison-swap" class="p-1.5 hover:bg-white/10 rounded-md transition-colors"
-                    aria-label="Swap images" data-tooltip="Swap left and right images (S)">
+                    aria-label="Swap images" data-tooltip="Swap left and right images" data-shortcut-hint="compare-swap">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                             d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
                     </svg>
                 </button>
                 <button id="comparison-close" class="p-1.5 hover:bg-white/10 rounded-md transition-colors"
-                    aria-label="Close comparison" data-tooltip="Close comparison (Esc)">
+                    aria-label="Close comparison" data-tooltip="Close comparison" data-shortcut-hint="compare-close">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12">
                         </path>
@@ -898,13 +954,13 @@
                 <div class="flex bg-stone-100 p-0.5 rounded-md">
                     <button id="mode-fade"
                         class="px-3 py-1 rounded text-xs font-medium transition-all bg-white shadow-sm text-stone-800"
-                        data-tooltip="Crossfade opacity between both images (1)">Fade</button>
+                        data-tooltip="Crossfade opacity between both images" data-shortcut-hint="compare-mode-fade">Fade</button>
                     <button id="mode-slider"
                         class="px-3 py-1 rounded text-xs font-medium transition-all text-stone-500 hover:text-stone-700"
-                        data-tooltip="Drag a divider to reveal each image (2)">Slider</button>
+                        data-tooltip="Drag a divider to reveal each image" data-shortcut-hint="compare-mode-slider">Slider</button>
                     <button id="mode-diff"
                         class="px-3 py-1 rounded text-xs font-medium transition-all text-stone-500 hover:text-stone-700"
-                        data-tooltip="Compute and highlight pixel-level differences (3)">Diff</button>
+                        data-tooltip="Compute and highlight pixel-level differences" data-shortcut-hint="compare-mode-diff">Diff</button>
                 </div>
             </div>
 
@@ -942,21 +998,21 @@
                 <span class="control-label">Zoom</span>
                 <div class="flex items-center gap-2">
                     <button id="zoom-out" aria-label="Zoom out" class="p-1.5 bg-stone-100 rounded-md hover:bg-stone-200 transition-colors"
-                        data-tooltip="Zoom out (-)">
+                        data-tooltip="Zoom out" data-shortcut-hint="compare-zoom-out">
                         <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4" />
                         </svg>
                     </button>
                     <span id="zoom-level" class="text-xs font-medium text-stone-600 min-w-[2.5rem] text-center">100%</span>
                     <button id="zoom-in" aria-label="Zoom in" class="p-1.5 bg-stone-100 rounded-md hover:bg-stone-200 transition-colors"
-                        data-tooltip="Zoom in (+)">
+                        data-tooltip="Zoom in" data-shortcut-hint="compare-zoom-in">
                         <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
                         </svg>
                     </button>
                     <button id="zoom-fit"
                         class="text-xs font-medium px-2 py-1.5 bg-stone-800 text-white rounded-md hover:bg-stone-700 transition-colors"
-                        data-tooltip="Fit image to view (0)">Fit</button>
+                        data-tooltip="Fit image to view" data-shortcut-hint="compare-zoom-fit">Fit</button>
                 </div>
             </div>
         </div>
@@ -984,7 +1040,7 @@
                     </button>
                     <button id="editor-save-in-place"
                         class="px-3 py-1.5 bg-white text-stone-800 text-xs font-medium rounded-md hover:bg-stone-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
-                        data-tooltip="Overwrite the original clip with your edits">
+                        data-tooltip="Overwrite the original clip with your edits" data-shortcut-hint="editor.save_in_place">
                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                 d="M5 13l4 4L19 7"></path>
@@ -993,7 +1049,7 @@
                     </button>
                     <button id="editor-save"
                         class="px-3 py-1.5 bg-white/20 text-white text-xs font-medium rounded-md hover:bg-white/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
-                        data-tooltip="Save edits as a new clip in your library">
+                        data-tooltip="Save edits as a new clip in your library" data-shortcut-hint="editor.save">
                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                 d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4">
@@ -1002,7 +1058,7 @@
                         <span id="editor-save-as-label">Save As</span>
                     </button>
                     <button id="editor-close" class="p-1.5 hover:bg-white/10 rounded-md transition-colors"
-                        aria-label="Close editor" data-tooltip="Discard all edits and close editor (Esc)">
+                        aria-label="Close editor" data-tooltip="Discard all edits and close editor" data-shortcut-hint="editor.close">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                                 d="M6 18L18 6M6 6l12 12"></path>
@@ -1103,7 +1159,13 @@
                         <div class="editor-unavailable-card">
                             <h2 id="editor-unavailable-heading">Editing unavailable</h2>
                             <p id="editor-unavailable-reason"></p>
-                            <p class="editor-unavailable-note">Saving is disabled so the original bytes cannot be replaced by a lossy re-encoding. A future release will add a user-initiated, one-way <strong>Reinterpret as Windows-1252 and convert to UTF-8</strong> action that shows the decoded result before writing anything.</p>
+                            <p class="editor-unavailable-note">Saving is disabled so the original bytes cannot be replaced by a lossy re-encoding. Save it to a file or open it in another app to view or convert it.</p>
+                            <div class="mt-4 flex flex-wrap justify-center gap-2">
+                                <button type="button" id="editor-unavailable-save" data-testid="editor-unavailable-save"
+                                    class="border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-xs font-medium py-2 px-3 rounded-md transition-colors">Save to file</button>
+                                <button type="button" id="editor-unavailable-open" data-testid="editor-unavailable-open"
+                                    class="border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-xs font-medium py-2 px-3 rounded-md transition-colors">Open in default app</button>
+                            </div>
                         </div>
                     </section>
                 </div>
@@ -1133,6 +1195,9 @@
                     <span id="text-editor-cursor-status">Ln 1, Col 1</span>
                     <span id="text-editor-character-status">0 characters</span>
                     <span id="text-editor-draft-status" class="ml-auto" role="status" aria-live="polite"></span>
+                    <button type="button" id="text-editor-discard-draft" data-testid="text-editor-discard-draft" hidden
+                        class="underline underline-offset-2 hover:text-stone-200 transition-colors"
+                        data-tooltip="Go back to the saved version of this clip">Discard draft</button>
                 </div>
             </div>
 
@@ -1144,12 +1209,12 @@
                     <!-- Row 1: Tools -->
                     <div class="flex items-center gap-1 flex-wrap" role="toolbar" aria-label="Drawing tools">
                         <!-- Selection & Crop -->
-                        <button class="editor-tool-btn" data-tool="select" aria-label="Select and move" aria-pressed="false" data-tooltip="Select and move (V)">
+                        <button class="editor-tool-btn" data-tool="select" aria-label="Select and move" aria-pressed="false" data-tooltip="Select and move" data-shortcut-hint="editor.select">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"></path>
                             </svg>
                         </button>
-                        <button class="editor-tool-btn" data-tool="crop" aria-label="Crop image" aria-pressed="false" data-tooltip="Crop image (C)">
+                        <button class="editor-tool-btn" data-tool="crop" aria-label="Crop image" aria-pressed="false" data-tooltip="Crop image" data-shortcut-hint="editor.crop">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6.13 1L6.13 6.13 1 6.13M6.13 6.13L6.13 17.87 17.87 17.87M17.87 23L17.87 17.87 23 17.87M17.87 17.87L17.87 6.13 6.13 6.13"></path>
                             </svg>
@@ -1158,14 +1223,14 @@
                         <div class="h-5 w-px bg-stone-300" role="separator"></div>
 
                         <!-- Drawing tools -->
-                        <button class="editor-tool-btn active" data-tool="brush" aria-label="Freehand brush" aria-pressed="true" data-tooltip="Freehand brush (B)">
+                        <button class="editor-tool-btn active" data-tool="brush" aria-label="Freehand brush" aria-pressed="true" data-tooltip="Freehand brush" data-shortcut-hint="editor.brush">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                                     d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z">
                                 </path>
                             </svg>
                         </button>
-                        <button class="editor-tool-btn" data-tool="eraser" aria-label="Erase drawn content" aria-pressed="false" data-tooltip="Erase drawn content (E)">
+                        <button class="editor-tool-btn" data-tool="eraser" aria-label="Erase drawn content" aria-pressed="false" data-tooltip="Erase drawn content" data-shortcut-hint="editor.eraser">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                                     d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16">
@@ -1176,24 +1241,24 @@
                         <div class="h-5 w-px bg-stone-300" role="separator"></div>
 
                         <!-- Shape tools -->
-                        <button class="editor-tool-btn" data-tool="line" aria-label="Draw straight line" aria-pressed="false" data-tooltip="Draw straight line (L)">
+                        <button class="editor-tool-btn" data-tool="line" aria-label="Draw straight line" aria-pressed="false" data-tooltip="Draw straight line" data-shortcut-hint="editor.line">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 20L20 4">
                                 </path>
                             </svg>
                         </button>
-                        <button class="editor-tool-btn" data-tool="arrow" aria-label="Draw arrow" aria-pressed="false" data-tooltip="Draw arrow (W)">
+                        <button class="editor-tool-btn" data-tool="arrow" aria-label="Draw arrow" aria-pressed="false" data-tooltip="Draw arrow" data-shortcut-hint="editor.arrow">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 19L19 5m0 0v10m0-10H9"></path>
                             </svg>
                         </button>
-                        <button class="editor-tool-btn" data-tool="rectangle" aria-label="Draw rectangle" aria-pressed="false" data-tooltip="Draw rectangle (U)">
+                        <button class="editor-tool-btn" data-tool="rectangle" aria-label="Draw rectangle" aria-pressed="false" data-tooltip="Draw rectangle" data-shortcut-hint="editor.rectangle">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                                     d="M4 6a2 2 0 012-2h12a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V6z"></path>
                             </svg>
                         </button>
-                        <button class="editor-tool-btn" data-tool="circle" aria-label="Draw circle" aria-pressed="false" data-tooltip="Draw circle (O)">
+                        <button class="editor-tool-btn" data-tool="circle" aria-label="Draw circle" aria-pressed="false" data-tooltip="Draw circle" data-shortcut-hint="editor.circle">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <circle cx="12" cy="12" r="9" stroke-width="1.5" fill="none"></circle>
                             </svg>
@@ -1202,12 +1267,12 @@
                         <div class="h-5 w-px bg-stone-300" role="separator"></div>
 
                         <!-- Annotation tools -->
-                        <button class="editor-tool-btn" data-tool="text" aria-label="Add text" aria-pressed="false" data-tooltip="Add text (T)">
+                        <button class="editor-tool-btn" data-tool="text" aria-label="Add text" aria-pressed="false" data-tooltip="Add text" data-shortcut-hint="editor.text">
                             <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
                                 <path d="M7 5h10V3H7v2zm3.5 2H11v12h2V7h1.5z"></path>
                             </svg>
                         </button>
-                        <button class="editor-tool-btn" data-tool="anonymize" aria-label="Anonymize region" aria-pressed="false" data-tooltip="Anonymize region (X)">
+                        <button class="editor-tool-btn" data-tool="anonymize" aria-label="Anonymize region" aria-pressed="false" data-tooltip="Anonymize region" data-shortcut-hint="editor.anonymize">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 4h4v4H4V4zm6 0h4v4h-4V4zm6 0h4v4h-4V4zM4 10h4v4H4v-4zm6 0h4v4h-4v-4zm6 0h4v4h-4v-4zM4 16h4v4H4v-4zm6 0h4v4h-4v-4zm6 0h4v4h-4v-4z"></path>
                             </svg>
@@ -1216,7 +1281,7 @@
                         <div class="h-5 w-px bg-stone-300" role="separator"></div>
 
                         <!-- Utility tools -->
-                        <button class="editor-tool-btn" data-tool="eyedropper" aria-label="Pick color" aria-pressed="false" data-tooltip="Pick color (I)">
+                        <button class="editor-tool-btn" data-tool="eyedropper" aria-label="Pick color" aria-pressed="false" data-tooltip="Pick color" data-shortcut-hint="editor.eyedropper">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 4l-2-2-4 4-1-1-3 3 1 1-6 6v3h3l6-6 1 1 3-3-1-1 4-4z"></path>
                             </svg>
@@ -1249,14 +1314,14 @@
                         <!-- Undo/Redo -->
                         <div class="flex items-center gap-1">
                             <button id="editor-undo" class="p-1.5 bg-stone-100 hover:bg-stone-200 rounded-md transition-colors"
-                                aria-label="Undo last action" data-tooltip="Undo last action (Ctrl+Z)">
+                                aria-label="Undo last action" data-tooltip="Undo last action" data-shortcut-hint="editor.undo">
                                 <svg class="w-4 h-4 text-stone-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                                         d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"></path>
                                 </svg>
                             </button>
                             <button id="editor-redo" class="p-1.5 bg-stone-100 hover:bg-stone-200 rounded-md transition-colors"
-                                aria-label="Redo last action" data-tooltip="Redo last action (Ctrl+Y)">
+                                aria-label="Redo last action" data-tooltip="Redo last action" data-shortcut-hint="editor.redo">
                                 <svg class="w-4 h-4 text-stone-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                                         d="M21 10h-10a8 8 0 00-8 8v2M21 10l-6 6m6-6l-6-6"></path>
@@ -1268,13 +1333,13 @@
 
                         <!-- Rotate/Flip buttons -->
                         <div class="flex items-center gap-1">
-                            <button id="editor-rotate-cw" class="p-1.5 bg-stone-100 hover:bg-stone-200 rounded-md transition-colors" aria-label="Rotate 90° clockwise" data-tooltip="Rotate 90° clockwise (R)">
+                            <button id="editor-rotate-cw" class="p-1.5 bg-stone-100 hover:bg-stone-200 rounded-md transition-colors" aria-label="Rotate 90° clockwise" data-tooltip="Rotate 90° clockwise" data-shortcut-hint="editor.rotate_cw">
                                 <svg class="w-3.5 h-3.5 text-stone-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 3l4 4-4 4"></path>
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 7h-8a5 5 0 00-5 5v8"></path>
                                 </svg>
                             </button>
-                            <button id="editor-rotate-ccw" class="p-1.5 bg-stone-100 hover:bg-stone-200 rounded-md transition-colors" aria-label="Rotate 90° counter-clockwise" data-tooltip="Rotate 90° counter-clockwise (Shift+R)">
+                            <button id="editor-rotate-ccw" class="p-1.5 bg-stone-100 hover:bg-stone-200 rounded-md transition-colors" aria-label="Rotate 90° counter-clockwise" data-tooltip="Rotate 90° counter-clockwise" data-shortcut-hint="editor.rotate_ccw">
                                 <svg class="w-3.5 h-3.5 text-stone-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 3L5 7l4 4"></path>
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 7h8a5 5 0 015 5v8"></path>
@@ -1297,18 +1362,18 @@
                         <!-- Zoom controls -->
                         <div class="flex items-center gap-1">
                             <button id="editor-zoom-fit" class="p-1.5 bg-stone-100 hover:bg-stone-200 rounded-md transition-colors text-[10px] font-medium text-stone-600"
-                                aria-label="Zoom to fit" data-tooltip="Zoom to fit (Ctrl+0)">Fit</button>
+                                aria-label="Zoom to fit" data-tooltip="Zoom to fit" data-shortcut-hint="editor.zoom_fit">Fit</button>
                             <button id="editor-zoom-100" class="p-1.5 bg-stone-100 hover:bg-stone-200 rounded-md transition-colors text-[10px] font-medium text-stone-600"
-                                aria-label="Zoom to 100%" data-tooltip="Zoom to 100% (Ctrl+1)">100%</button>
+                                aria-label="Zoom to 100%" data-tooltip="Zoom to 100%" data-shortcut-hint="editor.zoom_100">100%</button>
                             <button id="editor-zoom-out" class="p-1.5 bg-stone-100 hover:bg-stone-200 rounded-md transition-colors"
-                                aria-label="Zoom out" data-tooltip="Zoom out (Ctrl+-)">
+                                aria-label="Zoom out" data-tooltip="Zoom out" data-shortcut-hint="editor.zoom_out">
                                 <svg class="w-3.5 h-3.5 text-stone-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 12H4"></path>
                                 </svg>
                             </button>
-                            <output id="editor-zoom-display" class="text-[10px] font-medium text-stone-600 w-8 text-center" aria-label="Zoom level" aria-live="polite">100%</output>
+                            <output id="editor-zoom-display" class="text-[10px] font-medium text-stone-600 w-8 text-center" aria-label="Zoom level" aria-live="polite" data-tooltip="When zoomed in: scroll, or hold Space and drag, to pan">100%</output>
                             <button id="editor-zoom-in" class="p-1.5 bg-stone-100 hover:bg-stone-200 rounded-md transition-colors"
-                                aria-label="Zoom in" data-tooltip="Zoom in (Ctrl+=)">
+                                aria-label="Zoom in" data-tooltip="Zoom in" data-shortcut-hint="editor.zoom_in">
                                 <svg class="w-3.5 h-3.5 text-stone-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 4v16m8-8H4"></path>
                                 </svg>
@@ -1408,6 +1473,7 @@
                 <!-- Filter type -->
                 <div>
                     <label class="block text-[10px] font-medium text-stone-500 uppercase tracking-wider mb-2">File Types</label>
+                    <p id="filter-empty-hint" data-testid="filter-empty-hint" hidden class="text-[10px] text-amber-700 mb-2">Pick at least one file type, or enter a custom filter, to enable saving.</p>
                     <div class="space-y-2">
                         <label class="flex items-center gap-2 cursor-pointer">
                             <input type="checkbox" id="filter-all" class="w-4 h-4 rounded border-stone-300 text-stone-700 focus:ring-stone-500">
@@ -1545,7 +1611,7 @@
                 <!-- Finder / file manager access (native provider and Linux builds) -->
                 <div id="file-provider-settings" class="hidden pt-4 border-t border-stone-100">
                     <h3 id="file-provider-title" class="text-xs font-semibold text-stone-600 uppercase tracking-wider mb-3">Finder access</h3>
-                    <p id="file-provider-intro" class="text-[11px] text-stone-500 mb-3">Browse and copy pastes from Active and Archive in Finder. Keep Mahpastes running to open files that have not been downloaded. Edit pastes in Mahpastes.</p>
+                    <p id="file-provider-intro" class="text-[11px] text-stone-500 mb-3">Browse and copy clips from Active and Archive in Finder. Keep mahpastes running to open files that have not been downloaded. Edit clips in mahpastes.</p>
                     <p id="file-provider-hidden" class="text-[11px] text-stone-500 mb-3">Hidden tags are excluded. Copies already downloaded or saved elsewhere may remain after a paste is hidden or expires.</p>
                     <p id="file-provider-status" class="text-xs text-stone-600 mb-3" role="status" aria-live="polite"></p>
                     <div class="flex gap-3">
@@ -1608,6 +1674,7 @@
                     </h3>
                     <p class="text-[11px] text-stone-500 mb-3">
                         Create a backup of all clips, tags, plugins, and settings. Restoring will replace all current data.
+                        <span class="server-only" data-testid="restore-server-note">Restoring is done on the server, from the command line: <code class="font-mono">mp backup restore backup.zip</code>.</span>
                     </p>
                     <div class="flex gap-3">
                         <button id="create-backup-btn" data-testid="create-backup-btn"
@@ -1785,6 +1852,11 @@
                         <div>
                             <p class="text-xs font-medium text-stone-700">mahpastes</p>
                             <p id="about-version" data-testid="about-version" class="text-[11px] text-stone-500 font-mono">Version …</p>
+                            <p id="about-update" data-testid="about-update" hidden class="text-[11px] text-stone-600 mt-1">
+                                <span id="about-update-text"></span>
+                                <button type="button" id="about-update-link" data-testid="about-update-link"
+                                    class="font-semibold text-stone-800 underline underline-offset-2 hover:text-stone-600 transition-colors">View release</button>
+                            </p>
                         </div>
                     </div>
                     <div id="update-check-settings" class="desktop-only mt-4">
@@ -1802,10 +1874,11 @@
                     </div>
                 </div>
             </div>
-            <div class="bg-stone-50 px-5 py-3 flex justify-end border-t border-stone-100">
+            <div class="bg-stone-50 px-5 py-3 flex items-center justify-between gap-3 border-t border-stone-100">
+                <p class="text-[11px] text-stone-400" data-testid="settings-autosave-note">Changes are saved as you make them.</p>
                 <button id="settings-save"
                     class="bg-stone-800 hover:bg-stone-700 text-white text-xs font-medium py-2 px-4 rounded-md transition-colors">
-                    Save Settings
+                    Done
                 </button>
             </div>
         </div>
@@ -1956,6 +2029,11 @@
             <div class="p-5 border-b border-stone-100 flex justify-between items-center">
                 <h2 id="plugins-modal-title" class="text-sm font-semibold text-stone-800">Plugins</h2>
                 <div class="flex items-center gap-2">
+                    <button id="check-plugin-updates-btn" data-testid="check-plugin-updates-btn"
+                        class="border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-xs font-medium py-2 px-3 rounded-md transition-colors disabled:opacity-50 disabled:cursor-default"
+                        data-tooltip="Look for newer versions of plugins installed from a URL">
+                        Check for updates
+                    </button>
                     <button id="install-url-btn" data-testid="install-url-btn"
                         class="border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-xs font-medium py-2 px-3 rounded-md transition-colors flex items-center gap-1.5"
                         onclick="toggleURLInput()">
@@ -2096,7 +2174,7 @@
             </div>
             <div class="p-4 border-t border-stone-100 flex justify-between">
                 <button id="clear-completed-btn" class="text-xs text-stone-500 hover:text-stone-700 transition-colors">
-                    Clear completed
+                    Clear finished
                 </button>
                 <button id="queue-modal-done"
                     class="bg-stone-800 hover:bg-stone-700 text-white text-xs font-medium py-2 px-4 rounded-md transition-colors">
@@ -2415,6 +2493,23 @@
                             </button>
                         </div>
                         <p class="text-[10px] text-stone-400">This key will not be shown again.</p>
+                        <!-- How to use it: nothing else in the app mentions the mp CLI -->
+                        <div id="api-key-usage" data-testid="api-key-usage" class="space-y-1">
+                            <p class="text-[10px] font-semibold text-stone-500 uppercase tracking-wide">Use it with the mp command line tool</p>
+                            <div class="flex items-start gap-2">
+                                <pre id="api-key-usage-snippet" data-testid="api-key-usage-snippet"
+                                    class="flex-1 text-[11px] bg-white border border-stone-200 rounded px-2.5 py-1.5 font-mono text-stone-700 whitespace-pre-wrap break-all select-all"></pre>
+                                <button type="button" id="api-key-usage-copy" aria-label="Copy these commands"
+                                    class="p-1.5 text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded transition-colors"
+                                    data-tooltip="Copy these commands">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                                            d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                    </svg>
+                                </button>
+                            </div>
+                            <p id="api-key-usage-stopped" data-testid="api-key-usage-stopped" hidden class="text-[10px] text-amber-700">The API server is stopped. Start it above before using this key.</p>
+                        </div>
                         <button id="api-key-reveal-close"
                             class="border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-xs font-medium py-1 px-2.5 rounded-md transition-colors">
                             Done
@@ -2424,6 +2519,16 @@
                     <!-- Key List -->
                     <div id="api-keys-list" class="space-y-2" data-testid="api-keys-list">
                         <p class="text-xs text-stone-400">No API keys yet.</p>
+                    </div>
+                </section>
+
+                <!-- Public links (web UI only: that is where they are made). Each is a
+                     download address that needs no sign-in until it is revoked. -->
+                <section class="server-only mt-5" data-testid="public-links-section">
+                    <h3 class="text-sm font-semibold uppercase tracking-wide text-stone-800 mb-1">Public Links</h3>
+                    <p class="text-[11px] text-stone-400 mb-3">Made with Copy &rarr; Public Link on a clip. Anyone with the link can download that clip until it is revoked.</p>
+                    <div id="public-links-list" class="space-y-2" data-testid="public-links-list">
+                        <p class="text-xs text-stone-400">No public links.</p>
                     </div>
                 </section>
             </div>
@@ -2457,7 +2562,7 @@
                 <div id="create-share-qr-box" class="hidden mx-auto my-2 bg-white p-2 border border-stone-200 w-fit"></div>
                 <div class="bg-amber-50 border border-amber-200 rounded-md px-3 py-2 text-[10px] text-amber-700 mb-3">⚠ Treat this like a password. It contains the decryption key.</div>
                 <div class="flex justify-end gap-2">
-                    <button id="create-share-copy-btn" class="bg-stone-800 hover:bg-stone-700 text-white text-xs font-medium py-2 px-4 rounded-md">📋 Copy link</button>
+                    <button id="create-share-copy-btn" class="bg-stone-800 hover:bg-stone-700 text-white text-xs font-medium py-2 px-4 rounded-md">Copy link</button>
                     <button id="create-share-qr-toggle-btn" class="border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-xs font-medium py-2 px-3 rounded-md">Show QR</button>
                     <button class="create-share-close border border-stone-200 hover:border-stone-300 hover:bg-stone-100 text-stone-600 text-xs font-medium py-2 px-3 rounded-md">Done</button>
                 </div>

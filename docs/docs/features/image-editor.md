@@ -20,6 +20,8 @@ Clicking an image preview opens the lightbox, not the editor. Use the context me
 
 ## Drawing Tools
 
+The editor opens with the drawing tool, colour, opacity and sizes you used last. One-off tools (crop, select, eyedropper, anonymize) are not reopened; the drawing tool used before them is.
+
 ### Brush Tool
 
 Freehand drawing for annotations and highlights.
@@ -230,7 +232,7 @@ Control the view of the canvas without modifying the image.
 | Action | Method |
 |--------|--------|
 | Zoom in/out | <span className="keyboard-key">Ctrl</span>/<span className="keyboard-key">Cmd</span> + scroll wheel, or toolbar buttons |
-| Pan | Hold <span className="keyboard-key">Space</span> and drag |
+| Pan | Scroll (wheel or two fingers) while zoomed in, or hold <span className="keyboard-key">Space</span> and drag |
 | Zoom to fit | Toolbar button (auto-fits on open) |
 | Zoom to 100% | Toolbar button |
 
@@ -272,6 +274,7 @@ Navigate around the canvas, especially at high zoom levels.
 | **100%** button | View at actual pixel size |
 | <span className="keyboard-key">Ctrl</span>/<span className="keyboard-key">Cmd</span> + scroll | Zoom in/out centered on the cursor |
 | Hold <span className="keyboard-key">Space</span> + drag | Pan the canvas (works with any tool active) |
+| Scroll | Pan the canvas while it is larger than its frame (<span className="keyboard-key">Shift</span> + wheel pans sideways) |
 
 The zoom range is 10% to 800%. The current zoom level is displayed as a percentage in the toolbar.
 
@@ -283,7 +286,8 @@ Fix mistakes with full undo support:
 |--------|----------|
 | Undo | <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">Z</span> |
 | Redo | <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">Shift</span> + <span className="keyboard-key">Z</span> or <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">Y</span> |
-| Save as new clip | <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">S</span> |
+| Save (overwrite the clip) | <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">S</span> |
+| Save as new clip | <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">Shift</span> + <span className="keyboard-key">S</span> |
 
 The editor maintains up to **50 undo steps** within a strict 100 MB budget for undo/redo snapshots. The active canvas and the eraser's aligned source image are separate working buffers. Large images may therefore retain fewer undo steps. No-op clicks are not recorded, and the redo stack is cleared only when pixels actually change. Undo and redo support operations that change canvas dimensions, such as crop and rotate.
 
@@ -314,7 +318,8 @@ Every tool and common action has a keyboard shortcut.
 | <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">Z</span> | Undo |
 | <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">Shift</span> + <span className="keyboard-key">Z</span> | Redo |
 | <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">Y</span> | Redo (alternative) |
-| <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">S</span> | Save as new clip |
+| <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">S</span> | Save (overwrite the clip) |
+| <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">Shift</span> + <span className="keyboard-key">S</span> | Save as new clip |
 | <span className="keyboard-key">R</span> | Rotate 90 CW |
 | <span className="keyboard-key">Shift</span> + <span className="keyboard-key">R</span> | Rotate 90 CCW |
 | <span className="keyboard-key">]</span> | Increase brush size |
@@ -366,11 +371,11 @@ Every tool and common action has a keyboard shortcut.
 
 ### Save (Overwrite)
 
-Click **Save** to overwrite the original clip with your edits. The original clip's content is replaced in place. The filename remains the same.
+Click **Save** (or press <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">S</span>) to overwrite the original clip with your edits. The original clip's content is replaced in place. The filename remains the same.
 
 ### Save as New Clip
 
-Click **Save As** (or press <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">S</span>) to create a new clip with your annotations. The original clip is preserved unchanged, and the new clip is saved with `_edited` appended to the filename.
+Click **Save As** (or press <span className="keyboard-key">Cmd</span>/<span className="keyboard-key">Ctrl</span> + <span className="keyboard-key">Shift</span> + <span className="keyboard-key">S</span>) to create a new clip with your annotations. The original clip is preserved unchanged, and the new clip is saved with `_edited` appended to the filename.
 
 The editor keeps JPEG, PNG, and WebP when the embedded browser supports the requested encoder. Other formats, including GIF, BMP, and SVG, are rasterized to PNG. The saved filename extension is normalized to the actual encoded format, including for Save As names. JPEG export applies a white background; PNG and WebP preserve transparency.
 

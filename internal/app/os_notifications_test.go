@@ -29,6 +29,26 @@ func TestOSNotificationsSettingDefaultsOff(t *testing.T) {
 	}
 }
 
+// The Serve view's remembered list names ports, bind modes and API access:
+// it stays on the machine that chose them.
+func TestServeEntriesSettingIsMachineLocal(t *testing.T) {
+	if !isSensitiveSetting(SettingServeEntries) {
+		t.Error("serve_entries would be included in backups")
+	}
+	app := newSettingsTestApp(t)
+	manager := NewAPIManager(app)
+	req := httptest.NewRequest("PUT", "/api/v1/settings/"+SettingServeEntries, strings.NewReader(`{"value":"[]"}`))
+	req.SetPathValue("key", SettingServeEntries)
+	rec := httptest.NewRecorder()
+	manager.handleSetSetting(rec, withKey(req, &apiKeyContext{KeyID: 1, Role: "admin"}))
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("PUT serve_entries: code = %d, want 403", rec.Code)
+	}
+	if v, _ := app.GetSetting(SettingServeEntries); v != "" {
+		t.Errorf("PUT serve_entries stored %q despite the refusal", v)
+	}
+}
+
 func TestOSNotificationsSettingIsMachineLocal(t *testing.T) {
 	if !isSensitiveSetting(SettingOSNotifications) {
 		t.Error("os_notifications would be included in backups")

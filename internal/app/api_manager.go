@@ -1103,6 +1103,10 @@ type apiClipResponse struct {
 	// ContentHash names the bytes' revision; the web UI puts it in thumbnail
 	// URLs (GET /api/v1/clips/{id}/thumb?h=). Set by the paged listing.
 	ContentHash string `json:"content_hash,omitempty"`
+	// ExpiresAt is when the clip deletes itself, or null. Always present, so
+	// a client patching a card from this row can tell "no expiry" (after a
+	// cancel) from "not reported". Same format as the desktop binding.
+	ExpiresAt *time.Time `json:"expires_at"`
 }
 
 type apiClipListResponse struct {
@@ -1219,12 +1223,16 @@ func (am *APIManager) handleListClips(w http.ResponseWriter, r *http.Request) {
 		var c apiClipResponse
 		var filename sql.NullString
 		var isArchived int
+		var expiresAt sql.NullTime
 
-		if err := rows.Scan(&c.ID, &c.ContentType, &filename, &c.Size, &isArchived, &c.CreatedAt, &c.ContentHash); err != nil {
+		if err := rows.Scan(&c.ID, &c.ContentType, &filename, &c.Size, &isArchived, &c.CreatedAt, &c.ContentHash, &expiresAt); err != nil {
 			continue
 		}
 		c.Filename = filename.String
 		c.IsArchived = isArchived == 1
+		if expiresAt.Valid {
+			c.ExpiresAt = &expiresAt.Time
+		}
 
 		c.Tags, _ = am.app.GetClipTags(c.ID)
 		if c.Tags == nil {
@@ -1434,6 +1442,7 @@ func (am *APIManager) handleListClipsViaApp(w http.ResponseWriter, r *http.Reque
 				CreatedAt:   p.CreatedAt.Format(time.RFC3339),
 				Tags:        p.Tags,
 				ContentHash: p.ContentHash,
+				ExpiresAt:   p.ExpiresAt,
 			})
 		}
 		am.jsonOK(w, apiClipListResponse{Clips: clips, Total: page.Total, Limit: limit, Offset: page.Offset})
@@ -1502,6 +1511,7 @@ func (am *APIManager) handleListClipsViaApp(w http.ResponseWriter, r *http.Reque
 			CreatedAt:   p.CreatedAt.Format(time.RFC3339),
 			Tags:        p.Tags,
 			ContentHash: p.ContentHash,
+			ExpiresAt:   p.ExpiresAt,
 		})
 	}
 	total := len(clips)
@@ -1532,10 +1542,11 @@ func (am *APIManager) handleGetClip(w http.ResponseWriter, r *http.Request) {
 	var c apiClipResponse
 	var filename sql.NullString
 	var isArchived int
+	var expiresAt sql.NullTime
 
 	err = am.app.db.QueryRow(
-		"SELECT id, content_type, filename, LENGTH(data), is_archived, created_at, COALESCE(content_hash, '') FROM clips WHERE id = ?", id,
-	).Scan(&c.ID, &c.ContentType, &filename, &c.Size, &isArchived, &c.CreatedAt, &c.ContentHash)
+		"SELECT id, content_type, filename, LENGTH(data), is_archived, created_at, COALESCE(content_hash, ''), expires_at FROM clips WHERE id = ?", id,
+	).Scan(&c.ID, &c.ContentType, &filename, &c.Size, &isArchived, &c.CreatedAt, &c.ContentHash, &expiresAt)
 	if err != nil {
 		am.jsonError(w, http.StatusNotFound, "clip not found")
 		return
@@ -1543,6 +1554,9 @@ func (am *APIManager) handleGetClip(w http.ResponseWriter, r *http.Request) {
 
 	c.Filename = filename.String
 	c.IsArchived = isArchived == 1
+	if expiresAt.Valid {
+		c.ExpiresAt = &expiresAt.Time
+	}
 	c.Tags, _ = am.app.GetClipTags(id)
 	if c.Tags == nil {
 		c.Tags = []Tag{}
@@ -2117,16 +2131,20 @@ func (am *APIManager) handleGetClipByID(w http.ResponseWriter, id int64) {
 	var c apiClipResponse
 	var filename sql.NullString
 	var isArchived int
+	var expiresAt sql.NullTime
 
 	err := am.app.db.QueryRow(
-		"SELECT id, content_type, filename, LENGTH(data), is_archived, created_at, COALESCE(content_hash, '') FROM clips WHERE id = ?", id,
-	).Scan(&c.ID, &c.ContentType, &filename, &c.Size, &isArchived, &c.CreatedAt, &c.ContentHash)
+		"SELECT id, content_type, filename, LENGTH(data), is_archived, created_at, COALESCE(content_hash, ''), expires_at FROM clips WHERE id = ?", id,
+	).Scan(&c.ID, &c.ContentType, &filename, &c.Size, &isArchived, &c.CreatedAt, &c.ContentHash, &expiresAt)
 	if err != nil {
 		return
 	}
 
 	c.Filename = filename.String
 	c.IsArchived = isArchived == 1
+	if expiresAt.Valid {
+		c.ExpiresAt = &expiresAt.Time
+	}
 	c.Tags, _ = am.app.GetClipTags(id)
 	if c.Tags == nil {
 		c.Tags = []Tag{}
@@ -3366,7 +3384,7 @@ func legacyClipListSQL(conditions []string) (count, page string) {
 	}
 	from := "FROM clips c INDEXED BY " + clipListingIndex + " WHERE " + where
 	return "SELECT COUNT(*) " + from,
-		"SELECT c.id, c.content_type, c.filename, LENGTH(c.data), c.is_archived, c.created_at, COALESCE(c.content_hash, '') " + from +
+		"SELECT c.id, c.content_type, c.filename, LENGTH(c.data), c.is_archived, c.created_at, COALESCE(c.content_hash, ''), c.expires_at " + from +
 			" ORDER BY c.created_at DESC, c.id DESC LIMIT ? OFFSET ?"
 }
 
@@ -3421,12 +3439,16 @@ func (am *APIManager) handleGetTagClips(w http.ResponseWriter, r *http.Request) 
 		var c apiClipResponse
 		var filename sql.NullString
 		var isArchived int
+		var expiresAt sql.NullTime
 
-		if err := rows.Scan(&c.ID, &c.ContentType, &filename, &c.Size, &isArchived, &c.CreatedAt, &c.ContentHash); err != nil {
+		if err := rows.Scan(&c.ID, &c.ContentType, &filename, &c.Size, &isArchived, &c.CreatedAt, &c.ContentHash, &expiresAt); err != nil {
 			continue
 		}
 		c.Filename = filename.String
 		c.IsArchived = isArchived == 1
+		if expiresAt.Valid {
+			c.ExpiresAt = &expiresAt.Time
+		}
 		c.Tags, _ = am.app.GetClipTags(c.ID)
 		if c.Tags == nil {
 			c.Tags = []Tag{}

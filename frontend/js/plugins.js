@@ -60,7 +60,7 @@ async function loadPlugins() {
         renderPluginsList();
     } catch (error) {
         console.error('Failed to load plugins:', error);
-        showToast('Failed to load plugins', 'error');
+        showToast('Failed to load plugins.', 'error');
     }
 }
 
@@ -77,6 +77,14 @@ function renderPluginsList() {
     }
 
     pluginsEmptyState.classList.add('hidden');
+    // The list is rebuilt whole (expanding a card does it too): remember which
+    // card had the keyboard, to hand it back below.
+    // Only when the card itself held it: on the card Enter and Space mean
+    // "expand", so moving focus there from a control inside it (a toggle just
+    // flipped, a settings field mid-edit) would turn the next key into a
+    // collapse.
+    const active = document.activeElement;
+    const focusedId = active && active.parentElement === pluginsList ? active.dataset.id : null;
     pluginsList.innerHTML = '';
 
     for (const plugin of pluginsCache) {
@@ -87,12 +95,24 @@ function renderPluginsList() {
     // Initialize roving tabindex for plugin list
     if (pluginListRover) pluginListRover.destroy();
     if (pluginsList.children.length > 0) {
+        // Arrows move between plugins; Enter expands or collapses the focused
+        // one and Tab reaches its toggle, buttons and settings.
         pluginListRover = RovingTabindex.create({
             container: pluginsList,
             itemSelector: ':scope > li',
             orientation: 'vertical',
             wrap: false,
+            keepActiveChildren: true,
+            onActivate: (item) => togglePluginExpand(Number(item.dataset.id)),
         });
+        if (focusedId !== null) {
+            const cards = Array.from(pluginsList.children);
+            const index = cards.findIndex(li => li.dataset.id === focusedId);
+            if (index !== -1) {
+                pluginListRover.setActiveIndex(index);
+                cards[index].focus({ preventScroll: true });
+            }
+        }
     }
 }
 
@@ -104,13 +124,20 @@ function createPluginCard(plugin) {
     li.dataset.testid = `plugin-card-${plugin.id}`;
 
     const isExpanded = expandedPluginId === plugin.id;
+    // On the element that takes focus and Enter, so it is announced.
+    li.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
     const needsReview = plugin.status === 'needs_review';
     const statusDot = plugin.status === 'error'
         ? 'bg-red-500'
         : (plugin.enabled ? 'bg-emerald-500' : (needsReview ? 'bg-amber-500' : 'bg-stone-300'));
-    const statusTitle = plugin.enabled
-        ? (plugin.status === 'error' ? 'Error' : 'Enabled')
-        : (needsReview ? 'Needs review' : 'Disabled');
+    const errored = plugin.status === 'error';
+    const statusTitle = errored
+        ? 'Stopped after repeated errors'
+        : (plugin.enabled ? 'Enabled' : (needsReview ? 'Needs review' : 'Disabled'));
+    // A plugin stopped for errors keeps its stored "enabled" flag but is not
+    // running. The switch shows off, so switching it on is the retry: enabling
+    // resets the error count and loads it again.
+    const showOn = plugin.enabled && !errored;
 
     li.innerHTML = `
         <div class="p-4 cursor-pointer" data-action="toggle-expand">
@@ -135,7 +162,7 @@ function createPluginCard(plugin) {
                     </button>` : ''}
                     <label class="relative inline-flex items-center cursor-pointer" data-action="toggle-enable">
                         <input type="checkbox" data-testid="plugin-toggle-${plugin.id}"
-                               class="sr-only peer" ${plugin.enabled ? 'checked' : ''}>
+                               class="sr-only peer" ${showOn ? 'checked' : ''}>
                         <div class="w-9 h-5 bg-stone-300 peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-stone-400 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500"></div>
                     </label>
                     <svg class="w-4 h-4 text-stone-400 transition-transform ${isExpanded ? 'rotate-180' : ''}"
@@ -156,8 +183,12 @@ function createPluginCard(plugin) {
                 ` : ''}
 
                 ${needsReview ? `
-                <div class="p-2 bg-amber-50 border border-amber-200 rounded text-amber-700">
+                <div class="p-2 bg-amber-50 border border-amber-200 rounded text-amber-700 flex flex-wrap items-center justify-between gap-2">
                     <span class="text-[11px] font-medium">Restored from a backup. Review its permissions before enabling it.</span>
+                    <button type="button" data-action="review" data-testid="plugin-review-btn-${plugin.id}"
+                        class="border border-amber-200 hover:bg-amber-100 text-amber-700 text-[10px] font-medium py-1 px-2 rounded-md transition-colors">
+                        Review &amp; enable
+                    </button>
                 </div>
                 ` : ''}
 
@@ -167,7 +198,11 @@ function createPluginCard(plugin) {
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                               d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                     </svg>
-                    <span class="text-[11px] font-medium">Plugin has errors and was disabled</span>
+                    <span class="text-[11px] font-medium flex-1" data-testid="plugin-error-note-${plugin.id}">Stopped after repeated errors. The log has the details. Switch it on to try again.</span>
+                    <button type="button" data-action="open-log" data-testid="plugin-open-log-${plugin.id}"
+                        class="desktop-only shrink-0 border border-red-200 hover:bg-red-100 text-red-600 text-[10px] font-medium py-1 px-2 rounded-md transition-colors">
+                        Open log folder
+                    </button>
                 </div>
                 ` : ''}
 
@@ -223,6 +258,31 @@ function createPluginCard(plugin) {
         }
     });
 
+    const reviewBtn = li.querySelector('[data-action="review"]');
+    if (reviewBtn) {
+        reviewBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            if (reviewBtn.disabled) return;
+            reviewBtn.disabled = true; // one review dialog at a time
+            try {
+                await reviewAndEnablePlugin(plugin.id);
+            } finally {
+                reviewBtn.disabled = false;
+            }
+        });
+    }
+    const openLogBtn = li.querySelector('[data-action="open-log"]');
+    if (openLogBtn) {
+        openLogBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            try {
+                await window.go.main.App.OpenLogFolder();
+            } catch (error) {
+                toastError('Could not open the log folder', error);
+            }
+        });
+    }
+
     const removeBtn = li.querySelector('[data-action="remove"]');
     removeBtn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -245,8 +305,11 @@ function createPluginCard(plugin) {
 
     // Load permissions and settings if expanded
     if (isExpanded) {
-        loadPluginPermissions(plugin.id, li);
-        loadPluginSettings(plugin.id, li);
+        // Both arrive after the rover was built: let it see the new controls.
+        Promise.allSettled([
+            loadPluginPermissions(plugin.id, li),
+            loadPluginSettings(plugin.id, li),
+        ]).then(() => { if (pluginListRover) pluginListRover.update(); });
     }
 
     return li;
@@ -797,7 +860,7 @@ async function refreshURLGrantStatuses(cardElement, pluginId) {
                     await window.go.main.PluginService.RevokePluginPermission(pluginId, 'network', revokeBtn.dataset.host);
                 } catch (error) {
                     console.error('Failed to revoke network permission:', error);
-                    showToast('Failed to revoke permission', 'error');
+                    showToast('Failed to revoke permission.', 'error');
                 }
                 await refreshURLGrantStatuses(cardElement, pluginId);
                 await loadPluginPermissions(pluginId, cardElement);
@@ -811,17 +874,17 @@ async function togglePluginEnabled(pluginId, enabled) {
     try {
         if (enabled) {
             await window.go.main.PluginService.EnablePlugin(pluginId);
-            showToast('Plugin enabled');
+            showToast('Plugin enabled.');
         } else {
             await window.go.main.PluginService.DisablePlugin(pluginId);
-            showToast('Plugin disabled');
+            showToast('Plugin disabled.');
         }
         await loadPlugins();
         await loadPluginUIActions();
         loadClips(); // re-render cards with updated plugin actions
     } catch (error) {
         console.error('Failed to toggle plugin:', error);
-        showToast('Failed to update plugin', 'error');
+        showToast('Failed to update plugin.', 'error');
         await loadPlugins(); // Refresh to correct UI state
     }
 }
@@ -875,7 +938,7 @@ async function installFromURL() {
     const urlInput = document.getElementById('plugin-url-input');
     const url = urlInput?.value?.trim();
     if (!url) {
-        showToast('Please enter a URL');
+        showToast('Please enter a URL.');
         return;
     }
 
@@ -889,7 +952,7 @@ async function installFromURL() {
 
         const preview = await window.go.main.PluginService.PreviewPluginFromURL(url);
         if (!preview) {
-            showToast('Failed to fetch plugin from URL', 'error');
+            showToast('Failed to fetch plugin from URL.', 'error');
             return;
         }
 
@@ -959,7 +1022,7 @@ function removePlugin(pluginId, pluginName) {
     showConfirmDialog('Remove Plugin', `Remove "${escapeHTML(pluginName)}"? This cannot be undone.`, async () => {
         try {
             await window.go.main.PluginService.RemovePlugin(pluginId);
-            showToast('Plugin removed');
+            showToast('Plugin removed.');
             if (expandedPluginId === pluginId) {
                 expandedPluginId = null;
             }
@@ -968,7 +1031,7 @@ function removePlugin(pluginId, pluginName) {
             loadClips();
         } catch (error) {
             console.error('Failed to remove plugin:', error);
-            showToast('Failed to remove plugin', 'error');
+            showToast('Failed to remove plugin.', 'error');
         }
     }, null, { confirmLabel: 'Remove' });
 }
@@ -982,6 +1045,14 @@ async function updatePlugin(pluginId, pluginName) {
     try {
         const result = await window.go.main.PluginService.UpdatePlugin(pluginId);
 
+        if (result.needs_review && result.preview && window.mahpastesMode === 'server') {
+            // The web UI cannot confirm an update whose permissions changed:
+            // showing the review and then failing on approval was a dead
+            // end. Say what works instead (removing and reinstalling would
+            // lose the plugin's storage and granted permissions).
+            showToast(`${pluginName}'s update changes its permissions. Review and apply it in the desktop app.`, 'error');
+            return;
+        }
         if (result.needs_review && result.preview) {
             const plugin = pluginsCache.find(p => p.id === pluginId);
             const currentVersion = plugin?.version || '?';
@@ -1017,7 +1088,7 @@ async function updatePlugin(pluginId, pluginName) {
 async function revokePermission(pluginId, permType, path) {
     try {
         await window.go.main.PluginService.RevokePluginPermission(pluginId, permType, path);
-        showToast('Permission revoked');
+        showToast('Permission revoked.');
 
         // Reload permissions for this plugin
         const card = pluginsList.querySelector(`li[data-id="${pluginId}"]`);
@@ -1026,7 +1097,7 @@ async function revokePermission(pluginId, permType, path) {
         }
     } catch (error) {
         console.error('Failed to revoke permission:', error);
-        showToast('Failed to revoke permission', 'error');
+        showToast('Failed to revoke permission.', 'error');
     }
 }
 
@@ -1074,12 +1145,12 @@ async function executePluginAction(pluginId, actionId, clipIds, options, isAsync
                 if (acquired) {
                     showPluginResultModal(result.modal);
                 } else {
-                    showToast('Cannot show result — another modal is open', 'error');
+                    showToast('Cannot show result — another modal is open.', 'error');
                 }
             } else if (isAsync) {
                 showToast('Processing started...');
             } else {
-                showToast('Action completed');
+                showToast('Action completed.');
                 if (typeof loadClips === 'function') {
                     loadClips();
                 }
@@ -1377,7 +1448,7 @@ document.getElementById('plugin-options-form')?.addEventListener('submit', async
         !(document.querySelector(`#plugin-options-form [name="${field.id}"]`)?.value)
     );
     if (missingRequiredSearch.length > 0) {
-        showToast(`Please choose a value for "${missingRequiredSearch[0].label}"`, 'error');
+        showToast(`Please choose a value for "${missingRequiredSearch[0].label}".`, 'error');
         return;
     }
 
@@ -1420,6 +1491,39 @@ document.getElementById('plugin-options-form')?.addEventListener('submit', async
 document.getElementById('plugin-options-modal')?.addEventListener('click', (e) => {
     if (e.target.id === 'plugin-options-modal') closePluginOptionsDialog();
 });
+
+// "Check for updates": updates were only ever shown if the scheduled check's
+// event arrived while this page was loaded, and a reload lost them. The check
+// asks the network for each URL-installed plugin, so it runs when asked.
+async function checkPluginUpdatesNow() {
+    const button = document.getElementById('check-plugin-updates-btn');
+    if (!button || button.disabled) return;
+    const label = button.textContent;
+    button.disabled = true;
+    button.textContent = 'Checking…';
+    try {
+        const updates = await window.go.main.PluginService.CheckForUpdates();
+        // The answer is the whole truth for the plugins it names, and the
+        // only source for badges: rebuild from it, for plugins still here.
+        pluginUpdates = {};
+        const present = new Set(pluginsCache.map(p => p.id));
+        for (const info of updates || []) {
+            if (info && present.has(info.plugin_id)) pluginUpdates[info.plugin_id] = info;
+        }
+        const count = Object.keys(pluginUpdates).length;
+        showToast(count === 0
+            ? 'No plugin updates found.'
+            : `${count} plugin update${count === 1 ? '' : 's'} available.`);
+        renderPluginsList();
+    } catch (error) {
+        console.error('Failed to check for plugin updates:', error);
+        toastError('Could not check for plugin updates', error);
+    } finally {
+        button.disabled = false;
+        button.textContent = label.trim();
+    }
+}
+document.getElementById('check-plugin-updates-btn')?.addEventListener('click', checkPluginUpdatesNow);
 
 // Listen for plugin update events
 if (window.runtime && window.runtime.EventsOn) {

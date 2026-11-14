@@ -321,6 +321,15 @@ test.describe('Import Folder Wizard', () => {
       expect(await app.getImportRowStatus('gone.txt')).toBe('missing');
       expect(await app.getImportRowStatus('present.txt')).toBe('done');
 
+      // After Apply the header reports what happened, the failed row carries
+      // its reason in view, and it is listed first.
+      await expect(app.page.locator(selectors.importWizard.summaryCounts))
+        .toHaveText('1 imported · 0 deleted · 1 failed');
+      const rows = app.page.locator('[data-testid="import-summary-row"]');
+      await expect(rows.first()).toHaveAttribute('data-rel-path', 'gone.txt');
+      await expect(rows.first().locator('[data-testid="import-row-error"]')).not.toBeEmpty();
+      await expect(rows.nth(1).locator('[data-testid="import-row-error"]')).toHaveCount(0);
+
       await app.closeImportWizard(false);
       await app.refreshClips();
       await app.expectClipVisible('present.txt');
@@ -484,6 +493,35 @@ test.describe('Import Folder Wizard', () => {
 });
 
 test.describe('Import Folder shortcuts', () => {
+  test('the triage controls name their keys, and follow a rebinding', async ({ app, tempDir }) => {
+    const fs2 = await import('fs/promises');
+    await fs2.writeFile(path.join(tempDir, 'one.txt'), 'one');
+    await fs2.writeFile(path.join(tempDir, 'two.txt'), 'two');
+    await app.openImportWizard(tempDir, { recursive: false });
+    await app.startImportWalk();
+
+    const hint = (testid: string) => app.page.locator(`[data-testid="${testid}"] .import-key-hint`);
+    await expect(hint('import-action-import')).toHaveText('I');
+    await expect(hint('import-action-delete')).toHaveText('D');
+    await expect(hint('import-action-both')).toHaveText('B');
+    await expect(hint('import-action-skip')).toHaveText('S');
+    await expect(hint('import-next')).toHaveText('→');
+    await expect(hint('import-goto-summary')).toHaveText('G');
+    await expect(app.page.locator('[data-testid="import-action-import"]')).toHaveAttribute('aria-keyshortcuts', 'I');
+
+    // A rebound key shows on the next render.
+    await app.page.evaluate(() => {
+      // @ts-ignore - app global
+      ShortcutManager.setOverride('import.import', 'k');
+    });
+    await app.pressKey('ArrowRight');
+    await expect(hint('import-action-import')).toHaveText('K');
+    await app.page.evaluate(() => {
+      // @ts-ignore - app global
+      ShortcutManager.resetAllToDefaults();
+    });
+  });
+
   test('i/d/b/s assign actions and advance, r repeats', async ({ app, tempDir }) => {
     const fs2 = await import('fs/promises');
     for (const name of ['one.txt', 'two.txt', 'three.txt', 'four.txt', 'five.txt']) {

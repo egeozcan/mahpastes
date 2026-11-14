@@ -62,6 +62,9 @@ function openLightboxPluginMenu(trigger, actions, clip) {
     menu.className = 'lightbox-plugin-menu';
     menu.setAttribute('role', 'menu');
     menu.setAttribute('aria-label', 'Plugin actions');
+    // Keys typed with focus in the menu are the menu's: without this the
+    // viewer's single-letter shortcuts (archive, delete, edit) act behind it.
+    menu.setAttribute('data-owns-keys', '');
 
     // Group actions by plugin_name
     const grouped = new Map();
@@ -210,6 +213,10 @@ function renderLightboxFileActions(clip) {
     const container = document.getElementById('lightbox-file-actions');
     if (!container) return;
 
+    // Moving to another clip rebuilds the trigger. If it held focus (the
+    // confirm dialog of a delete hands focus back to it), the new one takes
+    // it, or focus falls to <body> and out of the viewer's focus trap.
+    const hadFocus = container.contains(document.activeElement);
     container.innerHTML = '';
     if (!clip) return;
 
@@ -235,6 +242,7 @@ function renderLightboxFileActions(clip) {
     });
 
     container.appendChild(btn);
+    if (hadFocus) btn.focus();
 }
 
 // `anchor` defaults to the trigger button; right-clicking the image passes a
@@ -278,7 +286,7 @@ async function handleLightboxFileAction(action, clip) {
             try {
                 await window.go.main.App.OpenClipWithDefaultApp(clip.id);
             } catch (err) {
-                showToast('Failed to open clip.', 'error');
+                toastError('Failed to open clip', err);
             }
             break;
         case 'open-with':
@@ -292,7 +300,7 @@ async function handleLightboxFileAction(action, clip) {
                     await window.go.main.App.OpenClipWithApp(clip.id, appPath);
                 }
             } catch (err) {
-                showToast('Failed to open clip.', 'error');
+                toastError('Failed to open clip', err);
             }
             break;
         case 'copy-path':
@@ -342,27 +350,40 @@ async function handleLightboxFileAction(action, clip) {
         case 'cancel-expiration':
             cancelExpiration(clip.id);
             break;
+        // Archive and delete leave the viewer open: once the card is gone the
+        // gallery hands the viewer its new list, and it moves to the next clip
+        // (or closes after the last). A cancelled delete keeps your place.
         case 'archive':
-            window.LightboxController.close();
+            closeStandaloneLightbox(clip);
             toggleArchiveClip(clip.id);
             break;
         case 'merge-duplicates':
             try {
                 await window.go.main.App.MergeDuplicates(clip.id);
-                showToast('Merged duplicates', 'success');
+                showToast('Merged duplicates.', 'success');
                 loadClips();
             } catch (err) {
-                showToast('Failed to merge duplicates', 'error');
+                showToast('Failed to merge duplicates.', 'error');
             }
             break;
         case 'rename':
             renameClip(clip.id);
             break;
         case 'delete':
-            window.LightboxController.close();
-            deleteClip(clip.id);
+            closeStandaloneLightbox(clip);
+            deleteClip(clip.id, clip.filename);
             break;
     }
+}
+
+// A viewer opened on a clip that is not one of the gallery's cards (an image
+// referenced from Markdown, a link to a clip on an unloaded page or behind the
+// search filter) has nothing to move on to: after the action the gallery would
+// hand it its own list and it would show a clip the user never opened. That
+// viewer closes first, as every viewer used to.
+function closeStandaloneLightbox(clip) {
+    const inGallery = getVisibleMediaClips().some(c => Number(c.id) === Number(clip.id));
+    if (!inGallery) window.LightboxController.close();
 }
 
 // --- Comparison Functions ---
@@ -405,6 +426,8 @@ async function openComparisonModal() {
     // Reset state
     comparisonMode = 'fade';
     zoomLevel = 1;
+    comparePanX = 0;
+    comparePanY = 0;
     isStretched = false;
     comparisonRange.value = 50;
 
@@ -541,9 +564,53 @@ function updateComparisonView() {
     }
 
     // Zoom
-    comparisonContainer.style.transform = `scale(${zoomLevel})`;
+    clampComparisonPan();
+    comparisonContainer.style.transform = `translate(${comparePanX}px, ${comparePanY}px) scale(${zoomLevel})`;
     zoomLevelEl.textContent = `${Math.round(zoomLevel * 100)}%`;
 }
+
+// The pair can be moved only as far as it overflows the viewport: an image
+// that fits stays centred, and a zoomed one keeps an edge in view.
+function clampComparisonPan() {
+    const viewport = document.getElementById('comparison-viewport');
+    if (!viewport) return;
+    // Per side, from where the pair sits before any pan: the Align selects
+    // can put it against an edge, and it scales about its own centre, so the
+    // overflow is not the same on both sides.
+    const limit = (offset, size, room, pan) => {
+        const scaled = size * zoomLevel;
+        if (scaled <= room) return 0;
+        const centre = offset + size / 2;
+        const max = -(centre - scaled / 2);      // its near edge at the viewport's
+        const min = room - (centre + scaled / 2); // its far edge at the viewport's
+        // `|| 0` turns a -0 into 0.
+        return Math.max(min, Math.min(max, pan)) || 0;
+    };
+    comparePanX = limit(comparisonContainer.offsetLeft, comparisonContainer.offsetWidth, viewport.clientWidth, comparePanX);
+    comparePanY = limit(comparisonContainer.offsetTop, comparisonContainer.offsetHeight, viewport.clientHeight, comparePanY);
+}
+
+// Wheel over the comparison: a plain wheel or two-finger scroll pans (Shift
+// turns a mouse wheel sideways), Ctrl/Cmd+wheel — a trackpad pinch — zooms,
+// as in the lightbox and the image editor.
+function onComparisonWheel(e) {
+    if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        zoomLevel = Math.max(0.1, Math.min(5, zoomLevel * (e.deltaY > 0 ? 1 / 1.1 : 1.1)));
+        updateComparisonView();
+        return;
+    }
+    let dx = e.deltaX;
+    let dy = e.deltaY;
+    if (e.shiftKey && dx === 0) { dx = dy; dy = 0; }
+    const beforeX = comparePanX;
+    const beforeY = comparePanY;
+    comparePanX -= dx;
+    comparePanY -= dy;
+    updateComparisonView();
+    if (comparePanX !== beforeX || comparePanY !== beforeY) e.preventDefault();
+}
+document.getElementById('comparison-viewport')?.addEventListener('wheel', onComparisonWheel, { passive: false });
 
 function updateComparisonImageInfo() {
     const imgA = comparisonImgBottom;
@@ -659,6 +726,8 @@ function zoomFit() {
 
     const scale = Math.min(vw / imgW, vh / imgH);
     zoomLevel = Math.min(scale, 1); // Don't upscale past original if it fits
+    comparePanX = 0;
+    comparePanY = 0;
     updateComparisonView();
 }
 

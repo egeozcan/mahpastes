@@ -147,8 +147,10 @@ Each folder card displays the tag's color, the short name (leaf segment), and a 
 
 - Click a folder card to navigate deeper into that subtag
 - A **breadcrumb trail** appears in the active tags area showing the current path (home icon, then each segment separated by `/`)
+- Click a breadcrumb segment's name to jump straight to that folder
 - Click any breadcrumb segment's `x` button to jump back to that segment's parent level
 - Click the **home icon** to return to the root level
+- An empty folder (and the empty root) offers a **New folder** button; anywhere else in folder mode, right-click empty space in the gallery for the same action
 
 ### Auto-Tagging on Upload
 
@@ -180,7 +182,7 @@ Tag colors are assigned automatically from a rotating palette when tags are crea
 
 ## Current Limitations
 
-There is no standalone tag-management screen for rename/recolor/delete actions.
+There is no standalone tag-management screen for recolor/delete actions. Renaming, moving, merging and hiding a tag are available from its row in the tag filter dropdown (the `…` button, a right-click, or the keyboard's menu key) and from its folder card in folder mode.
 
 Today, tag management is done through assignment popovers:
 - Assign/unassign tags on clip cards or bulk selection

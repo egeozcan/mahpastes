@@ -101,6 +101,30 @@ test.describe('Pasted File Paths', () => {
     await app.expectClipVisible(path.basename(fileB));
   });
 
+  test('one unreadable path does not abandon the others', async ({ app }) => {
+    const fileA = await createTempFile(generateTestImage(30, 30, 'red'), 'png');
+    const fileB = await createTempFile(generateTestImage(30, 30, 'green'), 'png');
+    await app.page.evaluate((bad) => {
+      const api = (window as any).go.main.App;
+      const original = api.ReadFileFromPath;
+      (window as any).__restoreRead = () => { api.ReadFileFromPath = original; };
+      api.ReadFileFromPath = (p: string) => p === bad ? Promise.reject('permission denied') : original(p);
+    }, fileB);
+    try {
+      const pastePromise = pasteText(app, `${fileA}\n${fileB}\n`);
+      await expect(dialog(app)).toHaveClass(/opacity-100/);
+      await app.page.locator(selectors.pathPaste.fileButton).click();
+      await pastePromise;
+
+      await app.refreshClips();
+      await app.expectClipCount(1);
+      await app.expectClipVisible(path.basename(fileA));
+      await app.expectToast(`1 uploaded. Could not read ${path.basename(fileB)}.`);
+    } finally {
+      await app.page.evaluate(() => (window as any).__restoreRead());
+    }
+  });
+
   test('resolves paths escaped the way the platform escapes them', async ({ app }) => {
     const dir = await createTempDir();
     const name = 'my report (final).png';

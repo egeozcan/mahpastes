@@ -773,7 +773,39 @@ const EditorCore = (() => {
             const delta = e.deltaY > 0 ? 0.9 : 1.1;
             setZoom(zoomLevel * delta, e.clientX, e.clientY);
             if (typeof ZoomTool !== 'undefined') ZoomTool.updateZoomDisplay();
+            return;
         }
+        // A plain wheel or two-finger scroll pans, as it does in the lightbox,
+        // but only while the image is larger than its frame: an image that
+        // fits has nowhere to go. Shift turns a mouse wheel sideways.
+        const frame = canvas.closest('.editor-canvas-container');
+        if (!frame) return;
+        const overflowX = canvas.width * zoomLevel > frame.clientWidth;
+        const overflowY = canvas.height * zoomLevel > frame.clientHeight;
+        if (!overflowX && !overflowY) return;
+        e.preventDefault();
+        let dx = e.deltaX;
+        let dy = e.deltaY;
+        if (e.shiftKey && dx === 0) { dx = dy; dy = 0; }
+        if (overflowX) panX -= dx;
+        if (overflowY) panY -= dy;
+        applyTransform();
+        keepCanvasReachable(frame);
+    }
+
+    // A wheel pan stops with a strip of the image still inside the frame. A
+    // trackpad's momentum would otherwise carry it out of sight, where neither
+    // the wheel nor Space+drag (both start on the canvas) can bring it back.
+    function keepCanvasReachable(frame) {
+        const margin = 48;
+        const r = canvas.getBoundingClientRect();
+        const f = frame.getBoundingClientRect();
+        let moved = false;
+        if (r.right < f.left + margin) { panX += f.left + margin - r.right; moved = true; }
+        else if (r.left > f.right - margin) { panX -= r.left - (f.right - margin); moved = true; }
+        if (r.bottom < f.top + margin) { panY += f.top + margin - r.bottom; moved = true; }
+        else if (r.top > f.bottom - margin) { panY -= r.top - (f.bottom - margin); moved = true; }
+        if (moved) applyTransform();
     }
 
     function handleKeyDown(e) {

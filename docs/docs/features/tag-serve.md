@@ -8,7 +8,7 @@ Serve the clips in a tag as files over a local HTTP server.
 
 ## Overview
 
-Tag serve starts a per-tag HTTP server that exposes every non-archived clip in that tag as a downloadable file. Each tag gets its own server on a random available port. Requests are served directly from the database -- no files are written to disk.
+Tag serve starts a per-tag HTTP server that exposes every non-archived clip in that tag as a downloadable file. Each tag gets its own server; the first start picks a random available port, and later starts from the Serve view reuse it. Requests are served directly from the database -- no files are written to disk.
 
 All responses include CORS headers (`Access-Control-Allow-Origin: *`) so the served content is accessible from any origin, including the Wails webview. The server also handles `OPTIONS` preflight requests, returning the allowed methods and headers with a `204 No Content` status.
 
@@ -26,6 +26,8 @@ Use cases:
 4. Click **Start** on the tag card
 
 mahpastes allocates a random available port and starts the server immediately. The URL appears on the card and can be clicked to copy it.
+
+The Serve view remembers its list across restarts: the tags you added, each one's Local/Network and API access choice, and the port it last ran on. Nothing is started for you at launch; pressing **Start** brings a tag back on the same port, so a bookmarked URL keeps working. If that port is taken by then, a new one is picked and a message says the address changed. The list is kept on this machine only: it is not part of backups and cannot be set through the REST API.
 
 ![Tag serve view](/img/screenshots/serve-view.png)
 

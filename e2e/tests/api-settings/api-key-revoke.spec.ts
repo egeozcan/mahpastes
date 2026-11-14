@@ -70,10 +70,12 @@ test.describe('API Settings - key revocation', () => {
     // without it would sit in this list forever, so assert it round-trips.
     const badge = app.page.locator(`[data-testid="api-key-card-${id}"] span[title]`);
     await expect(badge).toHaveText('Revoked');
-    await expect(badge).toHaveAttribute(
-      'title',
-      /^Revoked \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|[+-]\d{2}:\d{2}) — removed from this list 7 days after revoking$/
-    );
+    // Shown in local terms now, not as the raw UTC string: a real date (this
+    // year is in it), never "Invalid Date" or the missing value.
+    const title = (await badge.getAttribute('title')) || '';
+    expect(title).toMatch(/^Revoked .+ — removed from this list 7 days after revoking$/);
+    expect(title).toContain(String(new Date().getFullYear()));
+    expect(title).not.toMatch(/Invalid Date|undefined|null/);
   });
 
   test('leaves the key alone when the dialog is cancelled', async ({ app }) => {

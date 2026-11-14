@@ -10,7 +10,7 @@ Complete reference for all keyboard shortcuts in mahpastes. Press <span classNam
 
 ## macOS Menu Bar
 
-On macOS the menu bar mirrors the most common actions: **File** (Import Files with <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">O</span>, Import Folder with <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">Shift</span> + <span className="keyboard-key">O</span>, Settings with <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">,</span>), **View** (Archive, Folder Mode, Watch Folders, Serve, Plugins) and **Help** (Keyboard Shortcuts, Documentation). A menu item runs the same action as its keyboard shortcut, and works from every view: from the Watch, Serve or Share view, Import Files, Import Folder, Archive and Folder Mode return to the clip gallery first, and **Watch Folders** and **Serve** switch to that view (or back to the gallery when it is already showing). An open menu drawer is closed first. Nothing happens while a dialog, the lightbox, the editor, the comparison view or the import wizard is in front. Windows and Linux have no menu bar and keep the shortcuts below.
+On macOS the menu bar mirrors the most common actions: **File** (Import Files with <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">O</span>, Import Folder with <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">Shift</span> + <span className="keyboard-key">O</span>, Settings with <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">,</span>), **View** (Archive, Folder Mode, Watch Folders, Serve, Share, Plugins, REST API, Maintenance) and **Help** (Keyboard Shortcuts, Documentation). A menu item runs the same action as its keyboard shortcut, and works from every view: from the Watch, Serve or Share view, Import Files, Import Folder, Archive and Folder Mode return to the clip gallery first, and **Watch Folders** and **Serve** switch to that view (or back to the gallery when it is already showing). An open menu drawer is closed first. Nothing happens while a dialog, the lightbox, the editor, the comparison view or the import wizard is in front. Windows and Linux have no menu bar and keep the shortcuts below.
 
 ## System
 
@@ -95,6 +95,11 @@ When viewing a clip in the lightbox:
 | <span className="keyboard-key">+</span> | Zoom in |
 | <span className="keyboard-key">-</span> | Zoom out |
 | <span className="keyboard-key">E</span> | Open editor |
+| <span className="keyboard-key">D</span> | Delete the clip on screen (asks first; the viewer stays open and moves to the next clip) |
+| <span className="keyboard-key">A</span> | Archive or restore the clip on screen and move to the next |
+| <span className="keyboard-key">T</span> | Edit tags |
+| <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">Enter</span> | Open the Actions menu |
+| <span className="keyboard-key">Space</span> | Play or pause a video |
 | <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">C</span> | Copy clip contents |
 | <span className="keyboard-key">Esc</span> | Close open menu first, then close lightbox |
 | <span className="keyboard-key">Tab</span> / <span className="keyboard-key">Shift</span> + <span className="keyboard-key">Tab</span> | Cycle focus within lightbox buttons (focus trap) |
@@ -153,7 +158,8 @@ When the image editor is open:
 | <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">V</span> | Paste selection |
 | <span className="keyboard-key">Delete</span> | Delete selection |
 | <span className="keyboard-key">Enter</span> | Confirm crop or active selection |
-| <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">S</span> | Save As (create a new clip) |
+| <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">S</span> | Save (overwrite the clip) |
+| <span className="keyboard-key">Cmd</span> + <span className="keyboard-key">Shift</span> + <span className="keyboard-key">S</span> | Save As (create a new clip) |
 | <span className="keyboard-key">]</span> | Increase brush size |
 | <span className="keyboard-key">[</span> | Decrease brush size |
 | <span className="keyboard-key">&#125;</span> | Increase opacity |

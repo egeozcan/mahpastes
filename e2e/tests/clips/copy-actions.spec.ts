@@ -37,7 +37,7 @@ test.describe('Copy Actions', () => {
 
       await app.hoverCopySubmenu(filename);
       await app.page.locator(selectors.cardMenu.copyFile).click();
-      await app.expectToast('File copied to clipboard!');
+      await app.expectToast('File copied to clipboard.');
     });
 
     test('should still copy file after drag preparation', async ({ app }) => {
@@ -59,7 +59,7 @@ test.describe('Copy Actions', () => {
       await app.page.locator(selectors.cardMenu.copyFile).click();
       const toast = app.page.locator(selectors.toast.message);
       await expect(toast).toBeVisible();
-      await expect(toast).toContainText(/File copied to clipboard!|Failed to copy file\./);
+      await expect(toast).toContainText(/File copied to clipboard.|Failed to copy file/);
     });
   });
 
@@ -131,7 +131,7 @@ test.describe('Copy Actions', () => {
 
       await app.hoverCopySubmenu(filename);
       await app.page.locator(selectors.cardMenu.copyContents).click();
-      await app.expectToast('Contents copied to clipboard!');
+      await app.expectToast('Contents copied to clipboard.');
     });
   });
 
@@ -176,7 +176,7 @@ test.describe('Copy Actions', () => {
       await expect(app.page.locator(selectors.cardMenu.copyContents)).toBeVisible();
       await app.page.locator(selectors.cardMenu.copyRichText).click();
 
-      await app.expectToast('Rich text copied to clipboard!');
+      await app.expectToast('Rich text copied to clipboard.');
       expect(await app.page.evaluate(() => (window as any).__richTextCalls)).toEqual([id]);
     });
 
@@ -188,7 +188,7 @@ test.describe('Copy Actions', () => {
 
       await app.hoverCopySubmenu(filename);
       await app.page.locator(selectors.cardMenu.copyRichText).click();
-      await app.expectToast('Failed to copy rich text.');
+      await app.expectToast('Failed to copy rich text');
     });
 
     test('is not offered for other text clips', async ({ app }) => {
@@ -249,7 +249,7 @@ test.describe('Copy Actions', () => {
 
       await app.openLightbox(filename);
       await app.page.keyboard.press('ControlOrMeta+c');
-      await app.expectToast('Contents copied to clipboard!');
+      await app.expectToast('Contents copied to clipboard.');
     });
 
     test('Cmd+C with clips selected should copy files to clipboard', async ({ app }) => {
@@ -268,7 +268,7 @@ test.describe('Copy Actions', () => {
       // bulk-context shortcuts fire normally.
       await app.page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
       await app.page.keyboard.press('c');
-      await app.expectToast('2 files copied to clipboard!');
+      await app.expectToast('2 files copied to clipboard.');
     });
 
     test('Cmd+C with single clip selected should copy file to clipboard', async ({ app }) => {
@@ -280,7 +280,7 @@ test.describe('Copy Actions', () => {
       // Blur the checkbox so the shortcut engine doesn't suppress the key
       await app.page.locator('body').click({ position: { x: 0, y: 0 } });
       await app.page.keyboard.press('c');
-      await app.expectToast('1 file copied to clipboard!');
+      await app.expectToast('1 file copied to clipboard.');
     });
   });
 
@@ -305,7 +305,7 @@ test.describe('Copy Actions', () => {
 
       await app.selectClips([filename1, filename2]);
       await app.page.locator(selectors.bulk.copyButton).click();
-      await app.expectToast('2 files copied to clipboard!');
+      await app.expectToast('2 files copied to clipboard.');
     });
   });
 });

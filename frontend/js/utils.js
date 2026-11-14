@@ -107,6 +107,27 @@ window.__testHelpers = {};
 
 let confirmCallback = null;
 let confirmCancelCallback = null;
+// True while the confirmed action is running. The dialog stays up, shows it is
+// working, and ignores a second confirm and every way of closing it: those
+// used to run the action twice, or fire the caller's cancel callback for an
+// action already under way.
+let confirmBusy = false;
+
+// The buttons stay focusable while busy (aria-disabled, not disabled), so the
+// focus trap still has somewhere to keep the keyboard.
+function setConfirmBusy(busy) {
+    confirmBusy = busy;
+    const yesBtn = document.getElementById('confirm-yes-btn');
+    const noBtn = document.getElementById('confirm-no-btn');
+    for (const btn of [yesBtn, noBtn]) {
+        if (busy) btn.setAttribute('aria-disabled', 'true');
+        else btn.removeAttribute('aria-disabled');
+        btn.classList.toggle('opacity-50', busy);
+        btn.classList.toggle('cursor-wait', busy);
+    }
+    if (busy) yesBtn.setAttribute('aria-busy', 'true');
+    else yesBtn.removeAttribute('aria-busy');
+}
 let confirmFocusTrapCleanup = null;
 let promptCallback = null;
 let promptFocusTrapCleanup = null;
@@ -141,6 +162,8 @@ function showConfirmDialog(title, message, callback, cancelCallback, options) {
 
     const { variant = 'danger', confirmLabel } = options || {};
     const theme = CONFIRM_VARIANTS[variant] || CONFIRM_VARIANTS.danger;
+    // A dialog opened from inside a running confirm starts clean.
+    setConfirmBusy(false);
     yesBtn.className = theme.button;
     yesBtn.textContent = confirmLabel || theme.label;
     iconCircle.className = theme.iconCircle;
@@ -167,6 +190,7 @@ function showConfirmDialog(title, message, callback, cancelCallback, options) {
 }
 
 function closeConfirmDialog() {
+    if (confirmBusy) return;
     const dialog = document.getElementById('confirm-dialog');
     const dialogContent = dialog.querySelector('div');
 
@@ -454,27 +478,41 @@ function showToast(message, type = 'info', action = null) {
     const colorClass = colors[type] || colors.info;
     toast.classList.add(colorClass);
 
-    const hide = () => {
-        toast.classList.remove('translate-x-0', 'opacity-100');
-        toast.classList.add('translate-x-full', 'opacity-0');
-        // A hidden toast keeps no focusable action behind it.
-        toast.querySelector('[data-testid="toast-action"]')?.remove();
-    };
+    const isError = type === 'error';
+    // A failure interrupts; everything else is announced when convenient.
+    toast.setAttribute('role', isError ? 'alert' : 'status');
+    toast.setAttribute('aria-live', isError ? 'assertive' : 'polite');
 
     toast.textContent = message;
     const hasAction = !!(action && action.label && typeof action.onClick === 'function');
     if (hasAction) {
         const btn = document.createElement('button');
         btn.type = 'button';
-        btn.className = 'ml-2 underline underline-offset-2 font-medium hover:opacity-80 transition-opacity';
+        btn.className = 'pointer-events-auto ml-2 underline underline-offset-2 font-medium hover:opacity-80 transition-opacity';
         btn.dataset.testid = 'toast-action';
         btn.textContent = action.label;
         btn.addEventListener('click', () => {
             if (window.toastTimeout) clearTimeout(window.toastTimeout);
-            hide();
+            hideToast();
             action.onClick();
         });
-        toast.appendChild(btn);
+        // The space keeps the announced text from running together
+        // ("Clip archived. Undo").
+        toast.append(' ', btn);
+    }
+    if (isError) {
+        // Icon only, so the toast's text stays the message.
+        const dismiss = document.createElement('button');
+        dismiss.type = 'button';
+        dismiss.className = 'pointer-events-auto ml-2 align-middle hover:opacity-75 transition-opacity';
+        dismiss.dataset.testid = 'toast-dismiss';
+        dismiss.setAttribute('aria-label', 'Dismiss');
+        dismiss.innerHTML = '<svg class="w-3 h-3 inline" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>';
+        dismiss.addEventListener('click', () => {
+            if (window.toastTimeout) clearTimeout(window.toastTimeout);
+            hideToast();
+        });
+        toast.appendChild(dismiss);
     }
     toast.classList.remove('translate-x-full', 'opacity-0');
     toast.classList.add('translate-x-0', 'opacity-100');
@@ -483,7 +521,75 @@ function showToast(message, type = 'info', action = null) {
         clearTimeout(window.toastTimeout);
     }
 
-    window.toastTimeout = setTimeout(hide, hasAction ? 8000 : 3000);
+    // An error carries the reason for a failure and is often the only record
+    // of it: it stays long enough to read (longer for longer text). A toast
+    // with an action stays long enough to reach the button.
+    let duration = 3000;
+    if (isError) duration = Math.min(12000, Math.max(6000, 3000 + 60 * String(message).length));
+    if (hasAction) duration = Math.max(duration, 8000);
+    window.toastShownAt = Date.now();
+    window.toastTimeout = setTimeout(toastTimerFired, duration);
+}
+
+function hideToast() {
+    const toast = document.getElementById('toast');
+    toast.classList.remove('translate-x-0', 'opacity-100');
+    toast.classList.add('translate-x-full', 'opacity-0');
+    // A hidden toast keeps no focusable control behind it.
+    toast.querySelector('[data-testid="toast-action"]')?.remove();
+    toast.querySelector('[data-testid="toast-dismiss"]')?.remove();
+}
+
+// The toast's timer ran out. It waits while the pointer is on one of its
+// buttons or focus is inside it (reaching for Undo) and looks again shortly.
+// The toast's body lets clicks through (pointer-events: none): it sits over
+// the bottom-right of the page, bulk toolbar included, and a toast that stays
+// for eight seconds must not swallow a click meant for what is under it.
+const TOAST_MAX_HOLD_MS = 30000;
+
+function toastTimerFired() {
+    const toast = document.getElementById('toast');
+    // Not for ever: a toast that appeared under a parked pointer, or whose
+    // button kept focus while the user went elsewhere, still leaves.
+    const held = !!toast.querySelector(':hover') || toast.contains(document.activeElement);
+    if (held && Date.now() - (window.toastShownAt || 0) < TOAST_MAX_HOLD_MS) {
+        window.toastTimeout = setTimeout(toastTimerFired, 1000);
+        return;
+    }
+    hideToast();
+}
+
+// Copy without a toast of its own: resolves true or false, for callers that
+// give their own feedback (a "Copied" label, a specific message). Tries the
+// async clipboard first and falls back to execCommand: the async API does
+// not exist on a plain-http page (the web UI on a LAN address) and can be
+// refused in a WebView.
+async function copyTextQuietly(text) {
+    try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(text);
+            return true;
+        }
+    } catch (err) {
+        console.error('Clipboard write refused, falling back:', err);
+    }
+    const textArea = document.createElement('textarea');
+    textArea.value = text;
+    textArea.style.position = 'fixed';
+    textArea.style.left = '-9999px';
+    const active = document.activeElement;
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+    let copied = false;
+    try {
+        copied = document.execCommand('copy');
+    } catch (err) {
+        console.error('Failed to copy:', err);
+    }
+    document.body.removeChild(textArea);
+    if (active && typeof active.focus === 'function') active.focus();
+    return copied;
 }
 
 function copyToClipboard(text) {
@@ -504,7 +610,7 @@ function copyToClipboard(text) {
     }
     document.body.removeChild(textArea);
     if (copied) {
-        showToast('Copied to clipboard!');
+        showToast('Copied to clipboard.');
     } else {
         showToast('Failed to copy.', 'error');
     }
@@ -523,6 +629,25 @@ function safeTagColor(color) {
 
 // Message text of a rejected binding call. Wails v2 rejects with a plain
 // string (the Go error text), REST glue and JS code with an Error object.
+// "1 clip", "3 clips".
+function countOf(n, noun) {
+    return `${n} ${noun}${n === 1 ? '' : 's'}`;
+}
+
+// An error toast that carries the reason: "Failed to rename clip: filename
+// contains path separator". The backend's message is usually the one thing
+// the user needs (a validation rule, a permission), and it used to go to the
+// console only. Without a usable reason it reads "Failed to rename clip.".
+function toastError(prefix, error) {
+    let reason = errText(error);
+    if (!reason || reason === 'undefined' || reason === 'null' || reason === '[object Object]') {
+        showToast(`${prefix}.`, 'error');
+        return;
+    }
+    if (reason.length > 200) reason = reason.slice(0, 199) + '…';
+    showToast(`${prefix}: ${reason}`, 'error');
+}
+
 function errText(e) {
     return (e && e.message) ? e.message : String(e);
 }
@@ -721,10 +846,11 @@ function buildTagTree(tags) {
     return roots;
 }
 
-async function openFolderRenameDialog(tagID, currentName) {
+// `title` lets the tag filter's row menu use the same dialog as "Rename Tag".
+async function openFolderRenameDialog(tagID, currentName, title = 'Rename Folder') {
     const shortName = getShortTagName(currentName);
     const parent = currentName.includes('/') ? currentName.substring(0, currentName.lastIndexOf('/')) : '';
-    showPromptDialog('Rename Folder', shortName, async (newShortName) => {
+    showPromptDialog(title, shortName, async (newShortName) => {
         if (!newShortName || newShortName.trim() === '' || newShortName === shortName) return;
         if (newShortName.includes('/')) {
             showToast('Name cannot contain "/". Use Move to change parent.', 'error');

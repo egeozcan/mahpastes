@@ -85,7 +85,7 @@ test.describe('Open With routing', () => {
     await app.page.locator(selectors.cardMenu.openWith).click();
 
     await expect.poll(() => openWithCalls(app)).toEqual([['dialog', id]]);
-    await expect(app.page.locator(selectors.toast.container)).not.toContainText('Failed to open clip.');
+    await expect(app.page.locator(selectors.toast.container)).not.toContainText('Failed to open clip');
   });
 
   test('lightbox menu uses the native chooser when the platform has one', async ({ app }) => {
@@ -100,7 +100,7 @@ test.describe('Open With routing', () => {
     await app.page.locator(selectors.cardMenu.openWith).click();
 
     await expect.poll(() => openWithCalls(app)).toEqual([['dialog', id]]);
-    await expect(app.page.locator(selectors.toast.container)).not.toContainText('Failed to open clip.');
+    await expect(app.page.locator(selectors.toast.container)).not.toContainText('Failed to open clip');
   });
 
   test('falls back to the application picker without a native chooser', async ({ app }) => {

@@ -28,9 +28,84 @@ const apiKeysList = document.getElementById('api-keys-list');
 let apiServerRunning = false;
 const apiModalFocus = createModalFocus(apiModal);
 
+// --- Public links (web UI) ---
+// The list of unauthenticated download links, with Revoke. The link itself
+// is shown once, when made: only its prefix is stored.
+async function loadPublicLinks() {
+    const list = document.getElementById('public-links-list');
+    if (!list || window.mahpastesMode !== 'server') return;
+    const note = (text, cls = 'text-stone-400') => {
+        const p = document.createElement('p');
+        p.className = `text-xs ${cls}`;
+        p.textContent = text;
+        list.replaceChildren(p);
+    };
+    let links;
+    try {
+        links = await window.go.main.LinkService.ListShareLinks();
+    } catch (err) {
+        // Admin keys only: say so rather than show an empty list.
+        note(err && err.status === 403
+            ? 'Public links can be listed with an admin key only.'
+            : 'Failed to load public links: ' + errText(err), err && err.status === 403 ? 'text-stone-400' : 'text-red-500');
+        return;
+    }
+    const live = (links || []).filter(l => !l.is_revoked);
+    if (live.length === 0) {
+        note('No public links.');
+        return;
+    }
+    list.replaceChildren(...live.map(link => {
+        const row = document.createElement('div');
+        row.className = 'p-2.5 border border-stone-200 rounded-md';
+        row.dataset.testid = `public-link-${link.id}`;
+        const created = parseAPITimestamp(link.created_at);
+        const expires = parseAPITimestamp(link.expires_at);
+        const downloads = link.max_downloads
+            ? `${link.download_count} of ${link.max_downloads} downloads`
+            : `${link.download_count} download${link.download_count === 1 ? '' : 's'}`;
+        const top = document.createElement('div');
+        top.className = 'flex items-center justify-between mb-1 gap-2';
+        const name = document.createElement('span');
+        name.className = 'text-xs font-medium text-stone-700 truncate';
+        name.textContent = link.name || `Clip ${link.clip_id}`;
+        const revoke = document.createElement('button');
+        revoke.type = 'button';
+        revoke.className = 'shrink-0 text-[10px] text-stone-400 hover:text-red-500 transition-colors';
+        revoke.textContent = 'Revoke';
+        revoke.dataset.testid = `revoke-public-link-${link.id}`;
+        revoke.addEventListener('click', async () => {
+            revoke.disabled = true;
+            try {
+                await window.go.main.LinkService.RevokeShareLink(link.id);
+                showToast('Public link revoked.');
+            } catch (err) {
+                toastError('Could not revoke the link', err);
+            }
+            loadPublicLinks();
+        });
+        top.append(name, revoke);
+        const bottom = document.createElement('div');
+        bottom.className = 'flex items-center justify-between text-[10px] text-stone-400 gap-2';
+        const prefix = document.createElement('code');
+        prefix.className = 'font-mono';
+        prefix.textContent = link.token_prefix || '';
+        const meta = document.createElement('span');
+        meta.textContent = [
+            downloads,
+            created ? `made ${apiTimeAgo(created)}` : '',
+            expires ? `expires ${expires.toLocaleString()}` : 'no expiry',
+        ].filter(Boolean).join(' · ');
+        bottom.append(prefix, meta);
+        row.append(top, bottom);
+        return row;
+    }));
+}
+
 function openApiModal() {
     loadAPIStatus();
     loadAPIKeys();
+    loadPublicLinks();
     populateTagScopeOptions();
     apiModal.removeAttribute('inert');
     apiModal.classList.remove('opacity-0', 'pointer-events-none');
@@ -68,14 +143,64 @@ apiPortInput.addEventListener('change', () => {
 apiShowCreateBtn.addEventListener('click', showCreateKeyForm);
 apiCancelCreateBtn.addEventListener('click', hideCreateKeyForm);
 apiCreateKeyBtn.addEventListener('click', createAPIKey);
+// Enter in the name field creates the key (createAPIKey guards doubles).
+apiKeyNameInput?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        createAPIKey();
+    }
+});
+
+// The commands that use the key just created: the mp CLI reads both from the
+// environment. The address is this page's own in the web UI; on the desktop
+// it is the API server's (running, or the port it is set to start on).
+let apiServerURL = '';
+function renderAPIKeyUsage() {
+    const snippet = document.getElementById('api-key-usage-snippet');
+    const stopped = document.getElementById('api-key-usage-stopped');
+    if (!snippet || apiKeyReveal.classList.contains('hidden')) return;
+    const server = window.mahpastesMode === 'server';
+    const port = parseInt(apiPortInput.value, 10) || 44557;
+    const url = server ? window.location.origin : (apiServerURL || `http://localhost:${port}`);
+    snippet.textContent = `export MP_API_KEY=${apiKeyRevealValue.textContent}\nexport MP_API_URL=${url}\nmp clip list`;
+    if (stopped) stopped.hidden = server || apiServerRunning;
+}
+document.getElementById('api-key-usage-copy')?.addEventListener('click', async () => {
+    const text = document.getElementById('api-key-usage-snippet')?.textContent || '';
+    if (text && await copyTextQuietly(text)) showToast('Commands copied.');
+    else showToast('Could not copy the commands.', 'error');
+});
+
+// A backend timestamp as a Date: "YYYY-MM-DD HH:MM:SS" (UTC, no zone) or
+// RFC 3339. Null when it is neither.
+function parseAPITimestamp(value) {
+    if (!value) return null;
+    let text = String(value).trim();
+    if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(text)) {
+        text = text.replace(' ', 'T');
+        if (!/(Z|[+-]\d{2}:?\d{2})$/.test(text)) text += 'Z';
+    }
+    const date = new Date(text);
+    return Number.isFinite(date.getTime()) ? date : null;
+}
+
+// "just now", "5 min ago", "3 h ago", "4 days ago", then the local date.
+function apiTimeAgo(date) {
+    const seconds = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1000));
+    if (seconds < 60) return 'just now';
+    if (seconds < 3600) return `${Math.floor(seconds / 60)} min ago`;
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)} h ago`;
+    if (seconds < 86400 * 14) return `${Math.floor(seconds / 86400)} days ago`;
+    return date.toLocaleDateString();
+}
 apiKeyCopyBtn.addEventListener('click', async () => {
     try {
         if (!navigator.clipboard) throw new Error('clipboard API unavailable');
         await navigator.clipboard.writeText(apiKeyRevealValue.textContent);
-        showToast('Key copied to clipboard');
+        showToast('Key copied to clipboard.');
     } catch (err) {
         console.error('Failed to copy key:', err);
-        showToast('Failed to copy key.', 'error');
+        toastError('Failed to copy key', err);
     }
 });
 apiKeyRevealClose.addEventListener('click', hideKeyReveal);
@@ -87,6 +212,7 @@ async function loadAPIStatus() {
     try {
         const status = await window.go.main.APIService.GetAPIStatus();
         apiServerRunning = status.running;
+        apiServerURL = status.running && status.url ? status.url : '';
         if (status.running) {
             apiToggleBtn.textContent = 'Stop Server';
             apiToggleBtn.classList.remove('bg-stone-800', 'hover:bg-stone-700');
@@ -107,7 +233,9 @@ async function loadAPIStatus() {
         await loadAPILaunchSettings(status, before);
     } catch (err) {
         console.error('Failed to load API status:', err);
+        apiStatusText.textContent = 'Could not read the server status: ' + errText(err);
     }
+    renderAPIKeyUsage();
 }
 
 // A failed "Start on launch" (port taken, no permission) leaves the server
@@ -190,13 +318,13 @@ async function toggleAPIServer() {
     try {
         if (apiServerRunning) {
             await window.go.main.APIService.StopAPI();
-            showToast('API server stopped');
+            showToast('API server stopped.');
         } else {
             const port = readAPIPort();
             if (port === null) throw new Error(API_PORT_INVALID);
             const bindAll = apiBindToggle.checked;
             await window.go.main.APIService.StartAPI(port, bindAll);
-            showToast('API server started');
+            showToast('API server started.');
         }
         await loadAPIStatus();
     } catch (err) {
@@ -217,6 +345,10 @@ async function loadAPIKeys() {
         apiKeysList.innerHTML = keys.map(renderAPIKeyCard).join('');
     } catch (err) {
         console.error('Failed to load API keys:', err);
+        const note = document.createElement('p');
+        note.className = 'text-xs text-red-500';
+        note.textContent = 'Failed to load API keys: ' + errText(err);
+        apiKeysList.replaceChildren(note);
     }
 }
 
@@ -228,12 +360,18 @@ function renderAPIKeyCard(key) {
     };
     const badgeClass = roleBadgeColors[key.role] || roleBadgeColors.viewer;
     const scopeLabel = key.scoped_tag_name ? `<span class="text-[10px] text-stone-400">scope: ${escapeHtml(key.scoped_tag_name)}</span>` : '';
-    const lastUsed = key.last_used_at ? `Last used: ${key.last_used_at}` : 'Never used';
+    // The backend's timestamp is UTC and raw ("2026-11-13 09:14:02" or
+    // RFC 3339): shown as how long ago, with the local time in the tooltip.
+    const lastUsedDate = parseAPITimestamp(key.last_used_at);
+    const lastUsed = !key.last_used_at
+        ? 'Never used'
+        : (lastUsedDate ? `Last used: ${apiTimeAgo(lastUsedDate)}` : `Last used: ${key.last_used_at}`);
+    const lastUsedTitle = lastUsedDate ? lastUsedDate.toLocaleString() : '';
     const revokedClass = key.is_revoked ? 'opacity-50' : '';
     // Revoked keys are removed from the DB a week later, so say so rather than
     // letting the card vanish from this list unexplained.
     const revokedTitle = key.revoked_at
-        ? ` title="Revoked ${escapeHtml(key.revoked_at)} — removed from this list 7 days after revoking"`
+        ? ` title="Revoked ${escapeHtml((parseAPITimestamp(key.revoked_at) || { toLocaleString: () => key.revoked_at }).toLocaleString())} — removed from this list 7 days after revoking"`
         : '';
     const revokeBtn = key.is_revoked
         ? `<span class="text-[10px] text-red-400 font-medium"${revokedTitle}>Revoked</span>`
@@ -251,7 +389,7 @@ function renderAPIKeyCard(key) {
             </div>
             <div class="flex items-center justify-between text-[10px] text-stone-400">
                 <code class="font-mono">${escapeHtml(key.key_prefix)}</code>
-                <span>${lastUsed}</span>
+                <span data-testid="api-key-last-used-${key.id}"${lastUsedTitle ? ` title="${escapeHtml(lastUsedTitle)}"` : ''}>${escapeHtml(lastUsed)}</span>
             </div>
         </div>
     `;
@@ -279,12 +417,16 @@ function hideCreateKeyForm() {
 
 function hideKeyReveal() {
     apiKeyReveal.classList.add('hidden');
+    // Shown once: the key does not stay in the page after its panel closes.
+    apiKeyRevealValue.textContent = '';
+    const snippet = document.getElementById('api-key-usage-snippet');
+    if (snippet) snippet.textContent = '';
 }
 
 async function createAPIKey() {
     const name = apiKeyNameInput.value.trim();
     if (!name) {
-        showToast('Key name is required');
+        showToast('Key name is required.');
         return;
     }
     const role = apiKeyRoleSelect.value;
@@ -300,6 +442,7 @@ async function createAPIKey() {
         // Show key reveal
         apiKeyRevealValue.textContent = result.key;
         apiKeyReveal.classList.remove('hidden');
+        renderAPIKeyUsage();
 
         loadAPIKeys();
     } catch (err) {
@@ -329,7 +472,7 @@ apiKeysList.addEventListener('click', (e) => {
 async function revokeAPIKey(id) {
     try {
         await window.go.main.APIService.RevokeAPIKey(id);
-        showToast('Key revoked');
+        showToast('Key revoked.');
         loadAPIKeys();
     } catch (err) {
         showToast('Failed to revoke key: ' + errText(err), 'error');
